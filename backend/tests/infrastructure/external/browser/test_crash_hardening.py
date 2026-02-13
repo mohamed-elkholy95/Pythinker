@@ -198,7 +198,7 @@ class TestNavigateWithCircuitBreaker:
         browser._extract_interactive_elements = AsyncMock(return_value=[])
         browser._extract_page_content = AsyncMock(return_value="content")
 
-        result = await browser._navigate_impl("https://example.com", auto_extract=False)
+        await browser._navigate_impl("https://example.com", auto_extract=False)
 
         # Health check should have been called
         assert browser.page.evaluate.called
@@ -223,11 +223,10 @@ class TestConnectionPoolCrashCleanup:
         browser._is_crash_error = MagicMock(return_value=False)
         browser._record_crash = MagicMock()
 
-        conn = PooledConnection(
+        return PooledConnection(
             browser=browser,
             cdp_url="ws://localhost:9222",
         )
-        return conn
 
     @pytest.mark.asyncio
     async def test_health_check_detects_crash(self, pool, mock_connection):

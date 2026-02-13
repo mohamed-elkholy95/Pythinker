@@ -70,20 +70,14 @@ class TestCancellationToken:
         token = CancellationToken(event=event, session_id="test")
 
         # Not cancelled - should be truthy
-        if token:
-            passed = True
-        else:
-            passed = False
+        passed = bool(token)
         assert passed
 
         # Set event (cancelled)
         event.set()
 
         # Cancelled - should be falsy
-        if token:
-            passed = True
-        else:
-            passed = False
+        passed = bool(token)
         assert not passed
 
     def test_multiple_checks_log_once(self):

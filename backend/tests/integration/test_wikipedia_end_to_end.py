@@ -1,16 +1,33 @@
 """End-to-end integration tests for Wikipedia navigation (Priority 1)."""
 
+import contextlib
+
 import pytest
 
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
+
+
+async def _start_browser_or_skip() -> PlaywrightBrowser:
+    """Start browser and skip tests when local CDP infrastructure is unavailable."""
+    browser = PlaywrightBrowser()
+    try:
+        started = await browser.start()
+        if started is False:
+            with contextlib.suppress(Exception):
+                await browser.close()
+            pytest.skip("Local browser CDP endpoint is unavailable for integration test")
+        return browser
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            await browser.close()
+        pytest.skip(f"Local browser CDP endpoint unavailable: {exc}")
 
 
 @pytest.mark.asyncio
 @pytest.mark.slow
 async def test_wikipedia_navigation_no_crashes():
     """Test that navigating to Wikipedia pages doesn't cause crashes."""
-    browser = PlaywrightBrowser()
-    await browser.start()
+    browser = await _start_browser_or_skip()
 
     wikipedia_urls = [
         "https://en.wikipedia.org/wiki/Python_(programming_language)",
@@ -38,8 +55,7 @@ async def test_wikipedia_navigation_no_crashes():
 @pytest.mark.slow
 async def test_wikipedia_memory_stays_below_threshold():
     """Test that Wikipedia navigation keeps memory usage reasonable."""
-    browser = PlaywrightBrowser()
-    await browser.start()
+    browser = await _start_browser_or_skip()
 
     try:
         # Navigate to large Wikipedia page
@@ -61,8 +77,7 @@ async def test_wikipedia_memory_stays_below_threshold():
 @pytest.mark.slow
 async def test_multiple_wikipedia_navigations_without_restart():
     """Test that multiple Wikipedia navigations work without browser restart."""
-    browser = PlaywrightBrowser()
-    await browser.start()
+    browser = await _start_browser_or_skip()
 
     try:
         # Navigate to 10 Wikipedia pages consecutively
@@ -82,8 +97,7 @@ async def test_wikipedia_summary_extraction_is_fast():
     """Test that Wikipedia summary extraction is faster than full extraction."""
     import time
 
-    browser = PlaywrightBrowser()
-    await browser.start()
+    browser = await _start_browser_or_skip()
 
     try:
         # Navigate to Wikipedia page
@@ -110,8 +124,7 @@ async def test_heavy_page_detection_prevents_full_extraction():
     """Test that heavy page detection skips expensive operations."""
     from unittest.mock import patch
 
-    browser = PlaywrightBrowser()
-    await browser.start()
+    browser = await _start_browser_or_skip()
 
     try:
         # Track if smart scroll was called

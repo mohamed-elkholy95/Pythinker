@@ -241,3 +241,7 @@ class PythinkerAgentFactory:
                 "removed_context_manager": removed_context is not None,
             },
         )
+
+
+# Backward compatibility: legacy name still referenced by tests/integrations.
+ManusAgentFactory = PythinkerAgentFactory

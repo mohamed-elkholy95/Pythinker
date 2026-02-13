@@ -6,12 +6,14 @@ Provides a high-level interface for executing code in multiple languages
 isolated execution directories, artifact collection, and resource limits.
 """
 
+import asyncio
 import contextlib
 import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from importlib import import_module
 from typing import Any
 
 from app.core.config import get_settings
@@ -19,12 +21,26 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
 from app.domain.services.tools.base import BaseTool, tool
-from app.infrastructure.observability.prometheus_metrics import (
-    record_security_gate_block,
-    record_security_gate_override,
-)
 
 logger = logging.getLogger(__name__)
+
+
+def _record_security_gate_block(risk_level: str, pattern_type: str) -> None:
+    """Record a security gate block metric without static infra-layer imports."""
+    try:
+        metrics = import_module("app.infrastructure.observability.prometheus_metrics")
+        metrics.record_security_gate_block(risk_level=risk_level, pattern_type=pattern_type)
+    except Exception:
+        logger.debug("Failed to record security_gate_block metric", exc_info=True)
+
+
+def _record_security_gate_override(override_reason: str) -> None:
+    """Record a security gate override metric without static infra-layer imports."""
+    try:
+        metrics = import_module("app.infrastructure.observability.prometheus_metrics")
+        metrics.record_security_gate_override(override_reason=override_reason)
+    except Exception:
+        logger.debug("Failed to record security_gate_override metric", exc_info=True)
 
 
 class Language(str, Enum):
@@ -161,6 +177,7 @@ class CodeExecutorTool(BaseTool):
         self._workspace_base = "/workspace"
         self._workspace_path = f"{self._workspace_base}/{self.session_id}"
         self._initialized = False
+        self._workspace_init_lock = asyncio.Lock()
         self.security_critic = security_critic or SecurityCritic()
 
     async def _ensure_workspace(self) -> None:
@@ -168,14 +185,18 @@ class CodeExecutorTool(BaseTool):
         if self._initialized:
             return
 
-        # Create workspace directory
-        result = await self.sandbox.exec_command(self.session_id, "/", f"mkdir -p {self._workspace_path}")
+        async with self._workspace_init_lock:
+            if self._initialized:
+                return
 
-        if not result.success:
-            logger.warning(f"Failed to create workspace: {result.message}")
+            # Create workspace directory
+            result = await self.sandbox.exec_command(self.session_id, "/", f"mkdir -p {self._workspace_path}")
 
-        self._initialized = True
-        logger.debug(f"Workspace initialized at {self._workspace_path}")
+            if not result.success:
+                logger.warning(f"Failed to create workspace: {result.message}")
+
+            self._initialized = True
+            logger.debug(f"Workspace initialized at {self._workspace_path}")
 
     async def _install_packages(
         self,
@@ -349,9 +370,9 @@ class CodeExecutorTool(BaseTool):
         if not review.safe:
             allow_medium = get_settings().security_critic_allow_medium_risk
             if review.risk_level == RiskLevel.MEDIUM and allow_medium:
-                record_security_gate_override(override_reason="medium_risk_dev")
+                _record_security_gate_override(override_reason="medium_risk_dev")
             else:
-                record_security_gate_block(
+                _record_security_gate_block(
                     risk_level=review.risk_level.value,
                     pattern_type="static" if review.patterns_detected else "llm",
                 )

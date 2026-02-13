@@ -35,8 +35,8 @@ async def test_browser_crash_returns_partial_results():
         with patch.object(browser, "_extract_page_content", side_effect=Exception("Browser crashed")):
             result = await browser.navigate("https://example.com")
 
-            # Should return success with partial flag
-            assert result.success is True
+            # Should return partial data but report failure state to caller
+            assert result.success is False
             assert result.data.get("partial") is True or "partial" in result.message.lower()
 
     finally:
@@ -54,8 +54,8 @@ async def test_graceful_degradation_on_memory_crash():
         with patch.object(browser, "_extract_interactive_elements", side_effect=MemoryError("Out of memory")):
             result = await browser.navigate("https://example.com")
 
-            # Should handle gracefully
-            assert result.success is True or "memory" in result.message.lower()
+            # Should handle gracefully with explicit failure semantics
+            assert result.success is False or "memory" in result.message.lower()
 
     finally:
         await browser.close()

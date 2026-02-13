@@ -1,5 +1,6 @@
 """Tests for auto-saving report events as files."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -26,7 +27,31 @@ def mock_sandbox() -> AsyncMock:
     sandbox.cdp_url = "http://localhost:9222"
     sandbox.ensure_sandbox = AsyncMock()
     sandbox.destroy = AsyncMock()
-    sandbox.file_write = AsyncMock(return_value=MagicMock(success=True))
+
+    tmp_specs: dict[str, dict] = {}
+
+    async def file_write_side_effect(*, file: str, content: str):
+        if file.startswith("/tmp/plotly_input_"):
+            tmp_specs[file] = json.loads(content)
+        return MagicMock(success=True)
+
+    async def exec_command_side_effect(*, session_id: str, exec_dir: str, command: str):
+        _ = session_id, exec_dir
+        tmp_input = command.split("<")[-1].strip()
+        spec = tmp_specs.get(tmp_input, {})
+        output = {
+            "success": True,
+            "html_path": spec.get("output_html", "/home/ubuntu/comparison-chart-fallback.html"),
+            "png_path": spec.get("output_png", "/home/ubuntu/comparison-chart-fallback.png"),
+            "html_size": 2048,
+            "png_size": 1024,
+            "data_points": len(spec.get("points", [])),
+        }
+        return MagicMock(success=True, data=json.dumps(output), message="")
+
+    sandbox.file_write = AsyncMock(side_effect=file_write_side_effect)
+    sandbox.exec_command = AsyncMock(side_effect=exec_command_side_effect)
+    sandbox.file_delete = AsyncMock(return_value=MagicMock(success=True))
     return sandbox
 
 
@@ -80,24 +105,36 @@ class TestReportFileAttachment:
 
         assert mock_sandbox.file_write.call_count == 2
         assert event.attachments is not None
-        assert len(event.attachments) == 2
+        assert len(event.attachments) == 3
 
         report_attachment = next(a for a in event.attachments if a.filename == "report-report-chart-1.md")
         assert report_attachment.content_type == "text/markdown"
 
-        chart_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.svg")
-        assert chart_attachment.content_type == "image/svg+xml"
-        assert chart_attachment.file_path == "/home/ubuntu/comparison-chart-report-chart-1.svg"
-        assert chart_attachment.metadata is not None
-        assert chart_attachment.metadata.get("is_comparison_chart") is True
-        assert chart_attachment.metadata.get("chart_format") == "svg"
-        assert chart_attachment.metadata.get("source_report_id") == "report-chart-1"
-        assert chart_attachment.metadata.get("chart_width") is not None
-        assert chart_attachment.metadata.get("chart_height") is not None
+        html_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.html")
+        assert html_attachment.content_type == "text/html"
+        assert html_attachment.file_path == "/home/ubuntu/comparison-chart-report-chart-1.html"
+        assert html_attachment.metadata is not None
+        assert html_attachment.metadata.get("is_comparison_chart") is True
+        assert html_attachment.metadata.get("chart_format") == "plotly_html_png"
+        assert html_attachment.metadata.get("chart_engine") == "plotly"
+        assert html_attachment.metadata.get("source_report_id") == "report-chart-1"
+        assert html_attachment.metadata.get("data_points") == 3
 
-        chart_write_call = mock_sandbox.file_write.call_args_list[1]
-        assert chart_write_call.kwargs["file"] == "/home/ubuntu/comparison-chart-report-chart-1.svg"
-        assert "<svg" in chart_write_call.kwargs["content"]
+        png_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.png")
+        assert png_attachment.content_type == "image/png"
+        assert png_attachment.file_path == "/home/ubuntu/comparison-chart-report-chart-1.png"
+        assert png_attachment.metadata is not None
+        assert png_attachment.metadata.get("is_comparison_chart") is True
+        assert png_attachment.metadata.get("chart_format") == "plotly_html_png"
+        assert png_attachment.metadata.get("chart_engine") == "plotly"
+        assert png_attachment.metadata.get("source_report_id") == "report-chart-1"
+
+        chart_input_write_call = mock_sandbox.file_write.call_args_list[1]
+        assert chart_input_write_call.kwargs["file"].startswith("/tmp/plotly_input_")
+        assert (
+            '"output_html": "/home/ubuntu/comparison-chart-report-chart-1.html"'
+            in chart_input_write_call.kwargs["content"]
+        )
 
     @pytest.mark.asyncio
     async def test_chart_generation_can_be_skipped_with_user_flag(self, runner, mock_sandbox):
@@ -136,7 +173,8 @@ class TestReportFileAttachment:
 
         assert mock_sandbox.file_write.call_count == 2
         assert event.attachments is not None
-        assert any(a.filename == "comparison-chart-report-force-1.svg" for a in event.attachments)
+        assert any(a.filename == "comparison-chart-report-force-1.html" for a in event.attachments)
+        assert any(a.filename == "comparison-chart-report-force-1.png" for a in event.attachments)
 
     @pytest.mark.asyncio
     async def test_chart_regeneration_replaces_existing_chart(self, runner, mock_sandbox):
@@ -153,11 +191,26 @@ class TestReportFileAttachment:
                     size=20,
                 ),
                 FileInfo(
-                    filename="comparison-chart-report-regen-1.svg",
-                    file_path="/home/ubuntu/comparison-chart-report-regen-1.svg",
-                    content_type="image/svg+xml",
+                    filename="comparison-chart-report-regen-1.html",
+                    file_path="/home/ubuntu/comparison-chart-report-regen-1.html",
+                    content_type="text/html",
                     size=10,
-                    metadata={"is_comparison_chart": True, "source_report_id": "report-regen-1"},
+                    metadata={
+                        "is_comparison_chart": True,
+                        "source_report_id": "report-regen-1",
+                        "chart_engine": "plotly",
+                    },
+                ),
+                FileInfo(
+                    filename="comparison-chart-report-regen-1.png",
+                    file_path="/home/ubuntu/comparison-chart-report-regen-1.png",
+                    content_type="image/png",
+                    size=10,
+                    metadata={
+                        "is_comparison_chart": True,
+                        "source_report_id": "report-regen-1",
+                        "chart_engine": "plotly",
+                    },
                 ),
             ],
         )
@@ -166,8 +219,12 @@ class TestReportFileAttachment:
 
         assert mock_sandbox.file_write.call_count == 1
         assert event.attachments is not None
-        assert len(event.attachments) == 2
-        chart_attachments = [a for a in event.attachments if a.filename == "comparison-chart-report-regen-1.svg"]
-        assert len(chart_attachments) == 1
-        assert chart_attachments[0].metadata is not None
-        assert chart_attachments[0].metadata.get("generation_mode") == "regenerate"
+        assert len(event.attachments) == 3
+        html_attachments = [a for a in event.attachments if a.filename == "comparison-chart-report-regen-1.html"]
+        png_attachments = [a for a in event.attachments if a.filename == "comparison-chart-report-regen-1.png"]
+        assert len(html_attachments) == 1
+        assert len(png_attachments) == 1
+        assert html_attachments[0].metadata is not None
+        assert png_attachments[0].metadata is not None
+        assert html_attachments[0].metadata.get("generation_mode") == "regenerate"
+        assert png_attachments[0].metadata.get("generation_mode") == "regenerate"

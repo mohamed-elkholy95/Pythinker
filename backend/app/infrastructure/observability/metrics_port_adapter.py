@@ -24,6 +24,10 @@ class PrometheusMetricsAdapter(MetricsPort):
             "clarification_resolved_total": pm.clarification_resolved_total,
             "user_stop_before_done_total": pm.user_stop_before_done_total,
             "fast_ack_refiner_total": pm.fast_ack_refiner_total,
+            "entity_drift_detected_total": pm.entity_drift_detected_total,
+            "output_relevance_failures_total": pm.output_relevance_failures_total,
+            "guardrail_tripwire_total": pm.guardrail_tripwire_total,
+            "delivery_fidelity_blocks_total": pm.delivery_fidelity_blocks_total,
             "delivery_integrity_gate_result_total": pm.delivery_integrity_gate_result_total,
             "delivery_integrity_gate_warning_total": pm.delivery_integrity_gate_warning_total,
             "delivery_integrity_gate_block_reason_total": pm.delivery_integrity_gate_block_reason_total,
@@ -34,6 +38,8 @@ class PrometheusMetricsAdapter(MetricsPort):
             "fast_ack_refiner_latency_seconds": pm.fast_ack_refiner_latency_seconds,
             "final_response_tokens": pm.final_response_tokens,
             "clarification_wait_seconds": pm.clarification_wait_seconds,
+            "guardrail_latency_seconds": pm.guardrail_latency_seconds,
+            "workflow_phase_duration_seconds": pm.workflow_phase_duration,
         }
 
         self._gauge_map: dict[str, pm.Gauge] = {}
@@ -47,49 +53,70 @@ class PrometheusMetricsAdapter(MetricsPort):
         )
 
     def record_counter(self, name: str, value: float = 1.0, labels: dict[str, str] | None = None) -> None:
-        metric = self._counter_map.get(name)
-        if metric is None:
-            self._log_unknown_metric(
-                name=name,
-                metric_type="counter",
-                cache=self._unknown_counter_names,
-            )
-            return
-        metric.inc(labels or {}, value)
+        try:
+            metric = self._counter_map.get(name)
+            if metric is None:
+                self._log_unknown_metric(
+                    name=name,
+                    metric_type="counter",
+                    cache=self._unknown_counter_names,
+                )
+                return
+            metric.inc(labels or {}, value)
+        except Exception as e:
+            logger.debug("Failed to record counter metric '%s': %s", name, e)
 
     def record_gauge(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
-        metric = self._gauge_map.get(name)
-        if metric is None:
-            self._log_unknown_metric(
-                name=name,
-                metric_type="gauge",
-                cache=self._unknown_gauge_names,
-            )
-            return
-        metric.set(labels or {}, value)
+        try:
+            metric = self._gauge_map.get(name)
+            if metric is None:
+                self._log_unknown_metric(
+                    name=name,
+                    metric_type="gauge",
+                    cache=self._unknown_gauge_names,
+                )
+                return
+            metric.set(labels or {}, value)
+        except Exception as e:
+            logger.debug("Failed to record gauge metric '%s': %s", name, e)
 
     def record_histogram(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
-        metric = self._histogram_map.get(name)
-        if metric is None:
-            self._log_unknown_metric(
-                name=name,
-                metric_type="histogram",
-                cache=self._unknown_histogram_names,
-            )
-            return
-        metric.observe(labels or {}, value)
+        try:
+            metric = self._histogram_map.get(name)
+            if metric is None:
+                self._log_unknown_metric(
+                    name=name,
+                    metric_type="histogram",
+                    cache=self._unknown_histogram_names,
+                )
+                return
+            metric.observe(labels or {}, value)
+        except Exception as e:
+            logger.debug("Failed to record histogram metric '%s': %s", name, e)
 
     def record_reward_hacking_signal(self, signal_type: str, severity: str) -> None:
-        pm.record_reward_hacking_signal(signal=signal_type, severity=severity)
+        try:
+            pm.record_reward_hacking_signal(signal=signal_type, severity=severity)
+        except Exception as e:
+            logger.debug("Failed to record reward hacking signal: %s", e)
 
     def record_plan_verification(self, status: str) -> None:
-        pm.record_plan_verification(result=status)
+        try:
+            pm.record_plan_verification(result=status)
+        except Exception as e:
+            logger.debug("Failed to record plan verification: %s", e)
 
     def record_failure_prediction(self, prediction: str, confidence: float) -> None:
-        pm.record_failure_prediction(result=prediction, probability=confidence)
+        try:
+            pm.record_failure_prediction(result=prediction, probability=confidence)
+        except Exception as e:
+            logger.debug("Failed to record failure prediction: %s", e)
 
     def record_error(self, error_type: str, message: str) -> None:
-        pm.record_error(error_type=error_type, component="domain")
+        try:
+            pm.record_error(error_type=error_type, component="domain")
+        except Exception as e:
+            logger.debug("Failed to record error metric: %s", e)
 
     def update_token_budget(self, used: int, remaining: int) -> None:
         # Use request context session ID when available.
@@ -99,25 +126,46 @@ class PrometheusMetricsAdapter(MetricsPort):
             session_id = get_session_id() or "unknown"
         except Exception:
             session_id = "unknown"
-        pm.update_token_budget(session_id=session_id, used=used, remaining=remaining)
+        try:
+            pm.update_token_budget(session_id=session_id, used=used, remaining=remaining)
+        except Exception as e:
+            logger.debug("Failed to update token budget metric: %s", e)
 
     def record_tool_trace_anomaly(self, tool_name: str, anomaly_type: str) -> None:
-        pm.record_tool_trace_anomaly(tool=tool_name, anomaly_type=anomaly_type)
+        try:
+            pm.record_tool_trace_anomaly(tool=tool_name, anomaly_type=anomaly_type)
+        except Exception as e:
+            logger.debug("Failed to record tool trace anomaly: %s", e)
 
     def record_reflection_check(self, status: str) -> None:
-        pm.record_reflection_check(result=status)
+        try:
+            pm.record_reflection_check(result=status)
+        except Exception as e:
+            logger.debug("Failed to record reflection check: %s", e)
 
     def record_reflection_decision(self, decision: str) -> None:
-        pm.record_reflection_decision(decision=decision)
+        try:
+            pm.record_reflection_decision(decision=decision)
+        except Exception as e:
+            logger.debug("Failed to record reflection decision: %s", e)
 
     def record_reflection_trigger(self, trigger_type: str) -> None:
-        pm.record_reflection_trigger(trigger=trigger_type)
+        try:
+            pm.record_reflection_trigger(trigger=trigger_type)
+        except Exception as e:
+            logger.debug("Failed to record reflection trigger: %s", e)
 
     def update_llm_concurrent_requests(self, active: int) -> None:
-        pm.update_llm_concurrent_requests(count=active)
+        try:
+            pm.update_llm_concurrent_requests(count=active)
+        except Exception as e:
+            logger.debug("Failed to update LLM concurrent requests: %s", e)
 
     def update_llm_queue_waiting(self, waiting: int) -> None:
-        pm.update_llm_queue_waiting(count=waiting)
+        try:
+            pm.update_llm_queue_waiting(count=waiting)
+        except Exception as e:
+            logger.debug("Failed to update LLM queue waiting: %s", e)
 
     def _log_unknown_metric(self, name: str, metric_type: str, cache: set[str]) -> None:
         """Log unknown metric names once to keep logs low-noise."""

@@ -57,6 +57,7 @@ from app.domain.services.orchestration.coordinator_flow import (
 from app.domain.services.plotly_chart_orchestrator import PlotlyChartOrchestrator
 from app.domain.services.tool_event_handler import ToolEventHandler
 from app.domain.services.tools.mcp import MCPTool
+from app.domain.utils.cancellation import CancellationToken
 from app.domain.utils.diff import build_unified_diff
 from app.domain.utils.json_parser import JsonParser
 
@@ -240,6 +241,8 @@ class AgentTaskRunner(TaskRunner):
         self._tool_start_times: dict[str, float] = {}
         self._file_before_cache: dict[str, str] = {}
         self._pending_tool_calls: dict[str, dict] = {}
+        self._cancel_event = asyncio.Event()
+        self._cancel_token = CancellationToken(event=self._cancel_event, session_id=self._session_id)
 
         # Tool event handler for action/observation metadata enrichment
         self._tool_event_handler = ToolEventHandler()
@@ -281,6 +284,12 @@ class AgentTaskRunner(TaskRunner):
             error = task.exception()
             if error is not None:
                 logger.warning("Background task failed for Agent %s: %s", self._agent_id, error)
+
+    def request_cancellation(self) -> None:
+        """Signal cooperative cancellation to long-running flow operations."""
+        if not self._cancel_event.is_set():
+            self._cancel_event.set()
+            logger.info("Cancellation requested for Agent %s session %s", self._agent_id, self._session_id)
 
     def _init_plan_act_flow(self) -> None:
         """Initialize PlanActFlow for Agent mode"""
@@ -343,6 +352,7 @@ class AgentTaskRunner(TaskRunner):
                 symspell_provider=symspell_provider,
                 correction_event_sink=typo_analytics.record_event,
                 feedback_lookup=typo_analytics.get_feedback_override,
+                cancel_token=self._cancel_token,
             )
             # Inject circuit breaker for tool-level failure protection
             try:
@@ -459,7 +469,7 @@ class AgentTaskRunner(TaskRunner):
         event.id = event_id
         await self._session_repository.add_event(self._session_id, event)
 
-    async def _pop_event(self, task: Task) -> AgentEvent:
+    async def _pop_event(self, task: Task) -> AgentEvent | None:
         event_id, event_str = await task.input_stream.pop()
         if event_str is None:
             logger.warning(f"Agent {self._agent_id} received empty message")
@@ -1590,6 +1600,9 @@ class AgentTaskRunner(TaskRunner):
     async def run(self, task: Task) -> None:
         """Process agent's message queue and run the agent's flow"""
         try:
+            self._cancel_event.clear()
+            if self._plan_act_flow is not None:
+                self._plan_act_flow.set_cancel_token(self._cancel_token)
             logger.info(f"Agent {self._agent_id} message processing task started (task_id={task.id})")
 
             # Initialize sandbox and MCP tool concurrently

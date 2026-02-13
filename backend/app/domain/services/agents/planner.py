@@ -1,6 +1,7 @@
 import contextlib
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Optional
 
@@ -64,8 +65,29 @@ MAX_MERGED_STEP_CHARS = 240
 COMPLEXITY_STEP_LIMITS = {
     "simple": (1, 2),
     "medium": (2, 4),
-    "complex": (3, 6),
+    "complex": (3, 8),
 }
+RESEARCH_STEP_CAP = 10
+RESEARCH_COMPLEXITY_HINTS = [
+    "research",
+    "investigate",
+    "compare",
+    "analysis",
+    "analyze",
+    "benchmark",
+    "multi-source",
+    "multiple sources",
+    "citation",
+    "report",
+    "cross-check",
+    "validate findings",
+]
+
+
+def is_research_task_message(message: str) -> bool:
+    """Heuristic for requests that should be treated as research-heavy."""
+    lowered = message.lower()
+    return any(hint in lowered for hint in RESEARCH_COMPLEXITY_HINTS)
 
 
 def get_task_complexity(message: str, tools: list | None = None) -> str:
@@ -120,13 +142,15 @@ def get_task_complexity(message: str, tools: list | None = None) -> str:
     if word_count < 15 and simple_count > 0 and complex_count == 0:
         return "simple"
 
-    # Long messages or complex indicators -> complex
+    # Research tasks should default to complex even when phrased briefly.
+    if is_research_task_message(message):
+        return "complex"
+
+    # Long messages or multiple complex indicators -> complex
     if word_count > 50 or complex_count >= 2:
         return "complex"
 
     # Check for multi-part requests (numbered items, bullets)
-    import re
-
     numbered_items = len(re.findall(r"(?:^|\n)\s*\d+[\.\)]\s", message))
     bullet_items = len(re.findall(r"(?:^|\n)\s*[-*]\s", message))
 
@@ -151,26 +175,56 @@ def get_step_limits(complexity: str) -> tuple:
 
 def _step_from_description(index: int, desc) -> Step:
     """Create a Step from a StepDescription, preserving phase metadata."""
-    step = Step(id=str(index + 1), description=desc.description)
-    if hasattr(desc, "phase") and desc.phase:
+
+    def _safe_text_attr(name: str) -> str | None:
+        value = getattr(desc, name, None)
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return None
+
+    step = Step(id=str(index + 1), description=_safe_text_attr("description") or f"Step {index + 1}")
+
+    phase_value = getattr(desc, "phase", None)
+    if isinstance(phase_value, PhaseType):
+        phase_text = phase_value.value
+    elif isinstance(phase_value, str):
+        phase_text = phase_value.strip()
+    else:
+        phase_text = None
+
+    if phase_text:
         try:
-            PhaseType(desc.phase)  # Validate it's a known phase
+            PhaseType(phase_text)  # Validate it's a known phase
             step.metadata = step.metadata or {}
-            step.metadata["planner_phase"] = desc.phase
+            step.metadata["planner_phase"] = phase_text
         except ValueError:
             pass
-    if hasattr(desc, "step_type") and desc.step_type:
+
+    step_type_value = getattr(desc, "step_type", None)
+    if isinstance(step_type_value, StepType):
+        step.step_type = step_type_value
+    elif isinstance(step_type_value, str):
         with contextlib.suppress(ValueError):
-            step.step_type = StepType(desc.step_type)
+            step.step_type = StepType(step_type_value.strip())
+
     # Phase 2: Map structured fields from StepDescription
-    if hasattr(desc, "action_verb") and desc.action_verb:
-        step.action_verb = desc.action_verb
-    if hasattr(desc, "target_object") and desc.target_object:
-        step.target_object = desc.target_object
-    if hasattr(desc, "tool_hint") and desc.tool_hint:
-        step.tool_hint = desc.tool_hint
-    if hasattr(desc, "expected_output") and desc.expected_output:
-        step.expected_output = desc.expected_output
+    action_verb = _safe_text_attr("action_verb")
+    if action_verb:
+        step.action_verb = action_verb
+
+    target_object = _safe_text_attr("target_object")
+    if target_object:
+        step.target_object = target_object
+
+    tool_hint = _safe_text_attr("tool_hint")
+    if tool_hint:
+        step.tool_hint = tool_hint
+
+    expected_output = _safe_text_attr("expected_output")
+    if expected_output:
+        step.expected_output = expected_output
+
     return step
 
 
@@ -523,6 +577,8 @@ class PlannerAgent(BaseAgent):
         if complexity_source:
             complexity = get_task_complexity(complexity_source)
             _, max_steps_limit = get_step_limits(complexity)
+            if is_research_task_message(complexity_source):
+                max_steps_limit = max(max_steps_limit, RESEARCH_STEP_CAP)
 
         # Helper to apply update steps to plan
         def apply_plan_update(new_steps: list[Step]) -> None:
@@ -531,7 +587,7 @@ class PlannerAgent(BaseAgent):
 
             # SAFEGUARD: If LLM returns empty steps but we still have pending steps,
             # keep the original pending steps (prevent premature task completion)
-            if len(new_steps) == 0 and len(remaining_pending) > 1:
+            if len(new_steps) == 0 and len(remaining_pending) >= 1:
                 logger.warning(
                     f"LLM returned empty steps but {len(remaining_pending)} steps remain. "
                     "Keeping original pending steps."

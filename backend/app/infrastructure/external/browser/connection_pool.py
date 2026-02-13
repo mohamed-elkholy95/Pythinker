@@ -85,6 +85,7 @@ class BrowserConnectionPool:
 
     _instance: "BrowserConnectionPool | None" = None
     _lock: asyncio.Lock | None = None
+    _class_lock = asyncio.Lock()
 
     def __init__(
         self,
@@ -135,8 +136,9 @@ class BrowserConnectionPool:
     @classmethod
     async def get_instance_async(cls) -> "BrowserConnectionPool":
         """Get the singleton pool instance with async initialization."""
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
+        async with cls._class_lock:
+            if cls._lock is None:
+                cls._lock = asyncio.Lock()
 
         async with cls._lock:
             if cls._instance is None:
@@ -307,18 +309,20 @@ class BrowserConnectionPool:
             pool = self._pools[cdp_url]
             in_use = self._in_use[cdp_url]
 
-            # Try to find an available healthy connection
+            # Try to find an available healthy connection.
+            # Reserve first, then verify to avoid duplicate acquisition races.
             for conn in pool:
                 conn_id = id(conn)
                 if conn_id not in in_use and conn.is_healthy:
+                    in_use.add(conn_id)
                     if await self._verify_connection_health(conn):
-                        in_use.add(conn_id)
                         conn.last_used_at = time.time()
                         conn.use_count += 1
                         conn.consecutive_failures = 0
                         self._stats[cdp_url]["total_acquisitions"] += 1
                         logger.debug(f"Reusing pooled connection for {cdp_url} (use count: {conn.use_count})")
                         return conn
+                    in_use.discard(conn_id)
                     conn.is_healthy = False
                     conn.consecutive_failures += 1
 
@@ -354,21 +358,27 @@ class BrowserConnectionPool:
             await asyncio.sleep(0.1)
 
             async with lock:
+                pool = self._pools.get(cdp_url, [])
+                in_use = self._in_use.setdefault(cdp_url, set())
                 # Try to find an available connection
                 for conn in pool:
                     conn_id = id(conn)
-                    if conn_id not in in_use and conn.is_healthy and await self._verify_connection_health(conn):
+                    if conn_id not in in_use and conn.is_healthy:
                         in_use.add(conn_id)
-                        conn.last_used_at = time.time()
-                        conn.use_count += 1
-                        conn.consecutive_failures = 0
+                        if await self._verify_connection_health(conn):
+                            conn.last_used_at = time.time()
+                            conn.use_count += 1
+                            conn.consecutive_failures = 0
 
-                        wait_time_ms = (time.time() - wait_start) * 1000
-                        self._stats[cdp_url]["total_wait_time_ms"] += wait_time_ms
-                        self._stats[cdp_url]["total_acquisitions"] += 1
+                            wait_time_ms = (time.time() - wait_start) * 1000
+                            self._stats[cdp_url]["total_wait_time_ms"] += wait_time_ms
+                            self._stats[cdp_url]["total_acquisitions"] += 1
 
-                        logger.info(f"Acquired connection after {wait_time_ms:.0f}ms wait for {cdp_url}")
-                        return conn
+                            logger.info(f"Acquired connection after {wait_time_ms:.0f}ms wait for {cdp_url}")
+                            return conn
+                        in_use.discard(conn_id)
+                        conn.is_healthy = False
+                        conn.consecutive_failures += 1
 
                 # Try to replace an unhealthy connection
                 for i, conn in enumerate(pool):
@@ -438,9 +448,7 @@ class BrowserConnectionPool:
             # Emit progress event on retry attempts (not on first attempt)
             if attempt > 0 and progress_callback:
                 try:
-                    await progress_callback(
-                        f"Retrying browser connection (attempt {attempt + 1}/{max_retries})..."
-                    )
+                    await progress_callback(f"Retrying browser connection (attempt {attempt + 1}/{max_retries})...")
                 except Exception as e:
                     logger.warning(f"Failed to emit retry progress event: {e}")
 
@@ -464,8 +472,9 @@ class BrowserConnectionPool:
                     cdp_url=cdp_url,
                 )
 
-            except ConnectionRefusedError:
-                raise
+            except ConnectionRefusedError as e:
+                last_error = e
+                logger.warning(f"Connection attempt {attempt + 1}/{max_retries} refused for {cdp_url}")
             except TimeoutError as e:
                 last_error = e
                 logger.warning(f"Connection attempt {attempt + 1}/{max_retries} timed out for {cdp_url}")
@@ -479,13 +488,20 @@ class BrowserConnectionPool:
                 await asyncio.sleep(backoff)
 
         # All retries exhausted
-        if isinstance(last_error, asyncio.TimeoutError):
+        if isinstance(last_error, (asyncio.TimeoutError, TimeoutError)):
             raise ConnectionTimeoutError(
                 cdp_url=cdp_url,
                 timeout=self._timeout,
                 context=error_context,
                 cause=last_error,
             )
+
+        if isinstance(last_error, ConnectionRefusedError):
+            raise ConnectionRefusedError(
+                cdp_url=cdp_url,
+                context=error_context,
+                cause=last_error,
+            ) from last_error
 
         raise BrowserCrashedError(
             cdp_url=cdp_url,
@@ -716,6 +732,10 @@ class BrowserConnectionPool:
         self._force_release_last_at.clear()
 
         logger.info("Browser connection pool closed")
+
+    async def shutdown(self) -> None:
+        """Backward-compatible alias for close_all."""
+        await self.close_all()
 
     def get_stats(self) -> dict[str, Any]:
         """Get pool statistics for monitoring."""

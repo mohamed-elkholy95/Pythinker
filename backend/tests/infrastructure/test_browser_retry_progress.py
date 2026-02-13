@@ -1,11 +1,16 @@
 """Tests for browser connection retry progress events."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.domain.exceptions.browser import BrowserErrorContext
+from app.domain.exceptions.browser import (
+    BrowserErrorContext,
+    ConnectionTimeoutError,
+)
+from app.domain.exceptions.browser import (
+    ConnectionRefusedError as BrowserConnectionRefusedError,
+)
 from app.infrastructure.external.browser.connection_pool import BrowserConnectionPool
 
 
@@ -40,15 +45,13 @@ class TestBrowserRetryProgress:
         )
 
         # Mock PlaywrightBrowser to fail initialization
-        with patch(
-            "app.infrastructure.external.browser.connection_pool.PlaywrightBrowser"
-        ) as mock_browser_class:
+        with patch("app.infrastructure.external.browser.connection_pool.PlaywrightBrowser") as mock_browser_class:
             mock_browser = AsyncMock()
             mock_browser.initialize = AsyncMock(return_value=False)
             mock_browser_class.return_value = mock_browser
 
             # Attempt to create connection with retries
-            with pytest.raises(Exception):
+            with pytest.raises(BrowserConnectionRefusedError):
                 await pool._create_connection_with_retry(
                     cdp_url="http://localhost:9222",
                     block_resources=False,
@@ -80,9 +83,7 @@ class TestBrowserRetryProgress:
         )
 
         # Mock PlaywrightBrowser to succeed immediately
-        with patch(
-            "app.infrastructure.external.browser.connection_pool.PlaywrightBrowser"
-        ) as mock_browser_class:
+        with patch("app.infrastructure.external.browser.connection_pool.PlaywrightBrowser") as mock_browser_class:
             mock_browser = AsyncMock()
             mock_browser.initialize = AsyncMock(return_value=True)
             mock_browser_class.return_value = mock_browser
@@ -125,9 +126,7 @@ class TestBrowserRetryProgress:
             call_count += 1
             return call_count > 1  # Fail first, succeed second
 
-        with patch(
-            "app.infrastructure.external.browser.connection_pool.PlaywrightBrowser"
-        ) as mock_browser_class:
+        with patch("app.infrastructure.external.browser.connection_pool.PlaywrightBrowser") as mock_browser_class:
             mock_browser = AsyncMock()
             mock_browser.initialize = AsyncMock(side_effect=init_mock)
             mock_browser_class.return_value = mock_browser
@@ -164,15 +163,13 @@ class TestBrowserRetryProgress:
         )
 
         # Mock PlaywrightBrowser to raise TimeoutError
-        with patch(
-            "app.infrastructure.external.browser.connection_pool.PlaywrightBrowser"
-        ) as mock_browser_class:
+        with patch("app.infrastructure.external.browser.connection_pool.PlaywrightBrowser") as mock_browser_class:
             mock_browser = AsyncMock()
             mock_browser.initialize = AsyncMock(side_effect=TimeoutError("Connection timeout"))
             mock_browser_class.return_value = mock_browser
 
             # Attempt to create connection with retries
-            with pytest.raises(Exception):
+            with pytest.raises(ConnectionTimeoutError):
                 await pool._create_connection_with_retry(
                     cdp_url="http://localhost:9222",
                     block_resources=False,

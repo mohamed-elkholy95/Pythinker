@@ -1,5 +1,6 @@
 """Tests for session route utilities."""
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,7 +9,9 @@ import pytest
 
 from app.domain.models.event import DoneEvent, PlanningPhase, ProgressEvent
 from app.interfaces.api.session_routes import (
+    _cancel_pending_disconnect_cancellation,
     _safe_exc_text,
+    _schedule_disconnect_cancellation,
     chat,
     get_screenshot_image,
     get_shared_screenshot_image,
@@ -161,6 +164,12 @@ async def test_chat_completed_session_no_input_returns_done_event():
         agent_service=agent_service,
     )
 
+    assert response.headers["X-Pythinker-SSE-Protocol-Version"] == "2"
+    assert response.headers["X-Pythinker-SSE-Retry-Max-Attempts"] == "7"
+    assert response.headers["X-Pythinker-SSE-Retry-Base-Delay-Ms"] == "1000"
+    assert response.headers["X-Pythinker-SSE-Retry-Max-Delay-Ms"] == "45000"
+    assert response.headers["X-Pythinker-SSE-Retry-Jitter-Ratio"] == "0.25"
+
     events = await _collect_sse_events(response)
 
     # Must emit exactly one 'done' event
@@ -281,6 +290,10 @@ async def test_chat_stream_error_emits_schema_compliant_error_event():
     # Payload MUST have 'error' field (matches frontend ErrorEventData schema)
     assert "error" in error_events[0]["data"]
     assert "Sandbox crashed" in error_events[0]["data"]["error"]
+    assert error_events[0]["data"]["error_code"] in {"stream_exception", "sandbox_failure"}
+    assert error_events[0]["data"]["error_category"] in {"transport", "internal"}
+    assert error_events[0]["data"]["recoverable"] is True
+    assert error_events[0]["data"]["can_resume"] is True
 
 
 @pytest.mark.asyncio
@@ -307,3 +320,52 @@ async def test_chat_failed_session_no_input_returns_done_event():
     assert len(events) == 1
     assert events[0]["event"] == "done"
     agent_service.chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_deferred_disconnect_cancellation_triggers_after_grace(monkeypatch: pytest.MonkeyPatch):
+    """Disconnect cancellation should be delayed and then executed."""
+    service = SimpleNamespace(request_cancellation=MagicMock())
+
+    async def _no_active_stream(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr("app.interfaces.api.session_routes.has_active_stream", _no_active_stream)
+
+    _schedule_disconnect_cancellation("sess-grace", service, grace_seconds=0.01)
+    await asyncio.sleep(0.03)
+
+    service.request_cancellation.assert_called_once_with("sess-grace")
+
+
+@pytest.mark.asyncio
+async def test_deferred_disconnect_cancellation_skips_when_stream_reconnected(monkeypatch: pytest.MonkeyPatch):
+    """Cancellation should be skipped when stream is active again within grace window."""
+    service = SimpleNamespace(request_cancellation=MagicMock())
+
+    async def _active_stream(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr("app.interfaces.api.session_routes.has_active_stream", _active_stream)
+
+    _schedule_disconnect_cancellation("sess-reconnected", service, grace_seconds=0.01)
+    await asyncio.sleep(0.03)
+
+    service.request_cancellation.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_cancels_pending_disconnect_cancellation(monkeypatch: pytest.MonkeyPatch):
+    """A reconnect should cancel previously scheduled disconnect teardown."""
+    service = SimpleNamespace(request_cancellation=MagicMock())
+
+    async def _no_active_stream(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr("app.interfaces.api.session_routes.has_active_stream", _no_active_stream)
+
+    _schedule_disconnect_cancellation("sess-reconnect-cancel", service, grace_seconds=0.05)
+    _cancel_pending_disconnect_cancellation("sess-reconnect-cancel")
+    await asyncio.sleep(0.08)
+
+    service.request_cancellation.assert_not_called()

@@ -230,6 +230,13 @@ class ErrorEventData(BaseEventData):
     error_type: str | None = None
     recoverable: bool = True
     retry_hint: str | None = None
+    error_code: str | None = None
+    error_category: str | None = None
+    severity: str = "error"
+    retry_after_ms: int | None = None
+    can_resume: bool = False
+    checkpoint_event_id: str | None = None
+    details: dict[str, Any] | None = None
 
 
 class ErrorSSEEvent(BaseSSEEvent):

@@ -1,8 +1,9 @@
+import asyncio
 import io
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, ClassVar
 
 from minio.error import S3Error
 
@@ -21,6 +22,15 @@ class MinIOFileStorage(FileStorage):
     User access control via S3 object metadata (x-amz-meta-user-id).
     """
 
+    _RESERVED_S3_HEADERS: ClassVar[set[str]] = {
+        "authorization",
+        "content-length",
+        "content-type",
+        "host",
+        "x-amz-content-sha256",
+        "x-amz-date",
+    }
+
     def __init__(self, minio_storage: MinIOStorage):
         self._minio = minio_storage
         self._settings = get_settings()
@@ -34,6 +44,23 @@ class MinIOFileStorage(FileStorage):
         unique_id = uuid.uuid4().hex[:12]
         safe_filename = filename.replace("/", "_").replace("\\", "_")
         return f"{user_id}/{unique_id}_{safe_filename}"
+
+    def _normalize_metadata_key(self, key: str) -> str | None:
+        """Normalize metadata key to avoid collisions with signed S3 headers."""
+        normalized = key.strip()
+        if not normalized:
+            return None
+
+        lowered = normalized.lower()
+        if lowered.startswith("x-amz-meta-"):
+            normalized = normalized[11:]
+            lowered = normalized.lower()
+
+        if lowered in self._RESERVED_S3_HEADERS:
+            logger.warning("Ignoring reserved S3 metadata key '%s' to prevent header-signature conflicts", key)
+            return None
+
+        return normalized
 
     async def upload_file(
         self,
@@ -53,18 +80,19 @@ class MinIOFileStorage(FileStorage):
                 "user-id": user_id,
                 "original-filename": filename,
             }
-            if content_type:
-                s3_metadata["content-type"] = content_type
             if metadata:
                 for k, v in metadata.items():
-                    s3_metadata[k] = str(v)
+                    normalized_key = self._normalize_metadata_key(str(k))
+                    if normalized_key:
+                        s3_metadata[normalized_key] = str(v)
 
             # Determine content length by seeking
             file_data.seek(0, 2)  # seek to end
             content_length = file_data.tell()
             file_data.seek(0)  # seek back to start
 
-            result = client.put_object(
+            result = await asyncio.to_thread(
+                client.put_object,
                 self._bucket,
                 object_key,
                 file_data,

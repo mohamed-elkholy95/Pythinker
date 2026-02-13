@@ -698,8 +698,7 @@ class ExecutionAgent(BaseAgent):
                 stream_metadata=stream_metadata,
                 truncation_exhausted=truncation_exhausted,
             )
-            strict_mode = self._is_integrity_strict_mode(message_content, active_policy)
-            if not gate_passed and not strict_mode and self._can_auto_repair_delivery_integrity(gate_issues):
+            if not gate_passed and self._can_auto_repair_delivery_integrity(gate_issues):
                 repaired_content = self._append_delivery_integrity_fallback(message_content, gate_issues)
                 repaired_coverage = self._output_coverage_validator.validate(
                     output=repaired_content,

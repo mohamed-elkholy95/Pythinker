@@ -1,12 +1,36 @@
 """Integration tests for screenshot service under high load (Priority 2)."""
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from app.application.services.screenshot_service import ScreenshotCaptureService
 from app.domain.models.screenshot import ScreenshotTrigger
+
+
+def _build_screenshot_service(mock_sandbox: Mock) -> ScreenshotCaptureService:
+    """Create screenshot service wired with async-safe test doubles."""
+    repository = Mock()
+    repository.save = AsyncMock()
+    repository.find_by_session = AsyncMock(return_value=[])
+
+    minio_storage = Mock()
+    minio_storage.store_screenshot = AsyncMock(return_value=None)
+    minio_storage.store_thumbnail = AsyncMock(return_value=None)
+
+    service = ScreenshotCaptureService(
+        sandbox=mock_sandbox,
+        session_id="test-session",
+        repository=repository,
+        minio_storage=minio_storage,
+    )
+
+    # Keep integration behavior but make retries fast for deterministic tests.
+    service._settings.screenshot_http_retry_delay = 0.01
+    service._settings.screenshot_circuit_recovery_seconds = 1
+
+    return service
 
 
 @pytest.mark.asyncio
@@ -24,17 +48,12 @@ async def test_concurrent_screenshot_requests_dont_exhaust_pool():
 
     mock_sandbox.get_screenshot = slow_screenshot
 
-    service = ScreenshotCaptureService(
-        sandbox=mock_sandbox,
-        session_id="test-session",
-        repository=Mock(),
-        mongodb=Mock(),
-    )
+    service = _build_screenshot_service(mock_sandbox)
 
     # Create 50 concurrent screenshot requests
     tasks = []
     for _ in range(50):
-        task = service.capture(ScreenshotTrigger.TOOL_CALL)
+        task = service.capture(ScreenshotTrigger.TOOL_AFTER)
         tasks.append(task)
 
     # All should complete (may have some failures, but no deadlock)
@@ -51,7 +70,7 @@ async def test_circuit_breaker_prevents_cascading_failures():
     mock_sandbox = Mock()
     mock_sandbox.get_screenshot = AsyncMock(side_effect=Exception("Connection error"))
 
-    service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session")
+    service = _build_screenshot_service(mock_sandbox)
 
     # Trigger multiple failures
     for _ in range(10):
@@ -92,22 +111,8 @@ async def test_retry_logic_recovers_from_transient_errors():
 
     mock_sandbox.get_screenshot = flaky_screenshot
 
-    service = ScreenshotCaptureService(
-        sandbox=mock_sandbox,
-        session_id="test-session",
-        repository=Mock(),
-        mongodb=Mock(),
-    )
-
-    # Should succeed after retries (mocking storage)
-    with (
-        patch.object(service._repository, "save", new_callable=AsyncMock),
-        patch.object(service._mongodb, "store_screenshot", return_value="fake_file_id"),
-    ):
-        await service.capture(ScreenshotTrigger.TOOL_CALL)
-
-        # Should have succeeded after retries
-        # Note: Full test requires mocking all storage layers
+    service = _build_screenshot_service(mock_sandbox)
+    await service.capture(ScreenshotTrigger.TOOL_AFTER)
 
 
 @pytest.mark.asyncio
@@ -129,27 +134,18 @@ async def test_screenshot_service_success_rate_above_95_percent():
 
     mock_sandbox.get_screenshot = mostly_successful_screenshot
 
-    service = ScreenshotCaptureService(
-        sandbox=mock_sandbox,
-        session_id="test-session",
-        repository=Mock(),
-        mongodb=Mock(),
-    )
+    service = _build_screenshot_service(mock_sandbox)
 
     # Attempt 100 captures
     successes = 0
     failures = 0
 
-    with (
-        patch.object(service._repository, "save", new_callable=AsyncMock),
-        patch.object(service._mongodb, "store_screenshot", return_value="fake_file_id"),
-    ):
-        for _ in range(100):
-            result = await service.capture(ScreenshotTrigger.PERIODIC)
-            if result:
-                successes += 1
-            else:
-                failures += 1
+    for _ in range(100):
+        result = await service.capture(ScreenshotTrigger.PERIODIC)
+        if result:
+            successes += 1
+        else:
+            failures += 1
 
     # Success rate should be >95%
     success_rate = successes / (successes + failures)
@@ -162,7 +158,7 @@ async def test_circuit_recovery_after_timeout():
     mock_sandbox = Mock()
     mock_sandbox.get_screenshot = AsyncMock(side_effect=Exception("Connection error"))
 
-    service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session")
+    service = _build_screenshot_service(mock_sandbox)
 
     # Set short recovery timeout for testing
     if service._circuit_breaker:
