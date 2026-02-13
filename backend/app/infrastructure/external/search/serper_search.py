@@ -72,11 +72,7 @@ class SerperSearchEngine(SearchEngineBase):
         if fallback_api_keys:
             all_keys.extend(fallback_api_keys)
 
-        key_configs = [
-            APIKeyConfig(key=k, priority=i)
-            for i, k in enumerate(all_keys)
-            if k and k.strip()
-        ]
+        key_configs = [APIKeyConfig(key=k, priority=i) for i, k in enumerate(all_keys) if k and k.strip()]
 
         # Initialize key pool with FAILOVER strategy
         self._key_pool = APIKeyPool(
@@ -85,6 +81,9 @@ class SerperSearchEngine(SearchEngineBase):
             redis_client=redis_client,
             strategy=RotationStrategy.FAILOVER,
         )
+
+        # Set max retries to number of keys to prevent unbounded recursion
+        self._max_retries = len(key_configs)
 
         self.base_url = "https://google.serper.dev/search"
         logger.info(f"Serper search initialized with {len(key_configs)} API key(s)")
@@ -168,7 +167,12 @@ class SerperSearchEngine(SearchEngineBase):
         total_results = len(results)
         return results, total_results
 
-    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
+    async def search(
+        self,
+        query: str,
+        date_range: str | None = None,
+        _attempt: int = 0,
+    ) -> ToolResult[SearchResults]:
         """Execute search with automatic API key rotation via pool.
 
         Rotation triggers:
@@ -182,17 +186,22 @@ class SerperSearchEngine(SearchEngineBase):
         Args:
             query: Search query string
             date_range: Optional date range filter
+            _attempt: Internal retry counter to prevent unbounded recursion
 
         Returns:
             ToolResult containing SearchResults
         """
+        # Check retry limit to prevent stack overflow
+        if _attempt >= self._max_retries:
+            return self._create_error_result(
+                query, date_range, f"All {len(self._key_pool.keys)} Serper API keys exhausted after {_attempt} attempts"
+            )
+
         # Get healthy key from pool
         key = await self.api_key
         if not key:
             return self._create_error_result(
-                query,
-                date_range,
-                f"All {len(self._key_pool._keys)} Serper API keys exhausted"
+                query, date_range, f"All {len(self._key_pool.keys)} Serper API keys exhausted"
             )
 
         try:
@@ -206,7 +215,7 @@ class SerperSearchEngine(SearchEngineBase):
                 await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
 
                 # Retry with next key
-                return await self.search(query, date_range)
+                return await self.search(query, date_range, _attempt=_attempt + 1)
 
             response.raise_for_status()
             results, total_results = self._parse_response(response)
@@ -215,13 +224,11 @@ class SerperSearchEngine(SearchEngineBase):
         except httpx.HTTPStatusError as e:
             if e.response.status_code in _ROTATE_STATUS_CODES:
                 await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
-                return await self.search(query, date_range)
+                return await self.search(query, date_range, _attempt=_attempt + 1)
             return self._create_error_result(query, date_range, self._handle_http_error(e))
 
         except httpx.TimeoutException:
-            return self._create_error_result(
-                query, date_range, f"Serper search timed out after {self.timeout}s"
-            )
+            return self._create_error_result(query, date_range, f"Serper search timed out after {self.timeout}s")
 
         except Exception as e:
             return self._create_error_result(query, date_range, e)
