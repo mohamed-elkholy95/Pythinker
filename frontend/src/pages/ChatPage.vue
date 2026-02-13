@@ -147,25 +147,35 @@
           <!-- Waiting for user reply indicator -->
           <WaitingForReply v-if="isWaitingForReply" />
 
-          <!-- Long-running task notice -->
-          <div v-if="isStale" class="flex items-center gap-2 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl mx-4 mb-2">
-            <div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+          <!-- Long-running task notice - reassuring, not alarming -->
+          <div
+            v-if="isStale"
+            class="stale-notice flex items-center gap-3 px-4 py-3 mx-4 mb-2 rounded-xl border transition-all duration-300"
+            role="status"
+          >
+            <div class="stale-pulse w-2.5 h-2.5 rounded-full flex-shrink-0" aria-hidden="true"></div>
             <div class="flex-1 min-w-0">
-              <span class="text-sm text-blue-700 dark:text-blue-300">
+              <span class="text-sm font-medium">
                 {{ $t('Taking longer than usual...') }}
               </span>
-              <span v-if="currentToolInfo" class="text-xs text-blue-500 dark:text-blue-400 ml-1">
+              <span v-if="currentToolInfo" class="text-xs opacity-80 ml-1.5">
                 ({{ currentToolInfo.name }})
               </span>
             </div>
             <button
               @click="handleStop"
-              class="flex-shrink-0 px-3 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-lg transition-colors"
+              class="stale-stop-btn flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
             >
               {{ $t('Stop') }}
             </button>
           </div>
 
+          <!-- Task completed - green checkmark above suggestions when response is done -->
+          <TaskCompletedFooter
+            v-if="suggestions.length > 0 && isResponseSettled && !isLoading && !isThinking && !isSummaryStreaming"
+            :showRating="false"
+            class="mt-3 mb-1"
+          />
           <!-- Suggestions - show in dedicated area after response is complete -->
           <Suggestions
             v-if="suggestions.length > 0 && isResponseSettled && !isLoading && !isThinking && !isSummaryStreaming"
@@ -363,7 +373,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
 import SessionWarmupMessage from '@/components/SessionWarmupMessage.vue';
-import { ReportModal } from '@/components/report';
+import { ReportModal, TaskCompletedFooter } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
@@ -1565,6 +1575,11 @@ const currentPlanningMessage = computed(() => {
 
 // Handle progress event (instant feedback during planning)
 const handleProgressEvent = (progressData: ProgressEventData) => {
+  // Heartbeat: keep-alive only, no UI change (updateLastEventTime already called in processEvent)
+  if (progressData.phase === 'heartbeat') {
+    return;
+  }
+
   // Start message cycling if not already running
   startPlanningMessageCycle();
 
@@ -2917,6 +2932,61 @@ const handleCopyLink = async () => {
   }
   100% {
     background-position: 100% 50%;
+  }
+}
+
+/* ===== STALE NOTICE (reassuring, not alarming) ===== */
+.stale-notice {
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.2);
+  color: #1d4ed8;
+}
+
+.stale-pulse {
+  background: #3b82f6;
+  animation: stale-pulse 2s ease-in-out infinite;
+}
+
+.stale-stop-btn {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
+.stale-stop-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+:deep(.dark) .stale-notice,
+.dark .stale-notice {
+  background: rgba(96, 165, 250, 0.08);
+  border-color: rgba(96, 165, 250, 0.25);
+  color: #93c5fd;
+}
+
+:deep(.dark) .stale-pulse,
+.dark .stale-pulse {
+  background: #60a5fa;
+}
+
+:deep(.dark) .stale-stop-btn,
+.dark .stale-stop-btn {
+  background: rgba(96, 165, 250, 0.15);
+  color: #93c5fd;
+}
+
+:deep(.dark) .stale-stop-btn:hover,
+.dark .stale-stop-btn:hover {
+  background: rgba(96, 165, 250, 0.25);
+}
+
+@keyframes stale-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.9);
   }
 }
 

@@ -362,9 +362,15 @@ export const createSSEConnection = async <T = unknown>(
         requestBody = JSON.stringify({ event_id: lastReceivedEventId });
       }
 
+      // SSE best practice: Last-Event-ID for reconnection resumption (set per-request for retries)
+      const headersWithLastId = { ...requestHeaders };
+      if (lastReceivedEventId && !headersWithLastId['Last-Event-ID']) {
+        headersWithLastId['Last-Event-ID'] = lastReceivedEventId;
+      }
+
       const ssePromise = fetchEventSource(apiUrl, {
         method,
-        headers: requestHeaders,
+        headers: headersWithLastId,
         openWhenHidden: true,
         body: requestBody,
         signal: abortController.signal,

@@ -55,6 +55,9 @@ services:
       minio:
         condition: service_healthy
         required: true
+      sandbox:
+        condition: service_healthy
+        required: true
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -76,8 +79,6 @@ services:
       start_period: 20s
 
   sandbox:
-    profiles:
-      - static-sandbox
     build:
       context: ./sandbox
       dockerfile: Dockerfile
@@ -89,9 +90,11 @@ services:
       - /app/__pycache__  # Avoid overwriting cache files
       - /app/.venv  # Avoid overwriting virtual environment
     ports:
-      #- "9222:9222"        # CDP port (internal use)
-      #- "5902:5900"        # VNC native port (removed - using CDP screencast)
-      #- "5901:5901"        # VNC WebSocket port (removed - using CDP screencast)
+      # VNC is proxied via the backend WebSocket endpoint, so host ports are
+      # optional. Uncomment below for direct host VNC access (debugging).
+      #- "9222:9222"        # CDP port (direct Chrome DevTools)
+      - "5902:5900"         # VNC native port (direct VNC client access)
+      - "5901:5901"         # VNC WebSocket port (noVNC browser access)
       - "8083:8080"         # Sandbox API
       - "8082:8082"         # Framework API
     # Shared memory for Chrome browser stability (512MB-1GB recommended for headless)
@@ -110,58 +113,6 @@ services:
         soft: 4096
         hard: 8192
     # Resource limits optimized for 2 concurrent sandboxes
-    deploy:
-      resources:
-        limits:
-          memory: 3G
-          cpus: '1.5'
-          pids: 300
-        reservations:
-          memory: 768M
-    environment:
-      - UVI_ARGS="--reload"
-      - FRAMEWORK_UVI_ARGS="--reload"
-      - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
-    restart: unless-stopped
-    networks:
-      - pythinker-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-
-  sandbox2:
-    profiles:
-      - static-sandbox
-    build:
-      context: ./sandbox
-      dockerfile: Dockerfile
-    hostname: sandbox2
-    volumes:
-      - ./sandbox:/app  # Mount source code directory
-      - ./sandbox/supervisord.conf:/etc/supervisor/conf.d/app.conf
-      - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml
-      - /app/__pycache__
-      - /app/.venv
-    ports:
-      - "8084:8080"         # Sandbox API (different port)
-      - "8085:8082"         # Framework API (different port)
-    shm_size: '1gb'
-    tmpfs:
-      - /run:size=50M,nosuid,nodev
-      - /tmp:size=300M,nosuid,nodev
-      - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-      nproc:
-        soft: 4096
-        hard: 8192
     deploy:
       resources:
         limits:
@@ -221,8 +172,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=pythinker
-      - MINIO_ROOT_PASSWORD=pythinker123
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
     ports:

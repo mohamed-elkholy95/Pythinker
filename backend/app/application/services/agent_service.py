@@ -402,8 +402,11 @@ class AgentService:
                             f"(session {session_id})"
                         )
                     elif uses_static_sandboxes:
-                        # Static SANDBOX_ADDRESS mode shares long-lived Chrome instances.
-                        # Background pre-warm can contend with first-chat browser init.
+                        # Static SANDBOX_ADDRESS mode: browser will be lazily
+                        # initialised on first use via _ensure_browser().
+                        # Pre-warm is skipped because the connection is released
+                        # after warm-up, and stale-session cleanup may close
+                        # CDP connections on the shared sandbox.
                         logger.info(
                             "Skipping browser pre-warm for static sandbox mode "
                             f"(session {session_id}, sandbox {sandbox.id})"

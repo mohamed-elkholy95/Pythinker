@@ -3,6 +3,43 @@
   <p v-if="isInlineMessageTool && tool.args?.text" class="inline-message-text whitespace-pre-wrap break-words">
     {{ tool.args.text }}
   </p>
+  <!-- Fast search with inline results -->
+  <div v-else-if="isFastSearchWithResults" class="fast-search-tool-wrapper flex w-full flex-col gap-0 max-w-full">
+    <div class="flex w-full items-start group gap-1.5">
+      <div class="flex-1 min-w-0">
+        <div
+          @click="handleClick"
+          class="tool-chip rounded-full items-center gap-[6px] px-[10px] py-[5px] inline-flex max-w-full clickable"
+          :class="shouldShimmer ? 'tool-shimmer' : 'tool-idle'"
+        >
+          <span class="tool-icon-shell">
+            <img
+              v-if="toolInfo?.faviconUrl && !faviconError"
+              :src="toolInfo.faviconUrl"
+              alt=""
+              class="tool-favicon"
+              @error="faviconError = true"
+            />
+            <component v-else-if="toolInfo?.icon" :is="toolInfo.icon" :size="13" class="tool-icon-glyph" />
+          </span>
+          <div class="tool-chip-text max-w-[100%] min-w-0">
+            {{ toolInfo?.description ?? t('Search') }}
+          </div>
+          <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
+        </div>
+      </div>
+      <div class="hidden sm:block ml-auto pl-2 text-right whitespace-nowrap flex-shrink-0 transition text-[11px] text-[var(--text-tertiary)] sm:invisible sm:group-hover:visible">
+        {{ relativeTime(tool.timestamp) }}
+      </div>
+    </div>
+    <FastSearchInline
+      :results="searchResults"
+      :query="searchQuery"
+      :is-searching="isRunning"
+      :explicit-empty="searchResults.length === 0 && !isRunning"
+      @browse-url="handleBrowseUrl"
+    />
+  </div>
   <!-- Standard tool display (rendered as interactive chip - Pythinker-style) -->
   <div v-else-if="toolInfo" class="flex w-full items-start group gap-1.5 max-w-full">
     <div class="flex-1 min-w-0">
@@ -36,9 +73,13 @@
 <script setup lang="ts">
 import { computed, toRef, ref, watch } from "vue";
 import { Loader2 } from "lucide-vue-next";
+import { useI18n } from "vue-i18n";
 import { ToolContent } from "../types/message";
+import type { SearchToolContent } from "../types/toolContent";
+import type { SearchResultItem } from "../types/search";
 import { useToolInfo } from "../composables/useTool";
 import { useRelativeTime } from "../composables/useTime";
+import FastSearchInline from "./FastSearchInline.vue";
 
 /**
  * Configuration: Tools that should be rendered as inline text messages
@@ -51,6 +92,23 @@ const INLINE_MESSAGE_TOOLS: ReadonlySet<string> = new Set([
   'system_note',
 ]);
 
+/** Search/info tools that support inline results display */
+const SEARCH_TOOL_NAMES = new Set(['search', 'info']);
+const SEARCH_FUNCTIONS = new Set(['info_search_web', 'web_search']);
+
+function isSearchTool(tool: ToolContent): boolean {
+  const name = (tool.name || '').toLowerCase();
+  const fn = (tool.function || '').toLowerCase();
+  return SEARCH_TOOL_NAMES.has(name) || SEARCH_FUNCTIONS.has(fn);
+}
+
+function getSearchToolContent(tool: ToolContent): SearchToolContent | null {
+  const content = tool.content;
+  if (!content || typeof content !== 'object' || !('results' in content)) return null;
+  const sc = content as SearchToolContent;
+  return Array.isArray(sc.results) ? sc : null;
+}
+
 const props = defineProps<{
   tool: ToolContent;
   /** Whether this tool is the actively running tool (shows shimmer effect) */
@@ -61,8 +119,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "click"): void;
+  (e: "browseUrl", url: string): void;
 }>();
 
+const { t } = useI18n();
 const { relativeTime } = useRelativeTime();
 const { toolInfo } = useToolInfo(toRef(() => props.tool));
 
@@ -72,6 +132,32 @@ const isRunning = computed(() => props.tool.status === 'calling');
 const shouldShimmer = computed(
   () => !!props.isActive && (isRunning.value || !!props.isTaskRunning)
 );
+
+const searchToolContent = computed(() => getSearchToolContent(props.tool));
+const isFastSearchWithResults = computed(() => {
+  if (!isSearchTool(props.tool)) return false;
+  if (isRunning.value) return true; // Show fast-search during search (loading/skeleton)
+  const sc = searchToolContent.value;
+  if (sc === null) return false;
+  // Show inline layout only when we have results; hide for 0 results
+  return (sc.results?.length ?? 0) > 0;
+});
+
+const searchResults = computed((): SearchResultItem[] => {
+  const sc = searchToolContent.value;
+  if (!sc?.results) return [];
+  return sc.results.map((r) => ({
+    title: r.title ?? 'No title',
+    link: r.link ?? '',
+    snippet: r.snippet ?? '',
+  }));
+});
+
+const searchQuery = computed(() => {
+  const sc = searchToolContent.value;
+  if (sc?.query) return String(sc.query);
+  return props.tool.args?.query ?? props.tool.args?.q ?? '';
+});
 
 // Reset favicon error when tool changes
 watch(() => props.tool.tool_call_id, () => {
@@ -85,6 +171,10 @@ const isInlineMessageTool = computed(() => {
 
 const handleClick = () => {
   emit("click");
+};
+
+const handleBrowseUrl = (url: string) => {
+  emit("browseUrl", url);
 };
 </script>
 

@@ -90,7 +90,22 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Chromium
+# Install Chrome for Testing 128.0.6613.137 (Official Build) - Ubuntu 22.04 64-bit
+# See: https://googlechromelabs.github.io/chrome-for-testing/
+ENV CHROME_FOR_TESTING_VERSION=128.0.6613.137
+ENV CHROME_FOR_TESTING_PATH=/opt/chrome-for-testing
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && \
+    mkdir -p ${CHROME_FOR_TESTING_PATH} && \
+    curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_FOR_TESTING_VERSION}/linux64/chrome-linux64.zip" \
+        -o /tmp/chrome-linux64.zip && \
+    unzip -q /tmp/chrome-linux64.zip -d /tmp/chrome-extract && \
+    mv /tmp/chrome-extract/chrome-linux64/* ${CHROME_FOR_TESTING_PATH}/ && \
+    chmod +x ${CHROME_FOR_TESTING_PATH}/chrome && \
+    rm -rf /tmp/chrome-linux64.zip /tmp/chrome-extract && \
+    ln -sf ${CHROME_FOR_TESTING_PATH}/chrome /usr/local/bin/chrome-for-testing && \
+    apt-get purge -y unzip && apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Keep PPA Chromium as fallback for Playwright script tools (chromium symlink)
 RUN add-apt-repository ppa:xtradeb/apps -y && \
     apt-get update && \
     apt-get install -y chromium --no-install-recommends && \
@@ -207,6 +222,8 @@ ENV UVI_ARGS=""
 ENV FRAMEWORK_UVI_ARGS=""
 ENV CHROME_ARGS=""
 ENV DISPLAY=:1
+# Chrome for Testing 128.0.6613.137 - primary browser for VNC/CDP
+ENV CHROME_BIN="/opt/chrome-for-testing/chrome"
 
 # Security: Remove unnecessary development packages and clean up
 RUN apt-get update && apt-get purge -y --auto-remove \

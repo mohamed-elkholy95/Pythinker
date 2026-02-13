@@ -1,5 +1,5 @@
 <template>
-  <div v-if="message.type === 'user'" class="user-message-row flex w-full flex-col items-end justify-end gap-1 group mt-3">
+  <div v-if="message.type === 'user'" class="chat-message-entry user-message-row flex w-full flex-col items-end justify-end gap-1 group mt-3">
     <div class="user-message-inner flex max-w-[85%] flex-col gap-1 items-end">
       <div
         class="user-message-bubble relative flex items-center rounded-[20px] overflow-hidden bg-[var(--background-white-main)] px-5 py-3.5 border border-[var(--border-main)]"
@@ -7,8 +7,9 @@
         <div
           class="message-markdown markdown-content w-full"
           :class="{ 'message-markdown-collapsed': shouldCollapseMessageContent }"
-          v-html="renderMarkdown(messageContent.content)"
-        />
+        >
+          <TiptapMessageViewer :content="messageContent.content ?? ''" />
+        </div>
         <div v-if="showMessageExpandControl" class="message-collapse-overlay">
           <button class="message-expand-btn" @click="toggleMessageExpand">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -40,7 +41,7 @@
   <template v-else-if="message.type === 'assistant'">
     <div
       v-if="props.renderAsSummaryCard"
-      class="assistant-summary-card-block flex flex-col gap-1 w-full group mt-3"
+      class="chat-message-entry assistant-summary-card-block flex flex-col gap-1 w-full group mt-3"
     >
       <div
         v-if="props.showAssistantHeader !== false"
@@ -60,12 +61,14 @@
         </div>
       </div>
 
-      <FinalSummaryCard :html-content="renderMarkdown(messageContent.content)" />
+      <div class="assistant-summary-card-content">
+        <TiptapMessageViewer :content="messageContent.content ?? ''" :compact="true" />
+      </div>
     </div>
     <div
       v-else
       :class="[
-        'flex flex-col gap-1 w-full group',
+        'chat-message-entry flex flex-col gap-1 w-full group',
         isAssistantSummaryCompact ? 'assistant-summary-layout' : '',
         props.showAssistantHeader === false ? 'mt-1' : 'mt-3'
       ]"
@@ -99,8 +102,12 @@
               'message-markdown-collapsed': shouldCollapseMessageContent,
               'assistant-summary-compact': isAssistantSummaryCompact,
             }"
-            v-html="renderMarkdown(messageContent.content)"
-          />
+          >
+            <TiptapMessageViewer
+              :content="messageContent.content ?? ''"
+              :compact="isAssistantSummaryCompact"
+            />
+          </div>
         </div>
         <div v-if="showMessageExpandControl" class="message-collapse-overlay">
           <button class="message-expand-btn" @click="toggleMessageExpand">
@@ -115,10 +122,12 @@
       <TaskCompletedFooter v-if="props.showAssistantCompletionFooter" :showRating="false" />
     </div>
   </template>
-  <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
+  <div v-else-if="message.type === 'tool'" class="chat-message-entry mt-3">
+    <ToolUse :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
+  </div>
   <div
     v-else-if="message.type === 'step'"
-    class="step-message flex flex-col empty:pb-0"
+    class="chat-message-entry step-message flex flex-col empty:pb-0"
   >
     <!-- Unified step layout with left rail for timeline -->
     <div class="step-inner flex">
@@ -252,21 +261,19 @@ import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
 import { Message, MessageContent, AttachmentsContent, ReportContent, DeepResearchContent, SkillDeliveryContent } from '../types/message';
 import ToolUse from './ToolUse.vue';
 import PhaseGroup from './PhaseGroup.vue';
-import { marked, Renderer } from 'marked';
-import DOMPurify from 'dompurify';
 import { CheckIcon, Copy, Check } from 'lucide-vue-next';
 import { computed, ref, watch, onUnmounted } from 'vue';
 import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 import { Bot } from 'lucide-vue-next';
 import AttachmentsMessage from './AttachmentsMessage.vue';
-import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter, FinalSummaryCard } from './report';
+import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
+import TiptapMessageViewer from './TiptapMessageViewer.vue';
 import type { ReportData } from './report';
 import type { FileInfo } from '../api/file';
 import DeepResearchCard from './DeepResearchCard.vue';
 import SkillDeliveryCard from './SkillDeliveryCard.vue';
 import ThinkingIndicator from './ui/ThinkingIndicator.vue';
-import { useShiki } from '@/composables/useShiki';
 import { copyToClipboard } from '../utils/dom';
 import { isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLayout';
 
@@ -440,62 +447,6 @@ onUnmounted(() => {
   }
 });
 
-// Shiki syntax highlighting
-const { highlightDualTheme, normalizeLanguage } = useShiki();
-
-// Cache for async-highlighted code blocks
-const highlightedCodeCache = ref<Map<string, string>>(new Map());
-
-// Generate a cache key for code blocks
-function getCodeCacheKey(code: string, lang: string): string {
-  return `${lang}:${code.slice(0, 50)}:${code.length}`;
-}
-
-// Async highlight code and update cache
-async function highlightCodeBlock(code: string, lang: string): Promise<void> {
-  const key = getCodeCacheKey(code, lang);
-  if (highlightedCodeCache.value.has(key)) return;
-
-  try {
-    const highlighted = await highlightDualTheme(code, lang);
-    highlightedCodeCache.value.set(key, highlighted);
-  } catch {
-    // Syntax highlighting failed - raw code will be shown
-  }
-}
-
-// Create custom marked renderer with Shiki support
-const createMarkedRenderer = () => {
-  const renderer = new Renderer();
-
-  // Override code block rendering
-  renderer.code = function ({ text, lang }: { text: string; lang?: string }) {
-    const language = normalizeLanguage(lang || 'text');
-    const key = getCodeCacheKey(text, language);
-
-    // Check if we have a cached highlighted version
-    const cached = highlightedCodeCache.value.get(key);
-    if (cached) {
-      return `<div class="shiki-wrapper">${cached}</div>`;
-    }
-
-    // Schedule async highlighting for next render
-    highlightCodeBlock(text, language);
-
-    // Return placeholder that will be replaced on next render
-    const escapedCode = text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-
-    return `<pre class="shiki-pending" data-lang="${language}"><code>${escapedCode}</code></pre>`;
-  };
-
-  return renderer;
-};
-
 const handleStepToggle = () => {
   stepUserToggled.value = true;
   isStepExpanded.value = !isStepExpanded.value;
@@ -527,48 +478,27 @@ watch(
   { immediate: true }
 );
 
-// Memoized markdown rendering cache (WeakMap-like behavior using Map with limited size)
-const markdownCache = new Map<string, string>();
-const MAX_CACHE_SIZE = 100;
-
-// Custom renderer with Shiki support
-const markedRenderer = createMarkedRenderer();
-
-// Render Markdown to HTML and sanitize (with memoization for performance)
-const renderMarkdown = (text: string): string => {
-  if (typeof text !== 'string') return '';
-
-  // Create a cache key that includes highlighted code state
-  const highlightedCount = highlightedCodeCache.value.size;
-  const cacheKey = `${text}:${highlightedCount}`;
-
-  // Check cache first
-  const cached = markdownCache.get(cacheKey);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  // Render with custom renderer and sanitize
-  const html = marked(text, { renderer: markedRenderer }) as string;
-  const sanitized = DOMPurify.sanitize(html, {
-    ADD_TAGS: ['span'],
-    ADD_ATTR: ['style', 'class', 'data-lang'],
-  });
-
-  // Store in cache with size limit (evict oldest entries)
-  if (markdownCache.size >= MAX_CACHE_SIZE) {
-    const firstKey = markdownCache.keys().next().value;
-    if (firstKey !== undefined) {
-      markdownCache.delete(firstKey);
-    }
-  }
-  markdownCache.set(cacheKey, sanitized);
-
-  return sanitized;
-};
 </script>
 
 <style>
+/* ══════════════════════════════════════════════════
+   Chat message entry animation (editorial feel)
+   ══════════════════════════════════════════════════ */
+.chat-message-entry {
+  animation: chat-message-enter 0.35s ease-out both;
+}
+
+@keyframes chat-message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ══════════════════════════════════════════════════
    User Message
    ══════════════════════════════════════════════════ */
@@ -615,6 +545,13 @@ const renderMarkdown = (text: string): string => {
 
 .assistant-summary-card-block {
   max-width: 704px;
+}
+
+.assistant-summary-card-content {
+  width: 100%;
+  max-width: 704px;
+  margin: 4px 0 14px;
+  padding: 0;
 }
 
 .assistant-header-summary,

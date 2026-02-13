@@ -598,10 +598,9 @@ class SearchTool(BaseTool):
             count: Number of top results to open (default 3)
         """
         try:
-            # Pre-check: skip entirely if browser is already known-unhealthy
-            if hasattr(self._browser, "is_connected") and not self._browser.is_connected():
-                logger.info("_browse_top_results: browser disconnected, skipping VNC display")
-                return
+            # No early-exit on is_connected(): in static sandbox mode the browser
+            # starts uninitialised and navigate_for_display will lazily connect via
+            # _ensure_page → _ensure_browser → initialize().
 
             # Extract result items from SearchResults model or dict
             if hasattr(search_data, "results"):

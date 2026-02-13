@@ -13,11 +13,12 @@ mkdir -p /tmp/runtime-ubuntu
 chown ubuntu:ubuntu /tmp/runtime-ubuntu 2>/dev/null || true
 chmod 700 /tmp/runtime-ubuntu 2>/dev/null || true
 
-# Keep /run/user/1000 usable when present.
-if [ -d "/run/user/1000" ]; then
-    chown -R ubuntu:ubuntu /run/user/1000 2>/dev/null || true
-    chmod 700 /run/user/1000 2>/dev/null || true
-fi
+# Create /run/user/1000 for Xvfb and x11vnc runtime dir.
+# The tmpfs mount on /run wipes the directory created during docker build,
+# so we must recreate it here at container startup.
+mkdir -p /run/user/1000
+chown ubuntu:ubuntu /run/user/1000
+chmod 700 /run/user/1000
 
 # Ensure cache/config locations exist for the ubuntu user. In hardened
 # containers root may not have DAC override, so run setup as ubuntu as well.
