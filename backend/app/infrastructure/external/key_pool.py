@@ -15,6 +15,7 @@ Industry patterns from AWS, Google Cloud, Apache APISIX.
 import hashlib
 import logging
 import random
+import time
 from dataclasses import dataclass
 from enum import Enum
 
@@ -107,6 +108,10 @@ class APIKeyPool:
 
         # Round-robin state
         self._round_robin_index = 0
+
+        # In-memory fallback state (used when Redis unavailable or fails)
+        self._memory_exhausted: dict[str, float] = {}  # key_hash -> expiry_timestamp
+        self._memory_invalid: set[str] = set()  # set of invalid key_hashes
 
         # Warn if running without Redis
         if redis_client is None:
@@ -241,7 +246,7 @@ class APIKeyPool:
         Checks Redis for exhausted/invalid state. Keys marked exhausted
         will become healthy again after TTL expires.
 
-        Without Redis, assumes all keys are healthy (in-memory mode).
+        Uses in-memory fallback when Redis unavailable or fails.
 
         Args:
             key: API key to check
@@ -249,20 +254,47 @@ class APIKeyPool:
         Returns:
             True if key is healthy, False otherwise
         """
-        if self._redis is None:
-            return True  # Without Redis, assume all keys are healthy
-
         key_hash = self._hash_key(key)
 
-        # Check if key is invalid (permanent)
-        invalid_key = f"api_key:invalid:{self.provider}:{key_hash}"
-        if await self._redis.exists(invalid_key):
+        # Check in-memory state first (always available)
+        # Remove expired exhausted keys
+        now = time.time()
+        if key_hash in self._memory_exhausted:
+            if self._memory_exhausted[key_hash] <= now:
+                # TTL expired, key is healthy again
+                del self._memory_exhausted[key_hash]
+            else:
+                # Still exhausted
+                return False
+
+        # Check invalid keys (permanent)
+        if key_hash in self._memory_invalid:
             return False
 
-        # Check if key is exhausted (temporary with TTL)
-        exhausted_key = f"api_key:exhausted:{self.provider}:{key_hash}"
-        is_exhausted = await self._redis.exists(exhausted_key)
-        return not is_exhausted
+        # If Redis available, also check Redis state
+        if self._redis is not None:
+            try:
+                # Check if key is invalid (permanent)
+                invalid_key = f"api_key:invalid:{self.provider}:{key_hash}"
+                invalid_result = await self._redis.exists(invalid_key)
+                # Only trust result if it's actually a boolean or int (0/1)
+                if isinstance(invalid_result, (bool, int)) and invalid_result:
+                    # Sync to in-memory state
+                    self._memory_invalid.add(key_hash)
+                    return False
+
+                # Check if key is exhausted (temporary with TTL)
+                exhausted_key = f"api_key:exhausted:{self.provider}:{key_hash}"
+                exhausted_result = await self._redis.exists(exhausted_key)
+                # Only trust result if it's actually a boolean or int (0/1)
+                if isinstance(exhausted_result, (bool, int)) and exhausted_result:
+                    # Sync to in-memory state (with default 60s TTL since we can't get exact TTL easily)
+                    self._memory_exhausted[key_hash] = now + 60
+                    return False
+            except Exception as e:
+                logger.warning(f"[{self.provider}] Redis check failed, using in-memory state: {e}")
+
+        return True
 
     async def mark_exhausted(self, key: str, ttl_seconds: int) -> None:
         """
@@ -270,19 +302,25 @@ class APIKeyPool:
 
         After TTL expires, key becomes healthy again.
 
-        Without Redis, logs warning but does not persist state.
+        Uses in-memory state as fallback when Redis unavailable.
 
         Args:
             key: API key to mark as exhausted
             ttl_seconds: Time-to-live in seconds (e.g., 3600 for 1 hour)
         """
-        if self._redis is None:
-            logger.warning(f"[{self.provider}] Cannot mark key exhausted: Redis unavailable (in-memory mode)")
-            return
-
         key_hash = self._hash_key(key)
-        redis_key = f"api_key:exhausted:{self.provider}:{key_hash}"
-        await self._redis.setex(redis_key, ttl_seconds, KeyHealthStatus.EXHAUSTED.value)
+        expiry_time = time.time() + ttl_seconds
+
+        # Always update in-memory state
+        self._memory_exhausted[key_hash] = expiry_time
+
+        # Try to update Redis if available
+        if self._redis is not None:
+            try:
+                redis_key = f"api_key:exhausted:{self.provider}:{key_hash}"
+                await self._redis.setex(redis_key, ttl_seconds, KeyHealthStatus.EXHAUSTED.value)
+            except Exception as e:
+                logger.warning(f"[{self.provider}] Failed to mark key exhausted in Redis, using in-memory only: {e}")
 
         # Record exhaustion metric
         api_key_exhaustions_total.inc({"provider": self.provider, "reason": "quota"})
@@ -298,18 +336,25 @@ class APIKeyPool:
 
         Invalid keys are never retried (e.g., revoked keys, wrong keys).
 
-        Without Redis, logs error but does not persist state.
+        Uses in-memory state as fallback when Redis unavailable.
 
         Args:
             key: API key to mark as invalid
         """
-        if self._redis is None:
-            logger.warning(f"[{self.provider}] Cannot mark key invalid: Redis unavailable (in-memory mode)")
-            return
-
         key_hash = self._hash_key(key)
-        redis_key = f"api_key:invalid:{self.provider}:{key_hash}"
-        await self._redis.set(redis_key, KeyHealthStatus.INVALID.value)
+
+        # Always update in-memory state
+        self._memory_invalid.add(key_hash)
+        # Remove from exhausted if present (invalid takes precedence)
+        self._memory_exhausted.pop(key_hash, None)
+
+        # Try to update Redis if available
+        if self._redis is not None:
+            try:
+                redis_key = f"api_key:invalid:{self.provider}:{key_hash}"
+                await self._redis.set(redis_key, KeyHealthStatus.INVALID.value)
+            except Exception as e:
+                logger.warning(f"[{self.provider}] Failed to mark key invalid in Redis, using in-memory only: {e}")
 
         # Record invalidation metric
         api_key_exhaustions_total.inc({"provider": self.provider, "reason": "invalid"})
