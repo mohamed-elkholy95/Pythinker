@@ -66,6 +66,13 @@ class ErrorEvent(BaseEvent):
     error_type: str | None = None  # e.g. "token_limit", "timeout", "tool_execution", "llm_api"
     recoverable: bool = True  # Whether the user can retry/continue
     retry_hint: str | None = None  # User-facing guidance, e.g. "Try a simpler request"
+    error_code: str | None = None  # Stable machine-readable code for client retry policy.
+    error_category: str | None = None  # transport | timeout | validation | auth | upstream | domain
+    severity: str = "error"  # info | warning | error | critical
+    retry_after_ms: int | None = None  # Suggested retry delay in milliseconds.
+    can_resume: bool = False  # Whether reconnect with event_id resume is expected to work.
+    checkpoint_event_id: str | None = None  # Safe resume checkpoint when a gap/corruption is detected.
+    details: dict[str, Any] | None = None  # Optional structured diagnostics payload.
 
 
 class PlanEvent(BaseEvent):

@@ -93,6 +93,20 @@ class TestVerifyConnectionHealth:
 
 class TestNavigateImplCrashRecovery:
     @pytest.mark.asyncio
+    async def test_graceful_degradation_marks_crash_as_failure(self, browser):
+        """Crash-with-partial-data should not be reported as successful navigation."""
+        browser.page.goto = AsyncMock(side_effect=Exception("Target closed"))
+        browser.page.title = AsyncMock(return_value="Example")
+        browser.page.url = "https://example.com"
+
+        result = await browser._navigate_impl("https://example.com", timeout=5000, wait_until="load", auto_extract=True)
+
+        assert result.success is False
+        assert result.data is not None
+        assert result.data.get("partial") is True
+        assert result.data.get("crash_reason") == "browser_crash"
+
+    @pytest.mark.asyncio
     async def test_auto_recovers_on_crash(self, browser):
         """_navigate_impl attempts restart on crash and returns recovery result."""
         from app.domain.models.tool_result import ToolResult

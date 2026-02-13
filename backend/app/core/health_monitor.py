@@ -72,7 +72,7 @@ class HealthMonitor:
         logger.info("Starting health monitoring")
 
         # Start monitoring tasks for each component
-        components = ["error_manager", "sandbox_manager", "database", "redis", "qdrant"]
+        components = ["error_manager", "sandbox_manager", "database", "redis", "redis_cache", "qdrant"]
 
         for component in components:
             task = asyncio.create_task(self._monitor_component(component))
@@ -115,6 +115,8 @@ class HealthMonitor:
                 await self._check_database_health(health)
             elif component == "redis":
                 await self._check_redis_health(health)
+            elif component == "redis_cache":
+                await self._check_redis_cache_health(health)
             elif component == "qdrant":
                 await self._check_qdrant_health(health)
 
@@ -213,9 +215,9 @@ class HealthMonitor:
         try:
             from app.infrastructure.storage.redis import get_redis
 
-            # Simple ping test
             redis = get_redis()
-            await redis.client.ping()
+            await redis.initialize()
+            await redis.call("ping", max_retries=2)
 
             health.status = ComponentStatus.HEALTHY
             response_time = 0.05  # Placeholder
@@ -224,6 +226,31 @@ class HealthMonitor:
             health.status = ComponentStatus.UNHEALTHY
             response_time = -1
             logger.warning(f"Redis health check failed: {e}")
+
+        health.add_metric(
+            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now())
+        )
+
+    async def _check_redis_cache_health(self, health: ComponentHealth):
+        """Check cache Redis connectivity.
+
+        Cache Redis is optional for correctness. Failures degrade performance but should
+        not make the entire system unavailable.
+        """
+        try:
+            from app.infrastructure.storage.redis import get_cache_redis
+
+            redis = get_cache_redis()
+            await redis.initialize()
+            await redis.call("ping", max_retries=2)
+
+            health.status = ComponentStatus.HEALTHY
+            response_time = 0.05  # Placeholder
+
+        except Exception as e:
+            health.status = ComponentStatus.DEGRADED
+            response_time = -1
+            logger.warning(f"Cache Redis health check failed: {e}")
 
         health.add_metric(
             HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now())

@@ -542,13 +542,25 @@ class SearchTool(BaseTool):
         # Use a lock to protect shared state from concurrent mutation
         all_items = []
         seen_urls: set[str] = set()
+        variant_errors: list[str] = []
         semaphore = asyncio.Semaphore(3)
         dedup_lock = asyncio.Lock()
 
         async def search_and_dedup(query: str) -> None:
             async with semaphore:
-                result = await self._execute_typed_search(query, date_range, search_type)
-                if result.success and result.data:
+                try:
+                    result = await self._execute_typed_search(query, date_range, search_type)
+                except Exception as exc:
+                    async with dedup_lock:
+                        variant_errors.append(f"{query}: {exc!s}")
+                    return
+
+                if not result.success:
+                    async with dedup_lock:
+                        variant_errors.append(f"{query}: {result.message or 'search failed'}")
+                    return
+
+                if result.data:
                     async with dedup_lock:
                         for item in result.data.results:
                             if item.link not in seen_urls:
@@ -563,6 +575,7 @@ class SearchTool(BaseTool):
         for i, r in enumerate(results):
             if isinstance(r, Exception):
                 logger.warning(f"Search variant {i} failed: {r}")
+                variant_errors.append(f"{variants[i]}: {r!s}")
 
         # Create aggregated result
         from app.domain.models.search import SearchResults
@@ -576,6 +589,22 @@ class SearchTool(BaseTool):
 
         message = f"[{search_type.value.upper()} SEARCH - {len(variants)} variants]\n"
         message += f"Found {len(all_items)} unique results across {len(variants)} query variants."
+        if variant_errors:
+            error_preview = "; ".join(variant_errors[:3])
+            if len(variant_errors) > 3:
+                error_preview += f"; ... (+{len(variant_errors) - 3} more)"
+            message += f"\n\nVARIANT ERRORS ({len(variant_errors)}): {error_preview}"
+
+        if not all_items and variant_errors:
+            return ToolResult(
+                success=False,
+                data=aggregated_data,
+                message=(
+                    f"[{search_type.value.upper()} SEARCH - {len(variants)} variants]\n"
+                    f"All variants failed for query '{query}'.\n"
+                    f"Errors: {error_preview}"
+                ),
+            )
 
         if self._is_research_query(query):
             message += (
@@ -598,9 +627,15 @@ class SearchTool(BaseTool):
             count: Number of top results to open (default 3)
         """
         try:
-            # No early-exit on is_connected(): in static sandbox mode the browser
-            # starts uninitialised and navigate_for_display will lazily connect via
-            # _ensure_page → _ensure_browser → initialize().
+            browser_type = type(self._browser)
+            supports_lazy_connect = hasattr(browser_type, "initialize") and hasattr(browser_type, "_ensure_page")
+            if (
+                hasattr(self._browser, "is_connected")
+                and not self._browser.is_connected()
+                and not supports_lazy_connect
+            ):
+                logger.debug("_browse_top_results: browser disconnected and lazy connect is unavailable, skipping")
+                return
 
             # Extract result items from SearchResults model or dict
             if hasattr(search_data, "results"):
@@ -622,16 +657,23 @@ class SearchTool(BaseTool):
             logger.info(f"Browsing top {len(urls)} search results for VNC visibility")
             consecutive_failures = 0
             max_failures = 2
+            navigation_timeout_seconds = 20.0
             for url in urls:
                 try:
                     if hasattr(self._browser, "navigate_for_display"):
-                        success = await self._browser.navigate_for_display(url)
+                        success = await asyncio.wait_for(
+                            self._browser.navigate_for_display(url),
+                            timeout=navigation_timeout_seconds,
+                        )
                         if not success:
                             consecutive_failures += 1
                         else:
                             consecutive_failures = 0
                     else:
-                        await self._browser.navigate(url)
+                        await asyncio.wait_for(
+                            self._browser.navigate(url),
+                            timeout=navigation_timeout_seconds,
+                        )
                         consecutive_failures = 0
                     # Brief pause for VNC render (kept short to avoid blocking)
                     await asyncio.sleep(1.0)

@@ -49,7 +49,9 @@ If request involves system diagnostics, benchmarks, or capability testing:
 - Include self-consistency checks when detecting hallucinations
 
 ### Research Tasks (comparison, analysis, report)
-**MANDATORY 3-step structure — consolidate related work:**
+**MANDATORY minimum structure (3 steps), then expand when needed:**
+- Use at least 3 steps for any research task.
+- For complex research, expand to 4-8 steps (or more if required by scope).
 
 - Step 1: "Research [topic] across multiple sources and extract key information"
   - Searches multiple queries AND browses top URLs in one step
@@ -57,12 +59,15 @@ If request involves system diagnostics, benchmarks, or capability testing:
   - Visit 5-8 actual URLs (official pages, benchmarks, pricing)
   - Extract ACTUAL numbers, specs, and data from pages
 
-- Step 2: "Analyze findings and compile structured report with citations"
+- Optional middle steps (add as needed): "Research additional sources to fill gaps and cross-validate claims"
+  - Add these when coverage is incomplete, sources conflict, or important metrics are missing
+
+- Penultimate step: "Analyze findings and compile structured report with citations"
   - Synthesize all extracted content into markdown report
   - Include comparison tables with numeric metrics (enables auto Plotly chart)
   - Inline citations, recommendations; every claim must have a citation
 
-- Step 3: "Review, validate, and deliver final report with visualization"
+- Final step: "Review, validate, and deliver final report with visualization"
   - Cross-check key claims against sources
   - Fix any inconsistencies, then deliver report (chart auto-generated when comparison data present)
 
@@ -256,10 +261,11 @@ Planning principles:
 - GOOD: "Gather all issue data" + "Write assessment report from gathered data"
 
 🔬 RESEARCH TASK STRUCTURE (comparison, review, analysis, report):
-MANDATORY 3 steps — consolidate aggressively:
+MANDATORY minimum 3 steps; expand for complex scope:
 1. "Research [topic] across multiple sources and extract key information" - searches AND browses URLs in one step
-2. "Analyze findings and compile structured report with citations" - writes markdown
-3. "Review, validate, and deliver final report" - cross-check and deliver
+2. Optional additional research steps to fill gaps and cross-validate findings
+3. "Analyze findings and compile structured report with citations" - writes markdown
+4. "Review, validate, and deliver final report" - cross-check and deliver
 CRITICAL: Step 1 MUST browse actual pages, not just search snippets.
 
 For simple web queries (single search, one website):
@@ -282,7 +288,16 @@ Attachments: {attachments}
 
 UPDATE_PLAN_PROMPT = """Return the remaining uncompleted steps.
 
-Include all steps not yet executed. Return an empty steps array only when the task is fully complete.
+Include all steps not yet executed.
+Return an empty steps array ONLY when the task is fully complete.
+
+Completion criteria (all must be true before returning empty):
+1. Every required user objective has been satisfied.
+2. For research tasks, key claims are verified with sufficient sources/citations.
+3. Required deliverables/artifacts have been produced and delivered.
+4. No unresolved follow-up actions, validation checks, or missing data remain.
+
+If uncertain, keep at least one pending step instead of returning empty.
 
 Completed step: {step}
 Current plan: {plan}

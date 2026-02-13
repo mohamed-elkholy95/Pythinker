@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from datetime import UTC, datetime
@@ -74,6 +75,40 @@ class AgentDomainService:
         if session_id not in self._task_creation_locks:
             self._task_creation_locks[session_id] = asyncio.Lock()
         return self._task_creation_locks[session_id]
+
+    def _register_background_task(self, task: asyncio.Task[None]) -> None:
+        """Track background tasks and consume failures for observability."""
+        self._background_tasks.add(task)
+        task.add_done_callback(self._on_background_task_done)
+
+    def _on_background_task_done(self, task: asyncio.Task[None]) -> None:
+        """Consume background task results to avoid silent failures."""
+        self._background_tasks.discard(task)
+        with contextlib.suppress(asyncio.CancelledError):
+            exc = task.exception()
+            if exc is not None:
+                logger.warning("Background task failed in AgentDomainService: %s", exc)
+
+    async def _force_destroy_sandbox(self, sandbox: Sandbox, sandbox_id: str, session_id: str) -> bool:
+        """Best-effort force destroy fallback when graceful destroy times out."""
+        force_destroy = getattr(sandbox, "force_destroy", None)
+        if not callable(force_destroy):
+            logger.warning(
+                "Sandbox %s for session %s does not expose force_destroy(); deferred cleanup only",
+                sandbox_id,
+                session_id,
+            )
+            return False
+        try:
+            destroyed = await force_destroy()
+            if destroyed:
+                logger.info("Force-destroyed sandbox %s for session %s", sandbox_id, session_id)
+            else:
+                logger.warning("force_destroy returned False for sandbox %s (session %s)", sandbox_id, session_id)
+            return bool(destroyed)
+        except Exception as e:
+            logger.warning("Force-destroy fallback failed for sandbox %s (session %s): %s", sandbox_id, session_id, e)
+            return False
 
     async def shutdown(self) -> None:
         """Clean up all Agent's resources"""
@@ -552,6 +587,7 @@ class AgentDomainService:
                     owns_sandbox = True
 
             if owns_sandbox:
+                sandbox = None
                 try:
                     sandbox = await self._sandbox_cls.get(target_session.sandbox_id)
                     if sandbox:
@@ -559,6 +595,37 @@ class AgentDomainService:
                         logger.info(f"Destroyed owned sandbox {target_session.sandbox_id} for session {session_id}")
                 except TimeoutError:
                     logger.warning(f"Sandbox {target_session.sandbox_id} destroy timed out during teardown")
+                    force_destroyed = False
+                    if sandbox is not None:
+                        try:
+                            force_destroyed = await asyncio.wait_for(
+                                self._force_destroy_sandbox(
+                                    sandbox=sandbox,
+                                    sandbox_id=target_session.sandbox_id,
+                                    session_id=session_id,
+                                ),
+                                timeout=10.0,
+                            )
+                        except TimeoutError:
+                            logger.warning(
+                                "Force-destroy fallback timed out for sandbox %s (session %s)",
+                                target_session.sandbox_id,
+                                session_id,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "Force-destroy fallback raised for sandbox %s (session %s): %s",
+                                target_session.sandbox_id,
+                                session_id,
+                                e,
+                            )
+                    if not force_destroyed and sandbox is not None:
+
+                        async def _delayed_destroy() -> None:
+                            with contextlib.suppress(Exception):
+                                await sandbox.destroy()
+
+                        self._register_background_task(asyncio.create_task(_delayed_destroy()))
                 except Exception as e:
                     error_text = str(e)
                     if "No such container" in error_text:
@@ -728,7 +795,7 @@ NOTE: The browser state may have changed. When you next use the browser:
 
         Args:
             cancel_event: Event that signals cancellation (e.g., SSE disconnect).
-                         Domain layer tools check this to stop work when client disconnects.
+                Domain service checks this periodically and cancels active task execution.
         """
 
         try:
@@ -738,6 +805,17 @@ NOTE: The browser state may have changed. When you next use the browser:
                 raise RuntimeError("Session not found")
 
             task = await self._get_task(session)
+            if cancel_event is not None and cancel_event.is_set():
+                if task and not task.done:
+                    task.cancel()
+                    await self._teardown_session_runtime(
+                        session_id,
+                        session=session,
+                        status=SessionStatus.COMPLETED,
+                        destroy_sandbox=False,
+                    )
+                logger.info("Cancellation requested before processing session %s", session_id)
+                return
 
             if message:
                 # Deduplication check: Skip if same message was recently sent to this session
@@ -882,6 +960,9 @@ NOTE: The browser state may have changed. When you next use the browser:
                             task = await self._get_task(session)
 
                         if session and (session.status != SessionStatus.RUNNING or task is None):
+                            if cancel_event is not None and cancel_event.is_set():
+                                logger.info("Cancellation requested before task creation for session %s", session_id)
+                                return
                             is_reactivation = session.status == SessionStatus.COMPLETED
                             task = await self._create_task(session, extra_mcp_configs=extra_mcp_configs)
                             if not task:
@@ -1023,18 +1104,27 @@ NOTE: The browser state may have changed. When you next use the browser:
 
             # Create cancellation token for this session
             cancel_token = CancellationToken(event=cancel_event, session_id=session_id)
+            from app.core.config import get_settings as _get_cfg
+
+            stream_poll_block_ms = max(1, _get_cfg().redis_stream_poll_block_ms)
 
             received_events = False
             terminal_status: SessionStatus | None = None
             while task and not task.done:
                 # Check for cancellation (SSE disconnect)
                 if cancel_token.is_cancelled():
-                    logger.info(f"Session {session_id} cancelled during event loop - stopping gracefully")
-                    break
+                    task.cancel()
+                    await self._teardown_session_runtime(
+                        session_id, status=SessionStatus.COMPLETED, destroy_sandbox=False
+                    )
+                    logger.info("Session %s cancelled during event loop", session_id)
+                    return
 
-                event_id, event_str = await task.output_stream.get(start_id=latest_event_id, block_ms=0)
+                event_id, event_str = await task.output_stream.get(
+                    start_id=latest_event_id,
+                    block_ms=stream_poll_block_ms,
+                )
                 if event_str is None:
-                    await asyncio.sleep(0.1)  # Yield control, prevent busy-wait
                     continue
                 received_events = True
                 latest_event_id = event_id
@@ -1107,8 +1197,7 @@ NOTE: The browser state may have changed. When you next use the browser:
 
                 with contextlib.suppress(Exception):
                     task = asyncio.ensure_future(self._extract_session_memories(session_id, user_id))
-                    self._background_tasks.add(task)
-                    task.add_done_callback(self._background_tasks.discard)
+                    self._register_background_task(task)
 
     async def _extract_session_memories(self, session_id: str, user_id: str) -> None:
         """Extract and store memories from a completed session.

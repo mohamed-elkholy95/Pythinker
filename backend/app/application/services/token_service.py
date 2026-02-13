@@ -117,10 +117,10 @@ class TokenService:
     async def _is_token_blacklisted(self, token: str) -> bool:
         """Check if token is in the blacklist"""
         try:
-            redis = get_redis().client
+            redis = get_redis()
             token_hash = self._hash_token(token)
             key = f"{self.BLACKLIST_PREFIX}{token_hash}"
-            return await redis.exists(key) > 0
+            return await redis.call("exists", key) > 0
         except Exception as e:
             logger.warning(f"Failed to check token blacklist: {e}")
             # Fail open - allow token if Redis is unavailable
@@ -225,7 +225,7 @@ class TokenService:
             return True
 
         try:
-            redis = get_redis().client
+            redis = get_redis()
             token_hash = self._hash_token(token)
             key = f"{self.BLACKLIST_PREFIX}{token_hash}"
 
@@ -237,7 +237,7 @@ class TokenService:
                 return True
 
             # Add to blacklist with expiry matching token expiry
-            await redis.setex(key, ttl, "revoked")
+            await redis.call("setex", key, ttl, "revoked")
             logger.info(f"Token revoked and blacklisted (TTL: {ttl}s)")
             return True
 
@@ -254,7 +254,7 @@ class TokenService:
             return True
 
         try:
-            redis = get_redis().client
+            redis = get_redis()
             key = f"{self.USER_TOKENS_PREFIX}{user_id}:revoked_before"
 
             # Set the current timestamp - all tokens issued before this are invalid
@@ -262,7 +262,7 @@ class TokenService:
 
             # Keep this for the max token lifetime (refresh token duration)
             max_ttl = self.settings.jwt_refresh_token_expire_days * 24 * 60 * 60
-            await redis.setex(key, max_ttl, str(timestamp))
+            await redis.call("setex", key, max_ttl, str(timestamp))
 
             logger.info(f"All tokens revoked for user: {user_id}")
             return True
@@ -277,10 +277,10 @@ class TokenService:
             return False
 
         try:
-            redis = get_redis().client
+            redis = get_redis()
             key = f"{self.USER_TOKENS_PREFIX}{user_id}:revoked_before"
 
-            revoked_before = await redis.get(key)
+            revoked_before = await redis.call("get", key)
             if revoked_before:
                 return issued_at < int(revoked_before)
             return False

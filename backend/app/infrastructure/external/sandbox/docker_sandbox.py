@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import io
 import logging
 import socket
@@ -114,9 +115,7 @@ class DockerSandbox(Sandbox):
         """DEPRECATED: Setter for backward compatibility."""
         self._client = value
 
-    def set_browser_progress_callback(
-        self, callback: Callable[[str], Awaitable[None]] | None
-    ) -> None:
+    def set_browser_progress_callback(self, callback: Callable[[str], Awaitable[None]] | None) -> None:
         """Set callback for browser connection retry progress events.
 
         Args:
@@ -1139,6 +1138,63 @@ class DockerSandbox(Sandbox):
             return True
         except Exception as e:
             logger.error(f"Failed to destroy Docker sandbox: {e!s}")
+            return False
+
+    async def force_destroy(self) -> bool:
+        """Force-remove sandbox container with best-effort dependency cleanup."""
+        settings = get_settings()
+        uses_static_sandboxes = bool(
+            getattr(
+                settings,
+                "uses_static_sandbox_addresses",
+                bool(getattr(settings, "sandbox_address", None)),
+            )
+        )
+        is_static_sandbox_id = bool(
+            uses_static_sandboxes and self._container_name and self._container_name.startswith("dev-sandbox-")
+        )
+
+        # Best-effort browser pool + HTTP client cleanup even in force path.
+        with contextlib.suppress(Exception):
+            pool = BrowserConnectionPool.get_instance()
+            await pool.force_release_all(self._cdp_url)
+        with contextlib.suppress(Exception):
+            from app.infrastructure.external.http_pool import HTTPClientPool
+
+            await HTTPClientPool.close_client(self._pool_client_name)
+        if self._client and not self._client.is_closed:
+            with contextlib.suppress(Exception):
+                await self._client.aclose()
+        self._client = None
+
+        if hasattr(DockerSandbox.get, "cache_invalidate"):
+            with contextlib.suppress(Exception):
+                if self._container_name:
+                    DockerSandbox.get.cache_invalidate(self._container_name)
+                else:
+                    DockerSandbox.get.cache_clear()
+
+        if not self._container_name or is_static_sandbox_id:
+            if is_static_sandbox_id:
+                logger.debug(
+                    "Skipping force destroy for static sandbox mode (sandbox=%s)",
+                    self._container_name,
+                )
+            return True
+
+        def _force_remove_container(name: str) -> None:
+            dc = docker.from_env()
+            try:
+                dc.containers.get(name).remove(force=True)
+            except DockerNotFound:
+                logger.info("Docker sandbox container already removed during force destroy: %s", name)
+
+        try:
+            await asyncio.to_thread(_force_remove_container, self._container_name)
+            logger.warning("Force-removed Docker sandbox container: %s", self._container_name)
+            return True
+        except Exception as e:
+            logger.error("Failed to force-destroy Docker sandbox %s: %s", self._container_name, e)
             return False
 
     async def pause(self) -> bool:

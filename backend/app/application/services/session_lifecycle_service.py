@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.application.errors.exceptions import NotFoundError
-from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.models.session import SessionStatus
 from app.domain.repositories.session_repository import SessionRepository
 
 if TYPE_CHECKING:

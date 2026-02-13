@@ -1,15 +1,34 @@
+import logging
+from importlib import import_module
+
 from app.core.config import get_settings
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
 from app.domain.services.tools.base import BaseTool, tool
-from app.infrastructure.observability.prometheus_metrics import (
-    record_security_gate_block,
-    record_security_gate_override,
-)
 
 # Maximum shell output size in characters to prevent context window exhaustion
 MAX_SHELL_OUTPUT_CHARS = 50_000
+
+logger = logging.getLogger(__name__)
+
+
+def _record_security_gate_block(risk_level: str, pattern_type: str) -> None:
+    """Record a security gate block metric without static infra-layer imports."""
+    try:
+        metrics = import_module("app.infrastructure.observability.prometheus_metrics")
+        metrics.record_security_gate_block(risk_level=risk_level, pattern_type=pattern_type)
+    except Exception:
+        logger.debug("Failed to record security_gate_block metric", exc_info=True)
+
+
+def _record_security_gate_override(override_reason: str) -> None:
+    """Record a security gate override metric without static infra-layer imports."""
+    try:
+        metrics = import_module("app.infrastructure.observability.prometheus_metrics")
+        metrics.record_security_gate_override(override_reason=override_reason)
+    except Exception:
+        logger.debug("Failed to record security_gate_override metric", exc_info=True)
 
 
 class ShellTool(BaseTool):
@@ -66,13 +85,18 @@ class ShellTool(BaseTool):
         Returns:
             Command execution result
         """
+        import asyncio
+
+        # Default timeout for shell commands (5 minutes)
+        shell_exec_timeout_seconds = 300
+
         review = await self.security_critic.review_code(command, "bash")
         if not review.safe:
             allow_medium = get_settings().security_critic_allow_medium_risk
             if review.risk_level == RiskLevel.MEDIUM and allow_medium:
-                record_security_gate_override(override_reason="medium_risk_dev")
+                _record_security_gate_override(override_reason="medium_risk_dev")
             else:
-                record_security_gate_block(
+                _record_security_gate_block(
                     risk_level=review.risk_level.value,
                     pattern_type="static" if review.patterns_detected else "llm",
                 )
@@ -81,8 +105,24 @@ class ShellTool(BaseTool):
                     success=False,
                     message=f"Shell command blocked by security review: {issues_str}",
                 )
-        result = await self.sandbox.exec_command(id, exec_dir, command)
-        return self._truncate_output(result)
+
+        try:
+            result = await asyncio.wait_for(
+                self.sandbox.exec_command(id, exec_dir, command),
+                timeout=shell_exec_timeout_seconds,
+            )
+            return self._truncate_output(result)
+        except TimeoutError:
+            logger.warning(
+                "Shell command timed out after %ss: %s",
+                shell_exec_timeout_seconds,
+                command[:100],
+            )
+            return ToolResult(
+                success=False,
+                message=f"Shell command timed out after {shell_exec_timeout_seconds} seconds. "
+                f"Consider breaking the command into smaller parts or using background execution.",
+            )
 
     @tool(
         name="shell_view",

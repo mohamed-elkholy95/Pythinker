@@ -1,10 +1,11 @@
 import asyncio
+import importlib
 import logging
 import os
 import re
 import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
@@ -124,14 +125,7 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.skill_creator import get_skill_creator_tools
 from app.domain.services.tools.skill_invoke import create_skill_invoke_tool
 from app.domain.services.validation.plan_validator import PlanValidator
-from app.infrastructure.observability.prometheus_metrics import (
-    delivery_fidelity_blocks_total,
-    entity_drift_detected_total,
-    guardrail_latency_seconds,
-    guardrail_tripwire_total,
-    output_relevance_failures_total,
-    workflow_phase_duration,
-)
+from app.domain.utils.cancellation import CancellationToken
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -201,6 +195,7 @@ class PlanActFlow(BaseFlow):
         symspell_provider: SpellCorrectionProvider | None = None,
         correction_event_sink: Callable[[CorrectionEvent], None] | None = None,
         feedback_lookup: Callable[[str], str | None] | None = None,
+        cancel_token: CancellationToken | None = None,
     ):
         self._feature_flags = feature_flags
         self._alert_port = alert_port
@@ -210,6 +205,7 @@ class PlanActFlow(BaseFlow):
         self._session_repository = session_repository
         self._log = get_agent_logger(agent_id, session_id)
         self.status = AgentStatus.IDLE
+        self._cancel_token = cancel_token or CancellationToken.null()
         self._last_transition_time: float = time.time()
         self.plan = None
         self._file_sweep_callback = file_sweep_callback
@@ -438,7 +434,7 @@ class PlanActFlow(BaseFlow):
         self._step_failure_handler = StepFailureHandler()
 
         # Workflow loop safety limits
-        self._max_workflow_transitions = 100
+        self._max_workflow_transitions = 300
 
         # Phase 3: Proactive memory compaction tracking
         self._memory_manager = get_memory_manager()
@@ -475,6 +471,27 @@ class PlanActFlow(BaseFlow):
         domain→infrastructure import violations.
         """
         self.executor._circuit_breaker = circuit_breaker
+
+    def set_cancel_token(self, cancel_token: CancellationToken | None) -> None:
+        """Inject or replace cancellation token for cooperative cancellation checks."""
+        self._cancel_token = cancel_token or CancellationToken.null()
+
+    async def _check_cancelled(self) -> None:
+        """Raise CancelledError when cancellation has been requested."""
+        await self._cancel_token.check_cancelled()
+
+    def _track_background_task(self, task: asyncio.Task[Any]) -> None:
+        """Track background tasks and surface failures."""
+        self._background_tasks.add(task)
+        task.add_done_callback(self._on_background_task_done)
+
+    def _on_background_task_done(self, task: asyncio.Task[Any]) -> None:
+        """Consume background task result and log non-cancellation failures."""
+        self._background_tasks.discard(task)
+        with suppress(asyncio.CancelledError):
+            error = task.exception()
+            if error is not None:
+                logger.warning("PlanActFlow background task failed for agent %s: %s", self._agent_id, error)
 
     def _resolve_feature_flags(self) -> dict[str, bool]:
         """Return injected feature flags, falling back to core config."""
@@ -819,8 +836,7 @@ class PlanActFlow(BaseFlow):
                 logger.warning(f"Agent {self._agent_id} background memory compact failed: {e}")
 
         task = asyncio.create_task(_compact())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._track_background_task(task)
 
     def _track_tool_usage(self, tool_name: str) -> None:
         """Track recent tool usage for proactive compaction decisions."""
@@ -866,7 +882,7 @@ class PlanActFlow(BaseFlow):
             )
 
             await self._sandbox.file_write(
-                file="/home/user/.agent_progress.json",
+                file="/home/ubuntu/.agent_progress.json",
                 content=artifact,
             )
             logger.debug(f"Saved progress artifact: {len(completed_steps)}/{len(self.plan.steps)} steps")
@@ -941,7 +957,7 @@ class PlanActFlow(BaseFlow):
         try:
             import json
 
-            result = await self._sandbox.file_read(file="/home/user/.agent_progress.json")
+            result = await self._sandbox.file_read(file="/home/ubuntu/.agent_progress.json")
             if result and result.success and result.data:
                 return json.loads(str(result.data))
         except Exception:
@@ -1334,8 +1350,7 @@ class PlanActFlow(BaseFlow):
                 logger.warning(f"Agent {self._agent_id} task state save failed: {e}")
 
         task = asyncio.create_task(_save())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._track_background_task(task)
 
     def _handle_step_failure(self, failed_step: Step) -> list[str]:
         """Handle step failure by marking dependent steps as blocked."""
@@ -1372,32 +1387,38 @@ class PlanActFlow(BaseFlow):
 
         desc_lower = step.description.lower()
 
+        # Research-style steps can discover new work and should keep plan updates enabled.
+        dynamic_research_patterns = [
+            "research",
+            "investigate",
+            "explore",
+            "analyze",
+            "review",
+            "compare",
+            "search",
+            "browse",
+            "fetch",
+            "retrieve",
+            "verify",
+            "validate",
+            "cross-check",
+            "benchmark",
+        ]
+        if any(pattern in desc_lower for pattern in dynamic_research_patterns):
+            return False
+
         # Read-only action patterns
         read_only_patterns = [
             "read",
             "view",
             "list",
-            "search",
-            "find",
             "check",
-            "verify",
             "inspect",
-            "examine",
-            "analyze",
-            "review",
-            "look",
-            "browse",
-            "fetch",
-            "get",
-            "retrieve",
             "show",
             "display",
             "print",
             "understand",
             "learn",
-            "research",
-            "investigate",
-            "explore",
         ]
 
         # Write action patterns (if present, NOT read-only)
@@ -1428,6 +1449,48 @@ class PlanActFlow(BaseFlow):
         # Read-only if has read patterns but no write patterns
         return has_read_pattern and not has_write_pattern
 
+    def _is_research_or_complex_task(self, step: Step | None = None) -> bool:
+        """Detect tasks where dynamic plan updates should remain enabled."""
+        try:
+            if (
+                hasattr(self, "_cached_complexity")
+                and self._cached_complexity is not None
+                and self._cached_complexity >= 0.45
+            ):
+                return True
+        except Exception:
+            logger.debug("Complexity probe failed while checking dynamic plan update eligibility", exc_info=True)
+
+        research_patterns = [
+            "research",
+            "investigate",
+            "explore",
+            "analyze",
+            "compare",
+            "multi-source",
+            "multiple sources",
+            "benchmark",
+            "report",
+            "citation",
+            "cross-check",
+            "verify findings",
+            "validate findings",
+        ]
+        texts_to_scan: list[str] = []
+        if step and step.description:
+            texts_to_scan.append(step.description)
+        if self.plan:
+            if self.plan.goal:
+                texts_to_scan.append(self.plan.goal)
+            if self.plan.message:
+                texts_to_scan.append(self.plan.message)
+
+        for text in texts_to_scan:
+            lowered = text.lower()
+            if any(pattern in lowered for pattern in research_patterns):
+                return True
+        return False
+
     def _should_skip_plan_update(self, step: Step, remaining_steps: int) -> tuple[bool, str]:
         """Determine if plan update phase should be skipped for faster execution.
 
@@ -1441,13 +1504,18 @@ class PlanActFlow(BaseFlow):
         Returns:
             Tuple of (should_skip, reason)
         """
-        # Always skip for last step or near completion
-        if remaining_steps <= 1:
-            return True, f"last step or near completion ({remaining_steps} remaining)"
+        # No remaining work means there is nothing left to update.
+        if remaining_steps <= 0:
+            return True, "no remaining steps"
 
         # Skip if step failed (will trigger replanning anyway)
         if not step.success:
             return True, "step failed"
+
+        # Keep dynamic updates enabled for research/complex tasks so the planner
+        # can add follow-up steps when discoveries require deeper investigation.
+        if self._is_research_or_complex_task(step):
+            return False, ""
 
         # Skip for simple tasks (complexity-based optimization)
         try:
@@ -1462,12 +1530,12 @@ class PlanActFlow(BaseFlow):
             logger.debug(f"Complexity check failed, continuing with verification: {e}")
 
         # Skip for read-only steps (they don't change execution context)
-        if self._is_read_only_step(step):
+        if self._is_read_only_step(step) and remaining_steps <= 1:
             return True, "read-only step"
 
-        # Skip if we have few remaining steps (< 3) - plan is nearly complete
-        if remaining_steps <= 2:
-            return True, f"few steps remaining ({remaining_steps})"
+        # For non-research tasks, skip update on final pending step.
+        if remaining_steps == 1:
+            return True, "final pending step"
 
         # Default: don't skip
         return False, ""
@@ -1631,9 +1699,14 @@ class PlanActFlow(BaseFlow):
             attributes={"message.preview": message.message[:100]},
         ) as trace_ctx:
             try:
+                await self._check_cancelled()
                 async with asyncio.timeout(900):  # 15-minute workflow timeout
                     async for event in self._run_with_trace(message, trace_ctx):
+                        await self._check_cancelled()
                         yield event
+            except asyncio.CancelledError:
+                logger.info("Agent %s workflow cancelled for session %s", self._agent_id, self._session_id)
+                raise
             except TimeoutError:
                 logger.error(f"Agent {self._agent_id} workflow timed out after 900 seconds")
                 yield ErrorEvent(
@@ -1645,6 +1718,7 @@ class PlanActFlow(BaseFlow):
 
     async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:
         """Internal run method with tracing."""
+        await self._check_cancelled()
         original_message = message.message
         settings = get_settings()
 
@@ -1677,9 +1751,11 @@ class PlanActFlow(BaseFlow):
         session = await self._session_repository.find_by_id(self._session_id)
         if not session:
             raise ValueError(f"Session {self._session_id} not found")
+        await self._check_cancelled()
 
         # Phase 3.5: Initialize skill_invoke tool with available skills (lazy load)
         await self._init_skill_invoke_tool()
+        await self._check_cancelled()
 
         # Cross-session learning: load historical error patterns
         if self._user_id and self._memory_service:
@@ -1751,6 +1827,7 @@ class PlanActFlow(BaseFlow):
         logger.info(f"Fast path check: session.status={session.status}, message={message.message[:50]}")
 
         try:
+            await self._check_cancelled()
             fast_path_router = FastPathRouter(
                 browser=self._browser,
                 llm=self._llm,
@@ -1830,6 +1907,7 @@ class PlanActFlow(BaseFlow):
         # === END FAST PATH ===
 
         # Assess task complexity and set dynamic iteration limits (Phase 3)
+        await self._check_cancelled()
         if session.complexity_score is None and session.status == SessionStatus.PENDING:
             assessor = ComplexityAssessor()
             assessment = assessor.assess_task_complexity(
@@ -1870,9 +1948,8 @@ class PlanActFlow(BaseFlow):
         quality_floor_enforced = True
         if self._user_id:
             try:
-                from app.application.services.settings_service import get_settings_service
-
-                user_settings = await get_settings_service().get_user_settings(self._user_id)
+                settings_service_module = importlib.import_module("app.application.services.settings_service")
+                user_settings = await settings_service_module.get_settings_service().get_user_settings(self._user_id)
                 verbosity_preference = user_settings.get("response_verbosity_preference", "adaptive")
                 clarification_policy = user_settings.get("clarification_policy", "auto")
                 quality_floor_enforced = user_settings.get("quality_floor_enforced", True)
@@ -2041,6 +2118,7 @@ class PlanActFlow(BaseFlow):
 
         step = None
         while True:
+            await self._check_cancelled()
             # Phase 3: Track iteration count for proactive compaction
             self._iteration_count += 1
 
@@ -2076,6 +2154,7 @@ class PlanActFlow(BaseFlow):
                     self._transition_to(AgentStatus.PLANNING)
                 elif self.status == AgentStatus.PLANNING:
                     # Create plan with tracing
+                    await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started creating plan")
                     with trace_ctx.span("planning", "plan_create") as plan_span:
                         # Pass replan context if we're replanning after verification
@@ -2128,6 +2207,7 @@ class PlanActFlow(BaseFlow):
                                 logger.debug("Role-scoped memory injection skipped: %s", e)
 
                         async for event in self.planner.create_plan(message, replan_context=replan_context):
+                            await self._check_cancelled()
                             if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                                 self.plan = event.plan
 
@@ -2193,11 +2273,13 @@ class PlanActFlow(BaseFlow):
 
                 elif self.status == AgentStatus.VERIFYING:
                     # Verify plan before execution (Phase 1: Plan-Verify-Execute)
+                    await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started verifying plan")
                     with trace_ctx.span("verifying", "agent_step") as verify_span:
                         async for event in self.verifier.verify_plan(
                             plan=self.plan, user_request=message.message, task_context=""
                         ):
+                            await self._check_cancelled()
                             yield event
 
                             # Capture verification result
@@ -2267,6 +2349,7 @@ class PlanActFlow(BaseFlow):
 
                 elif self.status == AgentStatus.EXECUTING:
                     # Execute plan
+                    await self._check_cancelled()
                     if not self._validate_plan_before_execution():
                         self._plan_validation_failures += 1
                         if self._plan_validation_failures >= self._max_plan_validation_failures:
@@ -2346,12 +2429,14 @@ class PlanActFlow(BaseFlow):
                         backoff = retry.backoff_seconds
 
                         for attempt in range(max_attempts):
+                            await self._check_cancelled()
                             if attempt > 0:
                                 logger.info(
                                     f"Step {step.id} retry {attempt}/{retry.max_retries} after {backoff:.1f}s backoff"
                                 )
                                 step_span.set_attribute("step.retry_attempt", attempt)
-                                await asyncio.sleep(backoff)
+                                if await self._cancel_token.wait_for_cancellation(backoff):
+                                    await self._check_cancelled()
                                 backoff *= retry.backoff_multiplier
                                 # Reset step state for retry
                                 step.success = False
@@ -2367,6 +2452,7 @@ class PlanActFlow(BaseFlow):
                             yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
 
                             # Select appropriate executor for this step (multi-agent dispatch)
+                            await self._check_cancelled()
                             step_executor = await self._get_executor_for_step(step)
                             if step_executor != self.executor:
                                 step_span.set_attribute(
@@ -2386,6 +2472,7 @@ class PlanActFlow(BaseFlow):
                                 step_executor._token_manager.mark_step_executing()
 
                             async for event in step_executor.execute_step(self.plan, step, message):
+                                await self._check_cancelled()
                                 # Phase 3: Track tool usage for proactive compaction
                                 if isinstance(event, ToolEvent) and event.tool_name:
                                     self._track_tool_usage(event.tool_name)
@@ -2530,9 +2617,11 @@ class PlanActFlow(BaseFlow):
                         self._transition_to(AgentStatus.UPDATING)
                 elif self.status == AgentStatus.UPDATING:
                     # Update plan with tracing
+                    await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started updating plan")
                     with trace_ctx.span("plan-update", "plan_update") as update_span:
                         async for event in self.planner.update_plan(self.plan, step):
+                            await self._check_cancelled()
                             yield event
                         update_span.set_attribute(
                             "plan.remaining_steps", len([s for s in self.plan.steps if not s.is_done()])
@@ -2559,6 +2648,7 @@ class PlanActFlow(BaseFlow):
                     self._transition_to(AgentStatus.EXECUTING)
                 elif self.status == AgentStatus.SUMMARIZING:
                     # Conclusion with tracing
+                    await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started summarizing")
 
                     # Sweep workspace for untracked files before summarizing
@@ -2579,8 +2669,10 @@ class PlanActFlow(BaseFlow):
                         logger.warning(f"Failed to fetch session files: {e}")
 
                     summarization_start = time.perf_counter()
+                    metrics_port = get_metrics()
                     with trace_ctx.span("summarizing", "agent_step") as summary_span:
                         async for event in self.executor.summarize(response_policy=self._response_policy):
+                            await self._check_cancelled()
                             if isinstance(event, ErrorEvent):
                                 logger.warning(f"Agent {self._agent_id} summarization failed: {event.error}")
                                 yield event
@@ -2604,13 +2696,17 @@ class PlanActFlow(BaseFlow):
                                         original_query=message.message,
                                         context=(str(self._request_contract) if self._request_contract else None),
                                     )
-                                    guardrail_latency_seconds.observe(
-                                        {"phase": "relevance"},
-                                        time.perf_counter() - guardrail_start,
+                                    metrics_port.record_histogram(
+                                        "guardrail_latency_seconds",
+                                        value=time.perf_counter() - guardrail_start,
+                                        labels={"phase": "relevance"},
                                     )
                                     if guardrail_result.issues:
                                         for issue in guardrail_result.issues:
-                                            guardrail_tripwire_total.inc({"guardrail": issue.issue_type.value})
+                                            metrics_port.record_counter(
+                                                "guardrail_tripwire_total",
+                                                labels={"guardrail": issue.issue_type.value},
+                                            )
                                             severity = (
                                                 "high"
                                                 if issue.severity >= 0.7
@@ -2618,7 +2714,10 @@ class PlanActFlow(BaseFlow):
                                                 if issue.severity >= 0.5
                                                 else "low"
                                             )
-                                            output_relevance_failures_total.inc({"severity": severity})
+                                            metrics_port.record_counter(
+                                                "output_relevance_failures_total",
+                                                labels={"severity": severity},
+                                            )
                                         logger.warning(
                                             "OutputGuardrails: %d issues (needs_revision=%s): %s",
                                             len(guardrail_result.issues),
@@ -2650,7 +2749,10 @@ class PlanActFlow(BaseFlow):
                                         content, self._request_contract
                                     )
                                     if not fidelity_result.passed:
-                                        entity_drift_detected_total.inc({"phase": "summarize"})
+                                        metrics_port.record_counter(
+                                            "entity_drift_detected_total",
+                                            labels={"phase": "summarize"},
+                                        )
                                         logger.warning(
                                             "Delivery fidelity: missing entities %s (score=%.2f)",
                                             fidelity_result.missing_entities,
@@ -2660,7 +2762,10 @@ class PlanActFlow(BaseFlow):
                                             settings.delivery_fidelity_mode == "enforce"
                                             and fidelity_result.fidelity_score < 0.8
                                         ):
-                                            delivery_fidelity_blocks_total.inc({"mode": "enforce"})
+                                            metrics_port.record_counter(
+                                                "delivery_fidelity_blocks_total",
+                                                labels={"mode": "enforce"},
+                                            )
                                             yield ErrorEvent(
                                                 error="Delivery fidelity failed: missing "
                                                 + ", ".join(fidelity_result.missing_entities)
@@ -2715,7 +2820,11 @@ class PlanActFlow(BaseFlow):
                                     break
                             yield event
                     summarization_duration = time.perf_counter() - summarization_start
-                    workflow_phase_duration.observe({"phase": "summarizing"}, summarization_duration)
+                    metrics_port.record_histogram(
+                        "workflow_phase_duration_seconds",
+                        value=summarization_duration,
+                        labels={"phase": "summarizing"},
+                    )
                     if self.status == AgentStatus.ERROR:
                         continue
                     logger.info(

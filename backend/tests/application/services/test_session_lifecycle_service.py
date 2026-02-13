@@ -1,11 +1,12 @@
 """Tests for SessionLifecycleService - extracted session management from AgentService"""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
+import pytest
+
+from app.application.errors.exceptions import NotFoundError
 from app.application.services.session_lifecycle_service import SessionLifecycleService
 from app.domain.models.session import AgentMode, Session, SessionStatus
-from app.application.errors.exceptions import NotFoundError
 
 
 @pytest.fixture

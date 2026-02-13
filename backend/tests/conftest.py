@@ -11,6 +11,7 @@ Provides comprehensive fixtures for:
 
 import asyncio
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -24,6 +25,12 @@ import requests
 # Increase recursion limit for test collection with many test files
 # The default 1000 can be exceeded during deep import chains when running full suite
 sys.setrecursionlimit(10000)
+
+# Ensure required settings are present during test collection.
+# Some modules import app settings at import-time; missing required env vars
+# can fail collection before skip markers/fixtures are evaluated.
+os.environ.setdefault("MINIO_ACCESS_KEY", "test-minio-access-key")
+os.environ.setdefault("MINIO_SECRET_KEY", "test-minio-secret-key")
 
 # Add the parent directory to Python path so we can import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))

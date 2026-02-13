@@ -4,6 +4,7 @@ import logging
 import re
 import secrets
 from datetime import datetime
+from typing import Any
 
 from app.application.errors.exceptions import BadRequestError, UnauthorizedError, ValidationError
 from app.application.services.token_service import TokenService
@@ -19,10 +20,51 @@ logger = logging.getLogger(__name__)
 class AuthService:
     """Authentication service handling user authentication and authorization"""
 
+    _COUNTER_WITH_EXPIRY_SCRIPT = """
+    local current = redis.call("INCR", KEYS[1])
+    if current == 1 then
+        redis.call("EXPIRE", KEYS[1], tonumber(ARGV[1]))
+    end
+    return current
+    """
+
     def __init__(self, user_repository: UserRepository, token_service: TokenService):
         self.user_repository = user_repository
         self.settings = get_settings()
         self.token_service = token_service
+        self._counter_with_expiry_script: Any | None = None
+
+    async def _increment_counter_with_expiry(self, key: str, window_seconds: int) -> int:
+        """Atomically increment counter and set expiry on first write."""
+        redis_client = get_redis()
+        await redis_client.initialize()
+        if self._counter_with_expiry_script is None:
+            self._counter_with_expiry_script = redis_client.client.register_script(self._COUNTER_WITH_EXPIRY_SCRIPT)
+
+        async def _execute_script() -> int:
+            script = self._counter_with_expiry_script
+            if script is None:
+                raise RuntimeError("Counter script not initialized")
+            result = await script(keys=[key], args=[window_seconds], client=redis_client.client)
+            return int(result)
+
+        try:
+            return int(
+                await redis_client.execute_with_retry(
+                    _execute_script,
+                    operation_name="auth_failed_attempts_script",
+                )
+            )
+        except Exception as script_error:
+            # Fallback path: preserve lockout behavior even if Lua/script transport fails.
+            logger.warning(
+                "Atomic auth counter script failed, using INCR/EXPIRE fallback: %s",
+                script_error,
+            )
+            current = int(await redis_client.call("incr", key))
+            if current == 1:
+                await redis_client.call("expire", key, window_seconds)
+            return current
 
     # =========================================================================
     # PASSWORD HASHING
@@ -102,9 +144,9 @@ class AuthService:
             return 0
 
         try:
-            redis = get_redis().client
+            redis = get_redis()
             key = f"auth:failed_attempts:{email.lower()}"
-            attempts = await redis.get(key)
+            attempts = await redis.call("get", key)
             return int(attempts) if attempts else 0
         except Exception as e:
             logger.warning(f"Failed to get failed attempts from Redis: {e}")
@@ -116,17 +158,10 @@ class AuthService:
             return 0
 
         try:
-            redis = get_redis().client
             key = f"auth:failed_attempts:{email.lower()}"
-
-            # Increment counter
-            attempts = await redis.incr(key)
-
-            # Set expiry on first failure
-            if attempts == 1:
-                await redis.expire(key, self.settings.account_lockout_reset_minutes * 60)
-
-            return attempts
+            window_seconds = self.settings.account_lockout_reset_minutes * 60
+            attempts = await self._increment_counter_with_expiry(key, window_seconds)
+            return int(attempts)
         except Exception as e:
             logger.warning(f"Failed to increment failed attempts: {e}")
             return 0
@@ -137,9 +172,9 @@ class AuthService:
             return
 
         try:
-            redis = get_redis().client
+            redis = get_redis()
             key = f"auth:failed_attempts:{email.lower()}"
-            await redis.delete(key)
+            await redis.call("delete", key)
         except Exception as e:
             logger.warning(f"Failed to clear failed attempts: {e}")
 
@@ -152,11 +187,11 @@ class AuthService:
             return (False, 0)
 
         try:
-            redis = get_redis().client
+            redis = get_redis()
             lockout_key = f"auth:lockout:{email.lower()}"
 
             # Check if locked
-            ttl = await redis.ttl(lockout_key)
+            ttl = await redis.call("ttl", lockout_key)
             if ttl > 0:
                 return (True, ttl)
 
@@ -171,11 +206,11 @@ class AuthService:
             return
 
         try:
-            redis = get_redis().client
+            redis = get_redis()
             lockout_key = f"auth:lockout:{email.lower()}"
             lockout_duration = self.settings.account_lockout_duration_minutes * 60
 
-            await redis.setex(lockout_key, lockout_duration, "locked")
+            await redis.call("setex", lockout_key, lockout_duration, "locked")
             logger.warning(f"[SECURITY] Account locked due to failed attempts: {email}")
         except Exception as e:
             logger.warning(f"Failed to lock account: {e}")

@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import inspect
 import logging
 import random
 import re
@@ -102,6 +103,11 @@ BROWSER_CRASH_SIGNATURES: list[str] = [
     "Connection closed",
     "Page crashed",
 ]
+
+DEFAULT_BROWSER_CRASH_WINDOW_SECONDS = 300.0
+DEFAULT_BROWSER_CRASH_THRESHOLD = 3
+DEFAULT_BROWSER_CRASH_COOLDOWN_SECONDS = 60.0
+DEFAULT_BROWSER_QUICK_HEALTH_CHECK_TIMEOUT = 3.0
 
 # Video domains to skip - these waste agent time and resources
 VIDEO_DOMAINS: set[str] = {
@@ -288,15 +294,76 @@ class PlaywrightBrowser:
         # Circuit breaker for browser crashes (Phase 1: hardening)
         # Tracks crash timestamps to detect repeated failures and fail-fast
         self._crash_history: list[float] = []  # Timestamps of recent crashes
-        self._crash_window_seconds: float = self.settings.browser_crash_window_seconds
-        self._crash_threshold: int = self.settings.browser_crash_threshold
+        self._crash_window_seconds: float = self._safe_float(
+            getattr(self.settings, "browser_crash_window_seconds", DEFAULT_BROWSER_CRASH_WINDOW_SECONDS),
+            DEFAULT_BROWSER_CRASH_WINDOW_SECONDS,
+            minimum=1.0,
+        )
+        self._crash_threshold: int = self._safe_int(
+            getattr(self.settings, "browser_crash_threshold", DEFAULT_BROWSER_CRASH_THRESHOLD),
+            DEFAULT_BROWSER_CRASH_THRESHOLD,
+            minimum=1,
+        )
+        self._crash_cooldown_seconds: float = self._safe_float(
+            getattr(self.settings, "browser_crash_cooldown_seconds", DEFAULT_BROWSER_CRASH_COOLDOWN_SECONDS),
+            DEFAULT_BROWSER_CRASH_COOLDOWN_SECONDS,
+            minimum=0.0,
+        )
         self._circuit_open_until: float = 0.0  # Timestamp when circuit can close
-        self._circuit_breaker_enabled: bool = self.settings.browser_crash_circuit_breaker_enabled
+        self._circuit_breaker_enabled: bool = self._safe_bool(
+            getattr(self.settings, "browser_crash_circuit_breaker_enabled", True),
+            True,
+        )
+        self._quick_health_check_enabled: bool = self._safe_bool(
+            getattr(self.settings, "browser_quick_health_check_enabled", True),
+            True,
+        )
+        self._quick_health_check_timeout: float = self._safe_float(
+            getattr(self.settings, "browser_quick_health_check_timeout", DEFAULT_BROWSER_QUICK_HEALTH_CHECK_TIMEOUT),
+            DEFAULT_BROWSER_QUICK_HEALTH_CHECK_TIMEOUT,
+            minimum=0.1,
+        )
 
         # Current fingerprint values (randomized on each session)
         self._current_user_agent: str = DEFAULT_USER_AGENT
         self._current_viewport: dict[str, int] = DEFAULT_VIEWPORT
         self._current_timezone: str = DEFAULT_TIMEZONE
+
+    @staticmethod
+    def _safe_bool(value: Any, default: bool) -> bool:
+        """Return a strict bool value or fallback to default."""
+        return value if isinstance(value, bool) else default
+
+    @staticmethod
+    def _safe_int(value: Any, default: int, minimum: int = 1) -> int:
+        """Return a validated int value or fallback to default."""
+        if isinstance(value, int) and not isinstance(value, bool) and value >= minimum:
+            return value
+        return default
+
+    @staticmethod
+    def _safe_float(value: Any, default: float, minimum: float = 0.0) -> float:
+        """Return a validated float value or fallback to default."""
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            coerced = float(value)
+            if coerced >= minimum:
+                return coerced
+        return default
+
+    @staticmethod
+    def _is_page_closed(page: Any | None) -> bool:
+        """Return True only when page is missing or explicitly reports closed."""
+        if page is None:
+            return True
+
+        is_closed = getattr(page, "is_closed", None)
+        if not callable(is_closed):
+            return False
+
+        try:
+            return is_closed() is True
+        except Exception:
+            return True
 
     @staticmethod
     def _is_crash_error(error: BaseException) -> bool:
@@ -343,9 +410,7 @@ class PlaywrightBrowser:
         # Circuit explicitly open with cooldown?
         if current_time < self._circuit_open_until:
             remaining = self._circuit_open_until - current_time
-            logger.warning(
-                f"Circuit breaker OPEN: too many crashes. Cooldown: {remaining:.1f}s remaining"
-            )
+            logger.warning(f"Circuit breaker OPEN: too many crashes. Cooldown: {remaining:.1f}s remaining")
             return False
 
         # Clean old crashes outside tracking window
@@ -355,11 +420,11 @@ class PlaywrightBrowser:
         # Check if threshold exceeded
         if len(self._crash_history) >= self._crash_threshold:
             # Open circuit for cooldown period
-            self._circuit_open_until = current_time + self.settings.browser_crash_cooldown_seconds
+            self._circuit_open_until = current_time + self._crash_cooldown_seconds
             logger.error(
                 f"Circuit breaker OPEN: {len(self._crash_history)} crashes in "
                 f"{self._crash_window_seconds}s window. Cooldown: "
-                f"{self.settings.browser_crash_cooldown_seconds}s"
+                f"{self._crash_cooldown_seconds}s"
             )
             return False
 
@@ -388,26 +453,28 @@ class PlaywrightBrowser:
         Returns:
             True if healthy, False if crashed/unhealthy
         """
-        if not self.settings.browser_quick_health_check_enabled:
+        if not self._quick_health_check_enabled:
             # Fast path: skip health check if disabled
             return self._connection_healthy
 
         try:
-            if not self.page or self.page.is_closed():
+            if self._is_page_closed(self.page):
                 logger.debug("Quick health check: page is None or closed")
                 return False
 
             # Fast evaluation with short timeout
+            evaluate_result = self.page.evaluate("() => true")
+            if not inspect.isawaitable(evaluate_result):
+                logger.debug("Quick health check skipped: page.evaluate is not awaitable")
+                return self._connection_healthy
             await asyncio.wait_for(
-                self.page.evaluate("() => true"),
-                timeout=self.settings.browser_quick_health_check_timeout,
+                evaluate_result,
+                timeout=self._quick_health_check_timeout,
             )
             return True
 
-        except asyncio.TimeoutError:
-            logger.warning(
-                f"Quick health check timed out after {self.settings.browser_quick_health_check_timeout}s"
-            )
+        except TimeoutError:
+            logger.warning(f"Quick health check timed out after {self._quick_health_check_timeout}s")
             self._connection_healthy = False
             return False
 
@@ -583,6 +650,7 @@ class PlaywrightBrowser:
         if not self.page:
             return None
 
+        cdp_session = None
         try:
             # Get CDP session
             cdp_session = await self.page.context.new_cdp_session(self.page)
@@ -608,8 +676,6 @@ class PlaywrightBrowser:
             else:
                 pressure_level = "low"
 
-            await cdp_session.detach()
-
             return {
                 "used_mb": round(js_heap_used, 2),
                 "total_mb": round(js_heap_total, 2),
@@ -620,6 +686,13 @@ class PlaywrightBrowser:
         except Exception as e:
             logger.debug(f"Memory pressure check failed: {e}")
             return None
+        finally:
+            # Always detach CDP session to prevent leaks
+            if cdp_session is not None:
+                try:
+                    await cdp_session.detach()
+                except Exception as e:
+                    logger.debug(f"Failed to detach CDP session: {e}")
 
     async def _force_window_position(
         self, page: Page, x: int = 0, y: int = 0, width: int = 1280, height: int = 1024
@@ -1387,8 +1460,6 @@ class PlaywrightBrowser:
                     f"Browser crashed, recovering... (attempt {attempt + 2}/{max_retries}, "
                     f"retrying in {retry_delay}s): {e}"
                 )
-                # TODO: Emit ProgressEvent when event emitter is available
-                # self._emit_progress(f"Browser crashed, recovering... (attempt {attempt + 2}/{max_retries})")
 
                 await asyncio.sleep(retry_delay)
 
@@ -1493,7 +1564,7 @@ class PlaywrightBrowser:
         """
         await self._ensure_browser()
 
-        if not self.page or self.page.is_closed():
+        if self._is_page_closed(self.page):
             if not self.context:
                 from app.domain.exceptions.browser import BrowserError, BrowserErrorCode
 
@@ -1509,7 +1580,7 @@ class PlaywrightBrowser:
             if pages:
                 # Reuse the first available page
                 for page in pages:
-                    if not page.is_closed():
+                    if not self._is_page_closed(page):
                         self.page = page
                         logger.info("Reused existing page in _ensure_page to avoid creating new window")
                         return
@@ -1524,7 +1595,7 @@ class PlaywrightBrowser:
             pages = self.context.pages
             if pages and len(pages) > 1:
                 rightmost_page = pages[-1]
-                if self.page != rightmost_page and not rightmost_page.is_closed():
+                if self.page != rightmost_page and not self._is_page_closed(rightmost_page):
                     self.page = rightmost_page
 
     async def _smart_scroll_for_lazy_content(self, max_scrolls: int = 3, scroll_delay: float = 0.4) -> None:
@@ -2272,8 +2343,11 @@ class PlaywrightBrowser:
                                 logger.debug("Failed to get title/URL from page after crash", exc_info=True)
 
                         return ToolResult(
-                            success=True,  # Mark as success with partial data
-                            message="Page navigated but browser crashed during extraction. Partial data available.",
+                            success=False,
+                            message=(
+                                "Browser crashed during extraction after partial navigation. "
+                                "Partial data is attached for recovery handling."
+                            ),
                             data=partial_data,
                         )
                     except Exception as partial_err:

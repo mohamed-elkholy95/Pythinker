@@ -59,6 +59,7 @@ async def _collect_events(generator):
 async def test_chat_timeout_path_emits_controlled_status_not_hang(monkeypatch):
     service = _build_service()
     service.CHAT_EVENT_TIMEOUT_SECONDS = 0.05
+    service.CHAT_EVENT_HARD_TIMEOUT_SECONDS = 0.15
 
     async def _hanging_chat(*_args, **_kwargs):
         await asyncio.sleep(3600)
@@ -87,6 +88,39 @@ async def test_chat_timeout_path_emits_controlled_status_not_hang(monkeypatch):
     assert len(events) == 1
     assert isinstance(events[0], ErrorEvent)
     assert events[0].error_type == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_chat_soft_timeout_does_not_abort_slow_stream(monkeypatch):
+    service = _build_service()
+    service.CHAT_EVENT_TIMEOUT_SECONDS = 0.05
+    service.CHAT_EVENT_HARD_TIMEOUT_SECONDS = 0.5
+
+    async def _slow_then_done_chat(*_args, **_kwargs):
+        await asyncio.sleep(0.12)
+        yield DoneEvent()
+
+    service._agent_domain_service = SimpleNamespace(chat=_slow_then_done_chat)
+
+    fake_connector_service = SimpleNamespace(get_user_mcp_configs=AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "app.application.services.connector_service.get_connector_service",
+        lambda: fake_connector_service,
+    )
+
+    events = await asyncio.wait_for(
+        _collect_events(
+            service.chat(
+                session_id="session-1",
+                user_id="user-1",
+                message="run a long operation and report back",
+            )
+        ),
+        timeout=1.0,
+    )
+
+    assert len(events) == 1
+    assert isinstance(events[0], DoneEvent)
 
 
 @pytest.mark.asyncio
@@ -285,8 +319,12 @@ async def test_chat_resumption_emits_idless_events_instead_of_skipping_forever(m
     service = _build_service()
 
     async def _domain_chat_idless(*_args, **_kwargs):
-        yield MessageEvent(role="assistant", message="quick response")
-        yield DoneEvent(title="Done", summary="Completed")
+        message_event = MessageEvent(role="assistant", message="quick response")
+        message_event.id = ""
+        done_event = DoneEvent(title="Done", summary="Completed")
+        done_event.id = ""
+        yield message_event
+        yield done_event
 
     service._agent_domain_service = SimpleNamespace(chat=_domain_chat_idless)
 
@@ -305,7 +343,58 @@ async def test_chat_resumption_emits_idless_events_instead_of_skipping_forever(m
         )
     )
 
-    assert len(events) == 2
-    assert isinstance(events[0], MessageEvent)
-    assert events[0].message == "quick response"
-    assert isinstance(events[1], DoneEvent)
+    assert len(events) == 3
+    assert isinstance(events[0], ErrorEvent)
+    assert events[0].error_code == "stream_gap_detected"
+    assert isinstance(events[1], MessageEvent)
+    assert events[1].message == "quick response"
+    assert isinstance(events[2], DoneEvent)
+
+
+@pytest.mark.asyncio
+async def test_chat_resumption_disables_skip_mode_when_cursor_is_stale(monkeypatch):
+    service = _build_service()
+    service.CHAT_RESUME_MAX_SKIPPED_EVENTS = 2
+    service.CHAT_RESUME_MAX_SKIP_SECONDS = 60.0
+
+    async def _domain_chat_with_newer_events(*_args, **_kwargs):
+        first = MessageEvent(role="assistant", message="first event")
+        first.id = "evt-new-1"
+        second = MessageEvent(role="assistant", message="second event")
+        second.id = "evt-new-2"
+        third = MessageEvent(role="assistant", message="third event")
+        third.id = "evt-new-3"
+        done = DoneEvent(title="Done", summary="Completed")
+        done.id = "evt-new-4"
+        yield first
+        yield second
+        yield third
+        yield done
+
+    service._agent_domain_service = SimpleNamespace(chat=_domain_chat_with_newer_events)
+
+    fake_connector_service = SimpleNamespace(get_user_mcp_configs=AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "app.application.services.connector_service.get_connector_service",
+        lambda: fake_connector_service,
+    )
+
+    events = await _collect_events(
+        service.chat(
+            session_id="session-1",
+            user_id="user-1",
+            message="continue with latest events",
+            event_id="stale-resume-cursor",
+        )
+    )
+
+    # First event is skipped while searching for stale cursor. Once threshold is hit,
+    # service emits a gap warning and resumes from the current event.
+    assert len(events) == 4
+    assert isinstance(events[0], ErrorEvent)
+    assert events[0].error_code == "stream_gap_detected"
+    assert isinstance(events[1], MessageEvent)
+    assert events[1].message == "second event"
+    assert isinstance(events[2], MessageEvent)
+    assert events[2].message == "third event"
+    assert isinstance(events[3], DoneEvent)

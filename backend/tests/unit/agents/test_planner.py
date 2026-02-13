@@ -43,6 +43,7 @@ class TestTaskComplexity:
             ("Update the user profile page", "medium"),
             ("Add error handling to the login flow", "medium"),
             # Complex tasks
+            ("Start a research on AI agents", "complex"),
             ("Research AI trends, analyze market data, and create investment report", "complex"),
             ("Investigate the performance issues and compare different optimization strategies", "complex"),
             (
@@ -106,10 +107,10 @@ class TestStepLimits:
         assert max_steps == 4
 
     def test_complex_task_limits(self):
-        """Complex tasks should have 3-6 step limits."""
+        """Complex tasks should have 3-8 step limits."""
         min_steps, max_steps = get_step_limits("complex")
         assert min_steps == 3
-        assert max_steps == 6
+        assert max_steps == 8
 
     def test_unknown_complexity_uses_defaults(self):
         """Unknown complexity should use default limits."""
@@ -562,3 +563,56 @@ class TestPlanUpdate:
         # Should still have steps (safeguard prevents premature completion)
         # Either LLM empty response is handled, or original pending steps kept
         assert len(updated_plan.steps) >= 1
+
+    @pytest.mark.asyncio
+    async def test_update_plan_empty_llm_response_keeps_last_pending_step(self, planner, plan_factory):
+        """Safeguard should preserve work even when only one pending step remains."""
+        plan = plan_factory(
+            steps=[
+                {"id": "1", "description": "Step 1", "status": ExecutionStatus.COMPLETED},
+                {"id": "2", "description": "Step 2", "status": ExecutionStatus.PENDING},
+            ]
+        )
+        plan.steps[0].status = ExecutionStatus.COMPLETED
+        plan.steps[0].success = True
+        completed_step = plan.steps[0]
+
+        planner.llm.ask_structured = AsyncMock(return_value=MagicMock(steps=[]))
+
+        updated_plan = None
+        async for event in planner.update_plan(plan, completed_step):
+            if hasattr(event, "plan"):
+                updated_plan = event.plan
+                break
+
+        assert updated_plan is not None
+        assert any(not step.is_done() for step in updated_plan.steps)
+        assert any(step.description == "Step 2" for step in updated_plan.steps)
+
+    @pytest.mark.asyncio
+    async def test_update_plan_research_tasks_allow_expansion_up_to_research_cap(self, planner, plan_factory):
+        """Research updates should support larger plans than default complex cap."""
+        plan = plan_factory(
+            goal="Research AI agent orchestration patterns and compile benchmarked report",
+            steps=[
+                {"id": "1", "description": "Initial research", "status": ExecutionStatus.COMPLETED},
+                {"id": "2", "description": "Pending follow-up", "status": ExecutionStatus.PENDING},
+            ],
+        )
+        plan.message = "Research AI agent orchestration patterns and compile benchmarked report"
+        plan.steps[0].status = ExecutionStatus.COMPLETED
+        plan.steps[0].success = True
+        completed_step = plan.steps[0]
+
+        planner.llm.ask_structured = AsyncMock(
+            return_value=MagicMock(steps=[MagicMock(description=f"Research step {i}") for i in range(1, 13)])
+        )
+
+        updated_plan = None
+        async for event in planner.update_plan(plan, completed_step):
+            if hasattr(event, "plan"):
+                updated_plan = event.plan
+                break
+
+        assert updated_plan is not None
+        assert len(updated_plan.steps) == 10
