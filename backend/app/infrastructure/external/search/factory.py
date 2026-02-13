@@ -164,6 +164,8 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
         ]
         if fallback_keys:
             kwargs["fallback_api_keys"] = fallback_keys
+        if redis_client:
+            kwargs["redis_client"] = redis_client
         return kwargs
 
     if provider == "serper":
@@ -247,6 +249,7 @@ def get_search_engine_from_factory() -> SearchEngine | None:
     redis_client = None
     try:
         from app.infrastructure.storage.redis import get_redis
+
         redis_client = get_redis()
     except Exception as e:
         logger.warning(f"Failed to get Redis client for search engine key pool: {e}")
