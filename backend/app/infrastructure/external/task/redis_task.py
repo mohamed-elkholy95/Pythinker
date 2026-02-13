@@ -63,6 +63,13 @@ class RedisStreamTask(Task):
         Returns:
             bool: True if the task is cancelled, False otherwise
         """
+        request_cancellation = getattr(self._runner, "request_cancellation", None)
+        if callable(request_cancellation):
+            try:
+                request_cancellation()
+            except Exception as exc:
+                logger.debug("Failed to signal cooperative cancellation for task %s: %s", self._id, exc)
+
         if not self.done:
             self._execution_task.cancel()
             logger.info(f"Task {self._id} cancelled")
@@ -130,10 +137,22 @@ class RedisStreamTask(Task):
         self._cleanup_registry()
 
     def _cleanup_registry(self) -> None:
-        """Remove this task from the registry."""
+        """Remove this task from the registry and cleanup Redis streams."""
         if self._id in RedisStreamTask._task_registry:
             del RedisStreamTask._task_registry[self._id]
             logger.info(f"Task {self._id} removed from registry")
+
+        # Schedule Redis stream cleanup in background
+        asyncio.create_task(self._cleanup_redis_streams())
+
+    async def _cleanup_redis_streams(self) -> None:
+        """Cleanup Redis streams for this task to prevent memory leak."""
+        try:
+            await self._input_stream.delete_stream()
+            await self._output_stream.delete_stream()
+            logger.info(f"Cleaned up Redis streams for task {self._id}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup Redis streams for task {self._id}: {e}")
 
     async def _execute_task(self):
         """Execute the task using the TaskRunner."""
@@ -169,16 +188,24 @@ class RedisStreamTask(Task):
 
     @classmethod
     async def destroy(cls) -> None:
-        """Destroy all task instances."""
+        """Destroy all task instances and cleanup their Redis streams."""
         # Copy keys to list to avoid "dictionary changed size during iteration"
         task_ids = list(cls._task_registry.keys())
+        cleanup_tasks = []
         for task_id in task_ids:
             task = cls._task_registry.get(task_id)
             if task:
                 task.cancel()
                 if task._runner:
                     await task._runner.destroy()
+                # Schedule Redis cleanup (non-blocking)
+                cleanup_tasks.append(task._cleanup_redis_streams())
+
         cls._task_registry.clear()
+
+        # Await all cleanup tasks concurrently
+        if cleanup_tasks:
+            await asyncio.gather(*cleanup_tasks, return_exceptions=True)
 
     def __repr__(self) -> str:
         """String representation of the task."""

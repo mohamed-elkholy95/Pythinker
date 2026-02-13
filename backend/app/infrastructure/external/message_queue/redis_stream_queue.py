@@ -1,10 +1,14 @@
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
+from app.core.config import get_settings
 from app.domain.external.message_queue import MessageQueue
 from app.infrastructure.storage.redis import get_redis
 
@@ -18,7 +22,13 @@ class RedisStreamQueue(MessageQueue):
         self._stream_name = stream_name
         self._redis = get_redis()
         self._lock_expire_seconds = 10  # Lock expiration time
+        self._lock_renewal_interval_seconds = 5  # Renew lock every 5s during long ops
         self._invalid_stream_id_warning_emitted = False
+        try:
+            settings = get_settings()
+            self._stream_max_len = max(0, settings.redis_stream_max_len)
+        except Exception:
+            self._stream_max_len = 0
 
     async def _ensure_initialized(self) -> None:
         """Ensure Redis client is initialized before use."""
@@ -83,6 +93,37 @@ class RedisStreamQueue(MessageQueue):
         except Exception:
             return False
 
+    async def _renew_lock(self, lock_key: str, lock_value: str) -> bool:
+        """Renew an existing lock's expiration time.
+
+        This prevents lock expiration during long-running operations.
+        Must only be called by the lock owner.
+
+        Args:
+            lock_key: Lock key name
+            lock_value: Lock value for ownership verification
+
+        Returns:
+            bool: True if lock renewed successfully, False otherwise
+        """
+        await self._ensure_initialized()
+        # Lua script for atomic lock renewal (only if we own it)
+        renew_script = """
+        if redis.call("GET", KEYS[1]) == ARGV[1] then
+            return redis.call("EXPIRE", KEYS[1], ARGV[2])
+        else
+            return 0
+        end
+        """
+
+        try:
+            script = self._redis.client.register_script(renew_script)
+            result = await script(keys=[lock_key], args=[lock_value, self._lock_expire_seconds])
+            return result == 1
+        except Exception as e:
+            logger.warning(f"Failed to renew lock {lock_key}: {e}")
+            return False
+
     async def put(self, message: Any) -> str:
         """Add a message to the stream
 
@@ -94,6 +135,13 @@ class RedisStreamQueue(MessageQueue):
         """
         await self._ensure_initialized()
         logger.debug(f"Putting message into stream ({self._stream_name}): {message}")
+        if self._stream_max_len > 0:
+            return await self._redis.client.xadd(
+                self._stream_name,
+                {"data": message},
+                maxlen=self._stream_max_len,
+                approximate=True,
+            )
         return await self._redis.client.xadd(self._stream_name, {"data": message})
 
     # Maximum block time to stay below Redis socket timeout (30s default)
@@ -148,7 +196,7 @@ class RedisStreamQueue(MessageQueue):
                 count=1,
                 block=effective_block_ms,
             )
-        except TimeoutError:
+        except (TimeoutError, RedisTimeoutError):
             logger.debug(f"xread timed out for stream {self._stream_name}")
             return None, None
         except Exception as e:
@@ -249,8 +297,25 @@ class RedisStreamQueue(MessageQueue):
         except Exception:
             return False
 
+    async def delete_stream(self) -> bool:
+        """Delete the entire Redis stream to free memory
+
+        Returns:
+            bool: True if stream was deleted successfully, False otherwise
+        """
+        await self._ensure_initialized()
+        try:
+            await self._redis.client.delete(self._stream_name)
+            logger.info(f"Deleted Redis stream: {self._stream_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to delete Redis stream {self._stream_name}: {e}")
+            return False
+
     async def pop(self) -> tuple[str, Any]:
-        """Get and remove the first message from the stream using distributed lock
+        """Get and remove the first message from the stream using distributed lock.
+
+        Uses lock renewal to prevent lock expiration during long-running operations.
 
         Returns:
             Tuple[str, Any]: (Message ID, Message content), returns (None, None) if stream is empty
@@ -264,7 +329,29 @@ class RedisStreamQueue(MessageQueue):
         if not lock_value:
             return None, None
 
+        # Start background lock renewal task to prevent expiration during long ops
+        renewal_task: asyncio.Task[None] | None = None
+        stop_renewal = asyncio.Event()
+
+        async def _renew_lock_periodically() -> None:
+            """Background task to renew lock periodically."""
+            try:
+                while not stop_renewal.is_set():
+                    await asyncio.sleep(self._lock_renewal_interval_seconds)
+                    if not stop_renewal.is_set():
+                        renewed = await self._renew_lock(lock_key, lock_value)
+                        if not renewed:
+                            logger.warning(f"Lock renewal failed for {lock_key}, another process may have acquired it")
+                            break
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning(f"Lock renewal task error for {lock_key}: {e}")
+
         try:
+            # Start renewal task
+            renewal_task = asyncio.create_task(_renew_lock_periodically())
+
             # Get the first message from stream
             messages = await self._redis.client.xrange(self._stream_name, "-", "+", count=1)
 
@@ -284,5 +371,12 @@ class RedisStreamQueue(MessageQueue):
                 return None, None
 
         finally:
+            # Stop renewal task first
+            stop_renewal.set()
+            if renewal_task:
+                renewal_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await renewal_task
+
             # Always release the lock
             await self._release_lock(lock_key, lock_value)
