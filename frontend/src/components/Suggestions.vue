@@ -74,7 +74,7 @@ const getSuggestionIcon = (index: number) => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 38px;
+  min-height: 46px;
   width: calc(100% + 24px);
   margin: 0 -12px;
   padding: 9px 12px;
@@ -96,6 +96,10 @@ const getSuggestionIcon = (index: number) => {
   bottom: 0;
   height: 1px;
   background: var(--border-main);
+}
+
+.suggestion-item:last-child::after {
+  display: none;
 }
 
 .suggestion-item:hover::after {
@@ -123,9 +127,10 @@ const getSuggestionIcon = (index: number) => {
   line-height: 20px;
   color: var(--text-secondary);
   font-weight: 400;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .suggestion-arrow {

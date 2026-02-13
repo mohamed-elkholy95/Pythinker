@@ -14,10 +14,15 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from app.core.config import get_settings
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.agents.security_critic import SecurityCritic
+from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
 from app.domain.services.tools.base import BaseTool, tool
+from app.infrastructure.observability.prometheus_metrics import (
+    record_security_gate_block,
+    record_security_gate_override,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +161,7 @@ class CodeExecutorTool(BaseTool):
         self._workspace_base = "/workspace"
         self._workspace_path = f"{self._workspace_base}/{self.session_id}"
         self._initialized = False
-        self.security_critic = security_critic
+        self.security_critic = security_critic or SecurityCritic()
 
     async def _ensure_workspace(self) -> None:
         """Ensure workspace directory exists."""
@@ -339,10 +344,17 @@ class CodeExecutorTool(BaseTool):
                 success=False, message=f"Unsupported language: {language}. Supported: python, javascript, bash, sql"
             )
 
-        # Security review before execution
-        if self.security_critic:
-            review = await self.security_critic.review_code(code, language)
-            if not review.safe:
+        # Mandatory security gate before execution
+        review = await self.security_critic.review_code(code, language)
+        if not review.safe:
+            allow_medium = get_settings().security_critic_allow_medium_risk
+            if review.risk_level == RiskLevel.MEDIUM and allow_medium:
+                record_security_gate_override(override_reason="medium_risk_dev")
+            else:
+                record_security_gate_block(
+                    risk_level=review.risk_level.value,
+                    pattern_type="static" if review.patterns_detected else "llm",
+                )
                 issues_str = ", ".join(review.issues) if review.issues else "Security review failed"
                 return ToolResult(
                     success=False,

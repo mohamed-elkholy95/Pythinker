@@ -1,0 +1,5 @@
+/home/ubuntu/.nvm/versions/node/v22.13.0/lib
+├── corepack@0.30.0
+├── npm@10.9.2
+└── pnpm@10.29.2
+

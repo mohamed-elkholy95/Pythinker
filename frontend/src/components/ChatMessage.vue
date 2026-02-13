@@ -21,13 +21,19 @@
         </div>
       </div>
       <div class="user-message-actions flex items-center justify-end gap-1 visible sm:invisible sm:group-hover:visible">
+        <span
+          v-if="message.type === 'user' && messageContent?.agentModeUpgrade"
+          class="shrink-0 rounded-md bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:text-green-300"
+        >
+          Agent mode
+        </span>
         <button
           @click="handleCopyUserMessage"
-          class="p-1 rounded-md text-[var(--icon-tertiary)] hover:bg-[var(--fill-tsp-gray-main)] hover:text-[var(--icon-secondary)]"
+          class="p-2 rounded-lg text-[var(--icon-secondary)] hover:bg-[var(--fill-tsp-gray-main)] hover:text-[var(--icon-primary)] border border-transparent hover:border-[var(--border-main)] transition-colors"
           :title="copied ? 'Copied!' : 'Copy message'"
         >
-          <Check v-if="copied" :size="13" class="text-green-500" />
-          <Copy v-else :size="13" />
+          <Check v-if="copied" :size="16" class="text-green-500" />
+          <Copy v-else :size="16" />
         </button>
         <div
           class="transition text-[11px] text-[var(--text-tertiary)]"

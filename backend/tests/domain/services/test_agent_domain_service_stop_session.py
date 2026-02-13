@@ -1,6 +1,7 @@
 """Tests for AgentDomainService.stop_session teardown behavior."""
 
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -53,8 +54,10 @@ async def test_stop_session_destroys_sandbox_and_clears_session_references():
     assert session_repo.save.await_count == 2
 
 
+@patch("app.core.config.get_settings")
 @pytest.mark.asyncio
-async def test_stop_session_skips_destroy_for_unowned_sandbox():
+async def test_stop_session_skips_destroy_for_unowned_sandbox(mock_get_settings: MagicMock):
+    mock_get_settings.return_value = SimpleNamespace(sandbox_lifecycle_mode="static")
     session = Session(
         id="session-id",
         user_id="user-id",
@@ -177,3 +180,40 @@ async def test_stop_session_is_idempotent_when_session_missing():
     await service.stop_session("missing-session-id")
 
     session_repo.find_by_id.assert_awaited_once_with("missing-session-id")
+
+
+@pytest.mark.asyncio
+async def test_stop_session_double_stop_early_exits_second_call():
+    """Second stop_session on already-stopped session must early-exit without re-destroying."""
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.COMPLETED,
+        sandbox_id=None,
+        sandbox_owned=False,
+    )
+    session_repo = AsyncMock()
+    session_repo.find_by_id = AsyncMock(return_value=session)
+    session_repo.save = AsyncMock()
+
+    sandbox_cls = MagicMock()
+    sandbox_cls.get = AsyncMock()
+
+    service = AgentDomainService(
+        agent_repository=AsyncMock(),
+        session_repository=session_repo,
+        llm=MagicMock(),
+        sandbox_cls=sandbox_cls,
+        task_cls=MagicMock(),
+        json_parser=MagicMock(),
+        file_storage=AsyncMock(),
+        mcp_repository=AsyncMock(),
+        search_engine=AsyncMock(),
+    )
+
+    await service.stop_session("session-id")
+    await service.stop_session("session-id")
+
+    sandbox_cls.get.assert_not_awaited()
+    session_repo.save.assert_not_awaited()

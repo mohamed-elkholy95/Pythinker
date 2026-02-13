@@ -523,6 +523,12 @@ class AgentDomainService:
         if not target_session:
             return
 
+        # Idempotent early-exit: already stopped (no sandbox, terminal status)
+        terminal_statuses = (SessionStatus.COMPLETED, SessionStatus.FAILED)
+        if not target_session.sandbox_id and target_session.status in terminal_statuses:
+            self._task_creation_locks.pop(session_id, None)
+            return
+
         task = await self._get_task(target_session)
         if task:
             task.cancel()

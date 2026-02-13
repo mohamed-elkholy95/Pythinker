@@ -4,6 +4,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+from app.core.retry import http_retry
 from app.domain.models.connector import (
     Connector,
     ConnectorStatus,
@@ -180,6 +181,7 @@ class ConnectorService:
             return False
         return await self._user_connector_repo.delete(user_connector_id)
 
+    @http_retry  # 3 attempts, 1-15s exponential backoff for transient HTTP failures
     async def test_connection(self, user_id: str, user_connector_id: str) -> dict[str, bool | str | float | None]:
         """Test a user connector's connection. Returns {ok, message, latency_ms}."""
         uc = await self._user_connector_repo.get_by_id(user_connector_id)
@@ -189,41 +191,47 @@ class ConnectorService:
         start = datetime.now(UTC)
         try:
             if uc.connector_type == ConnectorType.CUSTOM_API and uc.api_config:
-                import httpx
+                from app.infrastructure.external.http_pool import HTTPClientPool
 
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    headers = dict(uc.api_config.headers)
-                    if uc.api_config.auth_type.value == "bearer" and uc.api_config.api_key:
-                        headers["Authorization"] = f"Bearer {uc.api_config.api_key}"
-                    elif uc.api_config.auth_type.value == "api_key" and uc.api_config.api_key:
-                        headers["X-API-Key"] = uc.api_config.api_key
-                    resp = await client.get(uc.api_config.base_url, headers=headers)
-                    latency = (datetime.now(UTC) - start).total_seconds() * 1000
-                    if resp.status_code < 500:
-                        uc.status = ConnectorStatus.CONNECTED
-                        uc.error_message = None
-                        await self._user_connector_repo.update(user_connector_id, uc)
-                        return {"ok": True, "message": f"HTTP {resp.status_code}", "latency_ms": round(latency, 1)}
-                    uc.status = ConnectorStatus.ERROR
-                    uc.error_message = f"HTTP {resp.status_code}"
+                client = await HTTPClientPool.get_client(
+                    name="connector-test",
+                    timeout=10.0,
+                )
+                headers = dict(uc.api_config.headers)
+                if uc.api_config.auth_type.value == "bearer" and uc.api_config.api_key:
+                    headers["Authorization"] = f"Bearer {uc.api_config.api_key}"
+                elif uc.api_config.auth_type.value == "api_key" and uc.api_config.api_key:
+                    headers["X-API-Key"] = uc.api_config.api_key
+                resp = await client.get(uc.api_config.base_url, headers=headers)
+                latency = (datetime.now(UTC) - start).total_seconds() * 1000
+                if resp.status_code < 500:
+                    uc.status = ConnectorStatus.CONNECTED
+                    uc.error_message = None
                     await self._user_connector_repo.update(user_connector_id, uc)
-                    return {"ok": False, "message": f"HTTP {resp.status_code}", "latency_ms": round(latency, 1)}
+                    return {"ok": True, "message": f"HTTP {resp.status_code}", "latency_ms": round(latency, 1)}
+                uc.status = ConnectorStatus.ERROR
+                uc.error_message = f"HTTP {resp.status_code}"
+                await self._user_connector_repo.update(user_connector_id, uc)
+                return {"ok": False, "message": f"HTTP {resp.status_code}", "latency_ms": round(latency, 1)}
 
-            elif uc.connector_type == ConnectorType.CUSTOM_MCP and uc.mcp_config:
+            if uc.connector_type == ConnectorType.CUSTOM_MCP and uc.mcp_config:
                 if uc.mcp_config.transport in ("sse", "streamable-http") and uc.mcp_config.url:
-                    import httpx
+                    from app.infrastructure.external.http_pool import HTTPClientPool
 
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        resp = await client.get(uc.mcp_config.url, headers=dict(uc.mcp_config.headers))
-                        latency = (datetime.now(UTC) - start).total_seconds() * 1000
-                        uc.status = ConnectorStatus.CONNECTED
-                        uc.error_message = None
-                        await self._user_connector_repo.update(user_connector_id, uc)
-                        return {
-                            "ok": True,
-                            "message": f"MCP server reachable (HTTP {resp.status_code})",
-                            "latency_ms": round(latency, 1),
-                        }
+                    client = await HTTPClientPool.get_client(
+                        name="connector-mcp-test",
+                        timeout=10.0,
+                    )
+                    resp = await client.get(uc.mcp_config.url, headers=dict(uc.mcp_config.headers))
+                    latency = (datetime.now(UTC) - start).total_seconds() * 1000
+                    uc.status = ConnectorStatus.CONNECTED
+                    uc.error_message = None
+                    await self._user_connector_repo.update(user_connector_id, uc)
+                    return {
+                        "ok": True,
+                        "message": f"MCP server reachable (HTTP {resp.status_code})",
+                        "latency_ms": round(latency, 1),
+                    }
                 # stdio transport — just mark as connected (can't easily test)
                 uc.status = ConnectorStatus.CONNECTED
                 uc.error_message = None

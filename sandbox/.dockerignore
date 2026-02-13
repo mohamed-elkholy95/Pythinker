@@ -1,0 +1,34 @@
+# Build artifacts and caches
+__pycache__
+.pytest_cache
+.ruff_cache
+*.pyc
+.venv
+node_modules
+
+# Reports and diagnostics (not needed in image)
+*.md
+!README.md
+claude_*.md
+*_report.md
+*_plan.md
+environment_*.md
+diagnostic_*.md
+node_diagnostic_*.json
+numpy_test.py
+demonstrate_error.py
+mac_specs.py
+seo_*.py
+resource/
+
+# Tests (run in CI, not needed in runtime)
+tests/
+pytest.ini
+tests/requirements.txt
+
+# Scripts not needed at runtime
+scripts/generate_sbom.sh
+scripts/collect_inventory.sh
+scripts/start-postgres.sh
+scripts/test_*.py
+scripts/example_*.json

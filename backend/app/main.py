@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
@@ -11,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.application.services.maintenance_service import MaintenanceService
 from app.core.config import get_settings
 from app.core.sandbox_pool import start_sandbox_pool, stop_sandbox_pool
 from app.infrastructure.models.canvas_documents import (
@@ -50,6 +53,27 @@ logger = get_logger(__name__)
 
 # Load configuration
 settings = get_settings()
+
+
+async def _run_periodic_session_cleanup(
+    maintenance_service: MaintenanceService,
+    interval_seconds: float = 300.0,
+) -> None:
+    """Background task: clean up stale sessions every 5 minutes."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            result = await maintenance_service.cleanup_stale_running_sessions(
+                stale_threshold_minutes=30,
+                dry_run=False,
+            )
+            if result.get("sessions_cleaned", 0) > 0:
+                logger.info(
+                    "Periodic cleanup: %d stale sessions cleaned",
+                    result["sessions_cleaned"],
+                )
+        except Exception as e:
+            logger.warning("Periodic session cleanup failed: %s", e)
 
 
 # ============================================================================
@@ -230,6 +254,7 @@ class RateLimitMiddleware:
 
         rate_limit_exceeded = False
         using_fallback = False
+        retry_after_seconds = 60  # Default per FastAPI-Limiter convention (Context7)
 
         try:
             redis = get_redis().client
@@ -244,6 +269,9 @@ class RateLimitMiddleware:
             # Check if rate limit exceeded
             if current > max_requests:
                 rate_limit_exceeded = True
+                # Accurate Retry-After from Redis TTL (Context7: FastAPI-Limiter best practice)
+                ttl = await redis.ttl(key)
+                retry_after_seconds = max(1, ttl) if ttl > 0 else 60
 
         except Exception as e:
             # SECURITY FIX: Fall back to in-memory rate limiting instead of allowing all requests
@@ -253,6 +281,10 @@ class RateLimitMiddleware:
             is_allowed, current = self._fallback_rate_limit(key, max_requests)
             if not is_allowed:
                 rate_limit_exceeded = True
+                # In-memory: estimate remaining from window
+                if key in self._fallback_storage:
+                    _, window_start = self._fallback_storage[key]
+                    retry_after_seconds = max(1, int(self._fallback_window_seconds - (time.time() - window_start)))
 
         if rate_limit_exceeded:
             logger.warning(
@@ -262,9 +294,13 @@ class RateLimitMiddleware:
                 status_code=429,
                 content={
                     "success": False,
-                    "error": {"code": "RATE_LIMIT_EXCEEDED", "message": "Too many requests. Please try again later."},
+                    "error": {
+                        "code": "RATE_LIMIT_EXCEEDED",
+                        "message": f"Too many requests. Retry after {retry_after_seconds} seconds.",
+                        "retry_after": retry_after_seconds,
+                    },
                 },
-                headers={"Retry-After": "60"},
+                headers={"Retry-After": str(retry_after_seconds)},
             )
             await response(scope, receive, send)
             return
@@ -386,6 +422,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Failed to seed connectors (non-critical): {e}")
 
         # Cleanup stale running sessions from previous crashes/restarts
+        periodic_cleanup_task = None
         try:
             from app.application.services.maintenance_service import MaintenanceService
 
@@ -397,6 +434,11 @@ async def lifespan(app: FastAPI):
             )
             if cleanup_result["sessions_cleaned"] > 0:
                 logger.info(f"Cleaned up {cleanup_result['sessions_cleaned']} stale sessions from previous run")
+
+            periodic_cleanup_task = asyncio.create_task(
+                _run_periodic_session_cleanup(maintenance_service),
+            )
+            logger.info("Periodic session cleanup background task started")
         except Exception as e:
             logger.warning(f"Stale session cleanup failed (non-critical): {e}")
 
@@ -572,6 +614,12 @@ async def lifespan(app: FastAPI):
                 reconciliation_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await reconciliation_task
+
+            # Cancel periodic session cleanup task
+            if periodic_cleanup_task is not None:
+                periodic_cleanup_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await periodic_cleanup_task
 
             # Cancel memory cleanup task
             if memory_cleanup_task is not None:

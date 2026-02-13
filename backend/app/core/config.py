@@ -118,14 +118,16 @@ class Settings(BaseSettings):
     sandbox_address: str | None = None
     sandbox_image: str | None = None
     sandbox_name_prefix: str | None = None
-    sandbox_ttl_minutes: int | None = 30
+    sandbox_ttl_minutes: int | None = 60  # Extended session: 60 min for long-running tasks
     sandbox_network: str | None = None  # Docker network bridge name
     sandbox_chrome_args: str | None = ""
     sandbox_https_proxy: str | None = None
     sandbox_http_proxy: str | None = None
     sandbox_no_proxy: str | None = None
     sandbox_seccomp_profile: str | None = None
-    sandbox_shm_size: str | None = "1g"  # Chrome headless needs 512MB-1GB (reduced from 2g)
+    sandbox_seccomp_profile_mode: str = "compat"  # compat | hardened; default compat (Phase A)
+    security_critic_allow_medium_risk: bool = False  # Allow MEDIUM risk in dev; default block
+    sandbox_shm_size: str | None = "2g"  # Playwright/Selenium: 2GB prevents Chrome /dev/shm OOM (Context7)
     sandbox_mem_limit: str | None = "4g"  # Increased from 3g to reduce OOM kills (Priority 3)
     sandbox_cpu_limit: float | None = 1.5  # 2 containers x 1.5 CPU = 3 cores, leaves room for services
     sandbox_pids_limit: int | None = 300  # Sufficient for Chrome + Node + Python + supervisor
@@ -447,6 +449,21 @@ class Settings(BaseSettings):
     # Adaptive Verbosity + Clarification (2026-02-09 plan)
     # When True: run policy engine, log proposed mode/clarification, but skip clarification gate and use standard output
     feature_adaptive_verbosity_shadow: bool = False
+
+    # --- Agent Robustness Feature Flags (2026-02-13 plan) ---
+    # Phase 0: Wire OutputGuardrails into PlanActFlow SUMMARIZING
+    enable_output_guardrails_in_flow: bool = False
+    # Phase 1: Extract RequestContract at ingress
+    enable_request_contract: bool = False
+    # Phase 2: Use structured Step fields instead of free-form
+    enable_structured_step_model: bool = False
+    # Phase 3: Entity/relevance fidelity in delivery gate
+    enable_delivery_fidelity_v2: bool = False
+    delivery_fidelity_mode: str = "shadow"  # "shadow" | "warn" | "enforce"
+    # Phase 4: Entity fidelity in search queries
+    enable_search_fidelity_guardrail: bool = False
+    # Phase 5: Contradictory prompt detection
+    enable_contradiction_clarification: bool = False
 
     # Chart Generation (Plotly Migration Phase 4)
     feature_plotly_charts_enabled: bool = True  # Use Plotly charts instead of SVG (Phase 4)

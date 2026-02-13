@@ -56,6 +56,16 @@ The main monitoring dashboard is auto-provisioned at:
 
 ## Available Metrics
 
+### Security Gate Metrics (Task 7)
+
+```promql
+# Security gate blocks (CRITICAL/HIGH/MEDIUM risk)
+pythinker_security_gate_blocks_total{risk_level="critical|high|medium", pattern_type="static|llm"}
+
+# Security gate overrides (MEDIUM allowed via SECURITY_CRITIC_ALLOW_MEDIUM_RISK)
+pythinker_security_gate_overrides_total{override_reason="medium_risk_dev"}
+```
+
 ### Error Metrics
 
 ```promql

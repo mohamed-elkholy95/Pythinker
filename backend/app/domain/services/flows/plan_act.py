@@ -38,6 +38,7 @@ from app.domain.models.event import (
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Step
+from app.domain.models.request_contract import RequestContract
 from app.domain.models.session import SessionStatus
 from app.domain.models.state_model import AgentStatus, StateTransitionError, validate_transition
 from app.domain.repositories.agent_repository import AgentRepository
@@ -62,6 +63,7 @@ from app.domain.services.flows.prompt_quick_validator import (
     SimilarityMatcher,
     SpellCorrectionProvider,
 )
+from app.domain.services.flows.request_contract_extractor import extract as extract_request_contract
 from app.domain.services.flows.step_failure import StepFailureHandler
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
@@ -80,6 +82,7 @@ except ImportError:
 from app.core.config import get_settings
 from app.domain.external.observability import get_metrics, get_tracer
 from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
+from app.domain.services.agents.delivery_fidelity import DeliveryFidelityChecker
 from app.domain.services.agents.error_handler import ErrorContext, ErrorHandler, ErrorType
 
 # Import error integration bridge for coordinated health assessment
@@ -87,7 +90,7 @@ from app.domain.services.agents.error_integration import (
     AgentHealthLevel,
     ErrorIntegrationBridge,
 )
-from app.domain.services.agents.guardrails import InputGuardrails
+from app.domain.services.agents.guardrails import InputGuardrails, OutputGuardrails
 
 # Import memory management for Phase 3 proactive compaction
 from app.domain.services.agents.memory_manager import (
@@ -121,6 +124,14 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.skill_creator import get_skill_creator_tools
 from app.domain.services.tools.skill_invoke import create_skill_invoke_tool
 from app.domain.services.validation.plan_validator import PlanValidator
+from app.infrastructure.observability.prometheus_metrics import (
+    delivery_fidelity_blocks_total,
+    entity_drift_detected_total,
+    guardrail_latency_seconds,
+    guardrail_tripwire_total,
+    output_relevance_failures_total,
+    workflow_phase_duration,
+)
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -446,6 +457,9 @@ class PlanActFlow(BaseFlow):
         self._response_policy_engine = ResponsePolicyEngine()
         self._response_policy: ResponsePolicy | None = None
         self._task_assessment: TaskAssessment | None = None
+
+        # Phase 1: Request contract (extracted at ingress when enable_request_contract)
+        self._request_contract: RequestContract | None = None
 
         # Error Integration Bridge for coordinated health assessment
         self._error_bridge = ErrorIntegrationBridge(
@@ -1632,7 +1646,19 @@ class PlanActFlow(BaseFlow):
     async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:
         """Internal run method with tracing."""
         original_message = message.message
-        validated_message = self._prompt_quick_validator.validate(original_message)
+        settings = get_settings()
+
+        # Phase 1: Extract RequestContract at ingress (before validation)
+        if settings.enable_request_contract:
+            self._request_contract = extract_request_contract(original_message)
+            logger.debug(
+                "RequestContract extracted: entities=%s, versions=%s",
+                self._request_contract.locked_entities,
+                self._request_contract.locked_versions,
+            )
+
+        locked_entities = self._request_contract.locked_entities if self._request_contract else None
+        validated_message = self._prompt_quick_validator.validate(original_message, locked_entities=locked_entities)
         effective_message = message
         if validated_message != original_message:
             logger.info(
@@ -2351,6 +2377,10 @@ class PlanActFlow(BaseFlow):
                                 )
                                 logger.info(f"Using specialized executor for step {step.id}")
 
+                            # Phase 1/4: Pass request contract for search fidelity and entity context
+                            if hasattr(step_executor, "set_request_contract") and self._request_contract:
+                                step_executor.set_request_contract(self._request_contract)
+
                             # Phase 4 P1: Mark step executing to prevent compaction
                             if hasattr(step_executor, "_token_manager"):
                                 step_executor._token_manager.mark_step_executing()
@@ -2548,6 +2578,7 @@ class PlanActFlow(BaseFlow):
                     except Exception as e:
                         logger.warning(f"Failed to fetch session files: {e}")
 
+                    summarization_start = time.perf_counter()
                     with trace_ctx.span("summarizing", "agent_step") as summary_span:
                         async for event in self.executor.summarize(response_policy=self._response_policy):
                             if isinstance(event, ErrorEvent):
@@ -2559,6 +2590,87 @@ class PlanActFlow(BaseFlow):
                             if isinstance(event, (ReportEvent, MessageEvent)):
                                 content = event.content if isinstance(event, ReportEvent) else event.message
                                 content = content or ""
+
+                                # Phase 0: OutputGuardrails analysis (gated by enable_output_guardrails_in_flow)
+                                settings = get_settings()
+                                if settings.enable_output_guardrails_in_flow:
+                                    guardrail_start = time.perf_counter()
+                                    output_guardrails = OutputGuardrails(
+                                        check_relevance=True,
+                                        check_consistency=True,
+                                    )
+                                    guardrail_result = output_guardrails.analyze(
+                                        output=content,
+                                        original_query=message.message,
+                                        context=(str(self._request_contract) if self._request_contract else None),
+                                    )
+                                    guardrail_latency_seconds.observe(
+                                        {"phase": "relevance"},
+                                        time.perf_counter() - guardrail_start,
+                                    )
+                                    if guardrail_result.issues:
+                                        for issue in guardrail_result.issues:
+                                            guardrail_tripwire_total.inc({"guardrail": issue.issue_type.value})
+                                            severity = (
+                                                "high"
+                                                if issue.severity >= 0.7
+                                                else "medium"
+                                                if issue.severity >= 0.5
+                                                else "low"
+                                            )
+                                            output_relevance_failures_total.inc({"severity": severity})
+                                        logger.warning(
+                                            "OutputGuardrails: %d issues (needs_revision=%s): %s",
+                                            len(guardrail_result.issues),
+                                            guardrail_result.needs_revision,
+                                            [i.description for i in guardrail_result.issues],
+                                        )
+                                    if (
+                                        not guardrail_result.should_deliver
+                                        and settings.delivery_fidelity_mode == "enforce"
+                                    ):
+                                        yield ErrorEvent(
+                                            error="Output guardrails blocked delivery: "
+                                            + (
+                                                guardrail_result.revision_guidance
+                                                or "quality/relevance issues detected"
+                                            )
+                                        )
+                                        self._transition_to(
+                                            AgentStatus.ERROR,
+                                            force=True,
+                                            reason="output guardrails blocked",
+                                        )
+                                        break
+
+                                # Phase 3: Delivery fidelity check (entity/version presence)
+                                if settings.enable_delivery_fidelity_v2 and self._request_contract:
+                                    fidelity_checker = DeliveryFidelityChecker()
+                                    fidelity_result = fidelity_checker.check_entity_fidelity(
+                                        content, self._request_contract
+                                    )
+                                    if not fidelity_result.passed:
+                                        entity_drift_detected_total.inc({"phase": "summarize"})
+                                        logger.warning(
+                                            "Delivery fidelity: missing entities %s (score=%.2f)",
+                                            fidelity_result.missing_entities,
+                                            fidelity_result.fidelity_score,
+                                        )
+                                        if (
+                                            settings.delivery_fidelity_mode == "enforce"
+                                            and fidelity_result.fidelity_score < 0.8
+                                        ):
+                                            delivery_fidelity_blocks_total.inc({"mode": "enforce"})
+                                            yield ErrorEvent(
+                                                error="Delivery fidelity failed: missing "
+                                                + ", ".join(fidelity_result.missing_entities)
+                                            )
+                                            self._transition_to(
+                                                AgentStatus.ERROR,
+                                                force=True,
+                                                reason="delivery fidelity failed",
+                                            )
+                                            break
 
                                 # Merge session files with any attachments from the LLM
                                 event_attachments = event.attachments if hasattr(event, "attachments") else None
@@ -2602,6 +2714,8 @@ class PlanActFlow(BaseFlow):
                                     self._transition_to(AgentStatus.ERROR, force=True, reason="compliance gates failed")
                                     break
                             yield event
+                    summarization_duration = time.perf_counter() - summarization_start
+                    workflow_phase_duration.observe({"phase": "summarizing"}, summarization_duration)
                     if self.status == AgentStatus.ERROR:
                         continue
                     logger.info(
