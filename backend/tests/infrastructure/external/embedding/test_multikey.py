@@ -1,7 +1,8 @@
 """Tests for Embedding Client multi-key support."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.infrastructure.external.embedding.client import EmbeddingClient
 from app.infrastructure.external.key_pool import RotationStrategy
@@ -158,9 +159,7 @@ class TestEmbeddingMultiKey:
 
         mock_response_200 = MagicMock()
         mock_response_200.status_code = 200
-        mock_response_200.json.return_value = {
-            "data": [{"index": 0, "embedding": [0.5] * 1536}]
-        }
+        mock_response_200.json.return_value = {"data": [{"index": 0, "embedding": [0.5] * 1536}]}
 
         mock_post = AsyncMock(side_effect=[mock_response_429, mock_response_200])
         mocker.patch("httpx.AsyncClient.post", mock_post)
@@ -186,9 +185,7 @@ class TestEmbeddingMultiKey:
 
         mock_response_200 = MagicMock()
         mock_response_200.status_code = 200
-        mock_response_200.json.return_value = {
-            "data": [{"index": 0, "embedding": [0.5] * 1536}]
-        }
+        mock_response_200.json.return_value = {"data": [{"index": 0, "embedding": [0.5] * 1536}]}
 
         mock_post = AsyncMock(side_effect=[mock_response_401, mock_response_200])
         mocker.patch("httpx.AsyncClient.post", mock_post)
@@ -263,9 +260,7 @@ class TestEmbeddingMultiKey:
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "data": [{"index": 0, "embedding": [0.1] * 1536}]
-        }
+        mock_response.json.return_value = {"data": [{"index": 0, "embedding": [0.1] * 1536}]}
 
         mock_post = AsyncMock(return_value=mock_response)
         mocker.patch("httpx.AsyncClient.post", mock_post)

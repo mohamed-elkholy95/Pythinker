@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -106,6 +107,47 @@ async def test_chat_no_active_task_and_no_input_ends_without_done_or_teardown() 
 
     assert events == []
     teardown.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_cancellation_marks_session_failed() -> None:
+    task = SimpleNamespace(
+        id="task-id",
+        output_stream=SimpleNamespace(get=AsyncMock()),
+        done=False,
+        cancel=MagicMock(),
+    )
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.RUNNING,
+        task_id="task-id",
+        sandbox_id="sandbox-id",
+        sandbox_owned=True,
+    )
+    cancel_event = asyncio.Event()
+    cancel_event.set()
+
+    service, teardown = _build_service(session, task)
+    events = [
+        event
+        async for event in service.chat(
+            session_id=session.id,
+            user_id=session.user_id,
+            message=None,
+            cancel_event=cancel_event,
+        )
+    ]
+
+    assert events == []
+    task.cancel.assert_called_once()
+    teardown.assert_awaited_once_with(
+        session.id,
+        session=session,
+        status=SessionStatus.FAILED,
+        destroy_sandbox=False,
+    )
 
 
 @pytest.mark.asyncio

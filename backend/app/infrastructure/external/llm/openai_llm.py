@@ -919,7 +919,9 @@ To extract data from a webpage:
         """
         # Check retry limit to prevent infinite recursion
         if _attempt >= self._max_retries:
-            raise RuntimeError(f"All {len(self._key_pool.keys)} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts")
+            raise RuntimeError(
+                f"All {len(self._key_pool.keys)} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts"
+            )
 
         # Get healthy key and create client
         try:
@@ -1040,9 +1042,13 @@ To extract data from a webpage:
                 if key:
                     ttl = self._parse_openai_rate_limit(e)
                     await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
-                    logger.warning(f"OpenAI rate limit hit, rotating to next key (attempt {_attempt + 1}/{self._max_retries})")
+                    logger.warning(
+                        f"OpenAI rate limit hit, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
+                    )
                     # Retry with next key
-                    return await self.ask(messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1)
+                    return await self.ask(
+                        messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                    )
                 raise
 
             except Exception as e:
@@ -1052,9 +1058,13 @@ To extract data from a webpage:
                     key = await self.get_api_key()
                     if key:
                         await self._key_pool.mark_invalid(key)
-                        logger.error(f"OpenAI authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})")
+                        logger.error(
+                            f"OpenAI authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
+                        )
                         # Retry with next key
-                        return await self.ask(messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1)
+                        return await self.ask(
+                            messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                        )
                     raise
                 error_msg = str(e).lower()
 
@@ -1510,7 +1520,9 @@ To extract data from a webpage:
                 "provider": "openai",
                 "error": "all_keys_exhausted",
             }
-            raise RuntimeError(f"All {len(self._key_pool.keys)} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts")
+            raise RuntimeError(
+                f"All {len(self._key_pool.keys)} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts"
+            )
 
         self._last_stream_metadata = None
 

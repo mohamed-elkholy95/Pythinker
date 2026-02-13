@@ -486,9 +486,13 @@ class AnthropicLLM(LLM):
             if key:
                 ttl = self._parse_anthropic_rate_limit(e)
                 await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
-                logger.warning(f"Anthropic rate limit hit, rotating to next key (attempt {_attempt + 1}/{self._max_retries})")
+                logger.warning(
+                    f"Anthropic rate limit hit, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
+                )
                 # Retry with next key
-                return await self.ask(messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1)
+                return await self.ask(
+                    messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                )
             raise
 
         except anthropic.AuthenticationError:
@@ -496,9 +500,13 @@ class AnthropicLLM(LLM):
             key = await self.get_api_key()
             if key:
                 await self._key_pool.mark_invalid(key)
-                logger.error(f"Anthropic authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})")
+                logger.error(
+                    f"Anthropic authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
+                )
                 # Retry with next key
-                return await self.ask(messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1)
+                return await self.ask(
+                    messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                )
             raise
 
         except anthropic.BadRequestError as e:

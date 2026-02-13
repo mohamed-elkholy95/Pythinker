@@ -97,7 +97,10 @@ class TestBraveMultiKey:
                 # Second call with key2: return success
                 mock_resp.status_code = 200
                 mock_resp.json.return_value = {
-                    "web": {"results": [{"title": "Test", "url": "http://test.com", "description": "Test result"}], "total_count": 1}
+                    "web": {
+                        "results": [{"title": "Test", "url": "http://test.com", "description": "Test result"}],
+                        "total_count": 1,
+                    }
                 }
             return mock_resp
 

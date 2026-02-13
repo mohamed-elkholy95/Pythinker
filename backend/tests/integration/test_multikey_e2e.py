@@ -72,9 +72,7 @@ class TestMultiKeyRotationE2E:
             pytest.skip("SERPER_API_KEY not configured")
 
         # Build fallback keys list (filter None values)
-        fallback_keys = [
-            k for k in [settings.serper_api_key_2, settings.serper_api_key_3] if k and k.strip()
-        ]
+        fallback_keys = [k for k in [settings.serper_api_key_2, settings.serper_api_key_3] if k and k.strip()]
 
         engine = SerperSearchEngine(
             api_key=settings.serper_api_key,
@@ -127,9 +125,7 @@ class TestMultiKeyRotationE2E:
 
         # Build fallback keys list (filter None values)
         fallback_keys = [
-            k
-            for k in [settings.brave_search_api_key_2, settings.brave_search_api_key_3]
-            if k and k.strip()
+            k for k in [settings.brave_search_api_key_2, settings.brave_search_api_key_3] if k and k.strip()
         ]
 
         engine = BraveSearchEngine(
@@ -153,9 +149,7 @@ class TestMultiKeyRotationE2E:
             pytest.skip("EMBEDDING_API_KEY not configured")
 
         # Build fallback keys list (filter None values)
-        fallback_keys = [
-            k for k in [settings.embedding_api_key_2, settings.embedding_api_key_3] if k and k.strip()
-        ]
+        fallback_keys = [k for k in [settings.embedding_api_key_2, settings.embedding_api_key_3] if k and k.strip()]
 
         if len(fallback_keys) < 2:
             pytest.skip("Need at least 3 embedding keys for round-robin test")
@@ -426,9 +420,7 @@ class TestMultiKeyRecovery:
             pytest.skip("SERPER_API_KEY not configured")
 
         # Build fallback keys list (filter None values)
-        fallback_keys = [
-            k for k in [settings.serper_api_key_2, settings.serper_api_key_3] if k and k.strip()
-        ]
+        fallback_keys = [k for k in [settings.serper_api_key_2, settings.serper_api_key_3] if k and k.strip()]
 
         engine = SerperSearchEngine(
             api_key=settings.serper_api_key,

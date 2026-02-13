@@ -1700,8 +1700,11 @@ class AgentTaskRunner(TaskRunner):
             logger.info(f"Agent {self._agent_id} task completed successfully")
         except asyncio.CancelledError:
             logger.info(f"Agent {self._agent_id} task cancelled")
-            await self._put_and_add_event(task, DoneEvent())
-            await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+            # Cancellation terminal status is managed by the caller path:
+            # - explicit stop_session marks COMPLETED
+            # - transport/disconnect cancellation marks FAILED
+            # Avoid emitting DoneEvent here to prevent false "task completed"
+            # UI state with unfinished plan steps.
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} task encountered exception: {e!s}")
             await self._put_and_add_event(task, ErrorEvent(error=f"Task error: {e!s}"))
@@ -1834,7 +1837,7 @@ class AgentTaskRunner(TaskRunner):
                     task.cancel()
                     try:
                         await asyncio.wait_for(task, timeout=2.0)
-                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                    except (asyncio.CancelledError, TimeoutError):
                         pass  # Expected - task was cancelled
                     except Exception as e:
                         logger.warning(f"Background task cleanup raised exception: {e}")
