@@ -97,15 +97,6 @@ class AgentService:
     def request_cancellation(self, session_id: str) -> None:
         """Signal that a session's processing should stop (e.g. SSE disconnect)."""
         event = self._session_cancel_events.get(session_id)
-        # #region agent log
-        logger.info(
-            "[DEBUG-SVC] request_cancellation session=%s has_event=%s event_obj=%s already_set=%s",
-            session_id,
-            event is not None,
-            id(event) if event else None,
-            event.is_set() if event else None,
-        )
-        # #endregion
         if event:
             event.set()
             logger.info("Cancellation requested for session %s", session_id)

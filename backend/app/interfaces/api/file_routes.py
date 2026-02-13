@@ -59,6 +59,7 @@ async def upload_file(
     return APIResponse.success(await FileInfoResponse.from_file_info(result))
 
 
+@router.get("/signed-download/{file_id:path}")
 @router.get("/{file_id}")
 async def download_file_with_signature(
     file_id: str,
@@ -99,7 +100,7 @@ async def download_file_with_signature(
     )
 
 
-@router.get("/{file_id}/download")
+@router.get("/{file_id:path}/download")
 async def download_file(
     file_id: str,
     file_service: FileService = Depends(get_file_service),
@@ -139,7 +140,7 @@ async def download_file(
     )
 
 
-@router.delete("/{file_id}", response_model=APIResponse[None])
+@router.delete("/{file_id:path}", response_model=APIResponse[None])
 async def delete_file(
     file_id: str, file_service: FileService = Depends(get_file_service), current_user: User = Depends(get_current_user)
 ) -> APIResponse[None]:
@@ -150,7 +151,7 @@ async def delete_file(
     return APIResponse.success()
 
 
-@router.get("/{file_id}/info", response_model=APIResponse[FileInfoResponse])
+@router.get("/{file_id:path}/info", response_model=APIResponse[FileInfoResponse])
 async def get_file_info(
     file_id: str, file_service: FileService = Depends(get_file_service), current_user: User = Depends(get_current_user)
 ) -> APIResponse[FileInfoResponse]:
@@ -162,7 +163,7 @@ async def get_file_info(
     return APIResponse.success(await FileInfoResponse.from_file_info(file_info))
 
 
-@router.post("/{file_id}/signed-url", response_model=APIResponse[SignedUrlResponse])
+@router.post("/{file_id:path}/signed-url", response_model=APIResponse[SignedUrlResponse])
 async def create_file_signed_url(
     file_id: str,
     request_data: AccessTokenRequest,
@@ -213,7 +214,7 @@ async def create_presigned_upload_url(
     return APIResponse.success(PresignedUploadResponse(upload_url=upload_url, object_key=object_key))
 
 
-@router.get("/{file_id}/presigned-download", response_model=APIResponse[PresignedDownloadResponse])
+@router.get("/{file_id:path}/presigned-download", response_model=APIResponse[PresignedDownloadResponse])
 async def create_presigned_download_url(
     file_id: str,
     file_service: FileService = Depends(get_file_service),

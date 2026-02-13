@@ -140,6 +140,7 @@ class BaseAgent:
         state_manifest: StateManifest | None = None,
         circuit_breaker: "CircuitBreakerPort | None" = None,
         feature_flags: dict[str, bool] | None = None,
+        cancel_token: "CancellationToken | None" = None,
     ):
         if tools is None:
             tools = []
@@ -156,6 +157,11 @@ class BaseAgent:
 
         # Structured agent logger
         self._log = get_agent_logger(agent_id)
+
+        # Initialize cancellation token for graceful shutdown
+        from app.domain.utils.cancellation import CancellationToken
+
+        self._cancel_token = cancel_token or CancellationToken.null()
 
         # Initialize reliability components
         self._stuck_detector = StuckDetector(window_size=5, threshold=3)
@@ -566,6 +572,10 @@ class BaseAgent:
 
         while retries <= self.max_retries:
             try:
+                # ORPHANED TASK FIX: Check cancellation BEFORE invoking function
+                # Prevents tool execution if cancelled during retry loop
+                await self._cancel_token.check_cancelled()
+
                 result = await asyncio.wait_for(
                     tool.invoke_function(function_name, **arguments),
                     timeout=120.0,
@@ -889,6 +899,10 @@ class BaseAgent:
                         yield WaitEvent()
                         return
 
+                    # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
+                    # Prevents tools from starting if SSE disconnect happened
+                    await self._cancel_token.check_cancelled()
+
                     # Emit CALLING events for all parallel tools
                     yield self._create_tool_event(
                         tool_call_id=tool_call_id,
@@ -991,6 +1005,10 @@ class BaseAgent:
                         )
                         yield WaitEvent()
                         return
+                    # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
+                    # Prevents tools from starting if SSE disconnect happened
+                    await self._cancel_token.check_cancelled()
+
                     yield self._create_tool_event(
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
@@ -1002,6 +1020,10 @@ class BaseAgent:
                         security_suggestions=security_assessment.suggestions,
                         confirmation_state=confirmation_state,
                     )
+
+                    # ORPHANED TASK FIX: Check cancellation BEFORE invoking tool
+                    # Prevents execution if cancelled between emit and invoke
+                    await self._cancel_token.check_cancelled()
 
                     result = await self.invoke_tool(tool, function_name, function_args)
 

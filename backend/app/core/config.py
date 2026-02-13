@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     # OpenAI-compatible provider configuration (default)
     # Works with OpenRouter, DeepSeek, OpenAI, and other OpenAI-compatible APIs
     api_key: str | None = None
+    api_key_2: str | None = None  # Fallback OpenAI/OpenRouter key #1
+    api_key_3: str | None = None  # Fallback OpenAI/OpenRouter key #2
     api_base: str = "https://openrouter.ai/api/v1"
 
     # Model configuration

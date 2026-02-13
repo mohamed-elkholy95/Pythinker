@@ -805,28 +805,7 @@ NOTE: The browser state may have changed. When you next use the browser:
                 raise RuntimeError("Session not found")
 
             task = await self._get_task(session)
-            # #region agent log
-            logger.info(
-                "[DEBUG-DOMAIN] chat:entry session=%s status=%s task_id=%s task_found=%s task_done=%s has_msg=%s event_id=%s cancel_set=%s",
-                session_id,
-                session.status.value if session.status else None,
-                session.task_id,
-                task is not None,
-                task.done if task else None,
-                bool(message and message.strip()),
-                latest_event_id,
-                cancel_event.is_set() if cancel_event else None,
-            )
-            # #endregion
             if cancel_event is not None and cancel_event.is_set():
-                # #region agent log
-                logger.info(
-                    "[DEBUG-DOMAIN] EARLY CANCEL session=%s task=%s task_done=%s",
-                    session_id,
-                    task is not None,
-                    task.done if task else None,
-                )
-                # #endregion
                 if task and not task.done:
                     task.cancel()
                     await self._teardown_session_runtime(
@@ -1131,21 +1110,9 @@ NOTE: The browser state may have changed. When you next use the browser:
 
             received_events = False
             terminal_status: SessionStatus | None = None
-            # #region agent log
-            logger.info(
-                "[DEBUG-DOMAIN] event_loop_entry session=%s task=%s task_done=%s event_id=%s",
-                session_id,
-                task is not None,
-                task.done if task else None,
-                latest_event_id,
-            )
-            # #endregion
             while task and not task.done:
                 # Check for cancellation (SSE disconnect)
                 if cancel_token.is_cancelled():
-                    # #region agent log
-                    logger.info("[DEBUG-DOMAIN] CANCEL TOKEN SET in event loop session=%s", session_id)
-                    # #endregion
                     task.cancel()
                     await self._teardown_session_runtime(
                         session_id, status=SessionStatus.COMPLETED, destroy_sandbox=False
@@ -1199,16 +1166,6 @@ NOTE: The browser state may have changed. When you next use the browser:
                     or follow_up_anchor_event_id
                     or follow_up_source
                 )
-                # #region agent log
-                logger.info(
-                    "[DEBUG-DOMAIN] NO EVENTS session=%s task_none=%s has_input=%s task_done=%s silent=%s",
-                    session_id,
-                    task is None,
-                    has_new_input,
-                    task.done if task else None,
-                    task is None and not has_new_input,
-                )
-                # #endregion
                 if task is None and not has_new_input:
                     logger.info(
                         f"Session {session_id} has no active task and no new input; ending stream without completion event"

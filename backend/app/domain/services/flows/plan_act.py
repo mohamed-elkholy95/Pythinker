@@ -338,6 +338,7 @@ class PlanActFlow(BaseFlow):
             user_id=user_id,
             thought_tree_explorer=thought_tree_explorer,
             feature_flags=feature_flags,
+            cancel_token=self._cancel_token,
         )
         logger.debug(f"Created planner agent for Agent {self._agent_id}")
 
@@ -350,6 +351,7 @@ class PlanActFlow(BaseFlow):
             memory_service=memory_service,
             user_id=user_id,
             feature_flags=feature_flags,
+            cancel_token=self._cancel_token,
         )
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
