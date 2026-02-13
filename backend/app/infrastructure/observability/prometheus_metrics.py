@@ -714,6 +714,19 @@ clarification_resolved_total = Counter(
     labels=["source"],
 )
 
+clarification_wait_seconds = Histogram(
+    name="pythinker_clarification_wait_seconds",
+    help_text="Time user spent waiting before responding to clarification",
+    labels=[],
+    buckets=[1.0, 5.0, 15.0, 60.0, 300.0, 900.0, 3600.0],
+)
+
+user_stop_before_done_total = Counter(
+    name="pythinker_user_stop_before_done_total",
+    help_text="User manually stopped session before task completed",
+    labels=[],
+)
+
 fast_ack_refiner_total = Counter(
     name="pythinker_fast_ack_refiner_total",
     help_text="Fast acknowledgment refiner outcomes",
@@ -951,6 +964,8 @@ _metrics_registry.extend(
         compression_rejected_total,
         clarification_requested_total,
         clarification_resolved_total,
+        clarification_wait_seconds,
+        user_stop_before_done_total,
         fast_ack_refiner_total,
         fast_ack_refiner_latency_seconds,
         final_response_tokens,

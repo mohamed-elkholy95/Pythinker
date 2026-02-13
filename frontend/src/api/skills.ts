@@ -128,6 +128,22 @@ export const SKILL_CATEGORIES = {
 // Maximum skills allowed to be enabled at once
 export const MAX_ENABLED_SKILLS = 5;
 
+// Command map for slash command detection (command/alias -> skill_id)
+export interface CommandMapResponse {
+  command_map: Record<string, string>;
+}
+
+/**
+ * Get command/alias -> skill_id mapping for identifying slash commands in chat input.
+ * Includes all primary commands and aliases (e.g. /brainstorm, /design -> brainstorming).
+ */
+export async function getCommandMap(): Promise<Record<string, string>> {
+  const response = await apiClient.get<{ data: CommandMapResponse }>(
+    '/skills/commands/map'
+  );
+  return response.data.data.command_map;
+}
+
 // Custom Skill CRUD Types
 export interface CreateCustomSkillRequest {
   name: string;

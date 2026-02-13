@@ -22,6 +22,7 @@ class PrometheusMetricsAdapter(MetricsPort):
             "compression_rejected_total": pm.compression_rejected_total,
             "clarification_requested_total": pm.clarification_requested_total,
             "clarification_resolved_total": pm.clarification_resolved_total,
+            "user_stop_before_done_total": pm.user_stop_before_done_total,
             "fast_ack_refiner_total": pm.fast_ack_refiner_total,
             "delivery_integrity_gate_result_total": pm.delivery_integrity_gate_result_total,
             "delivery_integrity_gate_warning_total": pm.delivery_integrity_gate_warning_total,
@@ -32,6 +33,7 @@ class PrometheusMetricsAdapter(MetricsPort):
         self._histogram_map: dict[str, pm.Histogram] = {
             "fast_ack_refiner_latency_seconds": pm.fast_ack_refiner_latency_seconds,
             "final_response_tokens": pm.final_response_tokens,
+            "clarification_wait_seconds": pm.clarification_wait_seconds,
         }
 
         self._gauge_map: dict[str, pm.Gauge] = {}

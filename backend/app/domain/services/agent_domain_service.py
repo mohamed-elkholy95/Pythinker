@@ -980,7 +980,9 @@ NOTE: The browser state may have changed. When you next use the browser:
                                     prompt_chars = (
                                         len(skill_context.prompt_addition) if skill_context.prompt_addition else 0
                                     )
-                                    tool_restrictions = skill_context.tool_restrictions or None
+                                    tool_restrictions = (
+                                        list(skill_context.allowed_tools) if skill_context.allowed_tools else None
+                                    )
                             except Exception:
                                 logger.debug("Failed to build skill context for activation event", exc_info=True)
 

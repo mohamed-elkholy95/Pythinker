@@ -197,3 +197,16 @@ class CommandListResponse(BaseModel):
 
     commands: list[CommandResponse] = Field(default_factory=list, description="Available commands")
     count: int = Field(..., description="Total number of commands")
+
+
+class CommandMapResponse(BaseModel):
+    """Response schema for command/alias -> skill_id mapping.
+
+    Used by frontend to identify slash commands in chat input.
+    Keys are command names (lowercase, no leading slash), values are skill_ids.
+    """
+
+    command_map: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of command/alias -> skill_id for slash command detection",
+    )

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-02-13T01:20:33.683291",
+  "generated_at": "2026-02-13T02:06:35.221416",
   "version": "1.0.0",
   "environment": {
     "os": {
@@ -319,6 +319,7 @@
         "version": "Chromium 144.0.7559.109 built on Ubuntu 22.04.5 LTS",
         "path": "/usr/bin/chromium"
       },
+      "chrome_for_testing": {},
       "playwright": {
         "available": true,
         "browsers": [

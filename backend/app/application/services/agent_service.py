@@ -850,6 +850,13 @@ class AgentService:
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise NotFoundError("Session not found")
+        if session.status in (SessionStatus.RUNNING, SessionStatus.INITIALIZING):
+            try:
+                from app.domain.external.observability import get_metrics
+
+                get_metrics().record_counter("user_stop_before_done_total")
+            except Exception as e:
+                logger.debug("Could not record user_stop_before_done metric: %s", e)
         await self._cancel_sandbox_warmup_task(session_id)
         await self._agent_domain_service.stop_session(session_id)
         logger.info(f"Session {session_id} stopped successfully")

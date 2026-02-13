@@ -444,6 +444,10 @@ class Settings(BaseSettings):
     feature_reject_ungrounded_reports: bool = False  # Start permissive, can enable later
     feature_delivery_integrity_gate: bool = True  # Enforce truncation/completeness gate before delivery
 
+    # Adaptive Verbosity + Clarification (2026-02-09 plan)
+    # When True: run policy engine, log proposed mode/clarification, but skip clarification gate and use standard output
+    feature_adaptive_verbosity_shadow: bool = False
+
     # Chart Generation (Plotly Migration Phase 4)
     feature_plotly_charts_enabled: bool = True  # Use Plotly charts instead of SVG (Phase 4)
 
@@ -785,6 +789,7 @@ def get_feature_flags() -> dict[str, bool]:
             "strict_numeric_verification": True,
             "reject_ungrounded_reports": False,
             "delivery_integrity_gate": True,
+            "adaptive_verbosity_shadow": False,
         }
     return {
         "tree_of_thoughts": settings.feature_tree_of_thoughts,
@@ -814,4 +819,5 @@ def get_feature_flags() -> dict[str, bool]:
         "strict_numeric_verification": settings.feature_strict_numeric_verification,
         "reject_ungrounded_reports": settings.feature_reject_ungrounded_reports,
         "delivery_integrity_gate": settings.feature_delivery_integrity_gate,
+        "adaptive_verbosity_shadow": settings.feature_adaptive_verbosity_shadow,
     }

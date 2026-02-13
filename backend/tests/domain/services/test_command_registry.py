@@ -239,6 +239,41 @@ class TestGetAvailableCommands:
 
 
 # ---------------------------------------------------------------------------
+# 3b. get_command_map
+# ---------------------------------------------------------------------------
+
+
+class TestGetCommandMap:
+    """Tests for CommandRegistry.get_command_map."""
+
+    def test_returns_dict(self, registry: CommandRegistry) -> None:
+        """Returns a dict mapping command/alias -> skill_id."""
+        cmd_map = registry.get_command_map()
+        assert isinstance(cmd_map, dict)
+        assert len(cmd_map) > 0
+
+    def test_primary_commands_included(self, registry: CommandRegistry) -> None:
+        """Primary commands resolve to skill_id."""
+        cmd_map = registry.get_command_map()
+        assert cmd_map.get("brainstorm") == "brainstorming"
+        assert cmd_map.get("write-plan") == "writing-plans"
+        assert cmd_map.get("tdd") == "test-driven-development"
+
+    def test_aliases_included(self, registry: CommandRegistry) -> None:
+        """Aliases also resolve to skill_id."""
+        cmd_map = registry.get_command_map()
+        assert cmd_map.get("design") == "brainstorming"
+        assert cmd_map.get("plan-design") == "brainstorming"
+        assert cmd_map.get("fix-bug") == "systematic-debugging"
+
+    def test_count_includes_aliases(self, registry: CommandRegistry) -> None:
+        """Map has more entries than primary commands (includes aliases)."""
+        cmd_map = registry.get_command_map()
+        commands = registry.get_available_commands()
+        assert len(cmd_map) > len(commands)
+
+
+# ---------------------------------------------------------------------------
 # 4. get_command_help
 # ---------------------------------------------------------------------------
 
