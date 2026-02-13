@@ -164,6 +164,31 @@ groups:
           summary: "Low cache hit rate"
           description: "Cache hit rate is {{ $value | humanizePercentage }}. Consider cache tuning or warming."
 
+  - name: pythinker_hardening
+    interval: 30s
+    rules:
+      # Sandbox creation failure burst (Task 9)
+      - alert: SandboxCreationFailureBurst
+        expr: rate(pythinker_sandbox_health_check_total{status="failed"}[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          component: sandbox
+        annotations:
+          summary: "Sandbox creation failure burst"
+          description: "Sandbox health check failure rate is {{ $value }}/sec. Check sandbox image and host resources."
+
+      # Security gate block ratio rising (Task 7/9)
+      - alert: SecurityBlockRatioRising
+        expr: rate(pythinker_security_gate_blocks_total[15m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Security gate block rate rising"
+          description: "Security gate blocking at {{ $value }}/sec. Review blocked operations."
+
   - name: pythinker_replay
     interval: 30s
     rules:
