@@ -122,7 +122,7 @@
             :showStepConnector="shouldShowStepConnector(index)"
             :showAssistantHeader="shouldShowAssistantHeader(index)"
             :renderAsSummaryCard="shouldRenderSummaryCard(index)"
-            :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id)"
+            :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id) && !canShowSuggestions"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -148,8 +148,9 @@
           <WaitingForReply v-if="isWaitingForReply" />
 
           <!-- Still working notice - heartbeats arriving but no real events -->
+          <!-- Hide when warmup message is shown to avoid overlapping "taking longer" + "unstable" messages -->
           <div
-            v-if="isStale && isLoading"
+            v-if="isStale && isLoading && !showSessionWarmupMessage"
             class="stale-notice flex items-center gap-3 px-4 py-3 mx-4 mb-2 rounded-xl border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/20 transition-all duration-300"
             role="status"
           >
@@ -179,7 +180,7 @@
             <div class="w-2.5 h-2.5 rounded-full bg-amber-400 dark:bg-amber-500 flex-shrink-0 animate-pulse" aria-hidden="true"></div>
             <div class="flex-1 min-w-0">
               <span class="text-sm font-medium text-amber-800 dark:text-amber-300">
-                {{ autoRetryCount < 3 ? $t('Connection interrupted. Reconnecting automatically...') : $t('Connection interrupted. The agent may still be working.') }}
+                {{ autoRetryCount < 4 ? $t('Connection interrupted. Reconnecting automatically...') : $t('Connection interrupted. The agent may still be working.') }}
               </span>
             </div>
             <button
@@ -249,8 +250,9 @@
           :style="chatBottomDockStyle"
         >
           <!-- Planning Progress Indicator - shows instant feedback before plan is ready -->
+          <!-- Hide when timed_out to avoid flicker during auto-retry reconnect cycles -->
           <div
-            v-if="!showSessionWarmupMessage && !isToolPanelOpen && planningProgress && (!plan || plan.steps.length === 0)"
+            v-if="!showSessionWarmupMessage && !isToolPanelOpen && responsePhase !== 'timed_out' && planningProgress && (!plan || plan.steps.length === 0)"
             class="planning-progress-indicator mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 shadow-sm"
           >
             <!-- Content row -->
@@ -876,7 +878,7 @@ const waitForSessionIfInitializing = async () => {
   try {
     const result = await waitForSessionReady(targetSessionId, agentApi.getSessionStatus, {
       pollIntervalMs: 2000,
-      maxWaitMs: 30000,
+      maxWaitMs: 60000, // 60s for cold starts (Chrome init, sandbox warmup)
     });
     if (sessionId.value === targetSessionId) {
       sessionStatus.value = result.status;
@@ -1010,8 +1012,8 @@ watch(filePreviewOpen, (isOpen) => {
 });
 
 // ===== Agent Connection Health Monitoring =====
-const STALE_TIMEOUT_MS = 30000; // 30s without heartbeat = possibly unstable
-const HEARTBEAT_LIVENESS_MS = 20000; // Expect heartbeat every ~15s, allow 20s grace
+const STALE_TIMEOUT_MS = 60000; // 60s without heartbeat = possibly unstable (avoids false positives on slow LLM/sandbox)
+const HEARTBEAT_LIVENESS_MS = 25000; // Expect heartbeat every ~15s, allow 25s grace
 const STALE_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
 let staleCheckInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -1068,11 +1070,11 @@ watch(isLoading, (loading) => {
   }
 });
 
-// Auto-retry after timeout: progressive backoff (5s, 15s, 45s), max 3 attempts
-const AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000];
+// Auto-retry after timeout: progressive backoff (5s, 15s, 45s, 60s), max 4 attempts
+const AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000, 60000];
 watch(responsePhase, (phase) => {
   if (phase !== 'timed_out') return;
-  if (autoRetryCount.value >= 3) return;
+  if (autoRetryCount.value >= 4) return;
   const delay = AUTO_RETRY_DELAYS_MS[Math.min(autoRetryCount.value, AUTO_RETRY_DELAYS_MS.length - 1)];
   autoRetryTimer.value = setTimeout(() => {
     autoRetryTimer.value = null;
@@ -2293,15 +2295,25 @@ const handleSubmit = () => {
   chat(inputMessage.value, attachments.value);
 }
 
+const markLastUserMessageAsAgentModeUpgrade = () => {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    if (messages.value[i].type === 'user') {
+      (messages.value[i].content as MessageContent).agentModeUpgrade = true;
+      return;
+    }
+  }
+};
+
 const handleUseAgentMode = () => {
   const originalPrompt = (agentGuidancePrompt.value || '').trim();
   if (!originalPrompt) return;
 
   bypassShortPathLockOnce.value = true;
   showAgentGuidanceCta.value = false;
+  markLastUserMessageAsAgentModeUpgrade();
 
   const guidedPrompt = `Use full agent mode for this task. First create a clear plan, then execute it:\n\n${originalPrompt}`;
-  chat(guidedPrompt, []);
+  chat(guidedPrompt, [], { skipOptimistic: true });
 };
 
 // Track last sent message to prevent duplicate submissions
@@ -2438,6 +2450,14 @@ const chat = async (
           });
         },
         onClose: () => {
+          // Flush any queued events (e.g. 'done') before checking receivedDoneEvent.
+          // Event batching defers processing to requestAnimationFrame; onClose can fire
+          // before the batch runs, causing false "Connection interrupted" on fast completions.
+          if (batchFrameId !== null) {
+            cancelAnimationFrame(batchFrameId);
+            batchFrameId = null;
+            flushEventBatch();
+          }
           // Transport closed. Check if we received a 'done' event.
           if (!receivedDoneEvent.value && responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
             // SSE closed without a done event — timeout or disconnect
@@ -2836,6 +2856,12 @@ const handleRetryConnection = async () => {
           });
         },
         onClose: () => {
+          // Flush queued events before checking receivedDoneEvent (same as chat onClose)
+          if (batchFrameId !== null) {
+            cancelAnimationFrame(batchFrameId);
+            batchFrameId = null;
+            flushEventBatch();
+          }
           if (!receivedDoneEvent.value && responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
             transitionTo('timed_out')
           }
