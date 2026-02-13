@@ -301,7 +301,7 @@ class TestOpenAILLMStreamRotation:
         messages = [{"role": "user", "content": "test"}]
 
         clients = []
-        for i in range(3):
+        for _ in range(3):
             mock_client = AsyncMock()
             mock_client.chat = AsyncMock()
             mock_client.chat.completions = AsyncMock()
