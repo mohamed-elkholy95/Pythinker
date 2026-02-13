@@ -431,6 +431,7 @@ import { useResearchWorkflow } from '@/composables/useResearchWorkflow';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
+import { useErrorBoundary } from '@/composables/useErrorBoundary';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 import {
   isStructuredSummaryAssistantMessage,
@@ -450,6 +451,10 @@ const { toggleAutoRun } = useDeepResearch()
 const researchWorkflow = useResearchWorkflow()
 // ConnectorDialog composable — dialog manages its own visibility
 useConnectorDialog()
+
+// Error boundary — catches unhandled errors from child components to prevent page crashes
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired for future error banner UI
+const { lastCapturedError, clearError } = useErrorBoundary()
 
 type ResponsePhase = 'idle' | 'connecting' | 'streaming' | 'completing' | 'settled' | 'timed_out' | 'error' | 'stopped'
 
