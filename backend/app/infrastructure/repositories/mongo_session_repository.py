@@ -205,16 +205,15 @@ class MongoSessionRepository(SessionRepository):
             raise ValueError(f"Session {session_id} not found")
 
     # Timeline query methods
+    # Use find_one instead of aggregate to avoid AsyncIOMotorLatentCommandCursor await issues
+    # (Beanie/Motor aggregate().to_list() can return cursor in some versions)
     async def get_events_paginated(self, session_id: str, offset: int = 0, limit: int = 100) -> list[BaseEvent]:
-        """Get paginated events for a session using MongoDB aggregation."""
-        pipeline = [
-            {"$match": {"session_id": session_id}},
-            {"$project": {"events": {"$slice": ["$events", offset, limit]}}},
-        ]
-        results = await SessionDocument.aggregate(pipeline).to_list()
-        if not results:
+        """Get paginated events for a session."""
+        mongo_session = await SessionDocument.find_one(SessionDocument.session_id == session_id)
+        if not mongo_session or not mongo_session.events:
             return []
-        return results[0].get("events", [])
+        events = mongo_session.events
+        return list(events[offset : offset + limit])
 
     async def get_events_in_range(self, session_id: str, start_time: datetime, end_time: datetime) -> list[BaseEvent]:
         """Get events within a time range using MongoDB aggregation."""
@@ -231,35 +230,28 @@ class MongoSessionRepository(SessionRepository):
 
     async def get_event_count(self, session_id: str) -> int:
         """Get the total number of events for a session."""
-        pipeline = [{"$match": {"session_id": session_id}}, {"$project": {"count": {"$size": "$events"}}}]
-        results = await SessionDocument.aggregate(pipeline).to_list()
-        if not results:
+        mongo_session = await SessionDocument.find_one(SessionDocument.session_id == session_id)
+        if not mongo_session or not mongo_session.events:
             return 0
-        return results[0].get("count", 0)
+        return len(mongo_session.events)
 
     async def get_event_by_sequence(self, session_id: str, sequence: int) -> BaseEvent | None:
         """Get an event by its sequence number (0-indexed position)."""
-        pipeline = [
-            {"$match": {"session_id": session_id}},
-            {"$project": {"event": {"$arrayElemAt": ["$events", sequence]}}},
-        ]
-        results = await SessionDocument.aggregate(pipeline).to_list()
-        if not results:
+        mongo_session = await SessionDocument.find_one(SessionDocument.session_id == session_id)
+        if not mongo_session or not mongo_session.events:
             return None
-        return results[0].get("event")
+        events = mongo_session.events
+        if 0 <= sequence < len(events):
+            return events[sequence]
+        return None
 
     async def get_event_by_id(self, session_id: str, event_id: str) -> BaseEvent | None:
         """Get an event by its unique ID from the session's events array."""
-        pipeline = [
-            {"$match": {"session_id": session_id}},
-            {
-                "$project": {
-                    "event": {"$filter": {"input": "$events", "as": "e", "cond": {"$eq": ["$$e.id", event_id]}}}
-                }
-            },
-        ]
-        results = await SessionDocument.aggregate(pipeline).to_list()
-        if not results:
+        mongo_session = await SessionDocument.find_one(SessionDocument.session_id == session_id)
+        if not mongo_session or not mongo_session.events:
             return None
-        events = results[0].get("event", [])
-        return events[0] if events else None
+        for event in mongo_session.events:
+            eid = event.get("id") if isinstance(event, dict) else getattr(event, "id", None)
+            if eid == event_id:
+                return event
+        return None

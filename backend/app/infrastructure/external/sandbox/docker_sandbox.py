@@ -425,10 +425,10 @@ class DockerSandbox(Sandbox):
                     continue
 
                 # Check if all services are RUNNING
-                # Note: context_generator, xrandr_setup, fix_permissions are expected to EXIT (run once at startup)
+                # Note: runtime_init, context_generator, xrandr_setup, fix_permissions are expected to EXIT (run once at startup)
                 all_running = True
                 non_running_services = []
-                expected_exit_services = {"context_generator", "xrandr_setup", "fix_permissions"}
+                expected_exit_services = {"runtime_init", "context_generator", "xrandr_setup", "fix_permissions"}
 
                 for service in services:
                     service_name = service.get("name", "unknown")

@@ -168,9 +168,9 @@ COPY --from=builder /opt/chrome-for-testing /opt/chrome-for-testing
 COPY --from=builder /opt/base-python-venv /opt/base-python-venv
 COPY --from=builder /opt/playwright-browsers /opt/playwright-browsers
 COPY --from=builder /usr/local/nvm /usr/local/nvm
+COPY --from=builder /usr/lib/python3.11 /usr/lib/python3.11
 COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
-COPY --from=builder /usr/local/bin/python3.11 /usr/local/bin/python3.11
-COPY --from=builder /home/ubuntu/.cache/ms-playwright /home/ubuntu/.cache/ms-playwright
+COPY --from=builder /usr/bin/python3.11 /usr/bin/python3.11
 COPY --from=builder /home/ubuntu/.local/share/pnpm /home/ubuntu/.local/share/pnpm
 
 ENV NVM_DIR=/usr/local/nvm
