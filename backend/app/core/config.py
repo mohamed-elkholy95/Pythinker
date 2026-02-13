@@ -176,6 +176,11 @@ class Settings(BaseSettings):
     sandbox_pool_reaper_interval: int = 60  # Orphan reaper check interval (seconds)
     sandbox_pool_reaper_grace_period: int = 120  # Don't reap containers younger than this (seconds)
 
+    # Session runtime cleanup worker
+    stale_session_cleanup_interval_seconds: int = 300  # Periodic stale-session cleanup interval
+    stale_session_threshold_minutes: int = 30  # Runtime state older than this is stale
+    stale_session_startup_threshold_minutes: int = 5  # Aggressive cleanup window during startup
+
     # Sandbox health monitoring (Priority 3: proactive crash detection)
     sandbox_health_check_interval: int = 30  # Continuous health check interval (seconds)
     sandbox_oom_monitor_enabled: bool = True  # Monitor Docker events for OOM kills

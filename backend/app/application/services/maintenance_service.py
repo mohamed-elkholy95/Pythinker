@@ -286,13 +286,16 @@ class MaintenanceService:
         dry_run: bool = True,
     ) -> dict[str, Any]:
         """
-        Clean up sessions stuck in "running" or "initializing" status.
+        Clean up stale sessions with leaked runtime state.
 
-        Sessions can get stuck in running state if the backend crashes or restarts
-        while processing. This method marks them as failed so users can retry.
+        Rules:
+        - Stale `running` / `initializing` sessions are marked `failed`
+        - Stale `pending` sessions are only reset when runtime state leaked
+          (`task_id` is set or an owned sandbox is attached). They are kept
+          in `pending` status so idle sessions remain usable.
 
         Args:
-            stale_threshold_minutes: Consider sessions stale if running for longer than this.
+            stale_threshold_minutes: Consider sessions stale if updated before this threshold.
             dry_run: If True, only reports what would be cleaned without making changes.
 
         Returns:
@@ -306,6 +309,8 @@ class MaintenanceService:
             "sessions_cleaned": 0,
             "sandboxes_destroyed": 0,
             "sessions_marked_failed": [],
+            "sessions_reset_pending": [],
+            "sessions_skipped": [],
             "errors": [],
             "timestamp": datetime.now(UTC).isoformat(),
         }
@@ -314,11 +319,19 @@ class MaintenanceService:
             # Calculate stale cutoff time
             cutoff_time = datetime.now(UTC) - timedelta(minutes=stale_threshold_minutes)
 
-            # Find sessions in running or initializing state that are older than cutoff
-            stale_statuses = [SessionStatus.RUNNING.value, SessionStatus.INITIALIZING.value]
+            active_stale_statuses = [SessionStatus.RUNNING.value, SessionStatus.INITIALIZING.value]
             query = {
-                "status": {"$in": stale_statuses},
                 "updated_at": {"$lt": cutoff_time},
+                "$or": [
+                    {"status": {"$in": active_stale_statuses}},
+                    {
+                        "status": SessionStatus.PENDING.value,
+                        "$or": [
+                            {"task_id": {"$ne": None}},
+                            {"sandbox_id": {"$ne": None}},
+                        ],
+                    },
+                ],
             }
 
             cursor = sessions_collection.find(
@@ -331,6 +344,7 @@ class MaintenanceService:
                     "sandbox_id": 1,
                     "sandbox_owned": 1,
                     "sandbox_lifecycle_mode": 1,
+                    "task_id": 1,
                 },
             )
 
@@ -339,6 +353,7 @@ class MaintenanceService:
                 old_status = session.get("status")
                 updated_at = session.get("updated_at")
                 sandbox_id = session.get("sandbox_id")
+                task_id = session.get("task_id")
                 sandbox_owned = bool(session.get("sandbox_owned", False))
                 sandbox_lifecycle_mode = session.get("sandbox_lifecycle_mode")
                 configured_lifecycle_mode = getattr(get_settings(), "sandbox_lifecycle_mode", "static")
@@ -346,15 +361,38 @@ class MaintenanceService:
                 if sandbox_lifecycle_mode is None and configured_lifecycle_mode == "ephemeral":
                     sandbox_is_owned = True
 
+                mark_failed = old_status in active_stale_statuses
+                pending_has_runtime_leak = bool(task_id) or bool(sandbox_id and sandbox_is_owned)
+                if not mark_failed and not pending_has_runtime_leak:
+                    stats["sessions_skipped"].append(
+                        {
+                            "session_id": session_id_str,
+                            "status": old_status,
+                            "reason": "pending_without_owned_sandbox_or_task",
+                            "sandbox_id": sandbox_id,
+                            "sandbox_owned": sandbox_is_owned,
+                            "task_id": task_id,
+                            "last_updated": updated_at.isoformat() if updated_at else None,
+                        }
+                    )
+                    continue
+
+                action = "mark_failed" if mark_failed else "reset_pending_runtime"
                 session_info = {
                     "session_id": session_id_str,
                     "old_status": old_status,
+                    "new_status": SessionStatus.FAILED.value if mark_failed else SessionStatus.PENDING.value,
+                    "action": action,
                     "title": session.get("title"),
                     "sandbox_id": sandbox_id,
                     "sandbox_owned": sandbox_is_owned,
+                    "task_id": task_id,
                     "last_updated": updated_at.isoformat() if updated_at else None,
                 }
-                stats["sessions_marked_failed"].append(session_info)
+                if mark_failed:
+                    stats["sessions_marked_failed"].append(session_info)
+                else:
+                    stats["sessions_reset_pending"].append(session_info)
                 stats["sessions_cleaned"] += 1
 
                 if not dry_run:
@@ -376,23 +414,34 @@ class MaintenanceService:
                             logger.warning(f"Failed to destroy sandbox {sandbox_id}: {e}")
 
                     try:
-                        await sessions_collection.update_one(
-                            {"_id": session["_id"]},
-                            {
-                                "$set": {
-                                    "status": SessionStatus.FAILED.value,
-                                    "updated_at": datetime.now(UTC),
-                                    "task_id": None,
+                        update_fields: dict[str, Any] = {
+                            "status": SessionStatus.FAILED.value if mark_failed else SessionStatus.PENDING.value,
+                            "updated_at": datetime.now(UTC),
+                            "task_id": None,
+                        }
+                        if mark_failed or sandbox_is_owned:
+                            update_fields.update(
+                                {
                                     "sandbox_id": None,
                                     "sandbox_owned": False,
                                     "sandbox_created_at": None,
                                 }
-                            },
+                            )
+
+                        await sessions_collection.update_one(
+                            {"_id": session["_id"]},
+                            {"$set": update_fields},
                         )
-                        logger.info(
-                            f"Marked stale session {session_id_str} as failed "
-                            f"(was {old_status}, last updated: {updated_at})"
-                        )
+                        if mark_failed:
+                            logger.info(
+                                f"Marked stale session {session_id_str} as failed "
+                                f"(was {old_status}, last updated: {updated_at})"
+                            )
+                        else:
+                            logger.info(
+                                f"Reset stale pending runtime for session {session_id_str} "
+                                f"(task_id={task_id}, sandbox_id={sandbox_id}, last updated: {updated_at})"
+                            )
                     except Exception as e:
                         error_msg = f"Failed to update session {session_id_str}: {e}"
                         logger.error(error_msg)
@@ -400,11 +449,22 @@ class MaintenanceService:
 
             # Summary logging
             if dry_run:
-                logger.info(f"[DRY RUN] Would mark {stats['sessions_cleaned']} stale sessions as failed")
+                logger.info(
+                    "[DRY RUN] Would clean %d stale sessions (%d failed, %d pending-reset, %d skipped)",
+                    stats["sessions_cleaned"],
+                    len(stats["sessions_marked_failed"]),
+                    len(stats["sessions_reset_pending"]),
+                    len(stats["sessions_skipped"]),
+                )
             else:
                 logger.info(
-                    f"Marked {stats['sessions_cleaned']} stale sessions as failed, "
-                    f"destroyed {stats['sandboxes_destroyed']} orphaned sandboxes"
+                    "Cleaned %d stale sessions (%d failed, %d pending-reset, %d skipped), "
+                    "destroyed %d orphaned sandboxes",
+                    stats["sessions_cleaned"],
+                    len(stats["sessions_marked_failed"]),
+                    len(stats["sessions_reset_pending"]),
+                    len(stats["sessions_skipped"]),
+                    stats["sandboxes_destroyed"],
                 )
 
         except Exception as e:
