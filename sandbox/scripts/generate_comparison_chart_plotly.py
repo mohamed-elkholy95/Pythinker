@@ -33,7 +33,6 @@ Exit codes:
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -47,12 +46,16 @@ def configure_kaleido():
     pass  # No-op - configuration passed to write_image instead
 
 
-def generate_bar_chart(title: str, metric_name: str, points: list[dict], lower_is_better: bool):
+def generate_bar_chart(
+    title: str, metric_name: str, points: list[dict], lower_is_better: bool
+):
     """Generate a Plotly bar chart."""
     import plotly.graph_objects as go
 
     # Sort points by value (ascending if lower_is_better, descending otherwise)
-    sorted_points = sorted(points, key=lambda p: p["value"], reverse=not lower_is_better)
+    sorted_points = sorted(
+        points, key=lambda p: p["value"], reverse=not lower_is_better
+    )
 
     # Limit to 8 data points for readability
     if len(sorted_points) > 8:
@@ -81,7 +84,10 @@ def generate_bar_chart(title: str, metric_name: str, points: list[dict], lower_i
 
     direction_text = "Lower is better" if lower_is_better else "Higher is better"
     fig.update_layout(
-        title=dict(text=f"{title}<br><sub>{metric_name} ({direction_text})</sub>", font=dict(size=24)),
+        title=dict(
+            text=f"{title}<br><sub>{metric_name} ({direction_text})</sub>",
+            font=dict(size=24),
+        ),
         xaxis=dict(title=metric_name, showgrid=True, gridcolor="lightgray"),
         yaxis=dict(title="", showgrid=False),
         template="plotly_white",
@@ -100,10 +106,21 @@ def main():
         input_data = json.load(sys.stdin)
 
         # Validate required fields
-        required_fields = ["title", "metric_name", "points", "output_html", "output_png"]
+        required_fields = [
+            "title",
+            "metric_name",
+            "points",
+            "output_html",
+            "output_png",
+        ]
         missing = [f for f in required_fields if f not in input_data]
         if missing:
-            print(json.dumps({"success": False, "error": f"Missing required fields: {missing}"}), file=sys.stderr)
+            print(
+                json.dumps(
+                    {"success": False, "error": f"Missing required fields: {missing}"}
+                ),
+                file=sys.stderr,
+            )
             return 1
 
         title = input_data["title"]
@@ -115,18 +132,23 @@ def main():
 
         # Validate points
         if not points or not isinstance(points, list):
-            print(json.dumps({"success": False, "error": "Points must be a non-empty list"}), file=sys.stderr)
+            print(
+                json.dumps(
+                    {"success": False, "error": "Points must be a non-empty list"}
+                ),
+                file=sys.stderr,
+            )
             return 1
 
         for i, point in enumerate(points):
             if "label" not in point or "value" not in point:
                 print(
-                    json.dumps({"success": False, "error": f"Point {i} missing label or value"}), file=sys.stderr
+                    json.dumps(
+                        {"success": False, "error": f"Point {i} missing label or value"}
+                    ),
+                    file=sys.stderr,
                 )
                 return 1
-
-        # Import Plotly and configure Kaleido
-        import plotly.io as pio
 
         configure_kaleido()
 
@@ -134,7 +156,12 @@ def main():
         try:
             fig = generate_bar_chart(title, metric_name, points, lower_is_better)
         except Exception as e:
-            print(json.dumps({"success": False, "error": f"Chart generation failed: {e}"}), file=sys.stderr)
+            print(
+                json.dumps(
+                    {"success": False, "error": f"Chart generation failed: {e}"}
+                ),
+                file=sys.stderr,
+            )
             return 2
 
         # Write HTML (CDN mode for small file size)
@@ -142,7 +169,10 @@ def main():
             fig.write_html(output_html, include_plotlyjs="cdn")
             html_size = Path(output_html).stat().st_size
         except Exception as e:
-            print(json.dumps({"success": False, "error": f"HTML write failed: {e}"}), file=sys.stderr)
+            print(
+                json.dumps({"success": False, "error": f"HTML write failed: {e}"}),
+                file=sys.stderr,
+            )
             return 3
 
         # Write PNG (Kaleido + Chromium)
@@ -152,7 +182,10 @@ def main():
         except Exception as e:
             # Clean up HTML on PNG failure
             Path(output_html).unlink(missing_ok=True)
-            print(json.dumps({"success": False, "error": f"PNG write failed: {e}"}), file=sys.stderr)
+            print(
+                json.dumps({"success": False, "error": f"PNG write failed: {e}"}),
+                file=sys.stderr,
+            )
             return 3
 
         # Success! Output JSON result
@@ -168,10 +201,16 @@ def main():
         return 0
 
     except json.JSONDecodeError as e:
-        print(json.dumps({"success": False, "error": f"Invalid JSON input: {e}"}), file=sys.stderr)
+        print(
+            json.dumps({"success": False, "error": f"Invalid JSON input: {e}"}),
+            file=sys.stderr,
+        )
         return 1
     except Exception as e:
-        print(json.dumps({"success": False, "error": f"Unexpected error: {e}"}), file=sys.stderr)
+        print(
+            json.dumps({"success": False, "error": f"Unexpected error: {e}"}),
+            file=sys.stderr,
+        )
         return 2
 
 

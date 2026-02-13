@@ -4,6 +4,7 @@ Workspace Service Implementation
 Manages workspace initialization, information retrieval, and directory structure
 for agent sessions. Each session gets an isolated workspace under /workspace/{session_id}/.
 """
+
 import os
 import json
 import logging
@@ -12,10 +13,19 @@ from typing import Any, Dict, Optional, Tuple
 from datetime import datetime
 
 from app.models.workspace import (
-    WorkspaceTemplate, WorkspaceStatus, WorkspaceConfig,
-    WorkspaceInitResult, WorkspaceInfo, WorkspaceTreeResult, DirectoryEntry
+    WorkspaceTemplate,
+    WorkspaceStatus,
+    WorkspaceConfig,
+    WorkspaceInitResult,
+    WorkspaceInfo,
+    WorkspaceTreeResult,
+    DirectoryEntry,
 )
-from app.core.exceptions import AppException, BadRequestException, ResourceNotFoundException
+from app.core.exceptions import (
+    AppException,
+    BadRequestException,
+    ResourceNotFoundException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +38,32 @@ BASE_PYTHON_VENV = "/opt/base-python-venv"
 # Template configurations
 TEMPLATES: Dict[str, Dict[str, Any]] = {
     "none": {
-        "directories": ["src", "tests", "output", "output/reports", "output/artifacts", "output/exports", "docs"],
-        "files": {}
+        "directories": [
+            "src",
+            "tests",
+            "output",
+            "output/reports",
+            "output/artifacts",
+            "output/exports",
+            "docs",
+        ],
+        "files": {},
     },
     "python": {
-        "directories": ["src", "tests", "output", "output/reports", "output/artifacts", "output/exports", "docs"],
+        "directories": [
+            "src",
+            "tests",
+            "output",
+            "output/reports",
+            "output/artifacts",
+            "output/exports",
+            "docs",
+        ],
         "files": {
             "src/__init__.py": "",
             "tests/__init__.py": "",
-            "requirements.txt": "# Python dependencies\n# Pre-installed packages: requests, httpx, pandas, numpy, matplotlib,\n# beautifulsoup4, fastapi, uvicorn, pydantic, pytest, etc.\n",
-            "setup.py": '''from setuptools import setup, find_packages
+            "requirements.txt": "# Python dependencies\n# Minimal profile pre-installs core API/dev tools (fastapi, uvicorn, pydantic, pytest, requests, httpx).\n# Extra packages can be enabled at image build time with ENABLE_SANDBOX_ADDONS=1.\n",
+            "setup.py": """from setuptools import setup, find_packages
 
 setup(
     name="{project_name}",
@@ -46,16 +72,16 @@ setup(
     package_dir={{"": "src"}},
     python_requires=">=3.10",
 )
-''',
-            "activate.sh": '''#!/bin/bash
+""",
+            "activate.sh": """#!/bin/bash
 # Activate Python virtual environment
 # Usage: source activate.sh
 export VIRTUAL_ENV="{workspace_path}/venv"
 export PATH="$VIRTUAL_ENV/bin:$PATH"
 echo "Python venv activated: $VIRTUAL_ENV"
 echo "Python: $(python --version)"
-''',
-            ".gitignore": '''# Python
+""",
+            ".gitignore": """# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -78,13 +104,21 @@ htmlcov/
 # Output
 output/
 *.log
-'''
-        }
+""",
+        },
     },
     "nodejs": {
-        "directories": ["src", "tests", "output", "output/reports", "output/artifacts", "output/exports", "docs"],
+        "directories": [
+            "src",
+            "tests",
+            "output",
+            "output/reports",
+            "output/artifacts",
+            "output/exports",
+            "docs",
+        ],
         "files": {
-            "package.json": '''{
+            "package.json": """{
   "name": "{project_name}",
   "version": "1.0.0",
   "description": "",
@@ -97,9 +131,9 @@ output/
   "author": "",
   "license": "ISC"
 }
-''',
+""",
             "src/index.js": '// Entry point\nconsole.log("Hello, World!");\n',
-            ".gitignore": '''# Node
+            ".gitignore": """# Node
 node_modules/
 npm-debug.log
 .npm/
@@ -113,13 +147,22 @@ dist/
 .idea/
 .vscode/
 *.swp
-'''
-        }
+""",
+        },
     },
     "web": {
-        "directories": ["src", "src/css", "src/js", "src/assets", "tests", "output", "output/reports", "docs"],
+        "directories": [
+            "src",
+            "src/css",
+            "src/js",
+            "src/assets",
+            "tests",
+            "output",
+            "output/reports",
+            "docs",
+        ],
         "files": {
-            "src/index.html": '''<!DOCTYPE html>
+            "src/index.html": """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -132,8 +175,8 @@ dist/
     <script src="js/main.js"></script>
 </body>
 </html>
-''',
-            "src/css/style.css": '''/* Main styles */
+""",
+            "src/css/style.css": """/* Main styles */
 * {
     margin: 0;
     padding: 0;
@@ -149,9 +192,9 @@ body {
 h1 {
     color: #333;
 }
-''',
+""",
             "src/js/main.js": '// Main JavaScript\nconsole.log("Page loaded");\n',
-            ".gitignore": '''# Build
+            ".gitignore": """# Build
 dist/
 output/
 
@@ -159,27 +202,33 @@ output/
 .idea/
 .vscode/
 *.swp
-'''
-        }
+""",
+        },
     },
     "fullstack": {
         "directories": [
-            "backend", "backend/src", "backend/tests",
-            "frontend", "frontend/src", "frontend/public",
-            "output", "output/reports", "docs"
+            "backend",
+            "backend/src",
+            "backend/tests",
+            "frontend",
+            "frontend/src",
+            "frontend/public",
+            "output",
+            "output/reports",
+            "docs",
         ],
         "files": {
             "backend/requirements.txt": "# Backend dependencies\nfastapi>=0.100.0\nuvicorn>=0.22.0\n",
             "backend/src/__init__.py": "",
-            "backend/src/main.py": '''from fastapi import FastAPI
+            "backend/src/main.py": """from fastapi import FastAPI
 
 app = FastAPI(title="{project_name} API")
 
 @app.get("/")
 async def root():
     return {"message": "Hello from {project_name}"}
-''',
-            "frontend/package.json": '''{
+""",
+            "frontend/package.json": """{
   "name": "{project_name}-frontend",
   "version": "1.0.0",
   "scripts": {
@@ -187,8 +236,8 @@ async def root():
     "build": "vite build"
   }
 }
-''',
-            ".gitignore": '''# Python
+""",
+            ".gitignore": """# Python
 __pycache__/
 *.py[cod]
 venv/
@@ -204,9 +253,9 @@ output/
 # IDE
 .idea/
 .vscode/
-'''
-        }
-    }
+""",
+        },
+    },
 }
 
 
@@ -230,13 +279,15 @@ class WorkspaceService:
 
     def _get_config_path(self, session_id: str) -> str:
         """Get the config file path for a session"""
-        return os.path.join(self._get_workspace_path(session_id), ".pythinker", "config.json")
+        return os.path.join(
+            self._get_workspace_path(session_id), ".pythinker", "config.json"
+        )
 
     async def init_workspace(
         self,
         session_id: str,
         project_name: str = "project",
-        template: WorkspaceTemplate = WorkspaceTemplate.NONE
+        template: WorkspaceTemplate = WorkspaceTemplate.NONE,
     ) -> WorkspaceInitResult:
         """
         Initialize a new workspace for a session.
@@ -249,7 +300,9 @@ class WorkspaceService:
         Returns:
             WorkspaceInitResult with initialization details
         """
-        logger.info(f"Initializing workspace for session: {session_id}, template: {template}")
+        logger.info(
+            f"Initializing workspace for session: {session_id}, template: {template}"
+        )
 
         # Validate session_id (must be alphanumeric with dashes/underscores)
         if not session_id or not session_id.replace("-", "").replace("_", "").isalnum():
@@ -277,7 +330,9 @@ class WorkspaceService:
                 directories_created.append(config_dir)
 
             # Get template configuration
-            template_key = template.value if isinstance(template, WorkspaceTemplate) else template
+            template_key = (
+                template.value if isinstance(template, WorkspaceTemplate) else template
+            )
             template_config = TEMPLATES.get(template_key, TEMPLATES["none"])
 
             # Create template directories
@@ -296,8 +351,7 @@ class WorkspaceService:
                     os.makedirs(parent_dir, mode=0o755)
                 # Create file with project name and workspace path substitution
                 file_content = content.format(
-                    project_name=project_name,
-                    workspace_path=workspace_path
+                    project_name=project_name, workspace_path=workspace_path
                 )
                 with open(full_path, "w") as f:
                     f.write(file_content)
@@ -317,8 +371,17 @@ class WorkspaceService:
                 project_name=project_name,
                 template=template,
                 created_at=datetime.now().isoformat(),
-                python_version=self._get_python_version() if template in [WorkspaceTemplate.PYTHON, WorkspaceTemplate.FULLSTACK] else None,
-                node_version=self._get_node_version() if template in [WorkspaceTemplate.NODEJS, WorkspaceTemplate.FULLSTACK, WorkspaceTemplate.WEB] else None
+                python_version=self._get_python_version()
+                if template in [WorkspaceTemplate.PYTHON, WorkspaceTemplate.FULLSTACK]
+                else None,
+                node_version=self._get_node_version()
+                if template
+                in [
+                    WorkspaceTemplate.NODEJS,
+                    WorkspaceTemplate.FULLSTACK,
+                    WorkspaceTemplate.WEB,
+                ]
+                else None,
             )
 
             config_path = self._get_config_path(session_id)
@@ -329,7 +392,9 @@ class WorkspaceService:
             # Create history log
             history_path = os.path.join(config_dir, "history.log")
             with open(history_path, "w") as f:
-                f.write(f"# Workspace History Log\n# Created: {datetime.now().isoformat()}\n")
+                f.write(
+                    f"# Workspace History Log\n# Created: {datetime.now().isoformat()}\n"
+                )
             files_created.append(history_path)
 
             # Audit operation removed
@@ -341,7 +406,9 @@ class WorkspaceService:
                 else:
                     message = f"Workspace initialized with {template_key} template (venv setup skipped)"
             else:
-                message = f"Workspace initialized successfully with {template_key} template"
+                message = (
+                    f"Workspace initialized successfully with {template_key} template"
+                )
 
             return WorkspaceInitResult(
                 session_id=session_id,
@@ -351,7 +418,7 @@ class WorkspaceService:
                 status=WorkspaceStatus.READY.value,
                 directories_created=directories_created,
                 files_created=files_created,
-                message=message
+                message=message,
             )
 
         except Exception as e:
@@ -372,7 +439,9 @@ class WorkspaceService:
         config_path = self._get_config_path(session_id)
 
         if not os.path.exists(workspace_path):
-            raise ResourceNotFoundException(f"Workspace not found for session: {session_id}")
+            raise ResourceNotFoundException(
+                f"Workspace not found for session: {session_id}"
+            )
 
         # Load config
         config = None
@@ -403,14 +472,11 @@ class WorkspaceService:
             file_count=file_count,
             git_repo=config.git_repo if config else None,
             python_version=config.python_version if config else None,
-            node_version=config.node_version if config else None
+            node_version=config.node_version if config else None,
         )
 
     async def get_workspace_tree(
-        self,
-        session_id: str,
-        depth: int = 3,
-        include_hidden: bool = False
+        self, session_id: str, depth: int = 3, include_hidden: bool = False
     ) -> WorkspaceTreeResult:
         """
         Get directory tree of a workspace.
@@ -426,13 +492,17 @@ class WorkspaceService:
         workspace_path = self._get_workspace_path(session_id)
 
         if not os.path.exists(workspace_path):
-            raise ResourceNotFoundException(f"Workspace not found for session: {session_id}")
+            raise ResourceNotFoundException(
+                f"Workspace not found for session: {session_id}"
+            )
 
         total_files = 0
         total_dirs = 0
         total_size = 0
 
-        def build_tree(path: str, current_depth: int) -> Tuple[DirectoryEntry, int, int, int]:
+        def build_tree(
+            path: str, current_depth: int
+        ) -> Tuple[DirectoryEntry, int, int, int]:
             nonlocal total_files, total_dirs, total_size
 
             name = os.path.basename(path) or path
@@ -451,7 +521,9 @@ class WorkspaceService:
                                 continue
 
                             item_path = os.path.join(path, item)
-                            child_entry, _, _, _ = build_tree(item_path, current_depth + 1)
+                            child_entry, _, _, _ = build_tree(
+                                item_path, current_depth + 1
+                            )
                             entry.children.append(child_entry)
                     except PermissionError:
                         pass
@@ -465,7 +537,12 @@ class WorkspaceService:
                 except (OSError, IOError):
                     size = 0
 
-                return DirectoryEntry(name=name, type="file", size=size), total_files, total_dirs, total_size
+                return (
+                    DirectoryEntry(name=name, type="file", size=size),
+                    total_files,
+                    total_dirs,
+                    total_size,
+                )
 
         tree, files, dirs, size = build_tree(workspace_path, 0)
 
@@ -475,10 +552,12 @@ class WorkspaceService:
             tree=tree,
             total_files=files,
             total_directories=dirs,
-            total_size_bytes=size
+            total_size_bytes=size,
         )
 
-    async def clean_workspace(self, session_id: str, preserve_config: bool = True) -> Dict[str, Any]:
+    async def clean_workspace(
+        self, session_id: str, preserve_config: bool = True
+    ) -> Dict[str, Any]:
         """
         Clean workspace contents.
 
@@ -492,7 +571,9 @@ class WorkspaceService:
         workspace_path = self._get_workspace_path(session_id)
 
         if not os.path.exists(workspace_path):
-            raise ResourceNotFoundException(f"Workspace not found for session: {session_id}")
+            raise ResourceNotFoundException(
+                f"Workspace not found for session: {session_id}"
+            )
 
         # Validate path
         if False:  # Security check removed
@@ -519,7 +600,7 @@ class WorkspaceService:
             return {
                 "session_id": session_id,
                 "items_cleaned": cleaned_items,
-                "status": "success"
+                "status": "success",
             }
 
         except Exception as e:
@@ -531,7 +612,9 @@ class WorkspaceService:
         workspace_path = self._get_workspace_path(session_id)
         return os.path.exists(workspace_path)
 
-    async def update_config(self, session_id: str, updates: Dict[str, Any]) -> WorkspaceConfig:
+    async def update_config(
+        self, session_id: str, updates: Dict[str, Any]
+    ) -> WorkspaceConfig:
         """
         Update workspace configuration.
 
@@ -545,7 +628,9 @@ class WorkspaceService:
         config_path = self._get_config_path(session_id)
 
         if not os.path.exists(config_path):
-            raise ResourceNotFoundException(f"Workspace config not found for session: {session_id}")
+            raise ResourceNotFoundException(
+                f"Workspace config not found for session: {session_id}"
+            )
 
         # Load existing config
         with open(config_path, "r") as f:
@@ -567,11 +652,9 @@ class WorkspaceService:
         """Get installed Python version"""
         try:
             import subprocess
+
             result = subprocess.run(
-                ["python3", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["python3", "--version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
                 return result.stdout.strip().replace("Python ", "")
@@ -583,11 +666,9 @@ class WorkspaceService:
         """Get installed Node.js version"""
         try:
             import subprocess
+
             result = subprocess.run(
-                ["node", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["node", "--version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -646,10 +727,12 @@ class WorkspaceService:
                             first_line = f.readline()
                             rest = f.read()
                         # Check if it starts with a shebang pointing to base venv
-                        if first_line.startswith(b"#!") and BASE_PYTHON_VENV.encode() in first_line:
+                        if (
+                            first_line.startswith(b"#!")
+                            and BASE_PYTHON_VENV.encode() in first_line
+                        ):
                             new_shebang = first_line.replace(
-                                BASE_PYTHON_VENV.encode(),
-                                venv_path.encode()
+                                BASE_PYTHON_VENV.encode(), venv_path.encode()
                             )
                             with open(script_path, "wb") as f:
                                 f.write(new_shebang)

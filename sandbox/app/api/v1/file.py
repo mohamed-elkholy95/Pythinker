@@ -1,18 +1,23 @@
 """
 File operation API interfaces
 """
+
 import os
 import tempfile
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from app.schemas.file import (
-    FileReadRequest, FileWriteRequest, FileReplaceRequest,
-    FileSearchRequest, FileFindRequest
+    FileReadRequest,
+    FileWriteRequest,
+    FileReplaceRequest,
+    FileSearchRequest,
+    FileFindRequest,
 )
 from app.schemas.response import Response
 from app.services.file import file_service
 
 router = APIRouter()
+
 
 @router.post("/read", response_model=Response)
 async def read_file(request: FileReadRequest):
@@ -24,15 +29,14 @@ async def read_file(request: FileReadRequest):
         start_line=request.start_line,
         end_line=request.end_line,
         sudo=request.sudo,
-        max_length=request.max_length
+        max_length=request.max_length,
     )
-    
+
     # Construct response
     return Response(
-        success=True,
-        message="File read successfully",
-        data=result.model_dump()
+        success=True, message="File read successfully", data=result.model_dump()
     )
+
 
 @router.post("/write", response_model=Response)
 async def write_file(request: FileWriteRequest):
@@ -45,15 +49,14 @@ async def write_file(request: FileWriteRequest):
         append=request.append,
         leading_newline=request.leading_newline,
         trailing_newline=request.trailing_newline,
-        sudo=request.sudo
+        sudo=request.sudo,
     )
-    
+
     # Construct response
     return Response(
-        success=True,
-        message="File written successfully",
-        data=result.model_dump()
+        success=True, message="File written successfully", data=result.model_dump()
     )
+
 
 @router.post("/replace", response_model=Response)
 async def replace_in_file(request: FileReplaceRequest):
@@ -64,15 +67,16 @@ async def replace_in_file(request: FileReplaceRequest):
         file=request.file,
         old_str=request.old_str,
         new_str=request.new_str,
-        sudo=request.sudo
+        sudo=request.sudo,
     )
-    
+
     # Construct response
     return Response(
         success=True,
         message=f"Replacement completed, replaced {result.replaced_count} occurrences",
-        data=result.model_dump()
+        data=result.model_dump(),
     )
+
 
 @router.post("/search", response_model=Response)
 async def search_in_file(request: FileSearchRequest):
@@ -80,17 +84,16 @@ async def search_in_file(request: FileSearchRequest):
     Search in file content
     """
     result = await file_service.find_in_content(
-        file=request.file,
-        regex=request.regex,
-        sudo=request.sudo
+        file=request.file, regex=request.regex, sudo=request.sudo
     )
-    
+
     # Construct response
     return Response(
         success=True,
         message=f"Search completed, found {len(result.matches)} matches",
-        data=result.model_dump()
+        data=result.model_dump(),
     )
+
 
 @router.post("/find", response_model=Response)
 async def find_files(request: FileFindRequest):
@@ -98,22 +101,19 @@ async def find_files(request: FileFindRequest):
     Find files by name pattern
     """
     result = await file_service.find_by_name(
-        path=request.path,
-        glob_pattern=request.glob
+        path=request.path, glob_pattern=request.glob
     )
-    
+
     # Construct response
     return Response(
         success=True,
         message=f"Search completed, found {len(result.files)} files",
-        data=result.model_dump()
+        data=result.model_dump(),
     )
 
+
 @router.post("/upload")
-async def upload_file(
-    file: UploadFile = File(...),
-    path: str = Form(None)
-):
+async def upload_file(file: UploadFile = File(...), path: str = Form(None)):
     """
     Upload file using streaming
     """
@@ -125,16 +125,12 @@ async def upload_file(
         temp_dir = tempfile.gettempdir()
         path = os.path.join(temp_dir, safe_filename)
 
-    result = await file_service.upload_file(
-        path=path,
-        file_stream=file
-    )
+    result = await file_service.upload_file(path=path, file_stream=file)
 
     return Response(
-        success=True,
-        message="File uploaded successfully",
-        data=result.model_dump()
+        success=True, message="File uploaded successfully", data=result.model_dump()
     )
+
 
 @router.get("/download")
 async def download_file(path: str):
@@ -143,12 +139,10 @@ async def download_file(path: str):
     """
     # Check if file exists (this will raise appropriate exception if not found)
     file_service.ensure_file(path)
-    
+
     # Determine filename from path
-    filename = path.split('/')[-1]
-    
+    filename = path.split("/")[-1]
+
     return FileResponse(
-        path=path,
-        filename=filename,
-        media_type='application/octet-stream'
+        path=path, filename=filename, media_type="application/octet-stream"
     )

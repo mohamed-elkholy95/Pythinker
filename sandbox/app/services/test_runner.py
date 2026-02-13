@@ -4,6 +4,7 @@ Test Runner Service Implementation
 Provides test execution, listing, and coverage reporting capabilities
 for multiple test frameworks.
 """
+
 import os
 import re
 import json
@@ -14,10 +15,18 @@ import contextlib
 from typing import Dict, List, Tuple
 
 from app.models.test_runner import (
-    TestFramework, TestResult, TestFailure,
-    TestInfo, TestListResult, CoverageResult
+    TestFramework,
+    TestResult,
+    TestFailure,
+    TestInfo,
+    TestListResult,
+    CoverageResult,
 )
-from app.core.exceptions import AppException, BadRequestException, ResourceNotFoundException
+from app.core.exceptions import (
+    AppException,
+    BadRequestException,
+    ResourceNotFoundException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +46,7 @@ class TestRunnerService:
         cmd: List[str],
         cwd: str = None,
         timeout: int = None,
-        env: Dict[str, str] = None
+        env: Dict[str, str] = None,
     ) -> Tuple[int, str, str]:
         """
         Run a command asynchronously.
@@ -63,18 +72,17 @@ class TestRunnerService:
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=cmd_env
+                env=cmd_env,
             )
 
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout
+                process.communicate(), timeout=timeout
             )
 
             return (
                 process.returncode,
                 stdout.decode("utf-8", errors="replace"),
-                stderr.decode("utf-8", errors="replace")
+                stderr.decode("utf-8", errors="replace"),
             )
 
         except asyncio.TimeoutError:
@@ -92,9 +100,11 @@ class TestRunnerService:
         dir_path = path if os.path.isdir(path) else os.path.dirname(path)
 
         # Check for Python test files
-        if os.path.exists(os.path.join(dir_path, "pytest.ini")) or \
-           os.path.exists(os.path.join(dir_path, "pyproject.toml")) or \
-           os.path.exists(os.path.join(dir_path, "setup.cfg")):
+        if (
+            os.path.exists(os.path.join(dir_path, "pytest.ini"))
+            or os.path.exists(os.path.join(dir_path, "pyproject.toml"))
+            or os.path.exists(os.path.join(dir_path, "setup.cfg"))
+        ):
             return TestFramework.PYTEST
 
         # Check for Node.js test setup
@@ -103,7 +113,10 @@ class TestRunnerService:
             try:
                 with open(package_json) as f:
                     pkg = json.load(f)
-                    deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+                    deps = {
+                        **pkg.get("dependencies", {}),
+                        **pkg.get("devDependencies", {}),
+                    }
                     if "jest" in deps:
                         return TestFramework.JEST
                     if "mocha" in deps:
@@ -114,7 +127,11 @@ class TestRunnerService:
                 pass
 
         # Check for Python files
-        if path.endswith(".py") or any(f.endswith(".py") for f in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, f))):
+        if path.endswith(".py") or any(
+            f.endswith(".py")
+            for f in os.listdir(dir_path)
+            if os.path.isfile(os.path.join(dir_path, f))
+        ):
             return TestFramework.PYTEST
 
         return TestFramework.PYTEST  # Default
@@ -126,7 +143,7 @@ class TestRunnerService:
         pattern: str = None,
         coverage: bool = False,
         timeout: int = 300,
-        verbose: bool = False
+        verbose: bool = False,
     ) -> TestResult:
         """
         Run tests in the specified path.
@@ -156,7 +173,9 @@ class TestRunnerService:
 
         try:
             if framework == TestFramework.PYTEST:
-                result = await self._run_pytest(path, pattern, coverage, timeout, verbose)
+                result = await self._run_pytest(
+                    path, pattern, coverage, timeout, verbose
+                )
             elif framework == TestFramework.UNITTEST:
                 result = await self._run_unittest(path, pattern, timeout, verbose)
             elif framework == TestFramework.JEST:
@@ -177,7 +196,7 @@ class TestRunnerService:
                 framework=framework.value,
                 success=False,
                 duration_ms=int((time.time() - start_time) * 1000),
-                message=f"Test execution failed: {str(e)}"
+                message=f"Test execution failed: {str(e)}",
             )
 
     async def _run_pytest(
@@ -186,7 +205,7 @@ class TestRunnerService:
         pattern: str = None,
         coverage: bool = False,
         timeout: int = 300,
-        verbose: bool = False
+        verbose: bool = False,
     ) -> TestResult:
         """Run tests with pytest"""
         args = ["pytest", "--tb=short", "-q"]
@@ -207,7 +226,9 @@ class TestRunnerService:
         args.append(path)
 
         cwd = path if os.path.isdir(path) else os.path.dirname(path)
-        returncode, stdout, stderr = await self._run_command(args, cwd=cwd, timeout=timeout)
+        returncode, stdout, stderr = await self._run_command(
+            args, cwd=cwd, timeout=timeout
+        )
 
         # Parse pytest output
         total = passed = failed = skipped = errors = 0
@@ -239,16 +260,15 @@ class TestRunnerService:
             coverage_percent = float(cov_match.group(1))
 
         # Parse failures
-        failure_pattern = re.compile(
-            r"FAILED\s+(.+?)::(.+?)\s+-\s+(.+)",
-            re.MULTILINE
-        )
+        failure_pattern = re.compile(r"FAILED\s+(.+?)::(.+?)\s+-\s+(.+)", re.MULTILINE)
         for match in failure_pattern.finditer(output):
-            failures.append(TestFailure(
-                test_name=match.group(2),
-                file_path=match.group(1),
-                error_message=match.group(3)
-            ))
+            failures.append(
+                TestFailure(
+                    test_name=match.group(2),
+                    file_path=match.group(1),
+                    error_message=match.group(3),
+                )
+            )
 
         return TestResult(
             framework="pytest",
@@ -261,15 +281,11 @@ class TestRunnerService:
             failures=failures,
             output=output if verbose else None,
             success=returncode == 0,
-            message=f"Tests completed: {passed} passed, {failed} failed"
+            message=f"Tests completed: {passed} passed, {failed} failed",
         )
 
     async def _run_unittest(
-        self,
-        path: str,
-        pattern: str = None,
-        timeout: int = 300,
-        verbose: bool = False
+        self, path: str, pattern: str = None, timeout: int = 300, verbose: bool = False
     ) -> TestResult:
         """Run tests with unittest"""
         args = ["python3", "-m", "unittest"]
@@ -289,7 +305,9 @@ class TestRunnerService:
             args.extend(["-s", path])
 
         cwd = path if os.path.isdir(path) else os.path.dirname(path)
-        returncode, stdout, stderr = await self._run_command(args, cwd=cwd, timeout=timeout)
+        returncode, stdout, stderr = await self._run_command(
+            args, cwd=cwd, timeout=timeout
+        )
 
         output = stdout + stderr
 
@@ -327,7 +345,7 @@ class TestRunnerService:
             errors=errors,
             output=output if verbose else None,
             success=returncode == 0,
-            message=f"Tests completed: {passed} passed, {failed} failed"
+            message=f"Tests completed: {passed} passed, {failed} failed",
         )
 
     async def _run_jest(
@@ -336,7 +354,7 @@ class TestRunnerService:
         pattern: str = None,
         coverage: bool = False,
         timeout: int = 300,
-        verbose: bool = False
+        verbose: bool = False,
     ) -> TestResult:
         """Run tests with Jest"""
         args = ["npx", "jest", "--json"]
@@ -354,7 +372,9 @@ class TestRunnerService:
             args.append(path)
 
         cwd = path if os.path.isdir(path) else os.path.dirname(path)
-        returncode, stdout, stderr = await self._run_command(args, cwd=cwd, timeout=timeout)
+        returncode, stdout, stderr = await self._run_command(
+            args, cwd=cwd, timeout=timeout
+        )
 
         # Parse JSON output
         total = passed = failed = skipped = 0
@@ -374,11 +394,15 @@ class TestRunnerService:
             for result in data.get("testResults", []):
                 for assertion in result.get("assertionResults", []):
                     if assertion.get("status") == "failed":
-                        failures.append(TestFailure(
-                            test_name=assertion.get("title", "unknown"),
-                            file_path=result.get("name", ""),
-                            error_message="\n".join(assertion.get("failureMessages", []))[:500]
-                        ))
+                        failures.append(
+                            TestFailure(
+                                test_name=assertion.get("title", "unknown"),
+                                file_path=result.get("name", ""),
+                                error_message="\n".join(
+                                    assertion.get("failureMessages", [])
+                                )[:500],
+                            )
+                        )
 
         except json.JSONDecodeError:
             # Fallback to parsing text output
@@ -401,15 +425,11 @@ class TestRunnerService:
             coverage_percent=coverage_percent,
             failures=failures,
             success=returncode == 0,
-            message=f"Tests completed: {passed} passed, {failed} failed"
+            message=f"Tests completed: {passed} passed, {failed} failed",
         )
 
     async def _run_mocha(
-        self,
-        path: str,
-        pattern: str = None,
-        timeout: int = 300,
-        verbose: bool = False
+        self, path: str, pattern: str = None, timeout: int = 300, verbose: bool = False
     ) -> TestResult:
         """Run tests with Mocha"""
         args = ["npx", "mocha", "--reporter", "json"]
@@ -423,7 +443,9 @@ class TestRunnerService:
             args.append(f"{path}/**/*.test.js")
 
         cwd = path if os.path.isdir(path) else os.path.dirname(path)
-        returncode, stdout, stderr = await self._run_command(args, cwd=cwd, timeout=timeout)
+        returncode, stdout, stderr = await self._run_command(
+            args, cwd=cwd, timeout=timeout
+        )
 
         total = passed = failed = skipped = 0
         failures = []
@@ -438,11 +460,13 @@ class TestRunnerService:
             skipped = stats.get("pending", 0)
 
             for failure in data.get("failures", []):
-                failures.append(TestFailure(
-                    test_name=failure.get("title", "unknown"),
-                    file_path=failure.get("file", ""),
-                    error_message=failure.get("err", {}).get("message", "")[:500]
-                ))
+                failures.append(
+                    TestFailure(
+                        test_name=failure.get("title", "unknown"),
+                        file_path=failure.get("file", ""),
+                        error_message=failure.get("err", {}).get("message", "")[:500],
+                    )
+                )
 
         except json.JSONDecodeError:
             pass
@@ -455,20 +479,19 @@ class TestRunnerService:
             skipped=skipped,
             failures=failures,
             success=returncode == 0,
-            message=f"Tests completed: {passed} passed, {failed} failed"
+            message=f"Tests completed: {passed} passed, {failed} failed",
         )
 
     async def _run_npm_test(
-        self,
-        path: str,
-        timeout: int = 300,
-        verbose: bool = False
+        self, path: str, timeout: int = 300, verbose: bool = False
     ) -> TestResult:
         """Run npm test script"""
         args = ["npm", "test"]
 
         cwd = path if os.path.isdir(path) else os.path.dirname(path)
-        returncode, stdout, stderr = await self._run_command(args, cwd=cwd, timeout=timeout)
+        returncode, stdout, stderr = await self._run_command(
+            args, cwd=cwd, timeout=timeout
+        )
 
         output = stdout + stderr
 
@@ -476,13 +499,12 @@ class TestRunnerService:
             framework="npm_test",
             output=output,
             success=returncode == 0,
-            message="npm test completed" + (" successfully" if returncode == 0 else " with errors")
+            message="npm test completed"
+            + (" successfully" if returncode == 0 else " with errors"),
         )
 
     async def list_tests(
-        self,
-        path: str,
-        framework: TestFramework = TestFramework.AUTO
+        self, path: str, framework: TestFramework = TestFramework.AUTO
     ) -> TestListResult:
         """
         List available tests.
@@ -506,18 +528,21 @@ class TestRunnerService:
         try:
             if framework in [TestFramework.PYTEST, TestFramework.UNITTEST]:
                 return await self._list_pytest_tests(path)
-            elif framework in [TestFramework.JEST, TestFramework.MOCHA, TestFramework.NPM_TEST]:
+            elif framework in [
+                TestFramework.JEST,
+                TestFramework.MOCHA,
+                TestFramework.NPM_TEST,
+            ]:
                 return await self._list_js_tests(path)
             else:
                 return TestListResult(
                     framework=framework.value,
-                    message=f"Test listing not supported for {framework}"
+                    message=f"Test listing not supported for {framework}",
                 )
         except Exception as e:
             logger.error(f"Failed to list tests: {e}")
             return TestListResult(
-                framework=framework.value,
-                message=f"Failed to list tests: {str(e)}"
+                framework=framework.value, message=f"Failed to list tests: {str(e)}"
             )
 
     async def _list_pytest_tests(self, path: str) -> TestListResult:
@@ -539,18 +564,18 @@ class TestRunnerService:
                     class_name = parts[1] if len(parts) > 2 else None
 
                     files.add(file_path)
-                    tests.append(TestInfo(
-                        name=test_name,
-                        file_path=file_path,
-                        class_name=class_name
-                    ))
+                    tests.append(
+                        TestInfo(
+                            name=test_name, file_path=file_path, class_name=class_name
+                        )
+                    )
 
         return TestListResult(
             framework="pytest",
             tests=tests,
             total_count=len(tests),
             files_count=len(files),
-            message=f"Found {len(tests)} tests in {len(files)} files"
+            message=f"Found {len(tests)} tests in {len(files)} files",
         )
 
     async def _list_js_tests(self, path: str) -> TestListResult:
@@ -572,14 +597,11 @@ class TestRunnerService:
             tests=tests,
             total_count=len(tests),
             files_count=len(test_files),
-            message=f"Found {len(test_files)} test files"
+            message=f"Found {len(test_files)} test files",
         )
 
     async def get_coverage_report(
-        self,
-        path: str,
-        output_format: str = "html",
-        output_dir: str = None
+        self, path: str, output_format: str = "html", output_dir: str = None
     ) -> CoverageResult:
         """
         Generate coverage report.
@@ -619,7 +641,9 @@ class TestRunnerService:
 
         # Get coverage summary
         args_summary = ["coverage", "report"]
-        ret, summary_out, _ = await self._run_command(args_summary, cwd=path, timeout=30)
+        ret, summary_out, _ = await self._run_command(
+            args_summary, cwd=path, timeout=30
+        )
 
         total_lines = covered_lines = 0
         coverage_percent = 0.0
@@ -644,7 +668,11 @@ class TestRunnerService:
                     except ValueError:
                         pass
 
-        report_path = output_dir if output_format == "html" else os.path.join(output_dir, f"coverage.{output_format}")
+        report_path = (
+            output_dir
+            if output_format == "html"
+            else os.path.join(output_dir, f"coverage.{output_format}")
+        )
 
         return CoverageResult(
             total_lines=total_lines,
@@ -652,7 +680,7 @@ class TestRunnerService:
             coverage_percent=coverage_percent,
             file_coverage=file_coverage,
             report_path=report_path,
-            message=f"Coverage: {coverage_percent}%"
+            message=f"Coverage: {coverage_percent}%",
         )
 
 

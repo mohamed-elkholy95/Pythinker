@@ -1,14 +1,117 @@
-"""
-VNC-related API endpoints for desktop screenshot capture and control.
-"""
+"""VNC-related API endpoints for desktop screenshot capture and control."""
 
-from fastapi import APIRouter, HTTPException, Response, Query
-import logging
 import asyncio
+import logging
+import shlex
+import shutil
+import time
 from typing import Literal
+
+from fastapi import APIRouter, HTTPException, Query, Response
+
+from app.services.cdp_screencast import CDPScreencastService, ScreencastConfig
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_SCREENSHOT_TIMEOUT_SECONDS = 5.0
+_DISPLAY_NAME = ":1"
+
+
+def _xwd_pipeline_available() -> bool:
+    """Return True when xwd+convert binaries are available."""
+    return shutil.which("xwd") is not None and shutil.which("convert") is not None
+
+
+async def _capture_with_cdp(quality: int, image_format: Literal["jpeg", "png"]) -> bytes | None:
+    """Capture a single frame via Chrome DevTools Protocol."""
+    service = CDPScreencastService(ScreencastConfig(format=image_format, quality=quality))
+    try:
+        async def _capture_once() -> bytes | None:
+            if not await service.connect():
+                return None
+            return await service.capture_single_frame()
+
+        image_data = await asyncio.wait_for(_capture_once(), timeout=_SCREENSHOT_TIMEOUT_SECONDS)
+        if not image_data:
+            logger.warning("[Screenshot] CDP capture returned empty frame")
+            return None
+        return image_data
+    except asyncio.TimeoutError:
+        logger.warning("[Screenshot] CDP capture timed out after %.1fs", _SCREENSHOT_TIMEOUT_SECONDS)
+        return None
+    except Exception as e:
+        logger.warning(f"[Screenshot] CDP capture failed: {e}")
+        return None
+    finally:
+        await service.disconnect()
+
+
+async def _capture_with_xwd_pipeline(
+    quality: int,
+    scale: float,
+    image_format: Literal["jpeg", "png"],
+) -> bytes:
+    """Capture screenshot using xwd piped into ImageMagick convert."""
+    scale_percent = int(scale * 100)
+    convert_parts = ["convert", "xwd:-", "-scale", f"{scale_percent}%"]
+    if image_format == "jpeg":
+        convert_parts.extend(["-quality", str(quality), "jpg:-"])
+    else:
+        convert_parts.append("png:-")
+
+    convert_cmd = " ".join(shlex.quote(part) for part in convert_parts)
+    shell_cmd = f"DISPLAY={_DISPLAY_NAME} xwd -root | {convert_cmd}"
+    logger.info(f"[Screenshot] Executing fallback pipeline: {shell_cmd}")
+
+    proc = await asyncio.create_subprocess_exec(
+        "sh",
+        "-c",
+        shell_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_SCREENSHOT_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise HTTPException(status_code=504, detail="Screenshot capture timed out after 5 seconds")
+
+    if proc.returncode != 0:
+        error_msg = stderr.decode().strip() if stderr else "Unknown error"
+        logger.error(f"[Screenshot] xwd pipeline failed: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Screenshot capture failed: {error_msg}")
+
+    return stdout
+
+
+def _build_screenshot_response(
+    image_data: bytes,
+    *,
+    quality: int,
+    scale: float,
+    image_format: Literal["jpeg", "png"],
+    backend: Literal["cdp", "xwd"],
+    elapsed_seconds: float,
+) -> Response:
+    """Build the screenshot HTTP response with common metadata headers."""
+    return Response(
+        content=image_data,
+        media_type=f"image/{image_format}",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-Screenshot-Backend": backend,
+            "X-Screenshot-Size": str(len(image_data)),
+            "X-Screenshot-Scale": str(scale),
+            "X-Screenshot-Quality": str(quality) if image_format == "jpeg" else "N/A",
+            "X-Screenshot-Timestamp": str(int(time.time() * 1000)),
+            "X-Screenshot-Elapsed-Ms": str(int(elapsed_seconds * 1000)),
+        },
+    )
 
 
 @router.get("/screenshot")
@@ -16,153 +119,103 @@ async def capture_screenshot(
     quality: int = Query(default=75, ge=1, le=100, description="JPEG quality (1-100)"),
     scale: float = Query(default=0.5, ge=0.1, le=1.0, description="Scale factor (0.1-1.0)"),
     format: Literal["jpeg", "png"] = Query(default="jpeg", description="Image format"),
-    _t: int = Query(default=0, description="Cache-busting timestamp")
-):
+    _t: int = Query(default=0, description="Cache-busting timestamp"),
+) -> Response:
     """
     Capture desktop screenshot optimized for thumbnails.
 
-    Uses xwd to capture the X11 display and ImageMagick convert for processing.
-    Scaled down and compressed for efficient transmission.
-
-    Args:
-        quality: JPEG quality (1-100, default 75)
-        scale: Scale factor (0.1-1.0, default 0.5 for 50% size)
-        format: Output format (jpeg or png, default jpeg)
-
-    Returns:
-        Image bytes in specified format
+    Backend selection order:
+    1. CDP single-frame capture (works in minimal sandbox profile)
+    2. Legacy xwd + convert pipeline (when binaries are installed)
     """
-    import time
     start_time = time.time()
     logger.info(f"[Screenshot] Request received: quality={quality}, scale={scale}, format={format}, _t={_t}")
 
     try:
-        # Build ImageMagick convert command
-        # xwd captures raw X11 display, convert processes it
-        if format == "jpeg":
-            convert_cmd = f"convert xwd:- -scale {int(scale*100)}% -quality {quality} jpg:-"
-        else:
-            convert_cmd = f"convert xwd:- -scale {int(scale*100)}% png:-"
-
-        cmd = [
-            "sh", "-c",
-            f"DISPLAY=:1 xwd -root | {convert_cmd}"
-        ]
-
-        logger.info(f"[Screenshot] Executing: DISPLAY=:1 xwd -root | {convert_cmd}")
-
-        # Execute with timeout
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=5.0
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            logger.error("[Screenshot] Capture timed out after 5 seconds")
-            raise HTTPException(
-                status_code=504,
-                detail="Screenshot capture timed out after 5 seconds"
+        # Prefer CDP because it does not depend on optional X11 add-ons.
+        cdp_image = await _capture_with_cdp(quality, format)
+        if cdp_image:
+            elapsed = time.time() - start_time
+            logger.info(f"[Screenshot] Captured {len(cdp_image)} bytes via CDP in {elapsed:.3f}s")
+            return _build_screenshot_response(
+                cdp_image,
+                quality=quality,
+                scale=scale,
+                image_format=format,
+                backend="cdp",
+                elapsed_seconds=elapsed,
             )
 
-        if proc.returncode != 0:
-            error_msg = stderr.decode() if stderr else "Unknown error"
-            logger.error(f"[Screenshot] Command failed: {error_msg}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Screenshot capture failed: {error_msg}"
+        # Fallback to xwd pipeline only when required binaries exist.
+        if _xwd_pipeline_available():
+            xwd_image = await _capture_with_xwd_pipeline(quality, scale, format)
+            elapsed = time.time() - start_time
+            logger.info(f"[Screenshot] Captured {len(xwd_image)} bytes via xwd pipeline in {elapsed:.3f}s")
+            return _build_screenshot_response(
+                xwd_image,
+                quality=quality,
+                scale=scale,
+                image_format=format,
+                backend="xwd",
+                elapsed_seconds=elapsed,
             )
 
-        elapsed = time.time() - start_time
-        logger.info(f"[Screenshot] Captured {len(stdout)} bytes in {elapsed:.3f}s")
-
-        # Return image with appropriate headers
-        media_type = f"image/{format}"
-        return Response(
-            content=stdout,
-            media_type=media_type,
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-                "X-Screenshot-Size": str(len(stdout)),
-                "X-Screenshot-Scale": str(scale),
-                "X-Screenshot-Quality": str(quality) if format == "jpeg" else "N/A",
-                "X-Screenshot-Timestamp": str(int(time.time() * 1000)),
-                "X-Screenshot-Elapsed-Ms": str(int(elapsed * 1000))
-            }
+        raise HTTPException(
+            status_code=503,
+            detail="Screenshot capture unavailable: CDP capture failed and xwd/convert are not installed",
         )
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[Screenshot] Unexpected error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Screenshot capture error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Screenshot capture error: {e}") from e
 
 
 @router.get("/screenshot/test")
 async def test_screenshot_availability():
     """
-    Test if screenshot capabilities are available.
+    Report screenshot backend availability.
 
-    Checks for required X11 tools (xwd, convert).
-
-    Returns:
-        Status dict with availability information
+    Preferred backend is CDP. xwd/convert is treated as a legacy fallback.
     """
     try:
-        # Check if xwd is available
-        xwd_check = await asyncio.create_subprocess_exec(
-            "which", "xwd",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        await xwd_check.communicate()
-        xwd_available = xwd_check.returncode == 0
+        cdp_service = CDPScreencastService()
+        cdp_ws_url = await cdp_service.get_ws_debugger_url()
+        cdp_available = cdp_ws_url is not None
 
-        # Check if convert (ImageMagick) is available
-        convert_check = await asyncio.create_subprocess_exec(
-            "which", "convert",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        await convert_check.communicate()
-        convert_available = convert_check.returncode == 0
+        xwd_available = shutil.which("xwd") is not None
+        convert_available = shutil.which("convert") is not None
 
-        # Check if DISPLAY :1 is accessible
         display_check = await asyncio.create_subprocess_exec(
-            "sh", "-c", "DISPLAY=:1 xdpyinfo > /dev/null 2>&1",
+            "sh",
+            "-c",
+            f"DISPLAY={_DISPLAY_NAME} xdpyinfo > /dev/null 2>&1",
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
         await display_check.communicate()
         display_available = display_check.returncode == 0
 
-        all_available = xwd_available and convert_available and display_available
+        xwd_pipeline_ready = xwd_available and convert_available and display_available
+        available = cdp_available or xwd_pipeline_ready
+        preferred_backend = "cdp" if cdp_available else ("xwd" if xwd_pipeline_ready else "none")
 
         return {
-            "available": all_available,
+            "available": available,
+            "preferred_backend": preferred_backend,
+            "backends": {
+                "cdp": cdp_available,
+                "xwd_pipeline": xwd_pipeline_ready,
+            },
             "tools": {
                 "xwd": xwd_available,
                 "convert": convert_available,
-                "display_1": display_available
+                "display_1": display_available,
             },
-            "message": "Screenshot system ready" if all_available else "Screenshot system not fully configured"
+            "message": "Screenshot system ready" if available else "No screenshot backend available",
         }
 
     except Exception as e:
-        logger.error(f"Error testing screenshot availability: {e}")
-        return {
-            "available": False,
-            "error": str(e)
-        }
+        logger.error(f"Error testing screenshot availability: {e}", exc_info=True)
+        return {"available": False, "error": str(e)}

@@ -32,18 +32,14 @@ class EnvironmentScanner:
         self.context = {
             "generated_at": datetime.utcnow().isoformat(),
             "version": "1.0.0",
-            "environment": {}
+            "environment": {},
         }
 
     def run_command(self, cmd: str, shell: bool = True) -> Optional[str]:
         """Execute command and return stdout, or None on error"""
         try:
             result = subprocess.run(
-                cmd,
-                shell=shell,
-                capture_output=True,
-                text=True,
-                timeout=10
+                cmd, shell=shell, capture_output=True, text=True, timeout=10
             )
             return result.stdout.strip() if result.returncode == 0 else None
         except Exception as e:
@@ -53,7 +49,8 @@ class EnvironmentScanner:
     def scan_os_info(self) -> Dict[str, Any]:
         """Scan OS and kernel information"""
         return {
-            "distribution": self.run_command("lsb_release -d | cut -f2-") or "Ubuntu 22.04",
+            "distribution": self.run_command("lsb_release -d | cut -f2-")
+            or "Ubuntu 22.04",
             "kernel": self.run_command("uname -r"),
             "architecture": self.run_command("uname -m"),
             "hostname": self.run_command("hostname"),
@@ -84,15 +81,29 @@ class EnvironmentScanner:
 
         # Key packages to highlight
         key_packages = [
-            "fastapi", "uvicorn", "pydantic", "playwright", "playwright-stealth",
-            "pytest", "black", "flake8", "mypy", "requests", "httpx", "aiohttp",
-            "pandas", "numpy", "sqlalchemy"
+            "fastapi",
+            "uvicorn",
+            "pydantic",
+            "playwright",
+            "playwright-stealth",
+            "pytest",
+            "black",
+            "flake8",
+            "mypy",
+            "requests",
+            "httpx",
+            "aiohttp",
+            "pandas",
+            "numpy",
+            "sqlalchemy",
         ]
 
         python_info["key_packages"] = {}
         for pkg in key_packages:
             if pip_list and pkg in python_info.get("installed_packages", {}):
-                python_info["key_packages"][pkg] = python_info["installed_packages"][pkg]
+                python_info["key_packages"][pkg] = python_info["installed_packages"][
+                    pkg
+                ]
 
         return python_info
 
@@ -113,8 +124,7 @@ class EnvironmentScanner:
                 packages = json.loads(npm_list)
                 deps = packages.get("dependencies", {})
                 node_info["global_packages"] = {
-                    name: data.get("version", "unknown")
-                    for name, data in deps.items()
+                    name: data.get("version", "unknown") for name, data in deps.items()
                 }
                 node_info["package_count"] = len(deps)
             except json.JSONDecodeError:
@@ -138,10 +148,7 @@ class EnvironmentScanner:
         for tool in shell_tools:
             version = self.run_command(f"which {tool}")
             if version:
-                tools["shell"][tool] = {
-                    "available": True,
-                    "path": version
-                }
+                tools["shell"][tool] = {"available": True, "path": version}
 
         # Development tools
         dev_tools = {
@@ -156,7 +163,7 @@ class EnvironmentScanner:
                 tools["development"][tool] = {
                     "available": True,
                     "version": result,
-                    "path": self.run_command(f"which {tool}")
+                    "path": self.run_command(f"which {tool}"),
                 }
 
         # Version control
@@ -171,30 +178,21 @@ class EnvironmentScanner:
         for tool in text_tools:
             path = self.run_command(f"which {tool}")
             if path:
-                tools["text_processing"][tool] = {
-                    "available": True,
-                    "path": path
-                }
+                tools["text_processing"][tool] = {"available": True, "path": path}
 
         # Network tools
         net_tools = ["curl", "wget", "netstat", "ping", "nc"]
         for tool in net_tools:
             path = self.run_command(f"which {tool}")
             if path:
-                tools["network"][tool] = {
-                    "available": True,
-                    "path": path
-                }
+                tools["network"][tool] = {"available": True, "path": path}
 
         # Compression tools
         comp_tools = ["zip", "unzip", "tar", "gzip"]
         for tool in comp_tools:
             path = self.run_command(f"which {tool}")
             if path:
-                tools["compression"][tool] = {
-                    "available": True,
-                    "path": path
-                }
+                tools["compression"][tool] = {"available": True, "path": path}
 
         return tools
 
@@ -226,19 +224,27 @@ class EnvironmentScanner:
             }
 
         # Check Playwright browsers
-        playwright_browsers = self.run_command("python3 -c \"import playwright; print('installed')\"")
+        playwright_browsers = self.run_command(
+            "python3 -c \"import playwright; print('installed')\""
+        )
         if playwright_browsers:
             browser_info["playwright"] = {
                 "available": True,
                 "browsers": ["chromium", "firefox", "webkit"],
-                "stealth_mode": self.run_command("python3 -c \"import playwright_stealth; print('available')\"") == "available"
+                "stealth_mode": self.run_command(
+                    "python3 -c \"import playwright_stealth; print('available')\""
+                )
+                == "available",
             }
 
         return browser_info
 
     def scan_sandbox_capabilities(self) -> Dict[str, Any]:
         """Document high-level sandbox capabilities"""
+        addons_enabled = os.environ.get("SANDBOX_ADDONS_ENABLED", "0") == "1"
         return {
+            "profile": "full" if addons_enabled else "minimal",
+            "addons_enabled": addons_enabled,
             "execution": {
                 "python": True,
                 "nodejs": True,
@@ -269,7 +275,7 @@ class EnvironmentScanner:
             "resource_limits": {
                 "description": "Containerized environment with resource limits",
                 "shared_memory": os.environ.get("SHM_SIZE", "2gb"),
-            }
+            },
         }
 
     def scan_directory_structure(self) -> Dict[str, Any]:
@@ -299,45 +305,67 @@ class EnvironmentScanner:
             "file_operations": {
                 "ls": {
                     "flags": ["-la", "-lh", "-R", "-t"],
-                    "examples": ["ls -la", "ls -lh /workspace", "ls -lt"]
+                    "examples": ["ls -la", "ls -lh /workspace", "ls -lt"],
                 },
                 "cat": {
                     "flags": ["-n", "-A", "-v"],
-                    "examples": ["cat file.txt", "cat -n file.py"]
+                    "examples": ["cat file.txt", "cat -n file.py"],
                 },
                 "grep": {
                     "flags": ["-r", "-i", "-n", "-v", "-E", "-A", "-B", "-C"],
-                    "examples": ["grep -rn 'pattern' .", "grep -i 'error' logfile.txt", "grep -E 'regex' file"]
+                    "examples": [
+                        "grep -rn 'pattern' .",
+                        "grep -i 'error' logfile.txt",
+                        "grep -E 'regex' file",
+                    ],
                 },
                 "find": {
                     "flags": ["-name", "-type", "-mtime", "-size"],
-                    "examples": ["find . -name '*.py'", "find /workspace -type f -mtime -1", "find . -name '*.log' -delete"]
+                    "examples": [
+                        "find . -name '*.py'",
+                        "find /workspace -type f -mtime -1",
+                        "find . -name '*.log' -delete",
+                    ],
                 },
                 "sed": {
                     "flags": ["-i", "-n", "-e"],
-                    "examples": ["sed -i 's/old/new/g' file.txt", "sed -n '1,10p' file.txt"]
+                    "examples": [
+                        "sed -i 's/old/new/g' file.txt",
+                        "sed -n '1,10p' file.txt",
+                    ],
                 },
                 "awk": {
-                    "examples": ["awk '{print $1}' file.txt", "awk -F':' '{print $1}' /etc/passwd"]
-                }
+                    "examples": [
+                        "awk '{print $1}' file.txt",
+                        "awk -F':' '{print $1}' /etc/passwd",
+                    ]
+                },
             },
             "text_processing": {
                 "jq": {
                     "flags": ["-r", "-c", "-M", "-S"],
-                    "examples": ["jq '.' file.json", "jq -r '.key' file.json", "jq '.[] | select(.active)' data.json"]
+                    "examples": [
+                        "jq '.' file.json",
+                        "jq -r '.key' file.json",
+                        "jq '.[] | select(.active)' data.json",
+                    ],
                 },
                 "sort": {
                     "flags": ["-n", "-r", "-u", "-k"],
-                    "examples": ["sort file.txt", "sort -n numbers.txt", "sort -u -k2 data.txt"]
+                    "examples": [
+                        "sort file.txt",
+                        "sort -n numbers.txt",
+                        "sort -u -k2 data.txt",
+                    ],
                 },
                 "uniq": {
                     "flags": ["-c", "-d", "-u"],
-                    "examples": ["sort file.txt | uniq", "sort file.txt | uniq -c"]
+                    "examples": ["sort file.txt | uniq", "sort file.txt | uniq -c"],
                 },
                 "wc": {
                     "flags": ["-l", "-w", "-c"],
-                    "examples": ["wc -l file.txt", "find . -name '*.py' | wc -l"]
-                }
+                    "examples": ["wc -l file.txt", "find . -name '*.py' | wc -l"],
+                },
             },
             "network": {
                 "curl": {
@@ -345,41 +373,59 @@ class EnvironmentScanner:
                     "examples": [
                         "curl -s https://api.example.com",
                         "curl -X POST -H 'Content-Type: application/json' -d '{\"key\":\"value\"}' https://api.example.com",
-                        "curl -L -o file.tar.gz https://example.com/file.tar.gz"
-                    ]
+                        "curl -L -o file.tar.gz https://example.com/file.tar.gz",
+                    ],
                 },
                 "wget": {
                     "flags": ["-O", "-q", "-c", "-r"],
-                    "examples": ["wget -q https://example.com/file.tar.gz", "wget -O output.html https://example.com"]
-                }
+                    "examples": [
+                        "wget -q https://example.com/file.tar.gz",
+                        "wget -O output.html https://example.com",
+                    ],
+                },
             },
             "process_management": {
                 "ps": {
                     "flags": ["aux", "-ef", "-p"],
-                    "examples": ["ps aux | grep python", "ps -ef | grep node"]
+                    "examples": ["ps aux | grep python", "ps -ef | grep node"],
                 },
                 "kill": {
                     "flags": ["-9", "-15", "-TERM", "-HUP"],
-                    "examples": ["kill -15 1234", "kill -9 1234", "pkill -f 'python script.py'"]
+                    "examples": [
+                        "kill -15 1234",
+                        "kill -9 1234",
+                        "pkill -f 'python script.py'",
+                    ],
                 },
                 "top": {
                     "flags": ["-b", "-n"],
-                    "examples": ["top -b -n 1", "top -p 1234"]
-                }
+                    "examples": ["top -b -n 1", "top -p 1234"],
+                },
             },
             "compression": {
                 "tar": {
                     "flags": ["-czf", "-xzf", "-czvf", "-xzvf", "-tf"],
-                    "examples": ["tar -czf archive.tar.gz directory/", "tar -xzf archive.tar.gz", "tar -tf archive.tar.gz"]
+                    "examples": [
+                        "tar -czf archive.tar.gz directory/",
+                        "tar -xzf archive.tar.gz",
+                        "tar -tf archive.tar.gz",
+                    ],
                 },
                 "zip": {
                     "flags": ["-r", "-q"],
-                    "examples": ["zip -r archive.zip directory/", "zip file.zip file.txt"]
+                    "examples": [
+                        "zip -r archive.zip directory/",
+                        "zip file.zip file.txt",
+                    ],
                 },
                 "unzip": {
                     "flags": ["-q", "-l", "-d"],
-                    "examples": ["unzip archive.zip", "unzip -l archive.zip", "unzip archive.zip -d target_dir/"]
-                }
+                    "examples": [
+                        "unzip archive.zip",
+                        "unzip -l archive.zip",
+                        "unzip archive.zip -d target_dir/",
+                    ],
+                },
             },
             "git": {
                 "common": {
@@ -393,10 +439,10 @@ class EnvironmentScanner:
                         "git branch",
                         "git checkout -b new-branch",
                         "git log --oneline -10",
-                        "git diff"
+                        "git diff",
                     ]
                 }
-            }
+            },
         }
 
         return commands
@@ -406,40 +452,83 @@ class EnvironmentScanner:
         # Major stdlib modules that agents commonly use
         stdlib_modules = {
             "core": [
-                "os", "sys", "re", "json", "datetime", "time", "math", "random",
-                "collections", "itertools", "functools", "operator", "typing"
+                "os",
+                "sys",
+                "re",
+                "json",
+                "datetime",
+                "time",
+                "math",
+                "random",
+                "collections",
+                "itertools",
+                "functools",
+                "operator",
+                "typing",
             ],
             "file_io": [
-                "pathlib", "shutil", "tempfile", "glob", "fnmatch", "io", "csv"
+                "pathlib",
+                "shutil",
+                "tempfile",
+                "glob",
+                "fnmatch",
+                "io",
+                "csv",
             ],
             "data": [
-                "pickle", "shelve", "sqlite3", "hashlib", "hmac", "secrets", "uuid"
+                "pickle",
+                "shelve",
+                "sqlite3",
+                "hashlib",
+                "hmac",
+                "secrets",
+                "uuid",
             ],
-            "text": [
-                "string", "textwrap", "difflib", "unicodedata"
-            ],
+            "text": ["string", "textwrap", "difflib", "unicodedata"],
             "network": [
-                "http.client", "urllib.request", "urllib.parse", "socket", "ssl",
-                "email", "smtplib", "ftplib"
+                "http.client",
+                "urllib.request",
+                "urllib.parse",
+                "socket",
+                "ssl",
+                "email",
+                "smtplib",
+                "ftplib",
             ],
-            "web": [
-                "html.parser", "xml.etree.ElementTree", "json"
-            ],
+            "web": ["html.parser", "xml.etree.ElementTree", "json"],
             "concurrency": [
-                "threading", "multiprocessing", "subprocess", "asyncio", "queue",
-                "concurrent.futures"
+                "threading",
+                "multiprocessing",
+                "subprocess",
+                "asyncio",
+                "queue",
+                "concurrent.futures",
             ],
             "system": [
-                "argparse", "logging", "configparser", "getpass", "platform",
-                "signal", "atexit", "traceback", "warnings", "contextlib"
+                "argparse",
+                "logging",
+                "configparser",
+                "getpass",
+                "platform",
+                "signal",
+                "atexit",
+                "traceback",
+                "warnings",
+                "contextlib",
             ],
-            "testing": [
-                "unittest", "doctest", "pdb", "timeit", "profile", "trace"
-            ],
+            "testing": ["unittest", "doctest", "pdb", "timeit", "profile", "trace"],
             "utilities": [
-                "base64", "binascii", "struct", "codecs", "copy", "pprint",
-                "enum", "dataclasses", "abc", "weakref"
-            ]
+                "base64",
+                "binascii",
+                "struct",
+                "codecs",
+                "copy",
+                "pprint",
+                "enum",
+                "dataclasses",
+                "abc",
+                "weakref",
+            ],
         }
 
         # Verify availability of key modules
@@ -458,48 +547,75 @@ class EnvironmentScanner:
         return {
             "total_count": sum(len(mods) for mods in available_modules.values()),
             "by_category": available_modules,
-            "note": "These modules are built-in and require no pip install"
+            "note": "These modules are built-in and require no pip install",
         }
 
     def scan_nodejs_builtins(self) -> Dict[str, Any]:
         """List Node.js built-in modules (no npm install needed)"""
         builtin_modules = {
             "core": [
-                "assert", "buffer", "child_process", "cluster", "crypto",
-                "dgram", "dns", "domain", "events", "fs", "http", "http2",
-                "https", "net", "os", "path", "perf_hooks", "process",
-                "querystring", "readline", "repl", "stream", "string_decoder",
-                "timers", "tls", "tty", "url", "util", "v8", "vm", "zlib"
+                "assert",
+                "buffer",
+                "child_process",
+                "cluster",
+                "crypto",
+                "dgram",
+                "dns",
+                "domain",
+                "events",
+                "fs",
+                "http",
+                "http2",
+                "https",
+                "net",
+                "os",
+                "path",
+                "perf_hooks",
+                "process",
+                "querystring",
+                "readline",
+                "repl",
+                "stream",
+                "string_decoder",
+                "timers",
+                "tls",
+                "tty",
+                "url",
+                "util",
+                "v8",
+                "vm",
+                "zlib",
             ],
-            "file_system": [
-                "fs", "fs/promises", "path"
-            ],
-            "network": [
-                "http", "https", "http2", "net", "dgram", "dns", "tls"
-            ],
-            "streams": [
-                "stream", "stream/promises", "stream/web"
-            ],
-            "utilities": [
-                "util", "url", "querystring", "events", "crypto"
-            ],
-            "process": [
-                "process", "child_process", "cluster", "worker_threads"
-            ]
+            "file_system": ["fs", "fs/promises", "path"],
+            "network": ["http", "https", "http2", "net", "dgram", "dns", "tls"],
+            "streams": ["stream", "stream/promises", "stream/web"],
+            "utilities": ["util", "url", "querystring", "events", "crypto"],
+            "process": ["process", "child_process", "cluster", "worker_threads"],
         }
 
         return {
             "total_count": len(builtin_modules["core"]),
             "by_category": builtin_modules,
-            "note": "These modules are built-in and require no npm install"
+            "note": "These modules are built-in and require no npm install",
         }
 
     def scan_environment_variables(self) -> Dict[str, str]:
         """Scan important environment variables"""
         important_vars = [
-            "PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "LC_ALL",
-            "DISPLAY", "PYTHON_VERSION", "NODE_VERSION", "NVM_DIR",
-            "PYTHONPATH", "VIRTUAL_ENV", "PNPM_HOME"
+            "PATH",
+            "HOME",
+            "USER",
+            "SHELL",
+            "TERM",
+            "LANG",
+            "LC_ALL",
+            "DISPLAY",
+            "PYTHON_VERSION",
+            "NODE_VERSION",
+            "NVM_DIR",
+            "PYTHONPATH",
+            "VIRTUAL_ENV",
+            "PNPM_HOME",
         ]
 
         env_vars = {}
@@ -523,7 +639,7 @@ class EnvironmentScanner:
                 "run_single_test": "pytest tests/test_file.py::test_function",
                 "check_syntax": "python3 -m py_compile script.py",
                 "format_code": "black script.py",
-                "type_check": "mypy script.py"
+                "type_check": "mypy script.py",
             },
             "nodejs": {
                 "run_script": "node script.js",
@@ -536,7 +652,7 @@ class EnvironmentScanner:
                 "run_jest": "jest tests/",
                 "check_syntax": "node --check script.js",
                 "format_code": "prettier --write script.js",
-                "type_check": "tsc --noEmit"
+                "type_check": "tsc --noEmit",
             },
             "shell": {
                 "make_executable": "chmod +x script.sh",
@@ -545,12 +661,12 @@ class EnvironmentScanner:
                 "redirect_output": "command > output.txt 2>&1",
                 "pipe_commands": "command1 | command2 | command3",
                 "run_in_subshell": "(cd /path && command)",
-                "check_exit_code": "command && echo 'success' || echo 'failed'"
+                "check_exit_code": "command && echo 'success' || echo 'failed'",
             },
             "browser": {
                 "playwright_python": "python3 -m playwright install chromium",
-                "run_chromium_headless": "chromium --headless --disable-gpu --dump-dom https://example.com"
-            }
+                "run_chromium_headless": "chromium --headless --disable-gpu --dump-dom https://example.com",
+            },
         }
 
     def scan_resource_limits(self) -> Dict[str, Any]:
@@ -562,7 +678,9 @@ class EnvironmentScanner:
         }
 
         # Try to get actual disk usage
-        disk_usage = self.run_command("df -h /workspace | tail -1 | awk '{print $2, $3, $4, $5}'")
+        disk_usage = self.run_command(
+            "df -h /workspace | tail -1 | awk '{print $2, $3, $4, $5}'"
+        )
         if disk_usage:
             parts = disk_usage.split()
             if len(parts) == 4:
@@ -570,7 +688,7 @@ class EnvironmentScanner:
                     "total": parts[0],
                     "used": parts[1],
                     "available": parts[2],
-                    "use_percent": parts[3]
+                    "use_percent": parts[3],
                 }
 
         return limits
@@ -616,19 +734,23 @@ class EnvironmentScanner:
         try:
             # Check if we can write to the target path
             parent = os.path.dirname(path) or "."
-            if os.access(path, os.W_OK) or (not os.path.exists(path) and os.access(parent, os.W_OK)):
+            if os.access(path, os.W_OK) or (
+                not os.path.exists(path) and os.access(parent, os.W_OK)
+            ):
                 return path
         except OSError:
             pass
         # Fall back to home directory
         fallback = os.path.join(os.path.expanduser("~"), os.path.basename(path))
-        print(f"Warning: {path} not writable, falling back to {fallback}", file=sys.stderr)
+        print(
+            f"Warning: {path} not writable, falling back to {fallback}", file=sys.stderr
+        )
         return fallback
 
     def save_json(self) -> None:
         """Save context as JSON"""
         resolved = self._resolve_writable_path(self.output_path)
-        with open(resolved, 'w') as f:
+        with open(resolved, "w") as f:
             json.dump(self.context, f, indent=2)
         print(f"Context saved to {resolved}", file=sys.stderr)
 
@@ -636,7 +758,7 @@ class EnvironmentScanner:
         """Save context as Markdown for human readability"""
         resolved = self._resolve_writable_path(md_path)
         md_content = self.generate_markdown()
-        with open(resolved, 'w') as f:
+        with open(resolved, "w") as f:
             f.write(md_content)
         print(f"Markdown context saved to {resolved}", file=sys.stderr)
 
@@ -743,37 +865,53 @@ class EnvironmentScanner:
 
 ### Python Execution
 """
-        for pattern, command in env.get("execution_patterns", {}).get("python", {}).items():
+        for pattern, command in (
+            env.get("execution_patterns", {}).get("python", {}).items()
+        ):
             md += f"- **{pattern.replace('_', ' ').title()}:** `{command}`\n"
 
         md += "\n### Node.js Execution\n"
-        for pattern, command in env.get("execution_patterns", {}).get("nodejs", {}).items():
+        for pattern, command in (
+            env.get("execution_patterns", {}).get("nodejs", {}).items()
+        ):
             md += f"- **{pattern.replace('_', ' ').title()}:** `{command}`\n"
 
         md += "\n### Shell Patterns\n"
-        for pattern, command in env.get("execution_patterns", {}).get("shell", {}).items():
+        for pattern, command in (
+            env.get("execution_patterns", {}).get("shell", {}).items()
+        ):
             md += f"- **{pattern.replace('_', ' ').title()}:** `{command}`\n"
 
-        md += """
+        md += (
+            """
 ## Python Standard Library
 
-**Total Built-in Modules:** """ + str(env.get("python_stdlib", {}).get("total_count", 0)) + """
+**Total Built-in Modules:** """
+            + str(env.get("python_stdlib", {}).get("total_count", 0))
+            + """
 
 No pip install needed for these modules:
 """
+        )
         stdlib = env.get("python_stdlib", {}).get("by_category", {})
         for category, modules in list(stdlib.items())[:5]:  # Show top 5 categories
             md += f"\n**{category.replace('_', ' ').title()}:** {', '.join(modules[:10])}\n"
 
-        md += """
+        md += (
+            """
 ## Node.js Built-in Modules
 
-**Total Built-in Modules:** """ + str(env.get("nodejs_builtins", {}).get("total_count", 0)) + """
+**Total Built-in Modules:** """
+            + str(env.get("nodejs_builtins", {}).get("total_count", 0))
+            + """
 
 No npm install needed for these modules:
 """
+        )
         node_builtins = env.get("nodejs_builtins", {}).get("by_category", {})
-        for category, modules in list(node_builtins.items())[:4]:  # Show top 4 categories
+        for category, modules in list(node_builtins.items())[
+            :4
+        ]:  # Show top 4 categories
             if isinstance(modules, list):
                 md += f"\n**{category.replace('_', ' ').title()}:** {', '.join(modules[:15])}\n"
 

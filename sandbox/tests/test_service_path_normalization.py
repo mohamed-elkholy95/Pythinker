@@ -31,7 +31,9 @@ async def test_shell_exec_auto_creates_missing_workspace_dir() -> None:
     fake_process.stdout = None
 
     service._create_process = AsyncMock(return_value=fake_process)
-    service.wait_for_process = AsyncMock(side_effect=BadRequestException("process still running"))
+    service.wait_for_process = AsyncMock(
+        side_effect=BadRequestException("process still running")
+    )
 
     exec_dir = "/workspace/test-session"
 

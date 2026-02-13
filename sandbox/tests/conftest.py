@@ -1,50 +1,60 @@
-"""
-Pytest configuration and fixtures
-"""
-import sys
-import os
+"""Pytest configuration and fixtures for sandbox API tests."""
+
 import contextlib
-import pytest
+import sys
+from collections.abc import Iterator
 from pathlib import Path
 
-# Add the parent directory to Python path so we can import app modules
+import pytest
+from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.testclient import TestClient
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+# Add the parent directory to Python path so we can import app modules.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import requests
+from app.api.v1.file import router as file_router
+from app.core.exceptions import (
+    AppException,
+    app_exception_handler,
+    general_exception_handler,
+    http_exception_handler,
+    validation_exception_handler,
+)
 
-# Base URL for API testing
-# Use environment variable for flexibility (8080 inside container, 8083 from host)
-BASE_URL = os.environ.get("SANDBOX_API_URL", "http://localhost:8080")
+
+def create_file_test_app() -> FastAPI:
+    """Build a minimal app for file API testing without optional service imports."""
+    app = FastAPI()
+    app.add_exception_handler(AppException, app_exception_handler)
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(Exception, general_exception_handler)
+    app.include_router(file_router, prefix="/api/v1/file", tags=["file"])
+    return app
+
 
 @pytest.fixture
-def client():
-    """Create requests session"""
-    session = requests.Session()
-    session.headers.update({"Content-Type": "application/json"})
-    return session
+def client() -> Iterator[TestClient]:
+    """Create an in-process FastAPI test client."""
+    with TestClient(create_file_test_app()) as test_client:
+        yield test_client
 
 
 @pytest.fixture
-def temp_test_file():
-    """Create temporary test file path for container"""
-    # Use container-accessible path
-    temp_file = "/tmp/test_file.txt"
-    # Create content via API
-    import requests
-    session = requests.Session()
-    session.headers.update({"Content-Type": "application/json"})
-    
+def temp_test_file(client: TestClient, tmp_path: Path) -> Iterator[str]:
+    """Create and clean up a temporary file through the file API."""
+    temp_file = tmp_path / "test_file.txt"
     content = "Line 1: Hello World\nLine 2: This is a test\nLine 3: Python testing"
-    session.post(f"{BASE_URL}/api/v1/file/write", json={
-        "file": temp_file,
-        "content": content
-    })
-    
-    yield temp_file
-    
-    # Cleanup via API
+
+    response = client.post(
+        "/api/v1/file/write",
+        json={"file": str(temp_file), "content": content},
+    )
+    assert response.status_code == 200
+
+    yield str(temp_file)
+
     with contextlib.suppress(Exception):
-        session.post(f"{BASE_URL}/api/v1/file/write", json={
-            "file": temp_file,
-            "content": ""
-        })
+        temp_file.unlink(missing_ok=True)

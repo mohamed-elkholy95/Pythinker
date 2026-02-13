@@ -4,6 +4,7 @@ Code Development Service Implementation
 Provides code formatting, linting, analysis, and search capabilities
 for agent workspaces.
 """
+
 import os
 import re
 import json
@@ -14,12 +15,22 @@ from typing import List
 from pathlib import Path
 
 from app.models.code_dev import (
-    Formatter, Linter, AnalysisType,
-    FormatResult, LintResult, LintIssue,
-    AnalysisResult, SecurityIssue,
-    SearchResult, SearchMatch
+    Formatter,
+    Linter,
+    AnalysisType,
+    FormatResult,
+    LintResult,
+    LintIssue,
+    AnalysisResult,
+    SecurityIssue,
+    SearchResult,
+    SearchMatch,
 )
-from app.core.exceptions import AppException, BadRequestException, ResourceNotFoundException
+from app.core.exceptions import (
+    AppException,
+    BadRequestException,
+    ResourceNotFoundException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +73,7 @@ class CodeDevService:
         pass
 
     async def _run_command(
-        self,
-        cmd: List[str],
-        cwd: str = None,
-        timeout: int = None
+        self, cmd: List[str], cwd: str = None, timeout: int = None
     ) -> tuple[int, str, str]:
         """
         Run a command asynchronously.
@@ -85,18 +93,17 @@ class CodeDevService:
                 *cmd,
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
 
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout
+                process.communicate(), timeout=timeout
             )
 
             return (
                 process.returncode,
                 stdout.decode("utf-8", errors="replace"),
-                stderr.decode("utf-8", errors="replace")
+                stderr.decode("utf-8", errors="replace"),
             )
 
         except asyncio.TimeoutError:
@@ -123,8 +130,9 @@ class CodeDevService:
         # For directories, check for common files
         if os.path.exists(os.path.join(path, "package.json")):
             return Linter.ESLINT
-        if os.path.exists(os.path.join(path, "requirements.txt")) or \
-           os.path.exists(os.path.join(path, "setup.py")):
+        if os.path.exists(os.path.join(path, "requirements.txt")) or os.path.exists(
+            os.path.join(path, "setup.py")
+        ):
             return Linter.FLAKE8
 
         return Linter.FLAKE8
@@ -133,7 +141,7 @@ class CodeDevService:
         self,
         file_path: str,
         formatter: Formatter = Formatter.AUTO,
-        check_only: bool = False
+        check_only: bool = False,
     ) -> FormatResult:
         """
         Format a code file.
@@ -178,7 +186,7 @@ class CodeDevService:
                 file_path=file_path,
                 formatter=formatter.value,
                 changed=False,
-                message=f"Formatting failed: {str(e)}"
+                message=f"Formatting failed: {str(e)}",
             )
 
     async def _format_black(self, file_path: str, check_only: bool) -> FormatResult:
@@ -198,7 +206,9 @@ class CodeDevService:
             formatter="black",
             changed=changed,
             diff=stdout if check_only and changed else None,
-            message="File formatted" if not check_only else ("Would reformat" if changed else "File already formatted")
+            message="File formatted"
+            if not check_only
+            else ("Would reformat" if changed else "File already formatted"),
         )
 
     async def _format_isort(self, file_path: str, check_only: bool) -> FormatResult:
@@ -216,7 +226,7 @@ class CodeDevService:
             formatter="isort",
             changed=returncode == 1 if check_only else bool(stdout),
             diff=stdout if check_only else None,
-            message="Imports sorted"
+            message="Imports sorted",
         )
 
     async def _format_autopep8(self, file_path: str, check_only: bool) -> FormatResult:
@@ -236,7 +246,7 @@ class CodeDevService:
             formatter="autopep8",
             changed=bool(stdout) if check_only else True,
             diff=stdout if check_only else None,
-            message="File formatted with autopep8"
+            message="File formatted with autopep8",
         )
 
     async def _format_prettier(self, file_path: str, check_only: bool) -> FormatResult:
@@ -250,21 +260,24 @@ class CodeDevService:
 
         returncode, stdout, stderr = await self._run_command(args)
 
-        changed = returncode == 1 if check_only else "modified" in stdout.lower() or returncode == 0
+        changed = (
+            returncode == 1
+            if check_only
+            else "modified" in stdout.lower() or returncode == 0
+        )
 
         return FormatResult(
             success=returncode == 0 or (check_only and returncode == 1),
             file_path=file_path,
             formatter="prettier",
             changed=changed,
-            message="File formatted" if not check_only else ("Would reformat" if changed else "File already formatted")
+            message="File formatted"
+            if not check_only
+            else ("Would reformat" if changed else "File already formatted"),
         )
 
     async def lint_code(
-        self,
-        path: str,
-        linter: Linter = Linter.AUTO,
-        fix: bool = False
+        self, path: str, linter: Linter = Linter.AUTO, fix: bool = False
     ) -> LintResult:
         """
         Lint code files.
@@ -305,7 +318,7 @@ class CodeDevService:
                 success=False,
                 path=path,
                 linter=linter.value,
-                message=f"Linting failed: {str(e)}"
+                message=f"Linting failed: {str(e)}",
             )
 
     async def _lint_flake8(self, path: str) -> LintResult:
@@ -324,14 +337,18 @@ class CodeDevService:
                 # Format: file:line:col: code message
                 match = re.match(r"(.+):(\d+):(\d+):\s*(\w+)\s*(.*)", line)
                 if match:
-                    issues.append(LintIssue(
-                        file=match.group(1),
-                        line=int(match.group(2)),
-                        column=int(match.group(3)),
-                        code=match.group(4),
-                        message=match.group(5),
-                        severity="error" if match.group(4).startswith("E") else "warning"
-                    ))
+                    issues.append(
+                        LintIssue(
+                            file=match.group(1),
+                            line=int(match.group(2)),
+                            column=int(match.group(3)),
+                            code=match.group(4),
+                            message=match.group(5),
+                            severity="error"
+                            if match.group(4).startswith("E")
+                            else "warning",
+                        )
+                    )
 
         errors = sum(1 for i in issues if i.severity == "error")
         warnings = len(issues) - errors
@@ -344,7 +361,7 @@ class CodeDevService:
             issues_count=len(issues),
             errors_count=errors,
             warnings_count=warnings,
-            message=f"Found {len(issues)} issues" if issues else "No issues found"
+            message=f"Found {len(issues)} issues" if issues else "No issues found",
         )
 
     async def _lint_pylint(self, path: str) -> LintResult:
@@ -358,14 +375,18 @@ class CodeDevService:
             try:
                 data = json.loads(stdout)
                 for item in data:
-                    issues.append(LintIssue(
-                        file=item.get("path", ""),
-                        line=item.get("line", 0),
-                        column=item.get("column", 0),
-                        code=item.get("message-id", ""),
-                        message=item.get("message", ""),
-                        severity="error" if item.get("type") == "error" else "warning"
-                    ))
+                    issues.append(
+                        LintIssue(
+                            file=item.get("path", ""),
+                            line=item.get("line", 0),
+                            column=item.get("column", 0),
+                            code=item.get("message-id", ""),
+                            message=item.get("message", ""),
+                            severity="error"
+                            if item.get("type") == "error"
+                            else "warning",
+                        )
+                    )
             except json.JSONDecodeError:
                 pass
 
@@ -379,7 +400,7 @@ class CodeDevService:
             issues_count=len(issues),
             errors_count=errors,
             warnings_count=len(issues) - errors,
-            message=f"Found {len(issues)} issues"
+            message=f"Found {len(issues)} issues",
         )
 
     async def _lint_mypy(self, path: str) -> LintResult:
@@ -396,14 +417,16 @@ class CodeDevService:
             match = re.match(r"(.+):(\d+):\s*(\w+):\s*(.*)", line)
             if match:
                 severity_str = match.group(3).lower()
-                issues.append(LintIssue(
-                    file=match.group(1),
-                    line=int(match.group(2)),
-                    column=0,
-                    code="",
-                    message=match.group(4),
-                    severity="error" if severity_str == "error" else "warning"
-                ))
+                issues.append(
+                    LintIssue(
+                        file=match.group(1),
+                        line=int(match.group(2)),
+                        column=0,
+                        code="",
+                        message=match.group(4),
+                        severity="error" if severity_str == "error" else "warning",
+                    )
+                )
 
         errors = sum(1 for i in issues if i.severity == "error")
 
@@ -415,7 +438,7 @@ class CodeDevService:
             issues_count=len(issues),
             errors_count=errors,
             warnings_count=len(issues) - errors,
-            message=f"Found {len(issues)} type issues"
+            message=f"Found {len(issues)} type issues",
         )
 
     async def _lint_eslint(self, path: str, fix: bool = False) -> LintResult:
@@ -435,14 +458,18 @@ class CodeDevService:
                 data = json.loads(stdout)
                 for file_result in data:
                     for msg in file_result.get("messages", []):
-                        issues.append(LintIssue(
-                            file=file_result.get("filePath", ""),
-                            line=msg.get("line", 0),
-                            column=msg.get("column", 0),
-                            code=msg.get("ruleId", ""),
-                            message=msg.get("message", ""),
-                            severity="error" if msg.get("severity") == 2 else "warning"
-                        ))
+                        issues.append(
+                            LintIssue(
+                                file=file_result.get("filePath", ""),
+                                line=msg.get("line", 0),
+                                column=msg.get("column", 0),
+                                code=msg.get("ruleId", ""),
+                                message=msg.get("message", ""),
+                                severity="error"
+                                if msg.get("severity") == 2
+                                else "warning",
+                            )
+                        )
                     if fix:
                         fixed_count += file_result.get("fixableErrorCount", 0)
                         fixed_count += file_result.get("fixableWarningCount", 0)
@@ -460,13 +487,12 @@ class CodeDevService:
             errors_count=errors,
             warnings_count=len(issues) - errors,
             fixed_count=fixed_count,
-            message=f"Found {len(issues)} issues" + (f", fixed {fixed_count}" if fix and fixed_count else "")
+            message=f"Found {len(issues)} issues"
+            + (f", fixed {fixed_count}" if fix and fixed_count else ""),
         )
 
     async def analyze_code(
-        self,
-        path: str,
-        analysis_type: AnalysisType = AnalysisType.ALL
+        self, path: str, analysis_type: AnalysisType = AnalysisType.ALL
     ) -> AnalysisResult:
         """
         Analyze code for security issues and complexity.
@@ -494,7 +520,7 @@ class CodeDevService:
                 security_issues, security_score = await self._analyze_security(path)
                 summary["security"] = {
                     "issues_found": len(security_issues),
-                    "score": security_score
+                    "score": security_score,
                 }
             except Exception as e:
                 logger.warning(f"Security analysis failed: {e}")
@@ -513,7 +539,7 @@ class CodeDevService:
             security_issues=security_issues,
             security_score=security_score,
             summary=summary,
-            message=f"Analysis complete. Found {len(security_issues)} security issues."
+            message=f"Analysis complete. Found {len(security_issues)} security issues.",
         )
 
     async def _analyze_security(self, path: str) -> tuple[List[SecurityIssue], float]:
@@ -531,22 +557,29 @@ class CodeDevService:
                 results = data.get("results", [])
 
                 for item in results:
-                    issues.append(SecurityIssue(
-                        file=item.get("filename", ""),
-                        line=item.get("line_number", 0),
-                        issue_id=item.get("test_id", ""),
-                        severity=item.get("issue_severity", "medium").lower(),
-                        confidence=item.get("issue_confidence", "medium").lower(),
-                        issue_text=item.get("issue_text", ""),
-                        cwe=item.get("cwe", {}).get("id") if item.get("cwe") else None
-                    ))
+                    issues.append(
+                        SecurityIssue(
+                            file=item.get("filename", ""),
+                            line=item.get("line_number", 0),
+                            issue_id=item.get("test_id", ""),
+                            severity=item.get("issue_severity", "medium").lower(),
+                            confidence=item.get("issue_confidence", "medium").lower(),
+                            issue_text=item.get("issue_text", ""),
+                            cwe=item.get("cwe", {}).get("id")
+                            if item.get("cwe")
+                            else None,
+                        )
+                    )
 
                 # Calculate score (simple deduction)
                 high_issues = sum(1 for i in issues if i.severity == "high")
                 medium_issues = sum(1 for i in issues if i.severity == "medium")
                 low_issues = sum(1 for i in issues if i.severity == "low")
 
-                score = max(0, 100 - (high_issues * 20) - (medium_issues * 10) - (low_issues * 5))
+                score = max(
+                    0,
+                    100 - (high_issues * 20) - (medium_issues * 10) - (low_issues * 5),
+                )
 
             except json.JSONDecodeError:
                 pass
@@ -559,7 +592,7 @@ class CodeDevService:
         pattern: str,
         file_glob: str = "*",
         context_lines: int = 2,
-        max_results: int = 100
+        max_results: int = 100,
     ) -> SearchResult:
         """
         Search for pattern in code files.
@@ -588,7 +621,7 @@ class CodeDevService:
             f"--max-count={max_results}",
             f"--glob={file_glob}",
             pattern,
-            directory
+            directory,
         ]
 
         returncode, stdout, stderr = await self._run_command(args, timeout=60)
@@ -623,7 +656,7 @@ class CodeDevService:
                             line=match_data.get("line_number", 0),
                             content=match_data.get("lines", {}).get("text", "").strip(),
                             context_before=[],
-                            context_after=[]
+                            context_after=[],
                         )
                         context_before = []
                         context_after = []
@@ -656,7 +689,7 @@ class CodeDevService:
             matches=matches[:max_results],
             total_matches=len(matches),
             files_searched=len(files_searched),
-            message=f"Found {len(matches)} matches in {len(files_searched)} files"
+            message=f"Found {len(matches)} matches in {len(files_searched)} files",
         )
 
 

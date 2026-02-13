@@ -3,10 +3,13 @@ Export API Endpoints
 
 Provides REST API for file organization, archiving, and report generation.
 """
+
 from fastapi import APIRouter
 from app.schemas.export import (
-    OrganizeRequest, ArchiveRequest,
-    ReportRequest, ExportListRequest
+    OrganizeRequest,
+    ArchiveRequest,
+    ReportRequest,
+    ExportListRequest,
 )
 from app.schemas.response import Response
 from app.services.export import export_service
@@ -30,13 +33,13 @@ async def organize_files(request: OrganizeRequest):
     result = await export_service.organize_files(
         session_id=request.session_id,
         source_path=request.source_path,
-        target_category=request.target_category
+        target_category=request.target_category,
     )
 
     return Response(
         success=result.success,
         message=result.message or "Files organized",
-        data=result.model_dump(exclude={"message"})
+        data=result.model_dump(exclude={"message"}),
     )
 
 
@@ -58,13 +61,13 @@ async def create_archive(request: ArchiveRequest):
         name=request.name,
         include_patterns=request.include_patterns,
         exclude_patterns=request.exclude_patterns,
-        base_path=request.base_path
+        base_path=request.base_path,
     )
 
     return Response(
         success=result.success,
         message=result.message or "Archive created",
-        data=result.model_dump(exclude={"message"})
+        data=result.model_dump(exclude={"message"}),
     )
 
 
@@ -84,13 +87,13 @@ async def generate_report(request: ReportRequest):
         report_type=request.report_type,
         output_format=request.output_format,
         title=request.title,
-        include_sections=request.include_sections
+        include_sections=request.include_sections,
     )
 
     return Response(
         success=result.success,
         message=result.message or "Report generated",
-        data=result.model_dump(exclude={"message"})
+        data=result.model_dump(exclude={"message"}),
     )
 
 
@@ -104,12 +107,10 @@ async def list_exports(request: ExportListRequest):
     if not request.session_id:
         raise BadRequestException("Session ID is required")
 
-    result = await export_service.list_exports(
-        session_id=request.session_id
-    )
+    result = await export_service.list_exports(session_id=request.session_id)
 
     return Response(
         success=True,
         message=f"Found {result.total_count} exports",
-        data=result.model_dump()
+        data=result.model_dump(),
     )

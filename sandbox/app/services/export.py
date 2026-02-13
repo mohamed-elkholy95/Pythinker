@@ -4,6 +4,7 @@ Export Service Implementation
 Provides file organization, archiving, and report generation
 capabilities for agent workspaces.
 """
+
 import os
 import json
 import shutil
@@ -16,11 +17,21 @@ from pathlib import Path
 import fnmatch
 
 from app.models.export import (
-    ReportType, ReportFormat, FileCategory,
-    OrganizeResult, ArchiveResult, ReportResult, ReportSection,
-    ExportItem, ExportListResult
+    ReportType,
+    ReportFormat,
+    FileCategory,
+    OrganizeResult,
+    ArchiveResult,
+    ReportResult,
+    ReportSection,
+    ExportItem,
+    ExportListResult,
 )
-from app.core.exceptions import AppException, BadRequestException, ResourceNotFoundException
+from app.core.exceptions import (
+    AppException,
+    BadRequestException,
+    ResourceNotFoundException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +46,31 @@ class ExportService:
 
     # File extension to category mapping
     CATEGORY_MAP = {
-        FileCategory.SOURCE: [".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs", ".c", ".cpp", ".h"],
+        FileCategory.SOURCE: [
+            ".py",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".java",
+            ".go",
+            ".rs",
+            ".c",
+            ".cpp",
+            ".h",
+        ],
         FileCategory.TEST: ["test_", "_test.", ".test.", ".spec."],
         FileCategory.DOCS: [".md", ".rst", ".txt", ".doc", ".docx", ".pdf"],
-        FileCategory.CONFIG: [".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".env"],
-        FileCategory.OUTPUT: [".log", ".out", ".csv", ".html", ".xml"]
+        FileCategory.CONFIG: [
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".ini",
+            ".cfg",
+            ".env",
+        ],
+        FileCategory.OUTPUT: [".log", ".out", ".csv", ".html", ".xml"],
     }
 
     def __init__(self):
@@ -76,7 +107,7 @@ class ExportService:
         self,
         session_id: str,
         source_path: str,
-        target_category: FileCategory = FileCategory.OTHER
+        target_category: FileCategory = FileCategory.OTHER,
     ) -> OrganizeResult:
         """
         Organize files into appropriate workspace directories.
@@ -104,10 +135,12 @@ class ExportService:
             FileCategory.DOCS: "docs",
             FileCategory.CONFIG: ".",
             FileCategory.OUTPUT: "output",
-            FileCategory.OTHER: "output/artifacts"
+            FileCategory.OTHER: "output/artifacts",
         }
 
-        target_dir = os.path.join(workspace_path, category_dirs.get(target_category, "output/artifacts"))
+        target_dir = os.path.join(
+            workspace_path, category_dirs.get(target_category, "output/artifacts")
+        )
 
         # Create target directory if needed
         os.makedirs(target_dir, exist_ok=True)
@@ -134,7 +167,7 @@ class ExportService:
                 target_path=target_dir,
                 category=target_category.value,
                 files_moved=files_moved,
-                message=f"Moved {files_moved} items to {target_dir}"
+                message=f"Moved {files_moved} items to {target_dir}",
             )
 
         except Exception as e:
@@ -147,7 +180,7 @@ class ExportService:
         name: str,
         include_patterns: List[str] = None,
         exclude_patterns: List[str] = None,
-        base_path: str = None
+        base_path: str = None,
     ) -> ArchiveResult:
         """
         Create a ZIP archive of workspace files.
@@ -171,8 +204,13 @@ class ExportService:
         # Default patterns
         include_patterns = include_patterns or ["**/*"]
         exclude_patterns = exclude_patterns or [
-            ".git/**", "__pycache__/**", "node_modules/**",
-            ".pythinker/**", "*.pyc", "*.pyo", ".DS_Store"
+            ".git/**",
+            "__pycache__/**",
+            "node_modules/**",
+            ".pythinker/**",
+            "*.pyc",
+            "*.pyo",
+            ".DS_Store",
         ]
 
         # Use workspace as base path if not specified
@@ -189,13 +227,21 @@ class ExportService:
 
         try:
             files_count = 0
-            with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zipf:
                 for root, dirs, files in os.walk(base_path):
                     # Filter out excluded directories
-                    dirs[:] = [d for d in dirs if not any(
-                        fnmatch.fnmatch(os.path.join(root, d).replace(base_path + "/", ""), pattern.rstrip("/**"))
-                        for pattern in exclude_patterns if pattern.endswith("/**")
-                    )]
+                    dirs[:] = [
+                        d
+                        for d in dirs
+                        if not any(
+                            fnmatch.fnmatch(
+                                os.path.join(root, d).replace(base_path + "/", ""),
+                                pattern.rstrip("/**"),
+                            )
+                            for pattern in exclude_patterns
+                            if pattern.endswith("/**")
+                        )
+                    ]
 
                     for file in files:
                         file_path = os.path.join(root, file)
@@ -234,7 +280,7 @@ class ExportService:
                 files_count=files_count,
                 included=include_patterns,
                 excluded=exclude_patterns,
-                message=f"Created archive with {files_count} files ({size_bytes} bytes)"
+                message=f"Created archive with {files_count} files ({size_bytes} bytes)",
             )
 
         except Exception as e:
@@ -250,7 +296,7 @@ class ExportService:
         report_type: ReportType = ReportType.SUMMARY,
         output_format: ReportFormat = ReportFormat.MARKDOWN,
         title: str = "Workspace Report",
-        include_sections: List[str] = None
+        include_sections: List[str] = None,
     ) -> ReportResult:
         """
         Generate a workspace report.
@@ -292,16 +338,22 @@ class ExportService:
 
         # Filter sections if specified
         if include_sections:
-            sections = [s for s in sections if s.title.lower() in [x.lower() for x in include_sections]]
+            sections = [
+                s
+                for s in sections
+                if s.title.lower() in [x.lower() for x in include_sections]
+            ]
 
         # Format report
-        report_content = self._format_report(title, sections, output_format, generated_at)
+        report_content = self._format_report(
+            title, sections, output_format, generated_at
+        )
 
         # Determine file extension
         ext_map = {
             ReportFormat.MARKDOWN: ".md",
             ReportFormat.HTML: ".html",
-            ReportFormat.JSON: ".json"
+            ReportFormat.JSON: ".json",
         }
         extension = ext_map.get(output_format, ".md")
 
@@ -320,10 +372,12 @@ class ExportService:
             format=output_format.value,
             sections=[s.title for s in sections],
             generated_at=generated_at,
-            message=f"Report generated: {report_name}"
+            message=f"Report generated: {report_name}",
         )
 
-    def _generate_overview_section(self, workspace_path: str, session_id: str) -> ReportSection:
+    def _generate_overview_section(
+        self, workspace_path: str, session_id: str
+    ) -> ReportSection:
         """Generate workspace overview section"""
         # Count files and calculate size
         total_files = 0
@@ -359,7 +413,9 @@ class ExportService:
             for file in files[:10]:  # Limit files shown
                 structure_lines.append(f"{indent}  {file}")
             if len(files) > 10:
-                structure_lines.append(f"{indent}  ... and {len(files) - 10} more files")
+                structure_lines.append(
+                    f"{indent}  ... and {len(files) - 10} more files"
+                )
 
         content = "```\n" + "\n".join(structure_lines[:50]) + "\n```"
         return ReportSection(title="Project Structure", content=content, level=2)
@@ -371,7 +427,11 @@ class ExportService:
         content = "No test results available.\n\nRun tests with coverage to generate detailed reports."
 
         if os.path.exists(test_report_path):
-            reports = [f for f in os.listdir(test_report_path) if "coverage" in f.lower() or "test" in f.lower()]
+            reports = [
+                f
+                for f in os.listdir(test_report_path)
+                if "coverage" in f.lower() or "test" in f.lower()
+            ]
             if reports:
                 content = "**Available Test Reports:**\n\n"
                 for r in reports[:5]:
@@ -390,28 +450,37 @@ Run security analysis using the `code_analyze` tool with `analysis_type="securit
 - [ ] Dependency vulnerability check
 - [ ] Secrets scanning
 """
-        return ReportSection(title="Security Analysis", content=content.strip(), level=2)
+        return ReportSection(
+            title="Security Analysis", content=content.strip(), level=2
+        )
 
     def _format_report(
         self,
         title: str,
         sections: List[ReportSection],
         output_format: ReportFormat,
-        generated_at: str
+        generated_at: str,
     ) -> str:
         """Format report content"""
         if output_format == ReportFormat.JSON:
-            return json.dumps({
-                "title": title,
-                "generated_at": generated_at,
-                "sections": [{"title": s.title, "content": s.content} for s in sections]
-            }, indent=2)
+            return json.dumps(
+                {
+                    "title": title,
+                    "generated_at": generated_at,
+                    "sections": [
+                        {"title": s.title, "content": s.content} for s in sections
+                    ],
+                },
+                indent=2,
+            )
 
         elif output_format == ReportFormat.HTML:
-            html_sections = "\n".join([
-                f"<h{s.level}>{s.title}</h{s.level}>\n{s.content.replace(chr(10), '<br>')}"
-                for s in sections
-            ])
+            html_sections = "\n".join(
+                [
+                    f"<h{s.level}>{s.title}</h{s.level}>\n{s.content.replace(chr(10), '<br>')}"
+                    for s in sections
+                ]
+            )
             return f"""<!DOCTYPE html>
 <html>
 <head><title>{title}</title></head>
@@ -423,10 +492,9 @@ Run security analysis using the `code_analyze` tool with `analysis_type="securit
 </html>"""
 
         else:  # Markdown
-            md_sections = "\n\n".join([
-                f"{'#' * s.level} {s.title}\n\n{s.content}"
-                for s in sections
-            ])
+            md_sections = "\n\n".join(
+                [f"{'#' * s.level} {s.title}\n\n{s.content}" for s in sections]
+            )
             return f"# {title}\n\n*Generated: {generated_at}*\n\n{md_sections}"
 
     async def list_exports(self, session_id: str) -> ExportListResult:
@@ -454,13 +522,15 @@ Run security analysis using the `code_analyze` tool with `analysis_type="securit
                 size = stat.st_size
                 total_size += size
 
-                items.append(ExportItem(
-                    name=filename,
-                    path=file_path,
-                    type="archive" if filename.endswith(".zip") else "file",
-                    size_bytes=size,
-                    created_at=datetime.fromtimestamp(stat.st_ctime).isoformat()
-                ))
+                items.append(
+                    ExportItem(
+                        name=filename,
+                        path=file_path,
+                        type="archive" if filename.endswith(".zip") else "file",
+                        size_bytes=size,
+                        created_at=datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                    )
+                )
 
         # Sort by creation time (newest first)
         items.sort(key=lambda x: x.created_at, reverse=True)
@@ -470,7 +540,7 @@ Run security analysis using the `code_analyze` tool with `analysis_type="securit
             exports_path=exports_path,
             items=items,
             total_count=len(items),
-            total_size_bytes=total_size
+            total_size_bytes=total_size,
         )
 
 

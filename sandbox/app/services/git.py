@@ -4,6 +4,7 @@ Git Service Implementation
 Provides secure git operations for agent workspaces including
 cloning, status, diff, and log operations with security validation.
 """
+
 import os
 import re
 import logging
@@ -14,8 +15,12 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from app.models.git import (
-    GitCloneResult, GitStatusResult, GitDiffResult,
-    GitLogResult, GitLogEntry, GitBranchResult
+    GitCloneResult,
+    GitStatusResult,
+    GitDiffResult,
+    GitLogResult,
+    GitLogEntry,
+    GitBranchResult,
 )
 from app.core.exceptions import AppException, BadRequestException
 
@@ -35,11 +40,7 @@ class GitService:
         pass
 
     async def _run_git_command(
-        self,
-        args: List[str],
-        cwd: str,
-        timeout: int = None,
-        env: Dict[str, str] = None
+        self, args: List[str], cwd: str, timeout: int = None, env: Dict[str, str] = None
     ) -> tuple[int, str, str]:
         """
         Run a git command asynchronously.
@@ -73,18 +74,17 @@ class GitService:
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=cmd_env
+                env=cmd_env,
             )
 
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout
+                process.communicate(), timeout=timeout
             )
 
             return (
                 process.returncode,
                 stdout.decode("utf-8", errors="replace"),
-                stderr.decode("utf-8", errors="replace")
+                stderr.decode("utf-8", errors="replace"),
             )
 
         except asyncio.TimeoutError:
@@ -128,7 +128,7 @@ class GitService:
         target_dir: str,
         branch: Optional[str] = None,
         shallow: bool = True,
-        auth_token: Optional[str] = None
+        auth_token: Optional[str] = None,
     ) -> GitCloneResult:
         """
         Clone a git repository.
@@ -181,7 +181,7 @@ class GitService:
             returncode, stdout, stderr = await self._run_git_command(
                 args,
                 cwd=os.path.dirname(target_dir) or "/tmp",
-                timeout=self.CLONE_TIMEOUT
+                timeout=self.CLONE_TIMEOUT,
             )
 
             if returncode != 0:
@@ -204,25 +204,19 @@ class GitService:
 
             try:
                 ret, out, _ = await self._run_git_command(
-                    ["rev-parse", "HEAD"],
-                    cwd=target_dir,
-                    timeout=10
+                    ["rev-parse", "HEAD"], cwd=target_dir, timeout=10
                 )
                 if ret == 0:
                     commit_hash = out.strip()
 
                 ret, out, _ = await self._run_git_command(
-                    ["log", "-1", "--format=%s"],
-                    cwd=target_dir,
-                    timeout=10
+                    ["log", "-1", "--format=%s"], cwd=target_dir, timeout=10
                 )
                 if ret == 0:
                     commit_message = out.strip()
 
                 ret, out, _ = await self._run_git_command(
-                    ["branch", "--show-current"],
-                    cwd=target_dir,
-                    timeout=10
+                    ["branch", "--show-current"], cwd=target_dir, timeout=10
                 )
                 if ret == 0 and out.strip():
                     branch_name = out.strip()
@@ -242,7 +236,7 @@ class GitService:
                 commit_message=commit_message,
                 shallow=shallow,
                 files_count=files_count,
-                message="Repository cloned successfully"
+                message="Repository cloned successfully",
             )
 
         finally:
@@ -267,17 +261,13 @@ class GitService:
 
         # Get current branch
         ret, branch_out, _ = await self._run_git_command(
-            ["branch", "--show-current"],
-            cwd=repo_path,
-            timeout=10
+            ["branch", "--show-current"], cwd=repo_path, timeout=10
         )
         branch = branch_out.strip() if ret == 0 else "unknown"
 
         # Get porcelain status
         ret, status_out, _ = await self._run_git_command(
-            ["status", "--porcelain", "-b"],
-            cwd=repo_path,
-            timeout=30
+            ["status", "--porcelain", "-b"], cwd=repo_path, timeout=30
         )
 
         staged = []
@@ -330,14 +320,11 @@ class GitService:
             staged=staged,
             modified=modified,
             untracked=untracked,
-            deleted=deleted
+            deleted=deleted,
         )
 
     async def diff(
-        self,
-        repo_path: str,
-        staged: bool = False,
-        file_path: Optional[str] = None
+        self, repo_path: str, staged: bool = False, file_path: Optional[str] = None
     ) -> GitDiffResult:
         """
         Get git diff.
@@ -402,14 +389,11 @@ class GitService:
             insertions=insertions,
             deletions=deletions,
             diff_output=diff_out if ret == 0 else "",
-            staged=staged
+            staged=staged,
         )
 
     async def log(
-        self,
-        repo_path: str,
-        limit: int = 10,
-        file_path: Optional[str] = None
+        self, repo_path: str, limit: int = 10, file_path: Optional[str] = None
     ) -> GitLogResult:
         """
         Get git log.
@@ -446,23 +430,20 @@ class GitService:
                     continue
                 parts = line.split("|", 4)
                 if len(parts) == 5:
-                    commits.append(GitLogEntry(
-                        commit_hash=parts[0],
-                        author=parts[1],
-                        author_email=parts[2],
-                        date=parts[3],
-                        message=parts[4]
-                    ))
+                    commits.append(
+                        GitLogEntry(
+                            commit_hash=parts[0],
+                            author=parts[1],
+                            author_email=parts[2],
+                            date=parts[3],
+                            message=parts[4],
+                        )
+                    )
 
-        return GitLogResult(
-            commits=commits,
-            total_count=len(commits)
-        )
+        return GitLogResult(commits=commits, total_count=len(commits))
 
     async def branches(
-        self,
-        repo_path: str,
-        show_remote: bool = True
+        self, repo_path: str, show_remote: bool = True
     ) -> GitBranchResult:
         """
         Get git branches.
@@ -482,36 +463,32 @@ class GitService:
 
         # Get current branch
         ret, current_out, _ = await self._run_git_command(
-            ["branch", "--show-current"],
-            cwd=repo_path,
-            timeout=10
+            ["branch", "--show-current"], cwd=repo_path, timeout=10
         )
         current = current_out.strip() if ret == 0 else "unknown"
 
         # Get local branches
         ret, local_out, _ = await self._run_git_command(
-            ["branch", "--format=%(refname:short)"],
-            cwd=repo_path,
-            timeout=10
+            ["branch", "--format=%(refname:short)"], cwd=repo_path, timeout=10
         )
-        local = [b.strip() for b in local_out.strip().split("\n") if b.strip()] if ret == 0 else []
+        local = (
+            [b.strip() for b in local_out.strip().split("\n") if b.strip()]
+            if ret == 0
+            else []
+        )
 
         # Get remote branches
         remote = []
         if show_remote:
             ret, remote_out, _ = await self._run_git_command(
-                ["branch", "-r", "--format=%(refname:short)"],
-                cwd=repo_path,
-                timeout=10
+                ["branch", "-r", "--format=%(refname:short)"], cwd=repo_path, timeout=10
             )
             if ret == 0:
-                remote = [b.strip() for b in remote_out.strip().split("\n") if b.strip()]
+                remote = [
+                    b.strip() for b in remote_out.strip().split("\n") if b.strip()
+                ]
 
-        return GitBranchResult(
-            current=current,
-            local=local,
-            remote=remote
-        )
+        return GitBranchResult(current=current, local=local, remote=remote)
 
 
 # Global git service instance

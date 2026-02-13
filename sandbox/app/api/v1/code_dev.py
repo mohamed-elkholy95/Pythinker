@@ -3,10 +3,13 @@ Code Development API Endpoints
 
 Provides REST API for code formatting, linting, analysis, and search.
 """
+
 from fastapi import APIRouter
 from app.schemas.code_dev import (
-    CodeFormatRequest, CodeLintRequest,
-    CodeAnalyzeRequest, CodeSearchRequest
+    CodeFormatRequest,
+    CodeLintRequest,
+    CodeAnalyzeRequest,
+    CodeSearchRequest,
 )
 from app.schemas.response import Response
 from app.services.code_dev import code_dev_service
@@ -29,13 +32,13 @@ async def format_code(request: CodeFormatRequest):
     result = await code_dev_service.format_code(
         file_path=request.file_path,
         formatter=request.formatter,
-        check_only=request.check_only
+        check_only=request.check_only,
     )
 
     return Response(
         success=result.success,
         message=result.message or "Format operation completed",
-        data=result.model_dump(exclude={"message"})
+        data=result.model_dump(exclude={"message"}),
     )
 
 
@@ -51,15 +54,13 @@ async def lint_code(request: CodeLintRequest):
         raise BadRequestException("Path is required")
 
     result = await code_dev_service.lint_code(
-        path=request.path,
-        linter=request.linter,
-        fix=request.fix
+        path=request.path, linter=request.linter, fix=request.fix
     )
 
     return Response(
         success=result.success,
         message=result.message or "Lint operation completed",
-        data=result.model_dump(exclude={"message"})
+        data=result.model_dump(exclude={"message"}),
     )
 
 
@@ -74,14 +75,13 @@ async def analyze_code(request: CodeAnalyzeRequest):
         raise BadRequestException("Path is required")
 
     result = await code_dev_service.analyze_code(
-        path=request.path,
-        analysis_type=request.analysis_type
+        path=request.path, analysis_type=request.analysis_type
     )
 
     return Response(
         success=result.success,
         message=result.message or "Analysis completed",
-        data=result.model_dump(exclude={"message"})
+        data=result.model_dump(exclude={"message"}),
     )
 
 
@@ -102,11 +102,11 @@ async def search_code(request: CodeSearchRequest):
         pattern=request.pattern,
         file_glob=request.file_glob,
         context_lines=request.context_lines,
-        max_results=request.max_results
+        max_results=request.max_results,
     )
 
     return Response(
         success=result.success,
         message=result.message or "Search completed",
-        data=result.model_dump(exclude={"message"})
+        data=result.model_dump(exclude={"message"}),
     )

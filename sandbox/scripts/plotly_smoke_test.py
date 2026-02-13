@@ -26,7 +26,6 @@ def main():
     print("[1/5] Importing libraries...")
     try:
         import plotly.graph_objects as go
-        import plotly.io as pio
 
         print("  ✓ Plotly imported successfully")
     except ImportError as e:
@@ -41,7 +40,7 @@ def main():
         if Path(browser_path).exists():
             print(f"  ✓ Chromium binary exists at {browser_path}")
         else:
-            print(f"  ⚠ Warning: BROWSER_PATH points to non-existent file")
+            print("  ⚠ Warning: BROWSER_PATH points to non-existent file")
     else:
         print("  ⚠ Warning: BROWSER_PATH not set (Kaleido will search standard paths)")
 
@@ -54,7 +53,15 @@ def main():
     # Test 4: Generate HTML (CDN mode)
     print("\n[4/5] Generating HTML chart (CDN mode)...")
     try:
-        fig = go.Figure(data=[go.Bar(x=["Test A", "Test B", "Test C"], y=[10, 15, 13], marker_color="#2563eb")])
+        fig = go.Figure(
+            data=[
+                go.Bar(
+                    x=["Test A", "Test B", "Test C"],
+                    y=[10, 15, 13],
+                    marker_color="#2563eb",
+                )
+            ]
+        )
         fig.update_layout(
             title="Plotly Smoke Test Chart",
             xaxis_title="Test Cases",
@@ -69,9 +76,9 @@ def main():
         html_size = Path(output_html).stat().st_size
         print(f"  ✓ HTML generated: {html_size:,} bytes")
         if html_size < 100_000:  # Should be <100KB with CDN mode
-            print(f"  ✓ File size OK (<100KB)")
+            print("  ✓ File size OK (<100KB)")
         else:
-            print(f"  ⚠ Warning: File size is large (expected <100KB with CDN)")
+            print("  ⚠ Warning: File size is large (expected <100KB with CDN)")
 
     except Exception as e:
         print(f"  ✗ HTML generation failed: {e}")
@@ -87,9 +94,9 @@ def main():
         png_size = Path(output_png).stat().st_size
         print(f"  ✓ PNG generated: {png_size:,} bytes")
         if png_size > 10_000:  # Reasonable PNG should be >10KB
-            print(f"  ✓ File size OK (>10KB)")
+            print("  ✓ File size OK (>10KB)")
         else:
-            print(f"  ⚠ Warning: PNG is suspiciously small")
+            print("  ⚠ Warning: PNG is suspiciously small")
 
     except Exception as e:
         print(f"  ✗ PNG generation failed: {e}")

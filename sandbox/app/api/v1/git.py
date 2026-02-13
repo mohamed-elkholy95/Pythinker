@@ -3,10 +3,14 @@ Git API Endpoints
 
 Provides REST API for git operations in sandbox.
 """
+
 from fastapi import APIRouter
 from app.schemas.git import (
-    GitCloneRequest, GitStatusRequest, GitDiffRequest,
-    GitLogRequest, GitBranchRequest
+    GitCloneRequest,
+    GitStatusRequest,
+    GitDiffRequest,
+    GitLogRequest,
+    GitBranchRequest,
 )
 from app.schemas.response import Response
 from app.services.git import git_service
@@ -33,13 +37,13 @@ async def clone_repository(request: GitCloneRequest):
         target_dir=request.target_dir,
         branch=request.branch,
         shallow=request.shallow,
-        auth_token=request.auth_token
+        auth_token=request.auth_token,
     )
 
     return Response(
         success=result.success,
         message=result.message or "Repository cloned successfully",
-        data=result.model_dump(exclude={"message"})
+        data=result.model_dump(exclude={"message"}),
     )
 
 
@@ -56,9 +60,7 @@ async def get_status(request: GitStatusRequest):
     result = await git_service.status(repo_path=request.repo_path)
 
     return Response(
-        success=True,
-        message="Repository status retrieved",
-        data=result.model_dump()
+        success=True, message="Repository status retrieved", data=result.model_dump()
     )
 
 
@@ -73,16 +75,10 @@ async def get_diff(request: GitDiffRequest):
         raise BadRequestException("Repository path is required")
 
     result = await git_service.diff(
-        repo_path=request.repo_path,
-        staged=request.staged,
-        file_path=request.file_path
+        repo_path=request.repo_path, staged=request.staged, file_path=request.file_path
     )
 
-    return Response(
-        success=True,
-        message="Diff retrieved",
-        data=result.model_dump()
-    )
+    return Response(success=True, message="Diff retrieved", data=result.model_dump())
 
 
 @router.post("/log", response_model=Response)
@@ -96,15 +92,13 @@ async def get_log(request: GitLogRequest):
         raise BadRequestException("Repository path is required")
 
     result = await git_service.log(
-        repo_path=request.repo_path,
-        limit=request.limit,
-        file_path=request.file_path
+        repo_path=request.repo_path, limit=request.limit, file_path=request.file_path
     )
 
     return Response(
         success=True,
         message=f"Retrieved {result.total_count} commits",
-        data=result.model_dump()
+        data=result.model_dump(),
     )
 
 
@@ -119,12 +113,9 @@ async def get_branches(request: GitBranchRequest):
         raise BadRequestException("Repository path is required")
 
     result = await git_service.branches(
-        repo_path=request.repo_path,
-        show_remote=request.show_remote
+        repo_path=request.repo_path, show_remote=request.show_remote
     )
 
     return Response(
-        success=True,
-        message="Branches retrieved",
-        data=result.model_dump()
+        success=True, message="Branches retrieved", data=result.model_dump()
     )

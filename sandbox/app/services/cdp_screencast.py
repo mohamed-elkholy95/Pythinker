@@ -118,7 +118,9 @@ class CDPScreencastService:
 
     _msg_counter: int = 0
 
-    async def _send_command(self, method: str, params: dict | None = None, timeout: float = 10.0) -> dict | None:
+    async def _send_command(
+        self, method: str, params: dict | None = None, timeout: float = 10.0
+    ) -> dict | None:
         """Send a CDP command and wait for response with timeout."""
         if not self._ws or self._ws.closed:
             return None
@@ -146,7 +148,9 @@ class CDPScreencastService:
                 try:
                     msg = await asyncio.wait_for(self._ws.receive(), timeout=remaining)
                 except asyncio.TimeoutError:
-                    logger.warning(f"CDP command timed out waiting for response: {method}")
+                    logger.warning(
+                        f"CDP command timed out waiting for response: {method}"
+                    )
                     return None
 
                 if msg.type == aiohttp.WSMsgType.TEXT:
@@ -209,7 +213,11 @@ class CDPScreencastService:
         """Acknowledge receipt of a frame to continue receiving frames."""
         if self._ws:
             await self._ws.send_json(
-                {"id": id(session_id), "method": "Page.screencastFrameAck", "params": {"sessionId": session_id}}
+                {
+                    "id": id(session_id),
+                    "method": "Page.screencastFrameAck",
+                    "params": {"sessionId": session_id},
+                }
             )
 
     async def stream_frames(self) -> AsyncGenerator[ScreencastFrame, None]:
@@ -279,7 +287,8 @@ class CDPScreencastService:
         try:
             # Use Page.captureScreenshot for single frame (faster for one-off)
             result = await self._send_command(
-                "Page.captureScreenshot", {"format": self.config.format, "quality": self.config.quality}
+                "Page.captureScreenshot",
+                {"format": self.config.format, "quality": self.config.quality},
             )
 
             if result and "result" in result:
@@ -297,7 +306,9 @@ class CDPScreencastService:
 _service_instance: CDPScreencastService | None = None
 
 
-def get_screencast_service(config: ScreencastConfig | None = None) -> CDPScreencastService:
+def get_screencast_service(
+    config: ScreencastConfig | None = None,
+) -> CDPScreencastService:
     """Get or create the singleton CDP screencast service."""
     global _service_instance
     if _service_instance is None:

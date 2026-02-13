@@ -104,6 +104,7 @@ Today is {day_of_week}, {full_date}. Use this for time-sensitive planning and se
 ---
 """
 
+
 def get_current_date_signal() -> str:
     """Generate the current date signal with formatted date information.
 
@@ -114,8 +115,9 @@ def get_current_date_signal() -> str:
     return CURRENT_DATE_SIGNAL.format(
         current_date=now.strftime("%Y-%m-%d"),
         day_of_week=now.strftime("%A"),
-        full_date=now.strftime("%B %d, %Y")
+        full_date=now.strftime("%B %d, %Y"),
     )
+
 
 # ============================================================================
 # TASK MEMORY SIGNAL (Phase 6: Qdrant integration)
@@ -229,11 +231,12 @@ Think out loud briefly."""
 # BUILDER FUNCTION
 # ============================================================================
 
+
 def build_create_plan_prompt(
     message: str,
     attachments: str,
     task_memory: str | None = None,
-    include_current_date: bool = True
+    include_current_date: bool = True,
 ) -> str:
     """Build create plan prompt with optional task memory context.
 
@@ -247,15 +250,12 @@ def build_create_plan_prompt(
         Formatted plan prompt with memory context if available
     """
     base_prompt = ENHANCED_CREATE_PLAN_PROMPT.format(
-        message=message,
-        attachments=attachments
+        message=message, attachments=attachments
     )
 
     # Inject task memory if present (Phase 6: Qdrant integration)
     if task_memory:
-        base_prompt = TASK_MEMORY_SIGNAL.format(
-            task_memory=task_memory
-        ) + base_prompt
+        base_prompt = TASK_MEMORY_SIGNAL.format(task_memory=task_memory) + base_prompt
 
     # Inject current date for temporal awareness
     if include_current_date:
