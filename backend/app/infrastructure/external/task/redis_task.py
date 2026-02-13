@@ -143,7 +143,9 @@ class RedisStreamTask(Task):
             logger.info(f"Task {self._id} removed from registry")
 
         # Schedule Redis stream cleanup in background
-        asyncio.create_task(self._cleanup_redis_streams())
+        task = asyncio.create_task(self._cleanup_redis_streams())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _cleanup_redis_streams(self) -> None:
         """Cleanup Redis streams for this task to prevent memory leak."""
