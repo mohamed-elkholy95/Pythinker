@@ -72,6 +72,7 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CHROMIUM: "1"
+        ENABLE_SANDBOX_ADDONS: "1"  # Enable screenshot tools (xwd, imagemagick)
       x-bake:
         platforms:
           - linux/amd64
@@ -144,6 +145,7 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CHROMIUM: "1"
+        ENABLE_SANDBOX_ADDONS: "1"  # Enable screenshot tools (xwd, imagemagick)
       x-bake:
         platforms:
           - linux/amd64
