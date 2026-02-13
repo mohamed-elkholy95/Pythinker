@@ -109,6 +109,7 @@ vi.mock('@/components/SkillPicker.vue', () => ({
 // Mock skills API
 vi.mock('@/api/skills', () => ({
   MAX_ENABLED_SKILLS: 5,
+  getCommandMap: vi.fn().mockResolvedValue({}),
 }))
 
 describe('ChatBox', () => {
