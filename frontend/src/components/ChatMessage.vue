@@ -129,7 +129,12 @@
     </div>
   </template>
   <div v-else-if="message.type === 'tool'" class="chat-message-entry mt-3">
-    <ToolUse :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
+    <ToolUse
+      :tool="toolContent"
+      :is-active="true"
+      :show-fast-search-inline="isStandaloneToolFastSearch(toolContent)"
+      @click="handleToolClick(toolContent)"
+    />
   </div>
   <div
     v-else-if="message.type === 'step'"
@@ -210,6 +215,7 @@
               :tool="tool"
               :is-active="index === stepContent.tools.length - 1"
               :is-task-running="index === stepContent.tools.length - 1 && stepContent.status === 'running'"
+              :show-fast-search-inline="false"
               @click="handleToolClick(tool)"
             />
             <div v-if="showStepThinking" class="step-thinking-nested">
@@ -343,6 +349,13 @@ const handleDeepResearchSkip = (researchId: string, queryId?: string) => {
 const handleToggleAutoRun = () => {
   emit('toggleAutoRun');
 };
+
+/** Standalone tool messages: show fast-search inline only for info_search_web/web_search, not wide_research. */
+const FAST_SEARCH_FUNCTIONS = new Set(['info_search_web', 'web_search']);
+function isStandaloneToolFastSearch(tool: ToolContent): boolean {
+  const fn = (tool.function || '').toLowerCase();
+  return FAST_SEARCH_FUNCTIONS.has(fn);
+}
 
 // For backward compatibility, provide the original computed properties
 const stepContent = computed(() => props.message.content as StepContent);
