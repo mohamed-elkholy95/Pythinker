@@ -4,6 +4,7 @@ import { fetchEventSource, EventSourceMessage } from '@microsoft/fetch-event-sou
 import { router } from '@/main';
 import { clearStoredTokens, getStoredToken, getStoredRefreshToken, storeToken } from './auth';
 import { getSseDiagnosticsHeaderValue, logSseDiagnostics } from '@/utils/sseDiagnostics';
+import { getSseCircuitBreaker } from '@/composables/useCircuitBreaker';
 
 // API configuration
 export const API_CONFIG = {
@@ -244,16 +245,186 @@ apiClient.interceptors.response.use(
 export interface SSECallbacks<T = unknown> {
   onOpen?: () => void;
   onMessage?: (event: { event: string; data: T }) => void;
-  onClose?: () => void;
+  onClose?: (info: SSECloseInfo) => void;
   onError?: (error: Error) => void;
   onRetry?: (attempt: number, maxAttempts: number) => void;
+  onGapDetected?: (info: SSEGapInfo) => void;
+}
+
+export interface SSECloseInfo {
+  willRetry: boolean;
+  retryAttempt: number | null;
+  maxRetries: number;
+  streamCompleted: boolean;
+  messageSent: boolean;
+  receivedAnyEvents: boolean;
+  lastReceivedEventId?: string;
+  retryDelayMs?: number;
+  reason: 'completed' | 'no_events_after_message' | 'retrying' | 'max_retries' | 'aborted' | 'closed';
+}
+
+export interface SSERetryPolicy {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  jitterRatio: number;
+}
+
+export interface SSEGapInfo {
+  requestedEventId?: string;
+  firstAvailableEventId?: string;
+  checkpointEventId?: string;
 }
 
 export interface SSEOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: Record<string, unknown>;
   headers?: Record<string, string>;
+  retryPolicy?: Partial<SSERetryPolicy>;
 }
+
+interface StreamEnvelope {
+  event_id?: string;
+  timestamp?: number;
+}
+
+interface StreamErrorEnvelope extends StreamEnvelope {
+  recoverable?: boolean;
+  retry_after_ms?: number;
+  can_resume?: boolean;
+  error_type?: string;
+  error_code?: string;
+  checkpoint_event_id?: string;
+  details?: Record<string, unknown>;
+}
+
+const DEFAULT_SSE_RETRY_POLICY: SSERetryPolicy = {
+  maxRetries: 7,
+  baseDelayMs: 1000,
+  maxDelayMs: 45000,
+  jitterRatio: 0.25,
+};
+
+const SSE_POLICY_LIMITS = {
+  minRetries: 0,
+  maxRetries: 50,
+  minDelayMs: 100,
+  maxDelayMs: 300000,
+  minJitterRatio: 0,
+  maxJitterRatio: 0.5,
+};
+
+const MAX_TRACKED_EVENT_IDS = 5000;
+const SSE_CONTROL_ERROR_MANUAL_RETRY = '__sse_manual_retry_scheduled__';
+const SSE_CONTROL_ERROR_FATAL_STOP = '__sse_fatal_stop__';
+
+const createSseControlError = (message: string): Error => {
+  const controlError = new Error(message);
+  controlError.name = 'SSEControlError';
+  return controlError;
+};
+
+const isSseControlError = (error: unknown, message?: string): boolean => {
+  if (!(error instanceof Error) || error.name !== 'SSEControlError') {
+    return false;
+  }
+  if (!message) {
+    return true;
+  }
+  return error.message === message;
+};
+
+const clampNumber = (value: number, min: number, max: number): number => {
+  return Math.min(max, Math.max(min, value));
+};
+
+const parseFiniteNumber = (raw: string | null): number | undefined => {
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const parseRetryAfterMs = (raw: string | null): number | undefined => {
+  if (!raw) return undefined;
+  const asNumber = Number(raw);
+  if (Number.isFinite(asNumber)) {
+    return Math.max(0, Math.round(asNumber * 1000));
+  }
+
+  const parsedDate = Date.parse(raw);
+  if (!Number.isFinite(parsedDate)) return undefined;
+  const delayMs = parsedDate - Date.now();
+  return delayMs > 0 ? delayMs : 0;
+};
+
+const normalizeRetryPolicy = (policy: Partial<SSERetryPolicy> | undefined): SSERetryPolicy => {
+  const merged: SSERetryPolicy = {
+    ...DEFAULT_SSE_RETRY_POLICY,
+    ...(policy || {}),
+  };
+  const maxRetries = clampNumber(
+    Math.round(merged.maxRetries),
+    SSE_POLICY_LIMITS.minRetries,
+    SSE_POLICY_LIMITS.maxRetries,
+  );
+  const baseDelayMs = clampNumber(
+    Math.round(merged.baseDelayMs),
+    SSE_POLICY_LIMITS.minDelayMs,
+    SSE_POLICY_LIMITS.maxDelayMs,
+  );
+  const maxDelayMs = clampNumber(
+    Math.round(merged.maxDelayMs),
+    baseDelayMs,
+    SSE_POLICY_LIMITS.maxDelayMs,
+  );
+  const jitterRatio = clampNumber(
+    merged.jitterRatio,
+    SSE_POLICY_LIMITS.minJitterRatio,
+    SSE_POLICY_LIMITS.maxJitterRatio,
+  );
+  return { maxRetries, baseDelayMs, maxDelayMs, jitterRatio };
+};
+
+const applyServerRetryHeaders = (headers: Headers, current: SSERetryPolicy): SSERetryPolicy => {
+  const serverOverrides: Partial<SSERetryPolicy> = {};
+  const maxRetries = parseFiniteNumber(headers.get('X-Pythinker-SSE-Retry-Max-Attempts'));
+  const baseDelayMs = parseFiniteNumber(headers.get('X-Pythinker-SSE-Retry-Base-Delay-Ms'));
+  const maxDelayMs = parseFiniteNumber(headers.get('X-Pythinker-SSE-Retry-Max-Delay-Ms'));
+  const jitterRatio = parseFiniteNumber(headers.get('X-Pythinker-SSE-Retry-Jitter-Ratio'));
+
+  if (maxRetries !== undefined) serverOverrides.maxRetries = maxRetries;
+  if (baseDelayMs !== undefined) serverOverrides.baseDelayMs = baseDelayMs;
+  if (maxDelayMs !== undefined) serverOverrides.maxDelayMs = maxDelayMs;
+  if (jitterRatio !== undefined) serverOverrides.jitterRatio = jitterRatio;
+
+  return normalizeRetryPolicy({ ...current, ...serverOverrides });
+};
+
+const computeRetryDelayMs = (
+  policy: SSERetryPolicy,
+  attempt: number,
+  preferredDelayMs?: number,
+  rng: () => number = Math.random,
+): number => {
+  if (preferredDelayMs !== undefined && Number.isFinite(preferredDelayMs)) {
+    return clampNumber(Math.round(preferredDelayMs), 0, SSE_POLICY_LIMITS.maxDelayMs);
+  }
+
+  const safeAttempt = Number.isFinite(attempt) ? Math.max(0, Math.floor(attempt)) : 0;
+  const exponentialDelay = policy.baseDelayMs * (2 ** safeAttempt);
+  const cappedDelay = Math.min(exponentialDelay, policy.maxDelayMs);
+
+  // Equal jitter keeps latency bounded and avoids reconnect stampedes.
+  const jitterWindow = cappedDelay * policy.jitterRatio;
+  const minDelay = cappedDelay - jitterWindow;
+  const jitteredDelay = minDelay + (rng() * jitterWindow);
+
+  return Math.max(0, Math.round(jitteredDelay));
+};
+
+const isRetriableHttpStatus = (status: number): boolean => {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+};
 
 /**
  * Handle SSE authentication errors and attempt token refresh
@@ -295,12 +466,62 @@ export const createSSEConnection = async <T = unknown>(
   options: SSEOptions = {},
   callbacks: SSECallbacks<T> = {}
 ): Promise<() => void> => {
-  const { onOpen, onMessage, onClose, onError, onRetry } = callbacks;
+  const { onOpen, onMessage, onClose, onError, onRetry, onGapDetected } = callbacks;
   const {
     method = 'GET',
     body,
-    headers = {}
+    headers = {},
+    retryPolicy,
   } = options;
+
+  // Get the global SSE circuit breaker
+  const circuitBreaker = getSseCircuitBreaker();
+
+  // Check if circuit breaker allows this request
+  if (!circuitBreaker.isRequestAllowed.value) {
+    const circuitState = circuitBreaker.state.value;
+    const resetRemaining = circuitBreaker.resetTimeRemaining.value ?? 0;
+    const reconnectDelayMs = Math.max(250, resetRemaining || 1000);
+    logSseDiagnostics('client', 'connect:blocked_by_circuit_breaker', {
+      endpoint,
+      circuitState,
+      resetRemaining,
+      reconnectDelayMs,
+    });
+    if (onError) {
+      const error = new Error(
+        `Connection temporarily unavailable. Retrying in ${Math.ceil(resetRemaining / 1000)} seconds...`
+      );
+      onError(error);
+    }
+    let deferredCancel: (() => void) | null = null;
+    let cancelled = false;
+    const retryTimer = setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
+      createSSEConnection<T>(endpoint, options, callbacks)
+        .then((cancelFn) => {
+          if (cancelled) {
+            cancelFn();
+            return;
+          }
+          deferredCancel = cancelFn;
+        })
+        .catch((error) => {
+          if (!cancelled && !deferredCancel && onError && error instanceof Error) {
+            onError(error);
+          }
+        });
+    }, reconnectDelayMs);
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+      if (deferredCancel) {
+        deferredCancel();
+      }
+    };
+  }
 
   // Create AbortController for cancellation
   const abortController = new AbortController();
@@ -341,18 +562,109 @@ export const createSSEConnection = async <T = unknown>(
   // Track per-request transport attempts for diagnostics
   let connectionAttempt = 0;
 
-  // Retry configuration
+  // Retry configuration (can be overridden by server response headers)
+  let activeRetryPolicy = normalizeRetryPolicy(retryPolicy);
   let retryCount = 0;
-  const maxRetries = 7;
-  const baseDelay = 1000; // 1 second
-  const maxDelay = 45000; // 45 seconds
   let reconnectTimeout: NodeJS.Timeout | null = null;
+  let onlineRetryHandler: (() => void) | null = null;
+  let serverRequestedRetry = false;
+  let serverRetryAfterMs: number | undefined;
+  const seenEventIds = new Set<string>();
 
-  // Calculate exponential backoff delay with 25% jitter to prevent thundering herd
-  const getRetryDelay = (attempt: number): number => {
-    const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
-    const jitter = delay * 0.25 * Math.random();
-    return delay + jitter;
+  // Guard against dual reconnection when both onclose and onerror fire
+  // for the same disconnect event (fetch-event-source can call both)
+  let isDisconnectHandled = false;
+
+  const clearReconnectTimeout = () => {
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+  };
+
+  const clearOnlineRetryHandler = () => {
+    if (onlineRetryHandler && typeof window !== 'undefined') {
+      window.removeEventListener('online', onlineRetryHandler);
+      onlineRetryHandler = null;
+    }
+  };
+
+  const trackEventId = (eventId: string): boolean => {
+    if (seenEventIds.has(eventId)) {
+      return false;
+    }
+    seenEventIds.add(eventId);
+
+    if (seenEventIds.size > MAX_TRACKED_EVENT_IDS) {
+      const ids = Array.from(seenEventIds);
+      seenEventIds.clear();
+      const keepFrom = Math.max(0, ids.length - Math.floor(MAX_TRACKED_EVENT_IDS / 2));
+      for (let i = keepFrom; i < ids.length; i += 1) {
+        const id = ids[i];
+        if (id) seenEventIds.add(id);
+      }
+    }
+
+    return true;
+  };
+
+  const scheduleReconnect = (
+    source: 'close' | 'error' | 'http_status' | 'auth_refresh' | 'promise_rejection',
+    preferredDelayMs?: number,
+  ): boolean => {
+    if (abortController.signal.aborted) {
+      return false;
+    }
+    if (retryCount >= activeRetryPolicy.maxRetries) {
+      return false;
+    }
+    if (reconnectTimeout || onlineRetryHandler) {
+      return true;
+    }
+
+    const nextAttempt = retryCount + 1;
+    const delayMs = computeRetryDelayMs(activeRetryPolicy, retryCount, preferredDelayMs);
+
+    if (onRetry) {
+      onRetry(nextAttempt, activeRetryPolicy.maxRetries);
+    }
+
+    logSseDiagnostics('client', 'connect:retry_scheduled', {
+      endpoint,
+      source,
+      attempt: nextAttempt,
+      maxRetries: activeRetryPolicy.maxRetries,
+      delayMs,
+      resumeEventId: lastReceivedEventId ?? null,
+    });
+
+    retryCount += 1;
+
+    const performRetry = () => {
+      createConnection().catch((error) => {
+        if (!abortController.signal.aborted) {
+          console.error('SSE reconnect attempt failed:', error);
+        }
+      });
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false && typeof window !== 'undefined') {
+      onlineRetryHandler = () => {
+        clearOnlineRetryHandler();
+        reconnectTimeout = setTimeout(() => {
+          reconnectTimeout = null;
+          performRetry();
+        }, Math.min(delayMs, 1000));
+      };
+      window.addEventListener('online', onlineRetryHandler);
+      return true;
+    }
+
+    reconnectTimeout = setTimeout(() => {
+      reconnectTimeout = null;
+      performRetry();
+    }, delayMs);
+    return true;
   };
 
   // Create SSE connection with retry logic
@@ -390,11 +702,15 @@ export const createSSEConnection = async <T = unknown>(
         method,
         attempt,
         retryCount,
+        maxRetries: activeRetryPolicy.maxRetries,
         messageSent,
         streamCompleted,
         receivedAnyEvents,
         resumeEventId: lastReceivedEventId ?? null,
       });
+
+      // Reset disconnect handled flag for this new connection attempt
+      isDisconnectHandled = false;
 
       const ssePromise = fetchEventSource(apiUrl, {
         method,
@@ -403,6 +719,8 @@ export const createSSEConnection = async <T = unknown>(
         body: requestBody,
         signal: abortController.signal,
         async onopen(response) {
+          activeRetryPolicy = applyServerRetryHeaders(response.headers, activeRetryPolicy);
+
           logSseDiagnostics('client', 'connect:open', {
             endpoint,
             attempt,
@@ -410,7 +728,11 @@ export const createSSEConnection = async <T = unknown>(
             ok: response.ok,
             messageSent,
             retryCount,
+            maxRetries: activeRetryPolicy.maxRetries,
+            retryPolicy: activeRetryPolicy,
             resumeEventId: lastReceivedEventId ?? null,
+            protocolVersion: response.headers.get('X-Pythinker-SSE-Protocol-Version'),
+            heartbeatSeconds: response.headers.get('X-Pythinker-SSE-Heartbeat-Interval-Seconds'),
           });
 
           // Check for authentication errors in the initial response
@@ -423,44 +745,37 @@ export const createSSEConnection = async <T = unknown>(
               const newToken = getStoredToken();
               if (newToken) {
                 requestHeaders.Authorization = `Bearer ${newToken}`;
-                // Retry connection with new token using exponential backoff
+                // Retry connection with new token.
                 // Note: messageSent stays false intentionally - 401 means the server rejected
                 // at auth layer and the message was NOT processed, so we need to resend it
-                const retryDelay = getRetryDelay(retryCount);
-                console.debug(`[SSE] Reconnecting after auth refresh in ${Math.round(retryDelay)}ms (attempt ${retryCount + 1}/${maxRetries})`);
-                retryCount++;
-                reconnectTimeout = setTimeout(() => createConnection().catch(console.error), retryDelay);
+                scheduleReconnect('auth_refresh');
+                throw createSseControlError(SSE_CONTROL_ERROR_MANUAL_RETRY);
               }
+            } else {
+              abortController.abort();
+              throw createSseControlError(SSE_CONTROL_ERROR_FATAL_STOP);
             }
-            return;
           }
 
-          // Handle rate limiting - don't retry immediately
-          if (response.status === 429) {
-            console.warn('Rate limit exceeded. Waiting 60 seconds before retry...');
-            // Stop retrying for rate limit - user should refresh or wait
-            if (onError) {
-              onError(new Error('Rate limit exceeded. Please wait a moment and try again.'));
-            }
-            // Abort connection to prevent retry loop
-            abortController.abort();
-            return;
-          }
-
-          // Handle validation errors (422) - don't retry, the request body is invalid
-          if (response.status === 422) {
-            console.error('Request validation failed (422). Not retrying.');
-            if (onError) {
-              onError(new Error('Request validation failed. Please check your input.'));
-            }
-            // Abort connection to prevent retry loop
-            abortController.abort();
-            return;
-          }
-
-          // Check for other error status codes
           if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            const statusError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+            const retryAfterMs = parseRetryAfterMs(response.headers.get('Retry-After'));
+            if (isRetriableHttpStatus(response.status)) {
+              const scheduled = scheduleReconnect('http_status', retryAfterMs);
+              if (!scheduled && onError) {
+                onError(statusError);
+              }
+              if (scheduled) {
+                throw createSseControlError(SSE_CONTROL_ERROR_MANUAL_RETRY);
+              }
+              throw createSseControlError(SSE_CONTROL_ERROR_FATAL_STOP);
+            }
+
+            if (onError) {
+              onError(statusError);
+            }
+            abortController.abort();
+            throw createSseControlError(SSE_CONTROL_ERROR_FATAL_STOP);
           }
 
           // Connection successful - mark message as sent and reset retry counter
@@ -469,23 +784,18 @@ export const createSSEConnection = async <T = unknown>(
             messageSent = true;
           }
           retryCount = 0;
+          serverRequestedRetry = false;
+          serverRetryAfterMs = undefined;
+
+          // Record successful connection for circuit breaker
+          circuitBreaker.recordSuccess();
+
           if (onOpen) {
             onOpen();
           }
         },
         onmessage(event: EventSourceMessage) {
-          receivedAnyEvents = true;
           if (event.event && event.event.trim() !== '') {
-            // Track stream completion events to prevent unnecessary reconnection
-            // Include error/failure events — agent errors are terminal, not retryable
-            if (event.event === 'done' || event.event === 'complete' || event.event === 'end'
-              || event.event === 'error' || event.event === 'agent_error' || event.event === 'session_error') {
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:onmessage',message:'Stream completion event received',data:{eventType:event.event,eventId:event.id},timestamp:Date.now(),hypothesisId:'A,D',runId:'initial'})}).catch(()=>{});
-              // #endregion
-              streamCompleted = true;
-            }
-
             // Parse event data and extract event_id for reconnection resume.
             // Guard against malformed payloads so a single bad frame does not
             // crash the entire stream handler and force a reconnect cycle.
@@ -496,9 +806,64 @@ export const createSSEConnection = async <T = unknown>(
               console.warn('SSE: failed to parse event data, skipping frame', event.event);
               return;
             }
-            const eventId = (parsedData as { event_id?: string })?.event_id;
+            receivedAnyEvents = true;
+
+            const envelope = parsedData as StreamEnvelope;
+            const eventId = envelope.event_id;
             if (eventId) {
+              const isUniqueEvent = trackEventId(eventId);
+              if (!isUniqueEvent) {
+                logSseDiagnostics('client', 'event:duplicate_skipped', {
+                  endpoint,
+                  attempt,
+                  event: event.event,
+                  eventId,
+                });
+                return;
+              }
               lastReceivedEventId = eventId;
+            }
+
+            const terminalEvents = new Set(['done', 'complete', 'end']);
+            if (terminalEvents.has(event.event)) {
+              streamCompleted = true;
+              serverRequestedRetry = false;
+              serverRetryAfterMs = undefined;
+            }
+
+            if (event.event === 'error' || event.event === 'agent_error' || event.event === 'session_error') {
+              const streamError = parsedData as StreamErrorEnvelope;
+              const recoverable = Boolean(streamError.recoverable);
+              const retryAfterMs = typeof streamError.retry_after_ms === 'number'
+                ? clampNumber(Math.round(streamError.retry_after_ms), 0, SSE_POLICY_LIMITS.maxDelayMs)
+                : undefined;
+
+              serverRequestedRetry = recoverable;
+              serverRetryAfterMs = retryAfterMs;
+              if (!recoverable) {
+                streamCompleted = true;
+              }
+
+              if (streamError.error_code === 'stream_gap_detected') {
+                const details = streamError.details ?? {};
+                const requestedEventId = typeof details.requested_event_id === 'string'
+                  ? details.requested_event_id
+                  : undefined;
+                const firstAvailableEventId = typeof details.first_available_event_id === 'string'
+                  ? details.first_available_event_id
+                  : undefined;
+                const checkpointEventId = streamError.checkpoint_event_id || firstAvailableEventId;
+                if (checkpointEventId) {
+                  lastReceivedEventId = checkpointEventId;
+                }
+                if (onGapDetected) {
+                  onGapDetected({
+                    requestedEventId,
+                    firstAvailableEventId,
+                    checkpointEventId,
+                  });
+                }
+              }
             }
 
             logSseDiagnostics('client', 'event:message', {
@@ -530,9 +895,41 @@ export const createSSEConnection = async <T = unknown>(
           }
         },
         onclose() {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:onclose',message:'SSE transport closed',data:{endpoint,streamCompleted,messageSent,receivedAnyEvents,retryCount,lastReceivedEventId,willRetry:!abortController.signal.aborted && retryCount < maxRetries && !streamCompleted && !(messageSent && !receivedAnyEvents)},timestamp:Date.now(),hypothesisId:'A,D,E',runId:'initial'})}).catch(()=>{});
-          // #endregion
+          // Guard against dual reconnection: both onclose and onerror can fire
+          // for the same disconnect. Only handle once per connection.
+          if (isDisconnectHandled) {
+            logSseDiagnostics('client', 'connect:close_skipped', {
+              endpoint,
+              attempt,
+              reason: 'already_handled_by_onerror',
+            });
+            return;
+          }
+          isDisconnectHandled = true;
+
+          const noEventsAfterMessage = messageSent && !receivedAnyEvents;
+          const reachedMaxRetries = retryCount >= activeRetryPolicy.maxRetries;
+          const willRetry = !abortController.signal.aborted
+            && !reachedMaxRetries
+            && !streamCompleted
+            && (!noEventsAfterMessage || serverRequestedRetry);
+          const retryAttempt = willRetry ? retryCount + 1 : null;
+          const retryDelayMs = willRetry
+            ? computeRetryDelayMs(activeRetryPolicy, retryCount, serverRetryAfterMs)
+            : undefined;
+          let reason: SSECloseInfo['reason'] = 'closed';
+          if (streamCompleted) {
+            reason = 'completed';
+          } else if (noEventsAfterMessage) {
+            reason = 'no_events_after_message';
+          } else if (abortController.signal.aborted) {
+            reason = 'aborted';
+          } else if (willRetry) {
+            reason = 'retrying';
+          } else if (reachedMaxRetries) {
+            reason = 'max_retries';
+          }
+
           logSseDiagnostics('client', 'connect:close', {
             endpoint,
             attempt,
@@ -540,41 +937,41 @@ export const createSSEConnection = async <T = unknown>(
             messageSent,
             receivedAnyEvents,
             retryCount,
+            maxRetries: activeRetryPolicy.maxRetries,
             resumeEventId: lastReceivedEventId ?? null,
-            willRetry: !abortController.signal.aborted && retryCount < maxRetries && !streamCompleted && !(messageSent && !receivedAnyEvents),
+            retryDelayMs: retryDelayMs ?? null,
+            willRetry,
+            reason,
           });
 
           if (onClose) {
-            onClose();
+            onClose({
+              willRetry,
+              retryAttempt,
+              maxRetries: activeRetryPolicy.maxRetries,
+              streamCompleted,
+              messageSent,
+              receivedAnyEvents,
+              lastReceivedEventId,
+              retryDelayMs,
+              reason,
+            });
           }
 
           // Don't reconnect if stream completed normally (received done/complete/end event)
           // Also don't reconnect if the stream closed without any events at all — this
           // indicates the session/task already completed (not a network interruption)
-          if (streamCompleted || (messageSent && !receivedAnyEvents)) {
+          if (streamCompleted || (noEventsAfterMessage && !serverRequestedRetry)) {
             return;
           }
 
           // Attempt reconnection if not manually aborted
-          if (!abortController.signal.aborted && retryCount < maxRetries) {
-            const retryAttempt = retryCount + 1;
-            if (onRetry) onRetry(retryAttempt, maxRetries);
-            const delay = getRetryDelay(retryCount);
-            logSseDiagnostics('client', 'connect:retry_scheduled_from_close', {
-              endpoint,
-              attempt: retryAttempt,
-              maxRetries,
-              delayMs: Math.round(delay),
-              resumeEventId: lastReceivedEventId ?? null,
-            });
-            console.log(`SSE connection closed. Reconnecting in ${Math.round(delay / 1000)}s... (attempt ${retryAttempt}/${maxRetries})`);
-            retryCount++;
-
-            reconnectTimeout = setTimeout(() => {
-              createConnection().catch(console.error);
-            }, delay);
-          } else if (retryCount >= maxRetries) {
+          if (willRetry) {
+            scheduleReconnect('close', serverRetryAfterMs);
+          } else if (reachedMaxRetries) {
             console.error('SSE max reconnection attempts reached. Please refresh the page.');
+            // Record failure for circuit breaker - max retries reached
+            circuitBreaker.recordFailure();
             if (onError) {
               onError(new Error('Max reconnection attempts reached'));
             }
@@ -591,26 +988,39 @@ export const createSSEConnection = async <T = unknown>(
           });
           console.error('EventSource error:', error);
 
-          // Attempt reconnection on network errors if not manually aborted
-          if (!abortController.signal.aborted && retryCount < maxRetries) {
-            const retryAttempt = retryCount + 1;
-            if (onRetry) onRetry(retryAttempt, maxRetries);
-            const delay = getRetryDelay(retryCount);
-            logSseDiagnostics('client', 'connect:retry_scheduled_from_error', {
+          // Guard against dual reconnection: if onclose already scheduled a reconnect,
+          // don't schedule another one here. onclose will be called immediately after.
+          if (isDisconnectHandled) {
+            logSseDiagnostics('client', 'connect:error_skipped', {
               endpoint,
-              attempt: retryAttempt,
-              maxRetries,
-              delayMs: Math.round(delay),
-              resumeEventId: lastReceivedEventId ?? null,
+              attempt,
+              reason: 'already_handled_by_onclose',
             });
-            console.log(`SSE connection error. Retrying in ${Math.round(delay / 1000)}s... (attempt ${retryAttempt}/${maxRetries})`);
-            retryCount++;
+            return;
+          }
 
-            reconnectTimeout = setTimeout(() => {
-              createConnection().catch(console.error);
-            }, delay);
-          } else if (retryCount >= maxRetries) {
+          const normalizedMessage = error.message.toLowerCase();
+          const fatalTransportError = normalizedMessage.includes('validation failed')
+            || normalizedMessage.includes('unauthorized')
+            || normalizedMessage.includes('forbidden');
+
+          if (fatalTransportError) {
+            isDisconnectHandled = true;
+            if (onError) onError(error);
+            throw createSseControlError(SSE_CONTROL_ERROR_FATAL_STOP);
+          }
+
+          // Mark as handled before scheduling to prevent onclose from duplicating
+          isDisconnectHandled = true;
+          const scheduled = scheduleReconnect('error', serverRetryAfterMs);
+          if (scheduled) {
+            throw createSseControlError(SSE_CONTROL_ERROR_MANUAL_RETRY);
+          }
+
+          if (retryCount >= activeRetryPolicy.maxRetries) {
             console.error('SSE max reconnection attempts reached. Please refresh the page.');
+            // Record failure for circuit breaker - max retries reached
+            circuitBreaker.recordFailure();
             if (onError) {
               onError(new Error('Max reconnection attempts reached'));
             }
@@ -618,11 +1028,40 @@ export const createSSEConnection = async <T = unknown>(
             onError(error);
           }
 
-          reject(error);
+          throw createSseControlError(SSE_CONTROL_ERROR_FATAL_STOP);
         },
       });
 
-      ssePromise.catch(reject);
+      ssePromise.catch((err: unknown) => {
+        const error = err instanceof Error ? err : new Error(String(err));
+        logSseDiagnostics('client', 'connect:promise_rejected', {
+          endpoint,
+          attempt,
+          retryCount,
+          message: error.message,
+          resumeEventId: lastReceivedEventId ?? null,
+        });
+
+        if (abortController.signal.aborted) {
+          return;
+        }
+        if (
+          isSseControlError(error, SSE_CONTROL_ERROR_MANUAL_RETRY)
+          || isSseControlError(error, SSE_CONTROL_ERROR_FATAL_STOP)
+        ) {
+          return;
+        }
+
+        const scheduled = scheduleReconnect('promise_rejection', serverRetryAfterMs);
+        if (scheduled) {
+          return;
+        }
+
+        if (onError) {
+          onError(error);
+        }
+        reject(error);
+      });
     });
   };
 
@@ -634,10 +1073,8 @@ export const createSSEConnection = async <T = unknown>(
 
   return () => {
     // Cancel any pending reconnection attempts
-    if (reconnectTimeout) {
-      clearTimeout(reconnectTimeout);
-      reconnectTimeout = null;
-    }
+    clearReconnectTimeout();
+    clearOnlineRetryHandler();
     abortController.abort();
   };
 }; 

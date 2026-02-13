@@ -1,6 +1,15 @@
 <template>
   <SimpleBar ref="simpleBarRef" @scroll="handleScroll">
     <div id="pythinker-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
+      <ConnectionStatusBanner
+        :sessionId="sessionId"
+        :retryAttempt="connectionBannerRetryAttempt"
+        :maxRetries="connectionBannerMaxRetries"
+        :retryDelayMs="connectionBannerRetryDelayMs"
+        :isDegraded="isStreamDegraded"
+        @refresh="handleRetryConnection"
+        @dismiss="dismissConnectionBanner"
+      />
       <div ref="observerRef"
         class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 ps-[8px] pe-[8px] sm:ps-[16px] sm:pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
         <!-- Mobile sidebar toggle -->
@@ -180,7 +189,11 @@
             <div class="w-2.5 h-2.5 rounded-full bg-amber-400 dark:bg-amber-500 flex-shrink-0 animate-pulse" aria-hidden="true"></div>
             <div class="flex-1 min-w-0">
               <span class="text-sm font-medium text-amber-800 dark:text-amber-300">
-                {{ autoRetryCount < 4 ? $t('Connection interrupted. Reconnecting automatically...') : $t('Connection interrupted. The agent may still be working.') }}
+                {{ autoRetryCount < 4
+                  ? $t('Connection interrupted. Reconnecting automatically...')
+                  : (isFallbackStatusPolling
+                    ? $t('Connection interrupted. Checking task status in background...')
+                    : $t('Connection interrupted. The agent may still be working.')) }}
               </span>
             </div>
             <button
@@ -376,6 +389,7 @@ import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
+import type { SSECloseInfo, SSEGapInfo } from '../api/client';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent } from '../types/message';
 import { waitForSessionReady } from '@/utils/sessionReady';
 import {
@@ -423,6 +437,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
+import ConnectionStatusBanner from '@/components/ConnectionStatusBanner.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { useSkills } from '@/composables/useSkills';
@@ -495,7 +510,7 @@ const {
   connectionState: _connectionState,
   lastEventTime,
   lastEventId,
-  updateLastEventTime,
+  updateLastRealEventTime,
   isConnectionStale: _isConnectionStale,
   persistEventId: _persistEventId,
   getPersistedEventId: _getPersistedEventId,
@@ -504,8 +519,27 @@ const {
   stopStaleDetection,
 } = useSSEConnection({
   staleThresholdMs: 60000, // 60 seconds
-  onStaleDetected: handleStaleConnection
+  onStaleDetected: handleStaleConnection,
+  onDegradedDetected: () => {
+    if (
+      responsePhase.value === 'streaming'
+      || responsePhase.value === 'connecting'
+      || responsePhase.value === 'reconnecting'
+    ) {
+      transitionTo('degraded')
+    }
+  },
 })
+const isStreamDegraded = computed(() => _connectionState.value === 'degraded')
+const connectionBannerRetryAttempt = ref<number | undefined>(undefined)
+const connectionBannerMaxRetries = ref<number | undefined>(undefined)
+const connectionBannerRetryDelayMs = ref<number | undefined>(undefined)
+
+const dismissConnectionBanner = () => {
+  connectionBannerRetryAttempt.value = undefined
+  connectionBannerMaxRetries.value = undefined
+  connectionBannerRetryDelayMs.value = undefined
+}
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -529,7 +563,7 @@ const createInitialState = () => ({
   receivedDoneEvent: false,
   lastHeartbeatAt: 0,
   agentMode: 'discuss' as 'discuss' | 'agent', // Current agent mode
-  seenEventIds: new Set<string>(), // Track seen event IDs to prevent duplicates
+  seenEventIds: new Map<string, number>(), // Track seen event IDs to prevent duplicates (bounded LRU map)
   thinkingText: '', // Accumulated streaming thinking text
   isThinkingStreaming: false, // True when streaming thinking is in progress
   summaryStreamText: '', // Accumulated streaming summary text
@@ -553,6 +587,7 @@ const createInitialState = () => ({
   lastError: null as { message: string; type: string | null; recoverable: boolean; hint: string | null } | null,
   autoRetryCount: 0,
   autoRetryTimer: null as ReturnType<typeof setTimeout> | null,
+  isFallbackStatusPolling: false,
 });
 
 // Create reactive state
@@ -603,6 +638,7 @@ const {
   lastError,
   autoRetryCount,
   autoRetryTimer,
+  isFallbackStatusPolling,
 } = toRefs(state);
 
 let activeChatStreamTraceId: string | null = null;
@@ -655,28 +691,27 @@ const isScreenshotReplayMode = computed(() => isReplayMode.value)
 let messageIdCounter = 0;
 const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
 
-// Phase 5: Event ID set size limit to prevent unbounded memory growth
+// Phase 5: Event ID cache size limit to prevent unbounded memory growth
 const MAX_SEEN_EVENT_IDS = 1000;
 
 /**
- * Add an event ID to the seen set with automatic cleanup.
- * Uses LRU-like eviction by clearing oldest half when limit is reached.
- * This prevents the Set from growing unboundedly during long sessions.
+ * Add an event ID to the bounded dedupe cache with O(1) LRU eviction.
  */
 const addSeenEventId = (eventId: string) => {
-  // Check if cleanup is needed before adding
-  if (seenEventIds.value.size >= MAX_SEEN_EVENT_IDS) {
-    // Clear the oldest half by converting to array and keeping recent entries
-    const entries = Array.from(seenEventIds.value);
-    const keepCount = Math.floor(MAX_SEEN_EVENT_IDS / 2);
-    seenEventIds.value.clear();
-    // Keep the most recent entries (at the end of the array)
-    for (let i = entries.length - keepCount; i < entries.length; i++) {
-      if (entries[i]) seenEventIds.value.add(entries[i]);
-    }
-    console.debug(`Cleaned up seenEventIds: kept ${keepCount} of ${entries.length}`);
+  // Refresh recency when a known id is re-seen.
+  if (seenEventIds.value.has(eventId)) {
+    seenEventIds.value.delete(eventId);
   }
-  seenEventIds.value.add(eventId);
+
+  seenEventIds.value.set(eventId, Date.now());
+
+  // Evict the oldest entry when limit is exceeded.
+  if (seenEventIds.value.size > MAX_SEEN_EVENT_IDS) {
+    const oldestKey = seenEventIds.value.keys().next().value;
+    if (oldestKey !== undefined) {
+      seenEventIds.value.delete(oldestKey);
+    }
+  }
 };
 
 // Non-state refs that don't need reset
@@ -948,9 +983,24 @@ const setLastErrorFromTransportError = (error: Error) => {
   }
 };
 
+const handleStreamGapDetected = (scope: 'transport' | 'transport_retry', info: SSEGapInfo) => {
+  logChatSseDiagnostics(`${scope}:gap_detected`, {
+    requestedEventId: info.requestedEventId ?? null,
+    firstAvailableEventId: info.firstAvailableEventId ?? null,
+    checkpointEventId: info.checkpointEventId ?? null,
+  })
+  if (info.checkpointEventId) {
+    lastEventId.value = info.checkpointEventId
+    if (sessionId.value) {
+      _persistEventId(sessionId.value)
+    }
+  }
+}
+
 /** Deduplicated cleanup of streaming/thinking state. Use on SSE close/error. */
 const cleanupStreamingState = () => {
   logChatSseDiagnostics('stream:cleanup')
+  stopFallbackStatusPolling();
   thinkingText.value = '';
   isThinkingStreaming.value = false;
   summaryStreamText.value = '';
@@ -964,6 +1014,56 @@ const cleanupStreamingState = () => {
   }
   activeChatStreamTraceId = null;
 };
+
+const flushPendingBatchedEvents = () => {
+  if (batchFrameId !== null) {
+    cancelAnimationFrame(batchFrameId);
+    batchFrameId = null;
+    flushEventBatch();
+  }
+}
+
+const handleTransportClose = (scope: 'transport' | 'transport_retry', closeInfo: SSECloseInfo) => {
+  stopStaleDetection()
+  flushPendingBatchedEvents()
+
+  if (closeInfo.willRetry) {
+    connectionBannerRetryAttempt.value = closeInfo.retryAttempt ?? undefined
+    connectionBannerMaxRetries.value = closeInfo.maxRetries
+    connectionBannerRetryDelayMs.value = closeInfo.retryDelayMs ?? undefined
+  } else {
+    dismissConnectionBanner()
+  }
+
+  logChatSseDiagnostics(`${scope}:onClose`, {
+    reason: closeInfo.reason,
+    willRetry: closeInfo.willRetry,
+    retryAttempt: closeInfo.retryAttempt,
+    maxRetries: closeInfo.maxRetries,
+    streamCompleted: closeInfo.streamCompleted,
+    receivedAnyEvents: closeInfo.receivedAnyEvents,
+  })
+
+  if (closeInfo.willRetry) {
+    if (responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
+      transitionTo('reconnecting')
+    }
+    return
+  }
+
+  const shouldMarkTimedOut = !receivedDoneEvent.value
+    && responsePhase.value !== 'settled'
+    && responsePhase.value !== 'error'
+    && responsePhase.value !== 'stopped'
+    && closeInfo.reason !== 'completed'
+    && closeInfo.reason !== 'aborted'
+
+  if (shouldMarkTimedOut) {
+    transitionTo('timed_out')
+  }
+
+  cleanupStreamingState()
+}
 
 // Reset all refs to their initial values
 const resetState = () => {
@@ -1042,7 +1142,7 @@ const isReceivingHeartbeats = computed(() => {
 // Update last event time when any event is received
 // Wrapper to update event time and reset stale flag
 const updateEventTimeAndResetStale = () => {
-  updateLastEventTime()
+  updateLastRealEventTime()
   isStale.value = false
 }
 
@@ -1093,19 +1193,95 @@ watch(isLoading, (loading) => {
 
 // Auto-retry after timeout: progressive backoff (5s, 15s, 45s, 60s), max 4 attempts
 const AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000, 60000];
+const FALLBACK_STATUS_POLL_INTERVAL_MS = 5000;
+const FALLBACK_STATUS_POLL_MAX_ATTEMPTS = 24; // ~2 minutes
+let fallbackStatusPollTimer: ReturnType<typeof setTimeout> | null = null;
+let fallbackStatusPollAttempts = 0;
+
+const stopFallbackStatusPolling = () => {
+  if (fallbackStatusPollTimer) {
+    clearTimeout(fallbackStatusPollTimer);
+    fallbackStatusPollTimer = null;
+  }
+  fallbackStatusPollAttempts = 0;
+  isFallbackStatusPolling.value = false;
+};
+
+const pollSessionStatusFallback = async () => {
+  if (!sessionId.value || responsePhase.value !== 'timed_out') {
+    stopFallbackStatusPolling();
+    return;
+  }
+
+  fallbackStatusPollAttempts += 1;
+  try {
+    const statusResp = await agentApi.getSessionStatus(sessionId.value);
+    const status = statusResp.status as SessionStatus;
+    if (status === SessionStatus.COMPLETED || status === SessionStatus.FAILED) {
+      sessionStatus.value = status;
+      emitStatusChange(sessionId.value, status);
+      stopFallbackStatusPolling();
+      if (status === SessionStatus.COMPLETED) {
+        transitionTo('completing');
+        await replay.loadScreenshots();
+      } else {
+        transitionTo('error');
+        if (!lastError.value) {
+          lastError.value = {
+            message: 'Task failed while reconnecting.',
+            type: 'session_failed',
+            recoverable: true,
+            hint: 'Retry the connection to inspect details.',
+          };
+        }
+      }
+      return;
+    }
+  } catch {
+    // Keep polling on transient errors; handled by attempt cap below.
+  }
+
+  if (fallbackStatusPollAttempts >= FALLBACK_STATUS_POLL_MAX_ATTEMPTS) {
+    isFallbackStatusPolling.value = false;
+    return;
+  }
+
+  fallbackStatusPollTimer = setTimeout(() => {
+    fallbackStatusPollTimer = null;
+    void pollSessionStatusFallback();
+  }, FALLBACK_STATUS_POLL_INTERVAL_MS);
+};
+
+const startFallbackStatusPolling = () => {
+  if (!sessionId.value) return;
+  if (isFallbackStatusPolling.value || fallbackStatusPollTimer) return;
+  isFallbackStatusPolling.value = true;
+  fallbackStatusPollAttempts = 0;
+  void pollSessionStatusFallback();
+};
+
 watch(responsePhase, (phase) => {
-  if (phase !== 'timed_out') return;
-  if (autoRetryCount.value >= 4) return;
+  if (phase !== 'timed_out') {
+    stopFallbackStatusPolling();
+    return;
+  }
+
   logChatSseDiagnostics('phase:timed_out', {
     autoRetryCount: autoRetryCount.value,
     hasCancelHandler: Boolean(cancelCurrentChat.value),
   })
-  const delay = AUTO_RETRY_DELAYS_MS[Math.min(autoRetryCount.value, AUTO_RETRY_DELAYS_MS.length - 1)];
-  autoRetryTimer.value = setTimeout(() => {
-    autoRetryTimer.value = null;
-    autoRetryCount.value += 1;
-    handleRetryConnection();
-  }, delay);
+
+  if (autoRetryCount.value < 4) {
+    const delay = AUTO_RETRY_DELAYS_MS[Math.min(autoRetryCount.value, AUTO_RETRY_DELAYS_MS.length - 1)];
+    autoRetryTimer.value = setTimeout(() => {
+      autoRetryTimer.value = null;
+      autoRetryCount.value += 1;
+      handleRetryConnection();
+    }, delay);
+    return;
+  }
+
+  startFallbackStatusPolling();
 });
 
 // Cleanup on unmount
@@ -1118,6 +1294,7 @@ onUnmounted(() => {
     clearTimeout(autoRetryTimer.value);
     autoRetryTimer.value = null;
   }
+  stopFallbackStatusPolling();
   stopPlanningMessageCycle();
 });
 
@@ -2222,9 +2399,6 @@ const queueEvent = (event: AgentSSEEvent) => {
     queueSize: eventBatchQueue.length + 1,
     frameScheduled: batchFrameId !== null,
   })
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:queueEvent',message:'Event queued',data:{eventType:event.event,eventId:event.data?.event_id,queueLength:eventBatchQueue.length+1,frameScheduled:batchFrameId===null},timestamp:Date.now(),hypothesisId:'B',runId:'initial'})}).catch(()=>{});
-  // #endregion
   eventBatchQueue.push(event);
 
   // Schedule batch processing on next animation frame if not already scheduled
@@ -2263,7 +2437,11 @@ const processEvent = (event: AgentSSEEvent) => {
   updateEventTimeAndResetStale();
 
   // Transition to streaming on first real event
-  if (responsePhase.value === 'connecting') {
+  if (
+    responsePhase.value === 'connecting'
+    || responsePhase.value === 'reconnecting'
+    || responsePhase.value === 'degraded'
+  ) {
     transitionTo('streaming')
   }
 
@@ -2282,9 +2460,6 @@ const processEvent = (event: AgentSSEEvent) => {
       eventId: eventId ?? null,
       queuedAfterDone: eventBatchQueue.length,
     })
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:processEvent-done',message:'Done event processed',data:{eventId:event.data?.event_id,receivedDoneEvent:true,responsePhase:responsePhase.value},timestamp:Date.now(),hypothesisId:'B',runId:'initial'})}).catch(()=>{});
-    // #endregion
     receivedDoneEvent.value = true;
     ensureCompletionSuggestions();
     markShortAssistantCompletion();
@@ -2303,8 +2478,23 @@ const processEvent = (event: AgentSSEEvent) => {
     isWaitingForReply.value = true;
     transitionTo('settled')
   } else if (event.event === 'error') {
-    transitionTo('error')
-    handleErrorEvent(event.data as ErrorEventData);
+    const errorData = event.data as ErrorEventData;
+    const isRecoverableTimeout = errorData.error_type === 'timeout' && (errorData.recoverable ?? true);
+
+    if (isRecoverableTimeout) {
+      // Backend may still be actively processing long-running work.
+      // Treat timeout errors as recoverable transport interruptions so reconnect logic can resume.
+      lastError.value = {
+        message: errorData.error || 'Chat stream timed out',
+        type: errorData.error_type ?? null,
+        recoverable: true,
+        hint: errorData.retry_hint ?? null,
+      };
+      transitionTo('timed_out')
+    } else {
+      transitionTo('error')
+      handleErrorEvent(errorData);
+    }
   } else if (event.event === 'title') {
     handleTitleEvent(event.data as TitleEventData);
   } else if (event.event === 'plan') {
@@ -2503,6 +2693,7 @@ const chat = async (
       {
         onOpen: () => {
           logChatSseDiagnostics('transport:onOpen')
+          dismissConnectionBanner()
           // responsePhase already set to 'connecting' in sendMessage
           // onOpen confirms transport is established, no phase change needed
           // Start heartbeat stale detection
@@ -2515,51 +2706,13 @@ const chat = async (
             eventId: eventData.event_id ?? null,
             phase: eventData.phase ?? null,
           })
-          // Update last event time for stale detection (heartbeat events already update via custom event)
-          updateLastEventTime()
           handleEvent({
             event: event as AgentSSEEvent['event'],
             data: data as AgentSSEEvent['data']
           });
         },
-        onClose: () => {
-          const queuedEvents = eventBatchQueue.length
-          const hadPendingFrame = batchFrameId !== null
-          logChatSseDiagnostics('transport:onClose_before_flush', {
-            queuedEvents,
-            hadPendingFrame,
-          })
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:onClose',message:'SSE onClose triggered',data:{batchFrameId,queueLength:eventBatchQueue.length,receivedDoneEvent:receivedDoneEvent.value,responsePhase:responsePhase.value,lastEventId:lastEventId.value},timestamp:Date.now(),hypothesisId:'A,B,D',runId:'initial'})}).catch(()=>{});
-          // #endregion
-          // Stop heartbeat stale detection
-          stopStaleDetection()
-          // Flush any queued events (e.g. 'done') before checking receivedDoneEvent.
-          // Event batching defers processing to requestAnimationFrame; onClose can fire
-          // before the batch runs, causing false "Connection interrupted" on fast completions.
-          if (batchFrameId !== null) {
-            cancelAnimationFrame(batchFrameId);
-            batchFrameId = null;
-            flushEventBatch();
-          }
-          const shouldMarkTimedOut = !receivedDoneEvent.value
-            && responsePhase.value !== 'settled'
-            && responsePhase.value !== 'error'
-            && responsePhase.value !== 'stopped'
-          logChatSseDiagnostics('transport:onClose_after_flush', {
-            queuedEventsAfterFlush: eventBatchQueue.length,
-            shouldMarkTimedOut,
-          })
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:onClose-afterFlush',message:'SSE after flush',data:{receivedDoneEvent:receivedDoneEvent.value,responsePhase:responsePhase.value},timestamp:Date.now(),hypothesisId:'A,B,D',runId:'initial'})}).catch(()=>{});
-          // #endregion
-          // Transport closed. Check if we received a 'done' event.
-          if (shouldMarkTimedOut) {
-            // SSE closed without a done event — timeout or disconnect
-            transitionTo('timed_out')
-          }
-          cleanupStreamingState();
-          // NO ensureCompletionSuggestions() here — suggestions only on 'done'
+        onClose: (closeInfo: SSECloseInfo) => {
+          handleTransportClose('transport', closeInfo)
         },
         onError: (err: Error) => {
           logChatSseDiagnostics('transport:onError', {
@@ -2567,9 +2720,10 @@ const chat = async (
           })
           // Stop heartbeat stale detection on error
           stopStaleDetection()
+          const isMaxRetriesError = err.message.toLowerCase().includes('max reconnection attempts reached')
           if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
             setLastErrorFromTransportError(err);
-            transitionTo('error')
+            transitionTo(isMaxRetriesError ? 'timed_out' : 'error')
           }
           cleanupStreamingState();
           // NO ensureCompletionSuggestions() here — transient SSE errors don't mean session ended
@@ -2579,6 +2733,12 @@ const chat = async (
             attempt,
             maxAttempts,
           })
+          if (responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
+            transitionTo('reconnecting')
+          }
+        },
+        onGapDetected: (info: SSEGapInfo) => {
+          handleStreamGapDetected('transport', info)
         },
       },
       followUp
@@ -2889,6 +3049,7 @@ const handleScroll = (_: Event) => {
 }
 
 const handleStop = async () => {
+  stopFallbackStatusPolling();
   // Cancel the SSE stream FIRST to prevent any reconnect/resume logic
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
@@ -2921,6 +3082,7 @@ const handleStop = async () => {
 
 const handleRetryConnection = async () => {
   if (!sessionId.value) return;
+  stopFallbackStatusPolling();
   if (autoRetryTimer.value) {
     clearTimeout(autoRetryTimer.value);
     autoRetryTimer.value = null;
@@ -2963,6 +3125,7 @@ const handleRetryConnection = async () => {
       {
         onOpen: () => {
           logChatSseDiagnostics('transport_retry:onOpen')
+          dismissConnectionBanner()
           // Start heartbeat stale detection on retry
           startStaleDetection()
         },
@@ -2973,40 +3136,13 @@ const handleRetryConnection = async () => {
             eventId: eventData.event_id ?? null,
             phase: eventData.phase ?? null,
           })
-          // Update last event time for stale detection
-          updateLastEventTime()
           handleEvent({
             event: event as AgentSSEEvent['event'],
             data: data as AgentSSEEvent['data']
           });
         },
-        onClose: () => {
-          const queuedEvents = eventBatchQueue.length
-          const hadPendingFrame = batchFrameId !== null
-          logChatSseDiagnostics('transport_retry:onClose_before_flush', {
-            queuedEvents,
-            hadPendingFrame,
-          })
-          // Stop heartbeat stale detection
-          stopStaleDetection()
-          // Flush queued events before checking receivedDoneEvent (same as chat onClose)
-          if (batchFrameId !== null) {
-            cancelAnimationFrame(batchFrameId);
-            batchFrameId = null;
-            flushEventBatch();
-          }
-          const shouldMarkTimedOut = !receivedDoneEvent.value
-            && responsePhase.value !== 'settled'
-            && responsePhase.value !== 'error'
-            && responsePhase.value !== 'stopped'
-          logChatSseDiagnostics('transport_retry:onClose_after_flush', {
-            queuedEventsAfterFlush: eventBatchQueue.length,
-            shouldMarkTimedOut,
-          })
-          if (shouldMarkTimedOut) {
-            transitionTo('timed_out')
-          }
-          cleanupStreamingState();
+        onClose: (closeInfo: SSECloseInfo) => {
+          handleTransportClose('transport_retry', closeInfo)
         },
         onError: (err: Error) => {
           logChatSseDiagnostics('transport_retry:onError', {
@@ -3014,9 +3150,10 @@ const handleRetryConnection = async () => {
           })
           // Stop heartbeat stale detection on error
           stopStaleDetection()
+          const isMaxRetriesError = err.message.toLowerCase().includes('max reconnection attempts reached')
           if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
             setLastErrorFromTransportError(err);
-            transitionTo('error')
+            transitionTo(isMaxRetriesError ? 'timed_out' : 'error')
           }
           cleanupStreamingState();
         },
@@ -3025,6 +3162,12 @@ const handleRetryConnection = async () => {
             attempt,
             maxAttempts,
           })
+          if (responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
+            transitionTo('reconnecting')
+          }
+        },
+        onGapDetected: (info: SSEGapInfo) => {
+          handleStreamGapDetected('transport_retry', info)
         },
       }
     );
