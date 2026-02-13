@@ -77,7 +77,7 @@ class APIKeyPool:
         provider: str,
         keys: list[APIKeyConfig],
         strategy: RotationStrategy,
-        redis_client: Redis,
+        redis_client: Redis | None = None,
         base_backoff_seconds: float = 1.0,
         max_backoff_seconds: float = 60.0,
     ):
@@ -88,7 +88,7 @@ class APIKeyPool:
             provider: Provider name (e.g., "openai", "serper", "tavily")
             keys: List of API key configurations
             strategy: Rotation strategy to use
-            redis_client: Redis client for health tracking
+            redis_client: Redis client for health tracking (None = in-memory mode)
             base_backoff_seconds: Base delay for exponential backoff (default: 1s)
             max_backoff_seconds: Maximum backoff delay (default: 60s)
 
@@ -107,6 +107,12 @@ class APIKeyPool:
 
         # Round-robin state
         self._round_robin_index = 0
+
+        # Warn if running without Redis
+        if redis_client is None:
+            logger.warning(
+                f"[{provider}] APIKeyPool running in-memory mode (no Redis). Multi-instance coordination disabled."
+            )
 
     async def get_healthy_key(self) -> str | None:
         """
@@ -235,12 +241,17 @@ class APIKeyPool:
         Checks Redis for exhausted/invalid state. Keys marked exhausted
         will become healthy again after TTL expires.
 
+        Without Redis, assumes all keys are healthy (in-memory mode).
+
         Args:
             key: API key to check
 
         Returns:
             True if key is healthy, False otherwise
         """
+        if self._redis is None:
+            return True  # Without Redis, assume all keys are healthy
+
         key_hash = self._hash_key(key)
 
         # Check if key is invalid (permanent)
@@ -259,10 +270,16 @@ class APIKeyPool:
 
         After TTL expires, key becomes healthy again.
 
+        Without Redis, logs warning but does not persist state.
+
         Args:
             key: API key to mark as exhausted
             ttl_seconds: Time-to-live in seconds (e.g., 3600 for 1 hour)
         """
+        if self._redis is None:
+            logger.warning(f"[{self.provider}] Cannot mark key exhausted: Redis unavailable (in-memory mode)")
+            return
+
         key_hash = self._hash_key(key)
         redis_key = f"api_key:exhausted:{self.provider}:{key_hash}"
         await self._redis.setex(redis_key, ttl_seconds, KeyHealthStatus.EXHAUSTED.value)
@@ -281,9 +298,15 @@ class APIKeyPool:
 
         Invalid keys are never retried (e.g., revoked keys, wrong keys).
 
+        Without Redis, logs error but does not persist state.
+
         Args:
             key: API key to mark as invalid
         """
+        if self._redis is None:
+            logger.warning(f"[{self.provider}] Cannot mark key invalid: Redis unavailable (in-memory mode)")
+            return
+
         key_hash = self._hash_key(key)
         redis_key = f"api_key:invalid:{self.provider}:{key_hash}"
         await self._redis.set(redis_key, KeyHealthStatus.INVALID.value)
