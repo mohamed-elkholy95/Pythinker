@@ -240,6 +240,14 @@ class Settings(BaseSettings):
     browser_pool_health_interval: float = 60.0  # Health check interval (1 min)
     browser_init_timeout: float = 60.0  # Overall timeout for browser initialization (seconds)
 
+    # Browser crash detection and circuit breaker (Phase 1: hardening)
+    browser_crash_circuit_breaker_enabled: bool = True  # Enable circuit breaker for repeated crashes
+    browser_crash_window_seconds: float = 300.0  # 5 min window for crash tracking
+    browser_crash_threshold: int = 3  # Max crashes in window before circuit opens
+    browser_crash_cooldown_seconds: float = 60.0  # Circuit open duration (1 min)
+    browser_quick_health_check_enabled: bool = True  # Enable fast health check before operations
+    browser_quick_health_check_timeout: float = 3.0  # Fast health check timeout (3s)
+
     # Browser element extraction configuration (Phase 6: fix timeouts)
     browser_element_extraction_timeout: float = (
         5.0  # Timeout for interactive element extraction (seconds) - reduced from 7.0 to match JS timeout
