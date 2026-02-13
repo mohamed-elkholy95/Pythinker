@@ -85,6 +85,15 @@ class Settings(BaseSettings):
     redis_socket_connect_timeout: float = 5.0  # 5s connection timeout
     redis_health_check_interval: int = 30  # 30s health check interval
     redis_retry_on_timeout: bool = True  # Retry on timeout
+    # Dedicated cache Redis (split from runtime Redis for eviction isolation)
+    redis_cache_host: str = "redis-cache"
+    redis_cache_port: int = 6379
+    redis_cache_db: int = 0
+    redis_cache_password: str | None = None
+    redis_cache_max_connections: int = 100
+    redis_scan_count: int = 1000  # SCAN batch size for pattern operations (replaces KEYS)
+    redis_stream_max_len: int = 10000  # Stream retention cap per stream (0 disables auto-trim)
+    redis_stream_poll_block_ms: int = 1000  # Blocking read window for SSE Redis stream polling
 
     # MinIO S3 Object Storage configuration
     # Credentials MUST be provided via environment variables (no hardcoded secrets)
@@ -352,6 +361,7 @@ class Settings(BaseSettings):
 
     # Rate limiting configuration
     rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = 60  # Fixed window size for Redis-backed API rate limiting
     rate_limit_requests_per_minute: int = 300  # Increased for SSE polling (temporary)
     rate_limit_auth_requests_per_minute: int = 10  # Rate limit for auth endpoints (login, register)
     rate_limit_burst: int = 10  # Allow burst of requests
