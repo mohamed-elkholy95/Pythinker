@@ -3,6 +3,7 @@ import axios, { AxiosError, type AxiosRequestConfig, type InternalAxiosRequestCo
 import { fetchEventSource, EventSourceMessage } from '@microsoft/fetch-event-source';
 import { router } from '@/main';
 import { clearStoredTokens, getStoredToken, getStoredRefreshToken, storeToken } from './auth';
+import { getSseDiagnosticsHeaderValue, logSseDiagnostics } from '@/utils/sseDiagnostics';
 
 // API configuration
 export const API_CONFIG = {
@@ -314,6 +315,11 @@ export const createSSEConnection = async <T = unknown>(
     ...headers,
   };
 
+  const diagnosticsHeader = getSseDiagnosticsHeaderValue();
+  if (diagnosticsHeader) {
+    requestHeaders['X-Pythinker-SSE-Debug'] = diagnosticsHeader;
+  }
+
   // Add authentication token if available
   const token = getStoredToken();
   if (token && !requestHeaders.Authorization) {
@@ -332,6 +338,9 @@ export const createSSEConnection = async <T = unknown>(
   // Track the last event_id received for reconnection resume
   let lastReceivedEventId: string | undefined = (body as { event_id?: string })?.event_id;
 
+  // Track per-request transport attempts for diagnostics
+  let connectionAttempt = 0;
+
   // Retry configuration
   let retryCount = 0;
   const maxRetries = 7;
@@ -349,6 +358,9 @@ export const createSSEConnection = async <T = unknown>(
   // Create SSE connection with retry logic
   const createConnection = async (): Promise<void> => {
     return new Promise((_resolve, reject) => {
+      connectionAttempt += 1;
+      const attempt = connectionAttempt;
+
       if (abortController.signal.aborted) {
         reject(new Error('Connection aborted'));
         return;
@@ -373,6 +385,17 @@ export const createSSEConnection = async <T = unknown>(
         headersWithLastId['Last-Event-ID'] = lastReceivedEventId;
       }
 
+      logSseDiagnostics('client', 'connect:start', {
+        endpoint,
+        method,
+        attempt,
+        retryCount,
+        messageSent,
+        streamCompleted,
+        receivedAnyEvents,
+        resumeEventId: lastReceivedEventId ?? null,
+      });
+
       const ssePromise = fetchEventSource(apiUrl, {
         method,
         headers: headersWithLastId,
@@ -380,6 +403,16 @@ export const createSSEConnection = async <T = unknown>(
         body: requestBody,
         signal: abortController.signal,
         async onopen(response) {
+          logSseDiagnostics('client', 'connect:open', {
+            endpoint,
+            attempt,
+            status: response.status,
+            ok: response.ok,
+            messageSent,
+            retryCount,
+            resumeEventId: lastReceivedEventId ?? null,
+          });
+
           // Check for authentication errors in the initial response
           if (response.status === 401) {
             const authError = new Error('Unauthorized');
@@ -447,6 +480,9 @@ export const createSSEConnection = async <T = unknown>(
             // Include error/failure events — agent errors are terminal, not retryable
             if (event.event === 'done' || event.event === 'complete' || event.event === 'end'
               || event.event === 'error' || event.event === 'agent_error' || event.event === 'session_error') {
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:onmessage',message:'Stream completion event received',data:{eventType:event.event,eventId:event.id},timestamp:Date.now(),hypothesisId:'A,D',runId:'initial'})}).catch(()=>{});
+              // #endregion
               streamCompleted = true;
             }
 
@@ -465,6 +501,26 @@ export const createSSEConnection = async <T = unknown>(
               lastReceivedEventId = eventId;
             }
 
+            logSseDiagnostics('client', 'event:message', {
+              endpoint,
+              attempt,
+              event: event.event,
+              eventId: eventId ?? null,
+              streamCompleted,
+            });
+
+            // Handle heartbeat events silently (update lastEventTime via custom event)
+            // Heartbeat events are keep-alive signals that don't require UI updates
+            if (event.event === 'progress') {
+              const progressData = parsedData as { phase?: string };
+              if (progressData.phase === 'heartbeat') {
+                // Emit custom event for heartbeat tracking without UI notification
+                window.dispatchEvent(new CustomEvent('sse:heartbeat', { detail: { eventId } }));
+                // Don't pass heartbeat to onMessage callback - it's silent
+                return;
+              }
+            }
+
             if (onMessage) {
               onMessage({
                 event: event.event,
@@ -474,6 +530,20 @@ export const createSSEConnection = async <T = unknown>(
           }
         },
         onclose() {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'client.ts:onclose',message:'SSE transport closed',data:{endpoint,streamCompleted,messageSent,receivedAnyEvents,retryCount,lastReceivedEventId,willRetry:!abortController.signal.aborted && retryCount < maxRetries && !streamCompleted && !(messageSent && !receivedAnyEvents)},timestamp:Date.now(),hypothesisId:'A,D,E',runId:'initial'})}).catch(()=>{});
+          // #endregion
+          logSseDiagnostics('client', 'connect:close', {
+            endpoint,
+            attempt,
+            streamCompleted,
+            messageSent,
+            receivedAnyEvents,
+            retryCount,
+            resumeEventId: lastReceivedEventId ?? null,
+            willRetry: !abortController.signal.aborted && retryCount < maxRetries && !streamCompleted && !(messageSent && !receivedAnyEvents),
+          });
+
           if (onClose) {
             onClose();
           }
@@ -487,10 +557,17 @@ export const createSSEConnection = async <T = unknown>(
 
           // Attempt reconnection if not manually aborted
           if (!abortController.signal.aborted && retryCount < maxRetries) {
-            const attempt = retryCount + 1;
-            if (onRetry) onRetry(attempt, maxRetries);
+            const retryAttempt = retryCount + 1;
+            if (onRetry) onRetry(retryAttempt, maxRetries);
             const delay = getRetryDelay(retryCount);
-            console.log(`SSE connection closed. Reconnecting in ${Math.round(delay / 1000)}s... (attempt ${attempt}/${maxRetries})`);
+            logSseDiagnostics('client', 'connect:retry_scheduled_from_close', {
+              endpoint,
+              attempt: retryAttempt,
+              maxRetries,
+              delayMs: Math.round(delay),
+              resumeEventId: lastReceivedEventId ?? null,
+            });
+            console.log(`SSE connection closed. Reconnecting in ${Math.round(delay / 1000)}s... (attempt ${retryAttempt}/${maxRetries})`);
             retryCount++;
 
             reconnectTimeout = setTimeout(() => {
@@ -505,14 +582,28 @@ export const createSSEConnection = async <T = unknown>(
         },
         onerror(err: unknown) {
           const error = err instanceof Error ? err : new Error(String(err));
+          logSseDiagnostics('client', 'connect:error', {
+            endpoint,
+            attempt,
+            retryCount,
+            message: error.message,
+            resumeEventId: lastReceivedEventId ?? null,
+          });
           console.error('EventSource error:', error);
 
           // Attempt reconnection on network errors if not manually aborted
           if (!abortController.signal.aborted && retryCount < maxRetries) {
-            const attempt = retryCount + 1;
-            if (onRetry) onRetry(attempt, maxRetries);
+            const retryAttempt = retryCount + 1;
+            if (onRetry) onRetry(retryAttempt, maxRetries);
             const delay = getRetryDelay(retryCount);
-            console.log(`SSE connection error. Retrying in ${Math.round(delay / 1000)}s... (attempt ${attempt}/${maxRetries})`);
+            logSseDiagnostics('client', 'connect:retry_scheduled_from_error', {
+              endpoint,
+              attempt: retryAttempt,
+              maxRetries,
+              delayMs: Math.round(delay),
+              resumeEventId: lastReceivedEventId ?? null,
+            });
+            console.log(`SSE connection error. Retrying in ${Math.round(delay / 1000)}s... (attempt ${retryAttempt}/${maxRetries})`);
             retryCount++;
 
             reconnectTimeout = setTimeout(() => {
