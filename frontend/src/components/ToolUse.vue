@@ -113,6 +113,8 @@ const props = defineProps<{
   isActive?: boolean;
   /** Keep shimmer on the last task while parent step is still running */
   isTaskRunning?: boolean;
+  /** Show fast search inline UI (header, tabs). False when tool is inside agent research phase. */
+  showFastSearchInline?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -133,6 +135,8 @@ const shouldShimmer = computed(
 
 const searchToolContent = computed(() => getSearchToolContent(props.tool));
 const isFastSearchWithResults = computed(() => {
+  // Only show fast search inline UI (header, tabs) for fast-search answer, not agent research
+  if (props.showFastSearchInline === false) return false;
   if (!isFastSearchTool(props.tool)) return false;
   if (isRunning.value) return true; // Show fast-search during search (loading/skeleton)
   const sc = searchToolContent.value;
