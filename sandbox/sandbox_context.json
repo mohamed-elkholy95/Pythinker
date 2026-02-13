@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-02-13T02:06:35.221416",
+  "generated_at": "2026-02-13T03:23:48.658429",
   "version": "1.0.0",
   "environment": {
     "os": {
@@ -106,7 +106,7 @@
         "pip-requirements-parser": "32.0.1",
         "platformdirs": "4.7.0",
         "playwright": "1.58.0",
-        "playwright-stealth": "2.0.1",
+        "playwright-stealth": "2.0.2",
         "pluggy": "1.6.0",
         "portalocker": "2.10.1",
         "posthog": "7.8.6",
@@ -188,7 +188,7 @@
         "uvicorn": "0.37.0",
         "pydantic": "2.12.1",
         "playwright": "1.58.0",
-        "playwright-stealth": "2.0.1",
+        "playwright-stealth": "2.0.2",
         "pytest": "9.0.2",
         "black": "26.1.0",
         "flake8": "7.3.0",
@@ -314,12 +314,12 @@
       }
     },
     "browser": {
-      "chromium": {
+      "chromium": {},
+      "chrome_for_testing": {
         "available": true,
-        "version": "Chromium 144.0.7559.109 built on Ubuntu 22.04.5 LTS",
-        "path": "/usr/bin/chromium"
+        "version": "Chromium 145.0.7632.0",
+        "path": "/opt/chrome-for-testing/chrome"
       },
-      "chrome_for_testing": {},
       "playwright": {
         "available": true,
         "browsers": [
@@ -864,9 +864,9 @@
       "shared_memory": "2gb",
       "disk": {
         "total": "79G",
-        "used": "30G",
-        "available": "45G",
-        "use_percent": "40%"
+        "used": "64G",
+        "available": "11G",
+        "use_percent": "86%"
       }
     }
   },

@@ -1,6 +1,6 @@
 # Sandbox Environment Context
 
-**Generated:** 2026-02-13T02:06:35.221416
+**Generated:** 2026-02-13T03:23:48.658429
 **Version:** 1.0.0
 **Checksum:** 08680aa7cbccbd54
 
@@ -25,7 +25,7 @@
 - **uvicorn:** 0.37.0
 - **pydantic:** 2.12.1
 - **playwright:** 1.58.0
-- **playwright-stealth:** 2.0.1
+- **playwright-stealth:** 2.0.2
 - **pytest:** 9.0.2
 - **black:** 26.1.0
 - **flake8:** 7.3.0
@@ -45,7 +45,7 @@
 
 ## Browser Automation
 
-- **Chromium:** Chromium 144.0.7559.109 built on Ubuntu 22.04.5 LTS
+- **Chrome for Testing:** Chromium 145.0.7632.0
 - **Playwright:** Available (browsers: chromium, firefox, webkit)
 - **Stealth Mode:** Yes
 
@@ -181,7 +181,7 @@ Key variables available:
 
 ## Resource Limits
 
-- **Disk Space:** 45G available (40% used)
+- **Disk Space:** 11G available (86% used)
 - **Shared Memory:** 2gb
 
 ---

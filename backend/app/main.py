@@ -230,6 +230,7 @@ class RateLimitMiddleware:
 
         rate_limit_exceeded = False
         using_fallback = False
+        retry_after_seconds = 60  # Default per FastAPI-Limiter convention (Context7)
 
         try:
             redis = get_redis().client
@@ -244,6 +245,9 @@ class RateLimitMiddleware:
             # Check if rate limit exceeded
             if current > max_requests:
                 rate_limit_exceeded = True
+                # Accurate Retry-After from Redis TTL (Context7: FastAPI-Limiter best practice)
+                ttl = await redis.ttl(key)
+                retry_after_seconds = max(1, ttl) if ttl > 0 else 60
 
         except Exception as e:
             # SECURITY FIX: Fall back to in-memory rate limiting instead of allowing all requests
@@ -253,6 +257,10 @@ class RateLimitMiddleware:
             is_allowed, current = self._fallback_rate_limit(key, max_requests)
             if not is_allowed:
                 rate_limit_exceeded = True
+                # In-memory: estimate remaining from window
+                if key in self._fallback_storage:
+                    _, window_start = self._fallback_storage[key]
+                    retry_after_seconds = max(1, int(self._fallback_window_seconds - (time.time() - window_start)))
 
         if rate_limit_exceeded:
             logger.warning(
@@ -262,9 +270,13 @@ class RateLimitMiddleware:
                 status_code=429,
                 content={
                     "success": False,
-                    "error": {"code": "RATE_LIMIT_EXCEEDED", "message": "Too many requests. Please try again later."},
+                    "error": {
+                        "code": "RATE_LIMIT_EXCEEDED",
+                        "message": f"Too many requests. Retry after {retry_after_seconds} seconds.",
+                        "retry_after": retry_after_seconds,
+                    },
                 },
-                headers={"Retry-After": "60"},
+                headers={"Retry-After": str(retry_after_seconds)},
             )
             await response(scope, receive, send)
             return

@@ -12,7 +12,6 @@ from enum import Enum
 from typing import Any, Optional
 
 import docker
-import httpx
 from docker.models.containers import Container
 
 from app.core.async_utils import gather_compat
@@ -24,6 +23,7 @@ from app.core.error_manager import (
     error_context,
     error_handler,
 )
+from app.infrastructure.external.http_pool import HTTPClientPool, ManagedHTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -248,8 +248,8 @@ class ManagedSandbox:
         self.container_name: str | None = None
         self.ip_address: str | None = None
 
-        # API clients
-        self.api_client: httpx.AsyncClient | None = None
+        # API clients (managed by HTTPClientPool)
+        self.api_client: ManagedHTTPClient | None = None
 
     async def create(self):
         """Create and start the sandbox container"""
@@ -274,8 +274,12 @@ class ManagedSandbox:
             self.container.reload()
             self.ip_address = self._get_container_ip()
 
-            # Initialize API client
-            self.api_client = httpx.AsyncClient(base_url=f"http://{self.ip_address}:8080", timeout=30.0)
+            # Initialize API client via connection pool
+            self.api_client = await HTTPClientPool.get_client(
+                name=f"sandbox-{self.session_id}",
+                base_url=f"http://{self.ip_address}:8080",
+                timeout=30.0,
+            )
 
             # Wait for services to start
             self.state = SandboxState.STARTING
@@ -408,9 +412,13 @@ class ManagedSandbox:
         Phase 3 enhancement: Reduced timeout from 5s to 2s for faster checks.
         """
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                response = await client.get(f"http://{self.ip_address}:9222/json/version")
-                return response.status_code == 200
+            client = await HTTPClientPool.get_client(
+                name=f"sandbox-browser-{self.session_id}",
+                base_url=f"http://{self.ip_address}:9222",
+                timeout=2.0,
+            )
+            response = await client.get("/json/version")
+            return response.status_code == 200
         except Exception:
             return False
 
@@ -461,8 +469,10 @@ class ManagedSandbox:
         try:
             self.state = SandboxState.DESTROYED
 
-            if self.api_client:
-                await self.api_client.aclose()
+            # Close pool-managed clients for this sandbox
+            await HTTPClientPool.close_client(f"sandbox-{self.session_id}")
+            await HTTPClientPool.close_client(f"sandbox-browser-{self.session_id}")
+            self.api_client = None
 
             if self.container:
                 self.container.stop(timeout=10)

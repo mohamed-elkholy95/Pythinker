@@ -19,6 +19,7 @@ from app.domain.external.llm import LLM
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.usage_context import get_usage_context
+from app.infrastructure.external.http_pool import HTTPClientPool
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
 T = TypeVar("T", bound=BaseModel)
@@ -298,31 +299,35 @@ Do not include any text before or after the JSON when calling a tool.
                     logger.info(f"Retrying Ollama request (attempt {attempt + 1}/{max_retries + 1})")
                     await asyncio.sleep(delay)
 
-                async with httpx.AsyncClient(timeout=120.0) as client:
-                    response = await client.post(
-                        f"{self._api_url}/chat",
-                        json={
-                            "model": self._model_name,
-                            "messages": ollama_messages,
-                            "stream": False,
-                            "options": {
-                                "temperature": self._temperature,
-                                "num_predict": self._max_tokens,
-                            },
+                client = await HTTPClientPool.get_client(
+                    name="ollama",
+                    base_url=self._api_url,
+                    timeout=120.0,
+                )
+                response = await client.post(
+                    "/chat",
+                    json={
+                        "model": self._model_name,
+                        "messages": ollama_messages,
+                        "stream": False,
+                        "options": {
+                            "temperature": self._temperature,
+                            "num_predict": self._max_tokens,
                         },
-                    )
-                    response.raise_for_status()
+                    },
+                )
+                response.raise_for_status()
 
-                    data = response.json()
-                    content = data.get("message", {}).get("content", "")
+                data = response.json()
+                content = data.get("message", {}).get("content", "")
 
-                    # Try to parse tool call from response
-                    if tools:
-                        parsed_tool_call = self._parse_tool_call_from_text(content)
-                        if parsed_tool_call:
-                            return parsed_tool_call
+                # Try to parse tool call from response
+                if tools:
+                    parsed_tool_call = self._parse_tool_call_from_text(content)
+                    if parsed_tool_call:
+                        return parsed_tool_call
 
-                    return {"role": "assistant", "content": content, "tool_calls": None}
+                return {"role": "assistant", "content": content, "tool_calls": None}
 
             except httpx.TimeoutException as e:
                 logger.warning(f"Ollama timeout on attempt {attempt + 1}: {e}")
@@ -436,22 +441,24 @@ Respond ONLY with the JSON object, no other text.""",
         finish_reason: str | None = None
 
         try:
-            async with (
-                httpx.AsyncClient(timeout=120.0) as client,
-                client.stream(
-                    "POST",
-                    f"{self._api_url}/chat",
-                    json={
-                        "model": self._model_name,
-                        "messages": ollama_messages,
-                        "stream": True,
-                        "options": {
-                            "temperature": self._temperature,
-                            "num_predict": self._max_tokens,
-                        },
+            managed_client = await HTTPClientPool.get_client(
+                name="ollama-stream",
+                base_url=self._api_url,
+                timeout=120.0,
+            )
+            async with managed_client.client.stream(
+                "POST",
+                "/chat",
+                json={
+                    "model": self._model_name,
+                    "messages": ollama_messages,
+                    "stream": True,
+                    "options": {
+                        "temperature": self._temperature,
+                        "num_predict": self._max_tokens,
                     },
-                ) as response,
-            ):
+                },
+            ) as response:
                 response.raise_for_status()
 
                 async for line in response.aiter_lines():

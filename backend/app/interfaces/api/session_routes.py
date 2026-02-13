@@ -379,7 +379,7 @@ async def chat(
     use_sse_v2 = settings.feature_sse_v2
 
     # SSE send timeout (Phase 3: prevents hanging on slow clients)
-    send_timeout = 30.0 if use_sse_v2 else None
+    send_timeout = 60.0 if use_sse_v2 else None  # 60s for slow networks
 
     # Heartbeat interval: keep connection alive and prevent "stuck" feeling during long ops
     heartbeat_interval_seconds = 15.0
