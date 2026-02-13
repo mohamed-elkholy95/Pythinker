@@ -56,7 +56,9 @@ async function loadRFBModule(): Promise<RFBConstructor> {
 
       if (RFB && typeof RFB === 'function') {
         RFBClass = RFB as RFBConstructor;
-        console.log('[VNC] RFB module loaded from npm package');
+        if (import.meta.env.DEV) {
+          console.log('[VNC] RFB module loaded from npm package');
+        }
         return RFBClass;
       }
     } catch (error) {
@@ -76,7 +78,9 @@ async function loadRFBModule(): Promise<RFBConstructor> {
 
         if (RFB && typeof RFB === 'function') {
           RFBClass = RFB as RFBConstructor;
-          console.log('[VNC] RFB module loaded from CDN:', url);
+          if (import.meta.env.DEV) {
+            console.log('[VNC] RFB module loaded from CDN:', url);
+          }
           return RFBClass;
         }
       } catch (error) {
@@ -192,7 +196,9 @@ export function useVNC(options: UseVNCOptions = {}): UseVNCReturn {
 
     reconnectAttempts++;
     const delay = Math.min(reconnectDelayMs * reconnectAttempts, 5000);
-    console.log(`[VNC] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
+    if (import.meta.env.DEV) {
+      console.log(`[VNC] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
+    }
 
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
@@ -239,7 +245,9 @@ export function useVNC(options: UseVNCOptions = {}): UseVNCReturn {
 
       // Event handlers
       instance.addEventListener('connect', () => {
-        console.log('[VNC] Connected');
+        if (import.meta.env.DEV) {
+          console.log('[VNC] Connected');
+        }
         isConnected.value = true;
         isConnecting.value = false;
         connectionFailed.value = false;
@@ -251,7 +259,9 @@ export function useVNC(options: UseVNCOptions = {}): UseVNCReturn {
       });
 
       instance.addEventListener('disconnect', (e: any) => {
-        console.log('[VNC] Disconnected', e?.detail);
+        if (import.meta.env.DEV) {
+          console.log('[VNC] Disconnected', e?.detail);
+        }
         isConnected.value = false;
         isConnecting.value = false;
 
@@ -262,7 +272,9 @@ export function useVNC(options: UseVNCOptions = {}): UseVNCReturn {
       });
 
       instance.addEventListener('credentialsrequired', () => {
-        console.log('[VNC] Credentials required');
+        if (import.meta.env.DEV) {
+          console.log('[VNC] Credentials required');
+        }
         error.value = 'Password required';
       });
 
