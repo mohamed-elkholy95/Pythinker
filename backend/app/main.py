@@ -721,7 +721,9 @@ async def lifespan(app: FastAPI):
                     await asyncio.wait_for(get_agent_service().shutdown(), timeout=90.0)
                     logger.info("AgentService shutdown completed successfully")
                 except TimeoutError:
-                    logger.warning("AgentService shutdown timed out after 90 seconds - some tasks may not have completed gracefully")
+                    logger.warning(
+                        "AgentService shutdown timed out after 90 seconds - some tasks may not have completed gracefully"
+                    )
                 except Exception as e:
                     logger.error(f"Error during AgentService cleanup: {e!s}")
             else:

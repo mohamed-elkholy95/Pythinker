@@ -140,8 +140,5 @@ async def test_cleanup_stale_running_sessions_resets_pending_runtime_and_skips_s
     owned_sandbox.destroy.assert_awaited_once()
     assert sessions_collection.update_one.await_count == 2
 
-    updated_statuses = [
-        call.args[1]["$set"]["status"]
-        for call in sessions_collection.update_one.await_args_list
-    ]
+    updated_statuses = [call.args[1]["$set"]["status"] for call in sessions_collection.update_one.await_args_list]
     assert updated_statuses == ["pending", "pending"]

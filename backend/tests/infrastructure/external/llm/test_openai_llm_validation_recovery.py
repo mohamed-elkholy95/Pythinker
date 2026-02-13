@@ -86,9 +86,7 @@ async def test_ask_retries_with_validation_recovery_payload() -> None:
     llm = _build_llm()
     create_mock = AsyncMock(
         side_effect=[
-            Exception(
-                "Error code: 400 - {'error': {'code': '1214', 'message': 'The messages parameter is illegal.'}}"
-            ),
+            Exception("Error code: 400 - {'error': {'code': '1214', 'message': 'The messages parameter is illegal.'}}"),
             _FakeResponse("Recovered response"),
         ]
     )
@@ -132,9 +130,7 @@ async def test_ask_stream_retries_with_validation_recovery_payload() -> None:
     )
     create_mock = AsyncMock(
         side_effect=[
-            Exception(
-                "Error code: 400 - {'error': {'code': '1214', 'message': 'The messages parameter is illegal.'}}"
-            ),
+            Exception("Error code: 400 - {'error': {'code': '1214', 'message': 'The messages parameter is illegal.'}}"),
             stream,
         ]
     )
