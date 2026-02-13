@@ -241,6 +241,8 @@ class StepEventData(BaseEventData):
     status: ExecutionStatus
     id: str
     description: str
+    phase_id: str | None = None  # Parent phase ID; when set, step is in plan-act flow (hide fast-search UI)
+    step_type: str | None = None  # StepType value for routing
 
 
 class StepSSEEvent(BaseSSEEvent):
@@ -249,12 +251,18 @@ class StepSSEEvent(BaseSSEEvent):
 
     @classmethod
     def from_event(cls, event: StepEvent) -> Self:
+        phase_id = event.phase_id or event.step.phase_id
+        step_type_val = event.step_type
+        if step_type_val is None and event.step.step_type is not None:
+            step_type_val = event.step.step_type.value
         return cls(
             data=StepEventData(
                 **BaseEventData.base_event_data(event),
                 status=event.step.status,
                 id=event.step.id,
                 description=event.step.description,
+                phase_id=phase_id,
+                step_type=step_type_val,
             )
         )
 
