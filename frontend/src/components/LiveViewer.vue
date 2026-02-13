@@ -32,7 +32,7 @@ import VNCViewer from '@/components/VNCViewer.vue'
 
 type LiveRenderer = 'cdp' | 'vnc'
 const CDP_BLOCK_TTL_MS = 60_000
-const MAX_VNC_RECONNECT_ATTEMPTS = 5
+const MAX_VNC_RECONNECT_ATTEMPTS = 30  // Increased from 5 to handle long recovery times (browser crashes, etc.)
 const cdpBlockedUntil = new Map<string, number>()
 
 const props = withDefaults(
