@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 
-export type ResponsePhase = 'idle' | 'connecting' | 'streaming' | 'completing' | 'settled' | 'error' | 'timed_out'
+export type ResponsePhase = 'idle' | 'connecting' | 'streaming' | 'completing' | 'settled' | 'error' | 'timed_out' | 'stopped'
 
 export function useResponsePhase() {
   const phase = ref<ResponsePhase>('idle')
@@ -17,6 +17,8 @@ export function useResponsePhase() {
   const isError = computed(() => phase.value === 'error')
 
   const isTimedOut = computed(() => phase.value === 'timed_out')
+
+  const isStopped = computed(() => phase.value === 'stopped')
 
   function transitionTo(newPhase: ResponsePhase) {
     // Clear any pending settle timer
@@ -52,6 +54,7 @@ export function useResponsePhase() {
     isSettled,
     isError,
     isTimedOut,
+    isStopped,
     transitionTo,
     reset,
   }

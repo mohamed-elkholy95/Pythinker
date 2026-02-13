@@ -71,4 +71,64 @@ describe('useResponsePhase', () => {
     reset()
     expect(phase.value).toBe('idle')
   })
+
+  it('should transition to timed_out', async () => {
+    const { useResponsePhase } = await import('../useResponsePhase')
+    const { phase, isTimedOut, transitionTo } = useResponsePhase()
+
+    transitionTo('streaming')
+    transitionTo('timed_out')
+    expect(phase.value).toBe('timed_out')
+    expect(isTimedOut.value).toBe(true)
+  })
+
+  it('should transition to stopped', async () => {
+    const { useResponsePhase } = await import('../useResponsePhase')
+    const { phase, isStopped, transitionTo } = useResponsePhase()
+
+    transitionTo('streaming')
+    transitionTo('stopped')
+    expect(phase.value).toBe('stopped')
+    expect(isStopped.value).toBe(true)
+  })
+
+  it('should transition to error', async () => {
+    const { useResponsePhase } = await import('../useResponsePhase')
+    const { phase, isError, transitionTo } = useResponsePhase()
+
+    transitionTo('streaming')
+    transitionTo('error')
+    expect(phase.value).toBe('error')
+    expect(isError.value).toBe(true)
+  })
+
+  it('should not be loading when timed_out', async () => {
+    const { useResponsePhase } = await import('../useResponsePhase')
+    const { isLoading, transitionTo } = useResponsePhase()
+
+    transitionTo('streaming')
+    expect(isLoading.value).toBe(true)
+    transitionTo('timed_out')
+    expect(isLoading.value).toBe(false)
+  })
+
+  it('should not be loading when stopped', async () => {
+    const { useResponsePhase } = await import('../useResponsePhase')
+    const { isLoading, transitionTo } = useResponsePhase()
+
+    transitionTo('streaming')
+    expect(isLoading.value).toBe(true)
+    transitionTo('stopped')
+    expect(isLoading.value).toBe(false)
+  })
+
+  it('should not be loading when error', async () => {
+    const { useResponsePhase } = await import('../useResponsePhase')
+    const { isLoading, transitionTo } = useResponsePhase()
+
+    transitionTo('streaming')
+    expect(isLoading.value).toBe(true)
+    transitionTo('error')
+    expect(isLoading.value).toBe(false)
+  })
 })

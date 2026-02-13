@@ -174,7 +174,7 @@
           <!-- Connection interrupted - SSE closed without completion -->
           <div
             v-if="responsePhase === 'timed_out'"
-            class="timeout-notice flex items-center gap-3 px-4 py-3 mx-4 mb-2 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/20 transition-all duration-300"
+            class="timeout-notice flex items-center gap-3 px-4 py-3 mx-4 mt-[1cm] mb-2 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/20 transition-all duration-300"
             role="status"
           >
             <div class="w-2.5 h-2.5 rounded-full bg-amber-400 dark:bg-amber-500 flex-shrink-0 animate-pulse" aria-hidden="true"></div>
@@ -440,6 +440,7 @@ import {
 } from '@/utils/assistantMessageLayout';
 import { useResponsePhase } from '@/composables/useResponsePhase';
 import { useSSEConnection } from '@/composables/useSSEConnection';
+import { logSseDiagnostics } from '@/utils/sseDiagnostics';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -466,11 +467,30 @@ const {
   isSettled,
   isError: _isError,
   isTimedOut: _isTimedOut,
+  isStopped: _isStopped,
   transitionTo,
   reset: _resetResponsePhase,
 } = useResponsePhase()
 
-// SSE connection management
+// SSE connection management with stale detection
+const handleStaleConnection = () => {
+  console.warn('[SSE] Connection stale detected - attempting reconnection')
+  logSseDiagnostics('ChatPage', 'stale:detected', {
+    sessionId: sessionId.value ?? null,
+    responsePhase: responsePhase.value,
+    lastEventId: lastEventId.value || null,
+  })
+  // If we have a cancel function, trigger reconnection by canceling and restarting
+  if (cancelCurrentChat.value && sessionId.value) {
+    cancelCurrentChat.value()
+    cancelCurrentChat.value = null
+    // Reconnect by calling chat with empty message (resume stream)
+    setTimeout(() => {
+      chat('', [], { skipOptimistic: true })
+    }, 1000)
+  }
+}
+
 const {
   connectionState: _connectionState,
   lastEventTime,
@@ -480,7 +500,12 @@ const {
   persistEventId: _persistEventId,
   getPersistedEventId: _getPersistedEventId,
   cleanupSessionStorage,
-} = useSSEConnection()
+  startStaleDetection,
+  stopStaleDetection,
+} = useSSEConnection({
+  staleThresholdMs: 60000, // 60 seconds
+  onStaleDetected: handleStaleConnection
+})
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -580,9 +605,31 @@ const {
   autoRetryTimer,
 } = toRefs(state);
 
+let activeChatStreamTraceId: string | null = null;
+
+const nextSseTraceId = (): string => {
+  return `sse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+const logChatSseDiagnostics = (message: string, details: Record<string, unknown> = {}) => {
+  logSseDiagnostics('ChatPage', message, {
+    sessionId: sessionId.value ?? null,
+    responsePhase: responsePhase.value,
+    receivedDoneEvent: receivedDoneEvent.value,
+    lastEventId: lastEventId.value || null,
+    traceId: activeChatStreamTraceId,
+    ...details,
+  })
+}
+
 // Response lifecycle: derived from responsePhase (isLoading and isThinking now from useResponsePhase)
+// CRITICAL: Only show suggestions when session is COMPLETED (not on timeout/error)
+// Timeout = agent may still be working; Completed = agent finished successfully
 const canShowSuggestions = computed(() =>
-  isSettled.value && suggestions.value.length > 0 && !isSummaryStreaming.value
+  isSettled.value &&
+  sessionStatus.value === SessionStatus.COMPLETED &&
+  suggestions.value.length > 0 &&
+  !isSummaryStreaming.value
 )
 
 // Screenshot replay for completed sessions.
@@ -903,6 +950,7 @@ const setLastErrorFromTransportError = (error: Error) => {
 
 /** Deduplicated cleanup of streaming/thinking state. Use on SSE close/error. */
 const cleanupStreamingState = () => {
+  logChatSseDiagnostics('stream:cleanup')
   thinkingText.value = '';
   isThinkingStreaming.value = false;
   summaryStreamText.value = '';
@@ -914,6 +962,7 @@ const cleanupStreamingState = () => {
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value = null;
   }
+  activeChatStreamTraceId = null;
 };
 
 // Reset all refs to their initial values
@@ -1011,6 +1060,10 @@ const checkStaleConnection = () => {
   // Only mark stale if BOTH real events AND heartbeats are missing
   if (timeSinceLastEvent > STALE_TIMEOUT_MS && timeSinceHeartbeat > STALE_TIMEOUT_MS && lastEventTime.value > 0) {
     isStale.value = true;
+    logChatSseDiagnostics('stale:marked', {
+      timeSinceLastEvent,
+      timeSinceHeartbeat,
+    })
   }
 };
 
@@ -1043,6 +1096,10 @@ const AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000, 60000];
 watch(responsePhase, (phase) => {
   if (phase !== 'timed_out') return;
   if (autoRetryCount.value >= 4) return;
+  logChatSseDiagnostics('phase:timed_out', {
+    autoRetryCount: autoRetryCount.value,
+    hasCancelHandler: Boolean(cancelCurrentChat.value),
+  })
   const delay = AUTO_RETRY_DELAYS_MS[Math.min(autoRetryCount.value, AUTO_RETRY_DELAYS_MS.length - 1)];
   autoRetryTimer.value = setTimeout(() => {
     autoRetryTimer.value = null;
@@ -1698,6 +1755,9 @@ const handleProgressEvent = (progressData: ProgressEventData) => {
   // Heartbeat: update timestamp for liveness tracking
   if (progressData.phase === 'heartbeat') {
     lastHeartbeatAt.value = Date.now();
+    logChatSseDiagnostics('event:heartbeat', {
+      heartbeatAt: lastHeartbeatAt.value,
+    })
     return;
   }
 
@@ -2146,6 +2206,9 @@ const flushEventBatch = () => {
   batchFrameId = null;
   const eventsToProcess = eventBatchQueue;
   eventBatchQueue = [];
+  logChatSseDiagnostics('batch:flush', {
+    eventCount: eventsToProcess.length,
+  })
 
   for (const event of eventsToProcess) {
     processEvent(event);
@@ -2153,6 +2216,15 @@ const flushEventBatch = () => {
 };
 
 const queueEvent = (event: AgentSSEEvent) => {
+  logChatSseDiagnostics('batch:queue', {
+    event: event.event,
+    eventId: event.data?.event_id ?? null,
+    queueSize: eventBatchQueue.length + 1,
+    frameScheduled: batchFrameId !== null,
+  })
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:queueEvent',message:'Event queued',data:{eventType:event.event,eventId:event.data?.event_id,queueLength:eventBatchQueue.length+1,frameScheduled:batchFrameId===null},timestamp:Date.now(),hypothesisId:'B',runId:'initial'})}).catch(()=>{});
+  // #endregion
   eventBatchQueue.push(event);
 
   // Schedule batch processing on next animation frame if not already scheduled
@@ -2167,12 +2239,20 @@ const processEvent = (event: AgentSSEEvent) => {
   const eventId = event.data?.event_id;
   if (eventId && seenEventIds.value.has(eventId)) {
     console.debug('Skipping duplicate event:', eventId);
+    logChatSseDiagnostics('event:duplicate_skipped', {
+      event: event.event,
+      eventId,
+    })
     return;
   }
   if (eventId) {
     // Phase 5: Use addSeenEventId for automatic cleanup when set grows too large
     addSeenEventId(eventId);
   }
+  logChatSseDiagnostics('event:process', {
+    event: event.event,
+    eventId: eventId ?? null,
+  })
 
   // End initialization phase when first event arrives
   if (isInitializing.value) {
@@ -2198,6 +2278,13 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'phase') {
     handlePhaseEvent(event.data as import('../types/event').AgentPhaseEventData);
   } else if (event.event === 'done') {
+    logChatSseDiagnostics('event:done_received', {
+      eventId: eventId ?? null,
+      queuedAfterDone: eventBatchQueue.length,
+    })
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:processEvent-done',message:'Done event processed',data:{eventId:event.data?.event_id,receivedDoneEvent:true,responsePhase:responsePhase.value},timestamp:Date.now(),hypothesisId:'B',runId:'initial'})}).catch(()=>{});
+    // #endregion
     receivedDoneEvent.value = true;
     ensureCompletionSuggestions();
     markShortAssistantCompletion();
@@ -2391,6 +2478,13 @@ const chat = async (
     isInitializing.value = true;
   }
 
+  activeChatStreamTraceId = nextSseTraceId()
+  logChatSseDiagnostics('chat:start', {
+    messageLength: normalizedMessage.length,
+    attachmentCount: files.length,
+    hasFollowUp: Boolean(followUp),
+  })
+
   try {
     // Use the split event handler function and store the cancel function
     cancelCurrentChat.value = await agentApi.chatWithSession(
@@ -2408,16 +2502,38 @@ const chat = async (
       undefined, // options
       {
         onOpen: () => {
+          logChatSseDiagnostics('transport:onOpen')
           // responsePhase already set to 'connecting' in sendMessage
           // onOpen confirms transport is established, no phase change needed
+          // Start heartbeat stale detection
+          startStaleDetection()
         },
         onMessage: ({ event, data }) => {
+          const eventData = data as { event_id?: string; phase?: string }
+          logChatSseDiagnostics('transport:onMessage', {
+            event,
+            eventId: eventData.event_id ?? null,
+            phase: eventData.phase ?? null,
+          })
+          // Update last event time for stale detection (heartbeat events already update via custom event)
+          updateLastEventTime()
           handleEvent({
             event: event as AgentSSEEvent['event'],
             data: data as AgentSSEEvent['data']
           });
         },
         onClose: () => {
+          const queuedEvents = eventBatchQueue.length
+          const hadPendingFrame = batchFrameId !== null
+          logChatSseDiagnostics('transport:onClose_before_flush', {
+            queuedEvents,
+            hadPendingFrame,
+          })
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:onClose',message:'SSE onClose triggered',data:{batchFrameId,queueLength:eventBatchQueue.length,receivedDoneEvent:receivedDoneEvent.value,responsePhase:responsePhase.value,lastEventId:lastEventId.value},timestamp:Date.now(),hypothesisId:'A,B,D',runId:'initial'})}).catch(()=>{});
+          // #endregion
+          // Stop heartbeat stale detection
+          stopStaleDetection()
           // Flush any queued events (e.g. 'done') before checking receivedDoneEvent.
           // Event batching defers processing to requestAnimationFrame; onClose can fire
           // before the batch runs, causing false "Connection interrupted" on fast completions.
@@ -2426,8 +2542,19 @@ const chat = async (
             batchFrameId = null;
             flushEventBatch();
           }
+          const shouldMarkTimedOut = !receivedDoneEvent.value
+            && responsePhase.value !== 'settled'
+            && responsePhase.value !== 'error'
+            && responsePhase.value !== 'stopped'
+          logChatSseDiagnostics('transport:onClose_after_flush', {
+            queuedEventsAfterFlush: eventBatchQueue.length,
+            shouldMarkTimedOut,
+          })
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:onClose-afterFlush',message:'SSE after flush',data:{receivedDoneEvent:receivedDoneEvent.value,responsePhase:responsePhase.value},timestamp:Date.now(),hypothesisId:'A,B,D',runId:'initial'})}).catch(()=>{});
+          // #endregion
           // Transport closed. Check if we received a 'done' event.
-          if (!receivedDoneEvent.value && responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
+          if (shouldMarkTimedOut) {
             // SSE closed without a done event — timeout or disconnect
             transitionTo('timed_out')
           }
@@ -2435,17 +2562,31 @@ const chat = async (
           // NO ensureCompletionSuggestions() here — suggestions only on 'done'
         },
         onError: (err: Error) => {
+          logChatSseDiagnostics('transport:onError', {
+            message: err.message,
+          })
+          // Stop heartbeat stale detection on error
+          stopStaleDetection()
           if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
             setLastErrorFromTransportError(err);
             transitionTo('error')
           }
           cleanupStreamingState();
           // NO ensureCompletionSuggestions() here — transient SSE errors don't mean session ended
-        }
+        },
+        onRetry: (attempt: number, maxAttempts: number) => {
+          logChatSseDiagnostics('transport:onRetry', {
+            attempt,
+            maxAttempts,
+          })
+        },
       },
       followUp
     );
-  } catch {
+  } catch (error) {
+    logChatSseDiagnostics('chat:start_failed', {
+      message: error instanceof Error ? error.message : String(error),
+    })
     transitionTo('error')
     cancelCurrentChat.value = null;
   }
@@ -2807,6 +2948,10 @@ const handleRetryConnection = async () => {
   }
 
   transitionTo('connecting')
+  activeChatStreamTraceId = nextSseTraceId()
+  logChatSseDiagnostics('chat:retry_start', {
+    resumeFromEventId: lastEventId.value || null,
+  })
   try {
     cancelCurrentChat.value = await agentApi.chatWithSession(
       sessionId.value,
@@ -2816,35 +2961,77 @@ const handleRetryConnection = async () => {
       [],
       undefined,
       {
-        onOpen: () => {},
+        onOpen: () => {
+          logChatSseDiagnostics('transport_retry:onOpen')
+          // Start heartbeat stale detection on retry
+          startStaleDetection()
+        },
         onMessage: ({ event, data }) => {
+          const eventData = data as { event_id?: string; phase?: string }
+          logChatSseDiagnostics('transport_retry:onMessage', {
+            event,
+            eventId: eventData.event_id ?? null,
+            phase: eventData.phase ?? null,
+          })
+          // Update last event time for stale detection
+          updateLastEventTime()
           handleEvent({
             event: event as AgentSSEEvent['event'],
             data: data as AgentSSEEvent['data']
           });
         },
         onClose: () => {
+          const queuedEvents = eventBatchQueue.length
+          const hadPendingFrame = batchFrameId !== null
+          logChatSseDiagnostics('transport_retry:onClose_before_flush', {
+            queuedEvents,
+            hadPendingFrame,
+          })
+          // Stop heartbeat stale detection
+          stopStaleDetection()
           // Flush queued events before checking receivedDoneEvent (same as chat onClose)
           if (batchFrameId !== null) {
             cancelAnimationFrame(batchFrameId);
             batchFrameId = null;
             flushEventBatch();
           }
-          if (!receivedDoneEvent.value && responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
+          const shouldMarkTimedOut = !receivedDoneEvent.value
+            && responsePhase.value !== 'settled'
+            && responsePhase.value !== 'error'
+            && responsePhase.value !== 'stopped'
+          logChatSseDiagnostics('transport_retry:onClose_after_flush', {
+            queuedEventsAfterFlush: eventBatchQueue.length,
+            shouldMarkTimedOut,
+          })
+          if (shouldMarkTimedOut) {
             transitionTo('timed_out')
           }
           cleanupStreamingState();
         },
         onError: (err: Error) => {
+          logChatSseDiagnostics('transport_retry:onError', {
+            message: err.message,
+          })
+          // Stop heartbeat stale detection on error
+          stopStaleDetection()
           if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
             setLastErrorFromTransportError(err);
             transitionTo('error')
           }
           cleanupStreamingState();
         },
+        onRetry: (attempt: number, maxAttempts: number) => {
+          logChatSseDiagnostics('transport_retry:onRetry', {
+            attempt,
+            maxAttempts,
+          })
+        },
       }
     );
-  } catch {
+  } catch (error) {
+    logChatSseDiagnostics('chat:retry_failed', {
+      message: error instanceof Error ? error.message : String(error),
+    })
     transitionTo('error')
   }
 }
