@@ -13,11 +13,20 @@ Industry patterns from AWS, Google Cloud, Apache APISIX.
 """
 
 import hashlib
+import logging
 import random
 from dataclasses import dataclass
 from enum import Enum
 
 from redis.asyncio import Redis
+
+from app.infrastructure.observability.prometheus_metrics import (
+    api_key_exhaustions_total,
+    api_key_health_score,
+    api_key_selections_total,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class RotationStrategy(str, Enum):
@@ -132,7 +141,20 @@ class APIKeyPool:
             attempts += 1
 
             if await self._is_healthy(key_config.key):
+                # Record successful selection
+                key_hash = self._hash_key(key_config.key)
+                api_key_selections_total.inc({"provider": self.provider, "key_id": key_hash, "status": "success"})
+
+                # Update health score
+                api_key_health_score.set({"provider": self.provider, "key_id": key_hash}, 1.0)
+
                 return key_config.key
+
+        # All keys unhealthy
+        logger.warning(f"[{self.provider}] All {len(self.keys)} keys exhausted")
+
+        # Record exhaustion
+        api_key_selections_total.inc({"provider": self.provider, "key_id": "all", "status": "exhausted"})
 
         return None
 
@@ -150,7 +172,20 @@ class APIKeyPool:
 
         for key_config in sorted_keys:
             if await self._is_healthy(key_config.key):
+                # Record successful selection
+                key_hash = self._hash_key(key_config.key)
+                api_key_selections_total.inc({"provider": self.provider, "key_id": key_hash, "status": "success"})
+
+                # Update health score
+                api_key_health_score.set({"provider": self.provider, "key_id": key_hash}, 1.0)
+
                 return key_config.key
+
+        # All keys unhealthy
+        logger.warning(f"[{self.provider}] All {len(self.keys)} keys exhausted")
+
+        # Record exhaustion
+        api_key_selections_total.inc({"provider": self.provider, "key_id": "all", "status": "exhausted"})
 
         return None
 
@@ -173,10 +208,24 @@ class APIKeyPool:
                 weights.append(key_config.weight)
 
         if not healthy_keys:
+            # All keys unhealthy
+            logger.warning(f"[{self.provider}] All {len(self.keys)} keys exhausted")
+
+            # Record exhaustion
+            api_key_selections_total.inc({"provider": self.provider, "key_id": "all", "status": "exhausted"})
+
             return None
 
         # Use random.choices for weighted selection
         selected = random.choices(healthy_keys, weights=weights, k=1)[0]  # noqa: S311
+
+        # Record successful selection
+        key_hash = self._hash_key(selected.key)
+        api_key_selections_total.inc({"provider": self.provider, "key_id": key_hash, "status": "success"})
+
+        # Update health score
+        api_key_health_score.set({"provider": self.provider, "key_id": key_hash}, 1.0)
+
         return selected.key
 
     async def _is_healthy(self, key: str) -> bool:
@@ -218,6 +267,14 @@ class APIKeyPool:
         redis_key = f"api_key:exhausted:{self.provider}:{key_hash}"
         await self._redis.setex(redis_key, ttl_seconds, KeyHealthStatus.EXHAUSTED.value)
 
+        # Record exhaustion metric
+        api_key_exhaustions_total.inc({"provider": self.provider, "reason": "quota"})
+
+        # Update health score
+        api_key_health_score.set({"provider": self.provider, "key_id": key_hash}, 0.0)
+
+        logger.warning(f"[{self.provider}] Key {key_hash} marked EXHAUSTED, auto-recovery in {ttl_seconds}s")
+
     async def mark_invalid(self, key: str) -> None:
         """
         Mark API key as invalid permanently.
@@ -230,6 +287,14 @@ class APIKeyPool:
         key_hash = self._hash_key(key)
         redis_key = f"api_key:invalid:{self.provider}:{key_hash}"
         await self._redis.set(redis_key, KeyHealthStatus.INVALID.value)
+
+        # Record invalidation metric
+        api_key_exhaustions_total.inc({"provider": self.provider, "reason": "invalid"})
+
+        # Update health score
+        api_key_health_score.set({"provider": self.provider, "key_id": key_hash}, 0.0)
+
+        logger.error(f"[{self.provider}] Key {key_hash} marked INVALID. Manual intervention required.")
 
     def get_backoff_delay(self, key: str, attempt: int) -> float:
         """
