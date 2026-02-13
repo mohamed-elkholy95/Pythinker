@@ -20,6 +20,7 @@ from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_task_runner import AgentTaskRunner
 from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.workspace import get_session_workspace_initializer
+from app.domain.utils.cancellation import CancellationToken
 from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
@@ -720,9 +721,14 @@ NOTE: The browser state may have changed. When you next use the browser:
         follow_up_selected_suggestion: str | None = None,
         follow_up_anchor_event_id: str | None = None,
         follow_up_source: str | None = None,
+        cancel_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Chat with an agent
+
+        Args:
+            cancel_event: Event that signals cancellation (e.g., SSE disconnect).
+                         Domain layer tools check this to stop work when client disconnects.
         """
 
         try:
@@ -1015,9 +1021,17 @@ NOTE: The browser state may have changed. When you next use the browser:
             logger.info(f"Session {session_id} started")
             logger.debug(f"Session {session_id} task: {task}")
 
+            # Create cancellation token for this session
+            cancel_token = CancellationToken(event=cancel_event, session_id=session_id)
+
             received_events = False
             terminal_status: SessionStatus | None = None
             while task and not task.done:
+                # Check for cancellation (SSE disconnect)
+                if cancel_token.is_cancelled():
+                    logger.info(f"Session {session_id} cancelled during event loop - stopping gracefully")
+                    break
+
                 event_id, event_str = await task.output_stream.get(start_id=latest_event_id, block_ms=0)
                 if event_str is None:
                     await asyncio.sleep(0.1)  # Yield control, prevent busy-wait

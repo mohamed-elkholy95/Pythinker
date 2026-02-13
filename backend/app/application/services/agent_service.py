@@ -679,6 +679,11 @@ class AgentService:
                 e,
             )
 
+        # Cancellation: Create cancel_event BEFORE domain service call so it can propagate
+        # This allows SSE disconnect to stop domain layer processing (tools, LLM calls, etc.)
+        cancel_event = asyncio.Event()
+        self._session_cancel_events[session_id] = cancel_event
+
         # Guard long stalls waiting for the next domain event so API calls do not hang indefinitely.
         event_timeout_seconds = max(0.0, self.CHAT_EVENT_TIMEOUT_SECONDS)
         event_stream = self._agent_domain_service.chat(
@@ -695,12 +700,9 @@ class AgentService:
             follow_up_selected_suggestion=follow_up_selected_suggestion,
             follow_up_anchor_event_id=follow_up_anchor_event_id,
             follow_up_source=follow_up_source,
+            cancel_event=cancel_event,  # NEW: Pass to domain layer for proper cancellation
         )
         stream_iter = event_stream.__aiter__()
-
-        # Cancellation: allow SSE disconnect to stop this session's processing
-        cancel_event = asyncio.Event()
-        self._session_cancel_events[session_id] = cancel_event
 
         # Event resumption: skip events up to and including event_id
         # This enables page refresh to resume from the last received event
@@ -720,10 +722,14 @@ class AgentService:
                         return_when=asyncio.FIRST_COMPLETED,
                         timeout=event_timeout_seconds if event_timeout_seconds > 0 else None,
                     )
-                    if cancel_task in done:
-                        next_task.cancel()
+                    # Always cancel/await the losing task to avoid leaking pending tasks
+                    # on long streams (each iteration creates fresh wait tasks).
+                    for pending_task in _pending:
+                        pending_task.cancel()
+                    for pending_task in _pending:
                         with contextlib.suppress(asyncio.CancelledError):
-                            await next_task
+                            await pending_task
+                    if cancel_task in done:
                         logger.info("Chat stream cancelled for session %s (client disconnected)", session_id)
                         return
                     if next_task in done:
