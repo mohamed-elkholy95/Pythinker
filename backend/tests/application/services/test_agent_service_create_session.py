@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import time
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -61,23 +62,69 @@ def _build_service() -> AgentService:
 
 
 @pytest.mark.asyncio
-async def test_create_session_auto_stops_prior_session_with_bound_sandbox(monkeypatch):
+async def test_create_session_auto_stops_stale_active_session(monkeypatch):
     service = _build_service()
     stop_session_mock = AsyncMock()
     monkeypatch.setattr(service._agent_domain_service, "stop_session", stop_session_mock)
+    monkeypatch.setattr("app.application.services.agent_service.has_active_stream", AsyncMock(return_value=False))
 
     stale_session = Session(
         id="stale-session",
         user_id="user-1",
         agent_id="agent-1",
-        status=SessionStatus.COMPLETED,
+        status=SessionStatus.RUNNING,
         sandbox_id="sandbox-stale",
     )
+    stale_session.updated_at = datetime.now(UTC) - timedelta(minutes=5)
     await service._session_repository.save(stale_session)
 
     await service.create_session(user_id="user-1", require_fresh_sandbox=False)
 
     stop_session_mock.assert_awaited_once_with("stale-session")
+
+
+@pytest.mark.asyncio
+async def test_create_session_does_not_stop_completed_sessions(monkeypatch):
+    service = _build_service()
+    stop_session_mock = AsyncMock()
+    monkeypatch.setattr(service._agent_domain_service, "stop_session", stop_session_mock)
+    monkeypatch.setattr("app.application.services.agent_service.has_active_stream", AsyncMock(return_value=False))
+
+    completed_session = Session(
+        id="completed-session",
+        user_id="user-1",
+        agent_id="agent-1",
+        status=SessionStatus.COMPLETED,
+        sandbox_id="sandbox-completed",
+    )
+    completed_session.updated_at = datetime.now(UTC) - timedelta(hours=1)
+    await service._session_repository.save(completed_session)
+
+    await service.create_session(user_id="user-1", require_fresh_sandbox=False)
+
+    stop_session_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_session_does_not_stop_session_with_active_chat_stream(monkeypatch):
+    service = _build_service()
+    stop_session_mock = AsyncMock()
+    monkeypatch.setattr(service._agent_domain_service, "stop_session", stop_session_mock)
+    monkeypatch.setattr("app.application.services.agent_service.has_active_stream", AsyncMock(return_value=True))
+
+    active_session = Session(
+        id="active-session",
+        user_id="user-1",
+        agent_id="agent-1",
+        status=SessionStatus.RUNNING,
+        sandbox_id="sandbox-active",
+    )
+    active_session.updated_at = datetime.now(UTC) - timedelta(minutes=10)
+    await service._session_repository.save(active_session)
+
+    await service.create_session(user_id="user-1", require_fresh_sandbox=False)
+
+    stop_session_mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@ import posixpath
 import shlex
 import time
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -35,6 +35,7 @@ from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_domain_service import AgentDomainService
+from app.domain.services.stream_guard import has_active_stream
 from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
@@ -252,10 +253,44 @@ class AgentService:
         Also closes browser connections for the sandbox CDP URL and unregisters
         sandbox ownership to ensure the browser is clean for the next session.
         """
-        active_statuses = {SessionStatus.RUNNING, SessionStatus.INITIALIZING}
+        active_statuses = {SessionStatus.RUNNING, SessionStatus.INITIALIZING, SessionStatus.PENDING}
         try:
+            stale_age_seconds = max(
+                0.0,
+                float(getattr(get_settings(), "stale_session_autostop_min_age_seconds", 30.0)),
+            )
+            stale_cutoff = datetime.now(UTC) - timedelta(seconds=stale_age_seconds)
             sessions = await self._session_repository.find_by_user_id(user_id)
-            stale = [s for s in sessions if s.status in active_statuses or s.sandbox_id]
+            stale: list[Session] = []
+            for session in sessions:
+                if session.status not in active_statuses:
+                    continue
+
+                # Do not stop actively streaming sessions while user is still connected.
+                if await has_active_stream(session_id=session.id, endpoint="chat"):
+                    logger.info(
+                        "Skipping auto-stop for session %s (status=%s): active chat stream detected",
+                        session.id,
+                        session.status,
+                    )
+                    continue
+
+                # Avoid racing against newly-created/running sessions that are not stale yet.
+                updated_at = session.updated_at
+                if updated_at is not None:
+                    if updated_at.tzinfo is None:
+                        updated_at = updated_at.replace(tzinfo=UTC)
+                    if updated_at >= stale_cutoff:
+                        logger.debug(
+                            "Skipping auto-stop for recent session %s (status=%s, updated_at=%s)",
+                            session.id,
+                            session.status,
+                            updated_at.isoformat(),
+                        )
+                        continue
+
+                stale.append(session)
+
             for session in stale:
                 try:
                     logger.info(
