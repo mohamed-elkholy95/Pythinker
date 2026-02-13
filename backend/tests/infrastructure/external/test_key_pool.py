@@ -30,8 +30,8 @@ def mock_redis():
     # Track state in memory
     redis._state = {}
 
-    async def mock_get(key):
-        return redis._state.get(key)
+    async def mock_exists(key):
+        return key in redis._state
 
     async def mock_setex(key, ttl, value):
         redis._state[key] = value
@@ -39,7 +39,7 @@ def mock_redis():
     async def mock_set(key, value):
         redis._state[key] = value
 
-    redis.get.side_effect = mock_get
+    redis.exists.side_effect = mock_exists
     redis.setex.side_effect = mock_setex
     redis.set.side_effect = mock_set
 
@@ -50,9 +50,9 @@ def mock_redis():
 def basic_keys():
     """Basic key pool for testing."""
     return [
-        APIKeyConfig(key="key1", priority=1, weight=1.0, quota_per_hour=100),
-        APIKeyConfig(key="key2", priority=2, weight=1.0, quota_per_hour=100),
-        APIKeyConfig(key="key3", priority=3, weight=1.0, quota_per_hour=100),
+        APIKeyConfig(key="key1", weight=1.0, priority=0),
+        APIKeyConfig(key="key2", weight=1.0, priority=1),
+        APIKeyConfig(key="key3", weight=1.0, priority=2),
     ]
 
 
@@ -66,7 +66,7 @@ class TestRoundRobinRotation:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.ROUND_ROBIN,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         # Get 9 keys (3 full rotations)
@@ -84,7 +84,7 @@ class TestRoundRobinRotation:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.ROUND_ROBIN,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         # Mark key2 as exhausted
@@ -110,7 +110,7 @@ class TestFailoverRotation:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.FAILOVER,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         # Should always return key1 (priority=1)
@@ -124,7 +124,7 @@ class TestFailoverRotation:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.FAILOVER,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         # Mark key1 as exhausted
@@ -149,14 +149,14 @@ class TestWeightedRotation:
     async def test_weighted_distribution(self, mock_redis):
         """Weighted rotation should respect weights."""
         keys = [
-            APIKeyConfig(key="heavy", priority=1, weight=9.0, quota_per_hour=100),
-            APIKeyConfig(key="light", priority=2, weight=1.0, quota_per_hour=100),
+            APIKeyConfig(key="heavy", weight=9.0, priority=0),
+            APIKeyConfig(key="light", weight=1.0, priority=1),
         ]
         pool = APIKeyPool(
             provider="test",
             keys=keys,
             strategy=RotationStrategy.WEIGHTED,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         # Get 1000 keys and check distribution
@@ -184,7 +184,7 @@ class TestHealthTracking:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.ROUND_ROBIN,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         await pool.mark_exhausted("key1", ttl_seconds=300)
@@ -202,7 +202,7 @@ class TestHealthTracking:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.ROUND_ROBIN,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         await pool.mark_invalid("key1")
@@ -219,7 +219,7 @@ class TestHealthTracking:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.ROUND_ROBIN,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         # Mark key2 as exhausted
@@ -252,7 +252,7 @@ class TestBackoffStrategy:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.ROUND_ROBIN,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         # Test backoff progression
@@ -279,7 +279,7 @@ class TestBackoffStrategy:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.ROUND_ROBIN,
-            redis=mock_redis,
+            redis_client=mock_redis,
             base_backoff_seconds=1.0,
             max_backoff_seconds=10.0,
         )
@@ -293,22 +293,22 @@ class TestBackoffStrategy:
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
-    async def test_no_healthy_keys_raises_exception(self, mock_redis, basic_keys):
-        """Should raise exception when all keys are exhausted."""
+    async def test_no_healthy_keys_returns_none(self, mock_redis, basic_keys):
+        """Should return None when all keys are exhausted."""
         pool = APIKeyPool(
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.ROUND_ROBIN,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         # Mark all keys as exhausted
         for key_config in basic_keys:
             await pool.mark_exhausted(key_config.key, ttl_seconds=60)
 
-        # Should raise exception
-        with pytest.raises(RuntimeError, match="No healthy API keys available"):
-            await pool.get_healthy_key()
+        # Should return None
+        key = await pool.get_healthy_key()
+        assert key is None
 
     async def test_empty_keys_list_raises_exception(self, mock_redis):
         """Should raise exception when initialized with empty keys list."""
@@ -317,7 +317,7 @@ class TestEdgeCases:
                 provider="test",
                 keys=[],
                 strategy=RotationStrategy.ROUND_ROBIN,
-                redis=mock_redis,
+                redis_client=mock_redis,
             )
 
     async def test_invalid_keys_skipped(self, mock_redis, basic_keys):
@@ -326,7 +326,7 @@ class TestEdgeCases:
             provider="test",
             keys=basic_keys,
             strategy=RotationStrategy.ROUND_ROBIN,
-            redis=mock_redis,
+            redis_client=mock_redis,
         )
 
         # Mark key2 as invalid

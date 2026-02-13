@@ -43,9 +43,9 @@ class APIKeyConfig:
     """Configuration for a single API key."""
 
     key: str
-    priority: int = 1
     weight: float = 1.0
-    quota_per_hour: int = 100
+    priority: int = 0
+    quota_per_hour: int | None = None
 
 
 class APIKeyPool:
@@ -55,10 +55,10 @@ class APIKeyPool:
     Example:
         ```python
         keys = [
-            APIKeyConfig(key="key1", priority=1, weight=2.0),
-            APIKeyConfig(key="key2", priority=2, weight=1.0),
+            APIKeyConfig(key="key1", weight=2.0, priority=0),
+            APIKeyConfig(key="key2", weight=1.0, priority=1),
         ]
-        pool = APIKeyPool(provider="openai", keys=keys, strategy=RotationStrategy.WEIGHTED, redis=redis_client)
+        pool = APIKeyPool(provider="openai", keys=keys, strategy=RotationStrategy.WEIGHTED, redis_client=redis_client)
         key = await pool.get_healthy_key()
         ```
     """
@@ -68,7 +68,7 @@ class APIKeyPool:
         provider: str,
         keys: list[APIKeyConfig],
         strategy: RotationStrategy,
-        redis: Redis,
+        redis_client: Redis,
         base_backoff_seconds: float = 1.0,
         max_backoff_seconds: float = 60.0,
     ):
@@ -79,7 +79,7 @@ class APIKeyPool:
             provider: Provider name (e.g., "openai", "serper", "tavily")
             keys: List of API key configurations
             strategy: Rotation strategy to use
-            redis: Redis client for health tracking
+            redis_client: Redis client for health tracking
             base_backoff_seconds: Base delay for exponential backoff (default: 1s)
             max_backoff_seconds: Maximum backoff delay (default: 60s)
 
@@ -92,22 +92,19 @@ class APIKeyPool:
         self.provider = provider
         self.keys = keys
         self.strategy = strategy
-        self.redis = redis
+        self._redis = redis_client
         self.base_backoff_seconds = base_backoff_seconds
         self.max_backoff_seconds = max_backoff_seconds
 
         # Round-robin state
         self._round_robin_index = 0
 
-    async def get_healthy_key(self) -> str:
+    async def get_healthy_key(self) -> str | None:
         """
         Get next healthy API key using configured strategy.
 
         Returns:
-            API key string
-
-        Raises:
-            RuntimeError: If no healthy keys are available
+            API key string, or None if no healthy keys are available
         """
         if self.strategy == RotationStrategy.ROUND_ROBIN:
             return await self._round_robin()
@@ -117,17 +114,14 @@ class APIKeyPool:
             return await self._weighted_selection()
         raise ValueError(f"Unsupported strategy: {self.strategy}")
 
-    async def _round_robin(self) -> str:
+    async def _round_robin(self) -> str | None:
         """
         Round-robin rotation with health checks.
 
         Cycles through keys evenly, skipping exhausted/invalid keys.
 
         Returns:
-            API key string
-
-        Raises:
-            RuntimeError: If no healthy keys are available
+            API key string, or None if no healthy keys are available
         """
         attempts = 0
         max_attempts = len(self.keys) * 2  # Allow 2 full rotations
@@ -140,19 +134,16 @@ class APIKeyPool:
             if await self._is_healthy(key_config.key):
                 return key_config.key
 
-        raise RuntimeError(f"No healthy API keys available for provider '{self.provider}'")
+        return None
 
-    async def _failover(self) -> str:
+    async def _failover(self) -> str | None:
         """
         Failover rotation (priority-based).
 
         Returns first healthy key by priority (lower priority = higher precedence).
 
         Returns:
-            API key string
-
-        Raises:
-            RuntimeError: If no healthy keys are available
+            API key string, or None if no healthy keys are available
         """
         # Sort by priority (lower number = higher priority)
         sorted_keys = sorted(self.keys, key=lambda k: k.priority)
@@ -161,19 +152,16 @@ class APIKeyPool:
             if await self._is_healthy(key_config.key):
                 return key_config.key
 
-        raise RuntimeError(f"No healthy API keys available for provider '{self.provider}'")
+        return None
 
-    async def _weighted_selection(self) -> str:
+    async def _weighted_selection(self) -> str | None:
         """
         Weighted random selection.
 
         Selects keys based on weights, skipping exhausted/invalid keys.
 
         Returns:
-            API key string
-
-        Raises:
-            RuntimeError: If no healthy keys are available
+            API key string, or None if no healthy keys are available
         """
         # Filter healthy keys
         healthy_keys = []
@@ -185,7 +173,7 @@ class APIKeyPool:
                 weights.append(key_config.weight)
 
         if not healthy_keys:
-            raise RuntimeError(f"No healthy API keys available for provider '{self.provider}'")
+            return None
 
         # Use random.choices for weighted selection
         selected = random.choices(healthy_keys, weights=weights, k=1)[0]  # noqa: S311
@@ -208,13 +196,12 @@ class APIKeyPool:
 
         # Check if key is invalid (permanent)
         invalid_key = f"api_key:invalid:{self.provider}:{key_hash}"
-        is_invalid = await self.redis.get(invalid_key)
-        if is_invalid:
+        if await self._redis.exists(invalid_key):
             return False
 
         # Check if key is exhausted (temporary with TTL)
         exhausted_key = f"api_key:exhausted:{self.provider}:{key_hash}"
-        is_exhausted = await self.redis.get(exhausted_key)
+        is_exhausted = await self._redis.exists(exhausted_key)
         return not is_exhausted
 
     async def mark_exhausted(self, key: str, ttl_seconds: int) -> None:
@@ -229,7 +216,7 @@ class APIKeyPool:
         """
         key_hash = self._hash_key(key)
         redis_key = f"api_key:exhausted:{self.provider}:{key_hash}"
-        await self.redis.setex(redis_key, ttl_seconds, KeyHealthStatus.EXHAUSTED.value)
+        await self._redis.setex(redis_key, ttl_seconds, KeyHealthStatus.EXHAUSTED.value)
 
     async def mark_invalid(self, key: str) -> None:
         """
@@ -242,7 +229,7 @@ class APIKeyPool:
         """
         key_hash = self._hash_key(key)
         redis_key = f"api_key:invalid:{self.provider}:{key_hash}"
-        await self.redis.set(redis_key, KeyHealthStatus.INVALID.value)
+        await self._redis.set(redis_key, KeyHealthStatus.INVALID.value)
 
     def get_backoff_delay(self, key: str, attempt: int) -> float:
         """
