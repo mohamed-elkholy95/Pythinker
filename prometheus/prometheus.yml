@@ -37,6 +37,22 @@ scrape_configs:
         labels:
           service: 'prometheus'
 
+  # Redis metrics via redis_exporter
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+          component: 'runtime'
+
+  # Cache Redis metrics via redis-cache-exporter
+  - job_name: 'redis-cache-exporter'
+    static_configs:
+      - targets: ['redis-cache-exporter:9121']
+        labels:
+          service: 'redis-cache'
+          component: 'cache'
+
   # Node Exporter (optional - for host metrics)
   # - job_name: 'node-exporter'
   #   static_configs:
