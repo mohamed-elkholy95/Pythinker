@@ -46,7 +46,10 @@ logger = logging.getLogger(__name__)
 
 class AgentService:
     MAX_CREATE_SESSION_WAIT_SECONDS = 5.0
-    CHAT_EVENT_TIMEOUT_SECONDS = 300.0  # 5 min to accommodate browser recovery + LLM calls
+    CHAT_EVENT_TIMEOUT_SECONDS = 300.0  # Soft idle warning threshold between domain events.
+    CHAT_EVENT_HARD_TIMEOUT_SECONDS = 1800.0  # Hard idle cutoff to prevent infinite hangs.
+    CHAT_RESUME_MAX_SKIPPED_EVENTS = 200  # Disable skip mode if resume cursor appears stale.
+    CHAT_RESUME_MAX_SKIP_SECONDS = 10.0  # Upper bound to avoid infinite resume skipping.
     CHAT_WARMUP_WAIT_SECONDS = 10.0
     BROWSER_PREWARM_TIMEOUT_SECONDS = 12.0
 
@@ -684,8 +687,12 @@ class AgentService:
         cancel_event = asyncio.Event()
         self._session_cancel_events[session_id] = cancel_event
 
-        # Guard long stalls waiting for the next domain event so API calls do not hang indefinitely.
+        # Guard long stalls waiting for the next domain event.
+        # We use a two-stage policy:
+        # 1) soft timeout -> log warning and keep waiting (task may still be working),
+        # 2) hard timeout -> emit timeout error and stop the stream.
         event_timeout_seconds = max(0.0, self.CHAT_EVENT_TIMEOUT_SECONDS)
+        hard_timeout_seconds = max(0.0, self.CHAT_EVENT_HARD_TIMEOUT_SECONDS)
         event_stream = self._agent_domain_service.chat(
             session_id,
             user_id,
@@ -707,65 +714,132 @@ class AgentService:
         # Event resumption: skip events up to and including event_id
         # This enables page refresh to resume from the last received event
         skip_until_resume_point = bool(event_id)
+        skipped_resume_events = 0
+        resume_skip_started_at = time.monotonic() if skip_until_resume_point else None
+        gap_warning_emitted = False
         if event_id:
             logger.info(f"Event resumption enabled: skipping events until event_id={event_id}")
 
         cancel_task: asyncio.Task | None = None
+        next_task: asyncio.Task | None = None
+        last_event_at = time.monotonic()
         try:
+            next_task = asyncio.create_task(stream_iter.__anext__())
+            cancel_task = asyncio.create_task(cancel_event.wait())
+
             while True:
-                try:
-                    # Race: next event vs cancellation (client disconnect)
-                    next_task = asyncio.create_task(stream_iter.__anext__())
-                    cancel_task = asyncio.create_task(cancel_event.wait())
-                    done, _pending = await asyncio.wait(
-                        [next_task, cancel_task],
-                        return_when=asyncio.FIRST_COMPLETED,
-                        timeout=event_timeout_seconds if event_timeout_seconds > 0 else None,
+                # Race: next event vs cancellation (client disconnect).
+                # asyncio.wait(timeout=...) returns done/pending and does NOT cancel pending tasks.
+                done, _ = await asyncio.wait(
+                    [next_task, cancel_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                    timeout=event_timeout_seconds if event_timeout_seconds > 0 else None,
+                )
+
+                if not done:
+                    idle_seconds = time.monotonic() - last_event_at
+                    logger.warning(
+                        "Chat stream idle for session %s: %.2fs without domain events; continuing to wait",
+                        session_id,
+                        idle_seconds,
                     )
-                    # Always cancel/await the losing task to avoid leaking pending tasks
-                    # on long streams (each iteration creates fresh wait tasks).
-                    for pending_task in _pending:
-                        pending_task.cancel()
-                    for pending_task in _pending:
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await pending_task
-                    if cancel_task in done:
-                        logger.info("Chat stream cancelled for session %s (client disconnected)", session_id)
+                    if hard_timeout_seconds > 0 and idle_seconds >= hard_timeout_seconds:
+                        logger.warning(
+                            "Chat stream hard timeout for session %s after %.2fs without progress",
+                            session_id,
+                            idle_seconds,
+                        )
+                        if next_task is not None and not next_task.done():
+                            next_task.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await next_task
+                        yield ErrorEvent(
+                            error=f"Chat stream timed out after {hard_timeout_seconds:.1f}s without progress",
+                            error_type="timeout",
+                            recoverable=True,
+                            retry_hint="Try again, or simplify the request.",
+                            error_code="domain_stream_idle_hard_timeout",
+                            error_category="timeout",
+                            severity="warning",
+                            retry_after_ms=5000,
+                            can_resume=True,
+                            details={
+                                "session_id": session_id,
+                                "idle_seconds": round(idle_seconds, 3),
+                                "soft_timeout_seconds": event_timeout_seconds,
+                                "hard_timeout_seconds": hard_timeout_seconds,
+                            },
+                        )
                         return
-                    if next_task in done:
-                        try:
-                            event = next_task.result()
-                        except StopAsyncIteration:
-                            break
-                    else:
-                        # Timeout: both still pending
+                    continue
+
+                if cancel_task in done:
+                    logger.info("Chat stream cancelled for session %s (client disconnected)", session_id)
+                    if next_task is not None and not next_task.done():
                         next_task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
                             await next_task
-                        raise TimeoutError()
-                except TimeoutError:
-                    logger.warning(
-                        "Chat stream timed out for session %s after %.2fs without events",
-                        session_id,
-                        event_timeout_seconds,
-                    )
-                    yield ErrorEvent(
-                        error=f"Chat stream timed out after {event_timeout_seconds:.1f}s without progress",
-                        error_type="timeout",
-                        recoverable=True,
-                        retry_hint="Try again, or simplify the request.",
-                    )
                     return
+
+                try:
+                    event = next_task.result()
+                except StopAsyncIteration:
+                    break
+
+                last_event_at = time.monotonic()
+                next_task = asyncio.create_task(stream_iter.__anext__())
 
                 # Event resumption: skip already-sent events
                 if skip_until_resume_point:
-                    current_event_id = getattr(event, "event_id", None)
+                    current_event_id = getattr(event, "event_id", None) or getattr(event, "id", None)
                     if current_event_id:
                         if current_event_id == event_id:
                             # Found the resume point - start sending events AFTER this one
                             logger.info(f"Resume point found at event_id={event_id}, starting fresh event stream")
                             skip_until_resume_point = False
-                        continue  # Skip this event (already sent before page refresh)
+                            continue  # Skip the resume-point event itself
+
+                        skipped_resume_events += 1
+                        skip_elapsed_seconds = (
+                            time.monotonic() - resume_skip_started_at if resume_skip_started_at is not None else 0.0
+                        )
+                        if (
+                            skipped_resume_events >= self.CHAT_RESUME_MAX_SKIPPED_EVENTS
+                            or skip_elapsed_seconds >= self.CHAT_RESUME_MAX_SKIP_SECONDS
+                        ):
+                            logger.warning(
+                                "Resume cursor %s not found for session %s after %d skipped events (%.2fs). "
+                                "Disabling skip mode to preserve forward progress.",
+                                event_id,
+                                session_id,
+                                skipped_resume_events,
+                                skip_elapsed_seconds,
+                            )
+                            skip_until_resume_point = False
+                            if not gap_warning_emitted:
+                                gap_warning_emitted = True
+                                yield ErrorEvent(
+                                    error="Stream resume cursor not found; replay continuity cannot be guaranteed.",
+                                    error_type="stream_gap",
+                                    recoverable=True,
+                                    retry_hint="The stream resumed from the closest available checkpoint.",
+                                    error_code="stream_gap_detected",
+                                    error_category="transport",
+                                    severity="warning",
+                                    can_resume=False,
+                                    checkpoint_event_id=current_event_id,
+                                    details={
+                                        "requested_event_id": event_id,
+                                        "first_available_event_id": current_event_id,
+                                        "skipped_resume_events": skipped_resume_events,
+                                        "skip_elapsed_seconds": round(skip_elapsed_seconds, 3),
+                                    },
+                                )
+                            # Resume immediately from the current event to avoid introducing
+                            # an extra synthetic gap once skip mode is disabled.
+
+                        if skip_until_resume_point:
+                            continue  # Skip event until resume cursor is found
 
                     # Event has no event_id. Resume skipping cannot safely continue here;
                     # disable skip mode and emit this and subsequent events.
@@ -774,12 +848,32 @@ class AgentService:
                         type(event).__name__,
                     )
                     skip_until_resume_point = False
+                    if not gap_warning_emitted:
+                        gap_warning_emitted = True
+                        yield ErrorEvent(
+                            error="Stream resume cursor could not be validated for this event payload.",
+                            error_type="stream_gap",
+                            recoverable=True,
+                            retry_hint="The stream resumed, but some previous events may be missing.",
+                            error_code="stream_gap_detected",
+                            error_category="transport",
+                            severity="warning",
+                            can_resume=False,
+                            details={
+                                "requested_event_id": event_id,
+                                "event_type": type(event).__name__,
+                            },
+                        )
 
                 logger.debug(f"Received event: {event}")
                 emitted_events += 1
                 yield event
         finally:
             self._session_cancel_events.pop(session_id, None)
+            if next_task is not None and not next_task.done():
+                next_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await next_task
             # Cancel the cancel_task to avoid "Task was destroyed but it is pending" on disconnect
             if cancel_task is not None and not cancel_task.done():
                 cancel_task.cancel()
