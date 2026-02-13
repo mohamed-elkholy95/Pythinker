@@ -8,7 +8,7 @@ import { clearStoredTokens, getStoredToken, getStoredRefreshToken, storeToken } 
 export const API_CONFIG = {
   host: import.meta.env.VITE_API_URL || '',
   version: 'v1',
-  timeout: 30000, // Request timeout in milliseconds
+  timeout: 60000, // 60s - accommodates slow networks and long-running agent tasks
 };
 
 // Complete API base URL
@@ -39,6 +39,8 @@ export const apiClient = axios.create({
   timeout: API_CONFIG.timeout,
   headers: {
     'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    Pragma: 'no-cache',
   },
 });
 
@@ -304,9 +306,11 @@ export const createSSEConnection = async <T = unknown>(
 
   const apiUrl = `${BASE_URL}${endpoint}`;
 
-  // Add authentication headers
+  // Add authentication and cache-prevention headers
   const requestHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    Pragma: 'no-cache',
     ...headers,
   };
 
@@ -330,16 +334,16 @@ export const createSSEConnection = async <T = unknown>(
 
   // Retry configuration
   let retryCount = 0;
-  const maxRetries = 5;
+  const maxRetries = 7;
   const baseDelay = 1000; // 1 second
-  const maxDelay = 30000; // 30 seconds
+  const maxDelay = 45000; // 45 seconds
   let reconnectTimeout: NodeJS.Timeout | null = null;
 
-  // Calculate exponential backoff delay
+  // Calculate exponential backoff delay with 25% jitter to prevent thundering herd
   const getRetryDelay = (attempt: number): number => {
     const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
-    // Add jitter to prevent thundering herd
-    return delay + Math.random() * 1000;
+    const jitter = delay * 0.25 * Math.random();
+    return delay + jitter;
   };
 
   // Create SSE connection with retry logic
@@ -386,10 +390,13 @@ export const createSSEConnection = async <T = unknown>(
               const newToken = getStoredToken();
               if (newToken) {
                 requestHeaders.Authorization = `Bearer ${newToken}`;
-                // Retry connection with new token
+                // Retry connection with new token using exponential backoff
                 // Note: messageSent stays false intentionally - 401 means the server rejected
                 // at auth layer and the message was NOT processed, so we need to resend it
-                setTimeout(() => createConnection().catch(console.error), 1000);
+                const retryDelay = getRetryDelay(retryCount);
+                console.debug(`[SSE] Reconnecting after auth refresh in ${Math.round(retryDelay)}ms (attempt ${retryCount + 1}/${maxRetries})`);
+                retryCount++;
+                reconnectTimeout = setTimeout(() => createConnection().catch(console.error), retryDelay);
               }
             }
             return;
