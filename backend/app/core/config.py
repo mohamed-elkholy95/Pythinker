@@ -58,6 +58,8 @@ class Settings(BaseSettings):
 
     # Embedding configuration (separate from chat model)
     embedding_api_key: str | None = None  # Defaults to api_key if not set
+    embedding_api_key_2: str | None = None  # Fallback OpenAI embedding key #1
+    embedding_api_key_3: str | None = None  # Fallback OpenAI embedding key #2
     embedding_api_base: str = "https://api.openai.com/v1"  # OpenAI for embeddings
     embedding_model: str = "text-embedding-3-small"  # 1536 dimensions
 

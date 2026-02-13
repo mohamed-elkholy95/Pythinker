@@ -5,11 +5,18 @@ and SemanticCache. Wraps OpenAI's embedding API with fallback support.
 """
 
 import logging
+import time
 from functools import lru_cache
 
+import httpx
 from openai import AsyncOpenAI
 
 from app.core.config import get_settings
+from app.infrastructure.external.key_pool import (
+    APIKeyConfig,
+    APIKeyPool,
+    RotationStrategy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,18 +25,59 @@ class EmbeddingClient:
     """Client for generating text embeddings via OpenAI-compatible API.
 
     Used by both MemoryService and SemanticCache to generate vector
-    embeddings for text content.
+    embeddings for text content. Supports multi-key rotation with
+    ROUND_ROBIN strategy for load distribution.
     """
 
     def __init__(
         self,
         api_key: str,
+        fallback_api_keys: list[str] | None = None,
+        redis_client=None,
         base_url: str = "https://api.openai.com/v1",
         model: str = "text-embedding-3-small",
+        timeout: float = 30.0,
     ):
+        """Initialize embedding client.
+
+        Args:
+            api_key: Primary OpenAI API key
+            fallback_api_keys: Optional list of fallback API keys (up to 2 fallbacks = 3 total)
+            redis_client: Redis client for distributed key coordination
+            base_url: API base URL
+            model: Embedding model name
+            timeout: Request timeout
+        """
+        # Build key configs (primary + up to 2 fallbacks)
+        all_keys = [api_key]
+        if fallback_api_keys:
+            all_keys.extend(fallback_api_keys)
+
+        key_configs = [APIKeyConfig(key=k, priority=i) for i, k in enumerate(all_keys) if k and k.strip()]
+
+        # Initialize key pool with ROUND_ROBIN strategy (load distribution)
+        self._key_pool = APIKeyPool(
+            provider="openai_embedding",
+            keys=key_configs,
+            redis_client=redis_client,
+            strategy=RotationStrategy.ROUND_ROBIN,  # ROUND_ROBIN, not FAILOVER!
+        )
+
+        # Set max retries to prevent unbounded recursion
+        self._max_retries = len(key_configs)
+
+        # Keep legacy OpenAI client for backward compatibility with embed() method
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._model = model
         self._dimension = 1536  # text-embedding-3-small dimension
+        self.api_base = base_url
+        self.timeout = timeout
+
+        logger.info(f"Embedding client initialized with {len(key_configs)} API key(s) using ROUND_ROBIN strategy")
+
+    async def get_api_key(self) -> str | None:
+        """Get the currently active API key from pool (round-robin distribution)."""
+        return await self._key_pool.get_healthy_key()
 
     async def embed(self, text: str) -> list[float]:
         """Generate embedding for a single text.
@@ -51,31 +99,97 @@ class EmbeddingClient:
         )
         return response.data[0].embedding
 
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for multiple texts.
+    async def embed_batch(self, texts: list[str], _attempt: int = 0) -> list[list[float]]:
+        """Generate embeddings for multiple texts with automatic key rotation.
 
         Args:
             texts: List of texts to embed
+            _attempt: Internal retry counter
 
         Returns:
             List of embedding vectors
 
         Raises:
-            Exception: If embedding API call fails
+            RuntimeError: If all API keys are exhausted
         """
         if not texts:
             return []
 
-        # OpenAI supports batch embedding natively
-        truncated = [t[:8000] for t in texts]
-        response = await self._client.embeddings.create(
-            model=self._model,
-            input=truncated,
-            encoding_format="float",
-        )
-        # Sort by index to maintain order
-        sorted_data = sorted(response.data, key=lambda x: x.index)
-        return [d.embedding for d in sorted_data]
+        # Check retry limit
+        if _attempt >= self._max_retries:
+            raise RuntimeError(
+                f"All {len(self._key_pool.keys)} OpenAI embedding keys exhausted after {_attempt} attempts"
+            )
+
+        # Get healthy key from pool (round-robin)
+        key = await self.get_api_key()
+        if not key:
+            raise RuntimeError(f"All {len(self._key_pool.keys)} OpenAI embedding keys exhausted")
+
+        try:
+            # OpenAI supports batch embedding natively
+            truncated = [t[:8000] for t in texts]
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.api_base}/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "input": truncated,
+                        "model": self._model,
+                        "encoding_format": "float",
+                    },
+                )
+
+                # Check for rate limit/auth errors
+                if response.status_code in (401, 429):
+                    # Parse TTL from X-RateLimit-Reset header
+                    ttl = self._parse_rate_limit_ttl(response.headers)
+                    await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
+                    return await self.embed_batch(texts, _attempt=_attempt + 1)
+
+                response.raise_for_status()
+                data = response.json()
+
+                # Sort by index to maintain order
+                sorted_data = sorted(data["data"], key=lambda x: x["index"])
+                return [d["embedding"] for d in sorted_data]
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (401, 429):
+                ttl = self._parse_rate_limit_ttl(e.response.headers)
+                await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
+                return await self.embed_batch(texts, _attempt=_attempt + 1)
+            raise
+
+        except Exception as e:
+            logger.error(f"Embedding generation failed: {e}")
+            raise
+
+    def _parse_rate_limit_ttl(self, headers: dict) -> int:
+        """Parse X-RateLimit-Reset header to get TTL.
+
+        Args:
+            headers: Response headers
+
+        Returns:
+            TTL in seconds (default: 60 if header missing)
+        """
+        reset_time = headers.get("x-ratelimit-reset-requests") or headers.get("x-ratelimit-reset")
+        if reset_time:
+            try:
+                # Parse Unix timestamp and calculate seconds until reset
+                reset_timestamp = float(reset_time)
+                now = time.time()
+                ttl = max(int(reset_timestamp - now), 60)  # At least 60 seconds
+                return ttl
+            except ValueError:
+                logger.warning(f"Failed to parse X-RateLimit-Reset: {reset_time}")
+
+        return 60  # Default: 1 minute TTL
 
     @property
     def model(self) -> str:
@@ -93,6 +207,7 @@ def get_embedding_client() -> EmbeddingClient:
     """Get the singleton embedding client.
 
     Uses settings for API key, base URL, and model configuration.
+    Supports up to 3 API keys for round-robin load distribution.
 
     Returns:
         Configured EmbeddingClient instance
@@ -100,14 +215,28 @@ def get_embedding_client() -> EmbeddingClient:
     Raises:
         RuntimeError: If no embedding API key is configured
     """
+    from app.infrastructure.database.redis_client import get_redis_client as get_redis
+
     settings = get_settings()
     api_key = settings.embedding_api_key or settings.api_key
 
     if not api_key:
         raise RuntimeError("No embedding API key configured. Set EMBEDDING_API_KEY or API_KEY.")
 
+    # Collect fallback keys
+    fallback_keys = []
+    if settings.embedding_api_key_2:
+        fallback_keys.append(settings.embedding_api_key_2)
+    if settings.embedding_api_key_3:
+        fallback_keys.append(settings.embedding_api_key_3)
+
+    # Get Redis client for distributed coordination
+    redis_client = get_redis()
+
     return EmbeddingClient(
         api_key=api_key,
+        fallback_api_keys=fallback_keys if fallback_keys else None,
+        redis_client=redis_client,
         base_url=settings.embedding_api_base,
         model=settings.embedding_model,
     )
