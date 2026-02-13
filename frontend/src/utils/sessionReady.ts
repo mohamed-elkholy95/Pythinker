@@ -19,7 +19,7 @@ export async function waitForSessionReady(
   getSessionFn: (sessionId: string) => Promise<SessionStatusResponse>,
   options: WaitForSessionReadyOptions = {}
 ): Promise<SessionReadyResult> {
-  const pollIntervalMs = options.pollIntervalMs ?? 500
+  const pollIntervalMs = options.pollIntervalMs ?? 2000
   const maxWaitMs = options.maxWaitMs
   let elapsedMs = 0
   let lastStatus: SessionStatus | null = null

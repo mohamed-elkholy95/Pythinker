@@ -130,7 +130,7 @@ class RateLimitMiddleware:
     # Auth endpoints have stricter limits
     AUTH_PATHS: ClassVar[set[str]] = {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh"}
 
-    # Exempt paths: SSE long-poll and health checks don't count toward rate limits
+    # Exempt paths: SSE long-poll, health checks, lightweight status polls
     EXEMPT_PATHS: ClassVar[set[str]] = {"/api/v1/auth/status", "/health"}
 
     # In-memory fallback storage: {key: (count, window_start_time)}
@@ -194,6 +194,11 @@ class RateLimitMiddleware:
 
         # Exempt health checks and auth status from rate limiting
         if path in self.EXEMPT_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        # Lightweight session status polling (GET /sessions/{id}/status) - high frequency, low payload
+        if method == "GET" and path.endswith("/status") and "/sessions/" in path:
             await self.app(scope, receive, send)
             return
 
