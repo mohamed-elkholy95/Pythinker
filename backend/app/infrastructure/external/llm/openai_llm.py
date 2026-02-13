@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 
 @LLMProviderRegistry.register("openai")
 class OpenAILLM(LLM):
+    _MESSAGE_VALIDATION_ERROR_TERMS = (
+        "'1214'",
+        "invalid messages",
+        "message format",
+        "invalid_request_error",
+        "incorrect role",
+        "cannot be empty",
+        "parameter is illegal",
+        "messages parameter is illegal",
+    )
+
     def __init__(self):
         settings = get_settings()
 
@@ -473,6 +484,87 @@ To extract data from a webpage:
 
         return cleaned
 
+    def _coerce_content_to_text(self, content: Any) -> str:
+        """Normalize mixed/structured content into plain text for strict providers."""
+        if content is None:
+            return ""
+
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    text_value = item.get("text")
+                    if isinstance(text_value, str):
+                        parts.append(text_value)
+                        continue
+                    with contextlib.suppress(Exception):
+                        parts.append(json.dumps(item, ensure_ascii=False, sort_keys=True))
+                elif item is not None:
+                    parts.append(str(item))
+            return "\n".join(part for part in parts if part).strip()
+
+        with contextlib.suppress(Exception):
+            return json.dumps(content, ensure_ascii=False, default=str)
+        return str(content)
+
+    def _is_message_validation_error(self, error: Exception) -> bool:
+        """Return True when provider rejected the request due to message schema."""
+        error_text = str(error).lower()
+        return any(term in error_text for term in self._MESSAGE_VALIDATION_ERROR_TERMS)
+
+    def _build_validation_recovery_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Build a strict fallback payload when providers reject message schema."""
+        recovered: list[dict[str, Any]] = []
+        allowed_roles = {"system", "user", "assistant", "tool"}
+
+        for msg in messages:
+            role = str(msg.get("role", "user"))
+            if role == "developer":
+                role = "system"
+            if role not in allowed_roles:
+                role = "user"
+
+            msg_copy = dict(msg)
+            msg_copy["role"] = role
+
+            if role == "assistant" and msg_copy.get("tool_calls"):
+                msg_copy = self._convert_orphaned_assistant(msg_copy)
+
+            content_text = self._coerce_content_to_text(msg_copy.get("content")).strip()
+
+            if role == "tool":
+                tool_name = str(msg_copy.get("name") or "unknown_tool")
+                tool_call_id = str(msg_copy.get("tool_call_id") or "unknown_call")
+                tool_result = content_text or "{}"
+                recovered.append(
+                    {
+                        "role": "assistant",
+                        "content": f"[Tool response {tool_name} ({tool_call_id})] {tool_result}",
+                    }
+                )
+                continue
+
+            if not content_text:
+                if role == "system":
+                    content_text = "You are a helpful assistant."
+                elif role == "assistant":
+                    content_text = "[No assistant content]"
+                else:
+                    content_text = "[No user content]"
+
+            recovered.append({"role": role, "content": content_text})
+
+        if not recovered:
+            recovered = [{"role": "user", "content": "Please continue."}]
+
+        if recovered[0]["role"] == "assistant":
+            recovered.insert(0, {"role": "system", "content": "Continue the conversation."})
+
+        return self._sanitize_messages(recovered)
+
     def _sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Sanitize messages for strict OpenAI-compatible APIs (Zhipu GLM, OpenRouter, etc.).
 
@@ -521,6 +613,8 @@ To extract data from a webpage:
             content = msg_copy.get("content")
             if content is None:
                 msg_copy["content"] = ""
+            elif not isinstance(content, str):
+                msg_copy["content"] = self._coerce_content_to_text(content)
 
             # 3. Convert non-standard 'function_name' to standard 'name' for tool messages
             if role == "tool" and "function_name" in msg_copy:
@@ -711,22 +805,25 @@ To extract data from a webpage:
         since MLX doesn't support OpenAI's native tool calling API.
         """
         # Validate and fix message sequence before sending
-        messages = self._validate_and_fix_messages(messages)
+        base_messages = self._validate_and_fix_messages(messages)
 
         # MLX mode: convert tools to text-based format
         original_tools = tools
-        if self._is_mlx_mode and tools:
-            logger.info(f"MLX mode: Converting {len(tools)} tools to text-based format")
-            messages = self._convert_messages_for_mlx(messages)
-            messages = self._inject_tools_into_messages(messages, tools)
-            tools = None  # Don't pass tools parameter to MLX
+        request_tools = tools
+        request_messages = base_messages
+        if self._is_mlx_mode and request_tools:
+            logger.info(f"MLX mode: Converting {len(request_tools)} tools to text-based format")
+            request_messages = self._convert_messages_for_mlx(request_messages)
+            request_messages = self._inject_tools_into_messages(request_messages, request_tools)
+            request_tools = None  # Don't pass tools parameter to MLX
 
         # Apply cache optimization for message structure
         if enable_caching and self._cache_manager:
-            messages = self._cache_manager.prepare_messages_for_caching(messages)
+            request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
 
         max_retries = 3
         base_delay = 1.0
+        validation_recovery_attempted = False
 
         for attempt in range(max_retries + 1):  # every try
             response = None
@@ -742,7 +839,7 @@ To extract data from a webpage:
                 # Build parameters based on model type
                 params = {
                     "model": self._model_name,
-                    "messages": messages,
+                    "messages": request_messages,
                 }
 
                 if is_new_model:
@@ -758,7 +855,7 @@ To extract data from a webpage:
                 if self._is_thinking_api:
                     params["extra_body"] = {"thinking": {"type": "disabled"}}
 
-                if tools:
+                if request_tools:
                     # OpenAI API mode with native tool support
                     logger.debug(f"Sending request with tools, model: {self._model_name}, attempt: {attempt + 1}")
                     # Some providers (DeepSeek, etc.) don't support response_format with tools
@@ -766,7 +863,7 @@ To extract data from a webpage:
                     use_response_format = response_format if self._supports_response_format_with_tools() else None
                     response = await self.client.chat.completions.create(
                         **params,
-                        tools=tools,
+                        tools=request_tools,
                         response_format=use_response_format,
                         tool_choice=tool_choice,
                         parallel_tool_calls=self._supports_parallel_tool_calls(),
@@ -839,9 +936,11 @@ To extract data from a webpage:
                     logger.warning("MLX content type error detected, enabling MLX mode for retry")
                     self._is_mlx_mode = True
                     if original_tools:
-                        messages = self._convert_messages_for_mlx(messages)
-                        messages = self._inject_tools_into_messages(messages, original_tools)
-                        tools = None
+                        request_messages = self._convert_messages_for_mlx(base_messages)
+                        request_messages = self._inject_tools_into_messages(request_messages, original_tools)
+                        request_tools = None
+                        if enable_caching and self._cache_manager:
+                            request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
                     continue
 
                 # Check for token limit errors and raise specific exception
@@ -858,25 +957,31 @@ To extract data from a webpage:
                     logger.warning(f"Token limit exceeded: {e}")
                     raise TokenLimitExceededError(str(e)) from e
 
-                # Detect message validation errors from strict APIs (Zhipu GLM error 1214, etc.)
-                # These indicate message schema issues that won't resolve on retry
-                if any(
-                    term in error_msg
-                    for term in [
-                        "'1214'",  # Zhipu GLM invalid parameter error code
-                        "invalid messages",
-                        "message format",
-                        "invalid_request_error",
-                        "incorrect role",  # Zhipu GLM role validation
-                        "cannot be empty",  # Zhipu GLM empty content
-                        "parameter is illegal",  # Zhipu GLM translated error
-                    ]
-                ):
+                # Detect message validation errors from strict APIs (Zhipu GLM error 1214, etc.).
+                # We attempt one emergency payload rewrite before failing.
+                if self._is_message_validation_error(e):
+                    if not validation_recovery_attempted:
+                        recovered_messages = self._build_validation_recovery_messages(base_messages)
+                        if recovered_messages != base_messages:
+                            validation_recovery_attempted = True
+                            base_messages = recovered_messages
+                            request_messages = recovered_messages
+                            request_tools = original_tools
+                            if self._is_mlx_mode and request_tools:
+                                request_messages = self._convert_messages_for_mlx(request_messages)
+                                request_messages = self._inject_tools_into_messages(request_messages, request_tools)
+                                request_tools = None
+                            if enable_caching and self._cache_manager:
+                                request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
+                            logger.warning(
+                                "API rejected message schema on attempt %d; retrying once with simplified transcript",
+                                attempt + 1,
+                            )
+                            continue
                     logger.error(
                         f"API message validation error (likely strict schema): {e!s}. "
-                        f"Messages were sanitized but API still rejected them."
+                        f"Messages were sanitized and recovery payload was exhausted."
                     )
-                    # Don't retry — message schema errors won't fix themselves
                     raise
 
                 error_log = f"Error calling API on attempt {attempt + 1}: {e!s}"
@@ -979,11 +1084,12 @@ To extract data from a webpage:
             Validated Pydantic model instance
         """
         # Validate and fix message sequence
-        messages = self._validate_and_fix_messages(messages)
+        base_messages = self._validate_and_fix_messages(messages)
 
         # Apply cache optimization
+        request_messages = base_messages
         if enable_caching and self._cache_manager:
-            messages = self._cache_manager.prepare_messages_for_caching(messages)
+            request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
 
         # Build JSON schema from Pydantic model
         schema = response_model.model_json_schema()
@@ -997,6 +1103,7 @@ To extract data from a webpage:
         # Starts True for thinking APIs; set to False if empty response
         # indicates the model needs thinking enabled to produce output.
         disable_thinking = self._is_thinking_api
+        validation_recovery_attempted = False
 
         for attempt in range(max_retries + 1):
             try:
@@ -1006,9 +1113,10 @@ To extract data from a webpage:
                     await asyncio.sleep(delay)
 
                 is_new_model = self._model_name.startswith(("gpt-5", "o1", "o3"))
+                attempt_messages = [dict(message) for message in request_messages]
                 params = {
                     "model": self._model_name,
-                    "messages": messages,
+                    "messages": attempt_messages,
                 }
 
                 if is_new_model:
@@ -1140,19 +1248,22 @@ To extract data from a webpage:
                     ]
                 ):
                     raise TokenLimitExceededError(str(e)) from e
-                # Message validation errors won't fix on retry
-                if any(
-                    term in error_msg
-                    for term in [
-                        "'1214'",
-                        "invalid messages",
-                        "message format",
-                        "invalid_request_error",
-                        "incorrect role",
-                        "cannot be empty",
-                        "parameter is illegal",
-                    ]
-                ):
+
+                if self._is_message_validation_error(e):
+                    if not validation_recovery_attempted:
+                        recovered_messages = self._build_validation_recovery_messages(base_messages)
+                        if recovered_messages != base_messages:
+                            validation_recovery_attempted = True
+                            base_messages = recovered_messages
+                            request_messages = recovered_messages
+                            if enable_caching and self._cache_manager:
+                                request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
+                            logger.warning(
+                                "Structured request message validation failed on attempt %d; "
+                                "retrying once with simplified transcript",
+                                attempt + 1,
+                            )
+                            continue
                     raise
                 if attempt == max_retries:
                     raise
@@ -1262,11 +1373,11 @@ To extract data from a webpage:
         self._last_stream_metadata = None
 
         # Validate and fix message sequence
-        messages = self._validate_and_fix_messages(messages)
+        base_messages = self._validate_and_fix_messages(messages)
 
         # MLX mode doesn't support streaming well, fall back to regular ask
         if self._is_mlx_mode:
-            result = await self.ask(messages, tools, response_format, tool_choice, enable_caching)
+            result = await self.ask(base_messages, tools, response_format, tool_choice, enable_caching)
             content = result.get("content", "")
             finish_reason = result.get("_finish_reason")
             self._last_stream_metadata = {
@@ -1279,126 +1390,142 @@ To extract data from a webpage:
             return
 
         # Apply cache optimization
+        request_messages = base_messages
         if enable_caching and self._cache_manager:
-            messages = self._cache_manager.prepare_messages_for_caching(messages)
+            request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
 
-        is_new_model = self._model_name.startswith(("gpt-5", "o1", "o3"))
-        params = {
-            "model": self._model_name,
-            "messages": messages,
-            "stream": True,
-        }
-        if self._supports_stream_usage:
-            params["stream_options"] = {"include_usage": True}
+        validation_recovery_attempted = False
 
-        if is_new_model:
-            params["max_completion_tokens"] = self._max_tokens
-        else:
-            params["max_tokens"] = self._max_tokens
-            params["temperature"] = self._temperature
+        while True:
+            is_new_model = self._model_name.startswith(("gpt-5", "o1", "o3"))
+            params = {
+                "model": self._model_name,
+                "messages": request_messages,
+                "stream": True,
+            }
+            if self._supports_stream_usage:
+                params["stream_options"] = {"include_usage": True}
 
-        # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
-        if self._is_thinking_api:
-            params["extra_body"] = {"thinking": {"type": "disabled"}}
-
-        if tools:
-            params["tools"] = tools
-            params["tool_choice"] = tool_choice
-            params["parallel_tool_calls"] = False
-
-        if response_format and not tools:
-            params["response_format"] = response_format
-
-        completion_parts: list[str] = []
-        usage_counts: dict[str, int] | None = None
-        finish_reason: str | None = None
-
-        try:
-            stream = await self.client.chat.completions.create(**params)
-
-            async for chunk in stream:
-                if getattr(chunk, "usage", None):
-                    usage = chunk.usage
-                    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
-                    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
-                    prompt_details = getattr(usage, "prompt_tokens_details", None)
-                    cached_tokens = (getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0
-                    usage_counts = {
-                        "prompt_tokens": prompt_tokens,
-                        "completion_tokens": completion_tokens,
-                        "cached_tokens": cached_tokens,
-                    }
-                if chunk.choices:
-                    delta = chunk.choices[0].delta
-                    if chunk.choices[0].finish_reason:
-                        finish_reason = chunk.choices[0].finish_reason
-                    if delta.content:
-                        completion_parts.append(delta.content)
-                        yield delta.content
-                    if delta.tool_calls:
-                        logger.warning(
-                            "ask_stream received tool_call chunks — tool calls are not "
-                            "supported in streaming mode. Use ask() for tool-calling requests."
-                        )
-
-            if usage_counts:
-                await self._record_usage_counts(
-                    prompt_tokens=usage_counts["prompt_tokens"],
-                    completion_tokens=usage_counts["completion_tokens"],
-                    cached_tokens=usage_counts["cached_tokens"],
-                )
+            if is_new_model:
+                params["max_completion_tokens"] = self._max_tokens
             else:
-                await self._record_stream_usage(
-                    messages,
-                    "".join(completion_parts),
-                    tools=tools,
-                )
+                params["max_tokens"] = self._max_tokens
+                params["temperature"] = self._temperature
 
-            normalized_finish_reason = finish_reason or "stop"
-            self._last_stream_metadata = {
-                "finish_reason": normalized_finish_reason,
-                "truncated": normalized_finish_reason == "length",
-                "provider": "openai",
-            }
-            if normalized_finish_reason == "length":
-                logger.warning("OpenAI streaming response truncated (finish_reason=length)")
+            # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
+            if self._is_thinking_api:
+                params["extra_body"] = {"thinking": {"type": "disabled"}}
 
-        except RateLimitError as e:
-            self._last_stream_metadata = {
-                "finish_reason": "error",
-                "truncated": False,
-                "provider": "openai",
-                "error": "rate_limit",
-            }
-            retry_after = None
-            if hasattr(e, "response") and e.response is not None:
-                retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
-                if retry_after_header:
-                    with contextlib.suppress(ValueError, TypeError):
-                        retry_after = float(retry_after_header)
-            if retry_after is None:
-                retry_after = min(4.0, 60.0)  # Single retry for streaming
-            logger.warning(f"OpenAI rate limit hit during streaming, retrying after {retry_after:.1f}s")
-            await asyncio.sleep(retry_after)
-            # Re-raise to let caller retry the entire stream
-            raise
-        except Exception as e:
-            self._last_stream_metadata = {
-                "finish_reason": "error",
-                "truncated": False,
-                "provider": "openai",
-                "error": type(e).__name__,
-            }
-            error_msg = str(e).lower()
-            if any(
-                term in error_msg
-                for term in [
-                    "context_length_exceeded",
-                    "maximum context length",
-                    "too many tokens",
-                    "max_tokens",
-                    "context window",
-                ]
-            ):
-                raise TokenLimitExceededError(str(e)) from e
-            raise
+            if tools:
+                params["tools"] = tools
+                params["tool_choice"] = tool_choice
+                params["parallel_tool_calls"] = False
+
+            if response_format and not tools:
+                params["response_format"] = response_format
+
+            completion_parts: list[str] = []
+            usage_counts: dict[str, int] | None = None
+            finish_reason: str | None = None
+
+            try:
+                stream = await self.client.chat.completions.create(**params)
+
+                async for chunk in stream:
+                    if getattr(chunk, "usage", None):
+                        usage = chunk.usage
+                        prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                        completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+                        prompt_details = getattr(usage, "prompt_tokens_details", None)
+                        cached_tokens = (getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0
+                        usage_counts = {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "cached_tokens": cached_tokens,
+                        }
+                    if chunk.choices:
+                        delta = chunk.choices[0].delta
+                        if chunk.choices[0].finish_reason:
+                            finish_reason = chunk.choices[0].finish_reason
+                        if delta.content:
+                            completion_parts.append(delta.content)
+                            yield delta.content
+                        if delta.tool_calls:
+                            logger.warning(
+                                "ask_stream received tool_call chunks - tool calls are not "
+                                "supported in streaming mode. Use ask() for tool-calling requests."
+                            )
+
+                if usage_counts:
+                    await self._record_usage_counts(
+                        prompt_tokens=usage_counts["prompt_tokens"],
+                        completion_tokens=usage_counts["completion_tokens"],
+                        cached_tokens=usage_counts["cached_tokens"],
+                    )
+                else:
+                    await self._record_stream_usage(
+                        request_messages,
+                        "".join(completion_parts),
+                        tools=tools,
+                    )
+
+                normalized_finish_reason = finish_reason or "stop"
+                self._last_stream_metadata = {
+                    "finish_reason": normalized_finish_reason,
+                    "truncated": normalized_finish_reason == "length",
+                    "provider": "openai",
+                }
+                if normalized_finish_reason == "length":
+                    logger.warning("OpenAI streaming response truncated (finish_reason=length)")
+                return
+
+            except RateLimitError as e:
+                self._last_stream_metadata = {
+                    "finish_reason": "error",
+                    "truncated": False,
+                    "provider": "openai",
+                    "error": "rate_limit",
+                }
+                retry_after = None
+                if hasattr(e, "response") and e.response is not None:
+                    retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
+                    if retry_after_header:
+                        with contextlib.suppress(ValueError, TypeError):
+                            retry_after = float(retry_after_header)
+                if retry_after is None:
+                    retry_after = min(4.0, 60.0)  # Single retry for streaming
+                logger.warning(f"OpenAI rate limit hit during streaming, retrying after {retry_after:.1f}s")
+                await asyncio.sleep(retry_after)
+                # Re-raise to let caller retry the entire stream
+                raise
+            except Exception as e:
+                if self._is_message_validation_error(e) and not validation_recovery_attempted and not completion_parts:
+                    recovered_messages = self._build_validation_recovery_messages(base_messages)
+                    if recovered_messages != base_messages:
+                        validation_recovery_attempted = True
+                        base_messages = recovered_messages
+                        request_messages = recovered_messages
+                        if enable_caching and self._cache_manager:
+                            request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
+                        logger.warning("ask_stream retrying once with simplified transcript after schema validation error")
+                        continue
+
+                self._last_stream_metadata = {
+                    "finish_reason": "error",
+                    "truncated": False,
+                    "provider": "openai",
+                    "error": type(e).__name__,
+                }
+                error_msg = str(e).lower()
+                if any(
+                    term in error_msg
+                    for term in [
+                        "context_length_exceeded",
+                        "maximum context length",
+                        "too many tokens",
+                        "max_tokens",
+                        "context window",
+                    ]
+                ):
+                    raise TokenLimitExceededError(str(e)) from e
+                raise

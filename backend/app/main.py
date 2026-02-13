@@ -58,13 +58,14 @@ settings = get_settings()
 async def _run_periodic_session_cleanup(
     maintenance_service: MaintenanceService,
     interval_seconds: float = 300.0,
+    stale_threshold_minutes: int = 30,
 ) -> None:
-    """Background task: clean up stale sessions every 5 minutes."""
+    """Background task: clean up stale sessions on a fixed interval."""
     while True:
         await asyncio.sleep(interval_seconds)
         try:
             result = await maintenance_service.cleanup_stale_running_sessions(
-                stale_threshold_minutes=30,
+                stale_threshold_minutes=stale_threshold_minutes,
                 dry_run=False,
             )
             if result.get("sessions_cleaned", 0) > 0:
@@ -476,14 +477,18 @@ async def lifespan(app: FastAPI):
             db = get_mongodb().client[settings.mongodb_database]
             maintenance_service = MaintenanceService(db)
             cleanup_result = await maintenance_service.cleanup_stale_running_sessions(
-                stale_threshold_minutes=5,  # Sessions running > 5 min during startup are stale
+                stale_threshold_minutes=settings.stale_session_startup_threshold_minutes,
                 dry_run=False,
             )
             if cleanup_result["sessions_cleaned"] > 0:
                 logger.info(f"Cleaned up {cleanup_result['sessions_cleaned']} stale sessions from previous run")
 
             periodic_cleanup_task = asyncio.create_task(
-                _run_periodic_session_cleanup(maintenance_service),
+                _run_periodic_session_cleanup(
+                    maintenance_service,
+                    interval_seconds=settings.stale_session_cleanup_interval_seconds,
+                    stale_threshold_minutes=settings.stale_session_threshold_minutes,
+                ),
             )
             logger.info("Periodic session cleanup background task started")
         except Exception as e:

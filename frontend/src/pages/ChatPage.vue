@@ -2674,6 +2674,9 @@ const chat = async (
     attachmentCount: files.length,
     hasFollowUp: Boolean(followUp),
   })
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:chat:sending',message:'chat() sending to backend',data:{sessionId:sessionId.value,messageLength:normalizedMessage.length,messagePreview:normalizedMessage.slice(0,80)||'(empty)',lastEventId:lastEventId.value||null,sessionStatus:sessionStatus.value,isSessionComplete:isSessionComplete.value},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
+  // #endregion
 
   try {
     // Use the split event handler function and store the cancel function
@@ -2765,6 +2768,10 @@ const restoreSession = async () => {
     console.log('[RESTORE] Loaded lastEventId from sessionStorage:', savedEventId);
   }
 
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:restoreSession:start',message:'restoreSession called',data:{sessionId:sessionId.value,savedEventId:savedEventId||null},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
+  // #endregion
+
   const session = await agentApi.getSession(sessionId.value);
   sessionStatus.value = session.status as SessionStatus;
   console.log('[RESTORE] Session:', sessionId.value, 'Status:', sessionStatus.value, 'LastEventId:', lastEventId.value);
@@ -2782,6 +2789,11 @@ const restoreSession = async () => {
   if (sessionStatus.value === SessionStatus.RUNNING || sessionStatus.value === SessionStatus.PENDING) {
     transitionTo('connecting') // Will transition to 'streaming' on first event
     receivedDoneEvent.value = false;
+
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:restoreSession:auto_resume_path',message:'session is RUNNING/PENDING, will try auto-resume',data:{sessionId:sessionId.value,sessionStatus:sessionStatus.value,lastEventId:lastEventId.value||null,eventCount:session.events?.length||0},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+
     // Defense-in-depth: if event replay already set status to COMPLETED (via DoneEvent
     // handler), the condition above will be false and we skip auto-resume. But if the
     // server returned "running" AND events didn't include a DoneEvent (edge case),
@@ -2789,6 +2801,9 @@ const restoreSession = async () => {
     const freshStatus = await agentApi.getSessionStatus(sessionId.value);
     if (freshStatus && ['completed', 'failed'].includes(freshStatus.status)) {
       console.log('[RESTORE] Status re-check shows session is', freshStatus.status, '- not resuming');
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:restoreSession:status_recheck_completed',message:'STATUS RE-CHECK shows completed/failed, NOT resuming',data:{sessionId:sessionId.value,freshStatus:freshStatus.status},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       sessionStatus.value = freshStatus.status === 'completed' ? SessionStatus.COMPLETED : SessionStatus.FAILED;
       replay.loadScreenshots();
       return;
@@ -2826,6 +2841,9 @@ const restoreSession = async () => {
 
     // No stop flag - safe to auto-resume
     console.log('[RESTORE] No stop flag, auto-resuming session');
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:restoreSession:calling_chat',message:'calling chat() for auto-resume (no message)',data:{sessionId:sessionId.value,lastEventId:lastEventId.value||null},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
     await chat();
   } else if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED) {
     // Load screenshots for replay mode

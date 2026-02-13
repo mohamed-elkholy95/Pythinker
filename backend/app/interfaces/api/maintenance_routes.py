@@ -42,7 +42,10 @@ class StaleSessionCleanupResponse(BaseModel):
     dry_run: bool
     stale_threshold_minutes: int
     sessions_cleaned: int
+    sandboxes_destroyed: int
     sessions_marked_failed: list
+    sessions_reset_pending: list
+    sessions_skipped: list
     errors: list
     timestamp: str
 
@@ -137,16 +140,20 @@ async def preview_attachment_cleanup(
 
 @router.post("/cleanup/stale-sessions", response_model=StaleSessionCleanupResponse)
 async def cleanup_stale_running_sessions(
-    stale_threshold_minutes: int = Query(30, description="Sessions running longer than this are considered stale"),
+    stale_threshold_minutes: int = Query(
+        30,
+        description="Sessions with leaked runtime state older than this are considered stale",
+    ),
     dry_run: bool = Query(True, description="If true, only reports what would be cleaned"),
     current_user: User = Depends(get_current_user),
     service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
-    Clean up sessions stuck in "running" or "initializing" status.
+    Clean up stale sessions with leaked runtime state.
 
-    Sessions can become stuck if the backend crashes or restarts during processing.
-    This marks them as failed so users can start new sessions.
+    Behavior:
+    - `running` / `initializing` sessions are marked `failed`
+    - `pending` sessions are only reset when runtime state leaked (`task_id` or owned sandbox)
 
     **Important:** Set `dry_run=false` to actually perform the cleanup.
     Default is dry_run=true for safety.
@@ -171,7 +178,10 @@ async def cleanup_stale_running_sessions(
 
 @router.get("/cleanup/stale-sessions/preview", response_model=StaleSessionCleanupResponse)
 async def preview_stale_session_cleanup(
-    stale_threshold_minutes: int = Query(30, description="Sessions running longer than this are considered stale"),
+    stale_threshold_minutes: int = Query(
+        30,
+        description="Sessions with leaked runtime state older than this are considered stale",
+    ),
     current_user: User = Depends(get_current_user),
     service: MaintenanceService = Depends(get_maintenance_service),
 ):
