@@ -747,6 +747,32 @@ http_pool_pool_exhaustion_total = Counter(
     labels=["client_name"],
 )
 
+# API Key Pool Metrics
+api_key_selections_total = Counter(
+    name="pythinker_api_key_selections_total",
+    help_text="Total API key selections (successful and failed)",
+    labels=["provider", "key_id", "status"],  # status: success, exhausted, invalid
+)
+
+api_key_exhaustions_total = Counter(
+    name="pythinker_api_key_exhaustions_total",
+    help_text="Total API key exhaustion events",
+    labels=["provider", "reason"],  # reason: quota, invalid, error
+)
+
+api_key_health_score = Gauge(
+    name="pythinker_api_key_health_score",
+    help_text="Current health score of API keys (0=invalid, 1=healthy)",
+    labels=["provider", "key_id"],
+)
+
+api_key_latency_seconds = Histogram(
+    name="pythinker_api_key_latency_seconds",
+    help_text="API request latency per key",
+    labels=["provider", "key_id"],
+    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
+)
+
 # Plan Quality Metrics
 plan_modifications_total = Counter(
     name="pythinker_plan_modifications_total",
@@ -1073,6 +1099,11 @@ _metrics_registry.extend(
         http_pool_request_latency,
         http_pool_errors_total,
         http_pool_pool_exhaustion_total,
+        # API Key Pool Metrics
+        api_key_selections_total,
+        api_key_exhaustions_total,
+        api_key_health_score,
+        api_key_latency_seconds,
         workflow_phase_duration,
         workflow_phase_transitions,
         tool_selection_accuracy,
