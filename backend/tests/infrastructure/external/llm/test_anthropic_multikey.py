@@ -337,9 +337,7 @@ class TestAnthropicMultiKey:
         mocker.patch.object(llm, "_record_stream_usage")
 
         # Collect stream chunks
-        chunks = []
-        async for chunk in llm.ask_stream([{"role": "user", "content": "test"}]):
-            chunks.append(chunk)
+        chunks = [chunk async for chunk in llm.ask_stream([{"role": "user", "content": "test"}])]
 
         assert "".join(chunks) == "Hello World"
         assert call_count == 2  # Two attempts

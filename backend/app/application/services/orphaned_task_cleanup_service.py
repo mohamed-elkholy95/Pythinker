@@ -358,7 +358,7 @@ class OrphanedTaskCleanupService:
                             continue
 
                         # Parse ISO timestamp
-                        started_time = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                        started_time = datetime.fromisoformat(started_at.removesuffix("Z") + "+00:00")
                         age = datetime.now(UTC) - started_time
 
                         # Check if container is old and potentially abandoned
@@ -370,7 +370,6 @@ class OrphanedTaskCleanupService:
                                 container_name=container_name,
                                 age_seconds=age.total_seconds(),
                             )
-                            # metrics.abandoned_sandboxes += 1
 
                     except Exception as e:
                         logger.warning(
@@ -457,8 +456,8 @@ async def main() -> None:
         service = OrphanedTaskCleanupService(redis_client, settings)
         metrics = await service.run_cleanup()
 
-        # Print metrics for cron logging
-        print(f"Cleanup completed: {metrics.to_dict()}")
+        # Log metrics for cron logging
+        logger.info(f"Cleanup completed: {metrics.to_dict()}")
 
     finally:
         await redis_client.close()

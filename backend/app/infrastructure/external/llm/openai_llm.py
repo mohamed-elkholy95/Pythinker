@@ -164,8 +164,7 @@ class OpenAILLM(LLM):
                         import time
 
                         reset_time = float(reset_header)
-                        ttl = max(1, int(reset_time - time.time()))
-                        return ttl
+                        return max(1, int(reset_time - time.time()))
                     except (ValueError, TypeError):
                         pass
 
