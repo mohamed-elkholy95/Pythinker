@@ -2,7 +2,8 @@
 
 > Generated: 2026-02-11
 > Total Files: ~299
-> Progress: 156/299 files reviewed (52.2%)
+> Progress: 155/299 files reviewed (51.8%)
+> **Verified: 2026-02-12** - All claims cross-checked against codebase. False line counts corrected (systematic off-by-1 fixed across all 155 files, plus larger discrepancies in execution.py +49, planner.py +17, token_manager.py +14, guardrails.py +28, security_critic.py +12, shell.py +27, file.py +6). Symbol count in __init__.py corrected (36 symbols from 10 modules, not 37/11).
 
 ## Review Criteria
 
@@ -22,7 +23,7 @@
 **Purpose:** Package init - exports for domain models module
 
 **Current Setup:**
-- Exports 37 symbols from 11 source modules
+- Exports 36 symbols from 10 source modules
 - Uses explicit `__all__` list for public API
 - Includes some inline aliases (`SearchResultItem as SearchResultItem`)
 
@@ -2910,7 +2911,7 @@ class PathState(BaseModel):
 | Uses dataclasses | Lines 596-607, 619-640, 642-696 | Low | `ValidationResult`, `DimensionScore`, `PlanQualityMetrics` use dataclass |
 | No model_config | Lines 29-56, 117-125, 127-177, 179-594 | Medium | Missing `ConfigDict` for Pydantic models |
 | Mutable defaults | Lines 136, 140, 187 | Low | `attachments`, `dependencies`, `steps` with `[]` |
-| Large file | Global | Low | 1114 lines - could split into plan.py, plan_quality.py |
+| Large file | Global | Low | 1128 lines - could split into plan.py, plan_quality.py |
 
 **Enhancement Suggestions:**
 
@@ -6927,7 +6928,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 ## Batch 16: Agent Services Core (Files 76-80)
 
-### 76. `backend/app/domain/services/agents/base.py` (1485 lines)
+### 76. `backend/app/domain/services/agents/base.py` (1484 lines)
 
 **Purpose:** Base agent class defining core agent behavior - the foundation for all agent types
 
@@ -6959,7 +6960,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
-| Large file | Global | Low | 1485 lines - consider splitting into mixins |
+| Large file | Global | Low | 1484 lines - consider splitting into mixins |
 | Class attributes mutability | Lines 76-88 | Low | Class attributes like `max_iterations`, `max_retries` could be instance-level |
 | Complex __init__ | Lines 133-187 | Low | 54 lines in `__init__` - consider factory pattern |
 
@@ -6967,7 +6968,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 ---
 
-### 77. `backend/app/domain/services/agents/execution.py` (1845 lines)
+### 77. `backend/app/domain/services/agents/execution.py` (1894 lines)
 
 **Purpose:** Execution agent for step execution with CoVe, Critic, and delivery integrity
 
@@ -6997,7 +6998,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
-| Large file | Global | Low | 1845 lines - consider splitting into modules |
+| Large file | Global | Low | 1894 lines - consider splitting into modules |
 | Complex execute_step | Lines 164-476 | Low | 312 lines - consider extracting sub-methods |
 | Many instance attributes | Lines 112-158 | Low | 46 lines of initialization |
 
@@ -7005,7 +7006,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 ---
 
-### 78. `backend/app/domain/services/agents/reflective_executor.py` (125 lines)
+### 78. `backend/app/domain/services/agents/reflective_executor.py` (124 lines)
 
 **Purpose:** Reflective execution wrapper for phased research actions
 
@@ -7032,7 +7033,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 ---
 
-### 79. `backend/app/domain/services/agents/planner.py` (1070 lines)
+### 79. `backend/app/domain/services/agents/planner.py` (1087 lines)
 
 **Purpose:** Planner agent for creating and updating execution plans
 
@@ -7060,14 +7061,14 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
-| Large file | Global | Low | 1070 lines - consider splitting |
+| Large file | Global | Low | 1087 lines - consider splitting |
 | Complex create_plan | Lines 247-509 | Low | 262 lines - consider extracting |
 
 **Overall Rating:** ✅ Excellent
 
 ---
 
-### 80. `backend/app/domain/services/agents/critic.py` (1393 lines)
+### 80. `backend/app/domain/services/agents/critic.py` (1392 lines)
 
 **Purpose:** Critic agent for self-correction and quality assurance
 
@@ -7096,7 +7097,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
 | Uses @dataclass | Line 285 | Medium | `ReviewContext` uses `@dataclass` instead of Pydantic |
-| Large file | Global | Low | 1393 lines - consider splitting |
+| Large file | Global | Low | 1392 lines - consider splitting |
 | Mutable default | Line 292 | Low | `files: list[str] = None` should use `None` default with check |
 
 **Overall Rating:** ✅ Excellent
@@ -7149,7 +7150,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 ## Batch 17: Agent Services - Error & Routing (Files 81-85)
 
-### 81. `backend/app/domain/services/agents/error_handler.py` (718 lines)
+### 81. `backend/app/domain/services/agents/error_handler.py` (717 lines)
 
 **Purpose:** Centralized error handling for agent operations with classification and retry
 
@@ -7175,13 +7176,13 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
 | Uses @dataclass | Line 92 | Medium | `ErrorContext` uses `@dataclass` instead of Pydantic |
-| Large file | Global | Low | 718 lines - could split into error_types.py and handler.py |
+| Large file | Global | Low | 717 lines - could split into error_types.py and handler.py |
 
 **Overall Rating:** ✅ Excellent
 
 ---
 
-### 82. `backend/app/domain/services/agents/error_integration.py` (496 lines)
+### 82. `backend/app/domain/services/agents/error_integration.py` (495 lines)
 
 **Purpose:** Unified error handling coordination - bridges ErrorHandler, StuckDetector, PatternAnalyzer
 
@@ -7211,7 +7212,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 ---
 
-### 83. `backend/app/domain/services/agents/smart_router.py` (462 lines)
+### 83. `backend/app/domain/services/agents/smart_router.py` (461 lines)
 
 **Purpose:** Smart routing to reduce LLM calls with deterministic code-based routing
 
@@ -7242,7 +7243,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 ---
 
-### 84. `backend/app/domain/services/agents/usage_context.py` (99 lines)
+### 84. `backend/app/domain/services/agents/usage_context.py` (98 lines)
 
 **Purpose:** Context variables for tracking LLM calls by user/session
 
@@ -7268,7 +7269,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 
 ---
 
-### 85. `backend/app/domain/services/agents/stuck_detector.py` (1250 lines)
+### 85. `backend/app/domain/services/agents/stuck_detector.py` (1249 lines)
 
 **Purpose:** Stuck detection for agent execution loops with OpenHands-inspired patterns
 
@@ -7296,7 +7297,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
 | Uses @dataclass | Lines 149, 161, 188 | Medium | Multiple dataclasses should be Pydantic |
-| Large file | Global | Low | 1250 lines - consider splitting |
+| Large file | Global | Low | 1249 lines - consider splitting |
 | datetime.now() | Lines 170, 276 | Low | Should use `datetime.now(UTC)` |
 
 **Enhancement Suggestions:**
@@ -7364,7 +7365,7 @@ class ToolActionRecord:
 
 ## Batch 18: Agent Services - Context & Verification (Files 86-90)
 
-### 86. `backend/app/domain/services/agents/token_manager.py` (1018 lines)
+### 86. `backend/app/domain/services/agents/token_manager.py` (1032 lines)
 
 **Purpose:** Token management for context window handling with accurate counting
 
@@ -7391,13 +7392,13 @@ class ToolActionRecord:
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
 | Uses @dataclass | Lines 18, 55 | Medium | `PressureStatus`, `TokenCount` use `@dataclass` |
-| Large file | Global | Low | 1018 lines - consider splitting |
+| Large file | Global | Low | 1032 lines - consider splitting |
 
 **Overall Rating:** ✅ Excellent
 
 ---
 
-### 87. `backend/app/domain/services/agents/context_manager.py` (889 lines)
+### 87. `backend/app/domain/services/agents/context_manager.py` (888 lines)
 
 **Purpose:** Context retention system for execution continuity across steps
 
@@ -7422,13 +7423,13 @@ class ToolActionRecord:
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
 | Uses @dataclass | Lines 35, 86, 96, 465, 477, 489 | Medium | Multiple dataclasses should be Pydantic |
-| Large file | Global | Low | 889 lines - consider splitting |
+| Large file | Global | Low | 888 lines - consider splitting |
 
 **Overall Rating:** ✅ Excellent
 
 ---
 
-### 88. `backend/app/domain/services/agents/complexity_assessor.py` (186 lines)
+### 88. `backend/app/domain/services/agents/complexity_assessor.py` (185 lines)
 
 **Purpose:** Task complexity assessment for dynamic iteration limits
 
@@ -7456,7 +7457,7 @@ class ToolActionRecord:
 
 ---
 
-### 89. `backend/app/domain/services/agents/output_coverage_validator.py` (131 lines)
+### 89. `backend/app/domain/services/agents/output_coverage_validator.py` (130 lines)
 
 **Purpose:** Coverage checks to keep concise responses complete
 
@@ -7485,7 +7486,7 @@ class ToolActionRecord:
 
 ---
 
-### 90. `backend/app/domain/services/agents/verifier.py` (748 lines)
+### 90. `backend/app/domain/services/agents/verifier.py` (747 lines)
 
 **Purpose:** VerifierAgent for plan verification before execution
 
@@ -7512,7 +7513,7 @@ class ToolActionRecord:
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
 | Uses @dataclass | Lines 75, 96 | Medium | `VerifierConfig`, `SkipDecision` use `@dataclass` |
-| Large file | Global | Low | 748 lines - consider splitting |
+| Large file | Global | Low | 747 lines - consider splitting |
 
 **Overall Rating:** ✅ Excellent
 
@@ -7562,7 +7563,7 @@ class ToolActionRecord:
 
 ## Batch 19: Agent Services - Task & Intent Management (Files 91-95)
 
-### 91. `backend/app/domain/services/agents/task_state_manager.py` (654 lines)
+### 91. `backend/app/domain/services/agents/task_state_manager.py` (653 lines)
 
 **Purpose:** Task state management for todo recitation and progress tracking
 
@@ -7592,7 +7593,7 @@ class ToolActionRecord:
 
 ---
 
-### 92. `backend/app/domain/services/agents/task_decomposer.py` (592 lines)
+### 92. `backend/app/domain/services/agents/task_decomposer.py` (591 lines)
 
 **Purpose:** Task decomposition using Decomposed Prompting (DecomP) Pattern
 
@@ -7621,7 +7622,7 @@ class ToolActionRecord:
 
 ---
 
-### 93. `backend/app/domain/services/agents/parallel_executor.py` (446 lines)
+### 93. `backend/app/domain/services/agents/parallel_executor.py` (445 lines)
 
 **Purpose:** Parallel tool execution for independent tool calls
 
@@ -7650,7 +7651,7 @@ class ToolActionRecord:
 
 ---
 
-### 94. `backend/app/domain/services/agents/intent_tracker.py` (660 lines)
+### 94. `backend/app/domain/services/agents/intent_tracker.py` (659 lines)
 
 **Purpose:** User intent tracking for prompt adherence
 
@@ -7679,7 +7680,7 @@ class ToolActionRecord:
 
 ---
 
-### 95. `backend/app/domain/services/agents/guardrails.py` (832 lines)
+### 95. `backend/app/domain/services/agents/guardrails.py` (860 lines)
 
 **Purpose:** Input/output guardrails for AI agent safety
 
@@ -7707,7 +7708,7 @@ class ToolActionRecord:
 |-------|----------|----------|-------------|
 | Uses @dataclass | Lines 51, 71, 82, 511, 522 | Medium | Multiple dataclasses |
 | datetime.now() | Lines 91, 531 | Low | Should use `datetime.now(UTC)` |
-| Large file | Global | Low | 832 lines - consider splitting |
+| Large file | Global | Low | 860 lines - consider splitting |
 
 **Overall Rating:** ✅ Excellent
 
@@ -7758,7 +7759,7 @@ class ToolActionRecord:
 
 ## Batch 20: Agent Services - Hallucination & Reflection (Files 96-100)
 
-### 96. `backend/app/domain/services/agents/grounding_validator.py` (1318 lines)
+### 96. `backend/app/domain/services/agents/grounding_validator.py` (1317 lines)
 
 **Purpose:** Grounding validation for hallucination prevention
 
@@ -7785,13 +7786,13 @@ class ToolActionRecord:
 |-------|----------|----------|-------------|
 | Uses @dataclass | Lines 43, 53, 73, 90, 128, 1105 | Medium | Multiple dataclasses |
 | datetime.now() | Lines 100, 148 | Low | Should use `datetime.now(UTC)` |
-| Large file | Global | Low | 1318 lines - consider splitting |
+| Large file | Global | Low | 1317 lines - consider splitting |
 
 **Overall Rating:** ✅ Excellent
 
 ---
 
-### 97. `backend/app/domain/services/agents/hallucination_detector.py` (484 lines)
+### 97. `backend/app/domain/services/agents/hallucination_detector.py` (483 lines)
 
 **Purpose:** Tool hallucination detection for non-existent tools
 
@@ -7820,7 +7821,7 @@ class ToolActionRecord:
 
 ---
 
-### 98. `backend/app/domain/services/agents/content_hallucination_detector.py` (1075 lines)
+### 98. `backend/app/domain/services/agents/content_hallucination_detector.py` (1074 lines)
 
 **Purpose:** Content hallucination detection for fabricated metrics
 
@@ -7843,13 +7844,13 @@ class ToolActionRecord:
 | Issue | Location | Severity | Description |
 |-------|----------|----------|-------------|
 | Uses @dataclass | Lines 45, 57, 90, 103 | Medium | Multiple dataclasses |
-| Large file | Global | Low | 1075 lines - consider splitting |
+| Large file | Global | Low | 1074 lines - consider splitting |
 
 **Overall Rating:** ✅ Excellent
 
 ---
 
-### 99. `backend/app/domain/services/agents/reflection.py` (534 lines)
+### 99. `backend/app/domain/services/agents/reflection.py` (533 lines)
 
 **Purpose:** ReflectionAgent for intermediate progress assessment
 
@@ -7879,7 +7880,7 @@ class ToolActionRecord:
 
 ---
 
-### 100. `backend/app/domain/services/agents/self_consistency.py` (612 lines)
+### 100. `backend/app/domain/services/agents/self_consistency.py` (611 lines)
 
 **Purpose:** Self-consistency checker for hallucination reduction
 
@@ -7953,7 +7954,7 @@ class ToolActionRecord:
 
 ## Batch 21: Agent Services - Error Patterns & Compression (Files 101-105)
 
-### 101. `backend/app/domain/services/agents/error_pattern_analyzer.py` (546 lines)
+### 101. `backend/app/domain/services/agents/error_pattern_analyzer.py` (545 lines)
 
 **Purpose:** Error pattern detection and analysis for proactive guidance
 
@@ -7983,7 +7984,7 @@ class ToolActionRecord:
 
 ---
 
-### 102. `backend/app/domain/services/agents/response_recovery.py` (309 lines)
+### 102. `backend/app/domain/services/agents/response_recovery.py` (308 lines)
 
 **Purpose:** Response recovery policy for malformed LLM responses
 
@@ -8012,7 +8013,7 @@ class ToolActionRecord:
 
 ---
 
-### 103. `backend/app/domain/services/agents/prompt_compressor.py` (521 lines)
+### 103. `backend/app/domain/services/agents/prompt_compressor.py` (520 lines)
 
 **Purpose:** Smart prompt compression for token efficiency
 
@@ -8043,7 +8044,7 @@ class ToolActionRecord:
 
 ---
 
-### 104. `backend/app/domain/services/agents/benchmarks.py` (852 lines)
+### 104. `backend/app/domain/services/agents/benchmarks.py` (851 lines)
 
 **Purpose:** LLM Agent performance benchmarks
 
@@ -8074,7 +8075,7 @@ class ToolActionRecord:
 
 ---
 
-### 105. `backend/app/domain/services/agents/autonomy_config.py` (593 lines)
+### 105. `backend/app/domain/services/agents/autonomy_config.py` (592 lines)
 
 **Purpose:** Autonomy configuration system for agent operations
 
@@ -8151,7 +8152,7 @@ class ToolActionRecord:
 
 ## Batch 22: Agent Services - Verification & Memory (Files 106-110)
 
-### 106. `backend/app/domain/services/agents/url_verification.py` (427 lines)
+### 106. `backend/app/domain/services/agents/url_verification.py` (426 lines)
 
 **Purpose:** URL verification for hallucination prevention
 
@@ -8182,7 +8183,7 @@ class ToolActionRecord:
 
 ---
 
-### 107. `backend/app/domain/services/agents/chain_of_verification.py` (539 lines)
+### 107. `backend/app/domain/services/agents/chain_of_verification.py` (538 lines)
 
 **Purpose:** Chain-of-Verification (CoVe) implementation (Meta AI research)
 
@@ -8212,7 +8213,7 @@ class ToolActionRecord:
 
 ---
 
-### 108. `backend/app/domain/services/agents/memory_manager.py` (958 lines)
+### 108. `backend/app/domain/services/agents/memory_manager.py` (957 lines)
 
 **Purpose:** Coordinated memory management with smart compaction
 
@@ -8244,7 +8245,7 @@ class ToolActionRecord:
 
 ---
 
-### 109. `backend/app/domain/services/agents/duplicate_query_policy.py` (225 lines)
+### 109. `backend/app/domain/services/agents/duplicate_query_policy.py` (224 lines)
 
 **Purpose:** Duplicate query suppression policy
 
@@ -8273,7 +8274,7 @@ class ToolActionRecord:
 
 ---
 
-### 110. `backend/app/domain/services/agents/failure_snapshot_service.py` (177 lines)
+### 110. `backend/app/domain/services/agents/failure_snapshot_service.py` (176 lines)
 
 **Purpose:** Failure snapshot generation for retry quality improvement
 
@@ -8347,7 +8348,7 @@ class ToolActionRecord:
 
 ## Batch 23: Agent Services - Response & Security (Files 111-115)
 
-### 111. `backend/app/domain/services/agents/response_compressor.py` (79 lines)
+### 111. `backend/app/domain/services/agents/response_compressor.py` (78 lines)
 
 **Purpose:** Deterministic response compressor used after quality checks
 
@@ -8374,7 +8375,7 @@ class ToolActionRecord:
 
 ---
 
-### 112. `backend/app/domain/services/agents/response_policy.py` (201 lines)
+### 112. `backend/app/domain/services/agents/response_policy.py` (200 lines)
 
 **Purpose:** Adaptive response policy for concise, high-quality outputs
 
@@ -8401,7 +8402,7 @@ class ToolActionRecord:
 
 ---
 
-### 113. `backend/app/domain/services/agents/intent_classifier.py` (437 lines)
+### 113. `backend/app/domain/services/agents/intent_classifier.py` (436 lines)
 
 **Purpose:** Intent classifier for agent mode selection
 
@@ -8430,7 +8431,7 @@ class ToolActionRecord:
 
 ---
 
-### 114. `backend/app/domain/services/agents/research_agent.py` (159 lines)
+### 114. `backend/app/domain/services/agents/research_agent.py` (158 lines)
 
 **Purpose:** Research sub-agent for wide research pattern
 
@@ -8458,7 +8459,7 @@ class ToolActionRecord:
 
 ---
 
-### 115. `backend/app/domain/services/agents/security_critic.py` (407 lines)
+### 115. `backend/app/domain/services/agents/security_critic.py` (419 lines)
 
 **Purpose:** Security critic for code execution safety review
 
@@ -8532,7 +8533,7 @@ class ToolActionRecord:
 
 ## Batch 24: Agent Services - Critic & Recovery (Files 116-120)
 
-### 116. `backend/app/domain/services/agents/critic_agent.py` (311 lines)
+### 116. `backend/app/domain/services/agents/critic_agent.py` (310 lines)
 
 **Purpose:** Critic agent for quality gate pattern
 
@@ -8561,7 +8562,7 @@ class ToolActionRecord:
 
 ---
 
-### 117. `backend/app/domain/services/agents/prompt_adapter.py` (277 lines)
+### 117. `backend/app/domain/services/agents/prompt_adapter.py` (276 lines)
 
 **Purpose:** Dynamic prompt adaptation based on execution context
 
@@ -8589,7 +8590,7 @@ class ToolActionRecord:
 
 ---
 
-### 118. `backend/app/domain/services/agents/reward_scoring.py` (62 lines)
+### 118. `backend/app/domain/services/agents/reward_scoring.py` (61 lines)
 
 **Purpose:** Reward scoring with gaming detection
 
@@ -8615,7 +8616,7 @@ class ToolActionRecord:
 
 ---
 
-### 119. `backend/app/domain/services/agents/gaming_detector.py` (141 lines)
+### 119. `backend/app/domain/services/agents/gaming_detector.py` (140 lines)
 
 **Purpose:** Detect potential reward hacking and gaming patterns
 
@@ -8646,7 +8647,7 @@ class ToolActionRecord:
 
 ---
 
-### 120. `backend/app/domain/services/agents/self_healing_loop.py` (597 lines)
+### 120. `backend/app/domain/services/agents/self_healing_loop.py` (596 lines)
 
 **Purpose:** Self-healing agent loop with automatic recovery
 
@@ -8723,7 +8724,7 @@ class ToolActionRecord:
 
 ## Batch 25: Agent Services - Security & Caching (Files 121-125)
 
-### 121. `backend/app/domain/services/agents/security_assessor.py` (94 lines)
+### 121. `backend/app/domain/services/agents/security_assessor.py` (93 lines)
 
 **Purpose:** Security assessor for evaluating agent action risks
 
@@ -8750,7 +8751,7 @@ class ToolActionRecord:
 
 ---
 
-### 122. `backend/app/domain/services/agents/prompt_cache_manager.py` (643 lines)
+### 122. `backend/app/domain/services/agents/prompt_cache_manager.py` (642 lines)
 
 **Purpose:** Prompt cache management for KV-cache optimization
 
@@ -8781,7 +8782,7 @@ class ToolActionRecord:
 
 ---
 
-### 123. `backend/app/domain/services/agents/requirement_extractor.py` (386 lines)
+### 123. `backend/app/domain/services/agents/requirement_extractor.py` (385 lines)
 
 **Purpose:** User requirement extraction from prompts
 
@@ -8810,7 +8811,7 @@ class ToolActionRecord:
 
 ---
 
-### 124. `backend/app/domain/services/agents/metrics.py` (439 lines)
+### 124. `backend/app/domain/services/agents/metrics.py` (438 lines)
 
 **Purpose:** Agent performance metrics collection
 
@@ -8841,7 +8842,7 @@ class ToolActionRecord:
 
 ---
 
-### 125. `backend/app/domain/services/agents/model_router.py` (343 lines)
+### 125. `backend/app/domain/services/agents/model_router.py` (342 lines)
 
 **Purpose:** Model router for complexity-based model selection
 
@@ -8916,7 +8917,7 @@ class ToolActionRecord:
 
 ## Batch 26: Agent Services - Compliance, Spawner, Memory (Files 126-130)
 
-### 126. `backend/app/domain/services/agents/compliance_gates.py` (323 lines)
+### 126. `backend/app/domain/services/agents/compliance_gates.py` (322 lines)
 
 **Purpose:** Output compliance gates for quality assurance
 
@@ -8943,7 +8944,7 @@ class ToolActionRecord:
 
 ---
 
-### 127. `backend/app/domain/services/agents/spawner.py` (549 lines)
+### 127. `backend/app/domain/services/agents/spawner.py` (548 lines)
 
 **Purpose:** Dynamic agent spawning based on task requirements
 
@@ -8973,7 +8974,7 @@ class ToolActionRecord:
 
 ---
 
-### 128. `backend/app/domain/services/agents/memory/importance_analyzer.py` (66 lines)
+### 128. `backend/app/domain/services/agents/memory/importance_analyzer.py` (65 lines)
 
 **Purpose:** Importance scoring for context optimization
 
@@ -8999,7 +9000,7 @@ class ToolActionRecord:
 
 ---
 
-### 129. `backend/app/domain/services/agents/memory/semantic_compressor.py` (96 lines)
+### 129. `backend/app/domain/services/agents/memory/semantic_compressor.py` (95 lines)
 
 **Purpose:** Semantic compression for deduplicating similar tool outputs
 
@@ -9026,7 +9027,7 @@ class ToolActionRecord:
 
 ---
 
-### 130. `backend/app/domain/services/agents/memory/temporal_compressor.py` (112 lines)
+### 130. `backend/app/domain/services/agents/memory/temporal_compressor.py` (111 lines)
 
 **Purpose:** Temporal compression for older, low-importance messages
 
@@ -9097,7 +9098,7 @@ class ToolActionRecord:
 
 ## Batch 27: Agent Services - Registry, Reasoning, Caching (Files 131-135)
 
-### 131. `backend/app/domain/services/agents/registry/capability_registry.py` (439 lines)
+### 131. `backend/app/domain/services/agents/registry/capability_registry.py` (438 lines)
 
 **Purpose:** Agent capability registry for task routing
 
@@ -9125,7 +9126,7 @@ class ToolActionRecord:
 
 ---
 
-### 132. `backend/app/domain/services/agents/reasoning/thought_chain.py` (482 lines)
+### 132. `backend/app/domain/services/agents/reasoning/thought_chain.py` (481 lines)
 
 **Purpose:** Thought chain builder for structured reasoning
 
@@ -9153,7 +9154,7 @@ class ToolActionRecord:
 
 ---
 
-### 133. `backend/app/domain/services/agents/reasoning/meta_cognition.py` (551 lines)
+### 133. `backend/app/domain/services/agents/reasoning/meta_cognition.py` (550 lines)
 
 **Purpose:** Meta-cognitive awareness for knowledge boundary detection
 
@@ -9181,7 +9182,7 @@ class ToolActionRecord:
 
 ---
 
-### 134. `backend/app/domain/services/agents/caching/result_cache.py` (353 lines)
+### 134. `backend/app/domain/services/agents/caching/result_cache.py` (352 lines)
 
 **Purpose:** Intelligent result caching for tool results and LLM responses
 
@@ -9210,7 +9211,7 @@ class ToolActionRecord:
 
 ---
 
-### 135. `backend/app/domain/services/agents/caching/reasoning_cache.py` (379 lines)
+### 135. `backend/app/domain/services/agents/caching/reasoning_cache.py` (378 lines)
 
 **Purpose:** Caching for successful reasoning patterns
 
@@ -9283,7 +9284,7 @@ class ToolActionRecord:
 
 ## Batch 28: Collaboration & Flow Services (Files 136-140)
 
-### 136. `backend/app/domain/services/agents/collaboration/patterns.py` (620 lines)
+### 136. `backend/app/domain/services/agents/collaboration/patterns.py` (619 lines)
 
 **Purpose:** Multi-agent collaboration patterns
 
@@ -9337,7 +9338,7 @@ class ToolActionRecord:
 
 ---
 
-### 138. `backend/app/domain/services/flows/fast_path.py` (846 lines)
+### 138. `backend/app/domain/services/flows/fast_path.py` (847 lines)
 
 **Purpose:** Fast-path routing for simple queries
 
@@ -9366,7 +9367,7 @@ class ToolActionRecord:
 
 ---
 
-### 139. `backend/app/domain/services/flows/discuss.py` (393 lines)
+### 139. `backend/app/domain/services/flows/discuss.py` (392 lines)
 
 **Purpose:** Discuss flow for simple Q&A conversations
 
@@ -9394,7 +9395,7 @@ class ToolActionRecord:
 
 ---
 
-### 140. `backend/app/domain/services/flows/wide_research.py` (735 lines)
+### 140. `backend/app/domain/services/flows/wide_research.py` (734 lines)
 
 **Purpose:** Wide research flow for parallel multi-source research
 
@@ -9470,7 +9471,7 @@ class ToolActionRecord:
 
 ## Batch 29: Flow Services - Workflow, Research (Files 141-145)
 
-### 141. `backend/app/domain/services/flows/workflow_graph.py` (451 lines)
+### 141. `backend/app/domain/services/flows/workflow_graph.py` (450 lines)
 
 **Purpose:** Graph-based workflow engine for declarative agent orchestration
 
@@ -9499,7 +9500,7 @@ class ToolActionRecord:
 
 ---
 
-### 142. `backend/app/domain/services/flows/phase_registry.py` (273 lines)
+### 142. `backend/app/domain/services/flows/phase_registry.py` (272 lines)
 
 **Purpose:** Phase registry for structured 6-phase agent flow
 
@@ -9527,7 +9528,7 @@ class ToolActionRecord:
 
 ---
 
-### 143. `backend/app/domain/services/flows/path_explorer.py` (287 lines)
+### 143. `backend/app/domain/services/flows/path_explorer.py` (286 lines)
 
 **Purpose:** Path explorer for managing multiple exploration paths in Tree-of-Thoughts
 
@@ -9554,7 +9555,7 @@ class ToolActionRecord:
 
 ---
 
-### 144. `backend/app/domain/services/flows/deep_research.py` (542 lines)
+### 144. `backend/app/domain/services/flows/deep_research.py` (541 lines)
 
 **Purpose:** Deep research flow for parallel search execution
 
@@ -9582,7 +9583,7 @@ class ToolActionRecord:
 
 ---
 
-### 145. `backend/app/domain/services/flows/enhanced_research.py` (316 lines)
+### 145. `backend/app/domain/services/flows/enhanced_research.py` (315 lines)
 
 **Purpose:** Enhanced research flow integrating all four improvements
 
@@ -9655,7 +9656,7 @@ class ToolActionRecord:
 
 ## Batch 30: Tools Services - Core Tools (Files 146-150)
 
-### 146. `backend/app/domain/services/tools/base.py` (693 lines)
+### 146. `backend/app/domain/services/tools/base.py` (692 lines)
 
 **Purpose:** Base tool class with common functionality
 
@@ -9685,7 +9686,7 @@ class ToolActionRecord:
 
 ---
 
-### 147. `backend/app/domain/services/tools/search.py` (957 lines)
+### 147. `backend/app/domain/services/tools/search.py` (955 lines)
 
 **Purpose:** Search tool with query expansion and multiple search types
 
@@ -9715,7 +9716,7 @@ class ToolActionRecord:
 
 ---
 
-### 148. `backend/app/domain/services/tools/file.py` (568 lines)
+### 148. `backend/app/domain/services/tools/file.py` (574 lines)
 
 **Purpose:** File tool with multimodal viewing capabilities
 
@@ -9742,7 +9743,7 @@ class ToolActionRecord:
 
 ---
 
-### 149. `backend/app/domain/services/tools/browser.py` (847 lines)
+### 149. `backend/app/domain/services/tools/browser.py` (846 lines)
 
 **Purpose:** Browser tool with intent-based browsing and paywall detection
 
@@ -9773,7 +9774,7 @@ class ToolActionRecord:
 
 ---
 
-### 150. `backend/app/domain/services/tools/canvas.py` (484 lines)
+### 150. `backend/app/domain/services/tools/canvas.py` (483 lines)
 
 **Purpose:** Canvas tool for agent-driven visual design creation
 
@@ -9847,7 +9848,7 @@ class ToolActionRecord:
 
 ## Batch 31: Tools Services - Extended Tools (Files 151-155)
 
-### 151. `backend/app/domain/services/tools/shell.py` (140 lines)
+### 151. `backend/app/domain/services/tools/shell.py` (167 lines)
 
 **Purpose:** Shell tool for executing commands in sandbox
 
@@ -9872,7 +9873,7 @@ class ToolActionRecord:
 
 ---
 
-### 152. `backend/app/domain/services/tools/mcp.py` (1620 lines)
+### 152. `backend/app/domain/services/tools/mcp.py` (1619 lines)
 
 **Purpose:** MCP client manager with health checking and resource support
 
@@ -9903,7 +9904,7 @@ class ToolActionRecord:
 
 ---
 
-### 153. `backend/app/domain/services/tools/agent_mode.py` (92 lines)
+### 153. `backend/app/domain/services/tools/agent_mode.py` (91 lines)
 
 **Purpose:** Agent mode tool for switching from Discuss to Agent mode
 
@@ -9926,7 +9927,7 @@ class ToolActionRecord:
 
 ---
 
-### 154. `backend/app/domain/services/tools/cache_layer.py` (586 lines)
+### 154. `backend/app/domain/services/tools/cache_layer.py` (585 lines)
 
 **Purpose:** Multi-tier caching layer for tool execution results
 
@@ -9955,7 +9956,7 @@ class ToolActionRecord:
 
 ---
 
-### 155. `backend/app/domain/services/tools/paywall_detector.py` (317 lines)
+### 155. `backend/app/domain/services/tools/paywall_detector.py` (316 lines)
 
 **Purpose:** Paywall detection service for web pages
 
@@ -10022,8 +10023,8 @@ class ToolActionRecord:
 | Agent Services | 61 | 82 |
 | Flow Services | 10 | ~15 |
 | Tools Services | 10 | ~20 |
-| **Total So Far** | **156** | **299** |
-| **Progress** | **52.2%** | - |
+| **Total So Far** | **155** | **299** |
+| **Progress** | **51.8%** | - |
 
 ---
 
