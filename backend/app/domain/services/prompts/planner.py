@@ -59,12 +59,12 @@ If request involves system diagnostics, benchmarks, or capability testing:
 
 - Step 2: "Analyze findings and compile structured report with citations"
   - Synthesize all extracted content into markdown report
-  - Include comparison tables, inline citations, recommendations
-  - Every claim must have a citation
+  - Include comparison tables with numeric metrics (enables auto Plotly chart)
+  - Inline citations, recommendations; every claim must have a citation
 
-- Step 3: "Review, validate, and deliver final report"
+- Step 3: "Review, validate, and deliver final report with visualization"
   - Cross-check key claims against sources
-  - Fix any inconsistencies, then deliver to user
+  - Fix any inconsistencies, then deliver report (chart auto-generated when comparison data present)
 
 **CRITICAL**: Step 1 MUST browse actual pages — search snippets alone are outdated.
 If benchmarks are involved, visit actual benchmark sites. Never fabricate scores.
