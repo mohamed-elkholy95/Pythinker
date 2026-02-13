@@ -24,12 +24,18 @@ import { getVNCUrl } from '@/api/agent';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import { getPreconnectedVNCUrl, cacheVNCUrl } from '@/composables/useVNCPreconnect';
 
-const props = defineProps<{
-  sessionId: string;
-  enabled?: boolean;
-  viewOnly?: boolean;
-  compactLoading?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    sessionId: string;
+    enabled?: boolean;
+    viewOnly?: boolean;
+    compactLoading?: boolean;
+    reconnectAttempt?: number;
+  }>(),
+  {
+    reconnectAttempt: 0
+  }
+);
 
 const emit = defineEmits<{
   connected: [];
