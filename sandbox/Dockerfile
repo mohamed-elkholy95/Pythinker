@@ -199,6 +199,10 @@ RUN chown -R ubuntu:ubuntu /home/ubuntu && chmod 750 /home/ubuntu && \
 
 EXPOSE 8080 8082 9222 5900 5901
 
+# Health check: verify sandbox API is responding
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -sf http://localhost:8080/health || exit 1
+
 USER ubuntu
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["supervisord", "-n", "-c", "/app/supervisord.conf"]

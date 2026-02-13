@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 class AgentService:
     MAX_CREATE_SESSION_WAIT_SECONDS = 5.0
-    CHAT_EVENT_TIMEOUT_SECONDS = 120.0  # Increased from 60s to accommodate CoVe + Critic post-processing
+    CHAT_EVENT_TIMEOUT_SECONDS = 300.0  # 5 min to accommodate browser recovery + LLM calls
     CHAT_WARMUP_WAIT_SECONDS = 10.0
     BROWSER_PREWARM_TIMEOUT_SECONDS = 12.0
 
@@ -89,6 +89,14 @@ class AgentService:
         self._background_tasks: set[asyncio.Task] = set()
         self._sandbox_warm_locks: dict[str, asyncio.Lock] = {}
         self._sandbox_warm_tasks: dict[str, asyncio.Task] = {}
+        self._session_cancel_events: dict[str, asyncio.Event] = {}
+
+    def request_cancellation(self, session_id: str) -> None:
+        """Signal that a session's processing should stop (e.g. SSE disconnect)."""
+        event = self._session_cancel_events.get(session_id)
+        if event:
+            event.set()
+            logger.info("Cancellation requested for session %s", session_id)
 
     def _register_sandbox_warmup_task(self, session_id: str, task: asyncio.Task) -> None:
         """Track a warm-up task so it can be cancelled on stop/delete."""
@@ -670,6 +678,10 @@ class AgentService:
         )
         stream_iter = event_stream.__aiter__()
 
+        # Cancellation: allow SSE disconnect to stop this session's processing
+        cancel_event = asyncio.Event()
+        self._session_cancel_events[session_id] = cancel_event
+
         # Event resumption: skip events up to and including event_id
         # This enables page refresh to resume from the last received event
         skip_until_resume_point = bool(event_id)
@@ -679,13 +691,31 @@ class AgentService:
         try:
             while True:
                 try:
-                    if event_timeout_seconds > 0:
-                        async with asyncio.timeout(event_timeout_seconds):
-                            event = await stream_iter.__anext__()
+                    # Race: next event vs cancellation (client disconnect)
+                    next_task = asyncio.create_task(stream_iter.__anext__())
+                    cancel_task = asyncio.create_task(cancel_event.wait())
+                    done, _pending = await asyncio.wait(
+                        [next_task, cancel_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                        timeout=event_timeout_seconds if event_timeout_seconds > 0 else None,
+                    )
+                    if cancel_task in done:
+                        next_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await next_task
+                        logger.info("Chat stream cancelled for session %s (client disconnected)", session_id)
+                        return
+                    if next_task in done:
+                        try:
+                            event = next_task.result()
+                        except StopAsyncIteration:
+                            break
                     else:
-                        event = await stream_iter.__anext__()
-                except StopAsyncIteration:
-                    break
+                        # Timeout: both still pending
+                        next_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await next_task
+                        raise TimeoutError()
                 except TimeoutError:
                     logger.warning(
                         "Chat stream timed out for session %s after %.2fs without events",
@@ -722,6 +752,7 @@ class AgentService:
                 emitted_events += 1
                 yield event
         finally:
+            self._session_cancel_events.pop(session_id, None)
             with contextlib.suppress(Exception):
                 await stream_iter.aclose()
 

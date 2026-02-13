@@ -23,21 +23,6 @@ function normalizeError(err: unknown): AppError {
   }
 }
 
-/**
- * Vue error boundary composable that catches unhandled errors from child components.
- *
- * Uses `onErrorCaptured` to intercept errors before they propagate up and crash
- * the page. Normalizes errors into a consistent `AppError` shape and prevents
- * propagation by returning `false`.
- *
- * Usage:
- * ```typescript
- * const { lastCapturedError, clearError } = useErrorBoundary()
- *
- * // Check for captured errors in template
- * // <div v-if="lastCapturedError">{{ lastCapturedError.message }}</div>
- * ```
- */
 export function useErrorBoundary() {
   const lastCapturedError = ref<AppError | null>(null)
 

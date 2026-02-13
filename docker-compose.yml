@@ -75,6 +75,12 @@ services:
           - linux/amd64  # Chrome for Testing 128.0.6613.137 linux64 only; no linux-arm64
     hostname: sandbox
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     volumes:
       # Openbox config for proper window management - ensures Chrome stays centered at 0,0
       - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml:ro

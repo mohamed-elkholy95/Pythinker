@@ -4,6 +4,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+from app.core.retry import http_retry
 from app.domain.models.connector import (
     Connector,
     ConnectorStatus,
@@ -180,6 +181,7 @@ class ConnectorService:
             return False
         return await self._user_connector_repo.delete(user_connector_id)
 
+    @http_retry  # 3 attempts, 1-15s exponential backoff for transient HTTP failures
     async def test_connection(self, user_id: str, user_connector_id: str) -> dict[str, bool | str | float | None]:
         """Test a user connector's connection. Returns {ok, message, latency_ms}."""
         uc = await self._user_connector_repo.get_by_id(user_connector_id)
