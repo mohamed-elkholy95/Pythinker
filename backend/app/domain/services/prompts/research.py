@@ -167,6 +167,9 @@ THEN: Execute the research following this MANDATORY workflow:
 - Every benchmark score MUST have a citation
 - Every price point MUST have a citation
 - Add comprehensive References section with all visited URLs
+- For comparison tasks: structure key metrics in a markdown table (items as rows,
+  numeric values in cells). The system will auto-generate an interactive Plotly
+  chart from comparison tables—prefer Plotly-friendly tables for user value.
 
 Before delivering results, verify:
 - You actually VISITED pages (not just searched)
@@ -205,6 +208,11 @@ Brief context of the research scope (1-2 sentences).
 ### [Subsection if needed]
 Present findings organized by topic with inline citations [1].
 Use **bold** for key terms. Use tables for comparisons.
+
+For comparisons: prefer well-formed markdown tables with numeric metrics
+(items as rows, metrics as columns, numbers in cells). Include at least one
+comparison table with extractable numeric data—the system will auto-generate
+an interactive Plotly chart from it for the user.
 
 ## [Main Section 2]
 Continue with clear, factual content.

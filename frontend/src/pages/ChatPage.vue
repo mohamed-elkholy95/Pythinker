@@ -916,12 +916,6 @@ const cleanupStreamingState = () => {
   }
 };
 
-// Centralized sessionStorage cleanup for session-specific data
-const cleanupSessionStorage = (sessionId: string) => {
-  sessionStorage.removeItem(`pythinker-last-event-${sessionId}`);
-  sessionStorage.removeItem(`pythinker-stopped-${sessionId}`);
-};
-
 // Reset all refs to their initial values
 const resetState = () => {
   // Cancel any existing chat connection

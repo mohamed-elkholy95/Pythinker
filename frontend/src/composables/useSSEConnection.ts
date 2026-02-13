@@ -29,7 +29,7 @@ export function useSSEConnection() {
 
   function cleanupSessionStorage(sessionId: string) {
     sessionStorage.removeItem(`pythinker-last-event-${sessionId}`)
-    sessionStorage.removeItem(`pythinker-stop-${sessionId}`)
+    sessionStorage.removeItem(`pythinker-stopped-${sessionId}`)
   }
 
   function resetRetryCount() {
