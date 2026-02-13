@@ -23,6 +23,7 @@ from app.core.error_manager import (
     error_context,
     error_handler,
 )
+from app.core.retry import sandbox_retry
 from app.infrastructure.external.http_pool import HTTPClientPool, ManagedHTTPClient
 
 logger = logging.getLogger(__name__)
@@ -395,47 +396,44 @@ class ManagedSandbox:
             logger.warning(f"Health check failed for sandbox {self.session_id}: {e}")
             return False
 
+    @sandbox_retry
     async def _check_api_health(self) -> bool:
         """Check if sandbox API is responsive.
 
         Phase 3 enhancement: Reduced timeout from 5s to 2s for faster checks.
+        Uses @sandbox_retry (3 attempts, 2-30s backoff) for transient failures.
         """
-        try:
-            response = await self.api_client.get("/health", timeout=2.0)
-            return response.status_code == 200
-        except Exception:
-            return False
+        response = await self.api_client.get("/health", timeout=2.0)
+        return response.status_code == 200
 
+    @sandbox_retry
     async def _check_browser_health(self) -> bool:
         """Check if browser is responsive.
 
         Phase 3 enhancement: Reduced timeout from 5s to 2s for faster checks.
+        Uses @sandbox_retry (3 attempts, 2-30s backoff) for transient failures.
         """
-        try:
-            client = await HTTPClientPool.get_client(
-                name=f"sandbox-browser-{self.session_id}",
-                base_url=f"http://{self.ip_address}:9222",
-                timeout=2.0,
-            )
-            response = await client.get("/json/version")
-            return response.status_code == 200
-        except Exception:
-            return False
+        client = await HTTPClientPool.get_client(
+            name=f"sandbox-browser-{self.session_id}",
+            base_url=f"http://{self.ip_address}:9222",
+            timeout=2.0,
+        )
+        response = await client.get("/json/version")
+        return response.status_code == 200
 
+    @sandbox_retry
     async def _check_vnc_health(self) -> bool:
         """Check if VNC is responsive.
 
         Phase 3 enhancement: Reduced timeout from 5s to 2s for faster checks.
         Note: VNC is optional for health determination.
+        Uses @sandbox_retry (3 attempts, 2-30s backoff) for transient failures.
         """
-        try:
-            # Simple TCP connection check
-            _reader, writer = await asyncio.wait_for(asyncio.open_connection(self.ip_address, 5900), timeout=2.0)
-            writer.close()
-            await writer.wait_closed()
-            return True
-        except Exception:
-            return False
+        # Simple TCP connection check
+        _reader, writer = await asyncio.wait_for(asyncio.open_connection(self.ip_address, 5900), timeout=2.0)
+        writer.close()
+        await writer.wait_closed()
+        return True
 
     async def _restart_services(self) -> bool:
         """Restart sandbox services"""

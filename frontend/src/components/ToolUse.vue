@@ -92,14 +92,12 @@ const INLINE_MESSAGE_TOOLS: ReadonlySet<string> = new Set([
   'system_note',
 ]);
 
-/** Search/info tools that support inline results display */
-const SEARCH_TOOL_NAMES = new Set(['search', 'info']);
-const SEARCH_FUNCTIONS = new Set(['info_search_web', 'web_search']);
+/** Fast search tools only – show inline results. Excludes wide_research (deep research). */
+const FAST_SEARCH_FUNCTIONS = new Set(['info_search_web', 'web_search']);
 
-function isSearchTool(tool: ToolContent): boolean {
-  const name = (tool.name || '').toLowerCase();
+function isFastSearchTool(tool: ToolContent): boolean {
   const fn = (tool.function || '').toLowerCase();
-  return SEARCH_TOOL_NAMES.has(name) || SEARCH_FUNCTIONS.has(fn);
+  return FAST_SEARCH_FUNCTIONS.has(fn);
 }
 
 function getSearchToolContent(tool: ToolContent): SearchToolContent | null {
@@ -135,7 +133,7 @@ const shouldShimmer = computed(
 
 const searchToolContent = computed(() => getSearchToolContent(props.tool));
 const isFastSearchWithResults = computed(() => {
-  if (!isSearchTool(props.tool)) return false;
+  if (!isFastSearchTool(props.tool)) return false;
   if (isRunning.value) return true; // Show fast-search during search (loading/skeleton)
   const sc = searchToolContent.value;
   if (sc === null) return false;
