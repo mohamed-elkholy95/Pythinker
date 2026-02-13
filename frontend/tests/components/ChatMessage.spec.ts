@@ -29,9 +29,11 @@ You can find the detailed report below.`
 
 // Mock marked library
 vi.mock('marked', () => ({
-  marked: (text: string) => text,
-  Renderer: class MockRenderer {
-    code = () => ''
+  marked: {
+    parse: (text: string) => text,
+    Renderer: class MockRenderer {
+      code = () => ''
+    },
   },
 }))
 
@@ -102,6 +104,14 @@ vi.mock('@/components/SkillDeliveryCard.vue', () => ({
     name: 'SkillDeliveryCard',
     template: '<div class="mock-skill-delivery"><slot /></div>',
     props: ['content'],
+  },
+}))
+
+vi.mock('@/components/TiptapMessageViewer.vue', () => ({
+  default: {
+    name: 'TiptapMessageViewer',
+    template: '<div class="mock-tiptap-viewer">{{ content }}</div>',
+    props: ['content', 'compact'],
   },
 }))
 
@@ -346,7 +356,7 @@ describe('ChatMessage', () => {
         },
       })
 
-      expect(wrapper.find('.final-summary-card').exists()).toBe(true)
+      expect(wrapper.find('.assistant-summary-card-content').exists()).toBe(true)
       expect(wrapper.find('.assistant-summary-card-block').exists()).toBe(true)
       expect(wrapper.find('.assistant-header-row').exists()).toBe(true)
       expect(wrapper.find('.assistant-message-content').exists()).toBe(false)

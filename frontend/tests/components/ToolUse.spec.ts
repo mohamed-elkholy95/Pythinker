@@ -9,6 +9,12 @@ import { markRaw, ref } from 'vue'
 import ToolUse from '@/components/ToolUse.vue'
 import { mockToolContent } from '../mocks/api'
 
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (value: string) => value,
+  }),
+}))
+
 // Mock the composables
 vi.mock('@/composables/useTool', () => ({
   useToolInfo: (_toolRef: any) => ({
