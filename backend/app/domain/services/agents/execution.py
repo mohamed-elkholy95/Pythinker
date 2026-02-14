@@ -789,11 +789,6 @@ class ExecutionAgent(BaseAgent):
                 title = message_title or "Summary"
                 sources = self.get_collected_sources() if self._collected_sources else None
 
-                # Emit confirmation summary above the report preview
-                confirmation = await self._generate_confirmation_summary(message_content, message_title)
-                if confirmation:
-                    yield MessageEvent(message=confirmation)
-
                 report_event_id = str(uuid.uuid4())
                 yield ReportEvent(
                     id=report_event_id,
