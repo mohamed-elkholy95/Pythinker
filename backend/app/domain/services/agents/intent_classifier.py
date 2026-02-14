@@ -159,6 +159,38 @@ class IntentClassifier:
         "show me",
     ]
 
+    # Action-first verbs for distinguishing execution requests from short topic prompts.
+    # Example: "claude code sonnet 5" should not be treated as a task, but "write code" should.
+    ACTION_VERBS: ClassVar[list[str]] = [
+        "write",
+        "create",
+        "build",
+        "make",
+        "generate",
+        "implement",
+        "develop",
+        "fix",
+        "debug",
+        "refactor",
+        "deploy",
+        "install",
+        "configure",
+        "setup",
+        "analyze",
+        "run",
+        "execute",
+        "search",
+        "find",
+        "list",
+        "show",
+        "open",
+        "compare",
+        "research",
+        "investigate",
+        "summarize",
+        "explain",
+    ]
+
     # Direct output patterns (simple response instructions that don't need tools/planning)
     DIRECT_RESPONSE_PATTERNS: ClassVar[list[str]] = [
         r"\b(?:say|reply|respond)\b.+\b(?:nothing else|only|exactly)\b",
@@ -190,6 +222,8 @@ class IntentClassifier:
             Tuple of (intent, recommended_mode, confidence)
         """
         normalized = message.lower().strip()
+        words = normalized.split()
+        word_count = len(words)
 
         # Check greetings
         for pattern in self.GREETING_PATTERNS:
@@ -213,6 +247,9 @@ class IntentClassifier:
         has_task_indicator = self._has_task_indicator(normalized)
 
         if has_task_indicator:
+            if self._is_short_topic_prompt(normalized, word_count):
+                logger.info(f"Classified as simple query (short topic): {message[:50]}")
+                return ("simple_query", AgentMode.DISCUSS, 0.78)
             logger.info(f"Classified as task request: {message[:50]}")
             return ("task_request", AgentMode.AGENT, 0.85)
 
@@ -226,9 +263,6 @@ class IntentClassifier:
             return ("system_operation", AgentMode.AGENT, 0.80)
 
         # Check message length and complexity
-        words = normalized.split()
-        word_count = len(words)
-
         # Very short messages are likely simple queries
         if word_count <= 3:
             logger.info(f"Classified as simple query (short): {message[:50]}")
@@ -249,6 +283,19 @@ class IntentClassifier:
         # Default to AGENT mode for longer, ambiguous messages
         logger.info(f"Classified as complex query (default): {message[:50]}")
         return ("complex_query", AgentMode.AGENT, 0.60)
+
+    def _is_short_topic_prompt(self, normalized_message: str, word_count: int) -> bool:
+        """Detect short topic-like prompts that should not auto-trigger task execution."""
+        if word_count == 0 or word_count > 4:
+            return False
+
+        if normalized_message.endswith("?"):
+            return False
+
+        if any(normalized_message.startswith(qw) for qw in self.QUESTION_WORDS):
+            return False
+
+        return all(not re.search(rf"\b{re.escape(verb)}\b", normalized_message) for verb in self.ACTION_VERBS)
 
     def _has_task_indicator(self, normalized_message: str) -> bool:
         """Return True when a task indicator is present with token-aware matching.

@@ -48,6 +48,22 @@ class TestBasicClassification:
             assert mode == AgentMode.AGENT
             assert confidence >= 0.70
 
+    def test_short_topic_phrase_does_not_trigger_task_mode(self):
+        """Short topic-like prompts should not auto-trigger execution mode."""
+        classifier = IntentClassifier()
+
+        intent, mode, _confidence = classifier.classify("claude code sonnet 5")
+        assert intent == "simple_query"
+        assert mode == AgentMode.DISCUSS
+
+    def test_action_verb_plus_code_remains_task_mode(self):
+        """Action-first prompts must still route to AGENT mode."""
+        classifier = IntentClassifier()
+
+        intent, mode, _confidence = classifier.classify("write code")
+        assert intent == "task_request"
+        assert mode == AgentMode.AGENT
+
     def test_short_query_classified_as_discuss(self):
         """Test that short queries are classified as DISCUSS."""
         classifier = IntentClassifier()
