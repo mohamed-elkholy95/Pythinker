@@ -225,7 +225,7 @@
 
           <!-- Task completed - green checkmark above suggestions when response is done -->
           <TaskCompletedFooter
-            v-if="canShowSuggestions"
+            v-if="showGlobalTaskCompletedFooter"
             :showRating="false"
             class="mt-3 mb-1"
           />
@@ -667,6 +667,23 @@ const canShowSuggestions = computed(() =>
   suggestions.value.length > 0 &&
   !isSummaryStreaming.value
 )
+
+const hasEmbeddedCompletionFooter = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const messageType = messages.value[i].type;
+    if (messageType === 'report' || messageType === 'skill_delivery') {
+      return true;
+    }
+    if (messageType === 'assistant' || messageType === 'user' || messageType === 'deep_research') {
+      return false;
+    }
+  }
+  return false;
+});
+
+const showGlobalTaskCompletedFooter = computed(() =>
+  canShowSuggestions.value && !hasEmbeddedCompletionFooter.value
+);
 
 // Screenshot replay for completed sessions.
 // Must be initialized after sessionId ref is created to avoid TDZ runtime errors.
@@ -1591,8 +1608,98 @@ const maybeAppendAssistantMessageToStep = (
   return true;
 };
 
+const getAttachmentAliases = (file: FileInfo): Set<string> => {
+  const aliases = new Set<string>();
+  const normalizedFileId = (file.file_id || '').trim();
+  const normalizedFilename = (file.filename || '').trim().toLowerCase();
+  const normalizedSize = Number.isFinite(file.size) ? String(file.size) : '';
+
+  if (normalizedFileId) {
+    aliases.add(`id:${normalizedFileId}`);
+  }
+  if (normalizedFilename) {
+    aliases.add(`name:${normalizedFilename}`);
+    if (normalizedSize) {
+      aliases.add(`name_size:${normalizedFilename}:${normalizedSize}`);
+    }
+  }
+
+  return aliases;
+};
+
+const buildAttachmentKeySet = (files: FileInfo[]): Set<string> => {
+  const keys = new Set<string>();
+  for (const file of files) {
+    for (const alias of getAttachmentAliases(file)) {
+      keys.add(alias);
+    }
+  }
+  return keys;
+};
+
+const hasAttachmentOverlap = (attachments: FileInfo[], reportAttachmentKeys: Set<string>): boolean => {
+  return attachments.some((file) => {
+    const aliases = getAttachmentAliases(file);
+    for (const alias of aliases) {
+      if (reportAttachmentKeys.has(alias)) {
+        return true;
+      }
+    }
+    return false;
+  });
+};
+
+const removeRedundantAssistantAttachmentMessages = (reportAttachments: FileInfo[]): void => {
+  if (reportAttachments.length === 0) return;
+
+  const reportAttachmentKeys = buildAttachmentKeySet(reportAttachments);
+
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const message = messages.value[i];
+
+    if (message.type === 'attachments') {
+      const attachmentContent = message.content as AttachmentsContent;
+      const isAssistantAttachment = attachmentContent.role === 'assistant';
+      const overlapsReportFiles = hasAttachmentOverlap(attachmentContent.attachments ?? [], reportAttachmentKeys);
+
+      if (isAssistantAttachment && overlapsReportFiles) {
+        const remainingAttachments = (attachmentContent.attachments ?? []).filter(
+          (file) => !hasAttachmentOverlap([file], reportAttachmentKeys),
+        );
+        if (remainingAttachments.length === 0) {
+          messages.value.splice(i, 1);
+        } else {
+          attachmentContent.attachments = remainingAttachments;
+        }
+        continue;
+      }
+      break;
+    }
+
+    if (message.type === 'tool' || message.type === 'step' || message.type === 'phase' || message.type === 'thought') {
+      continue;
+    }
+
+    break;
+  }
+};
+
+const isInternalContextMessage = (messageData: MessageEventData): boolean => {
+  const content = (messageData.content || '').trimStart();
+  if (!content) return false;
+
+  return (
+    content.startsWith('[Session history for context]') ||
+    content.startsWith('[User Browser Interaction]')
+  );
+};
+
 // Handle message event
 const handleMessageEvent = (messageData: MessageEventData) => {
+  if (isInternalContextMessage(messageData)) {
+    return;
+  }
+
   const allowStandaloneSummary = messageData.role === 'assistant' && allowStandaloneSummaryOnNextAssistant.value;
 
   // Assistant message means agent finished thinking
@@ -2139,6 +2246,9 @@ const handleReportEvent = (reportData: ReportEventData) => {
   isSummaryStreaming.value = false;
   allowStandaloneSummaryOnNextAssistant.value = false;
 
+  const reportAttachments = reportData.attachments ?? [];
+  removeRedundantAssistantAttachmentMessages(reportAttachments);
+
   // Track anchor event ID for follow-up suggestions
   followUpAnchorEventId.value = reportData.event_id;
 
@@ -2151,10 +2261,10 @@ const handleReportEvent = (reportData: ReportEventData) => {
       title: reportData.title,
       content: reportData.content,
       lastModified: reportData.timestamp * 1000,
-      fileCount: reportData.attachments?.length || 0,
+      fileCount: reportAttachments.length,
       sections,
       sources: reportData.sources,
-      attachments: reportData.attachments,
+      attachments: reportAttachments,
       timestamp: reportData.timestamp
     } as ReportContent,
   });
@@ -2480,6 +2590,19 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'error') {
     const errorData = event.data as ErrorEventData;
     const isRecoverableTimeout = errorData.error_type === 'timeout' && (errorData.recoverable ?? true);
+    const isRecoverableStreamGap = errorData.error_code === 'stream_gap_detected';
+
+    if (isRecoverableStreamGap) {
+      logChatSseDiagnostics('event:stream_gap_warning_ignored', {
+        requestedEventId: errorData.details?.requested_event_id ?? null,
+        firstAvailableEventId: errorData.details?.first_available_event_id ?? null,
+        checkpointEventId: errorData.checkpoint_event_id ?? null,
+      })
+      // Stream-gap warnings are transport-level resume diagnostics.
+      // The client already handles checkpoint resumption via onGapDetected.
+      // Avoid surfacing this as a user-facing error message.
+      return;
+    }
 
     if (isRecoverableTimeout) {
       // Backend may still be actively processing long-running work.
@@ -2932,20 +3055,12 @@ onMounted(async () => {
     }
     // If sessionId is included in URL, use it directly
     sessionId.value = String(routeParams.sessionId) as string;
-    // Get initial message from history.state
-    const message = history.state?.message;
-    const files: FileInfo[] = history.state?.files || [];
-    history.replaceState({}, document.title);
-    if (message) {
-      addOptimisticUserMessage(message, files);
-      isInitializing.value = true;
-      pendingInitialMessage.value = { message, files };
-      await refreshSessionStatus(sessionId.value);
-      await waitForSessionIfInitializing();
-      maybeSendPendingInitialMessage();
-    } else {
-      await restoreSession();
+    // Do not auto-send messages from history.state on existing sessions.
+    // Pending initial prompts are handled exclusively via /chat/new bootstrap flow.
+    if ((history.state as PendingSessionCreateState | null)?.pendingSessionCreate) {
+      history.replaceState({}, document.title);
     }
+    await restoreSession();
   }
 });
 
