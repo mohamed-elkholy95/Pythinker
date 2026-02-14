@@ -674,7 +674,9 @@ const hasEmbeddedCompletionFooter = computed(() => {
     if (messageType === 'report' || messageType === 'skill_delivery') {
       return true;
     }
-    if (messageType === 'assistant' || messageType === 'user' || messageType === 'deep_research') {
+    // Stop scanning at the latest user/deep-research boundary.
+    // Assistant/system noise after a report should not re-enable global footer.
+    if (messageType === 'user' || messageType === 'deep_research') {
       return false;
     }
   }
@@ -2253,20 +2255,35 @@ const handleReportEvent = (reportData: ReportEventData) => {
   followUpAnchorEventId.value = reportData.event_id;
 
   const sections = extractSectionsFromMarkdown(reportData.content);
+  const nextReportContent: ReportContent = {
+    id: reportData.id,
+    event_id: reportData.event_id,
+    title: reportData.title,
+    content: reportData.content,
+    lastModified: reportData.timestamp * 1000,
+    fileCount: reportAttachments.length,
+    sections,
+    sources: reportData.sources,
+    attachments: reportAttachments,
+    timestamp: reportData.timestamp,
+  };
+
+  // Resume/replay may surface the same report more than once; update in place.
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const existingMessage = messages.value[i];
+    if (existingMessage.type !== 'report') continue;
+
+    const existingContent = existingMessage.content as ReportContent;
+    if (existingContent.id === reportData.id || existingContent.event_id === reportData.event_id) {
+      existingMessage.content = nextReportContent;
+      return;
+    }
+  }
+
   messages.value.push({
     id: generateMessageId(),
     type: 'report',
-    content: {
-      id: reportData.id,
-      title: reportData.title,
-      content: reportData.content,
-      lastModified: reportData.timestamp * 1000,
-      fileCount: reportAttachments.length,
-      sections,
-      sources: reportData.sources,
-      attachments: reportAttachments,
-      timestamp: reportData.timestamp
-    } as ReportContent,
+    content: nextReportContent,
   });
 }
 
@@ -2515,6 +2532,12 @@ const queueEvent = (event: AgentSSEEvent) => {
   if (batchFrameId === null) {
     batchFrameId = requestAnimationFrame(flushEventBatch);
   }
+};
+
+const shouldReplayHistoryEvent = (event: AgentSSEEvent): boolean => {
+  // Stream token chunks are transient UI state. Replaying them from persisted
+  // history creates heavy restore payloads and can interleave with live resume.
+  return event.event !== 'stream';
 };
 
 // Process a single event (extracted from handleEvent for batching)
@@ -2902,9 +2925,25 @@ const restoreSession = async () => {
   // Initialize share mode based on session state
   shareMode.value = session.is_shared ? 'public' : 'private';
   realTime.value = false;
+
+  // Drain any pending batched events before replaying persisted history.
+  if (batchFrameId !== null) {
+    cancelAnimationFrame(batchFrameId);
+    flushEventBatch();
+  }
+
   for (const event of session.events) {
+    if (!shouldReplayHistoryEvent(event)) continue;
     handleEvent(event);
   }
+
+  // Flush replayed history immediately so auto-resume evaluates fully
+  // hydrated state (prevents footer/order races after refresh).
+  if (batchFrameId !== null) {
+    cancelAnimationFrame(batchFrameId);
+    flushEventBatch();
+  }
+
   realTime.value = true;
   if (sessionStatus.value === SessionStatus.INITIALIZING) {
     await waitForSessionIfInitializing();
