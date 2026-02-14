@@ -979,9 +979,9 @@ NOTE: The browser state may have changed. When you next use the browser:
                                             role="assistant",
                                             message=reactivation_ctx,
                                         )
-                                        await self._session_repository.add_event(session_id, ctx_event)
+                                        await task.input_stream.put(ctx_event.model_dump_json())
                                         logger.info(
-                                            "Injected reactivation context (%d chars) for session %s",
+                                            "Injected reactivation context into task input (%d chars) for session %s",
                                             len(reactivation_ctx),
                                             session_id,
                                         )
