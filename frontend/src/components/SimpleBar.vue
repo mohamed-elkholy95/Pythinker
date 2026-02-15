@@ -9,6 +9,7 @@
                 <div class="simplebar-offset" :style="{ right: '0px', bottom: '0px' }">
                     <div ref="contentWrapperRef" class="simplebar-content-wrapper" tabIndex="0" role="region"
                         aria-label="scrollable content" :style="{ height: '100%', overflow: 'hidden scroll' }"
+                        v-auto-follow-scroll="autoFollowOptions"
                         @scroll="handleScroll">
                         <div class="simplebar-content" :style="{ padding: '0px' }">
                             <slot></slot>
@@ -21,10 +22,36 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
-const emit = defineEmits(['scroll']);
+interface SimpleBarProps {
+    autoFollow?: boolean;
+    autoFollowThreshold?: number;
+    autoFollowBehavior?: ScrollBehavior;
+}
+
+const props = withDefaults(defineProps<SimpleBarProps>(), {
+    autoFollow: false,
+    autoFollowThreshold: 24,
+    autoFollowBehavior: 'auto',
+});
+
+const emit = defineEmits<{
+    (e: 'scroll', event: Event): void;
+    (e: 'follow-change', isFollowing: boolean): void;
+}>();
 const contentWrapperRef = ref<HTMLElement | null>(null);
+
+const handleFollowChange = (isFollowing: boolean) => {
+    emit('follow-change', isFollowing);
+};
+
+const autoFollowOptions = computed(() => ({
+    enabled: props.autoFollow,
+    threshold: props.autoFollowThreshold,
+    behavior: props.autoFollowBehavior,
+    onFollowChange: handleFollowChange,
+}));
 
 const handleScroll = (event: Event) => {
     emit('scroll', event);
