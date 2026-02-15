@@ -1,330 +1,367 @@
-# Pythinker Bug Playbook for the Current Stack
-
-This playbook is written against the stack you provided (validated **2026-02-15**) and focuses on how bugs tend to manifest across the **Vue 3 ↔ FastAPI streaming ↔ sandbox containers ↔ storage** boundaries, plus the fastest ways to isolate root cause and mitigate impact.
-
-## System overview and bug-surface map
-
-Pythinker’s highest-risk bug surfaces line up with its cross-service, streaming-heavy runtime model: a Vue 3 UI that must remain responsive while consuming SSE streams and WebSockets, a FastAPI backend that orchestrates sessions/tools and proxies real-time sandbox streams, and sandboxes that run browsers and tools inside constrained containers with X/VNC/CDP plumbing. Your persistence topology (MongoDB for domain/session state, Redis for runtime coordination, Qdrant for vector memory, MinIO for object artifacts) introduces classic “it worked yesterday” failure modes: connectivity, timeouts, incompatible assumptions about eventual consistency, and misaligned TTL/caching behaviors.
-
-![Pythinker integration boundaries](sandbox:/mnt/data/pythinker_architecture.png)
-
-A practical way to think about debugging Pythinker is to treat the platform as four “fault planes”:
-
-**Client plane (frontend)**: Vite build/runtime, streaming consumers (`fetch-event-source` and native `EventSource`), WebSocket takeover UI, heavy interactive components (Monaco, Tiptap, Plotly/Konva), and networking/cors/proxy behavior.
-
-**Control plane (backend)**: FastAPI routes and dependency wiring (`backend/app/main.py`, `backend/app/interfaces/api/routes.py`), SSE event composition (`backend/app/interfaces/api/session_routes.py`), WebSocket proxy endpoints (`/sessions/{session_id}/vnc`, `/screencast`, `/input`), auth/JWT, rate limiting/token revocation in Redis, and tool orchestration plus external calls (OpenAI, browser tool agents).
-
-**Execution plane (sandbox containers)**: container lifecycle via Docker socket (backend-managed), browser installs and Playwright runtime, Node/Python tool runtime, and GUI streaming stack (`xvfb`, `x11vnc`, `websockify`, `openbox`, `supervisord`) under restrictive security settings (seccomp, `no-new-privileges`, `cap_drop`).
-
-**Data plane (Mongo/Redis/Qdrant/MinIO)**: schema/index drift, TTL/eviction surprises, vector collection mismatches, presigned URL clocks/hosts, object lifecycle inconsistencies, and cross-service consistency gaps.
-
-When you debug, the goal is to quickly answer one question: **which plane is failing first?** Everything else is follow-through.
-
-## Triage workflow and evidence capture
-
-### Establish impact, scope, and “first failing timestamp”
-Start every bug/incident with three short facts (write them into the ticket immediately):
-
-**Impact**: what is broken from the user’s point of view (e.g., “chat stream stalls after tool call begins”, “takeover view black screen”, “files fail to upload”).
-
-**Scope**: single user/session or systemic; single sandbox or all sandboxes; single deployment profile or all.
-
-**First failing timestamp**: exact local time and timezone (your environment is America/New_York) plus how long it has been happening.
-
-This makes log correlation and bisecting possible across services, especially because streaming systems often “fail silently” until a timeout.
-
-### Produce a minimal reproduction that crosses the boundary once
-Design reproductions so they cross **exactly one boundary** if possible:
-
-- UI-only: reproduce without backend changes by mocking SSE/WebSocket or using fixture responses.
-- Backend-only: reproduce with a headless client (`curl`, `httpx`, or a tiny script) calling the SSE/WebSocket endpoints.
-- Sandbox-only: reproduce by attaching directly to the sandbox container and running the tool/browser sequence there.
-- Storage-only: reproduce with direct DB/object calls (Mongo query, Redis command, Qdrant collection check, MinIO object retrieval).
-
-If your reproduction crosses UI → backend → sandbox → storage all at once, you’ll waste time.
-
-### Capture “required evidence” before you restart anything
-Before restarting containers or redeploying, capture evidence that disappears:
-
-**Correlation IDs / session IDs**: always note `session_id` (since your routes are session-scoped) and any user ID.
-
-**Streaming transcript**: in the browser devtools Network tab, save the SSE stream and WebSocket frames (or at minimum screenshots of the frames around failure).
-
-**Container state**: `docker compose ps` and `docker compose logs --tail=200 <service>` for `frontend`, `backend`, the relevant `sandbox`/`sandbox2`, plus `mongodb`, the two Redis instances, `qdrant`, and `minio`.
-
-**Resource symptoms**: CPU/memory spikes (OOM-kills), file descriptor exhaustion, disk pressure, or throttling. Most “it hangs” bugs in streaming stacks are either buffering or resource starvation.
-
-### Apply a standard decision ladder
-Use this ladder to converge quickly:
-
-- **If the frontend shows disconnect / reconnect loops** → suspect proxy buffering, server-side heartbeat, or auth on a signed URL.
-- **If SSE connects but events stop** → suspect backend generator blocked (DB call, tool call, deadlock), or server flush/keepalive not happening.
-- **If WebSocket connects but video/input doesn’t work** → suspect sandbox streaming subsystem (X/VNC/CDP), port/proxy routing, or permission limits.
-- **If tool execution fails intermittently** → suspect sandbox resource limits, Playwright browser install/path, or Docker socket lifecycle races.
-- **If the backend throws 5xx under load** → suspect Redis/Mongo connection pool exhaustion, long-running tasks on the event loop, or downstream rate limits.
-
-## Streaming and realtime runbooks
-
-This section targets the “Pythinker special”: **SSE for chat/session events** and **WebSockets for takeover (VNC/screencast/input)**. Most user-visible bugs will land here.
-
-### SSE bug patterns and how to isolate them quickly
-Your backend uses `EventSourceResponse` in `backend/app/interfaces/api/session_routes.py`, and the frontend consumes SSE via both `@microsoft/fetch-event-source` and native `EventSource`. That means you need to consider two distinct client implementations and their retry/resume differences.
-
-**Symptoms you’ll see**
-A chat stream that freezes mid-response, duplicated messages after reconnect, messages arriving in bursts (buffering), or a client that permanently shows “connecting”.
-
-**Fast isolation checks**
-Check these in order, because each eliminates a whole class of causes:
-
-1) **Is the connection dropping or just stalling?**  
-In browser devtools Network tab, see if the SSE request completes/aborts, or stays open but stops receiving bytes.
-
-2) **Does the failure reproduce in both SSE transports?**  
-If `fetch-event-source` fails but native `EventSource` works (or vice versa), suspect client parsing/retry handling or signed URL handling differences.
-
-3) **Does it reproduce without nginx / in dev profile?**  
-Because your production-like containerized profile runs the frontend behind nginx, proxy buffering and timeouts can be radically different from local dev.
-
-**Most common root causes in SSE stacks**
-- **Proxy buffering**: nginx (or a load balancer) buffers server output, so “streaming” becomes “chunked at random”. This creates the classic “it finishes all at once” bug.
-- **Missing/insufficient heartbeat**: idle connections get cut by proxies if no bytes are sent periodically.
-- **Event format drift**: one side expects `event:` / `data:` format or JSON envelope fields that the other side stopped sending.
-- **Reconnect semantics**: client retries can cause duplicate events unless you use an event ID and handle `Last-Event-ID` logic consistently.
-- **Backend generator blocked**: your SSE endpoint is alive, but the code producing events is awaiting a slow DB call, external API, a lock, or a tool execution.
-
-**Concrete debugging steps**
-Run through these steps without changing code if possible:
-
-- Compare devtools “Timing” and “Response” behavior for the failing SSE call between:
-  - local dev (`docker-compose-development.yml` or direct dev server)
-  - containerized deployment (`docker-compose.yml` / nginx front)
-- In backend logs, search for the SSE route entry log and confirm whether it logs periodic heartbeats (your playbook suggests heartbeat/retry metadata is handled explicitly).
-- Temporarily reduce the system to one worker and one sandbox to rule out race conditions and load balancing issues. Streaming bugs frequently appear only when multiple workers are present.
-
-**Mitigations that are safe during an incident**
-- Prefer **degrading to non-streaming** (deliver whole response) when a streaming route is unstable. This keeps the product functioning while you fix buffering/heartbeat.
-- Increase heartbeat frequency slightly and ensure the heartbeat actually flushes data (a heartbeat that never reaches the client is not a heartbeat).
-- If duplicates appear after reconnect, temporarily treat SSE messages as idempotent client-side by discarding already-seen message IDs.
-
-### WebSocket takeover bugs (VNC/screencast/input proxy)
-Your backend exposes WebSocket proxy routes:
-- `/sessions/{session_id}/vnc`
-- `/sessions/{session_id}/screencast`
-- `/sessions/{session_id}/input`
-
-Your frontend uses signed URLs with browser WebSocket clients, and the sandbox provides display/remote control via `xvfb`, `x11vnc`, `websockify`, `openbox`, and `supervisord`.
-
-**Symptoms you’ll see**
-Black screen, frozen frame, input lag, “connected but nothing happens”, immediate disconnect on connect, or one of the three channels works while another fails.
-
-**One-minute isolation**
-You can isolate takeover failures by checking whether each channel is independently healthy:
-
-- **VNC channel**: if VNC fails but input connects, suspect the sandbox display server or VNC server.
-- **Screencast channel**: if screencast fails but VNC works, suspect CDP/video pipeline (depending on implementation) or whichever component produces frames.
-- **Input channel**: if video works but input doesn’t, suspect permission/key mapping or the proxy’s message routing.
-
-**The fastest way to find the failing plane**
-- If the browser WebSocket fails to connect at all, suspect **backend auth/signed URL** or **reverse proxy Upgrade headers**.
-- If the WebSocket connects but no frames arrive, suspect **sandbox runtime** (X/VNC/CDP not running) or **backend proxy routing**.
-- If it works for some sessions but not others, suspect **sandbox lifecycle/container reuse** bugs or per-session resource leaks.
-
-**Sandbox-first checks**
-Attach to the sandbox container for the failing session and validate that the supervisor-managed processes are alive. Even without exact paths, the intent is:
-
-- Confirm `supervisord` is running and managing `xvfb`, `openbox`, `x11vnc`, and `websockify`.
-- Confirm the display is available (`DISPLAY` set, X socket exists) and that the VNC server is bound.
-- Confirm ports are listening inside the container and correctly mapped/proxied.
-
-**Mitigation options**
-- Restart only the affected sandbox container (not the whole system) if takeover is session-scoped.
-- If takeover is broadly broken, temporarily disable takeover features in UI (feature flag) while you fix proxy headers or sandbox start order.
-
-## Sandbox and tool-execution runbooks
-
-Pythinker’s sandboxes are not generic “run a command” containers; they are **browser-capable, GUI-capable, security-constrained execution environments**. That combination yields a predictable set of bug classes.
-
-### Container lifecycle and Docker socket orchestration
-Your backend requires a Docker socket mount to provision/manage sandbox containers. That makes these failure modes common:
-
-**Symptoms**
-Tools never start, sessions hang while “starting sandbox”, sandboxes leak over time, or the backend logs permission errors when trying to create containers.
-
-**Likely causes**
-- Docker socket missing or not mounted in the running backend container.
-- Permission mismatch (backend process user can’t access the socket).
-- Resource limits / quotas prevent new containers from starting.
-- Container naming/cleanup race conditions (especially with `sandbox` and `sandbox2` and concurrent sessions).
-
-**Debug flow**
-- Confirm the backend container can talk to Docker at runtime (simple container list / create test).
-- Check for stuck “created” containers, restart loops, or containers that never pass health checks.
-- Look for cleanup logic failures: on session end, ensure sandbox is actually stopped/removed.
-
-**Mitigation**
-- Drain new sessions (stop provisioning new sandboxes) while allowing existing sessions to complete.
-- Force-remove only the sandboxes belonging to broken sessions, not the entire stack, to preserve state in Mongo/Redis.
-
-### Playwright/browser automation failures
-Your sandbox installs Playwright browsers in the image and is Chromium-first. Typical bug patterns:
-
-**Symptoms**
-Browser launch fails, browser downloads missing, “executable doesn’t exist”, crashes when opening pages, flaky navigation, or works locally but fails in container.
-
-**Likely causes**
-- Browser executable path differences between build-time and runtime layers.
-- Missing OS dependencies (fonts, libX*, shared libraries).
-- Running headful without X correctly configured (DISPLAY/Xvfb issues).
-- Concurrency/resource exhaustion (too many headless Chromium instances).
-
-**Debug flow**
-- Run a minimal Playwright script inside the sandbox container (one page, one navigation).
-- Validate that the expected browser binaries exist where your runtime expects them.
-- If using headful: validate Xvfb and window manager are running before browser launch.
-
-**Mitigation**
-- Reduce concurrency per sandbox and queue tool runs via Redis (if already used for coordination).
-- Fall back to headless-only mode temporarily when X stack is unstable.
-
-### GUI streaming stack failures (Xvfb + VNC + websockify)
-Because you’re using `xvfb`, `x11vnc`, and `websockify`, you inherit classic GUI-remote pitfalls:
-
-- X server not running or crashed
-- VNC server bound to wrong display
-- websockify not connected to VNC port
-- supervisor starts processes in the wrong order (websockify comes up before VNC)
-- health checks that don’t actually validate end-to-end readiness
-
-**Operational rule**: treat takeover readiness as an **end-to-end** property. A green container health check is meaningless if it only checks that a process exists, not that frames can be produced.
-
-## Storage and state runbooks
-
-In Pythinker, persistent correctness depends on four stores that behave very differently. Bugs often happen when assumptions from one store are applied to another.
-
-### MongoDB (Beanie/Motor) session and domain state issues
-**Symptoms**
-Sessions “disappear”, tool state reverts, auth/session lookups fail, unexpected validation errors, or performance degrades with time.
-
-**Primary suspects**
-- Index drift (missing indexes, wrong compound indexes for session lookups).
-- Document growth (chat transcripts or tool histories expanding without bounds).
-- Connection pool saturation or timeouts under load.
-- Pydantic v2 validation strictness changes causing previously-accepted payloads to fail.
-
-**Debug flow**
-- Identify the exact query pattern failing (find-by-session-id, user-to-session mapping, auth token record).
-- Check whether failures correlate with large sessions (big documents).
-- Examine whether the problem is write-path (insert/update failures) or read-path (query/index).
-
-**Mitigations**
-- Add guarded truncation/archival for unbounded fields (chat logs, tool transcripts).
-- Introduce pagination or split documents for long sessions to avoid the “one document to rule them all” scaling trap.
-
-### Redis and Redis-cache (coordination vs cache isolation)
-You have two Redis instances: one for runtime coordination/queues/rate limiting/token revocation, and a second for cache isolation/eviction control. That’s good, but it doubles configuration surfaces.
-
-**Symptoms**
-Rate limiting behaves bizarrely, tokens don’t revoke, jobs never run, cache returns stale results, or eviction spikes cause read storms.
-
-**Root causes**
-- Keys accidentally written to the wrong instance (coordination keys into cache or vice versa).
-- TTL misconfiguration: critical coordination data expiring prematurely.
-- Eviction policy on cache instance purging keys needed for correct behavior.
-- Hot key amplification (same key hammered by many sessions).
-
-**Debug flow**
-- Verify which Redis client points to which instance in your backend config.
-- Sample keys by prefix (you should standardize key prefixes by subsystem).
-- Monitor memory usage and eviction counters separately for Redis vs Redis-cache.
-
-**Mitigations**
-- Enforce strict key namespaces and add runtime assertions: “coordination keys must never hit redis-cache”.
-- If eviction is causing load, increase TTL jitter and add request coalescing.
-
-### Qdrant (vector memory/search artifacts)
-Vector issues often look like “the agent is getting dumber” rather than a clean error.
-
-**Symptoms**
-Retrieval returns empty results, irrelevant results spike, performance regresses, or collection not found errors appear.
-
-**Likely causes**
-- Collection name mismatch between environments.
-- Embedding dimensionality mismatch (new embedding model, old collection schema).
-- Inconsistent upserts (writes failing silently while reads still work).
-- Background compaction/optimization load spikes.
-
-**Debug flow**
-- Confirm the target collection exists and has points.
-- Confirm points have the expected vector size and payload schema.
-- Correlate retrieval failures with recent deploys that changed embedding models or sentence-transformers versions.
-
-**Mitigations**
-- Version your collections (e.g., `memory_v1`, `memory_v2`) and migrate rather than mutate in place.
-- Add a fallback path: if Qdrant is unhealthy, degrade to BM25 (`rank-bm25`) or recent-message context only.
-
-### MinIO (files, screenshots, presigned URLs)
-MinIO-related bugs frequently present as frontend failures (“download doesn’t work”) even though the issue is clock drift, wrong host, or signature mismatch.
-
-**Symptoms**
-403/SignatureDoesNotMatch, presigned URL works in backend but not in browser, uploads succeed but downloads fail, or objects “vanish”.
-
-**Likely causes**
-- Presigned URL generated with an internal hostname that the browser can’t resolve.
-- Time skew between services (presigned URLs are time-sensitive).
-- Bucket policy/permissions differ between environments.
-- CORS misconfiguration for browser direct access.
-
-**Debug flow**
-- Test presigned URL from:
-  - backend container
-  - frontend container (or an environment that mirrors browser network)
-  - real browser
-- Compare the host in the URL with what the browser can reach.
-- Check CORS headers and whether the browser is blocking the response.
-
-**Mitigations**
-- Avoid minting browser-facing presigned URLs with internal Docker hostnames.
-- Centralize MinIO URL construction so it is environment-aware (internal vs external base URL).
-
-## Prevention, quality gates, and postmortems
-
-### Create a “bug intake template” that matches how Pythinker fails
-A good bug ticket for this stack should always include:
-
-- Exact time range and timezone
-- `session_id` and user ID (or anonymized)
-- Frontend evidence: SSE request payload + last events received; WebSocket handshake status + frames screenshot
-- Backend evidence: log snippet for that session ID, plus any tool orchestration logs
-- Sandbox evidence (if involved): whether the session’s sandbox was running, and whether supervisor processes were healthy
-- Data plane evidence: Mongo read/write error text, Redis key/TTL anomalies, Qdrant collection stats, MinIO presign errors
-
-This prevents the “three teams guessing” loop.
-
-### Add lightweight, targeted smoke tests that cover the real boundaries
-Given your CI already runs ESLint/type-check/Vitest and Ruff/Pytest/pip-audit, the missing layer in many agent platforms is **boundary smoke tests**:
-
-- SSE smoke test: open a stream, ensure heartbeat events arrive, then force reconnect and confirm idempotency behavior.
-- WebSocket smoke test: connect to the three takeover routes and verify data flow (even if it’s dummy frames).
-- Sandbox smoke test: spawn a sandbox, run a minimal Python tool, a minimal Node tool, and a minimal Playwright navigation.
-- Storage smoke test: Mongo CRUD, Redis coordination key set/get with TTL, Qdrant collection insert/search, MinIO put/get with presign.
-
-These tests should run in a docker-compose CI job so they test the same networking/proxy surfaces as production-like deployments.
-
-### Treat “streaming regression” as a first-class release risk
-Streaming is brittle under proxies, compression, worker restarts, and transient packet loss. Put explicit guardrails in place:
-
-- A canary session that continuously exercises SSE + takeover and reports if heartbeats stop.
-- Rate-limit and backpressure controls so that one noisy session cannot starve the backend event loop or Redis.
-- A documented “degrade mode” switch: disable takeover, reduce tool concurrency, or fall back from streaming to non-streaming responses.
-
-### Postmortem format that produces real fixes
-When you run a postmortem, force specificity:
-
-- **Customer impact**: how many sessions/users, and which features.
-- **Trigger**: deploy, traffic spike, upstream outage, data growth, expired credential.
-- **First failure**: which plane failed first (client/control/execution/data).
-- **Detection gap**: why you didn’t notice sooner (missing metric, missing log correlation, missing alert).
-- **Fix forward**: code/config changes.
-- **Fix systemic**: add tests, add guardrails, add observability, reduce coupling.
-
-The outcome should be a PR that updates both code and this playbook (your maintenance rule already requires keeping the playbook updated when stack/protocol/runtime changes).
+# Pythinker Reliability Playbook (Standardized)
+
+Validated: **2026-02-15**
+
+Scope: Python 3.11+, FastAPI/ASGI, Vue 3 + TypeScript, MongoDB/Beanie, Redis, Qdrant, MinIO, WebSockets/SSE, xterm.js/noVNC, MCP/LLM agents, Docker + Supervisord, Playwright/Monaco.
+
+This playbook standardizes how to classify, detect, triage, and stabilize failures in the current stack. Use the taxonomy tags in incidents, PRs, tests, dashboards, and postmortems.
+
+Context7 validation baseline used for this revision:
+- FastAPI request disconnect checks (`request.is_disconnected`) and WebSocket disconnect handling (`WebSocketDisconnect`).
+- ESLint Vue rule coverage for reactivity/lifecycle pitfalls.
+- Pydantic v2 validator patterns (`@field_validator` with `@classmethod`) and boundary strictness options.
+
+## 0) Standard Taxonomy
+
+### Plane tags (origin)
+- `CL`: Client (Vue/TS/UI runtime)
+- `CP`: Control plane (FastAPI, auth, routing, orchestration)
+- `EP`: Execution plane (sandbox containers, browser/tool runtime, VNC/X)
+- `DP`: Data plane (Mongo/Redis/Qdrant/MinIO)
+
+### Failure mode tags (type)
+- `CONC`: Concurrency/deadlock/starvation
+- `RES`: Resource leak/exhaustion (mem/fd/cpu)
+- `STRM`: Streaming lifecycle (SSE/WS buffering/disconnect/duplication)
+- `SCHEMA`: Validation/contract drift (Pydantic/OpenAPI/TS)
+- `SEC`: Security (injection, authz/authn, token, SSRF, XSS)
+- `PERF`: Latency/throughput regression
+- `CONS`: Consistency/ordering/idempotency
+- `OPS`: Deploy/runtime config (docker/proxy/signals/logging)
+
+### Tag usage rule
+Every incident, bug ticket, and remediation PR must include:
+- One plane tag
+- One primary failure mode tag
+- Optional secondary failure mode tag
+
+Example: `CP/STRM` or `EP/OPS+RES`.
+
+## 1) Deterministic-First Incident Workflow
+
+1. Capture impact, scope, first failing timestamp (absolute date/time, timezone).
+2. Assign tags using section 0.
+3. Run deterministic checks first (static rule, reproducible test, explicit runtime probe).
+4. Only then use heuristic signals (trend anomalies, correlated spikes).
+5. Apply stabilizing pattern from section 2 while root cause fix is in progress.
+6. Record owner and remediation status as `Completed`, `In Progress`, or `Not Started`.
+
+## 2) Merged Top Issue List (Standardized)
+
+Each entry: **Issue -> Symptoms -> Deterministic Detection -> Heuristic Detection -> Stabilizing Pattern**.
+
+### A) FastAPI / asyncio / event loop (`CP/CONC/RES/PERF`)
+
+#### 1. Event loop blocking (sync I/O or CPU in `async def`)
+- Symptoms: request stalls, WS ping/pong drops, SSE freezes, low CPU but hung behavior.
+- Deterministic detection: Ruff `flake8-async` (`ASYNC210`, `ASYNC251`); code audit for `requests`, `time.sleep`, CPU-heavy loops in endpoints.
+- Heuristic detection: event-loop lag and p95 latency spikes without proportional CPU increase.
+- Stabilizing pattern: offload CPU to process pool; sync I/O via `run_in_threadpool`; cooperative yields in long loops; CI async-safety gate.
+
+#### 2. Orphaned tasks/background leaks
+- Symptoms: rising CPU, memory creep, work continues after client disconnect.
+- Deterministic detection: audit `create_task()` call sites for missing cancellation/join path.
+- Heuristic detection: growing task/thread counts and per-session work after disconnect.
+- Stabilizing pattern: per-session task registry; `finally` cancel+await; bounded queues; explicit timeouts.
+
+#### 3. RSS creep/allocator fragmentation
+- Symptoms: RSS rises and does not drop while GC appears normal.
+- Deterministic detection: compare `tracemalloc` snapshots vs RSS; allocator inspection (musl/alpine risk).
+- Heuristic detection: steady RSS growth tied to large buffers/stream payloads.
+- Stabilizing pattern: jemalloc with decay config when needed; avoid large base64 payloads; stream bytes; cap WS/SSE frame sizes.
+
+### B) Streaming (SSE + WebSockets) (`CL/CP/STRM/RES/CONS`)
+
+#### 4. SSE generator continues after disconnect
+- Symptoms: backend continues DB/API calls after client drop; token/cost burn continues.
+- Deterministic detection: ensure loop checks `await request.is_disconnected()` and response has send timeout.
+- Heuristic detection: downstream calls continue after client disconnect.
+- Stabilizing pattern: disconnect-aware generators; send timeout; heartbeats that flush; fallback non-streaming mode.
+
+#### 5. Proxy buffering breaks SSE
+- Symptoms: events arrive in bursts or all-at-once.
+- Deterministic detection: reproduce through production proxy path; verify buffering/compression headers and proxy config.
+- Heuristic detection: long idle gaps followed by bulk delivery.
+- Stabilizing pattern: disable buffering for SSE; heartbeat cadence; disable buffering transforms/compression where required.
+
+#### 6. WebSocket accumulation/stale references
+- Symptoms: too many open connections, memory/CPU creep.
+- Deterministic detection: require `try/except WebSocketDisconnect` and `finally` cleanup from connection manager.
+- Heuristic detection: open WS count only rises; per-connection tasks never terminate.
+- Stabilizing pattern: strict connection lifecycle manager; close-code policy (e.g., `1008` for policy); cancel per-connection tasks on close.
+
+#### 7. Reconnect duplication/ordering faults
+- Symptoms: duplicated messages around reconnect; partial history replay conflicts.
+- Deterministic detection: validate event IDs + `Last-Event-ID` handling; client dedupe keyed by message ID.
+- Heuristic detection: duplicates cluster around transient network blips.
+- Stabilizing pattern: globally unique IDs; idempotent client reducer; bounded replay window.
+
+### C) Pydantic v2 + API contracts (`CP/DP/SCHEMA/SEC/CONS`)
+
+#### 8. Silent data loss from `extra='ignore'`
+- Symptoms: typoed client fields silently dropped; incorrect defaults downstream.
+- Deterministic detection: `@model_validator(mode='before')` logging for unknown fields; contract tests.
+- Heuristic detection: telemetry on unexpected fields per endpoint.
+- Stabilizing pattern: ignore-but-log for non-critical boundaries; forbid on critical endpoints; schema drift alerts.
+
+#### 9. Over-strict `extra='forbid'` causes brittle clients
+- Symptoms: sudden 422 spikes after additive client changes.
+- Deterministic detection: compatibility tests; OpenAPI schema diffs in CI.
+- Heuristic detection: deploy-correlated 422 increase.
+- Stabilizing pattern: endpoint versioning; additive changes default-allow with telemetry and deprecation windows.
+
+#### 10. Typing gaps bypass validation
+- Symptoms: runtime type surprises despite model boundaries.
+- Deterministic detection: Ruff `ANN*`, Pyright strict mode; ban `Any` in request/response models.
+- Heuristic detection: runtime type mismatch counters.
+- Stabilizing pattern: `Annotated` dependency types; explicit return typing; schema tests at boundaries.
+
+### D) Vue 3 reactivity + TS (`CL/CONS/RES/PERF`)
+
+#### 11. Reactivity severed by destructuring props/reactive objects
+- Symptoms: stale UI despite state updates.
+- Deterministic detection: ESLint `vue/no-setup-props-reactivity-loss`.
+- Heuristic detection: intermittent stale fields after navigation/state transitions.
+- Stabilizing pattern: `toRefs()` prior to destructuring; composable conventions; lint gate required in CI.
+
+#### 12. Ref used as operand (`Ref` object truthiness bugs)
+- Symptoms: auth/feature flags incorrectly always true; equality checks fail.
+- Deterministic detection: ESLint `vue/no-ref-as-operand`.
+- Heuristic detection: logic works only when logged/inspected with `.value`.
+- Stabilizing pattern: unwrap refs in script logic; use computed wrappers; enforce lint gate.
+
+#### 13. Lifecycle/watch registration after `await`
+- Symptoms: leaked watchers, duplicated handlers, memory growth after route changes.
+- Deterministic detection: ESLint `vue/no-lifecycle-after-await` and `vue/no-watch-after-await`.
+- Heuristic detection: handler counts increase on repeated mount/unmount cycles.
+- Stabilizing pattern: register hooks synchronously; move async work inside hook callback; composable authoring checklist.
+
+### E) xterm.js / noVNC security + correctness (`CL/EP/SEC/STRM`)
+
+#### 14. PTY resize race corrupts terminal rendering
+- Symptoms: wrap corruption and curses glitches during resize under load.
+- Deterministic detection: replay rapid resize while streaming heavy stdout.
+- Heuristic detection: reproduces only when load and resize coincide.
+- Stabilizing pattern: atomic resize protocol; backend `ioctl(TIOCSWINSZ)` + `SIGWINCH`; apply backpressure.
+
+#### 15. Escape-sequence injection/DCS abuse
+- Symptoms: suspicious terminal behavior, unwanted paste/input, exfiltration paths.
+- Deterministic detection: ANSI/DCS parser review; sanitizer fuzzing.
+- Heuristic detection: anomalous clipboard/input events while viewing logs/output.
+- Stabilizing pattern: sanitize terminal output; disable dangerous sequences; avoid `innerHTML`/`eval`; treat terminal output as untrusted.
+
+### F) MCP / LLM agent orchestration (`CP/SEC/CONS/OPS`)
+
+#### 16. Confused deputy / indirect prompt injection
+- Symptoms: unauthorized tool calls, data exfil attempts, unsafe actions.
+- Deterministic detection: red-team prompt suite; tool policy tests; approval flow tests.
+- Heuristic detection: high-risk tool calls triggered by untrusted content.
+- Stabilizing pattern: capability-scoped tool authz; human approval for high-impact actions; provenance tagging; deny-by-default tool catalog.
+
+#### 17. Command injection via tool args
+- Symptoms: arbitrary command execution on tool host.
+- Deterministic detection: SAST rules for `shell=True`, `os.system`, string command execution.
+- Heuristic detection: anomalous separators/tokens (`;`, `&&`, `|`) in tool args.
+- Stabilizing pattern: `subprocess.run([...], shell=False)`; strict arg schema allowlists; path normalization.
+
+#### 18. SSRF through fetch/browse tools
+- Symptoms: requests to metadata/internal endpoints (e.g., `169.254.169.254`).
+- Deterministic detection: URL validator tests + egress policy tests; deny private ranges.
+- Heuristic detection: unusual internal destination traffic from tool runner.
+- Stabilizing pattern: egress filtering; private CIDR denylist; DNS pinning; policy-aware fetch proxy.
+
+#### 19. Token passthrough / audience confusion
+- Symptoms: token reuse across unintended services.
+- Deterministic detection: JWT tests for `aud`, `iss`, `scope`; assert no downstream passthrough.
+- Heuristic detection: cross-service token reuse anomalies.
+- Stabilizing pattern: per-service minted tokens; short TTL and rotation; minimal scopes; audited token events.
+
+### G) RAG + Qdrant (`DP/CP/CONS/PERF`)
+
+#### 20. Embedding drift/dimension mismatch
+- Symptoms: retrieval quality drops, empty/irrelevant hits.
+- Deterministic detection: enforce embedding model version metadata; validate vector dimensions on upsert/query; collection schema checks.
+- Heuristic detection: `Recall@K`, `MRR`, `NDCG` regression trends.
+- Stabilizing pattern: versioned collections (`memory_v1`, `memory_v2`); full reindex on model change; continuous eval gates.
+
+#### 21. Retrieval timing desync
+- Symptoms: generation starts with empty/partial context intermittently.
+- Deterministic detection: enforce await ordering; trace spans retrieval -> prompt build -> LLM call.
+- Heuristic detection: occasional empty context despite available corpus.
+- Stabilizing pattern: pipeline barriers; bounded timeouts; fallback retrieval path; structured prompt builder.
+
+#### 22. Position bias (lost in the middle)
+- Symptoms: relevant chunks retrieved but ignored in answer.
+- Deterministic detection: reranker and prompt placement A/B tests.
+- Heuristic detection: answer cites low-relevance early chunks.
+- Stabilizing pattern: two-stage retrieval + reranker; inject only top 3-5; deterministic chunk ordering.
+
+### H) MongoDB / Beanie (`DP/CP/PERF/CONS/RES`)
+
+#### 23. N+1 linked-document fetches
+- Symptoms: nonlinear latency growth with relation depth.
+- Deterministic detection: DB call count per request; worst-case fixture tests.
+- Heuristic detection: p95/p99 blow-up with larger documents.
+- Stabilizing pattern: `fetch_links=True` or aggregation/prefetch; required indexes.
+
+#### 24. Lost updates from concurrent writes
+- Symptoms: session/tool state rollback or overwrite anomalies.
+- Deterministic detection: optimistic concurrency/revision tests with parallel writers.
+- Heuristic detection: rare state anomalies under concurrency.
+- Stabilizing pattern: revision tokens; compare-and-set retry with backoff; transactional patterns where supported.
+
+### I) Redis coordination + cache split (`DP/CP/CONS/RES/OPS`)
+
+#### 25. Wrong Redis instance for key class
+- Symptoms: inconsistent rate limiting, missing revocations, disappearing jobs.
+- Deterministic detection: config assertions and key-prefix integration tests.
+- Heuristic detection: unexpected TTL/eviction behavior by key type.
+- Stabilizing pattern: strict namespaces; separate clients; startup assertions; per-instance dashboards.
+
+#### 26. Eviction/TTL stampede
+- Symptoms: synchronized load spikes and cache miss storms.
+- Deterministic detection: eviction counter monitoring + expiry load tests.
+- Heuristic detection: periodic synchronized latency spikes.
+- Stabilizing pattern: TTL jitter; request coalescing; circuit-breaker fallbacks.
+
+### J) MinIO object lifecycle (`DP/CL/OPS/CONS/SEC`)
+
+#### 27. Presigned URL host/clock/CORS mismatch
+- Symptoms: `403 SignatureDoesNotMatch`, browser-only failures.
+- Deterministic detection: browser-path integration test; verify external hostname and clock sync.
+- Heuristic detection: failures concentrated by environment/client.
+- Stabilizing pattern: environment-aware public base URL; NTP sync; explicit CORS policy; avoid docker-internal hostnames in browser URLs.
+
+#### 28. Transient network instability + retry amplification
+- Symptoms: `MaxRetryError`, `ResponseError`, cascading timeouts.
+- Deterministic detection: chaos/drop simulation.
+- Heuristic detection: correlated storage error spikes.
+- Stabilizing pattern: exponential backoff with bounded retries; startup health checks (`bucket_exists()`).
+
+### K) Containers + Supervisord + logging (`EP/OPS/RES`)
+
+#### 29. Signal swallowing and zombie processes
+- Symptoms: unclean shutdowns, orphaned connections, slow termination.
+- Deterministic detection: staged `SIGTERM` drills and teardown verification.
+- Heuristic detection: orphan connections/processes increase after deploys.
+- Stabilizing pattern: `stopsignal=TERM`; `exec` entrypoints; correct PID1 behavior.
+
+#### 30. Log buffering masks root cause
+- Symptoms: crash with missing trailing logs.
+- Deterministic detection: crash test with unbuffered logging verification.
+- Heuristic detection: missing final error lines around failure window.
+- Stabilizing pattern: `PYTHONUNBUFFERED=1`; structured logs with correlation IDs.
+
+### L) E2E + Monaco + Playwright (`CL/EP/CONS/OPS`)
+
+#### 31. Flaky UI tests from async DOM/worker timing
+- Symptoms: intermittent CI failures and non-reproducible local runs.
+- Deterministic detection: Playwright traces, explicit readiness checks, deterministic network stubbing.
+- Heuristic detection: failure clusters under CI load.
+- Stabilizing pattern: `page.route()` for deterministic network; strict locators/visibility waits; trace-on-retry.
+
+## 3) Standard Detection Toolchain (Deterministic First)
+
+### Static gates (PR blocking)
+
+Backend:
+- `conda activate pythinker && cd backend && ruff check .`
+- `conda activate pythinker && cd backend && ruff format --check .`
+- `conda activate pythinker && cd backend && pytest tests/`
+- Pyright/Mypy strict profile for boundary packages (request/response, domain DTOs).
+- SAST grep rules: block `shell=True`, `os.system`, unsafe command concatenation.
+
+Frontend:
+- `cd frontend && bun run lint`
+- `cd frontend && bun run type-check`
+- Required Vue rules: `vue/no-setup-props-reactivity-loss`, `vue/no-ref-as-operand`, `vue/no-lifecycle-after-await`, `vue/no-watch-after-await`, `vue/no-template-shadow`.
+
+Dependency/security hygiene:
+- `pip-audit` (backend) and `npm audit`/Bun equivalent (frontend) in CI.
+
+### Runtime profiling (root cause proof)
+- Event-loop lag histogram + request latency histogram.
+- Active task/thread counts + open file descriptors.
+- Active SSE/WS connections and disconnect/reconnect rates.
+- RSS and `tracemalloc` snapshots for memory leak triage.
+- Distributed traces for retrieval, tool execution, storage calls, and stream generator loops.
+
+### Heuristic detection (degradation early warning)
+- RAG quality metrics (`Recall@K`, `MRR`, `NDCG`) and embedding drift alerts.
+- Streaming health metrics (heartbeat receipt rate, reconnect rate, bytes/sec continuity).
+- Security anomaly metrics (blocked SSRF, policy-denied tool calls, suspicious command tokens).
+
+## 4) Standard Stability Patterns (Always-On Checklist)
+
+### Streaming
+- Heartbeats with verified flush.
+- Disconnect-aware loops and explicit send/read timeouts.
+- Idempotent event IDs with dedupe/replay semantics.
+
+### Concurrency
+- No blocking calls inside async handlers.
+- CPU offload and bounded work queues.
+- Per-session cancellation and cleanup semantics.
+
+### Resource hygiene
+- Cleanup in `finally` for WS/tasks/subscriptions.
+- Caps on payload/frame size and connection limits.
+- Memory allocator strategy when RSS pressure appears.
+
+### Contracts
+- Unknown-field policy explicitly chosen per endpoint (`ignore+log` vs `forbid`).
+- OpenAPI diffs and schema compatibility checks in CI.
+- Strict typing at boundaries; no unbounded `Any` in critical models.
+
+### LLM/MCP security
+- Capability-based authz per tool.
+- Deny-by-default tool exposure.
+- Human approval for destructive/high-scope operations.
+- Structured args only; no shell command passthrough.
+- SSRF egress controls and token audience validation.
+
+### Data correctness
+- Beanie prefetch/aggregation where N+1 appears.
+- Optimistic concurrency for mutable shared state.
+- Redis namespace isolation + TTL jitter.
+- Qdrant collection versioning with full reindex on embedding change.
+- MinIO external URL correctness + CORS + clock sync.
+
+### Operations
+- Graceful signal handling and clean teardown.
+- Unbuffered structured logs with correlation IDs.
+- Canary checks for streaming and sandbox readiness.
+
+### Testing
+- Boundary smoke tests for SSE, WS takeover, sandbox spawn/tool run, and Mongo/Redis/Qdrant/MinIO CRUD.
+
+## 5) Boundary Smoke Test Minimums
+
+Run these in a compose-backed CI job at least once per merge to `main`:
+
+1. SSE stream opens, heartbeat arrives, forced reconnect replays without duplicates.
+2. WS takeover channels (`vnc`, `screencast`, `input`) connect and exchange expected frames/messages.
+3. Sandbox starts and runs one minimal Python tool, one minimal Node tool, one minimal Playwright navigation.
+4. Mongo CRUD for session docs with linked-document retrieval path.
+5. Redis coordination key round-trip and cache key TTL/eviction sanity.
+6. Qdrant insert + search on active collection version.
+7. MinIO put/get and browser-path presigned URL fetch.
+
+## 6) Ownership Mapping
+
+- `CL`: Frontend owner (Vue/TS/runtime UX)
+- `CP`: Backend/API owner (FastAPI/auth/orchestration)
+- `EP`: Runtime/platform owner (sandbox/container/supervisor)
+- `DP`: Data/platform owner (Mongo/Redis/Qdrant/MinIO)
+
+Primary owner is assigned by plane tag. Secondary reviewers are assigned from any secondary failure mode.
+
+## 7) Maintenance Rule
+
+Update this playbook in the same PR when changing:
+- Streaming protocols/events/retry semantics
+- Sandbox lifecycle/runtime process graph
+- Data store topology, schema policy, or cache partitioning
+- Tool execution security controls
+
+Do not mark a playbook control as implemented until code, tests, and runtime probes are all in place.

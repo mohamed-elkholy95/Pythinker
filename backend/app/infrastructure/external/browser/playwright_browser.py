@@ -74,110 +74,8 @@ TIMEZONE_POOL = [
 # Resource types to block for faster page loads (configurable)
 BLOCKABLE_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
 
-# Professional Ad/Tracker Blocking Patterns
-# These patterns are ALWAYS active regardless of block_resources setting
-# Designed to block ads and trackers while preserving legitimate content
-BLOCKED_URL_PATTERNS = [
-    # ============================================================================
-    # Google Advertising & Analytics Networks
-    # ============================================================================
-    r".*\.doubleclick\.net.*",
-    r".*\.google-analytics\.com.*",
-    r".*\.googlesyndication\.com.*",
-    r".*\.googletagmanager\.com.*",
-    r".*\.googleadservices\.com.*",
-    r".*\.google\.com/pagead.*",
-    r".*\.googletag\.com.*",
-    # ============================================================================
-    # Social Media Tracking & Advertising
-    # ============================================================================
-    r".*\.facebook\.net.*",
-    r".*\.facebook\.com/tr.*",
-    r".*\.facebook\.com/plugins.*",
-    r".*\.twitter\.com/i/.*",
-    r".*\.ads-twitter\.com.*",
-    r".*\.linkedin\.com/px.*",
-    r".*\.linkedin\.com/li/track.*",
-    r".*\.pinterest\.com/ct.*",
-    r".*\.tiktok\.com/i18n/pixel.*",
-    # ============================================================================
-    # Major Analytics Platforms
-    # ============================================================================
-    r".*\.hotjar\.com.*",
-    r".*\.mouseflow\.com.*",
-    r".*\.mixpanel\.com.*",
-    r".*\.segment\.io.*",
-    r".*\.segment\.com.*",
-    r".*\.amplitude\.com.*",
-    r".*\.heap\.io.*",
-    r".*\.fullstory\.com.*",
-    r".*\.logrocket\.com.*",
-    r".*\.sentry\.io.*",
-    r".*\.newrelic\.com.*",
-    r".*\.nr-data\.net.*",
-    # ============================================================================
-    # A/B Testing & Optimization
-    # ============================================================================
-    r".*\.optimizely\.com.*",
-    r".*\.vwo\.com.*",
-    r".*\.crazyegg\.com.*",
-    r".*\.quantserve\.com.*",
-    r".*\.quantcast\.com.*",
-    # ============================================================================
-    # Major Ad Exchanges & Networks
-    # ============================================================================
-    r".*\.pubmatic\.com.*",
-    r".*\.casalemedia\.com.*",
-    r".*\.openx\.net.*",
-    r".*\.rubiconproject\.com.*",
-    r".*\.criteo\.com.*",
-    r".*\.criteo\.net.*",
-    r".*\.taboola\.com.*",
-    r".*\.outbrain\.com.*",
-    r".*\.amazon-adsystem\.com.*",
-    r".*\.adsrvr\.org.*",
-    r".*\.adnxs\.com.*",  # AppNexus
-    r".*\.adform\.net.*",
-    r".*\.bidswitch\.net.*",
-    r".*\.sharethrough\.com.*",
-    r".*\.spotxchange\.com.*",
-    r".*\.indexexchange\.com.*",
-    r".*\.contextweb\.com.*",
-    r".*\.advertising\.com.*",
-    r".*\.yieldmo\.com.*",
-    r".*\.33across\.com.*",
-    # ============================================================================
-    # Ad Verification & Metrics
-    # ============================================================================
-    r".*\.moatads\.com.*",
-    r".*\.doubleverify\.com.*",
-    r".*\.adsafeprotected\.com.*",
-    r".*\.scorecardresearch\.com.*",
-    r".*\.parsely\.com.*",
-    r".*\.chartbeat\.com.*",
-    # ============================================================================
-    # Generic Ad Patterns (specific domains only)
-    # ============================================================================
-    r".*\.ads\..*",  # Subdomains like ads.example.com
-    r".*/ads/.*",  # Path-based ads
-    r".*/advert.*",  # Advertisement paths
-    r".*/banner.*",  # Banner ad paths
-    r".*\.adserver.*",
-    r".*\.adzerk.*",
-    r".*\.adroll.*",
-    r".*\.adcolony.*",
-    # ============================================================================
-    # Amazon Advertising
-    # ============================================================================
-    r".*\.aps\.amazon.*",
-    r".*\.aax\.amazon-adsystem\.com.*",
-    # ============================================================================
-    # Other Major Ad Networks
-    # ============================================================================
-    r".*\.serving-sys\.com.*",
-    r".*\.2mdn\.net.*",  # Google display ads
-    r".*\.gravatar\.com/avatar/ad32.*",  # Gravatar tracking pixels
-]
+# Ad/Tracker blocking disabled — was causing browsing issues
+BLOCKED_URL_PATTERNS: list[str] = []
 
 # Browser crash error signatures — when exceptions contain these strings,
 # the browser/renderer has crashed and needs recovery, not retry.
@@ -866,35 +764,30 @@ class PlaywrightBrowser:
         return page
 
     async def _setup_route_interception(self, context: BrowserContext) -> None:
-        """Set up network route interception for resource blocking and optimization.
+        """Set up network route interception for optional resource blocking.
 
-        P0.3: Ad/tracker URLs are ALWAYS blocked (context-level, protects against thread saturation).
-        Resource types (images, fonts, etc.) are only blocked when block_resources=True.
+        Only blocks resource types (images, fonts, etc.) when block_resources=True.
+        No ad blocking — removed to avoid breaking legitimate browsing.
 
         Args:
             context: Browser context to configure routes on
         """
+        if not self.block_resources:
+            logger.debug("Network route interception skipped (no blocking enabled)")
+            return
 
         async def route_handler(route):
             request = route.request
             resource_type = request.resource_type
-            url = request.url
 
-            # ALWAYS block known ad/tracker URLs (critical for CDP timeout prevention)
-            for pattern in BLOCKED_URL_PATTERNS:
-                if re.match(pattern, url, re.IGNORECASE):
-                    await route.abort()
-                    return
-
-            # Only block resource types when explicitly enabled
-            if self.block_resources and resource_type in self.blocked_types:
+            if resource_type in self.blocked_types:
                 await route.abort()
                 return
 
             await route.continue_()
 
         await context.route("**/*", route_handler)
-        logger.debug(f"Network route interception configured (ads: always, resources: {self.block_resources})")
+        logger.debug(f"Network route interception configured (resource blocking: {self.blocked_types})")
 
     async def _show_cursor_click(self, x: float, y: float) -> None:
         """Show cursor animation at the specified coordinates.
