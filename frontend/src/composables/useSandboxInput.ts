@@ -1,57 +1,95 @@
 /**
  * Sandbox Input Composable
  *
- * Handles input forwarding from the frontend to the sandbox for interactive
- * takeover functionality. Captures mouse and keyboard events on the sandbox
- * viewer canvas and forwards them to the sandbox API.
+ * Handles input forwarding from the frontend to the sandbox using CDP
+ * (Chrome DevTools Protocol) for direct browser input injection.
+ * Captures mouse and keyboard events on the sandbox viewer canvas
+ * and forwards them as individual CDP events via WebSocket.
  */
-import { ref, onUnmounted } from 'vue'
+import { shallowRef, onUnmounted } from 'vue'
 
-// Input event types for the sandbox API
-interface MouseInput {
-  type: 'mousedown' | 'mouseup' | 'mousemove' | 'click' | 'dblclick'
+// CDP Input Protocol - Chrome DevTools Protocol event types
+// https://chromedevtools.github.io/devtools-protocol/tot/Input/
+
+interface CDPMouseEvent {
+  type: 'mouse'
+  event_type: 'mousePressed' | 'mouseReleased' | 'mouseMoved'
   x: number
   y: number
-  button: 'left' | 'right' | 'middle'
+  button: 'left' | 'right' | 'middle' | 'none'
+  click_count?: number
+  modifiers: number // Bitmask: Alt(1), Ctrl(2), Meta(4), Shift(8)
 }
 
-interface KeyboardInput {
-  type: 'keydown' | 'keyup' | 'keypress'
+interface CDPKeyboardEvent {
+  type: 'keyboard'
+  event_type: 'keyDown' | 'keyUp' | 'char'
   key: string
   code: string
-  modifiers: {
-    ctrl: boolean
-    alt: boolean
-    shift: boolean
-    meta: boolean
-  }
+  text?: string
+  modifiers: number
 }
 
-interface ScrollInput {
-  type: 'scroll'
+interface CDPWheelEvent {
+  type: 'wheel'
   x: number
   y: number
-  deltaX: number
-  deltaY: number
+  delta_x: number
+  delta_y: number
 }
 
-type SandboxInput = MouseInput | KeyboardInput | ScrollInput
+interface CDPPingEvent {
+  type: 'ping'
+}
+
+type CDPInputEvent = CDPMouseEvent | CDPKeyboardEvent | CDPWheelEvent | CDPPingEvent
+
+// CDP modifiers bitmask
+const enum Modifiers {
+  None = 0,
+  Alt = 1,
+  Ctrl = 2,
+  Meta = 4,
+  Shift = 8
+}
 
 // Sandbox viewport dimensions (should match sandbox browser settings)
 const SANDBOX_WIDTH = 1280
 const SANDBOX_HEIGHT = 1024
 
-// State
-const isForwarding = ref(false)
-const lastError = ref<string | null>(null)
+// State (using shallowRef for primitive values per Vue 3 best practices)
+const isForwarding = shallowRef(false)
+const lastError = shallowRef<string | null>(null)
 
-// WebSocket connection for real-time input
+// WebSocket connection for CDP input streaming
 let inputWs: WebSocket | null = null
-let inputQueue: SandboxInput[] = []
+let inputQueue: CDPInputEvent[] = []
 let flushInterval: number | null = null
+let pingInterval: number | null = null
 
 /**
- * Start input forwarding to the sandbox
+ * Calculate CDP modifiers bitmask from keyboard/mouse event
+ */
+function calculateModifiers(event: KeyboardEvent | MouseEvent): number {
+  let modifiers = Modifiers.None
+  if (event.altKey) modifiers |= Modifiers.Alt
+  if (event.ctrlKey) modifiers |= Modifiers.Ctrl
+  if (event.metaKey) modifiers |= Modifiers.Meta
+  if (event.shiftKey) modifiers |= Modifiers.Shift
+  return modifiers
+}
+
+/**
+ * Send ping message for keep-alive
+ */
+function sendPing(): void {
+  if (inputWs && inputWs.readyState === WebSocket.OPEN) {
+    inputWs.send(JSON.stringify({ type: 'ping' }))
+  }
+}
+
+/**
+ * Start input forwarding to the sandbox via CDP protocol
  * @param inputWsUrl - Full WebSocket URL for input stream (proxied through backend)
  */
 function startForwarding(inputWsUrl: string): void {
@@ -59,33 +97,65 @@ function startForwarding(inputWsUrl: string): void {
     return
   }
 
-  const wsUrl = inputWsUrl
-
   try {
-    inputWs = new WebSocket(wsUrl)
+    inputWs = new WebSocket(inputWsUrl)
 
     inputWs.onopen = () => {
       isForwarding.value = true
       lastError.value = null
-      console.info('[SandboxInput] Connected to input stream')
+      console.info('[CDPInput] Connected to input stream')
 
       // Start flushing queued inputs
       flushInterval = window.setInterval(flushInputQueue, 16) // ~60fps
+
+      // Start ping/pong keep-alive (every 30 seconds)
+      pingInterval = window.setInterval(sendPing, 30000)
+    }
+
+    inputWs.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+
+        switch (msg.type) {
+          case 'ready':
+            console.info('[CDPInput] Service ready:', msg.message)
+            break
+
+          case 'pong':
+            // Keep-alive acknowledged
+            break
+
+          case 'ack':
+            // Input acknowledged
+            break
+
+          case 'error':
+            console.error('[CDPInput] Server error:', msg.message)
+            lastError.value = msg.message
+            break
+
+          default:
+            console.warn('[CDPInput] Unknown message type:', msg.type)
+        }
+      } catch (err) {
+        console.error('[CDPInput] Failed to parse server message:', err)
+      }
     }
 
     inputWs.onerror = (e) => {
-      console.error('[SandboxInput] WebSocket error:', e)
-      lastError.value = 'Input connection error'
+      console.error('[CDPInput] WebSocket error:', e)
+      lastError.value = 'CDP input connection error'
     }
 
     inputWs.onclose = () => {
       isForwarding.value = false
       stopFlushInterval()
-      console.info('[SandboxInput] Disconnected from input stream')
+      stopPingInterval()
+      console.info('[CDPInput] Disconnected from input stream')
     }
   } catch (err) {
     lastError.value = err instanceof Error ? err.message : 'Failed to connect'
-    console.error('[SandboxInput] Connection failed:', err)
+    console.error('[CDPInput] Connection failed:', err)
   }
 }
 
@@ -94,6 +164,7 @@ function startForwarding(inputWsUrl: string): void {
  */
 function stopForwarding(): void {
   stopFlushInterval()
+  stopPingInterval()
 
   if (inputWs) {
     try {
@@ -115,27 +186,39 @@ function stopFlushInterval(): void {
   }
 }
 
+function stopPingInterval(): void {
+  if (pingInterval) {
+    clearInterval(pingInterval)
+    pingInterval = null
+  }
+}
+
 /**
- * Flush queued inputs to the sandbox
+ * Flush queued CDP events to the sandbox
+ *
+ * CDP protocol expects individual events (one message per event)
+ * for immediate processing with <10ms latency.
  */
 function flushInputQueue(): void {
   if (!inputWs || inputWs.readyState !== WebSocket.OPEN || inputQueue.length === 0) {
     return
   }
 
-  // Send all queued inputs
-  const inputs = inputQueue.splice(0, inputQueue.length)
-  inputWs.send(JSON.stringify({ inputs }))
+  // Send all queued events individually (CDP protocol requirement)
+  const events = inputQueue.splice(0, inputQueue.length)
+  for (const event of events) {
+    inputWs.send(JSON.stringify(event))
+  }
 }
 
 /**
- * Queue an input event
+ * Queue a CDP input event
  */
-function queueInput(input: SandboxInput): void {
+function queueInput(event: CDPInputEvent): void {
   if (!isForwarding.value) {
     return
   }
-  inputQueue.push(input)
+  inputQueue.push(event)
 }
 
 /**
@@ -203,15 +286,45 @@ function scaleCoordinates(
 }
 
 /**
- * Handle mouse event and forward to sandbox
+ * Convert browser mouse event type to CDP event type
+ */
+function browserMouseEventToCDP(
+  type: 'mousedown' | 'mouseup' | 'mousemove' | 'click' | 'dblclick'
+): 'mousePressed' | 'mouseReleased' | 'mouseMoved' | null {
+  switch (type) {
+    case 'mousedown':
+      return 'mousePressed'
+    case 'mouseup':
+      return 'mouseReleased'
+    case 'mousemove':
+      return 'mouseMoved'
+    case 'click':
+      // CDP doesn't have click - uses pressed+released combination
+      return null
+    case 'dblclick':
+      return 'mousePressed' // Will set click_count: 2
+    default:
+      return null
+  }
+}
+
+/**
+ * Handle mouse event and forward to sandbox as CDP event
  */
 function handleMouseEvent(
   event: MouseEvent,
-  type: MouseInput['type'],
+  type: 'mousedown' | 'mouseup' | 'mousemove' | 'click' | 'dblclick',
   elementWidth: number,
   elementHeight: number
 ): void {
   if (!isForwarding.value) return
+
+  // Convert browser event type to CDP event type
+  const cdpEventType = browserMouseEventToCDP(type)
+  if (!cdpEventType) {
+    // Skip unsupported events (e.g., 'click')
+    return
+  }
 
   // Get coordinates relative to the element
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
@@ -220,38 +333,69 @@ function handleMouseEvent(
 
   const { x, y } = scaleCoordinates(clientX, clientY, elementWidth, elementHeight)
 
-  queueInput({
-    type,
+  // Create CDP mouse event
+  const cdpEvent: CDPMouseEvent = {
+    type: 'mouse',
+    event_type: cdpEventType,
     x,
     y,
-    button: mouseButtonToName(event.button)
-  })
+    button: mouseButtonToName(event.button),
+    click_count: type === 'dblclick' ? 2 : 1,
+    modifiers: calculateModifiers(event)
+  }
+
+  queueInput(cdpEvent)
 }
 
 /**
- * Handle keyboard event and forward to sandbox
+ * Convert browser keyboard event type to CDP event type
  */
-function handleKeyboardEvent(event: KeyboardEvent, type: KeyboardInput['type']): void {
+function browserKeyboardEventToCDP(
+  type: 'keydown' | 'keyup' | 'keypress'
+): 'keyDown' | 'keyUp' | 'char' {
+  switch (type) {
+    case 'keydown':
+      return 'keyDown'
+    case 'keyup':
+      return 'keyUp'
+    case 'keypress':
+      return 'char'
+    default:
+      return 'keyDown'
+  }
+}
+
+/**
+ * Handle keyboard event and forward to sandbox as CDP event
+ */
+function handleKeyboardEvent(
+  event: KeyboardEvent,
+  type: 'keydown' | 'keyup' | 'keypress'
+): void {
   if (!isForwarding.value) return
 
   // Prevent default browser behavior for forwarded keys
   event.preventDefault()
 
-  queueInput({
-    type,
+  // Create CDP keyboard event
+  const cdpEvent: CDPKeyboardEvent = {
+    type: 'keyboard',
+    event_type: browserKeyboardEventToCDP(type),
     key: event.key,
     code: event.code,
-    modifiers: {
-      ctrl: event.ctrlKey,
-      alt: event.altKey,
-      shift: event.shiftKey,
-      meta: event.metaKey
-    }
-  })
+    modifiers: calculateModifiers(event)
+  }
+
+  // Add text field for character input (single printable character)
+  if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
+    cdpEvent.text = event.key
+  }
+
+  queueInput(cdpEvent)
 }
 
 /**
- * Handle scroll event and forward to sandbox
+ * Handle scroll event and forward to sandbox as CDP wheel event
  */
 function handleScrollEvent(
   event: WheelEvent,
@@ -268,13 +412,16 @@ function handleScrollEvent(
 
   const { x, y } = scaleCoordinates(clientX, clientY, elementWidth, elementHeight)
 
-  queueInput({
-    type: 'scroll',
+  // Create CDP wheel event
+  const cdpEvent: CDPWheelEvent = {
+    type: 'wheel',
     x,
     y,
-    deltaX: event.deltaX,
-    deltaY: event.deltaY
-  })
+    delta_x: event.deltaX,
+    delta_y: event.deltaY
+  }
+
+  queueInput(cdpEvent)
 }
 
 /**
