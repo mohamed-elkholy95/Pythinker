@@ -4,7 +4,6 @@ Concise instructions for automated agents working in this repo.
 
 ## Quick Rules
 
-- **Superpowers skills**: only use superpowers skills when explicitly asked.
 - **Read first**: read `instructions.md` before making changes.
 - **Reuse before creating**: search the codebase for existing components/utilities/services and extend them instead of duplicating.
 - **Simplicity first**: prefer straightforward, robust solutions; avoid unnecessary complexity.
