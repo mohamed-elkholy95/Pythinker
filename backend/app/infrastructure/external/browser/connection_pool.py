@@ -245,7 +245,7 @@ class BrowserConnectionPool:
     async def acquire(
         self,
         cdp_url: str,
-        block_resources: bool = False,
+        block_resources: bool | None = None,
         randomize_fingerprint: bool = True,
         progress_callback: ProgressCallback | None = None,
     ) -> "PooledConnectionContext":
@@ -253,13 +253,19 @@ class BrowserConnectionPool:
 
         Args:
             cdp_url: Chrome DevTools Protocol URL
-            block_resources: Whether to block resources
+            block_resources: Whether to block resources (None = use settings default)
             randomize_fingerprint: Whether to randomize browser fingerprint
             progress_callback: Optional async callback for progress updates (e.g., retry attempts)
 
         Returns:
             Context manager yielding a PlaywrightBrowser instance
         """
+        # Use settings default if not explicitly specified
+        if block_resources is None:
+            from app.core.config import get_settings
+            settings = get_settings()
+            block_resources = settings.browser_block_resources_default
+
         return PooledConnectionContext(
             pool=self,
             cdp_url=cdp_url,
@@ -271,7 +277,7 @@ class BrowserConnectionPool:
     async def _acquire_connection(
         self,
         cdp_url: str,
-        block_resources: bool = False,
+        block_resources: bool = False,  # Note: already resolved to bool by acquire()
         randomize_fingerprint: bool = True,
         session_id: str | None = None,
         sandbox_id: str | None = None,

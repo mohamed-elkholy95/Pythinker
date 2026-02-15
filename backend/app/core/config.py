@@ -299,6 +299,10 @@ class Settings(BaseSettings):
     browser_heavy_page_dom_threshold: int = 3000  # DOM element count triggers lightweight mode
     browser_heavy_page_skip_scroll: bool = True  # Skip smart scroll on heavy pages
 
+    # Browser resource blocking (ads/trackers always blocked, configurable for other resources)
+    browser_block_resources_default: bool = False  # Enable resource blocking by default
+    browser_blocked_resource_types: str = "image,media"  # Comma-separated: image, media, font, stylesheet
+
     # Fast acknowledgment refiner configuration (Phase 6: fix timeouts)
     fast_ack_refiner_timeout: float = 2.5  # LLM timeout for fast acknowledgment generation (seconds)
     fast_ack_refiner_traceback_sample_rate: float = 0.05  # Sample rate for error traceback logging
@@ -670,6 +674,18 @@ class Settings(BaseSettings):
         Context7 validated: Pydantic v2 @computed_field pattern for derived settings.
         """
         return self.balanced_model or self.model_name
+
+    @computed_field
+    @property
+    def browser_blocked_types_set(self) -> set[str]:
+        """Parse browser_blocked_resource_types into a set.
+
+        Returns:
+            Set of resource types to block (e.g., {"image", "media"})
+        """
+        if not self.browser_blocked_resource_types:
+            return set()
+        return {t.strip() for t in self.browser_blocked_resource_types.split(",") if t.strip()}
 
     def _generate_jwt_secret(self) -> str:
         """Generate a secure JWT secret for development"""
