@@ -507,6 +507,9 @@ class Settings(BaseSettings):
     # Phase 5: Contradictory prompt detection
     enable_contradiction_clarification: bool = False
 
+    # Pre-Planning Search: inject real-time web results into planning prompts
+    feature_pre_planning_search: bool = False
+
     # Chart Generation (Plotly Migration Phase 4)
     feature_plotly_charts_enabled: bool = True  # Use Plotly charts instead of SVG (Phase 4)
 
@@ -871,6 +874,7 @@ def get_feature_flags() -> dict[str, bool]:
             "reject_ungrounded_reports": False,
             "delivery_integrity_gate": True,
             "adaptive_verbosity_shadow": False,
+            "pre_planning_search": False,
         }
     return {
         "tree_of_thoughts": settings.feature_tree_of_thoughts,
@@ -901,4 +905,5 @@ def get_feature_flags() -> dict[str, bool]:
         "reject_ungrounded_reports": settings.feature_reject_ungrounded_reports,
         "delivery_integrity_gate": settings.feature_delivery_integrity_gate,
         "adaptive_verbosity_shadow": settings.feature_adaptive_verbosity_shadow,
+        "pre_planning_search": settings.feature_pre_planning_search,
     }

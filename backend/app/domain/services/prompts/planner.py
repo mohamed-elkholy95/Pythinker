@@ -201,6 +201,18 @@ Consider these experiences when creating your plan.
 """
 
 # ============================================================================
+# PRE-PLANNING SEARCH SIGNAL (real-time web search before planning)
+# ============================================================================
+
+PRE_PLANNING_SEARCH_SIGNAL = """
+---
+CURRENT WEB INFORMATION (retrieved just now — use these facts for planning):
+{search_context}
+IMPORTANT: Base your plan steps on this current information. Do NOT use outdated model names, versions, or specifications from your training data.
+---
+"""
+
+# ============================================================================
 # ENHANCED CREATE PLAN PROMPT
 # ============================================================================
 
@@ -334,20 +346,29 @@ CREATE_PLAN_PROMPT = ENHANCED_CREATE_PLAN_PROMPT
 
 
 def build_create_plan_prompt(
-    message: str, attachments: str, task_memory: str | None = None, include_current_date: bool = True
+    message: str,
+    attachments: str,
+    task_memory: str | None = None,
+    search_context: str | None = None,
+    include_current_date: bool = True,
 ) -> str:
-    """Build create plan prompt with optional task memory context.
+    """Build create plan prompt with optional task memory and search context.
 
     Args:
         message: User message
         attachments: User attachments
         task_memory: Optional context from similar past tasks
+        search_context: Optional real-time web search results from pre-planning search
         include_current_date: Include current date context (default: True)
 
     Returns:
-        Formatted plan prompt with memory context if available
+        Formatted plan prompt with memory/search context if available
     """
     base_prompt = ENHANCED_CREATE_PLAN_PROMPT.format(message=message, attachments=attachments)
+
+    # Inject pre-planning search context if present (real-time web info)
+    if search_context:
+        base_prompt = PRE_PLANNING_SEARCH_SIGNAL.format(search_context=search_context) + base_prompt
 
     # Inject task memory if present (Phase 6: Qdrant integration)
     if task_memory:
