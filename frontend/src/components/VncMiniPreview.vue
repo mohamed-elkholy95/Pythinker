@@ -579,7 +579,7 @@ const sizeClass = computed(() => {
 
 .file-accent {
   width: 2px;
-  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
   flex-shrink: 0;
 }
 
@@ -620,7 +620,7 @@ const sizeClass = computed(() => {
 }
 
 .search-header-icon {
-  color: #6366f1;
+  color: #262626;
   flex-shrink: 0;
 }
 
@@ -729,7 +729,7 @@ const sizeClass = computed(() => {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #6366f1;
+  background: #262626;
   animation: bounce 1.4s infinite ease-in-out both;
 }
 
@@ -857,7 +857,7 @@ const sizeClass = computed(() => {
   right: 4px;
   width: 6px;
   height: 6px;
-  background: #3b82f6;
+  background: #000000;
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
 }
@@ -953,7 +953,7 @@ const sizeClass = computed(() => {
   right: 6px;
   width: 8px;
   height: 8px;
-  background: #3b82f6;
+  background: #000000;
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
@@ -1041,7 +1041,7 @@ const sizeClass = computed(() => {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #000000;
   animation: boot-pulse 1.2s ease-in-out infinite;
 }
 

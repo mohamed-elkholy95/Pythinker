@@ -38,7 +38,7 @@
   --bolt-elements-code-text: #111827;
   --bolt-elements-button-primary-background: rgba(17, 24, 39, 0.06);
   --bolt-elements-button-primary-backgroundHover: rgba(17, 24, 39, 0.12);
-  --bolt-elements-button-primary-text: #3b82f6;
+  --bolt-elements-button-primary-text: #000000;
   --bolt-elements-button-secondary-background: rgba(17, 24, 39, 0.04);
   --bolt-elements-button-secondary-backgroundHover: rgba(17, 24, 39, 0.08);
   --bolt-elements-button-secondary-text: #111827;
@@ -47,16 +47,16 @@
   --bolt-elements-button-danger-text: #ef4444;
   --bolt-elements-item-contentDefault: rgba(23, 23, 23, 0.5);
   --bolt-elements-item-contentActive: #111827;
-  --bolt-elements-item-contentAccent: #3b82f6;
+  --bolt-elements-item-contentAccent: #000000;
   --bolt-elements-item-contentDanger: #ef4444;
   --bolt-elements-item-backgroundDefault: rgba(0, 0, 0, 0);
   --bolt-elements-item-backgroundActive: rgba(17, 24, 39, 0.05);
-  --bolt-elements-item-backgroundAccent: rgba(59, 130, 246, 0.12);
+  --bolt-elements-item-backgroundAccent: rgba(0, 0, 0, 0.12);
   --bolt-elements-item-backgroundDanger: rgba(239, 68, 68, 0.1);
   --bolt-elements-loader-background: rgba(17, 24, 39, 0.08);
-  --bolt-elements-loader-progress: #3b82f6;
+  --bolt-elements-loader-progress: #000000;
   --bolt-elements-messages-background: #f7f6f3;
-  --bolt-elements-messages-linkColor: #3b82f6;
+  --bolt-elements-messages-linkColor: #000000;
   --bolt-elements-messages-code-background: #262626;
   --bolt-elements-messages-inlineCode-background: #edeae6;
   --bolt-elements-messages-inlineCode-text: #111827;
@@ -92,7 +92,7 @@
   --border-white: rgba(255, 255, 255, 0.1);
   --border-btn-main: var(--bolt-elements-borderColor);
   --border-btn-primary: var(--bolt-elements-item-contentAccent);
-  --border-input-active: rgba(138, 95, 255, 0.5);
+  --border-input-active: rgba(0, 0, 0, 0.5);
   --border-light: rgba(17, 24, 39, 0.06);
   --border-dark: rgba(17, 24, 39, 0.12);
   --icon-primary: var(--bolt-elements-textPrimary);
@@ -110,7 +110,7 @@
   --function-success-border: rgba(34, 197, 94, 0.4);
   --function-error-tsp: rgba(239, 68, 68, 0.1);
   --function-warning-tsp: rgba(247, 144, 9, 0.15);
-  --fill-blue: rgba(59, 130, 246, 0.1);
+  --fill-blue: rgba(0, 0, 0, 0.1);
   --fill-tsp-white-main: rgba(17, 24, 39, 0.04);
   --fill-tsp-white-dark: rgba(17, 24, 39, 0.08);
   --fill-tsp-white-light: rgba(17, 24, 39, 0.02);
@@ -121,14 +121,14 @@
   --fill-black: rgba(0, 0, 0, 0.45);
   --Button-primary-black: #111827;
   --Button-primary-white: #ffffff;
-  --Button-primary-brand: #3b82f6;
-  --Button-secondary-brand: rgba(59, 130, 246, 0.16);
+  --Button-primary-brand: #000000;
+  --Button-secondary-brand: rgba(0, 0, 0, 0.16);
   --Button-secondary-error-border: rgba(239, 68, 68, 0.5);
   --Button-secondary-error-fill: rgba(239, 68, 68, 0.12);
   --Button-secondary-main: rgba(17, 24, 39, 0.06);
   --Button-secondary-gray: rgba(17, 24, 39, 0.06);
   --button-primary: var(--bolt-elements-item-contentAccent);
-  --button-primary-hover: #60a5fa;
+  --button-primary-hover: #1a1a1a;
   --button-secondary: var(--bolt-elements-bg-depth-2);
   --tab-fill: rgba(0, 0, 0, 0.04);
   --tab-active-black: #0a0a0a;
@@ -145,9 +145,9 @@
 
 :root[data-theme='dark'],
 .dark {
-  /* Refined slate palette — deep base with subtle blue undertone */
+  /* Refined slate palette — deep base with monochrome accents */
   --bolt-elements-borderColor: rgba(48, 54, 61, 0.8);
-  --bolt-elements-borderColorActive: #58a6ff;
+  --bolt-elements-borderColorActive: #ffffff;
   --bolt-elements-bg-depth-1: #161b22;
   --bolt-elements-bg-depth-2: #21262d;
   --bolt-elements-bg-depth-3: #30363d;
@@ -157,9 +157,9 @@
   --bolt-elements-textTertiary: #6e7681;
   --bolt-elements-code-background: #0d1117;
   --bolt-elements-code-text: #e6edf3;
-  --bolt-elements-button-primary-background: rgba(88, 166, 255, 0.15);
-  --bolt-elements-button-primary-backgroundHover: rgba(88, 166, 255, 0.25);
-  --bolt-elements-button-primary-text: #58a6ff;
+  --bolt-elements-button-primary-background: rgba(255, 255, 255, 0.15);
+  --bolt-elements-button-primary-backgroundHover: rgba(255, 255, 255, 0.25);
+  --bolt-elements-button-primary-text: #ffffff;
   --bolt-elements-button-secondary-background: rgba(255, 255, 255, 0.05);
   --bolt-elements-button-secondary-backgroundHover: rgba(255, 255, 255, 0.1);
   --bolt-elements-button-secondary-text: #e6edf3;
@@ -168,16 +168,16 @@
   --bolt-elements-button-danger-text: #f85149;
   --bolt-elements-item-contentDefault: rgba(230, 237, 243, 0.6);
   --bolt-elements-item-contentActive: #e6edf3;
-  --bolt-elements-item-contentAccent: #58a6ff;
+  --bolt-elements-item-contentAccent: #ffffff;
   --bolt-elements-item-contentDanger: #f85149;
   --bolt-elements-item-backgroundDefault: rgba(255, 255, 255, 0);
   --bolt-elements-item-backgroundActive: rgba(255, 255, 255, 0.08);
-  --bolt-elements-item-backgroundAccent: rgba(88, 166, 255, 0.15);
+  --bolt-elements-item-backgroundAccent: rgba(255, 255, 255, 0.15);
   --bolt-elements-item-backgroundDanger: rgba(248, 81, 73, 0.15);
   --bolt-elements-loader-background: rgba(255, 255, 255, 0.08);
-  --bolt-elements-loader-progress: #58a6ff;
+  --bolt-elements-loader-progress: #ffffff;
   --bolt-elements-messages-background: #0d1117;
-  --bolt-elements-messages-linkColor: #58a6ff;
+  --bolt-elements-messages-linkColor: #ffffff;
   --bolt-elements-messages-code-background: #0d1117;
   --bolt-elements-messages-inlineCode-background: rgba(110, 118, 129, 0.2);
   --bolt-elements-messages-inlineCode-text: #e6edf3;
@@ -213,7 +213,7 @@
   --border-white: rgba(48, 54, 61, 0.6);
   --border-btn-main: rgba(48, 54, 61, 0.8);
   --border-btn-primary: var(--bolt-elements-item-contentAccent);
-  --border-input-active: rgba(88, 166, 255, 0.5);
+  --border-input-active: rgba(255, 255, 255, 0.5);
   --border-light: rgba(48, 54, 61, 0.5);
   --border-dark: rgba(110, 118, 129, 0.4);
   --icon-primary: var(--bolt-elements-textPrimary);
@@ -231,7 +231,7 @@
   --function-success-border: rgba(63, 185, 80, 0.5);
   --function-error-tsp: rgba(248, 81, 73, 0.15);
   --function-warning-tsp: rgba(210, 153, 34, 0.2);
-  --fill-blue: rgba(88, 166, 255, 0.15);
+  --fill-blue: rgba(255, 255, 255, 0.15);
   --fill-tsp-white-main: rgba(255, 255, 255, 0.05);
   --fill-tsp-white-dark: rgba(255, 255, 255, 0.1);
   --fill-tsp-white-light: rgba(255, 255, 255, 0.03);
@@ -242,14 +242,14 @@
   --fill-black: rgba(0, 0, 0, 0.4);
   --Button-primary-black: #ffffff;
   --Button-primary-white: rgba(255, 255, 255, 0.12);
-  --Button-primary-brand: #58a6ff;
-  --Button-secondary-brand: rgba(88, 166, 255, 0.2);
+  --Button-primary-brand: #ffffff;
+  --Button-secondary-brand: rgba(255, 255, 255, 0.2);
   --Button-secondary-error-border: rgba(248, 81, 73, 0.4);
   --Button-secondary-error-fill: rgba(248, 81, 73, 0.18);
   --Button-secondary-main: rgba(255, 255, 255, 0.1);
   --Button-secondary-gray: rgba(255, 255, 255, 0.08);
   --button-primary: var(--bolt-elements-item-contentAccent);
-  --button-primary-hover: #79b8ff;
+  --button-primary-hover: #e5e5e5;
   --button-secondary: var(--bolt-elements-bg-depth-3);
   --tab-fill: rgba(255, 255, 255, 0.05);
   --tab-active-black: #ffffff;
@@ -267,8 +267,8 @@
 /* Subtle radial gradient for dark mode — adds depth and ambient glow */
 .dark .dark-mode-content-bg {
   background:
-    radial-gradient(ellipse 100% 60% at 50% 0%, rgba(88, 166, 255, 0.035) 0%, transparent 55%),
-    radial-gradient(ellipse 80% 40% at 80% 100%, rgba(88, 166, 255, 0.02) 0%, transparent 45%),
+    radial-gradient(ellipse 100% 60% at 50% 0%, rgba(255, 255, 255, 0.035) 0%, transparent 55%),
+    radial-gradient(ellipse 80% 40% at 80% 100%, rgba(255, 255, 255, 0.02) 0%, transparent 45%),
     var(--background-gray-main);
 }
 

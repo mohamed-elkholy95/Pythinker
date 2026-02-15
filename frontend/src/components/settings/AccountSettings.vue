@@ -171,7 +171,7 @@ onMounted(async () => {
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--text-brand) 0%, #60a5fa 100%);
+  background: linear-gradient(135deg, var(--text-brand) 0%, #1a1a1a 100%);
   opacity: 0.3;
   animation: pulse 2s ease-in-out infinite;
 }
@@ -197,10 +197,10 @@ onMounted(async () => {
   font-size: 32px;
   font-weight: 700;
   color: #fff;
-  background: linear-gradient(135deg, var(--text-brand) 0%, #60a5fa 100%);
+  background: linear-gradient(135deg, var(--text-brand) 0%, #1a1a1a 100%);
   border-radius: 50%;
   border: 3px solid var(--background-white-main);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
 .avatar-status {

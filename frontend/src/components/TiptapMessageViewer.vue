@@ -155,7 +155,7 @@ defineExpose({ contentRef });
 }
 
 :deep(.tiptap a) {
-  color: var(--bolt-elements-item-contentAccent, #3b82f6);
+  color: var(--bolt-elements-item-contentAccent, #000000);
   text-decoration: none;
 }
 

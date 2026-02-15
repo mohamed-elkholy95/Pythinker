@@ -3641,13 +3641,13 @@ const handleCopyLink = async () => {
 }
 
 .stale-pulse {
-  background: #3b82f6;
+  background: #000000;
   animation: stale-pulse 2s ease-in-out infinite;
 }
 
 .stale-stop-btn {
   background: rgba(59, 130, 246, 0.12);
-  color: #2563eb;
+  color: #0a0a0a;
 }
 
 .stale-stop-btn:hover {
@@ -3658,18 +3658,18 @@ const handleCopyLink = async () => {
 .dark .stale-notice {
   background: rgba(96, 165, 250, 0.08);
   border-color: rgba(96, 165, 250, 0.25);
-  color: #93c5fd;
+  color: #e5e5e5;
 }
 
 :deep(.dark) .stale-pulse,
 .dark .stale-pulse {
-  background: #60a5fa;
+  background: #ffffff;
 }
 
 :deep(.dark) .stale-stop-btn,
 .dark .stale-stop-btn {
   background: rgba(96, 165, 250, 0.15);
-  color: #93c5fd;
+  color: #e5e5e5;
 }
 
 :deep(.dark) .stale-stop-btn:hover,

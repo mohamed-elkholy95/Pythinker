@@ -40,7 +40,7 @@
 .orb {
   position: absolute;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--text-brand), #60a5fa);
+  background: linear-gradient(135deg, var(--text-brand), #1a1a1a);
   filter: blur(1px);
   opacity: 0.8;
 }

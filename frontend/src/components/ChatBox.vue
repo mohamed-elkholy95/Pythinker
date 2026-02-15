@@ -429,13 +429,13 @@ onMounted(async () => {
 
 .chatbox-send-btn.enabled {
     cursor: pointer;
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    background: linear-gradient(135deg, #000000 0%, #0a0a0a 100%);
     color: var(--text-white);
-    box-shadow: 0 10px 20px rgba(59, 130, 246, 0.28);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.28);
 }
 
 .chatbox-send-btn.enabled:hover {
-    box-shadow: 0 12px 24px rgba(59, 130, 246, 0.36);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.36);
     transform: scale(1.05);
 }
 
@@ -453,13 +453,13 @@ onMounted(async () => {
     justify-content: center;
     cursor: pointer;
     transition: all 0.2s ease;
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    background: linear-gradient(135deg, #000000 0%, #0a0a0a 100%);
     color: var(--text-white);
-    box-shadow: 0 10px 20px rgba(59, 130, 246, 0.28);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.28);
 }
 
 .chatbox-stop-btn:hover {
-    box-shadow: 0 12px 24px rgba(59, 130, 246, 0.36);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.36);
 }
 
 .chatbox-connector-row {
@@ -523,9 +523,9 @@ onMounted(async () => {
     gap: 4px;
     padding: 2px 6px 2px 5px;
     border-radius: 10px;
-    background: rgba(59, 130, 246, 0.08);
-    border: 1px solid rgba(59, 130, 246, 0.2);
-    color: #3b82f6;
+    background: rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    color: #000000;
     font-size: 11px;
     font-weight: 500;
     line-height: 1.2;
@@ -540,7 +540,7 @@ onMounted(async () => {
     border-radius: 50%;
     border: none;
     background: transparent;
-    color: #3b82f6;
+    color: #000000;
     cursor: pointer;
     padding: 0;
     transition: background 0.1s ease;

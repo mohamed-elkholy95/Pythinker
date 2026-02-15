@@ -181,7 +181,7 @@ watch(isOpen, (open) => {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: #3b82f6;
+  background: #000000;
   color: white;
   font-size: 10px;
   font-weight: 600;

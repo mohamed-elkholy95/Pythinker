@@ -188,9 +188,9 @@ watch(
   letter-spacing: 0.01em;
   background: linear-gradient(
     135deg,
-    var(--label-color-1, #3b82f6) 0%,
-    var(--label-color-2, #60a5fa) 50%,
-    var(--label-color-1, #3b82f6) 100%
+    var(--label-color-1, #000000) 0%,
+    var(--label-color-2, #ffffff) 50%,
+    var(--label-color-1, #000000) 100%
   );
   background-size: 200% 200%;
   -webkit-background-clip: text;
@@ -210,7 +210,7 @@ watch(
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--dot-color, #3b82f6);
+  background: var(--dot-color, #000000);
   opacity: 0.6;
   animation: dot-bounce 1.4s ease-in-out infinite;
 }
@@ -270,12 +270,12 @@ watch(
   display: inline-block;
   width: 2px;
   height: 1em;
-  background: var(--cursor-color, #3b82f6);
+  background: var(--cursor-color, #000000);
   margin-left: 2px;
   vertical-align: text-bottom;
   border-radius: 1px;
   animation: cursor-blink 1s ease-in-out infinite;
-  box-shadow: 0 0 8px var(--cursor-glow, rgba(59, 130, 246, 0.4));
+  box-shadow: 0 0 8px var(--cursor-glow, rgba(0, 0, 0, 0.4));
 }
 
 /* Fade Overlay */
@@ -323,17 +323,17 @@ watch(
 /* Dark Mode */
 :global(.dark) .thinking-block {
   --border-color: rgba(71, 85, 105, 0.4);
-  --accent-glow: rgba(96, 165, 250, 0.2);
-  --indicator-bg: rgba(96, 165, 250, 0.15);
-  --indicator-border: rgba(96, 165, 250, 0.25);
-  --label-color-1: #60a5fa;
-  --label-color-2: #93c5fd;
-  --dot-color: #60a5fa;
+  --accent-glow: rgba(255, 255, 255, 0.2);
+  --indicator-bg: rgba(255, 255, 255, 0.15);
+  --indicator-border: rgba(255, 255, 255, 0.25);
+  --label-color-1: #ffffff;
+  --label-color-2: #e5e5e5;
+  --dot-color: #ffffff;
   --text-container-bg: rgba(30, 41, 59, 0.6);
   --text-container-border: rgba(71, 85, 105, 0.5);
   --text-color: #e2e8f0;
-  --cursor-color: #60a5fa;
-  --cursor-glow: rgba(96, 165, 250, 0.4);
+  --cursor-color: #ffffff;
+  --cursor-glow: rgba(255, 255, 255, 0.4);
   --scrollbar-thumb: rgba(100, 116, 139, 0.4);
   --scrollbar-thumb-hover: rgba(100, 116, 139, 0.6);
 }

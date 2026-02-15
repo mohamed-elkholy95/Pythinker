@@ -162,8 +162,8 @@ watch(isOpen, (open) => {
 }
 
 .skill-picker-btn.has-selected {
-  border-color: #3b82f6;
-  color: #3b82f6;
+  border-color: #000000;
+  color: #000000;
 }
 
 .skill-picker-badge {
@@ -173,7 +173,7 @@ watch(isOpen, (open) => {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #000000;
   color: white;
   font-size: 10px;
   font-weight: 600;
@@ -294,8 +294,8 @@ watch(isOpen, (open) => {
 }
 
 .skill-picker-item-source.source-official {
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  background: rgba(0, 0, 0, 0.1);
+  color: #000000;
 }
 
 .skill-picker-item-source.source-community {
@@ -317,7 +317,7 @@ watch(isOpen, (open) => {
 }
 
 .skill-picker-item-check {
-  color: #3b82f6;
+  color: #000000;
   flex-shrink: 0;
 }
 

@@ -647,7 +647,7 @@ function onSkillUpdated(_skill: Skill) {
 }
 
 .icon-bg-blue {
-  background: #3b82f6;
+  background: #000000;
 }
 
 .icon-bg-purple {

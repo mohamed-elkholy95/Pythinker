@@ -63,7 +63,7 @@ const handleToggleAutoRun = () => {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, #000000 0%, #0a0a0a 100%);
   color: white;
   font-size: 13px;
   font-weight: 500;
@@ -73,7 +73,7 @@ const handleToggleAutoRun = () => {
 }
 
 .run-btn-primary:hover {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
 }
 
 .run-btn-primary:active {
@@ -85,7 +85,7 @@ const handleToggleAutoRun = () => {
   align-items: center;
   justify-content: center;
   padding: 6px 8px;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
   color: white;
   border: none;
   border-left: 1px solid rgba(255, 255, 255, 0.2);
@@ -94,7 +94,7 @@ const handleToggleAutoRun = () => {
 }
 
 .run-btn-chevron:hover {
-  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  background: linear-gradient(135deg, #1a1a1a 0%, #262626 100%);
 }
 
 .run-dropdown {
@@ -129,6 +129,6 @@ const handleToggleAutoRun = () => {
 }
 
 .check-icon {
-  color: #3b82f6;
+  color: #000000;
 }
 </style>

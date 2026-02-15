@@ -715,8 +715,8 @@ function toggleWhy(link: string, index: number) {
 }
 
 .fast-search-badge--docs {
-  background: rgba(59, 130, 246, 0.15);
-  color: #2563eb;
+  background: rgba(0, 0, 0, 0.15);
+  color: #0a0a0a;
 }
 
 .fast-search-badge--github {

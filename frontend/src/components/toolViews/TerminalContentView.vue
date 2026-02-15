@@ -47,7 +47,7 @@ const lightTheme = {
   foreground: '#1f2937',
   cursor: '#1f2937',
   cursorAccent: '#ffffff',
-  selectionBackground: 'rgba(59, 130, 246, 0.2)',
+  selectionBackground: 'rgba(0, 0, 0, 0.2)',
   selectionForeground: '#1f2937',
   black: '#1f2937',
   red: '#dc2626',
@@ -73,7 +73,7 @@ const darkTheme = {
   foreground: '#e5e7eb',
   cursor: '#e5e7eb',
   cursorAccent: '#1a1a1a',
-  selectionBackground: 'rgba(59, 130, 246, 0.3)',
+  selectionBackground: 'rgba(0, 0, 0, 0.3)',
   selectionForeground: '#e5e7eb',
   black: '#1f2937',
   red: '#f87171',
@@ -376,11 +376,11 @@ watch(
 
 /* Selection styling */
 .terminal-shell :deep(.xterm-selection div) {
-  background: rgba(59, 130, 246, 0.2) !important;
+  background: rgba(0, 0, 0, 0.2) !important;
 }
 
 .terminal-shell.dark-mode :deep(.xterm-selection div) {
-  background: rgba(59, 130, 246, 0.3) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
 }
 
 /* Empty state overlay */
