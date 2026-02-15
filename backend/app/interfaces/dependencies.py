@@ -276,6 +276,40 @@ async def get_current_user(
         raise UnauthorizedError("Authentication failed") from e
 
 
+async def get_eventsource_current_user(
+    access_token: str | None = Query(default=None),
+    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> User:
+    """Authenticate EventSource requests.
+
+    Native browser EventSource does not support custom Authorization headers.
+    This dependency allows fallback auth via query token for SSE GET endpoints,
+    while still preferring standard bearer auth when available.
+    """
+    settings = get_settings()
+
+    if settings.auth_provider == "none":
+        return User(
+            id="anonymous", fullname="anonymous", email="anonymous@localhost", role=UserRole.USER, is_active=True
+        )
+
+    token = bearer_credentials.credentials if bearer_credentials else access_token
+    if not token:
+        raise UnauthorizedError("Authentication required")
+
+    try:
+        user = await auth_service.verify_token(token)
+        if not user:
+            raise UnauthorizedError("Invalid token")
+        if not user.is_active:
+            raise UnauthorizedError("User account is inactive")
+        return user
+    except Exception as e:
+        logger.warning(f"EventSource authentication failed: {e}")
+        raise UnauthorizedError("Authentication failed") from e
+
+
 async def get_optional_current_user(
     bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
     auth_service: AuthService = Depends(get_auth_service),

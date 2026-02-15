@@ -1077,4 +1077,325 @@ export const createSSEConnection = async <T = unknown>(
     clearOnlineRetryHandler();
     abortController.abort();
   };
-}; 
+};
+
+export interface EventSourceOptions {
+  query?: Record<string, string | number | boolean | null | undefined>;
+  withCredentials?: boolean;
+  retryPolicy?: Partial<SSERetryPolicy>;
+}
+
+const NATIVE_EVENTSOURCE_EVENT_TYPES = [
+  'message',
+  'tool',
+  'step',
+  'error',
+  'done',
+  'title',
+  'wait',
+  'plan',
+  'attachments',
+  'mode_change',
+  'suggestion',
+  'report',
+  'stream',
+  'progress',
+  'deep_research',
+  'wide_research',
+  'phase_transition',
+  'checkpoint_saved',
+  'skill_delivery',
+  'skill_activation',
+  'thought',
+  'canvas_update',
+  'agent_error',
+  'session_error',
+  'complete',
+  'end',
+] as const;
+
+const createNativeSseCloseInfo = (
+  args: {
+    reason: SSECloseInfo['reason'];
+    willRetry: boolean;
+    retryAttempt: number | null;
+    maxRetries: number;
+    streamCompleted: boolean;
+    messageSent: boolean;
+    receivedAnyEvents: boolean;
+    lastReceivedEventId?: string;
+    retryDelayMs?: number;
+  },
+): SSECloseInfo => {
+  return {
+    willRetry: args.willRetry,
+    retryAttempt: args.retryAttempt,
+    maxRetries: args.maxRetries,
+    streamCompleted: args.streamCompleted,
+    messageSent: args.messageSent,
+    receivedAnyEvents: args.receivedAnyEvents,
+    lastReceivedEventId: args.lastReceivedEventId,
+    retryDelayMs: args.retryDelayMs,
+    reason: args.reason,
+  };
+};
+
+/**
+ * Native EventSource transport for SSE GET endpoints.
+ *
+ * This variant is useful for reconnect/resume flows where the backend supports
+ * query-based auth and resume cursor parameters.
+ */
+export const createEventSourceConnection = async <T = unknown>(
+  endpoint: string,
+  options: EventSourceOptions = {},
+  callbacks: SSECallbacks<T> = {},
+): Promise<() => void> => {
+  const { onOpen, onMessage, onClose, onError, onRetry, onGapDetected } = callbacks;
+  const { query = {}, withCredentials = false, retryPolicy } = options;
+
+  let streamCompleted = false;
+  const messageSent = false;
+  let receivedAnyEvents = false;
+  let retryCount = 0;
+  let manuallyClosed = false;
+  let lastReceivedEventId: string | undefined =
+    typeof query.event_id === 'string' ? query.event_id : undefined;
+  const activeRetryPolicy = normalizeRetryPolicy(retryPolicy);
+  const seenEventIds = new Set<string>();
+
+  const queryParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    queryParams.set(key, String(value));
+  }
+
+  // Native EventSource cannot set Authorization headers, so this transport
+  // uses query-token auth for the dedicated backend endpoint.
+  const token = getStoredToken();
+  if (token && !queryParams.has('access_token')) {
+    queryParams.set('access_token', token);
+  }
+
+  const base = `${BASE_URL}${endpoint}`;
+  const url = typeof window !== 'undefined'
+    ? new URL(base, window.location.origin)
+    : new URL(base);
+  for (const [key, value] of queryParams.entries()) {
+    url.searchParams.set(key, value);
+  }
+
+  logSseDiagnostics('client', 'native_eventsource:connect:start', {
+    endpoint,
+    maxRetries: activeRetryPolicy.maxRetries,
+    resumeEventId: lastReceivedEventId ?? null,
+  });
+
+  const source = new EventSource(url.toString(), { withCredentials });
+
+  const closeConnection = (reason: SSECloseInfo['reason'], error?: Error) => {
+    if (manuallyClosed) {
+      return;
+    }
+    manuallyClosed = true;
+    source.close();
+
+    if (onClose) {
+      onClose(
+        createNativeSseCloseInfo({
+          reason,
+          willRetry: false,
+          retryAttempt: null,
+          maxRetries: activeRetryPolicy.maxRetries,
+          streamCompleted,
+          messageSent,
+          receivedAnyEvents,
+          lastReceivedEventId,
+        }),
+      );
+    }
+
+    if (error && onError) {
+      onError(error);
+    }
+  };
+
+  const handleParsedMessage = (eventName: string, rawData: string, nativeEventId?: string) => {
+    let parsedData: T;
+    try {
+      parsedData = JSON.parse(rawData) as T;
+    } catch {
+      return;
+    }
+
+    receivedAnyEvents = true;
+
+    const envelope = parsedData as StreamEnvelope;
+    const eventId = envelope.event_id || nativeEventId;
+    if (eventId) {
+      const isUniqueEvent = trackEventId(eventId);
+      if (!isUniqueEvent) {
+        return;
+      }
+      lastReceivedEventId = eventId;
+    }
+
+    if (eventName === 'progress') {
+      const progressData = parsedData as { phase?: string };
+      if (progressData.phase === 'heartbeat') {
+        window.dispatchEvent(new CustomEvent('sse:heartbeat', { detail: { eventId } }));
+        return;
+      }
+    }
+
+    if (eventName === 'error' || eventName === 'agent_error' || eventName === 'session_error') {
+      const streamError = parsedData as StreamErrorEnvelope;
+      const recoverable = Boolean(streamError.recoverable);
+      if (!recoverable) {
+        streamCompleted = true;
+      }
+
+      if (streamError.error_code === 'stream_gap_detected') {
+        const details = streamError.details ?? {};
+        const requestedEventId = typeof details.requested_event_id === 'string'
+          ? details.requested_event_id
+          : undefined;
+        const firstAvailableEventId = typeof details.first_available_event_id === 'string'
+          ? details.first_available_event_id
+          : undefined;
+        const checkpointEventId = streamError.checkpoint_event_id || firstAvailableEventId;
+        if (checkpointEventId) {
+          lastReceivedEventId = checkpointEventId;
+        }
+        if (onGapDetected) {
+          onGapDetected({
+            requestedEventId,
+            firstAvailableEventId,
+            checkpointEventId,
+          });
+        }
+      }
+
+      if (!recoverable) {
+        closeConnection('completed');
+      }
+    }
+
+    if (eventName === 'done' || eventName === 'complete' || eventName === 'end') {
+      streamCompleted = true;
+      if (onMessage) {
+        onMessage({ event: eventName, data: parsedData });
+      }
+      closeConnection('completed');
+      return;
+    }
+
+    if (onMessage) {
+      onMessage({ event: eventName, data: parsedData });
+    }
+  };
+
+  const handleTransportError = () => {
+    if (manuallyClosed || streamCompleted) {
+      return;
+    }
+
+    retryCount += 1;
+    const willRetry = retryCount <= activeRetryPolicy.maxRetries;
+    const retryDelayMs = willRetry
+      ? computeRetryDelayMs(activeRetryPolicy, retryCount - 1)
+      : undefined;
+
+    if (willRetry) {
+      logSseDiagnostics('client', 'native_eventsource:retrying', {
+        endpoint,
+        retryAttempt: retryCount,
+        maxRetries: activeRetryPolicy.maxRetries,
+        retryDelayMs,
+        resumeEventId: lastReceivedEventId ?? null,
+      });
+      if (onRetry) {
+        onRetry(retryCount, activeRetryPolicy.maxRetries);
+      }
+      if (onClose) {
+        onClose(
+          createNativeSseCloseInfo({
+            reason: 'retrying',
+            willRetry: true,
+            retryAttempt: retryCount,
+            maxRetries: activeRetryPolicy.maxRetries,
+            streamCompleted,
+            messageSent,
+            receivedAnyEvents,
+            lastReceivedEventId,
+            retryDelayMs,
+          }),
+        );
+      }
+      return;
+    }
+
+    logSseDiagnostics('client', 'native_eventsource:max_retries', {
+      endpoint,
+      maxRetries: activeRetryPolicy.maxRetries,
+      resumeEventId: lastReceivedEventId ?? null,
+    });
+    closeConnection('max_retries', new Error('Max reconnection attempts reached'));
+  };
+
+  const makeEventHandler = (eventName: string) => {
+    return (event: Event) => {
+      if (!(event instanceof MessageEvent)) {
+        if (eventName === 'error') {
+          handleTransportError();
+        }
+        return;
+      }
+
+      const messageEventId = event.lastEventId || undefined;
+      handleParsedMessage(eventName, event.data, messageEventId);
+    };
+  };
+
+  const trackEventId = (eventId: string): boolean => {
+    if (seenEventIds.has(eventId)) {
+      return false;
+    }
+    seenEventIds.add(eventId);
+
+    if (seenEventIds.size > MAX_TRACKED_EVENT_IDS) {
+      const ids = Array.from(seenEventIds);
+      seenEventIds.clear();
+      const keepFrom = Math.max(0, ids.length - Math.floor(MAX_TRACKED_EVENT_IDS / 2));
+      for (let i = keepFrom; i < ids.length; i += 1) {
+        const id = ids[i];
+        if (id) seenEventIds.add(id);
+      }
+    }
+    return true;
+  };
+
+  source.onopen = () => {
+    retryCount = 0;
+    logSseDiagnostics('client', 'native_eventsource:open', {
+      endpoint,
+      resumeEventId: lastReceivedEventId ?? null,
+    });
+    if (onOpen) {
+      onOpen();
+    }
+  };
+
+  for (const eventType of NATIVE_EVENTSOURCE_EVENT_TYPES) {
+    source.addEventListener(eventType, makeEventHandler(eventType));
+  }
+
+  return () => {
+    if (manuallyClosed) {
+      return;
+    }
+    closeConnection(streamCompleted ? 'completed' : 'aborted');
+  };
+};

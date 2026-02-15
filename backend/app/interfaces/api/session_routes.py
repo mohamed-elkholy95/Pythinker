@@ -35,6 +35,7 @@ from app.infrastructure.observability import prometheus_metrics as pm
 from app.interfaces.dependencies import (
     get_agent_service,
     get_current_user,
+    get_eventsource_current_user,
     get_file_service,
     get_optional_current_user,
     get_sandbox_cls,
@@ -815,6 +816,29 @@ async def chat(
                         request_cancellation(session_id)
 
     return EventSourceResponse(event_generator(), headers=protocol_headers)
+
+
+@router.get("/{session_id}/chat/eventsource")
+async def chat_eventsource(
+    session_id: str,
+    http_request: Request,
+    event_id: str | None = Query(default=None),
+    current_user: User = Depends(get_eventsource_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> EventSourceResponse:
+    """EventSource-compatible chat stream for resume/reconnect flows.
+
+    This route mirrors POST /chat behavior but accepts query parameters so
+    native browser EventSource clients can reconnect without custom headers.
+    """
+    chat_request = ChatRequest(event_id=event_id)
+    return await chat(
+        session_id=session_id,
+        request=chat_request,
+        http_request=http_request,
+        current_user=current_user,
+        agent_service=agent_service,
+    )
 
 
 @router.post("/{session_id}/shell")

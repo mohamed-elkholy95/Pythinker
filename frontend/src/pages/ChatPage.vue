@@ -389,7 +389,7 @@ import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
-import type { SSECloseInfo, SSEGapInfo } from '../api/client';
+import type { SSEGapInfo } from '../api/client';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent } from '../types/message';
 import { waitForSessionReady } from '@/utils/sessionReady';
 import {
@@ -455,7 +455,9 @@ import {
 } from '@/utils/assistantMessageLayout';
 import { useResponsePhase } from '@/composables/useResponsePhase';
 import { useSSEConnection } from '@/composables/useSSEConnection';
+import { useSessionStreamController } from '@/composables/useSessionStreamController';
 import { logSseDiagnostics } from '@/utils/sseDiagnostics';
+import { isEventSourceResumeEnabled } from '@/utils/sseTransport';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -539,6 +541,16 @@ const dismissConnectionBanner = () => {
   connectionBannerRetryAttempt.value = undefined
   connectionBannerMaxRetries.value = undefined
   connectionBannerRetryDelayMs.value = undefined
+}
+
+const setConnectionBannerRetryState = ({ retryAttempt, maxRetries, retryDelayMs }: {
+  retryAttempt?: number
+  maxRetries?: number
+  retryDelayMs?: number
+}) => {
+  connectionBannerRetryAttempt.value = retryAttempt
+  connectionBannerMaxRetries.value = maxRetries
+  connectionBannerRetryDelayMs.value = retryDelayMs
 }
 
 // Create initial state factory
@@ -709,29 +721,6 @@ const isScreenshotReplayMode = computed(() => isReplayMode.value)
 // Message ID counter for generating unique keys (avoids crypto overhead)
 let messageIdCounter = 0;
 const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
-
-// Phase 5: Event ID cache size limit to prevent unbounded memory growth
-const MAX_SEEN_EVENT_IDS = 1000;
-
-/**
- * Add an event ID to the bounded dedupe cache with O(1) LRU eviction.
- */
-const addSeenEventId = (eventId: string) => {
-  // Refresh recency when a known id is re-seen.
-  if (seenEventIds.value.has(eventId)) {
-    seenEventIds.value.delete(eventId);
-  }
-
-  seenEventIds.value.set(eventId, Date.now());
-
-  // Evict the oldest entry when limit is exceeded.
-  if (seenEventIds.value.size > MAX_SEEN_EVENT_IDS) {
-    const oldestKey = seenEventIds.value.keys().next().value;
-    if (oldestKey !== undefined) {
-      seenEventIds.value.delete(oldestKey);
-    }
-  }
-};
 
 // Non-state refs that don't need reset
 const toolPanel = ref<InstanceType<typeof ToolPanel>>()
@@ -1034,55 +1023,20 @@ const cleanupStreamingState = () => {
   activeChatStreamTraceId = null;
 };
 
-const flushPendingBatchedEvents = () => {
-  if (batchFrameId !== null) {
-    cancelAnimationFrame(batchFrameId);
-    batchFrameId = null;
-    flushEventBatch();
-  }
-}
-
-const handleTransportClose = (scope: 'transport' | 'transport_retry', closeInfo: SSECloseInfo) => {
-  stopStaleDetection()
-  flushPendingBatchedEvents()
-
-  if (closeInfo.willRetry) {
-    connectionBannerRetryAttempt.value = closeInfo.retryAttempt ?? undefined
-    connectionBannerMaxRetries.value = closeInfo.maxRetries
-    connectionBannerRetryDelayMs.value = closeInfo.retryDelayMs ?? undefined
-  } else {
-    dismissConnectionBanner()
-  }
-
-  logChatSseDiagnostics(`${scope}:onClose`, {
-    reason: closeInfo.reason,
-    willRetry: closeInfo.willRetry,
-    retryAttempt: closeInfo.retryAttempt,
-    maxRetries: closeInfo.maxRetries,
-    streamCompleted: closeInfo.streamCompleted,
-    receivedAnyEvents: closeInfo.receivedAnyEvents,
-  })
-
-  if (closeInfo.willRetry) {
-    if (responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
-      transitionTo('reconnecting')
-    }
-    return
-  }
-
-  const shouldMarkTimedOut = !receivedDoneEvent.value
-    && responsePhase.value !== 'settled'
-    && responsePhase.value !== 'error'
-    && responsePhase.value !== 'stopped'
-    && closeInfo.reason !== 'completed'
-    && closeInfo.reason !== 'aborted'
-
-  if (shouldMarkTimedOut) {
-    transitionTo('timed_out')
-  }
-
-  cleanupStreamingState()
-}
+const streamController = useSessionStreamController({
+  responsePhase,
+  receivedDoneEvent,
+  seenEventIds,
+  transitionTo,
+  startStaleDetection,
+  stopStaleDetection,
+  cleanupStreamingState,
+  dismissRetryBanner: dismissConnectionBanner,
+  setRetryBannerState: setConnectionBannerRetryState,
+  setLastErrorFromTransportError,
+  handleStreamGapDetected,
+  log: logChatSseDiagnostics,
+})
 
 // Reset all refs to their initial values
 const resetState = () => {
@@ -2501,39 +2455,6 @@ const handleReportDownload = () => {
   URL.revokeObjectURL(url);
 }
 
-// ===== Event Batching for Performance =====
-// Batch rapid SSE events and process them together to reduce re-renders
-let eventBatchQueue: AgentSSEEvent[] = [];
-let batchFrameId: number | null = null;
-
-const flushEventBatch = () => {
-  batchFrameId = null;
-  const eventsToProcess = eventBatchQueue;
-  eventBatchQueue = [];
-  logChatSseDiagnostics('batch:flush', {
-    eventCount: eventsToProcess.length,
-  })
-
-  for (const event of eventsToProcess) {
-    processEvent(event);
-  }
-};
-
-const queueEvent = (event: AgentSSEEvent) => {
-  logChatSseDiagnostics('batch:queue', {
-    event: event.event,
-    eventId: event.data?.event_id ?? null,
-    queueSize: eventBatchQueue.length + 1,
-    frameScheduled: batchFrameId !== null,
-  })
-  eventBatchQueue.push(event);
-
-  // Schedule batch processing on next animation frame if not already scheduled
-  if (batchFrameId === null) {
-    batchFrameId = requestAnimationFrame(flushEventBatch);
-  }
-};
-
 const shouldReplayHistoryEvent = (event: AgentSSEEvent): boolean => {
   // Stream token chunks are transient UI state. Replaying them from persisted
   // history creates heavy restore payloads and can interleave with live resume.
@@ -2544,7 +2465,7 @@ const shouldReplayHistoryEvent = (event: AgentSSEEvent): boolean => {
 const processEvent = (event: AgentSSEEvent) => {
   // Deduplicate events based on event_id to prevent duplicate messages
   const eventId = event.data?.event_id;
-  if (eventId && seenEventIds.value.has(eventId)) {
+  if (streamController.isDuplicateEvent(eventId)) {
     console.debug('Skipping duplicate event:', eventId);
     logChatSseDiagnostics('event:duplicate_skipped', {
       event: event.event,
@@ -2552,10 +2473,7 @@ const processEvent = (event: AgentSSEEvent) => {
     })
     return;
   }
-  if (eventId) {
-    // Phase 5: Use addSeenEventId for automatic cleanup when set grows too large
-    addSeenEventId(eventId);
-  }
+  streamController.trackSeenEventId(eventId);
   logChatSseDiagnostics('event:process', {
     event: event.event,
     eventId: eventId ?? null,
@@ -2591,7 +2509,7 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'done') {
     logChatSseDiagnostics('event:done_received', {
       eventId: eventId ?? null,
-      queuedAfterDone: eventBatchQueue.length,
+      queuedAfterDone: streamController.getPendingEventCount(),
     })
     receivedDoneEvent.value = true;
     ensureCompletionSuggestions();
@@ -2673,13 +2591,15 @@ const processEvent = (event: AgentSSEEvent) => {
   lastEventId.value = event.data.event_id;
   // Persist lastEventId to sessionStorage for proper event resumption on page refresh
   if (event.data.event_id && sessionId.value) {
-    sessionStorage.setItem(`pythinker-last-event-${sessionId.value}`, event.data.event_id);
+    _persistEventId(sessionId.value);
   }
 }
 
+streamController.setEventProcessor(processEvent);
+
 // Public event handler - queues events for batched processing
 const handleEvent = (event: AgentSSEEvent) => {
-  queueEvent(event);
+  streamController.enqueueEvent(event);
 };
 
 const handleSubmit = () => {
@@ -2787,7 +2707,7 @@ const chat = async (
     shortPathActivated.value = false;
     lastEventId.value = '';
     if (sessionId.value) {
-      sessionStorage.removeItem(`pythinker-last-event-${sessionId.value}`);
+      cleanupSessionStorage(sessionId.value);
       emitStatusChange(sessionId.value, SessionStatus.RUNNING);
     }
   }
@@ -2825,73 +2745,41 @@ const chat = async (
   // #endregion
 
   try {
+    const effectiveSkillIds = getEffectiveSkillIds();
+    const shouldUseNativeEventSourceResume =
+      isEventSourceResumeEnabled() &&
+      normalizedMessage.length === 0 &&
+      files.length === 0 &&
+      !followUp &&
+      effectiveSkillIds.length === 0;
+
+    const transportCallbacks = streamController.createTransportCallbacks('transport');
+
     // Use the split event handler function and store the cancel function
-    cancelCurrentChat.value = await agentApi.chatWithSession(
-      sessionId.value,
-      normalizedMessage,
-      lastEventId.value,
-      files.map((file: FileInfo) => ({
-        file_id: file.file_id,
-        filename: file.filename,
-        content_type: file.content_type,
-        size: file.size,
-        upload_date: file.upload_date
-      })),
-      getEffectiveSkillIds(), // session + per-message skills
-      undefined, // options
-      {
-        onOpen: () => {
-          logChatSseDiagnostics('transport:onOpen')
-          dismissConnectionBanner()
-          // responsePhase already set to 'connecting' in sendMessage
-          // onOpen confirms transport is established, no phase change needed
-          // Start heartbeat stale detection
-          startStaleDetection()
-        },
-        onMessage: ({ event, data }) => {
-          const eventData = data as { event_id?: string; phase?: string }
-          logChatSseDiagnostics('transport:onMessage', {
-            event,
-            eventId: eventData.event_id ?? null,
-            phase: eventData.phase ?? null,
-          })
-          handleEvent({
-            event: event as AgentSSEEvent['event'],
-            data: data as AgentSSEEvent['data']
-          });
-        },
-        onClose: (closeInfo: SSECloseInfo) => {
-          handleTransportClose('transport', closeInfo)
-        },
-        onError: (err: Error) => {
-          logChatSseDiagnostics('transport:onError', {
-            message: err.message,
-          })
-          // Stop heartbeat stale detection on error
-          stopStaleDetection()
-          const isMaxRetriesError = err.message.toLowerCase().includes('max reconnection attempts reached')
-          if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
-            setLastErrorFromTransportError(err);
-            transitionTo(isMaxRetriesError ? 'timed_out' : 'error')
-          }
-          cleanupStreamingState();
-          // NO ensureCompletionSuggestions() here — transient SSE errors don't mean session ended
-        },
-        onRetry: (attempt: number, maxAttempts: number) => {
-          logChatSseDiagnostics('transport:onRetry', {
-            attempt,
-            maxAttempts,
-          })
-          if (responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
-            transitionTo('reconnecting')
-          }
-        },
-        onGapDetected: (info: SSEGapInfo) => {
-          handleStreamGapDetected('transport', info)
-        },
-      },
-      followUp
-    );
+    if (shouldUseNativeEventSourceResume) {
+      cancelCurrentChat.value = await agentApi.resumeChatWithSessionEventSource(
+        sessionId.value,
+        lastEventId.value,
+        transportCallbacks,
+      );
+    } else {
+      cancelCurrentChat.value = await agentApi.chatWithSession(
+        sessionId.value,
+        normalizedMessage,
+        lastEventId.value,
+        files.map((file: FileInfo) => ({
+          file_id: file.file_id,
+          filename: file.filename,
+          content_type: file.content_type,
+          size: file.size,
+          upload_date: file.upload_date
+        })),
+        effectiveSkillIds, // session + per-message skills
+        undefined, // options
+        transportCallbacks,
+        followUp
+      );
+    }
   } catch (error) {
     logChatSseDiagnostics('chat:start_failed', {
       message: error instanceof Error ? error.message : String(error),
@@ -2908,7 +2796,7 @@ const restoreSession = async () => {
   }
 
   // Load lastEventId from sessionStorage for proper event resumption
-  const savedEventId = sessionStorage.getItem(`pythinker-last-event-${sessionId.value}`);
+  const savedEventId = _getPersistedEventId(sessionId.value);
   if (savedEventId) {
     lastEventId.value = savedEventId;
     console.log('[RESTORE] Loaded lastEventId from sessionStorage:', savedEventId);
@@ -2927,10 +2815,7 @@ const restoreSession = async () => {
   realTime.value = false;
 
   // Drain any pending batched events before replaying persisted history.
-  if (batchFrameId !== null) {
-    cancelAnimationFrame(batchFrameId);
-    flushEventBatch();
-  }
+  streamController.flushPendingEvents();
 
   for (const event of session.events) {
     if (!shouldReplayHistoryEvent(event)) continue;
@@ -2939,10 +2824,7 @@ const restoreSession = async () => {
 
   // Flush replayed history immediately so auto-resume evaluates fully
   // hydrated state (prevents footer/order races after refresh).
-  if (batchFrameId !== null) {
-    cancelAnimationFrame(batchFrameId);
-    flushEventBatch();
-  }
+  streamController.flushPendingEvents();
 
   realTime.value = true;
   if (sessionStatus.value === SessionStatus.INITIALIZING) {
@@ -3150,10 +3032,7 @@ onUnmounted(() => {
     cancelCurrentChat.value = null;
   }
   // Cancel any pending event batch processing
-  if (batchFrameId !== null) {
-    cancelAnimationFrame(batchFrameId);
-    batchFrameId = null;
-  }
+  streamController.clearPendingEvents();
 })
 
 const isLastNoMessageTool = (tool: ToolContent) => {
@@ -3295,62 +3174,25 @@ const handleRetryConnection = async () => {
     resumeFromEventId: lastEventId.value || null,
   })
   try {
-    cancelCurrentChat.value = await agentApi.chatWithSession(
-      sessionId.value,
-      '', // empty message — just reconnect
-      lastEventId.value,
-      [],
-      [],
-      undefined,
-      {
-        onOpen: () => {
-          logChatSseDiagnostics('transport_retry:onOpen')
-          dismissConnectionBanner()
-          // Start heartbeat stale detection on retry
-          startStaleDetection()
-        },
-        onMessage: ({ event, data }) => {
-          const eventData = data as { event_id?: string; phase?: string }
-          logChatSseDiagnostics('transport_retry:onMessage', {
-            event,
-            eventId: eventData.event_id ?? null,
-            phase: eventData.phase ?? null,
-          })
-          handleEvent({
-            event: event as AgentSSEEvent['event'],
-            data: data as AgentSSEEvent['data']
-          });
-        },
-        onClose: (closeInfo: SSECloseInfo) => {
-          handleTransportClose('transport_retry', closeInfo)
-        },
-        onError: (err: Error) => {
-          logChatSseDiagnostics('transport_retry:onError', {
-            message: err.message,
-          })
-          // Stop heartbeat stale detection on error
-          stopStaleDetection()
-          const isMaxRetriesError = err.message.toLowerCase().includes('max reconnection attempts reached')
-          if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
-            setLastErrorFromTransportError(err);
-            transitionTo(isMaxRetriesError ? 'timed_out' : 'error')
-          }
-          cleanupStreamingState();
-        },
-        onRetry: (attempt: number, maxAttempts: number) => {
-          logChatSseDiagnostics('transport_retry:onRetry', {
-            attempt,
-            maxAttempts,
-          })
-          if (responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
-            transitionTo('reconnecting')
-          }
-        },
-        onGapDetected: (info: SSEGapInfo) => {
-          handleStreamGapDetected('transport_retry', info)
-        },
-      }
-    );
+    const transportRetryCallbacks = streamController.createTransportCallbacks('transport_retry');
+
+    if (isEventSourceResumeEnabled()) {
+      cancelCurrentChat.value = await agentApi.resumeChatWithSessionEventSource(
+        sessionId.value,
+        lastEventId.value,
+        transportRetryCallbacks,
+      );
+    } else {
+      cancelCurrentChat.value = await agentApi.chatWithSession(
+        sessionId.value,
+        '', // empty message — just reconnect
+        lastEventId.value,
+        [],
+        [],
+        undefined,
+        transportRetryCallbacks,
+      );
+    }
   } catch (error) {
     logChatSseDiagnostics('chat:retry_failed', {
       message: error instanceof Error ? error.message : String(error),

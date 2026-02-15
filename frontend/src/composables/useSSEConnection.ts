@@ -2,6 +2,10 @@ import { ref, computed, onUnmounted, getCurrentInstance } from 'vue'
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'degraded'
 
+const EVENT_CURSOR_STORAGE_PREFIX = 'pythinker-last-event-'
+const EVENT_CURSOR_META_STORAGE_PREFIX = 'pythinker-last-event-meta-'
+const EVENT_CURSOR_MAX_AGE_MS = 12 * 60 * 60 * 1000 // 12h
+
 export interface SSEConnectionConfig {
   staleThresholdMs?: number
   degradedThresholdMs?: number // Time without real events before considering degraded
@@ -203,18 +207,69 @@ export function useSSEConnection(config: SSEConnectionConfig = {}) {
     }
   }
 
+  function eventCursorStorageKey(sessionId: string): string {
+    return `${EVENT_CURSOR_STORAGE_PREFIX}${sessionId}`
+  }
+
+  function eventCursorMetaStorageKey(sessionId: string): string {
+    return `${EVENT_CURSOR_META_STORAGE_PREFIX}${sessionId}`
+  }
+
   function persistEventId(sessionId: string) {
     if (lastEventId.value && sessionId) {
-      sessionStorage.setItem(`pythinker-last-event-${sessionId}`, lastEventId.value)
+      sessionStorage.setItem(eventCursorStorageKey(sessionId), lastEventId.value)
+      sessionStorage.setItem(
+        eventCursorMetaStorageKey(sessionId),
+        JSON.stringify({ saved_at: Date.now() }),
+      )
     }
   }
 
   function getPersistedEventId(sessionId: string): string | null {
-    return sessionStorage.getItem(`pythinker-last-event-${sessionId}`)
+    if (!sessionId) {
+      return null
+    }
+
+    const eventId = sessionStorage.getItem(eventCursorStorageKey(sessionId))
+    if (!eventId) {
+      return null
+    }
+
+    // Defensive guard against corrupted oversized values.
+    if (eventId.length > 2048) {
+      cleanupSessionStorage(sessionId)
+      return null
+    }
+
+    const metadataRaw = sessionStorage.getItem(eventCursorMetaStorageKey(sessionId))
+    if (!metadataRaw) {
+      // Backward-compatible support for legacy cursor-only entries.
+      return eventId
+    }
+
+    try {
+      const metadata = JSON.parse(metadataRaw) as { saved_at?: number }
+      const savedAt = metadata.saved_at
+      if (typeof savedAt !== 'number' || !Number.isFinite(savedAt)) {
+        cleanupSessionStorage(sessionId)
+        return null
+      }
+
+      if (Date.now() - savedAt > EVENT_CURSOR_MAX_AGE_MS) {
+        cleanupSessionStorage(sessionId)
+        return null
+      }
+    } catch {
+      cleanupSessionStorage(sessionId)
+      return null
+    }
+
+    return eventId
   }
 
   function cleanupSessionStorage(sessionId: string) {
-    sessionStorage.removeItem(`pythinker-last-event-${sessionId}`)
+    sessionStorage.removeItem(eventCursorStorageKey(sessionId))
+    sessionStorage.removeItem(eventCursorMetaStorageKey(sessionId))
     sessionStorage.removeItem(`pythinker-stopped-${sessionId}`)
   }
 
