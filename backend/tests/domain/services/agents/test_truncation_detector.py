@@ -13,15 +13,13 @@ Tests cover:
 """
 
 import pytest
-from unittest.mock import MagicMock
 
 from app.domain.services.agents.truncation_detector import (
+    TruncationAssessment,
     TruncationDetector,
     TruncationPattern,
-    TruncationAssessment,
     get_truncation_detector,
 )
-
 
 # ============================================================================
 # Test Class 1: TruncationPattern Validation
@@ -128,7 +126,13 @@ class TestDefaultPatterns:
     def test_default_pattern_names(self):
         """Should have expected pattern names."""
         pattern_names = [p.name for p in TruncationDetector.DEFAULT_PATTERNS]
-        expected = ["unclosed_code_block", "mid_sentence_no_punctuation", "unclosed_json_structure", "incomplete_list", "truncation_phrase"]
+        expected = [
+            "unclosed_code_block",
+            "mid_sentence_no_punctuation",
+            "unclosed_json_structure",
+            "incomplete_list",
+            "truncation_phrase",
+        ]
         for expected_name in expected:
             assert expected_name in pattern_names
 
@@ -290,6 +294,7 @@ class TestSingletonFactory:
         """Should return same instance on multiple calls."""
         # Clear singleton
         import app.domain.services.agents.truncation_detector as module
+
         module._truncation_detector = None
 
         detector1 = get_truncation_detector()

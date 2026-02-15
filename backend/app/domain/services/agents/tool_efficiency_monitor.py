@@ -212,10 +212,7 @@ class ToolEfficiencyMonitor:
             return True
 
         # Pattern-based matching for MCP tools
-        if tool_name.startswith(("mcp_get_", "mcp_list_", "mcp_search_", "mcp_read_", "mcp_fetch_")):
-            return True
-
-        return False
+        return bool(tool_name.startswith(("mcp_get_", "mcp_list_", "mcp_search_", "mcp_read_", "mcp_fetch_")))
 
     def _is_action_tool(self, tool_name: str) -> bool:
         """Check if tool is an action operation.
@@ -231,10 +228,7 @@ class ToolEfficiencyMonitor:
             return True
 
         # Pattern-based matching for MCP tools
-        if tool_name.startswith(("mcp_create_", "mcp_update_", "mcp_delete_", "mcp_write_", "mcp_execute_")):
-            return True
-
-        return False
+        return bool(tool_name.startswith(("mcp_create_", "mcp_update_", "mcp_delete_", "mcp_write_", "mcp_execute_")))
 
 
 # Singleton instance

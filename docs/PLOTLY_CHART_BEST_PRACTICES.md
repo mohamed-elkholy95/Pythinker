@@ -5,14 +5,64 @@
 
 ---
 
-## 1. Choosing the Right Chart Type
+## 1. Data Type Classification (CRITICAL FIRST STEP)
+
+Before choosing any chart, you MUST classify your data type. This determines the appropriate visualization:
+
+### Data Variable Types
+
+| Data Type | Description | Examples | Best Charts |
+|-----------|-------------|----------|-------------|
+| **Categorical/Ordinal** | Groups with no inherent order, or ordered categories | Product types, regions, satisfaction levels (Low/Med/High) | bar, grouped_bar, stacked_bar, pie |
+| **Time Series** | Numerical values measured over ordered time points | Sales by month, daily active users, quarterly revenue | line, area |
+| **Numerical Continuous** | Measurements on a continuous scale | Price, speed, weight, temperature, response time | box, scatter, line |
+| **Part-to-Whole** | Components that sum to a meaningful total | Market share, budget breakdown, percentage composition | pie, stacked_bar |
+| **Relationship/Correlation** | Two or more variables to explore connections | Ad spend vs conversions, model size vs speed, height vs weight | scatter |
+| **Distribution** | Spread of values, frequency, quartiles | Response time distribution, score ranges, outlier detection | box, scatter |
+
+### Chart Selection Decision Tree
+
+```
+STEP 1: What question are you answering?
+├─ "Which category is largest/smallest?" → COMPARISON
+├─ "How does it change over time?" → TREND
+├─ "What's the spread/range of values?" → DISTRIBUTION
+├─ "Are two variables related?" → RELATIONSHIP
+└─ "What are the proportions of the total?" → PART-TO-WHOLE
+
+STEP 2: What type of variables do you have?
+├─ Categorical + Numerical → bar, grouped_bar, stacked_bar
+├─ Time/Ordered + Numerical → line, area
+├─ Two Numerical → scatter
+├─ Categorical + Percentage (total=100%) → pie
+└─ Numerical Continuous (single variable) → box
+
+STEP 3: Apply formatting rules:
+├─ Are labels >4 characters? → Use orientation='h' for bar charts
+├─ Are values vastly different (>5x range)? → Log scale applied automatically
+└─ Do you need to compare order? → Charts auto-sort by value
+```
+
+---
+
+## 2. Choosing the Right Chart Type
 
 ### Bar Charts
 **When to use:**
 - Categorical comparisons (comparing different categories)
 - Ranking data (showing order by value)
 - Discrete values (not continuous time series)
-- Histograms (frequency distributions)
+- Frequency distributions
+
+**Data Requirements:**
+- X-axis: Categorical variable (product names, regions, model types)
+- Y-axis: Numerical metric (count, average, total, percentage)
+
+**Real-world examples:**
+- "Compare average API response time across 5 different endpoints"
+- "Show total sales by product category"
+- "Rank LLM models by inference speed (tokens/sec)"
+- "Display error counts by error type"
 
 **Horizontal vs Vertical:**
 - **Vertical (`orientation='v'`)**: ✅ DEFAULT for:
@@ -33,23 +83,168 @@
 **When to use:**
 - Time-series data (trends over time)
 - Continuous data relationships
-- Multiple series comparisons over continuous range
+- Multiple series comparisons over ordered range
+
+**Data Requirements:**
+- X-axis: Time or ordered continuous variable (dates, time periods, sequential steps)
+- Y-axis: Numerical metric (count, average, measurement)
+
+**Real-world examples:**
+- "Show daily active users over the past 6 months"
+- "Display server CPU usage hour by hour for the last 24 hours"
+- "Compare revenue trends across Q1, Q2, Q3, Q4"
+- "Track model accuracy improvement over training epochs"
+
+**Best practices:**
+- Add markers (`mode='lines+markers'`) for discrete data points
+- Use multiple lines for comparing trends between groups
+- Avoid line charts for unordered categorical data (use bar instead)
+
+---
 
 ### Scatter Charts
 **When to use:**
-- Correlation analysis
+- Correlation analysis (relationship between two variables)
 - Distribution patterns
 - Outlier detection
+- Cluster identification
+
+**Data Requirements:**
+- X-axis: Numerical variable (e.g., model size in parameters)
+- Y-axis: Numerical variable (e.g., inference speed)
+- Optional: Color/size for third dimension (creates bubble chart effect)
+
+**Real-world examples:**
+- "Explore correlation between ad spend and conversion rate"
+- "Plot model parameter count vs inference latency"
+- "Show relationship between user engagement time and retention rate"
+- "Identify outliers in API response time vs request payload size"
+
+**Best practices:**
+- Use color to encode categorical groupings (e.g., different model families)
+- Use marker size for magnitude of third variable
+- Add trend line for correlation visualization (not built-in, requires custom calc)
+
+---
 
 ### Pie Charts
 **When to use:**
-- Part-to-whole relationships
-- Limited categories (max 5-7 slices)
-- Percentage distributions
+- Part-to-whole relationships (components sum to 100%)
+- Limited categories (max 5-7 slices for readability)
+- Emphasizing proportions over exact values
+
+**Data Requirements:**
+- Categories: Categorical variable (market segments, expense categories)
+- Values: Numerical or percentage that sums to a meaningful total
+
+**Real-world examples:**
+- "Market share distribution among top 5 cloud providers"
+- "Budget allocation across departments (HR, Engineering, Marketing, Sales)"
+- "Traffic sources breakdown (Direct: 40%, Organic: 35%, Paid: 15%, Referral: 10%)"
 
 **Avoid when:**
-- Comparing similar values (hard to distinguish)
-- More than 7 categories (use bar chart instead)
+- More than 7 categories (slices become too small → use bar chart)
+- Values are very similar (hard to visually distinguish small differences → use bar chart)
+- Precise comparison needed (bar charts are better for magnitude comparison)
+- Time-series data (use line or area chart)
+
+**Best practices:**
+- Sort slices by size (largest to smallest) for clarity
+- Use labels + percentages inside slices (`textinfo='label+percent'`)
+- Consider donut chart (set `hole=0.4`) for modern appearance
+- Limit to <7 slices maximum for visual clarity
+
+---
+
+### Area Charts
+**When to use:**
+- Cumulative trends over time
+- Emphasizing volume/magnitude of change
+- Stacked contributions showing part-to-whole over time
+
+**Data Requirements:**
+- X-axis: Time or ordered continuous variable
+- Y-axis: Numerical metric (volume, cumulative count, magnitude)
+
+**Real-world examples:**
+- "Revenue accumulation by quarter over 3 years"
+- "Cumulative user signups over time"
+- "Stacked area showing traffic by source over 12 months"
+
+**Best practices:**
+- Use semi-transparent fills (alpha=0.25) for overlapping series
+- Stacked area charts show part-to-whole composition over time
+- Avoid area charts when precise value reading is critical (use line instead)
+
+---
+
+### Grouped Bar Charts
+**When to use:**
+- Multi-series categorical comparison (side-by-side bars)
+- Comparing multiple metrics per category
+- When both individual values AND cross-category comparison matter
+
+**Data Requirements:**
+- X-axis: Categorical variable (regions, product types, time periods)
+- Y-axis: Numerical metric
+- Multiple datasets: 2-4 series for optimal readability
+
+**Real-world examples:**
+- "Compare Q1 vs Q2 sales performance by region"
+- "Show speed and accuracy scores side-by-side for each LLM model"
+- "Display actual vs target performance across departments"
+
+**Best practices:**
+- Limit to 2-4 series maximum (more becomes cluttered)
+- Use distinct colors from qualitative palette (applied automatically)
+- Consider horizontal orientation for long category labels
+
+---
+
+### Stacked Bar Charts
+**When to use:**
+- Part-to-whole composition across categories
+- When both total AND breakdown per category are important
+- Showing multiple components that sum to a meaningful total
+
+**Data Requirements:**
+- X-axis: Categorical variable
+- Y-axis: Numerical metric
+- Multiple datasets: Components that stack to form total
+
+**Real-world examples:**
+- "Total budget by department, broken down by expense type (Salaries, Equipment, Marketing)"
+- "Monthly revenue by product line, stacked to show total monthly revenue"
+- "Support ticket volume by priority level (High, Medium, Low) stacked by week"
+
+**Best practices:**
+- Use for 2-5 components maximum (more becomes hard to read)
+- Bottom component should be most important (easiest to compare across categories)
+- Consider 100% stacked bars for proportion comparison
+- Text positioning is 'inside' to avoid overlap
+
+---
+
+### Box Charts (Box Plots)
+**When to use:**
+- Distribution analysis (quartiles, median, outliers)
+- Comparing distributions across groups
+- Identifying outliers and spread
+
+**Data Requirements:**
+- Single numerical continuous variable OR
+- Numerical variable grouped by categorical variable
+
+**Real-world examples:**
+- "Distribution of API response times across different endpoints"
+- "Compare salary ranges across job levels (Junior, Mid, Senior)"
+- "Show test score distributions by student cohort"
+
+**Best practices:**
+- Include mean + standard deviation markers (`boxmean='sd'`)
+- Useful for detecting outliers (points beyond whiskers)
+- Good for comparing spread across multiple groups
+- Not ideal for small datasets (<10 points) - use scatter instead
 
 ---
 
@@ -429,39 +624,120 @@ expensive = [(name, price) for name, price in zip(names, prices) if price >= 1.0
 
 ---
 
-## 9. Chart Type Decision Tree
+## 9. Chart Type Decision Tree (Step-by-Step Selection)
+
+### Primary Question-Based Selection
 
 ```
-Is the data categorical?
-├─ YES → Is there a natural order?
-│  ├─ YES → Use vertical bar chart
-│  └─ NO → Are labels long?
-│     ├─ YES → Use horizontal bar chart ✅
-│     └─ NO → Use vertical bar chart
-│
-└─ NO → Is it time-series?
-   ├─ YES → Use line chart
-   └─ NO → Is it continuous relationship?
-      ├─ YES → Use scatter plot
-      └─ NO → Use appropriate specialized chart
+STEP 1: What question are you trying to answer?
+├─ "Which category has the highest/lowest value?" → COMPARISON (bar, grouped_bar)
+├─ "How does this change over time?" → TREND (line, area)
+├─ "What's the distribution of values?" → DISTRIBUTION (box, scatter)
+├─ "Are these two variables related?" → RELATIONSHIP (scatter)
+├─ "What are the proportions of the total?" → PART-TO-WHOLE (pie, stacked_bar)
+└─ "How do multiple groups compare over time?" → MULTI-SERIES TREND (line, grouped_bar)
+```
+
+### Data Type-Based Selection
+
+```
+STEP 2: What type of data do you have?
+
+Categorical + Numerical
+├─ Single metric → bar chart
+│  └─ Labels >4 chars? → orientation='h', else orientation='v'
+├─ Multiple metrics (2-4) → grouped_bar
+└─ Components sum to total → stacked_bar
+
+Time/Ordered + Numerical
+├─ Trend over time → line chart
+├─ Cumulative/volume emphasis → area chart
+└─ Multiple series comparison → multi-line chart
+
+Two Numerical Variables
+└─ Correlation/relationship → scatter plot
+
+Categorical + Percentage (total=100%)
+├─ Categories ≤7 → pie chart
+└─ Categories >7 → bar chart instead
+
+Single Numerical Variable
+├─ Show distribution → box plot
+└─ Show frequency → bar chart (histogram)
+```
+
+### Formatting Decision
+
+```
+STEP 3: Apply formatting rules
+
+For BAR charts:
+├─ Labels ≤3 characters? → orientation='v' (vertical) ✅
+├─ Labels >4 characters? → orientation='h' (horizontal) ✅
+├─ Comparison chart? → Auto-sort by value (descending)
+└─ Value range >5x? → Log scale applied automatically
+
+For PIE charts:
+├─ Categories >7? → Use bar chart instead ❌
+├─ Values very similar? → Use bar chart instead ❌
+└─ Valid pie → Use textinfo='label+percent'
+
+For LINE charts:
+├─ Data is time-series? → Use line ✅
+├─ Data is categorical? → Use bar instead ❌
+└─ Multiple series? → Use different colors per series
+
+For SCATTER plots:
+├─ Two numerical variables? → Use scatter ✅
+├─ Add grouping? → Use color encoding
+└─ Show magnitude? → Use marker size (bubble effect)
+```
+
+### Common Mistake Prevention
+
+```
+AVOID THESE COMBINATIONS:
+❌ Pie chart with >7 slices → Use bar chart
+❌ Pie chart with similar values → Use bar chart
+❌ Line chart for unordered categories → Use bar chart
+❌ Bar chart for time-series → Use line chart
+❌ Vertical bars with long labels → Use orientation='h'
+❌ Scatter plot for categorical comparison → Use bar chart
+❌ 3D charts (any type) → Use 2D versions for accuracy
 ```
 
 ---
 
 ## 10. Implementation Checklist
 
-Before finalizing any chart, verify:
+Before creating any chart, verify:
 
-- [ ] Appropriate chart type for data
-- [ ] Sorted by value (for comparisons) or logical order
-- [ ] Color palette is accessible and visually distinct
-- [ ] Text labels are readable (size, position, contrast)
-- [ ] Consistent font family and sizes
-- [ ] Subtle grid lines (not overpowering)
-- [ ] Adequate margins and spacing
-- [ ] Clear title and axis labels
-- [ ] Professional template applied (`plotly_white` recommended)
-- [ ] Tested in grayscale for accessibility
+### Pre-Implementation (Data & Chart Type)
+- [ ] **Data type classified** (categorical, time-series, numerical, part-to-whole, relationship, distribution)
+- [ ] **Question identified** (comparison, trend, distribution, relationship, proportion)
+- [ ] **Chart type matches data type** (use decision tree above)
+- [ ] **Variables validated** (X-axis type, Y-axis type, number of series)
+- [ ] **Data shape verified** (labels match values length, no missing data)
+
+### Implementation (Visual Design)
+- [ ] **Appropriate chart type for question** (use selection guide)
+- [ ] **Sorted correctly** (by value for comparisons, chronologically for time-series)
+- [ ] **Orientation appropriate** (horizontal for labels >4 chars)
+- [ ] **Color palette accessible** (using Plotly qualitative palette automatically)
+- [ ] **Text labels readable** (size, position, contrast, auto-formatting applied)
+- [ ] **Consistent font family and sizes** (Arial, 14px body, 24px title)
+- [ ] **Subtle grid lines** (rgba(0,0,0,0.08), not overpowering)
+- [ ] **Adequate margins** (200px left for horizontal, 100px top for title)
+- [ ] **Clear title and axis labels** (descriptive, not abbreviations)
+- [ ] **Professional template applied** (`plotly_white` recommended)
+
+### Post-Implementation (Validation)
+- [ ] **Chart answers the question** (user can extract insight in <5 seconds)
+- [ ] **Values are accurate** (no data transformation errors)
+- [ ] **Tested in grayscale** (accessible without color)
+- [ ] **No common anti-patterns** (see section 8)
+- [ ] **Markdown artifacts removed** (automatic sanitization applied)
+- [ ] **Log scale appropriate** (automatic detection for >5x range)
 
 ---
 

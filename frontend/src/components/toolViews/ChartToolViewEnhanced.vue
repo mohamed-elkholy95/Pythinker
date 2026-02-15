@@ -194,7 +194,7 @@ const loadPlotlyData = async () => {
     const html = await response.text();
 
     // Extract Plotly data from HTML - try multiple patterns
-    let dataMatch = html.match(/Plotly\.newPlot\([^,]+,\s*(\[[\s\S]*?\])\s*,\s*({[\s\S]*?})\s*,/);
+    const dataMatch = html.match(/Plotly\.newPlot\([^,]+,\s*(\[[\s\S]*?\])\s*,\s*({[\s\S]*?})\s*,/);
     if (dataMatch) {
       plotlyData.value = JSON.parse(dataMatch[1]);
       plotlyLayout.value = JSON.parse(dataMatch[2]);

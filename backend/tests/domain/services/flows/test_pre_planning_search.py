@@ -142,9 +142,7 @@ def _make_search_engine(results: list[SearchResultItem] | None = None, should_fa
             data=SearchResults(query="test", total_results=len(results), results=results)
         )
     else:
-        engine.search.return_value = ToolResult.ok(
-            data=SearchResults(query="test", total_results=0, results=[])
-        )
+        engine.search.return_value = ToolResult.ok(data=SearchResults(query="test", total_results=0, results=[]))
     return engine
 
 

@@ -7,6 +7,7 @@ import './assets/theme.css'
 import './utils/toast'
 import i18n from './composables/useI18n'
 import { getStoredToken, getCachedAuthProvider } from './api/auth'
+import autoFollowScrollPlugin from './plugins/autoFollowScroll'
 
 // Configure Monaco Editor Web Workers
 // This prevents UI freezes by offloading syntax highlighting to web workers
@@ -129,4 +130,5 @@ const app = createApp(App)
 app.use(router)
 app.use(i18n)
 app.use(VueKonva)
+app.use(autoFollowScrollPlugin)
 app.mount('#app') 

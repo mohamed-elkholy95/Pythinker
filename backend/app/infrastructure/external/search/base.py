@@ -355,7 +355,9 @@ class SearchEngineBase(ABC, SearchEngine):
                     # Use centralized exponential backoff
                     retry_config = RetryConfig(base_delay=1.0, exponential_base=2.0, max_delay=5.0, jitter=True)
                     delay = calculate_delay(attempt + 1, retry_config)
-                    logger.warning(f"{self.provider_name} search got {e.response.status_code}, retrying in {delay:.2f}s...")
+                    logger.warning(
+                        f"{self.provider_name} search got {e.response.status_code}, retrying in {delay:.2f}s..."
+                    )
                     await asyncio.sleep(delay)
                     continue
                 return self._create_error_result(query, date_range, self._handle_http_error(e))

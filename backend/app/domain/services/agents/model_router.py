@@ -22,7 +22,7 @@ import re
 from enum import Enum
 from typing import ClassVar
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 

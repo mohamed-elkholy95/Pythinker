@@ -131,11 +131,7 @@ def is_video_url(url: str) -> bool:
         # Use hostname instead of netloc to exclude ports
         # hostname returns None for invalid URLs, handle gracefully
         hostname = parsed.hostname
-        if not hostname:
-            # Fallback to netloc parsing if hostname fails
-            domain = parsed.netloc.split(":")[0] if parsed.netloc else ""
-        else:
-            domain = hostname
+        domain = hostname if hostname else parsed.netloc.split(":")[0] if parsed.netloc else ""
 
         # Normalize domain (remove www. prefix)
         domain_normalized = domain.replace("www.", "") if domain else ""
@@ -150,11 +146,7 @@ def is_video_url(url: str) -> bool:
                 return True
 
         # Check if URL matches video patterns
-        for pattern in VIDEO_URL_PATTERNS:
-            if pattern.search(url_lower):
-                return True
-
-        return False
+        return any(pattern.search(url_lower) for pattern in VIDEO_URL_PATTERNS)
 
     except Exception as e:
         logger.debug(f"URL video check failed for {url}: {e}")

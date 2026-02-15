@@ -263,6 +263,7 @@ class BrowserConnectionPool:
         # Use settings default if not explicitly specified
         if block_resources is None:
             from app.core.config import get_settings
+
             settings = get_settings()
             block_resources = settings.browser_block_resources_default
 

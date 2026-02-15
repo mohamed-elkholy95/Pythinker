@@ -144,6 +144,7 @@ services:
         reservations:
           memory: 1G
     environment:
+      - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-dual}
       - UVI_ARGS="--reload"
       - FRAMEWORK_UVI_ARGS="--reload"
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db

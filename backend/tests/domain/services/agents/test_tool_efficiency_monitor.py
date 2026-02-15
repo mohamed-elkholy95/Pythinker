@@ -10,14 +10,11 @@ Tests core functionality:
 - Singleton factory
 """
 
-import pytest
-
 from app.domain.services.agents.tool_efficiency_monitor import (
-    ToolEfficiencyMonitor,
     EfficiencySignal,
+    ToolEfficiencyMonitor,
     get_efficiency_monitor,
 )
-
 
 # ============================================================================
 # Test Class 1: EfficiencySignal Structure
@@ -222,6 +219,7 @@ class TestSingletonFactory:
         """Should return same instance on multiple calls."""
         # Clear singleton
         import app.domain.services.agents.tool_efficiency_monitor as module
+
         module._efficiency_monitor_singleton = None
 
         monitor1 = get_efficiency_monitor()
