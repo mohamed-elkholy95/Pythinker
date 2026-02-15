@@ -1,7 +1,11 @@
 """
 API Gateway - Lightweight gateway for service routing.
 
-Features:
+WARNING: This module is a development placeholder and is NOT wired into
+the production compose stack. Do NOT deploy without implementing real
+authentication and actual proxy routing.
+
+Features (planned):
 - Service routing (agent, sandbox, session services)
 - Authentication/authorization
 - Rate limiting

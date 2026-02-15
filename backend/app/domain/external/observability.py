@@ -42,6 +42,10 @@ class MetricsPort(Protocol):
         """
         ...
 
+    def increment(self, name: str, labels: dict[str, str] | None = None) -> None:
+        """Increment a counter by 1. Convenience method used by DeepCode integrations."""
+        ...
+
     def record_counter(self, name: str, value: float = 1.0, labels: dict[str, str] | None = None) -> None:
         """Increment a counter metric.
 
@@ -273,6 +277,10 @@ class NullMetrics:
     """
 
     def record_event(self, event_type: str, labels: dict[str, str] | None = None) -> None:
+        pass
+
+    def increment(self, name: str, labels: dict[str, str] | None = None) -> None:
+        """Increment a counter by 1. Used by DeepCode integrations."""
         pass
 
     def record_counter(self, name: str, value: float = 1.0, labels: dict[str, str] | None = None) -> None:

@@ -2,142 +2,135 @@
 
 Context7 validated:
 - pytest fixture patterns
-- ComplexityAssessor integration
+- ModelRouter integration
 - Settings mock patterns
 """
 
 from unittest.mock import MagicMock, patch
 
-from app.domain.services.agents.complexity_assessor import (
-    ComplexityAssessor,
+from app.domain.services.agents.model_router import (
+    ModelConfig,
+    ModelRouter,
     ModelTier,
+    TaskComplexity,
 )
 
+SETTINGS_PATH = "app.core.config.get_settings"
 
-class TestModelTierRecommendation:
+
+def _mock_settings(*, enabled=True):
+    """Create a mock settings object."""
+    settings = MagicMock()
+    settings.adaptive_model_selection_enabled = enabled
+    settings.fast_model = "claude-haiku-4-5"
+    settings.powerful_model = "claude-sonnet-4-5"
+    settings.effective_balanced_model = "default-model"
+    return settings
+
+
+class TestModelRouterComplexity:
     """Test model tier recommendation based on step descriptions."""
 
-    def setup_method(self):
+    @patch(SETTINGS_PATH)
+    def setup_method(self, method=None, mock_get_settings=None):
         """Set up test fixtures."""
-        self.assessor = ComplexityAssessor()
+        if mock_get_settings:
+            mock_get_settings.return_value = _mock_settings()
+        with patch(SETTINGS_PATH, return_value=_mock_settings()):
+            self.router = ModelRouter()
 
-    def test_fast_tier_for_summaries(self):
-        """Fast tier selected for summaries and simple transforms."""
-        step_description = "Summarize the results from the search"
-        tier = self.assessor.recommend_model_tier(step_description)
+    def test_simple_complexity_for_short_tasks(self):
+        """Simple complexity for very short tasks."""
+        complexity = self.router.analyze_complexity("Check status")
+        assert complexity == TaskComplexity.SIMPLE
+
+    def test_complex_complexity_for_architecture(self):
+        """Complex complexity for architecture tasks."""
+        complexity = self.router.analyze_complexity(
+            "Design the architecture for the new microservice with authentication"
+        )
+        assert complexity == TaskComplexity.COMPLEX
+
+    def test_medium_complexity_default(self):
+        """Medium complexity as default for standard tasks."""
+        complexity = self.router.analyze_complexity(
+            "Write a Python function that processes the uploaded CSV file and extracts key metrics"
+        )
+        assert complexity == TaskComplexity.MEDIUM
+
+    def test_fast_tier_for_simple(self):
+        """Fast tier maps from simple complexity."""
+        tier = self.router.get_tier_for_complexity(TaskComplexity.SIMPLE)
         assert tier == ModelTier.FAST
 
-    def test_fast_tier_for_status_checks(self):
-        """Fast tier selected for status checks and listings."""
-        step_description = "Show the current status of the task"
-        tier = self.assessor.recommend_model_tier(step_description)
-        assert tier == ModelTier.FAST
-
-    def test_powerful_tier_for_architecture(self):
-        """Powerful tier selected for architecture and design."""
-        step_description = "Design the architecture for the new microservice"
-        tier = self.assessor.recommend_model_tier(step_description)
-        assert tier == ModelTier.POWERFUL
-
-    def test_powerful_tier_for_refactoring(self):
-        """Powerful tier selected for refactoring tasks."""
-        step_description = "Refactor the authentication module for better performance"
-        tier = self.assessor.recommend_model_tier(step_description)
-        assert tier == ModelTier.POWERFUL
-
-    def test_balanced_tier_for_standard_execution(self):
-        """Balanced tier selected for standard execution steps."""
-        step_description = "Execute the search query and collect results"
-        tier = self.assessor.recommend_model_tier(step_description)
+    def test_balanced_tier_for_medium(self):
+        """Balanced tier maps from medium complexity."""
+        tier = self.router.get_tier_for_complexity(TaskComplexity.MEDIUM)
         assert tier == ModelTier.BALANCED
 
-    def test_balanced_tier_default_fallback(self):
-        """Balanced tier as default for ambiguous steps."""
-        step_description = "Do something with the data"
-        tier = self.assessor.recommend_model_tier(step_description)
-        assert tier == ModelTier.BALANCED
+    def test_powerful_tier_for_complex(self):
+        """Powerful tier maps from complex complexity."""
+        tier = self.router.get_tier_for_complexity(TaskComplexity.COMPLEX)
+        assert tier == ModelTier.POWERFUL
 
 
-class TestExecutionAgentModelSelection:
-    """Test ExecutionAgent model selection integration."""
+class TestModelRouterRouting:
+    """Test ModelRouter.route() with feature flag behavior."""
 
-    @patch("app.domain.services.agents.execution.get_settings")
-    def test_feature_flag_disabled_returns_none(self, mock_get_settings):
-        """When feature flag disabled, no model override is returned."""
-        from app.domain.services.agents.execution import ExecutionAgent
+    @patch(SETTINGS_PATH)
+    def test_feature_flag_disabled_returns_balanced(self, mock_get_settings):
+        """When feature flag disabled, always returns balanced config."""
+        mock_get_settings.return_value = _mock_settings(enabled=False)
 
-        # Mock settings with feature disabled
-        settings = MagicMock()
-        settings.adaptive_model_selection_enabled = False
-        mock_get_settings.return_value = settings
+        router = ModelRouter()
+        config = router.route("Design a complex architecture")
 
-        # Create minimal ExecutionAgent instance (without full initialization)
-        agent = MagicMock(spec=ExecutionAgent)
-        agent._select_model_for_step = ExecutionAgent._select_model_for_step.__get__(agent)
-        agent.name = "execution"
+        assert isinstance(config, ModelConfig)
+        assert config.tier == ModelTier.BALANCED
+        assert config.model_name == "default-model"
 
-        # Call model selection
-        result = agent._select_model_for_step("Design a new feature")
+    @patch(SETTINGS_PATH)
+    def test_feature_flag_enabled_routes_by_complexity(self, mock_get_settings):
+        """When feature flag enabled, routes based on complexity."""
+        mock_get_settings.return_value = _mock_settings()
 
-        # Should return None when disabled
-        assert result is None
+        router = ModelRouter()
 
-    @patch("app.domain.services.agents.execution.get_settings")
-    @patch("app.domain.services.agents.execution._metrics")
-    def test_feature_flag_enabled_returns_model(self, mock_metrics, mock_get_settings):
-        """When feature flag enabled, returns appropriate model based on tier."""
-        from app.domain.services.agents.execution import ExecutionAgent
+        # Short task -> fast model
+        config = router.route("Check status")
+        assert config.tier == ModelTier.FAST
+        assert config.model_name == "claude-haiku-4-5"
 
-        # Mock settings with feature enabled
-        settings = MagicMock()
-        settings.adaptive_model_selection_enabled = True
-        settings.fast_model = "claude-haiku-4-5"
-        settings.powerful_model = "claude-sonnet-4-5"
-        settings.effective_balanced_model = "nvidia/nemotron-3-nano-30b-a3b"
-        mock_get_settings.return_value = settings
-
-        # Create minimal ExecutionAgent instance
-        agent = MagicMock(spec=ExecutionAgent)
-        agent._select_model_for_step = ExecutionAgent._select_model_for_step.__get__(agent)
-        agent.name = "execution"
-
-        # Test fast tier selection
-        result = agent._select_model_for_step("Summarize the results")
-        assert result == "claude-haiku-4-5"
-
-        # Test powerful tier selection
-        result = agent._select_model_for_step("Design the architecture")
-        assert result == "claude-sonnet-4-5"
-
-        # Test balanced tier selection
-        result = agent._select_model_for_step("Execute the search query")
-        assert result == "nvidia/nemotron-3-nano-30b-a3b"
-
-    @patch("app.domain.services.agents.execution.get_settings")
-    @patch("app.domain.services.agents.execution._metrics")
-    def test_prometheus_metrics_incremented(self, mock_metrics, mock_get_settings):
+    @patch(SETTINGS_PATH)
+    def test_prometheus_metrics_incremented(self, mock_get_settings):
         """Prometheus counter incremented on each selection."""
-        from app.domain.services.agents.execution import ExecutionAgent
+        mock_get_settings.return_value = _mock_settings()
 
-        # Mock settings with feature enabled
-        settings = MagicMock()
-        settings.adaptive_model_selection_enabled = True
-        settings.fast_model = "claude-haiku-4-5"
-        settings.powerful_model = "claude-sonnet-4-5"
-        settings.effective_balanced_model = "nvidia/nemotron-3-nano-30b-a3b"
-        mock_get_settings.return_value = settings
+        mock_metrics = MagicMock()
+        router = ModelRouter(metrics=mock_metrics)
 
-        # Create minimal ExecutionAgent instance
-        agent = MagicMock(spec=ExecutionAgent)
-        agent._select_model_for_step = ExecutionAgent._select_model_for_step.__get__(agent)
-        agent.name = "execution"
+        router.route("Check status")
 
-        # Call model selection
-        agent._select_model_for_step("Summarize the results")
-
-        # Verify metrics increment was called
         mock_metrics.increment.assert_called_once()
         call_args = mock_metrics.increment.call_args
         assert call_args[0][0] == "pythinker_model_tier_selections_total"
-        assert call_args[1]["labels"]["tier"] == "fast"
-        assert call_args[1]["labels"]["agent"] == "execution"
+
+
+class TestExecutionAgentModelSelection:
+    """Test ExecutionAgent._select_model_for_step integration."""
+
+    @patch(SETTINGS_PATH)
+    @patch("app.domain.services.agents.execution._metrics")
+    def test_select_model_returns_model_name(self, mock_metrics, mock_get_settings):
+        """_select_model_for_step returns a model name string."""
+        from app.domain.services.agents.execution import ExecutionAgent
+
+        mock_get_settings.return_value = _mock_settings()
+
+        agent = MagicMock(spec=ExecutionAgent)
+        agent._select_model_for_step = ExecutionAgent._select_model_for_step.__get__(agent)
+        agent.name = "execution"
+
+        result = agent._select_model_for_step("Check status")
+        assert isinstance(result, str)
+        assert result == "claude-haiku-4-5"

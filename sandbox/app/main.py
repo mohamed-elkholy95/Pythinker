@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import logging
+import os
 import sys
 import asyncio
 
@@ -95,12 +96,17 @@ async def health_check(response: Response):
         except Exception:
             return False
 
+    streaming_mode = os.environ.get("SANDBOX_STREAMING_MODE", "dual")
+
     checks = {
         "api": True,
         "cdp": await _check_port("127.0.0.1", 9222),
-        "vnc_ws": await _check_port("127.0.0.1", 5901),
         "framework": await _check_port("127.0.0.1", 8082),
     }
+
+    # VNC is only required in dual mode
+    if streaming_mode != "cdp_only":
+        checks["vnc_ws"] = await _check_port("127.0.0.1", 5901)
 
     if not all(checks.values()):
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

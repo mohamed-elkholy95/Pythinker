@@ -165,6 +165,11 @@ class BaseAgent:
 
         self._cancel_token = cancel_token or CancellationToken.null()
 
+        # Initialize metrics port for Prometheus integration
+        from app.domain.external.observability import get_null_metrics
+
+        self._metrics = get_null_metrics()
+
         # Initialize reliability components
         self._stuck_detector = StuckDetector(window_size=5, threshold=3)
         self._token_manager = TokenManager(model_name=getattr(llm, "model_name", "gpt-4"))

@@ -10,6 +10,8 @@ Benefits over Docker:
 - Enhanced security: No privileged daemon attack surface
 """
 
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -212,7 +214,7 @@ class PodmanSandbox:
 
 
 # Migration helper: Detect runtime and create appropriate adapter
-async def create_sandbox_adapter(settings) -> "PodmanSandbox | DockerSandbox":
+async def create_sandbox_adapter(settings) -> PodmanSandbox | DockerSandbox:
     """
     Create sandbox adapter based on available runtime.
 
