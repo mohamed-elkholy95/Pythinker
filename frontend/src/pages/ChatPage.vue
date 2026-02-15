@@ -1,5 +1,10 @@
 <template>
-  <SimpleBar ref="simpleBarRef" @scroll="handleScroll">
+  <SimpleBar
+    ref="simpleBarRef"
+    :autoFollow="follow"
+    :autoFollowThreshold="24"
+    @follow-change="handleFollowChange"
+  >
     <div id="pythinker-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
       <ConnectionStatusBanner
         :sessionId="sessionId"
@@ -1099,35 +1104,9 @@ const resetState = () => {
   Object.assign(state, createInitialState());
 };
 
-// Watch message length changes for scroll (avoids deep watching which re-triggers on nested changes)
-watch(
-  () => messages.value.length,
-  async () => {
-    await nextTick();
-    if (follow.value) {
-      simpleBarRef.value?.scrollToBottom();
-    }
-  }
-);
-
-// Scroll to bottom when agent starts (loading begins) or plan step count changes
-watch(
-  [isLoading, () => plan.value?.steps?.length ?? 0],
-  async () => {
-    await nextTick();
-    if (follow.value) {
-      simpleBarRef.value?.scrollToBottom();
-    }
-  }
-);
-
-// Scroll to bottom when streaming thinking text updates
-watch(thinkingText, async () => {
-  await nextTick();
-  if (follow.value && isThinkingStreaming.value) {
-    simpleBarRef.value?.scrollToBottom();
-  }
-});
+// Auto-scroll is handled by the v-auto-follow-scroll directive on SimpleBar.
+// The directive uses ResizeObserver (on content) + MutationObserver (childList)
+// with RAF-throttled scrollTo, so no manual watchers are needed here.
 
 watch(
   [shouldPinComposerToBottom, toolPanelSize],
@@ -1372,11 +1351,11 @@ const activeThinkingStepId = computed<string | undefined>(() => {
   return currentRunningStepId.value;
 });
 
-// Show standalone thinking indicator only when not inside an active running step.
+// Show standalone thinking indicator whenever the agent is processing
+// (no running step or active tool call visible).
 const showFloatingThinkingIndicator = computed(() => {
   if (showSessionWarmupMessage.value) return false;
   if (!isLoading.value) return false;
-  if (!hasThinkingSignal.value) return false;
   if (hasActiveToolCall.value) return false;
   if (hasRunningStep.value) return false;
   return true;
@@ -3108,9 +3087,12 @@ const handleFollow = () => {
   simpleBarRef.value?.scrollToBottom('smooth');
 }
 
-const handleScroll = (_: Event) => {
-  follow.value = simpleBarRef.value?.isScrolledToBottom() ?? false;
+const handleFollowChange = (isFollowing: boolean) => {
+  follow.value = isFollowing;
 }
+
+// Scroll follow state is managed by v-auto-follow-scroll directive via handleFollowChange.
+// No manual scroll handler needed.
 
 const handleStop = async () => {
   beginStreamAttempt();

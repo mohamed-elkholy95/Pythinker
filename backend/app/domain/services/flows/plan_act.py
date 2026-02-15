@@ -341,7 +341,7 @@ class PlanActFlow(BaseFlow):
             thought_tree_explorer=thought_tree_explorer,
             feature_flags=feature_flags,
             cancel_token=self._cancel_token,
-            search_engine=self._search_engine if flags.get("pre_planning_search", False) else None,
+            search_engine=self._search_engine,
         )
         logger.debug(f"Created planner agent for Agent {self._agent_id}")
 
