@@ -39,9 +39,18 @@ Pythinker runs as a multi-service system with a backend coordinator, sandbox con
 
 ## Sandbox Runtime
 
-- Chrome/Chromium with CDP exposed internally
-- Screencast API (`/api/v1/screencast/stream`)
-- VNC stack (`x11vnc` + `websockify`) for fallback
+- **Browser Engine:** Playwright Chromium (standardized)
+- **CDP Control:** Chrome DevTools Protocol on port 9222
+- **VNC Display:** x11vnc + websockify for real-time viewing (primary)
+- **Screencast API:** `/api/v1/screencast/stream` (fallback)
+
+**Browser Architecture:**
+- Three-tier design: Protocol → Implementation → Tools
+- Automatic crash recovery with progress events
+- Connection pooling via HTTPClientPool (60-75% latency reduction)
+- Health monitoring and observable metrics
+
+See `docs/architecture/BROWSER_ARCHITECTURE.md` for complete browser architecture documentation.
 
 ## Key Frontend Components
 
@@ -62,6 +71,24 @@ Pythinker runs as a multi-service system with a backend coordinator, sandbox con
 - VNC signed URL: `POST /api/v1/sessions/{session_id}/vnc/signed-url`
 - VNC proxy WS: `WS /api/v1/sessions/{session_id}/vnc`
 
-For implementation detail, see:
-- `docs/guides/OPENREPLAY.md`
-- `docs/architecture/AGENT_COMPUTER_VIEW_ARCHITECTURE.md`
+## Architecture Documentation
+
+### Browser & Sandbox
+- **Browser Architecture:** `docs/architecture/BROWSER_ARCHITECTURE.md` - Comprehensive browser architecture, VNC, CDP, tool layers
+- **Browser Standardization ADR:** `docs/architecture/BROWSER_STANDARDIZATION_ADR.md` - Architecture decisions for browser stack
+- **Automatic Browser Behavior:** `docs/architecture/AUTOMATIC_BROWSER_BEHAVIOR.md` - Browser automation patterns
+- **Agent Computer View:** `docs/architecture/AGENT_COMPUTER_VIEW_ARCHITECTURE.md` - Live view and replay architecture
+
+### Infrastructure
+- **HTTP Client Pooling:** `docs/architecture/HTTP_CLIENT_POOLING.md` - Connection pooling for 60-75% latency reduction
+- **Multi-API Key Management:** `docs/architecture/MULTI_API_KEY_MANAGEMENT.md` - API key rotation and failover
+- **Session Resilience:** `docs/architecture/SESSION_RESILIENCE_SETUP.md` - Session recovery and persistence
+
+### Performance & Monitoring
+- **2026 Best Practices:** `docs/architecture/2026_BEST_PRACTICES.md` - Modern FastAPI, Pydantic v2, Docker patterns
+- **Session Replay:** `docs/architecture/SESSION_REPLAY_ARCHITECTURE.md` - Screenshot timeline and replay
+- **Tool Visualization:** `docs/architecture/TOOL_VISUALIZATION_MAP.md` - Tool usage and visualization
+
+### Guides
+- **OpenReplay Integration:** `docs/guides/OPENREPLAY.md` - VNC setup and usage
+- **Testing Guide:** `docs/guides/TEST_GUIDE.md` - End-to-end validation procedures

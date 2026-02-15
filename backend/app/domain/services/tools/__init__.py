@@ -1,5 +1,6 @@
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.browser import BrowserTool
+from app.domain.services.tools.chart import ChartTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.command_formatter import CommandFormatter
 from app.domain.services.tools.deep_scan_analyzer import DeepScanAnalyzerTool
@@ -14,6 +15,7 @@ from app.domain.services.tools.shell import ShellTool
 __all__ = [
     "BaseTool",
     "BrowserTool",
+    "ChartTool",
     "CodeExecutorTool",
     "CommandFormatter",
     "DeepScanAnalyzerTool",

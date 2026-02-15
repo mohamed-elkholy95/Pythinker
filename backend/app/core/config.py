@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     anthropic_api_key_3: str | None = None  # Fallback Anthropic key #2
     anthropic_model_name: str = "claude-sonnet-4-20250514"
 
+    # Adaptive Model Selection (DeepCode Integration Phase 1)
+    # Enables dynamic model routing based on step complexity for cost optimization
+    adaptive_model_selection_enabled: bool = False
+    fast_model: str = "claude-haiku-4-5"  # Fast tier: summaries, simple transforms, status checks
+    balanced_model: str = ""  # Balanced tier: standard execution (empty = use model_name)
+    powerful_model: str = "claude-sonnet-4-5"  # Powerful tier: complex reasoning, architecture
+
     # Embedding configuration (separate from chat model)
     embedding_api_key: str | None = None  # Defaults to api_key if not set
     embedding_api_key_2: str | None = None  # Fallback OpenAI embedding key #1
@@ -653,6 +660,16 @@ class Settings(BaseSettings):
                 ]
             return []
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @computed_field
+    @property
+    def effective_balanced_model(self) -> str:
+        """Get the effective balanced model.
+
+        Returns balanced_model if set, otherwise falls back to model_name.
+        Context7 validated: Pydantic v2 @computed_field pattern for derived settings.
+        """
+        return self.balanced_model or self.model_name
 
     def _generate_jwt_secret(self) -> str:
         """Generate a secure JWT secret for development"""

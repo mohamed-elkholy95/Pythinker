@@ -21,6 +21,7 @@ from enum import Enum
 
 from redis.asyncio import Redis
 
+from app.core.retry import RetryConfig, calculate_delay
 from app.infrastructure.observability.prometheus_metrics import (
     api_key_exhaustions_total,
     api_key_health_score,
@@ -366,7 +367,7 @@ class APIKeyPool:
 
     def get_backoff_delay(self, key: str, attempt: int) -> float:
         """
-        Calculate exponential backoff delay with jitter.
+        Calculate exponential backoff delay with jitter using centralized retry logic.
 
         Formula: min(base * 2^attempt, max) ± 25% jitter
 
@@ -377,18 +378,15 @@ class APIKeyPool:
         Returns:
             Delay in seconds
         """
-        # Calculate exponential backoff
-        delay = self.base_backoff_seconds * (2**attempt)
-
-        # Cap at max
-        delay = min(delay, self.max_backoff_seconds)
-
-        # Add jitter (±25%)
-        jitter = delay * 0.25
-        delay = delay + random.uniform(-jitter, jitter)  # noqa: S311
-
-        # Ensure non-negative
-        return max(0, delay)
+        # Use centralized exponential backoff calculation
+        retry_config = RetryConfig(
+            base_delay=self.base_backoff_seconds,
+            exponential_base=2.0,
+            max_delay=self.max_backoff_seconds,
+            jitter=True,
+            jitter_factor=0.25,  # ±25% jitter
+        )
+        return calculate_delay(attempt + 1, retry_config)  # Convert 0-indexed to 1-indexed
 
     def _hash_key(self, key: str) -> str:
         """

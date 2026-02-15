@@ -16,6 +16,7 @@ from typing import Any, ClassVar
 
 import httpx
 
+from app.core.retry import RetryConfig, calculate_delay
 from app.domain.external.search import SearchEngine
 from app.domain.models.search import SearchResultItem, SearchResults
 from app.domain.models.tool_result import ToolResult
@@ -351,8 +352,10 @@ class SearchEngineBase(ABC, SearchEngine):
             except httpx.HTTPStatusError as e:
                 last_error = e
                 if attempt == 0 and e.response.status_code in self.RETRYABLE_STATUS_CODES:
-                    delay = 1.0 * (2**attempt)  # 1s backoff
-                    logger.warning(f"{self.provider_name} search got {e.response.status_code}, retrying in {delay}s...")
+                    # Use centralized exponential backoff
+                    retry_config = RetryConfig(base_delay=1.0, exponential_base=2.0, max_delay=5.0, jitter=True)
+                    delay = calculate_delay(attempt + 1, retry_config)
+                    logger.warning(f"{self.provider_name} search got {e.response.status_code}, retrying in {delay:.2f}s...")
                     await asyncio.sleep(delay)
                     continue
                 return self._create_error_result(query, date_range, self._handle_http_error(e))
@@ -360,8 +363,10 @@ class SearchEngineBase(ABC, SearchEngine):
             except (httpx.ConnectTimeout, httpx.ReadTimeout) as e:
                 last_error = e
                 if attempt == 0:
-                    delay = 1.0 * (2**attempt)
-                    logger.warning(f"{self.provider_name} search timeout, retrying in {delay}s...")
+                    # Use centralized exponential backoff
+                    retry_config = RetryConfig(base_delay=1.0, exponential_base=2.0, max_delay=5.0, jitter=True)
+                    delay = calculate_delay(attempt + 1, retry_config)
+                    logger.warning(f"{self.provider_name} search timeout, retrying in {delay:.2f}s...")
                     await asyncio.sleep(delay)
                     continue
                 return self._create_error_result(query, date_range, e)

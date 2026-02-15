@@ -41,8 +41,8 @@ class ScreenshotCircuitBreaker:
 
     def __init__(
         self,
-        max_consecutive_failures: int = 5,
-        recovery_timeout: float = 60.0,
+        max_consecutive_failures: int = 3,  # P1.4: Reduced from 5 - enter protection sooner
+        recovery_timeout: float = 120.0,  # P1.4: Increased from 60s - more time to stabilize
     ):
         self._state = ScreenshotCircuitState.CLOSED
         self._consecutive_failures = 0
@@ -73,7 +73,7 @@ class ScreenshotCircuitBreaker:
 
         if self._state == ScreenshotCircuitState.HALF_OPEN:
             self._consecutive_successes += 1
-            if self._consecutive_successes >= 2:  # Require 2 successes to close
+            if self._consecutive_successes >= 1:  # P1.4: Reduced from 2 - faster recovery
                 self._transition_to(ScreenshotCircuitState.CLOSED)
                 logger.info("Screenshot circuit breaker: HALF_OPEN -> CLOSED (recovery successful)")
                 self._consecutive_successes = 0

@@ -21,6 +21,7 @@ from app.domain.models.event import (
     BrowserAgentToolContent,
     BrowserToolContent,
     CanvasToolContent,
+    ChartToolContent,
     DoneEvent,
     ErrorEvent,
     FileToolContent,
@@ -1391,6 +1392,65 @@ class AgentTaskRunner(TaskRunner):
                         event.tool_call_id,
                     )
                     event.tool_content = SearchToolContent(results=normalized_results)
+                elif event.tool_name == "chart":
+                    # Handle chart tool events - sync HTML and PNG to storage
+                    if event.function_result and hasattr(event.function_result, "data"):
+                        # Safely coerce data to dict (handles non-dict or None values)
+                        raw_data = getattr(event.function_result, "data", None)
+                        data = dict(raw_data) if isinstance(raw_data, dict) else {}
+
+                        html_path = data.get("html_path")
+                        png_path = data.get("png_path")
+
+                        # Sync files independently (not requiring both to exist)
+                        html_info = None
+                        png_info = None
+                        sync_tasks = []
+
+                        if html_path:
+                            sync_tasks.append(self._sync_file_to_storage(html_path, content_type="text/html"))
+                        if png_path:
+                            sync_tasks.append(self._sync_file_to_storage(png_path, content_type="image/png"))
+
+                        # Execute syncs concurrently if any exist
+                        if sync_tasks:
+                            results = await asyncio.gather(*sync_tasks, return_exceptions=True)
+
+                            # Map results back to html_info/png_info based on which paths were present
+                            result_idx = 0
+                            if html_path:
+                                if not isinstance(results[result_idx], Exception):
+                                    html_info = results[result_idx]
+                                else:
+                                    logger.warning(f"HTML sync failed: {results[result_idx]}")
+                                result_idx += 1
+                            if png_path:
+                                if not isinstance(results[result_idx], Exception):
+                                    png_info = results[result_idx]
+                                else:
+                                    logger.warning(f"PNG sync failed: {results[result_idx]}")
+
+                        # Set ChartToolContent on the event
+                        event.tool_content = ChartToolContent(
+                            chart_type=data.get("chart_type", "bar"),
+                            title=data.get("title", "Chart"),
+                            html_file_id=html_info.file_id if html_info else None,
+                            png_file_id=png_info.file_id if png_info else None,
+                            html_filename=html_info.filename if html_info else None,
+                            png_filename=png_info.filename if png_info else None,
+                            data_points=data.get("data_points", 0),
+                            series_count=data.get("series_count", 0),
+                        )
+
+                        logger.info(
+                            "Chart created: type=%s title=%s data_points=%s series=%s html=%s png=%s",
+                            data.get("chart_type"),
+                            data.get("title"),
+                            data.get("data_points"),
+                            data.get("series_count"),
+                            "synced" if html_info else "missing/failed",
+                            "synced" if png_info else "missing/failed",
+                        )
                 elif event.tool_name == "shell":
                     # observation_type set by ToolEventHandler
                     if event.function_result and hasattr(event.function_result, "data"):

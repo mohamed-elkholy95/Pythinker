@@ -12,6 +12,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from app.core.config import get_settings
+from app.core.retry import RetryConfig, calculate_delay
 
 logger = logging.getLogger(__name__)
 
@@ -315,9 +316,16 @@ class RedisClient:
                     logger.debug("Failed to emit redis retry metric", exc_info=True)
 
                 if attempt < max_retries - 1:
-                    backoff = 0.1 * (2**attempt)  # Exponential backoff: 0.1, 0.2, 0.4s
+                    # Use centralized exponential backoff
+                    retry_config = RetryConfig(
+                        base_delay=0.1,
+                        exponential_base=2.0,
+                        max_delay=1.0,  # Cap at 1s
+                        jitter=True,
+                    )
+                    backoff = calculate_delay(attempt + 1, retry_config)
                     logger.warning(
-                        "Redis operation '%s' failed (attempt %s/%s), retrying in %ss: %s",
+                        "Redis operation '%s' failed (attempt %s/%s), retrying in %.2fs: %s",
                         operation_name,
                         attempt + 1,
                         max_retries,

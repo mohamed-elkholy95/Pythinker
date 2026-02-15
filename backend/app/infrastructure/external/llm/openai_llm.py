@@ -11,6 +11,7 @@ from openai import AsyncOpenAI, RateLimitError
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.core.retry import RetryConfig, calculate_delay
 from app.domain.external.llm import LLM
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.prompt_cache_manager import get_prompt_cache_manager
@@ -925,6 +926,7 @@ To extract data from a webpage:
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
         _attempt: int = 0,
     ) -> dict[str, Any]:
         """Send chat request to OpenAI API with automatic key rotation and retry.
@@ -935,6 +937,7 @@ To extract data from a webpage:
             response_format: Optional response format
             tool_choice: Optional tool choice configuration
             enable_caching: Whether to enable prompt caching
+            model: Optional model override for adaptive model selection (DeepCode Phase 1)
             _attempt: Internal retry counter for key rotation
 
         Returns:
@@ -982,12 +985,15 @@ To extract data from a webpage:
                     logger.info(f"Retrying API request (attempt {attempt + 1}/{max_retries + 1}) after {delay}s delay")
                     await asyncio.sleep(delay)
 
+                # Use model override if provided (DeepCode Phase 1: adaptive model selection)
+                effective_model = model or self._model_name
+
                 # GPT-5 nano/mini and o1/o3 models have different parameter requirements
-                is_new_model = self._model_name.startswith(("gpt-5", "o1", "o3"))
+                is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
 
                 # Build parameters based on model type
                 params = {
-                    "model": self._model_name,
+                    "model": effective_model,
                     "messages": request_messages,
                 }
 
@@ -1006,7 +1012,7 @@ To extract data from a webpage:
 
                 if request_tools:
                     # OpenAI API mode with native tool support
-                    logger.debug(f"Sending request with tools, model: {self._model_name}, attempt: {attempt + 1}")
+                    logger.debug(f"Sending request with tools, model: {effective_model}, attempt: {attempt + 1}")
                     # Some providers (DeepSeek, etc.) don't support response_format with tools
                     # Only pass response_format for official OpenAI endpoints
                     use_response_format = response_format if self._supports_response_format_with_tools() else None
@@ -1020,7 +1026,7 @@ To extract data from a webpage:
                 else:
                     # MLX mode or no tools
                     logger.debug(
-                        f"Sending request without native tools, model: {self._model_name}, MLX mode: {self._is_mlx_mode}, attempt: {attempt + 1}"
+                        f"Sending request without native tools, model: {effective_model}, MLX mode: {self._is_mlx_mode}, attempt: {attempt + 1}"
                     )
                     response = await client.chat.completions.create(
                         **params,
@@ -1229,6 +1235,7 @@ To extract data from a webpage:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
     ) -> T:
         """Send chat request with structured output validation.
 
@@ -1244,6 +1251,7 @@ To extract data from a webpage:
             tools: Optional tools (usually None for structured output)
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
+            model: Optional model override for adaptive model selection (DeepCode Phase 1)
 
         Returns:
             Validated Pydantic model instance
@@ -1272,6 +1280,9 @@ To extract data from a webpage:
         disable_thinking = self._is_thinking_api
         validation_recovery_attempted = False
 
+        # Use model override if provided (DeepCode Phase 1: adaptive model selection)
+        effective_model = model or self._model_name
+
         for attempt in range(max_retries + 1):
             try:
                 if attempt > 0:
@@ -1279,10 +1290,10 @@ To extract data from a webpage:
                     logger.info(f"Retrying structured request (attempt {attempt + 1}/{max_retries + 1})")
                     await asyncio.sleep(delay)
 
-                is_new_model = self._model_name.startswith(("gpt-5", "o1", "o3"))
+                is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
                 attempt_messages = [dict(message) for message in request_messages]
                 params = {
-                    "model": self._model_name,
+                    "model": effective_model,
                     "messages": attempt_messages,
                 }
 
@@ -1394,7 +1405,14 @@ To extract data from a webpage:
                         with contextlib.suppress(ValueError, TypeError):
                             retry_after = float(retry_after_header)
                 if retry_after is None:
-                    retry_after = min(base_delay * (2**attempt), 60.0)
+                    # Use centralized exponential backoff
+                    retry_config = RetryConfig(
+                        base_delay=base_delay,
+                        exponential_base=2.0,
+                        max_delay=60.0,
+                        jitter=True,
+                    )
+                    retry_after = calculate_delay(attempt + 1, retry_config)
                 logger.warning(
                     f"OpenAI rate limit hit on structured request attempt {attempt + 1}/{max_retries + 1}, "
                     f"retrying after {retry_after:.1f}s"
@@ -1522,6 +1540,7 @@ To extract data from a webpage:
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
         _attempt: int = 0,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from OpenAI API with automatic key rotation.
@@ -1532,6 +1551,7 @@ To extract data from a webpage:
             response_format: Optional response format
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
+            model: Optional model override for adaptive model selection (DeepCode Phase 1)
             _attempt: Internal retry counter for key rotation
 
         Yields:
@@ -1588,10 +1608,13 @@ To extract data from a webpage:
 
         validation_recovery_attempted = False
 
+        # Use model override if provided (DeepCode Phase 1: adaptive model selection)
+        effective_model = model or self._model_name
+
         while True:
-            is_new_model = self._model_name.startswith(("gpt-5", "o1", "o3"))
+            is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
             params = {
-                "model": self._model_name,
+                "model": effective_model,
                 "messages": request_messages,
                 "stream": True,
             }

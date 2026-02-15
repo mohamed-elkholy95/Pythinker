@@ -44,6 +44,40 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 - **TTL Recovery:** Keys auto-recover after quota reset (hourly/daily)
 - **Comprehensive docs:** See `docs/architecture/MULTI_API_KEY_MANAGEMENT.md`
 
+### DeepCode Integration (In Progress)
+
+**Status:** Planning Phase Complete - Implementation Starting
+
+Pythinker is being enhanced with robust design patterns from DeepCode, a multi-agent AI coding system:
+
+**Targeted Enhancements (v2 — Context7 MCP Validated):**
+1. **Adaptive LLM Model Selection (P0)** - Route steps to fast/balanced/powerful models based on complexity → 20-40% cost reduction
+2. **Tool Call Efficiency Monitor (P1)** - Detect read-without-write imbalance (complements existing `StuckDetector`)
+3. **Output Truncation Detection (P1)** - Catch silently truncated LLM outputs via last-line analysis and code block checking
+4. **Document Segmentation (P2)** - Chunk large documents using existing `TokenManager` for accurate token counting
+5. **Implementation File Tracker (P2)** - File-level progress tracking for code generation tasks
+
+**Note:** Pythinker already has 15+ specialized agents, tiktoken-based `TokenManager`, `MemoryManager` with semantic/temporal compression, `StuckDetector` with loop detection, 6+ validators, and 30+ event types. This plan targets only genuine gaps.
+
+**Documentation:**
+- **Integration Plan v2:** `docs/architecture/DEEPCODE_INTEGRATION_PLAN.md` (Context7 validated, 7 new files)
+- **Summary:** `docs/architecture/DEEPCODE_INTEGRATION_SUMMARY.md`
+- **Source Analysis:** `DeepCode-main/` (reference implementation)
+
+**New Feature Flags:**
+```python
+# backend/app/core/config.py
+adaptive_model_selection_enabled: bool = False  # Route steps to appropriate model tier
+fast_model: str = "claude-haiku-4-5"           # Summaries, simple tasks
+powerful_model: str = "claude-sonnet-4-5"      # Complex reasoning, architecture
+```
+
+**Context7 Validated Patterns Applied:**
+- Pydantic v2 `@computed_field` for `StepModelRecommendation.model_key`
+- Pydantic v2 `@model_validator(mode='after')` with `Self` for `TruncationAssessment`
+- Vue 3 `computed<T>()` explicit typing in `useModelTier.ts` composable
+- FastAPI `@asynccontextmanager` lifespan pattern referenced
+
 ## Communication & Accuracy Standards
 
 - **Absolute Status Accuracy Rule**: When creating summaries or status reports, maintain 100% factual accuracy. Never mark a task as "Completed" if it is only partially done or if only foundational code is in place. Always clearly distinguish "Completed", "In Progress", and "Not Started".
@@ -142,6 +176,66 @@ bun run test:run     # Single test run
 - **SSE Streaming**: Real-time events to frontend
 - **Legacy Flow Workflows**: Planning → Execution → Reflection → Verification
 - **Sandbox Isolation**: Docker containers with CDP screencast
+
+### Plotly Chart System
+
+**Status:** Production-Ready (Enhanced 2026-02-15)
+
+**Best Practices Guide:** `docs/PLOTLY_CHART_BEST_PRACTICES.md` (Context7 MCP Validated)
+
+**Key Principles:**
+- **Color Palette:** Plotly's official 10-color qualitative palette (`px.colors.qualitative.Plotly`)
+- **Orientation:** Horizontal bars (`orientation='h'`) for comparison charts with labels >4 characters
+- **Sorting:** Auto-sorted by value (descending) for optimal readability
+- **Templates:** `plotly_white` recommended for professional appearance
+- **Number Formatting:** Smart SI suffix formatting (12k, 1.5M, etc.)
+- **Text Sizing:** `uniformtext_minsize=8` with `mode='hide'` for consistent labels
+
+**Chart Type Selection:**
+- `bar`: Categorical comparisons, rankings
+- `line`: Time-series data, trends
+- `scatter`: Correlation, distributions, outliers
+- `pie`: Part-to-whole (max 5-7 categories)
+- `grouped_bar` / `stacked_bar`: Multi-series comparisons
+- `box`: Distribution analysis, quartiles
+
+**Implementation:** `sandbox/scripts/generate_plotly_chart.py` (Python 3.12+, TypedDict, StrEnum, pattern matching)
+
+**Documentation:**
+- Complete guide: `docs/PLOTLY_CHART_BEST_PRACTICES.md`
+- Implementation summary: `docs/CHART_IMPROVEMENTS_SUMMARY.md`
+
+---
+
+### Browser Architecture
+
+**Standard Browser Stack** (Standardized 2026-02-15):
+- **Engine:** Playwright Chromium (lighter, more stable than Chrome for Testing)
+- **Control:** Chrome DevTools Protocol (CDP) on port 9222
+- **Display:** VNC streaming (x11vnc + websockify) on port 5901 for real-time user visibility
+- **Tools:**
+  - `BrowserTool`: Manual control (single actions: navigate, click, input)
+  - `BrowserAgentTool`: Autonomous operation (multi-step workflows via browser-use library)
+
+**Three-Tier Architecture:**
+```
+Domain Protocol (browser.py)
+    ↓
+Infrastructure Implementation (PlaywrightBrowser)
+    ↓
+Tool Services (BrowserTool, BrowserAgentTool)
+```
+
+**Key Features:**
+- ✅ Automatic crash recovery with progress events
+- ✅ Connection pooling via HTTPClientPool (60-75% latency reduction)
+- ✅ VNC health monitoring in SandboxHealth
+- ✅ All browser actions visible in real-time via VNC
+
+**Documentation:**
+- **Comprehensive Guide:** `docs/architecture/BROWSER_ARCHITECTURE.md`
+- **Architecture Decisions:** `docs/architecture/BROWSER_STANDARDIZATION_ADR.md`
+- **Automatic Behavior:** `docs/architecture/AUTOMATIC_BROWSER_BEHAVIOR.md`
 
 ### Memory System Architecture (Phase 1: Hybrid Retrieval)
 

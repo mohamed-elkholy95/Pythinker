@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.retry import RetryConfig, calculate_delay
 from app.domain.exceptions.browser import (
     BrowserCrashedError,
     BrowserErrorContext,
@@ -483,8 +484,15 @@ class BrowserConnectionPool:
                 logger.warning(f"Connection attempt {attempt + 1}/{max_retries} failed for {cdp_url}: {e}")
 
             if attempt < max_retries - 1:
-                backoff = 0.5 * (2**attempt)  # 0.5s, 1s, 2s
-                logger.info(f"Retrying in {backoff}s...")
+                # Use centralized exponential backoff with jitter
+                retry_config = RetryConfig(
+                    base_delay=0.5,
+                    exponential_base=2.0,
+                    max_delay=5.0,  # Cap at 5s
+                    jitter=True,
+                )
+                backoff = calculate_delay(attempt + 1, retry_config)  # Convert 0-indexed to 1-indexed
+                logger.info(f"Retrying in {backoff:.2f}s...")
                 await asyncio.sleep(backoff)
 
         # All retries exhausted
@@ -820,13 +828,17 @@ class BrowserConnectionPool:
 
         # Verify the CDP endpoint is reachable
         try:
-            import httpx
+            from app.infrastructure.external.http_pool import HTTPClientPool
 
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{cdp_url}/json/version")
-                if response.status_code == 200:
-                    logger.debug(f"CDP endpoint verified for session {session_id}")
-                    return cdp_url
+            client = await HTTPClientPool.get_client(
+                name=f"cdp-verify-{session_id}",
+                base_url=cdp_url,
+                timeout=5.0,
+            )
+            response = await client.get("/json/version")
+            if response.status_code == 200:
+                logger.debug(f"CDP endpoint verified for session {session_id}")
+                return cdp_url
         except Exception as e:
             logger.warning(f"CDP endpoint not reachable for session {session_id}: {e}")
             return None

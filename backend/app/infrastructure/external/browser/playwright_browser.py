@@ -13,6 +13,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.core.config import get_settings
 from app.domain.models.tool_result import ToolResult
+from app.infrastructure.external.browser.url_filters import is_video_url
 from app.infrastructure.external.llm import get_llm
 from app.infrastructure.observability.prometheus_metrics import (
     browser_element_extraction_latency,
@@ -73,20 +74,41 @@ TIMEZONE_POOL = [
 # Resource types to block for faster page loads (configurable)
 BLOCKABLE_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
 BLOCKED_URL_PATTERNS = [
+    # Google ad/analytics networks
     r".*\.doubleclick\.net.*",
     r".*\.google-analytics\.com.*",
     r".*\.googlesyndication\.com.*",
     r".*\.googletagmanager\.com.*",
+    # Social media tracking
     r".*\.facebook\.net.*",
     r".*\.facebook\.com/tr.*",
     r".*\.twitter\.com/i/.*",
+    # Generic ad patterns
     r".*\.ads\..*",
     r".*tracking.*",
     r".*analytics.*",
+    # Analytics platforms
     r".*hotjar\.com.*",
     r".*mixpanel\.com.*",
     r".*segment\.io.*",
     r".*optimizely\.com.*",
+    # Major ad exchanges (observed in failing session)
+    r".*\.pubmatic\.com.*",
+    r".*\.casalemedia\.com.*",
+    r".*\.openx\.net.*",
+    r".*\.rubiconproject\.com.*",
+    r".*\.criteo\.com.*",
+    r".*\.taboola\.com.*",
+    r".*\.outbrain\.com.*",
+    r".*\.amazon-adsystem\.com.*",
+    r".*\.adsrvr\.org.*",
+    r".*\.bidswitch\.net.*",
+    r".*\.sharethrough\.com.*",
+    r".*\.spotxchange\.com.*",
+    r".*\.indexexchange\.com.*",
+    r".*\.moatads\.com.*",
+    r".*\.doubleverify\.com.*",
+    r".*\.aps\.amazon.*",
 ]
 
 # Browser crash error signatures — when exceptions contain these strings,
@@ -110,78 +132,6 @@ DEFAULT_BROWSER_CRASH_COOLDOWN_SECONDS = 60.0
 DEFAULT_BROWSER_QUICK_HEALTH_CHECK_TIMEOUT = 3.0
 
 # Video domains to skip - these waste agent time and resources
-VIDEO_DOMAINS: set[str] = {
-    "youtube.com",
-    "www.youtube.com",
-    "youtu.be",
-    "m.youtube.com",
-    "vimeo.com",
-    "www.vimeo.com",
-    "player.vimeo.com",
-    "dailymotion.com",
-    "www.dailymotion.com",
-    "twitch.tv",
-    "www.twitch.tv",
-    "clips.twitch.tv",
-    "tiktok.com",
-    "www.tiktok.com",
-    "vm.tiktok.com",
-    "netflix.com",
-    "www.netflix.com",
-    "hulu.com",
-    "www.hulu.com",
-    "disneyplus.com",
-    "www.disneyplus.com",
-    "primevideo.com",
-    "www.primevideo.com",
-    "hbomax.com",
-    "www.hbomax.com",
-    "max.com",
-    "peacocktv.com",
-    "www.peacocktv.com",
-    "crunchyroll.com",
-    "www.crunchyroll.com",
-    "funimation.com",
-    "www.funimation.com",
-    "rumble.com",
-    "www.rumble.com",
-    "bitchute.com",
-    "www.bitchute.com",
-    "odysee.com",
-    "www.odysee.com",
-    "bilibili.com",
-    "www.bilibili.com",
-    "nicovideo.jp",
-    "www.nicovideo.jp",
-}
-
-# Video file extensions to skip
-VIDEO_EXTENSIONS: set[str] = {
-    ".mp4",
-    ".webm",
-    ".avi",
-    ".mov",
-    ".mkv",
-    ".flv",
-    ".wmv",
-    ".m4v",
-    ".mpg",
-    ".mpeg",
-    ".3gp",
-    ".ogv",
-}
-
-# URL patterns that indicate video content
-VIDEO_URL_PATTERNS: list[re.Pattern] = [
-    re.compile(r"/watch\?v=", re.IGNORECASE),
-    re.compile(r"/video/", re.IGNORECASE),
-    re.compile(r"/videos/", re.IGNORECASE),
-    re.compile(r"/embed/", re.IGNORECASE),
-    re.compile(r"/player/", re.IGNORECASE),
-    re.compile(r"\.m3u8", re.IGNORECASE),
-    re.compile(r"/stream/", re.IGNORECASE),
-]
-
 # Performance optimization constants (based on Browser-Use patterns from Context7)
 # These limits prevent hangs on heavy documentation sites (e.g., claude.com/docs)
 MAX_INTERACTIVE_ELEMENTS = 100  # Cap interactive elements to prevent 4+ minute extractions
@@ -193,45 +143,6 @@ HEAVY_PAGE_THRESHOLD = 3000  # Pages with more elements use lightweight extracti
 # Wikipedia and heavy page detection (Priority 1: crash prevention)
 WIKIPEDIA_DOMAINS = ["wikipedia.org", "en.wikipedia.org", "*.wikipedia.org"]
 QUICK_SIZE_CHECK_TIMEOUT_MS = 500  # Quick page size check timeout
-
-
-def is_video_url(url: str) -> bool:
-    """Check if URL is a video URL that should be skipped.
-
-    Args:
-        url: URL to check
-
-    Returns:
-        True if URL is a video URL, False otherwise
-    """
-    if not url:
-        return False
-
-    try:
-        from urllib.parse import urlparse
-
-        parsed = urlparse(url.lower())
-        domain = parsed.netloc.replace("www.", "")
-
-        # Check domain
-        if domain in VIDEO_DOMAINS or f"www.{domain}" in VIDEO_DOMAINS:
-            return True
-
-        # Check file extension
-        path = parsed.path.lower()
-        for ext in VIDEO_EXTENSIONS:
-            if path.endswith(ext):
-                return True
-
-        # Check URL patterns
-        for pattern in VIDEO_URL_PATTERNS:
-            if pattern.search(url):
-                return True
-
-    except (ValueError, re.error):
-        logger.debug("Failed to check if URL is video URL", exc_info=True)
-
-    return False
 
 
 class PlaywrightBrowser:
@@ -447,8 +358,43 @@ class PlaywrightBrowser:
             f"{self._crash_window_seconds}s (threshold: {self._crash_threshold})"
         )
 
+    async def _ensure_page_visible(self) -> None:
+        """Bring page to front for VNC visibility.
+
+        Uses both Playwright API and CDP commands to ensure the page is visible
+        in the VNC viewer. This is critical for user visibility of browser actions.
+
+        Handles errors gracefully - VNC visibility is best-effort and should not
+        block browser operations.
+        """
+        # Guard against uninitialized state
+        if not self.page or not self.context:
+            logger.debug("Cannot ensure page visibility: page or context is None")
+            return
+
+        try:
+            await self.page.bring_to_front()
+            # Also try CDP-level activation for VNC visibility
+            cdp_session = None
+            try:
+                cdp_session = await self.context.new_cdp_session(self.page)
+                await cdp_session.send("Page.bringToFront")
+                logger.info("Brought page to front via CDP for VNC visibility")
+            except (PlaywrightError, OSError) as cdp_error:
+                logger.debug(f"CDP bring_to_front: {cdp_error}")
+            finally:
+                if cdp_session:
+                    try:
+                        await cdp_session.detach()
+                    except Exception as detach_error:
+                        logger.debug(f"CDP session detach failed: {detach_error}")
+        except (PlaywrightError, OSError) as e:
+            logger.debug(f"Could not bring page to front: {e}")
+
     async def _quick_health_check(self) -> bool:
         """Quick health check before operations to detect crashes fast (<5s).
+
+        P1.1: Enhanced to check page complexity and proactively clear heavy pages.
 
         Returns:
             True if healthy, False if crashed/unhealthy
@@ -471,6 +417,21 @@ class PlaywrightBrowser:
                 evaluate_result,
                 timeout=self._quick_health_check_timeout,
             )
+
+            # P1.1: Check page complexity and clear if too heavy
+            complexity = await self._get_page_complexity()
+            if complexity and complexity.get("isHeavy"):
+                iframe_count = complexity.get("iframeCount", 0)
+                element_count = complexity.get("elementCount", 0)
+                logger.warning(
+                    f"Heavy page detected ({iframe_count} iframes, {element_count} elements), clearing to about:blank"
+                )
+                try:
+                    await self.page.goto("about:blank", timeout=5000)
+                except Exception as clear_error:
+                    logger.debug(f"Failed to clear heavy page: {clear_error}")
+                    # Continue anyway - we tried
+
             return True
 
         except TimeoutError:
@@ -835,34 +796,34 @@ class PlaywrightBrowser:
         return page
 
     async def _setup_route_interception(self, context: BrowserContext) -> None:
-        """Set up network route interception for resource blocking and optimization
+        """Set up network route interception for resource blocking and optimization.
+
+        P0.3: Ad/tracker URLs are ALWAYS blocked (context-level, protects against thread saturation).
+        Resource types (images, fonts, etc.) are only blocked when block_resources=True.
 
         Args:
             context: Browser context to configure routes on
         """
-        if not self.block_resources:
-            return
-
         async def route_handler(route):
             request = route.request
             resource_type = request.resource_type
             url = request.url
 
-            # Block specified resource types
-            if resource_type in self.blocked_types:
-                await route.abort()
-                return
-
-            # Block known tracking/ad URLs
+            # ALWAYS block known ad/tracker URLs (critical for CDP timeout prevention)
             for pattern in BLOCKED_URL_PATTERNS:
                 if re.match(pattern, url, re.IGNORECASE):
                     await route.abort()
                     return
 
+            # Only block resource types when explicitly enabled
+            if self.block_resources and resource_type in self.blocked_types:
+                await route.abort()
+                return
+
             await route.continue_()
 
         await context.route("**/*", route_handler)
-        logger.debug("Network route interception configured")
+        logger.debug(f"Network route interception configured (ads: always, resources: {self.block_resources})")
 
     async def _show_cursor_click(self, x: float, y: float) -> None:
         """Show cursor animation at the specified coordinates.
@@ -1344,29 +1305,34 @@ class PlaywrightBrowser:
                                     continue
 
                     if reuse_page:
-                        self.page = reuse_page
-                        # NOTE: Do NOT call _force_window_position or set_viewport_size here
-                        # The window is already correctly positioned by Chrome's launch flags
-                        # Calling these can cause the window to shift/resize unexpectedly
-                        logger.info("Reusing existing page - keeping current window position")
+                        # Clear heavy content from previous session before reusing
+                        # (P0.2: Navigate to about:blank to prevent ad network thread saturation)
+                        try:
+                            await reuse_page.goto("about:blank", timeout=5000)
+                            logger.info("Cleared existing page to about:blank before reuse")
+                        except Exception as clear_error:
+                            # If we can't even navigate to blank, close and create fresh
+                            logger.warning(f"Failed to clear page, will create new: {clear_error}")
+                            try:
+                                await reuse_page.close()
+                            except Exception as close_error:
+                                logger.debug(f"Failed to close page: {close_error}")
+                            reuse_page = None
+                            # Create new page with proper window positioning
+                            self.page = await self._new_page_with_bounds(self.context)
+                        else:
+                            self.page = reuse_page
+                            # NOTE: Do NOT call _force_window_position or set_viewport_size here
+                            # The window is already correctly positioned by Chrome's launch flags
+                            # Calling these can cause the window to shift/resize unexpectedly
+                            logger.info("Reusing existing page - keeping current window position")
                     else:
                         # Last resort: Create new page with proper window positioning
                         logger.warning("No existing pages available, creating new page with bounds")
                         self.page = await self._new_page_with_bounds(self.context)
 
                     # Ensure the page is brought to front and visible in VNC
-                    try:
-                        await self.page.bring_to_front()
-                        # Also try CDP-level activation for VNC visibility
-                        try:
-                            cdp_session = await self.context.new_cdp_session(self.page)
-                            await cdp_session.send("Page.bringToFront")
-                            await cdp_session.detach()
-                            logger.info("Brought page to front via CDP for VNC visibility")
-                        except (PlaywrightError, OSError) as cdp_error:
-                            logger.debug(f"CDP bring_to_front: {cdp_error}")
-                    except (PlaywrightError, OSError) as e:
-                        logger.debug(f"Could not bring page to front: {e}")
+                    await self._ensure_page_visible()
                 else:
                     # No contexts exist yet - wait for Chrome to create default context
                     # IMPORTANT: Do NOT use browser.new_context() as it creates an isolated
@@ -1815,11 +1781,7 @@ class PlaywrightBrowser:
         await self._ensure_page()
 
         # Ensure page is visible in VNC when viewing
-        try:
-            await self.page.bring_to_front()
-            logger.debug("Brought page to front before viewing for VNC visibility")
-        except Exception as e:
-            logger.debug(f"Could not bring page to front: {e}")
+        await self._ensure_page_visible()
 
         try:
             current_url = self.page.url
@@ -2206,19 +2168,7 @@ class PlaywrightBrowser:
             interactive_elements = await self._extract_interactive_elements()
 
             # Ensure page is visible in VNC after navigation
-            try:
-                await self.page.bring_to_front()
-                # Also try to activate the window via CDP for VNC visibility
-                try:
-                    cdp_session = await self.page.context.new_cdp_session(self.page)
-                    # Bring window to front at the browser level
-                    await cdp_session.send("Page.bringToFront")
-                    await cdp_session.detach()
-                    logger.info("Brought page to front via CDP for VNC visibility")
-                except Exception as cdp_error:
-                    logger.debug(f"CDP bring_to_front fallback: {cdp_error}")
-            except Exception as e:
-                logger.debug(f"Could not bring page to front: {e}")
+            await self._ensure_page_visible()
 
             # AUTOMATIC BEHAVIOR: Extract page content automatically for faster response
             result_data = {
@@ -2290,11 +2240,7 @@ class PlaywrightBrowser:
                 interactive_elements = await self._extract_interactive_elements()
 
                 # Ensure page is visible in VNC even after timeout
-                try:
-                    await self.page.bring_to_front()
-                    logger.info("Brought page to front after timeout for VNC visibility")
-                except Exception as e:
-                    logger.debug(f"Could not bring page to front: {e}")
+                await self._ensure_page_visible()
 
                 result_data = {
                     "interactive_elements": interactive_elements,
@@ -2407,14 +2353,7 @@ class PlaywrightBrowser:
                 logger.warning(f"Fast navigation to {url} returned status {response.status}")
 
             # Bring page to front for VNC visibility
-            try:
-                await self.page.bring_to_front()
-                cdp_session = await self.page.context.new_cdp_session(self.page)
-                await cdp_session.send("Page.bringToFront")
-                await cdp_session.detach()
-                logger.info("Brought page to front via CDP for VNC visibility")
-            except Exception as e:
-                logger.debug(f"Could not bring page to front: {e}")
+            await self._ensure_page_visible()
 
             # Extract basic content quickly (no scrolling, no full element extraction)
             try:
@@ -2518,13 +2457,7 @@ class PlaywrightBrowser:
                 await self._ensure_page()
                 await self.page.goto(url, timeout=timeout, wait_until="domcontentloaded")
                 # Bring page to front for VNC visibility
-                await self.page.bring_to_front()
-                try:
-                    cdp_session = await self.page.context.new_cdp_session(self.page)
-                    await cdp_session.send("Page.bringToFront")
-                    await cdp_session.detach()
-                except (PlaywrightError, OSError):
-                    logger.debug("Failed to bring page to front via CDP", exc_info=True)
+                await self._ensure_page_visible()
                 logger.debug(f"navigate_for_display: showed {url} on VNC")
                 self._display_failure_count = 0
                 return True
@@ -2704,11 +2637,7 @@ class PlaywrightBrowser:
         await self._ensure_page()
 
         # Ensure page is visible in VNC before clicking
-        try:
-            await self.page.bring_to_front()
-            logger.debug("Brought page to front before click for VNC visibility")
-        except Exception as e:
-            logger.debug(f"Could not bring page to front: {e}")
+        await self._ensure_page_visible()
 
         try:
             if coordinate_x is not None and coordinate_y is not None:
@@ -2807,11 +2736,7 @@ class PlaywrightBrowser:
         await self._ensure_page()
 
         # Ensure page is visible in VNC before input
-        try:
-            await self.page.bring_to_front()
-            logger.debug("Brought page to front before input for VNC visibility")
-        except Exception as e:
-            logger.debug(f"Could not bring page to front: {e}")
+        await self._ensure_page_visible()
 
         try:
             if coordinate_x is not None and coordinate_y is not None:
@@ -2918,11 +2843,7 @@ class PlaywrightBrowser:
         await self._ensure_page()
         try:
             # Ensure page is visible in VNC before scrolling
-            try:
-                await self.page.bring_to_front()
-                logger.debug("Brought page to front before scroll up for VNC visibility")
-            except Exception as e:
-                logger.debug(f"Could not bring page to front: {e}")
+            await self._ensure_page_visible()
 
             if to_top:
                 await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
@@ -2964,11 +2885,7 @@ class PlaywrightBrowser:
         await self._ensure_page()
         try:
             # Ensure page is visible in VNC before scrolling
-            try:
-                await self.page.bring_to_front()
-                logger.debug("Brought page to front before scroll down for VNC visibility")
-            except Exception as e:
-                logger.debug(f"Could not bring page to front: {e}")
+            await self._ensure_page_visible()
 
             # Get initial metrics for lazy loading detection
             initial_height = await self.page.evaluate("document.body.scrollHeight")

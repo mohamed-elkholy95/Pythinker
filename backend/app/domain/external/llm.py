@@ -16,6 +16,7 @@ class LLM(Protocol):
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
     ) -> dict[str, Any]:
         """Send chat request to AI service
 
@@ -25,6 +26,7 @@ class LLM(Protocol):
             response_format: Optional response format configuration
             tool_choice: Optional tool choice configuration
             enable_caching: Whether to use prompt caching
+            model: Optional model override for adaptive model selection (DeepCode Phase 1)
         Returns:
             Response message from AI service
         """
@@ -37,6 +39,7 @@ class LLM(Protocol):
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
     ) -> T:
         """Send chat request with structured output validation.
 
@@ -48,6 +51,7 @@ class LLM(Protocol):
             tools: Optional tools (usually None for structured output)
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
+            model: Optional model override for adaptive model selection (DeepCode Phase 1)
 
         Returns:
             Validated Pydantic model instance
@@ -61,6 +65,7 @@ class LLM(Protocol):
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response.
 
@@ -72,6 +77,7 @@ class LLM(Protocol):
             response_format: Optional response format
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
+            model: Optional model override for adaptive model selection (DeepCode Phase 1)
 
         Yields:
             Content chunks as strings

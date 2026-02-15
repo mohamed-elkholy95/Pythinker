@@ -32,7 +32,7 @@ CDP_ENDPOINT = f"http://{CDP_HOST}:{CDP_PORT}"
 # Connection management
 _WS_URL_CACHE_TTL = 60.0  # Cache the WebSocket URL for 60 seconds
 _HEALTH_CHECK_TIMEOUT = 2.0  # Quick health check timeout
-_CAPTURE_COMMAND_TIMEOUT = 4.0  # Timeout for the actual capture CDP command
+_CAPTURE_COMMAND_TIMEOUT = 6.0  # P1.2: Increased from 4.0s to allow more time for heavy pages
 _CONNECT_TIMEOUT = 3.0  # Timeout for WebSocket connection establishment
 
 
@@ -360,6 +360,8 @@ class CDPScreencastService:
 
         Uses persistent connection via ensure_connected() for low overhead.
         Useful for one-off screenshots with lower latency than xwd approach.
+
+        P1.2: Enhanced with timeout detection and automatic reconnect.
         """
         if not await self.ensure_connected():
             return None
@@ -370,14 +372,20 @@ class CDPScreencastService:
                 {"format": self.config.format, "quality": self.config.quality},
             )
 
-            if result and "result" in result:
+            # P1.2: Detect timeout (result is None) and force reconnect
+            if result is None:
+                logger.warning("CDP capture timed out, forcing reconnect")
+                await self._cleanup_stale_connection()
+                return None
+
+            if "result" in result:
                 data = result["result"].get("data")
                 if data:
                     self._last_successful_capture = time.monotonic()
                     return base64.b64decode(data)
 
             # Command succeeded but no data - connection may be stale
-            if result and "error" in result:
+            if "error" in result:
                 logger.warning(f"CDP capture error response: {result['error']}")
                 # Force reconnect on next attempt
                 await self._cleanup_stale_connection()

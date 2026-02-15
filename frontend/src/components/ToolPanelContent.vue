@@ -204,6 +204,14 @@
             @browseUrl="handleBrowseUrl"
           />
 
+          <!-- Chart View -->
+          <ChartToolView
+            v-else-if="currentViewType === 'chart'"
+            :session-id="sessionId || ''"
+            :chart-content="toolContent"
+            :live="isActiveOperation"
+          />
+
           <!-- Generic/MCP View -->
           <GenericContentView
             v-else-if="currentViewType === 'generic'"
@@ -309,6 +317,7 @@ import InactiveState from '@/components/toolViews/shared/InactiveState.vue';
 import TerminalContentView from '@/components/toolViews/TerminalContentView.vue';
 import EditorContentView from '@/components/toolViews/EditorContentView.vue';
 import SearchContentView from '@/components/toolViews/SearchContentView.vue';
+import ChartToolView from '@/components/toolViews/ChartToolViewEnhanced.vue';
 import GenericContentView from '@/components/toolViews/GenericContentView.vue';
 import StreamingReportView from '@/components/toolViews/StreamingReportView.vue';
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
@@ -543,11 +552,11 @@ const vncEnabled = computed(() => {
   return !!props.sessionId && !showVncPlaceholder.value;
 });
 
-// Whether the current tool has a rich native view (editor, terminal, search)
+// Whether the current tool has a rich native view (editor, terminal, search, chart)
 // that is more informative than a VNC screenshot replay
 const hasRichToolView = computed(() => {
   const vt = currentViewType.value;
-  return vt === 'editor' || vt === 'terminal' || vt === 'search' || vt === 'wide_research';
+  return vt === 'editor' || vt === 'terminal' || vt === 'search' || vt === 'wide_research' || vt === 'chart';
 });
 
 // ============ VNC URL Bar Overlay ============

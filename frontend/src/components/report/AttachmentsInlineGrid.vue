@@ -1,27 +1,48 @@
 <template>
   <div class="attachments-inline-grid w-full max-w-[520px] min-w-0 mt-3">
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div
-        v-for="file in displayedAttachments"
-        :key="file.file_id"
-        class="file-card flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--background-card)] border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-main)] hover:shadow-sm transition-all"
-        @click="openFile(file)"
-      >
+      <template v-for="file in displayedAttachments" :key="file.file_id">
+        <!-- Chart PNG files: render inline image preview -->
         <div
-          class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center"
-          :class="getFileIconBgClass(file.filename)"
+          v-if="isChartPng(file)"
+          class="col-span-1 sm:col-span-2 chart-preview-card relative rounded-xl overflow-hidden border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-brand)] hover:shadow-md transition-all group"
+          @click="openChartInteractive(file)"
         >
-          <component :is="getFileIcon(file.filename)" class="w-4 h-4 text-white" />
+          <img
+            :src="getFileUrl(file)"
+            :alt="file.filename"
+            class="w-full h-auto object-contain bg-white dark:bg-[#1a1a2e]"
+          />
+          <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+            <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--background-brand)] text-white shadow-lg">
+              <BarChart3 :size="16" />
+              <span class="text-sm font-medium">Open Interactive Chart</span>
+            </div>
+          </div>
         </div>
-        <div class="flex flex-col min-w-0 flex-1">
-          <span class="text-sm text-[var(--text-primary)] truncate font-medium leading-tight">
-            {{ file.filename }}
-          </span>
-          <span class="text-xs text-[var(--text-tertiary)]">
-            {{ getFileTypeLabel(file.filename) }} · {{ formatFileSize(file.size) }}
-          </span>
+
+        <!-- Regular files: standard file card -->
+        <div
+          v-else
+          class="file-card flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--background-card)] border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-main)] hover:shadow-sm transition-all"
+          @click="openFile(file)"
+        >
+          <div
+            class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center"
+            :class="getFileIconBgClass(file.filename)"
+          >
+            <component :is="getFileIcon(file.filename)" class="w-4 h-4 text-white" />
+          </div>
+          <div class="flex flex-col min-w-0 flex-1">
+            <span class="text-sm text-[var(--text-primary)] truncate font-medium leading-tight">
+              {{ file.filename }}
+            </span>
+            <span class="text-xs text-[var(--text-tertiary)]">
+              {{ getFileTypeLabel(file.filename) }} · {{ formatFileSize(file.size) }}
+            </span>
+          </div>
         </div>
-      </div>
+      </template>
 
       <!-- View all files button - inline in grid -->
       <button
@@ -47,8 +68,11 @@ import {
   FileImage,
   File,
   FolderOpen,
+  BarChart3,
 } from 'lucide-vue-next';
 import type { FileInfo } from '@/api/file';
+import { fileApi } from '@/api/file';
+import { isChartPngFile, getChartHtmlFile } from '@/utils/fileType';
 
 const props = defineProps<{
   attachments: FileInfo[];
@@ -173,6 +197,28 @@ const openFile = (file: FileInfo) => {
 
 const showAllFiles = () => {
   emit('showAllFiles');
+};
+
+// Chart detection and handling
+const isChartPng = (file: FileInfo) => {
+  return isChartPngFile(file.filename, file.metadata);
+};
+
+const getFileUrl = (file: FileInfo) => {
+  return fileApi.getFileUrl(file.file_id);
+};
+
+const openChartInteractive = (pngFile: FileInfo) => {
+  // Find corresponding HTML file
+  const htmlFile = getChartHtmlFile(pngFile, props.attachments);
+  if (htmlFile) {
+    // Open HTML file in new tab
+    const url = fileApi.getFileUrl(htmlFile.file_id);
+    window.open(url, '_blank');
+  } else {
+    // Fallback: open PNG file normally
+    emit('openFile', pngFile);
+  }
 };
 </script>
 

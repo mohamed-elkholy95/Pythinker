@@ -64,7 +64,7 @@ TASK_PATTERNS = {
     ],
     "file_management": [r"file", r"read", r"write", r"create", r"delete", r"move", r"copy", r"directory", r"folder"],
     "web_browsing": [r"browse", r"navigate", r"website", r"page", r"click", r"form", r"screenshot", r"scrape"],
-    "analysis": [r"analyze", r"compare", r"evaluate", r"assess", r"review", r"summarize", r"report"],
+    "analysis": [r"analyze", r"compare", r"evaluate", r"assess", r"review", r"summarize", r"report", r"chart", r"graph", r"visualize", r"plot"],
     "communication": [r"ask", r"tell", r"notify", r"message", r"clarify"],
 }
 
@@ -75,6 +75,8 @@ TASK_TO_CATEGORIES = {
     "file_management": [ToolCategory.FILE, ToolCategory.SHELL],
     "web_browsing": [ToolCategory.BROWSER, ToolCategory.SEARCH],
     "analysis": [ToolCategory.FILE, ToolCategory.SEARCH, ToolCategory.CODE],
+    # Note: "visualization" mapping removed - no corresponding TASK_PATTERNS key exists
+    # Visualization keywords are handled under "analysis" pattern
     "communication": [ToolCategory.MESSAGE],
 }
 
@@ -86,7 +88,7 @@ TOOL_CATEGORY_PATTERNS = {
     ToolCategory.SHELL: [r"shell_", r"execute", r"command"],
     ToolCategory.MESSAGE: [r"message_", r"ask_", r"notify"],
     ToolCategory.MCP: [r"mcp_"],
-    ToolCategory.CODE: [r"code_", r"execute_", r"run_"],
+    ToolCategory.CODE: [r"code_", r"execute_", r"run_", r"chart_"],
     ToolCategory.PLAN: [r"plan_", r"step_"],
 }
 

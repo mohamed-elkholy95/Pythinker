@@ -144,3 +144,26 @@ export async function downloadFilesAsZip(fileIds: string[]): Promise<void> {
   link.remove();
   window.URL.revokeObjectURL(url);
 }
+
+/**
+ * Get file URL for direct access
+ * @param fileId File ID
+ * @returns File URL string
+ */
+export function getFileUrl(fileId: string): string {
+  return `${API_CONFIG.host}/api/v1/files/${encodeFileId(fileId)}/download`;
+}
+
+/**
+ * File API object with all file-related methods
+ */
+export const fileApi = {
+  uploadFile,
+  downloadFile,
+  deleteFile,
+  getFileInfo,
+  createFileSignedUrl,
+  getFileDownloadUrl,
+  downloadFilesAsZip,
+  getFileUrl,
+};

@@ -146,6 +146,12 @@ _screenshot_cache = _ScreenshotCache()
 # Reuse singleton CDP service across requests (persistent WebSocket)
 _cdp_service: CDPScreencastService | None = None
 
+# P1.3: CDP failure tracking to skip tier after consecutive failures
+_cdp_consecutive_failures: int = 0
+_CDP_FAILURE_THRESHOLD: int = 3  # Skip after 3 consecutive failures
+_cdp_skip_until: float = 0.0
+_CDP_SKIP_DURATION: float = 30.0  # Skip for 30s after threshold
+
 
 def _get_cdp_service(quality: int, image_format: str) -> CDPScreencastService:
     """Get or create persistent CDP service singleton."""
@@ -166,7 +172,19 @@ async def _capture_with_cdp(quality: int, image_format: Literal["jpeg", "png"]) 
 
     The singleton service maintains the WebSocket across requests,
     eliminating ~150ms of connection overhead per capture.
+
+    P1.3: Tracks consecutive failures and skips CDP tier during cooldown.
     """
+    global _cdp_consecutive_failures, _cdp_skip_until
+
+    # P1.3: Skip CDP if in cooldown period
+    now = time.monotonic()
+    if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD and now < _cdp_skip_until:
+        logger.debug(
+            f"[Screenshot] Skipping CDP tier (in cooldown, {_cdp_consecutive_failures} failures)"
+        )
+        return None
+
     service = _get_cdp_service(quality, image_format)
     try:
         image_data = await asyncio.wait_for(
@@ -175,13 +193,39 @@ async def _capture_with_cdp(quality: int, image_format: Literal["jpeg", "png"]) 
         )
         if not image_data:
             logger.debug("[Screenshot] CDP capture returned empty frame")
+            # P1.3: Track failure
+            _cdp_consecutive_failures += 1
+            if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
+                _cdp_skip_until = now + _CDP_SKIP_DURATION
+                logger.warning(
+                    f"[Screenshot] CDP failed {_cdp_consecutive_failures}x, "
+                    f"skipping for {_CDP_SKIP_DURATION}s"
+                )
             return None
+        # P1.3: Reset on success
+        _cdp_consecutive_failures = 0
         return image_data
     except asyncio.TimeoutError:
         logger.warning("[Screenshot] CDP capture timed out after %.1fs", _SCREENSHOT_TIMEOUT_SECONDS)
+        # P1.3: Track failure
+        _cdp_consecutive_failures += 1
+        if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
+            _cdp_skip_until = now + _CDP_SKIP_DURATION
+            logger.warning(
+                f"[Screenshot] CDP failed {_cdp_consecutive_failures}x, "
+                f"skipping for {_CDP_SKIP_DURATION}s"
+            )
         return None
     except Exception as e:
         logger.warning(f"[Screenshot] CDP capture failed: {e}")
+        # P1.3: Track failure
+        _cdp_consecutive_failures += 1
+        if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
+            _cdp_skip_until = now + _CDP_SKIP_DURATION
+            logger.warning(
+                f"[Screenshot] CDP failed {_cdp_consecutive_failures}x, "
+                f"skipping for {_CDP_SKIP_DURATION}s"
+            )
         return None
 
 

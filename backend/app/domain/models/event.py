@@ -265,6 +265,20 @@ class RepoMapToolContent(BaseModel):
     structure: dict[str, Any] | None = None
 
 
+class ChartToolContent(BaseModel):
+    """Chart tool content for Plotly chart creation"""
+
+    chart_type: str  # bar, line, scatter, pie, area, grouped_bar, stacked_bar, box
+    title: str
+    html_file_id: str | None = None  # MinIO file ID for interactive HTML
+    png_file_id: str | None = None  # MinIO file ID for static PNG
+    html_filename: str | None = None
+    png_filename: str | None = None
+    data_points: int = 0
+    series_count: int = 0
+    execution_time_ms: int | None = None
+
+
 ToolContent = (
     BrowserToolContent
     | SearchToolContent
@@ -287,6 +301,7 @@ ToolContent = (
     | CanvasToolContent
     | PlanToolContent
     | RepoMapToolContent
+    | ChartToolContent
 )
 
 

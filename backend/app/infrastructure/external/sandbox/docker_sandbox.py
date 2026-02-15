@@ -279,15 +279,21 @@ class DockerSandbox(Sandbox):
         Returns:
             bool: True if CDP connection is healthy, False otherwise
         """
+        from app.infrastructure.external.http_pool import HTTPClientPool
+
         try:
-            async with httpx.AsyncClient(timeout=CDP_HEALTH_CHECK_TIMEOUT) as client:
-                response = await client.get(f"{self._cdp_url}/json/version")
-                if response.status_code == 200:
-                    version_info = response.json()
-                    logger.debug(f"CDP connection verified: {version_info.get('Browser', 'Unknown browser')}")
-                    return True
-                logger.warning(f"CDP version check returned status {response.status_code}")
-                return False
+            client = await HTTPClientPool.get_client(
+                name=f"cdp-health-{self.id}",
+                base_url=self._cdp_url,
+                timeout=CDP_HEALTH_CHECK_TIMEOUT,
+            )
+            response = await client.get("/json/version")
+            if response.status_code == 200:
+                version_info = response.json()
+                logger.debug(f"CDP connection verified: {version_info.get('Browser', 'Unknown browser')}")
+                return True
+            logger.warning(f"CDP version check returned status {response.status_code}")
+            return False
         except Exception as e:
             logger.debug(f"CDP connection check failed: {e}")
             return False
@@ -298,18 +304,24 @@ class DockerSandbox(Sandbox):
         Returns:
             bool: True if browser has pages available, False otherwise
         """
+        from app.infrastructure.external.http_pool import HTTPClientPool
+
         try:
-            async with httpx.AsyncClient(timeout=CDP_HEALTH_CHECK_TIMEOUT) as client:
-                response = await client.get(f"{self._cdp_url}/json/list")
-                if response.status_code == 200:
-                    pages = response.json()
-                    # Browser should have at least one page (the default tab)
-                    if isinstance(pages, list) and len(pages) > 0:
-                        logger.debug(f"Browser responsive with {len(pages)} page(s)")
-                        return True
-                    logger.warning("Browser has no pages available")
-                    return False
+            client = await HTTPClientPool.get_client(
+                name=f"cdp-health-{self.id}",
+                base_url=self._cdp_url,
+                timeout=CDP_HEALTH_CHECK_TIMEOUT,
+            )
+            response = await client.get("/json/list")
+            if response.status_code == 200:
+                pages = response.json()
+                # Browser should have at least one page (the default tab)
+                if isinstance(pages, list) and len(pages) > 0:
+                    logger.debug(f"Browser responsive with {len(pages)} page(s)")
+                    return True
+                logger.warning("Browser has no pages available")
                 return False
+            return False
         except Exception as e:
             logger.debug(f"Browser responsiveness check failed: {e}")
             return False
@@ -1273,7 +1285,7 @@ class DockerSandbox(Sandbox):
 
     async def get_browser(
         self,
-        block_resources: bool = False,
+        block_resources: bool = True,
         verify_connection: bool = True,
         clear_session: bool = False,
         use_pool: bool = True,

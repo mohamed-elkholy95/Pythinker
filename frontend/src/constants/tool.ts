@@ -101,6 +101,9 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "code_cleanup_workspace": "Cleaning",
   "code_save_artifact": "Saving",
 
+  // === CHART ===
+  "chart_create": "Creating chart",
+
   // === CODE DEV ===
   "code_format": "Formatting",
   "code_lint": "Linting",
@@ -514,7 +517,7 @@ export const FUNCTION_ICON_MAP: Record<string, Component> = {
 /**
  * Content view types for the unified tool panel
  */
-export type ContentViewType = 'vnc' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research';
+export type ContentViewType = 'vnc' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research' | 'chart';
 export type ViewMode = 'primary' | 'secondary' | 'tertiary';
 
 export interface ContentConfig {
@@ -611,6 +614,15 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === SEARCH ===
   search: {
     primaryView: 'search',
+    secondaryView: 'vnc',
+    tabLabels: [],
+    defaultView: 'primary',
+    showTabs: false
+  },
+
+  // === CHART ===
+  chart: {
+    primaryView: 'chart',
     secondaryView: 'vnc',
     tabLabels: [],
     defaultView: 'primary',

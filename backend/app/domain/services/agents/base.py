@@ -153,6 +153,7 @@ class BaseAgent:
         self.memory = None
         self._background_tasks: set[asyncio.Task] = set()
         self._active_phase: str | None = None  # Phase-based tool filtering (set by orchestrator)
+        self._step_model_override: str | None = None  # DeepCode Phase 1: Adaptive model selection
         self._circuit_breaker = circuit_breaker
         self._feature_flags = feature_flags
 
@@ -1162,6 +1163,7 @@ class BaseAgent:
                     tools=self.get_available_tools(),
                     response_format=response_format,
                     tool_choice=self.tool_choice,
+                    model=self._step_model_override,  # DeepCode Phase 1: Adaptive model selection
                 )
             except TokenLimitExceededError as e:
                 logger.warning(f"Token limit exceeded, trimming context: {e}")

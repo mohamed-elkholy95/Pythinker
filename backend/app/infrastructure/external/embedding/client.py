@@ -214,7 +214,7 @@ def get_embedding_client() -> EmbeddingClient:
     Raises:
         RuntimeError: If no embedding API key is configured
     """
-    from app.infrastructure.database.redis_client import get_redis_client as get_redis
+    from app.infrastructure.storage.redis import get_redis
 
     settings = get_settings()
     api_key = settings.embedding_api_key or settings.api_key
