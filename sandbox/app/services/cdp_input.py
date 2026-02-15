@@ -95,7 +95,9 @@ class CDPInputService:
 
     async def connect(self) -> bool:
         """
-        Connect to Chrome CDP WebSocket.
+        Connect to Chrome CDP page-level WebSocket.
+
+        Input.dispatch* commands require a page-level connection, not browser-level.
 
         Returns:
             True if connection successful, False otherwise
@@ -104,20 +106,36 @@ class CDPInputService:
             if self.session is None:
                 self.session = aiohttp.ClientSession()
 
-            # Get WebSocket debugger URL
+            # Get page-level WebSocket URL (Input domain requires page target)
             async with self.session.get(
-                f"{self.cdp_url}/json/version",
+                f"{self.cdp_url}/json",
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status != 200:
-                    logger.error(f"CDP version endpoint returned {resp.status}")
+                    logger.error(f"CDP /json endpoint returned {resp.status}")
                     return False
 
-                version_info = await resp.json()
-                ws_url = version_info.get("webSocketDebuggerUrl")
+                pages = await resp.json()
+
+            # Find first page target
+            ws_url = None
+            for target in pages:
+                if target.get("type") == "page":
+                    ws_url = target.get("webSocketDebuggerUrl")
+                    break
 
             if not ws_url:
-                logger.error("No webSocketDebuggerUrl in CDP version response")
+                # Fallback: try browser-level (limited CDP support)
+                logger.warning("No page target found, falling back to browser WS")
+                async with self.session.get(
+                    f"{self.cdp_url}/json/version",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    version_info = await resp.json()
+                    ws_url = version_info.get("webSocketDebuggerUrl")
+
+            if not ws_url:
+                logger.error("No webSocketDebuggerUrl found in CDP targets")
                 return False
 
             # Connect to WebSocket
@@ -126,7 +144,7 @@ class CDPInputService:
             )
 
             self._connected = True
-            logger.info(f"Connected to CDP: {ws_url}")
+            logger.info(f"Connected to CDP page: {ws_url}")
             return True
 
         except Exception as e:
