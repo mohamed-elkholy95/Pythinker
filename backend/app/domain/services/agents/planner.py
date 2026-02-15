@@ -40,6 +40,7 @@ from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.skill_loader import SkillLoader
 
 if TYPE_CHECKING:
+    from app.domain.external.search import SearchEngine
     from app.domain.services.memory_service import MemoryService
     from app.domain.utils.cancellation import CancellationToken
 from app.domain.models.agent_response import PlanResponse, PlanUpdateResponse
@@ -252,6 +253,7 @@ class PlannerAgent(BaseAgent):
         thought_tree_explorer=None,
         feature_flags: dict[str, bool] | None = None,
         cancel_token: "CancellationToken | None" = None,
+        search_engine: "SearchEngine | None" = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -274,6 +276,9 @@ class PlannerAgent(BaseAgent):
 
         # Optional Tree-of-Thoughts explorer for complex tasks
         self._thought_tree_explorer = thought_tree_explorer
+
+        # Pre-planning search engine for real-time web context
+        self._search_engine = search_engine
 
     async def _stream_thinking(self, message: str) -> AsyncGenerator[BaseEvent, None]:
         """Stream thinking process before creating a plan.
@@ -368,6 +373,25 @@ class PlannerAgent(BaseAgent):
             phase=PlanningPhase.RECEIVED, message="Message received, starting to process...", progress_percent=10
         )
 
+        # --- Fire pre-planning search in background (zero-lag pattern) ---
+        # The search runs concurrently with thinking/ToT/memory below.
+        import asyncio
+
+        from app.domain.services.flows.pre_planning_search import (
+            PrePlanningSearchDetector,
+            PrePlanningSearchExecutor,
+            PrePlanningSearchResult,
+        )
+
+        search_task: asyncio.Task[PrePlanningSearchResult] | None = None
+        flags = self._resolve_feature_flags()
+        if self._search_engine and flags.get("pre_planning_search", False) and not replan_context:
+            should_search, search_reasons = PrePlanningSearchDetector.should_search(message.message)
+            if should_search:
+                executor = PrePlanningSearchExecutor(self._search_engine)
+                search_task = asyncio.create_task(executor.execute(message.message, search_reasons))
+                logger.info(f"Pre-planning search fired: reasons={search_reasons}")
+
         # Extract user requirements for tracking (Quick Win: User Prompt Adherence)
         self._current_requirements = extract_requirements(message.message)
         if self._current_requirements.requirements:
@@ -452,6 +476,23 @@ class PlannerAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"Failed to retrieve task memories for planning: {e}")
 
+        # --- Await pre-planning search (should already be done by now) ---
+        search_context: str | None = None
+        if search_task is not None:
+            try:
+                search_result = await asyncio.wait_for(search_task, timeout=3.0)
+                if search_result.triggered and search_result.search_context:
+                    search_context = search_result.search_context
+                    logger.info(
+                        f"Pre-planning search completed: {search_result.total_results} results "
+                        f"in {search_result.duration_ms:.0f}ms, queries={search_result.queries}"
+                    )
+            except TimeoutError:
+                logger.warning("Pre-planning search timed out at await point, continuing without")
+                search_task.cancel()
+            except Exception:
+                logger.warning("Pre-planning search failed at await point", exc_info=True)
+
         # Extract just filenames from attachment paths for cleaner display
         attachment_names = []
         for path in message.attachments:
@@ -462,6 +503,7 @@ class PlannerAgent(BaseAgent):
             message=message.message,
             attachments="\n".join(attachment_names) if attachment_names else "None",
             task_memory=task_memory,
+            search_context=search_context,
         )
 
         # Enrich prompt with ToT analysis if available
