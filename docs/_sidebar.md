@@ -18,7 +18,6 @@
 * Coding Standards
   * [Python Standards](guides/PYTHON_STANDARDS.md)
   * [Vue Standards](guides/VUE_STANDARDS.md)
-  * [Superpowers Workflow](guides/SUPERPOWERS.md)
   * [Replay & Sandbox](guides/OPENREPLAY.md)
 * Architecture
   * [Agent Computer View](architecture/AGENT_COMPUTER_VIEW_ARCHITECTURE.md)
