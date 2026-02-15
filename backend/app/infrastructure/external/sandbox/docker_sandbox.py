@@ -452,15 +452,22 @@ class DockerSandbox(Sandbox):
                 # Note: runtime_init, context_generator, xrandr_setup, fix_permissions are expected to EXIT (run once at startup)
                 all_running = True
                 non_running_services = []
-                expected_exit_services = {"runtime_init", "context_generator", "xrandr_setup", "fix_permissions", "chrome_cdp_only"}
+                expected_exit_services = {
+                    "runtime_init",
+                    "context_generator",
+                    "xrandr_setup",
+                    "fix_permissions",
+                    "chrome_cdp_only",
+                }
 
                 for service in services:
                     service_name = service.get("name", "unknown")
                     state_name = service.get("statename", "")
 
-                    # Allow EXITED state for services that are expected to exit
+                    # Allow EXITED/FATAL state for services that are expected to exit
+                    # (e.g., chrome_cdp_only enters FATAL in dual mode after skipping itself)
                     if service_name in expected_exit_services:
-                        if state_name not in ("EXITED", "RUNNING"):
+                        if state_name not in ("EXITED", "RUNNING", "FATAL"):
                             all_running = False
                             non_running_services.append(f"{service_name}({state_name})")
                     elif state_name != "RUNNING":
