@@ -389,7 +389,7 @@ import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
-import type { SSEGapInfo } from '../api/client';
+import type { SSECallbacks, SSEGapInfo } from '../api/client';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent } from '../types/message';
 import { waitForSessionReady } from '@/utils/sessionReady';
 import {
@@ -598,7 +598,6 @@ const createInitialState = () => ({
   bypassShortPathLockOnce: false, // One-shot bypass when user explicitly clicks "Use Agent Mode"
   lastError: null as { message: string; type: string | null; recoverable: boolean; hint: string | null } | null,
   autoRetryCount: 0,
-  autoRetryTimer: null as ReturnType<typeof setTimeout> | null,
   isFallbackStatusPolling: false,
 });
 
@@ -649,11 +648,54 @@ const {
   bypassShortPathLockOnce,
   lastError,
   autoRetryCount,
-  autoRetryTimer,
   isFallbackStatusPolling,
 } = toRefs(state);
 
 let activeChatStreamTraceId: string | null = null;
+let activeStreamAttemptId = 0;
+
+const beginStreamAttempt = (): number => {
+  activeStreamAttemptId += 1;
+  return activeStreamAttemptId;
+}
+
+const isActiveStreamAttempt = (attemptId: number): boolean => {
+  return attemptId === activeStreamAttemptId;
+}
+
+const createScopedTransportCallbacks = (
+  scope: 'transport' | 'transport_retry',
+  attemptId: number,
+): SSECallbacks<AgentSSEEvent['data']> => {
+  const baseCallbacks = streamController.createTransportCallbacks(scope)
+
+  return {
+    onOpen: () => {
+      if (!isActiveStreamAttempt(attemptId)) return
+      baseCallbacks.onOpen?.()
+    },
+    onMessage: (payload) => {
+      if (!isActiveStreamAttempt(attemptId)) return
+      baseCallbacks.onMessage?.(payload)
+    },
+    onClose: (closeInfo) => {
+      if (!isActiveStreamAttempt(attemptId)) return
+      baseCallbacks.onClose?.(closeInfo)
+    },
+    onError: (error) => {
+      if (!isActiveStreamAttempt(attemptId)) return
+      baseCallbacks.onError?.(error)
+    },
+    onRetry: (attempt, maxAttempts) => {
+      if (!isActiveStreamAttempt(attemptId)) return
+      baseCallbacks.onRetry?.(attempt, maxAttempts)
+    },
+    onGapDetected: (info) => {
+      if (!isActiveStreamAttempt(attemptId)) return
+      baseCallbacks.onGapDetected?.(info)
+    },
+  }
+}
 
 const nextSseTraceId = (): string => {
   return `sse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -1040,10 +1082,12 @@ const streamController = useSessionStreamController({
 
 // Reset all refs to their initial values
 const resetState = () => {
+  beginStreamAttempt();
   // Cancel any existing chat connection
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
   }
+  stopFallbackStatusPolling();
 
   // Do NOT cleanup sessionStorage here — event resume data persists across navigation
   // so returning to a session resumes from the correct position. Cleanup only in
@@ -1168,32 +1212,22 @@ watch(isLoading, (loading) => {
 const AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000, 60000];
 const FALLBACK_STATUS_POLL_INTERVAL_MS = 5000;
 const FALLBACK_STATUS_POLL_MAX_ATTEMPTS = 24; // ~2 minutes
-let fallbackStatusPollTimer: ReturnType<typeof setTimeout> | null = null;
-let fallbackStatusPollAttempts = 0;
 
 const stopFallbackStatusPolling = () => {
-  if (fallbackStatusPollTimer) {
-    clearTimeout(fallbackStatusPollTimer);
-    fallbackStatusPollTimer = null;
-  }
-  fallbackStatusPollAttempts = 0;
-  isFallbackStatusPolling.value = false;
+  streamController.clearReconnectCoordinator();
 };
 
-const pollSessionStatusFallback = async () => {
+const pollSessionStatusFallback = async (): Promise<'continue' | 'stop'> => {
   if (!sessionId.value || responsePhase.value !== 'timed_out') {
-    stopFallbackStatusPolling();
-    return;
+    return 'stop';
   }
 
-  fallbackStatusPollAttempts += 1;
   try {
     const statusResp = await agentApi.getSessionStatus(sessionId.value);
     const status = statusResp.status as SessionStatus;
     if (status === SessionStatus.COMPLETED || status === SessionStatus.FAILED) {
       sessionStatus.value = status;
       emitStatusChange(sessionId.value, status);
-      stopFallbackStatusPolling();
       if (status === SessionStatus.COMPLETED) {
         transitionTo('completing');
         await replay.loadScreenshots();
@@ -1208,64 +1242,20 @@ const pollSessionStatusFallback = async () => {
           };
         }
       }
-      return;
+      return 'stop';
     }
   } catch {
-    // Keep polling on transient errors; handled by attempt cap below.
+    // Keep polling on transient errors; controller handles scheduling/attempt caps.
   }
 
-  if (fallbackStatusPollAttempts >= FALLBACK_STATUS_POLL_MAX_ATTEMPTS) {
-    isFallbackStatusPolling.value = false;
-    return;
-  }
-
-  fallbackStatusPollTimer = setTimeout(() => {
-    fallbackStatusPollTimer = null;
-    void pollSessionStatusFallback();
-  }, FALLBACK_STATUS_POLL_INTERVAL_MS);
+  return 'continue';
 };
-
-const startFallbackStatusPolling = () => {
-  if (!sessionId.value) return;
-  if (isFallbackStatusPolling.value || fallbackStatusPollTimer) return;
-  isFallbackStatusPolling.value = true;
-  fallbackStatusPollAttempts = 0;
-  void pollSessionStatusFallback();
-};
-
-watch(responsePhase, (phase) => {
-  if (phase !== 'timed_out') {
-    stopFallbackStatusPolling();
-    return;
-  }
-
-  logChatSseDiagnostics('phase:timed_out', {
-    autoRetryCount: autoRetryCount.value,
-    hasCancelHandler: Boolean(cancelCurrentChat.value),
-  })
-
-  if (autoRetryCount.value < 4) {
-    const delay = AUTO_RETRY_DELAYS_MS[Math.min(autoRetryCount.value, AUTO_RETRY_DELAYS_MS.length - 1)];
-    autoRetryTimer.value = setTimeout(() => {
-      autoRetryTimer.value = null;
-      autoRetryCount.value += 1;
-      handleRetryConnection();
-    }, delay);
-    return;
-  }
-
-  startFallbackStatusPolling();
-});
 
 // Cleanup on unmount
 onUnmounted(() => {
   if (staleCheckInterval) {
     clearInterval(staleCheckInterval);
     staleCheckInterval = null;
-  }
-  if (autoRetryTimer.value) {
-    clearTimeout(autoRetryTimer.value);
-    autoRetryTimer.value = null;
   }
   stopFallbackStatusPolling();
   stopPlanningMessageCycle();
@@ -2507,6 +2497,7 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'phase') {
     handlePhaseEvent(event.data as import('../types/event').AgentPhaseEventData);
   } else if (event.event === 'done') {
+    dismissConnectionBanner();
     logChatSseDiagnostics('event:done_received', {
       eventId: eventId ?? null,
       queuedAfterDone: streamController.getPendingEventCount(),
@@ -2526,6 +2517,7 @@ const processEvent = (event: AgentSSEEvent) => {
     replay.loadScreenshots();
   } else if (event.event === 'wait') {
     // Agent is waiting for user input - show waiting indicator
+    dismissConnectionBanner();
     isWaitingForReply.value = true;
     transitionTo('settled')
   } else if (event.event === 'error') {
@@ -2636,6 +2628,7 @@ const chat = async (
   files: FileInfo[] = [],
   options?: { skipOptimistic?: boolean }
 ) => {
+  const streamAttemptId = beginStreamAttempt();
   if (!sessionId.value) return;
   const normalizedMessage = message.trim();
 
@@ -2727,6 +2720,7 @@ const chat = async (
   lastHeartbeatAt.value = 0;
   isWaitingForReply.value = false;
   transitionTo('connecting')
+  dismissConnectionBanner();
 
   // Set initialization state when starting a new chat
   // (when there are no messages or only 1 message which is the user's first message)
@@ -2753,17 +2747,22 @@ const chat = async (
       !followUp &&
       effectiveSkillIds.length === 0;
 
-    const transportCallbacks = streamController.createTransportCallbacks('transport');
+    const transportCallbacks = createScopedTransportCallbacks('transport', streamAttemptId);
 
     // Use the split event handler function and store the cancel function
     if (shouldUseNativeEventSourceResume) {
-      cancelCurrentChat.value = await agentApi.resumeChatWithSessionEventSource(
+      const cancelFn = await agentApi.resumeChatWithSessionEventSource(
         sessionId.value,
         lastEventId.value,
         transportCallbacks,
       );
+      if (!isActiveStreamAttempt(streamAttemptId)) {
+        cancelFn();
+        return;
+      }
+      cancelCurrentChat.value = cancelFn;
     } else {
-      cancelCurrentChat.value = await agentApi.chatWithSession(
+      const cancelFn = await agentApi.chatWithSession(
         sessionId.value,
         normalizedMessage,
         lastEventId.value,
@@ -2779,6 +2778,11 @@ const chat = async (
         transportCallbacks,
         followUp
       );
+      if (!isActiveStreamAttempt(streamAttemptId)) {
+        cancelFn();
+        return;
+      }
+      cancelCurrentChat.value = cancelFn;
     }
   } catch (error) {
     logChatSseDiagnostics('chat:start_failed', {
@@ -3021,6 +3025,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 });
 
 onUnmounted(() => {
+  beginStreamAttempt();
   window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage);
   window.removeEventListener('resize', updateChatBottomDockStyle);
   if (chatContainerResizeObserver) {
@@ -3108,6 +3113,7 @@ const handleScroll = (_: Event) => {
 }
 
 const handleStop = async () => {
+  beginStreamAttempt();
   stopFallbackStatusPolling();
   // Cancel the SSE stream FIRST to prevent any reconnect/resume logic
   if (cancelCurrentChat.value) {
@@ -3140,12 +3146,9 @@ const handleStop = async () => {
 }
 
 const handleRetryConnection = async () => {
+  const streamAttemptId = beginStreamAttempt();
   if (!sessionId.value) return;
   stopFallbackStatusPolling();
-  if (autoRetryTimer.value) {
-    clearTimeout(autoRetryTimer.value);
-    autoRetryTimer.value = null;
-  }
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
@@ -3174,16 +3177,21 @@ const handleRetryConnection = async () => {
     resumeFromEventId: lastEventId.value || null,
   })
   try {
-    const transportRetryCallbacks = streamController.createTransportCallbacks('transport_retry');
+    const transportRetryCallbacks = createScopedTransportCallbacks('transport_retry', streamAttemptId);
 
     if (isEventSourceResumeEnabled()) {
-      cancelCurrentChat.value = await agentApi.resumeChatWithSessionEventSource(
+      const cancelFn = await agentApi.resumeChatWithSessionEventSource(
         sessionId.value,
         lastEventId.value,
         transportRetryCallbacks,
       );
+      if (!isActiveStreamAttempt(streamAttemptId)) {
+        cancelFn();
+        return;
+      }
+      cancelCurrentChat.value = cancelFn;
     } else {
-      cancelCurrentChat.value = await agentApi.chatWithSession(
+      const cancelFn = await agentApi.chatWithSession(
         sessionId.value,
         '', // empty message — just reconnect
         lastEventId.value,
@@ -3192,6 +3200,11 @@ const handleRetryConnection = async () => {
         undefined,
         transportRetryCallbacks,
       );
+      if (!isActiveStreamAttempt(streamAttemptId)) {
+        cancelFn();
+        return;
+      }
+      cancelCurrentChat.value = cancelFn;
     }
   } catch (error) {
     logChatSseDiagnostics('chat:retry_failed', {
@@ -3200,6 +3213,17 @@ const handleRetryConnection = async () => {
     transitionTo('error')
   }
 }
+
+streamController.setupReconnectCoordinator({
+  autoRetryCount,
+  isFallbackStatusPolling,
+  onRetryConnection: handleRetryConnection,
+  pollFallbackStatus: pollSessionStatusFallback,
+  maxAutoRetries: 4,
+  autoRetryDelaysMs: AUTO_RETRY_DELAYS_MS,
+  fallbackPollIntervalMs: FALLBACK_STATUS_POLL_INTERVAL_MS,
+  fallbackPollMaxAttempts: FALLBACK_STATUS_POLL_MAX_ATTEMPTS,
+})
 
 const handleFileListShow = () => {
   showSessionFileList()

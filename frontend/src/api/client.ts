@@ -317,6 +317,44 @@ const SSE_POLICY_LIMITS = {
 const MAX_TRACKED_EVENT_IDS = 5000;
 const SSE_CONTROL_ERROR_MANUAL_RETRY = '__sse_manual_retry_scheduled__';
 const SSE_CONTROL_ERROR_FATAL_STOP = '__sse_fatal_stop__';
+const TERMINAL_STREAM_EVENTS = new Set(['done', 'complete', 'end', 'wait']);
+const NON_MEANINGFUL_PROGRESS_PHASES = new Set(['heartbeat', 'received']);
+
+export const isTerminalStreamEvent = (eventName: string): boolean => {
+  return TERMINAL_STREAM_EVENTS.has(eventName);
+};
+
+const hasFreshInputPayload = (payload: unknown): boolean => {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
+
+  const body = payload as Record<string, unknown>;
+  const message = typeof body.message === 'string' ? body.message.trim() : '';
+  const attachments = Array.isArray(body.attachments) ? body.attachments : [];
+  const skills = Array.isArray(body.skills) ? body.skills : [];
+  const deepResearch = body.deep_research === true;
+  const followUp = body.follow_up;
+
+  return message.length > 0
+    || attachments.length > 0
+    || skills.length > 0
+    || deepResearch
+    || Boolean(followUp);
+};
+
+const isMeaningfulSseEvent = (eventName: string, payload: unknown): boolean => {
+  if (eventName !== 'progress') {
+    return true;
+  }
+
+  const phase = (payload as { phase?: unknown })?.phase;
+  if (typeof phase === 'string') {
+    return !NON_MEANINGFUL_PROGRESS_PHASES.has(phase);
+  }
+
+  return true;
+};
 
 const createSseControlError = (message: string): Error => {
   const controlError = new Error(message);
@@ -555,6 +593,8 @@ export const createSSEConnection = async <T = unknown>(
 
   // Track whether any events were received in this connection
   let receivedAnyEvents = false;
+  let receivedMeaningfulEvents = false;
+  const hasFreshInput = hasFreshInputPayload(body);
 
   // Track the last event_id received for reconnection resume
   let lastReceivedEventId: string | undefined = (body as { event_id?: string })?.event_id;
@@ -780,7 +820,7 @@ export const createSSEConnection = async <T = unknown>(
 
           // Connection successful - mark message as sent and reset retry counter
           // Only set messageSent after server confirms receipt (200 OK)
-          if (body && !messageSent) {
+          if (hasFreshInput && !messageSent) {
             messageSent = true;
           }
           retryCount = 0;
@@ -807,6 +847,9 @@ export const createSSEConnection = async <T = unknown>(
               return;
             }
             receivedAnyEvents = true;
+            if (isMeaningfulSseEvent(event.event, parsedData)) {
+              receivedMeaningfulEvents = true;
+            }
 
             const envelope = parsedData as StreamEnvelope;
             const eventId = envelope.event_id;
@@ -824,8 +867,7 @@ export const createSSEConnection = async <T = unknown>(
               lastReceivedEventId = eventId;
             }
 
-            const terminalEvents = new Set(['done', 'complete', 'end']);
-            if (terminalEvents.has(event.event)) {
+            if (isTerminalStreamEvent(event.event)) {
               streamCompleted = true;
               serverRequestedRetry = false;
               serverRetryAfterMs = undefined;
@@ -907,11 +949,13 @@ export const createSSEConnection = async <T = unknown>(
           }
           isDisconnectHandled = true;
 
-          const noEventsAfterMessage = messageSent && !receivedAnyEvents;
+          const noEventsAfterMessage = messageSent && !receivedMeaningfulEvents;
+          const noEventsOnResume = !hasFreshInput && receivedAnyEvents && !receivedMeaningfulEvents;
           const reachedMaxRetries = retryCount >= activeRetryPolicy.maxRetries;
           const willRetry = !abortController.signal.aborted
             && !reachedMaxRetries
             && !streamCompleted
+            && !noEventsOnResume
             && (!noEventsAfterMessage || serverRequestedRetry);
           const retryAttempt = willRetry ? retryCount + 1 : null;
           const retryDelayMs = willRetry
@@ -920,7 +964,7 @@ export const createSSEConnection = async <T = unknown>(
           let reason: SSECloseInfo['reason'] = 'closed';
           if (streamCompleted) {
             reason = 'completed';
-          } else if (noEventsAfterMessage) {
+          } else if (noEventsAfterMessage || noEventsOnResume) {
             reason = 'no_events_after_message';
           } else if (abortController.signal.aborted) {
             reason = 'aborted';
@@ -936,6 +980,7 @@ export const createSSEConnection = async <T = unknown>(
             streamCompleted,
             messageSent,
             receivedAnyEvents,
+            receivedMeaningfulEvents,
             retryCount,
             maxRetries: activeRetryPolicy.maxRetries,
             resumeEventId: lastReceivedEventId ?? null,
@@ -961,7 +1006,7 @@ export const createSSEConnection = async <T = unknown>(
           // Don't reconnect if stream completed normally (received done/complete/end event)
           // Also don't reconnect if the stream closed without any events at all — this
           // indicates the session/task already completed (not a network interruption)
-          if (streamCompleted || (noEventsAfterMessage && !serverRequestedRetry)) {
+          if (streamCompleted || (noEventsAfterMessage && !serverRequestedRetry) || noEventsOnResume) {
             return;
           }
 
@@ -1157,6 +1202,7 @@ export const createEventSourceConnection = async <T = unknown>(
   let streamCompleted = false;
   const messageSent = false;
   let receivedAnyEvents = false;
+  let receivedMeaningfulEvents = false;
   let retryCount = 0;
   let manuallyClosed = false;
   let lastReceivedEventId: string | undefined =
@@ -1231,6 +1277,9 @@ export const createEventSourceConnection = async <T = unknown>(
     }
 
     receivedAnyEvents = true;
+    if (isMeaningfulSseEvent(eventName, parsedData)) {
+      receivedMeaningfulEvents = true;
+    }
 
     const envelope = parsedData as StreamEnvelope;
     const eventId = envelope.event_id || nativeEventId;
@@ -1283,7 +1332,7 @@ export const createEventSourceConnection = async <T = unknown>(
       }
     }
 
-    if (eventName === 'done' || eventName === 'complete' || eventName === 'end') {
+    if (isTerminalStreamEvent(eventName)) {
       streamCompleted = true;
       if (onMessage) {
         onMessage({ event: eventName, data: parsedData });
@@ -1299,6 +1348,11 @@ export const createEventSourceConnection = async <T = unknown>(
 
   const handleTransportError = () => {
     if (manuallyClosed || streamCompleted) {
+      return;
+    }
+    const noEventsOnResume = receivedAnyEvents && !receivedMeaningfulEvents;
+    if (noEventsOnResume) {
+      closeConnection('no_events_after_message');
       return;
     }
 

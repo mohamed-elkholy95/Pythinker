@@ -1,4 +1,4 @@
-import type { Ref } from 'vue'
+import { getCurrentInstance, onUnmounted, watch, type Ref } from 'vue'
 
 import type { SSECallbacks, SSECloseInfo, SSEGapInfo } from '@/api/client'
 import type { AgentSSEEvent } from '@/types/event'
@@ -17,6 +17,19 @@ interface RetryBannerState {
   retryDelayMs?: number
 }
 
+type FallbackPollOutcome = 'continue' | 'stop'
+
+interface ReconnectCoordinatorOptions {
+  autoRetryCount: Ref<number>
+  isFallbackStatusPolling: Ref<boolean>
+  onRetryConnection: () => void | Promise<void>
+  pollFallbackStatus: () => Promise<FallbackPollOutcome>
+  maxAutoRetries?: number
+  autoRetryDelaysMs?: number[]
+  fallbackPollIntervalMs?: number
+  fallbackPollMaxAttempts?: number
+}
+
 interface UseSessionStreamControllerOptions {
   responsePhase: Ref<ResponsePhase>
   receivedDoneEvent: Ref<boolean>
@@ -33,6 +46,10 @@ interface UseSessionStreamControllerOptions {
 }
 
 const MAX_SEEN_EVENT_IDS = 1000
+const DEFAULT_MAX_AUTO_RETRIES = 4
+const DEFAULT_AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000, 60000]
+const DEFAULT_FALLBACK_STATUS_POLL_INTERVAL_MS = 5000
+const DEFAULT_FALLBACK_STATUS_POLL_MAX_ATTEMPTS = 24
 
 const hasBrowserRaf = (): boolean => {
   return typeof requestAnimationFrame === 'function' && typeof cancelAnimationFrame === 'function'
@@ -72,6 +89,11 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
   let eventProcessor: EventProcessor | null = null
   let eventBatchQueue: AgentSSEEvent[] = []
   let batchFrameHandle: FrameHandle | null = null
+  let reconnectCoordinatorOptions: ReconnectCoordinatorOptions | null = null
+  let autoRetryTimer: ReturnType<typeof setTimeout> | null = null
+  let fallbackStatusPollTimer: ReturnType<typeof setTimeout> | null = null
+  let fallbackStatusPollAttempts = 0
+  let stopReconnectWatcher: (() => void) | null = null
 
   const isTerminalPhase = (): boolean => {
     return responsePhase.value === 'settled' || responsePhase.value === 'error' || responsePhase.value === 'stopped'
@@ -167,8 +189,9 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
   const handleTransportClose = (scope: TransportScope, closeInfo: SSECloseInfo): void => {
     stopStaleDetection()
     flushPendingEvents()
+    const terminalPhase = isTerminalPhase()
 
-    if (closeInfo.willRetry) {
+    if (closeInfo.willRetry && !terminalPhase) {
       setRetryBannerState({
         retryAttempt: closeInfo.retryAttempt ?? undefined,
         maxRetries: closeInfo.maxRetries,
@@ -188,9 +211,18 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     })
 
     if (closeInfo.willRetry) {
-      if (!isTerminalPhase()) {
+      if (!terminalPhase) {
         transitionTo('reconnecting')
       }
+      return
+    }
+
+    const shouldSilentlySettleNoEvents = closeInfo.reason === 'no_events_after_message'
+      && !terminalPhase
+
+    if (shouldSilentlySettleNoEvents) {
+      transitionTo('settled')
+      cleanupStreamingState()
       return
     }
 
@@ -204,6 +236,170 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     }
 
     cleanupStreamingState()
+  }
+
+  const clearAutoRetryTimer = (): void => {
+    if (autoRetryTimer !== null) {
+      clearTimeout(autoRetryTimer)
+      autoRetryTimer = null
+    }
+  }
+
+  const clearFallbackStatusPolling = (): void => {
+    if (fallbackStatusPollTimer !== null) {
+      clearTimeout(fallbackStatusPollTimer)
+      fallbackStatusPollTimer = null
+    }
+    fallbackStatusPollAttempts = 0
+    if (reconnectCoordinatorOptions) {
+      reconnectCoordinatorOptions.isFallbackStatusPolling.value = false
+    }
+  }
+
+  const clearReconnectCoordinator = (): void => {
+    clearAutoRetryTimer()
+    clearFallbackStatusPolling()
+  }
+
+  const runFallbackStatusPoll = async (): Promise<void> => {
+    if (!reconnectCoordinatorOptions) {
+      return
+    }
+
+    if (responsePhase.value !== 'timed_out') {
+      clearFallbackStatusPolling()
+      return
+    }
+
+    fallbackStatusPollAttempts += 1
+
+    let outcome: FallbackPollOutcome = 'continue'
+    try {
+      outcome = await reconnectCoordinatorOptions.pollFallbackStatus()
+    } catch (error) {
+      log('fallback:poll_error', {
+        message: error instanceof Error ? error.message : String(error),
+        attempt: fallbackStatusPollAttempts,
+      })
+    }
+
+    if (outcome === 'stop') {
+      clearFallbackStatusPolling()
+      return
+    }
+
+    const maxAttempts = reconnectCoordinatorOptions.fallbackPollMaxAttempts ?? DEFAULT_FALLBACK_STATUS_POLL_MAX_ATTEMPTS
+    if (fallbackStatusPollAttempts >= maxAttempts) {
+      reconnectCoordinatorOptions.isFallbackStatusPolling.value = false
+      return
+    }
+
+    const intervalMs = reconnectCoordinatorOptions.fallbackPollIntervalMs ?? DEFAULT_FALLBACK_STATUS_POLL_INTERVAL_MS
+    fallbackStatusPollTimer = setTimeout(() => {
+      fallbackStatusPollTimer = null
+      void runFallbackStatusPoll()
+    }, intervalMs)
+  }
+
+  const startFallbackStatusPolling = (): void => {
+    if (!reconnectCoordinatorOptions) {
+      return
+    }
+
+    if (reconnectCoordinatorOptions.isFallbackStatusPolling.value || fallbackStatusPollTimer !== null) {
+      return
+    }
+
+    reconnectCoordinatorOptions.isFallbackStatusPolling.value = true
+    fallbackStatusPollAttempts = 0
+    void runFallbackStatusPoll()
+  }
+
+  const scheduleAutoRetry = (): void => {
+    if (!reconnectCoordinatorOptions) {
+      return
+    }
+
+    if (autoRetryTimer !== null) {
+      return
+    }
+
+    const autoRetryDelays = reconnectCoordinatorOptions.autoRetryDelaysMs && reconnectCoordinatorOptions.autoRetryDelaysMs.length > 0
+      ? reconnectCoordinatorOptions.autoRetryDelaysMs
+      : DEFAULT_AUTO_RETRY_DELAYS_MS
+    const retryIndex = Math.min(reconnectCoordinatorOptions.autoRetryCount.value, autoRetryDelays.length - 1)
+    const delayMs = autoRetryDelays[retryIndex]
+
+    log('retry:auto_scheduled', {
+      retryCount: reconnectCoordinatorOptions.autoRetryCount.value,
+      delayMs,
+    })
+
+    autoRetryTimer = setTimeout(() => {
+      autoRetryTimer = null
+      if (!reconnectCoordinatorOptions) {
+        return
+      }
+
+      reconnectCoordinatorOptions.autoRetryCount.value += 1
+      void Promise.resolve(reconnectCoordinatorOptions.onRetryConnection()).catch((error) => {
+        log('retry:auto_failed', {
+          message: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }, delayMs)
+  }
+
+  const handlePhaseTransition = (phase: ResponsePhase): void => {
+    if (!reconnectCoordinatorOptions) {
+      return
+    }
+
+    if (phase !== 'timed_out') {
+      clearReconnectCoordinator()
+      return
+    }
+
+    log('phase:timed_out', {
+      autoRetryCount: reconnectCoordinatorOptions.autoRetryCount.value,
+    })
+
+    const maxAutoRetries = reconnectCoordinatorOptions.maxAutoRetries ?? DEFAULT_MAX_AUTO_RETRIES
+    if (reconnectCoordinatorOptions.autoRetryCount.value < maxAutoRetries) {
+      scheduleAutoRetry()
+      return
+    }
+
+    startFallbackStatusPolling()
+  }
+
+  const setupReconnectCoordinator = (setupOptions: ReconnectCoordinatorOptions): void => {
+    reconnectCoordinatorOptions = setupOptions
+
+    if (stopReconnectWatcher) {
+      stopReconnectWatcher()
+    }
+
+    stopReconnectWatcher = watch(responsePhase, (phase) => {
+      handlePhaseTransition(phase)
+    })
+  }
+
+  const disposeReconnectCoordinator = (): void => {
+    clearReconnectCoordinator()
+
+    if (stopReconnectWatcher) {
+      stopReconnectWatcher()
+      stopReconnectWatcher = null
+    }
+
+    reconnectCoordinatorOptions = null
+  }
+
+  if (getCurrentInstance()) {
+    onUnmounted(() => {
+      disposeReconnectCoordinator()
+    })
   }
 
   const createTransportCallbacks = (
@@ -267,6 +463,9 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     getPendingEventCount,
     flushPendingEvents,
     clearPendingEvents,
+    setupReconnectCoordinator,
+    clearReconnectCoordinator,
+    disposeReconnectCoordinator,
     enqueueEvent,
     isDuplicateEvent,
     trackSeenEventId,
