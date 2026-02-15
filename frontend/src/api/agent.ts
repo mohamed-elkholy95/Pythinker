@@ -214,14 +214,24 @@ export const chatWithSession = async (
   callbacks?: SSECallbacks<AgentSSEEvent['data']>,
   followUp?: FollowUp | null
 ): Promise<() => void> => {
+  const hasFreshInput = message.trim().length > 0
+    || Boolean(attachments && attachments.length > 0)
+    || Boolean(skills && skills.length > 0)
+    || Boolean(options?.deep_research)
+    || Boolean(followUp)
+
   const body: Record<string, unknown> = {
     message,
     timestamp: Math.floor(Date.now() / 1000),
-    event_id: eventId,
     attachments,
     skills,
     deep_research: options?.deep_research
   };
+
+  // Resume cursors are only needed for transport resume calls without fresh input.
+  if (!hasFreshInput && eventId) {
+    body.event_id = eventId;
+  }
 
   // Only include follow_up if it's provided and not null
   if (followUp) {
