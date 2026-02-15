@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 describe('useSSEConnection', () => {
   beforeEach(() => {
     vi.clearAllTimers()
+    sessionStorage.clear()
   })
 
   afterEach(() => {
@@ -163,5 +164,38 @@ describe('useSSEConnection', () => {
 
     const restored = getPersistedEventId(sessionId)
     expect(restored).toBe('event-456')
+  })
+
+  it('should restore legacy persisted lastEventId without metadata', async () => {
+    const { useSSEConnection } = await import('../useSSEConnection')
+    const { getPersistedEventId } = useSSEConnection()
+
+    const sessionId = 'legacy-session'
+    sessionStorage.setItem(`pythinker-last-event-${sessionId}`, 'legacy-event-id')
+
+    const restored = getPersistedEventId(sessionId)
+    expect(restored).toBe('legacy-event-id')
+  })
+
+  it('should invalidate expired persisted lastEventId', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-15T00:00:00.000Z'))
+
+    const { useSSEConnection } = await import('../useSSEConnection')
+    const { lastEventId, persistEventId, getPersistedEventId } = useSSEConnection()
+
+    const sessionId = 'expired-session'
+    lastEventId.value = 'event-expired'
+    persistEventId(sessionId)
+
+    // 12h TTL + 1 ms
+    vi.advanceTimersByTime((12 * 60 * 60 * 1000) + 1)
+
+    const restored = getPersistedEventId(sessionId)
+    expect(restored).toBeNull()
+    expect(sessionStorage.getItem(`pythinker-last-event-${sessionId}`)).toBeNull()
+    expect(sessionStorage.getItem(`pythinker-last-event-meta-${sessionId}`)).toBeNull()
+
+    vi.useRealTimers()
   })
 })

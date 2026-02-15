@@ -185,7 +185,7 @@ class InstallSkillFromPackageRequest(BaseModel):
 
 
 class CommandResponse(BaseModel):
-    """Response schema for a Superpowers command."""
+    """Response schema for a custom command."""
 
     command: str = Field(..., description="Command name (without leading slash)")
     skill_id: str = Field(..., description="Skill ID that this command invokes")

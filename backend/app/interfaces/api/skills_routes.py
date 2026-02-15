@@ -1148,7 +1148,7 @@ async def install_skill_from_package(
 
 
 # =============================================================================
-# COMMAND SYSTEM (Superpowers integration)
+# COMMAND SYSTEM
 # =============================================================================
 
 
@@ -1156,12 +1156,9 @@ async def install_skill_from_package(
 async def get_available_commands(
     current_user: User = Depends(get_current_user),
 ) -> APIResponse[CommandListResponse]:
-    """Get list of available Superpowers commands.
+    """Get list of available custom commands.
 
-    Commands provide user-friendly shortcuts for skill invocation:
-    - /brainstorm → brainstorming skill
-    - /write-plan → writing-plans skill
-    - /tdd → test-driven-development skill
+    Commands provide user-friendly shortcuts for skill invocation.
     etc.
     """
     from app.domain.services.command_registry import get_command_registry

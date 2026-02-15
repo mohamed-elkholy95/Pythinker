@@ -1,5 +1,5 @@
 // Backend API service
-import { apiClient, API_CONFIG, ApiResponse, createSSEConnection, SSECallbacks } from './client';
+import { apiClient, API_CONFIG, ApiResponse, createEventSourceConnection, createSSEConnection, SSECallbacks } from './client';
 import { AgentSSEEvent, FollowUp } from '../types/event';
 import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse } from '../types/response';
 import type { FileInfo } from './file';
@@ -235,6 +235,28 @@ export const chatWithSession = async (
       body
     },
     callbacks
+  );
+};
+
+/**
+ * Resume chat stream using native EventSource GET transport.
+ *
+ * This transport is intended for reconnect/resume flows where no new message
+ * payload is sent. New user prompts should still use chatWithSession (POST).
+ */
+export const resumeChatWithSessionEventSource = async (
+  sessionId: string,
+  eventId?: string,
+  callbacks?: SSECallbacks<AgentSSEEvent['data']>,
+): Promise<() => void> => {
+  return createEventSourceConnection<AgentSSEEvent['data']>(
+    `/sessions/${sessionId}/chat/eventsource`,
+    {
+      query: {
+        event_id: eventId,
+      },
+    },
+    callbacks,
   );
 };
 
