@@ -34,6 +34,9 @@ class PrometheusMetricsAdapter(MetricsPort):
             "delivery_integrity_stream_truncation_total": pm.delivery_integrity_stream_truncation_total,
         }
 
+        # DeepCode metrics use increment() which delegates to record_counter.
+        # They are logged-but-not-errored when not registered (via _log_unknown_metric).
+
         self._histogram_map: dict[str, pm.Histogram] = {
             "fast_ack_refiner_latency_seconds": pm.fast_ack_refiner_latency_seconds,
             "final_response_tokens": pm.final_response_tokens,
@@ -51,6 +54,10 @@ class PrometheusMetricsAdapter(MetricsPort):
             metric_type="event",
             cache=self._unknown_event_types,
         )
+
+    def increment(self, name: str, labels: dict[str, str] | None = None) -> None:
+        """Increment a counter by 1. Used by DeepCode integrations."""
+        self.record_counter(name, value=1.0, labels=labels)
 
     def record_counter(self, name: str, value: float = 1.0, labels: dict[str, str] | None = None) -> None:
         try:

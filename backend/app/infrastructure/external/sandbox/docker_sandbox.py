@@ -457,7 +457,16 @@ class DockerSandbox(Sandbox):
                     "context_generator",
                     "xrandr_setup",
                     "fix_permissions",
+                    # Chrome programs: one of these will always exit/fatal
+                    # based on SANDBOX_STREAMING_MODE (dual vs cdp_only)
                     "chrome_cdp_only",
+                    "chrome_dual",
+                    # VNC/X11 services skip in cdp_only mode
+                    "xvfb",
+                    "openbox",
+                    "x11vnc",
+                    "websockify",
+                    "dbus",
                 }
 
                 for service in services:

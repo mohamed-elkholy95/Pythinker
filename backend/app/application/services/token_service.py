@@ -306,7 +306,10 @@ class TokenService:
         # Use the base URL directly - no placeholder replacement needed
         final_url = base_url
 
-        # Create signature payload - simplified to only include URL and expiration
+        # SECURITY NOTE: Signed URLs are possession-based (bearer tokens).
+        # Anyone with a valid URL can access the stream until expiry.
+        # This is intentional for shareability (e.g., team viewing).
+        # To add user-binding, include user_id in the payload below.
         payload_data = f"{final_url}|{expires_timestamp}"
 
         # Generate HMAC signature

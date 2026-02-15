@@ -30,8 +30,7 @@ def mock_redis_queue():
 @pytest.fixture
 def mock_execution_agent():
     """Mock execution agent."""
-    agent = AsyncMock()
-    return agent
+    return AsyncMock()
 
 
 @pytest.fixture
@@ -183,7 +182,7 @@ async def test_concurrent_job_processing(mock_redis_queue, mock_execution_agent)
     ]
 
     # Mock dequeue to return jobs
-    mock_redis_queue.dequeue.side_effect = jobs + [None]
+    mock_redis_queue.dequeue.side_effect = [*jobs, None]
 
     # Process jobs concurrently
     async def process_jobs():
@@ -191,10 +190,10 @@ async def test_concurrent_job_processing(mock_redis_queue, mock_execution_agent)
             await worker._process_job_concurrent(mock_redis_queue.dequeue.return_value)
 
     # Run for short time
-    try:
+    import contextlib
+
+    with contextlib.suppress(TimeoutError):
         await asyncio.wait_for(process_jobs(), timeout=2.0)
-    except TimeoutError:
-        pass
 
     # Verify semaphore limited concurrency
     assert len(worker.in_flight_jobs) <= worker.max_concurrent_jobs
@@ -246,10 +245,10 @@ async def test_worker_health_check(mock_redis_queue, mock_execution_agent):
     await asyncio.sleep(0.1)
     task.cancel()
 
-    try:
+    import contextlib
+
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
     # Worker should still be healthy
     assert worker.is_healthy is True
@@ -278,7 +277,7 @@ async def test_priority_job_processing(mock_redis_queue, mock_execution_agent):
     # Mock dequeue returns high priority first
     mock_redis_queue.dequeue.side_effect = [high_priority_job, low_priority_job, None]
 
-    worker = AsyncJobWorker(
+    AsyncJobWorker(
         queue=mock_redis_queue,
         execution_agent=mock_execution_agent,
         worker_id="test-worker",

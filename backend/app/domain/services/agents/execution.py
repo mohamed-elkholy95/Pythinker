@@ -186,8 +186,8 @@ class ExecutionAgent(BaseAgent):
             step_description: The step description to analyze
 
         Returns:
-            Model name override if adaptive selection is enabled,
-            None to use default model
+            Model name for the selected tier. When adaptive selection is
+            disabled, returns the balanced (default) model name.
 
         Context7 validated: ModelRouter integration, Settings feature flag.
         """

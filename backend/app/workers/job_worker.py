@@ -83,7 +83,7 @@ WORKER_HEALTH = Gauge(
 )
 
 
-class WorkerShutdownErrorError(Exception):
+class WorkerShutdownError(Exception):
     """Exception raised to signal worker shutdown."""
 
 
