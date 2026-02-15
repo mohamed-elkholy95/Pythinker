@@ -2,12 +2,12 @@
 Tests for AsyncJobWorker
 
 Tests job processing, retry logic, dead-letter queue, graceful shutdown,
-and concurrent execution.
+and concurrent execution with RedisStreamTask integration.
 """
 
 import asyncio
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,8 +28,18 @@ def mock_redis_queue():
 
 
 @pytest.fixture
+def mock_task():
+    """Mock RedisStreamTask instance."""
+    task = MagicMock()
+    task.id = "task-123"
+    task.done = False  # Will be set to True to simulate completion
+    task.run = AsyncMock()
+    return task
+
+
+@pytest.fixture
 def mock_execution_agent():
-    """Mock execution agent."""
+    """Mock execution agent (kept for backward compatibility)."""
     return AsyncMock()
 
 
@@ -68,25 +78,38 @@ async def test_worker_initialization(mock_redis_queue, mock_execution_agent):
 
 
 @pytest.mark.asyncio
-async def test_process_job_success(
-    mock_redis_queue, mock_execution_agent, sample_job
-):
-    """Test successful job processing."""
+async def test_process_job_success(mock_redis_queue, mock_execution_agent, sample_job, mock_task):
+    """Test successful job processing with RedisStreamTask."""
     worker = AsyncJobWorker(
         queue=mock_redis_queue,
         execution_agent=mock_execution_agent,
         worker_id="test-worker",
     )
 
-    # Process job
-    await worker._process_job(sample_job)
+    # Mock RedisStreamTask.get to return our mock task
+    with patch('app.workers.job_worker.RedisStreamTask') as MockRedisStreamTask:
+        MockRedisStreamTask.get.return_value = mock_task
 
-    # Verify job marked as completed
-    mock_redis_queue.mark_completed.assert_called_once_with(sample_job)
+        # Simulate task completion after run()
+        async def complete_task():
+            await asyncio.sleep(0.01)
+            mock_task.done = True
+
+        mock_task.run.side_effect = complete_task
+
+        # Process job
+        await worker._process_job(sample_job)
+
+        # Verify task was retrieved and executed
+        MockRedisStreamTask.get.assert_called_once_with("task-123")
+        mock_task.run.assert_called_once()
+
+        # Verify job marked as completed
+        mock_redis_queue.mark_completed.assert_called_once_with(sample_job)
 
 
 @pytest.mark.asyncio
-async def test_process_job_timeout(mock_redis_queue, mock_execution_agent, sample_job):
+async def test_process_job_timeout(mock_redis_queue, mock_execution_agent, sample_job, mock_task):
     """Test job timeout handling."""
     # Set short timeout
     sample_job.timeout_seconds = 0.1
@@ -97,22 +120,26 @@ async def test_process_job_timeout(mock_redis_queue, mock_execution_agent, sampl
         worker_id="test-worker",
     )
 
-    # Mock slow execution
-    async def slow_execution(*args, **kwargs):
-        await asyncio.sleep(1)
-        return {}
+    # Mock RedisStreamTask.get to return our mock task
+    with patch('app.workers.job_worker.RedisStreamTask') as MockRedisStreamTask:
+        MockRedisStreamTask.get.return_value = mock_task
 
-    worker._execute_task_placeholder = slow_execution
+        # Mock slow task execution (exceeds timeout)
+        async def slow_execution():
+            await asyncio.sleep(1)
 
-    # Process job (should timeout)
-    await worker._process_job(sample_job)
+        mock_task.run.side_effect = slow_execution
+        mock_task.done = False  # Never completes within timeout
 
-    # Verify job marked as failed
-    assert mock_redis_queue.mark_failed.called or mock_redis_queue.enqueue.called
+        # Process job (should timeout)
+        await worker._process_job(sample_job)
+
+        # Verify job marked as failed or retried
+        assert mock_redis_queue.mark_failed.called or mock_redis_queue.enqueue.called
 
 
 @pytest.mark.asyncio
-async def test_job_retry_logic(mock_redis_queue, mock_execution_agent, sample_job):
+async def test_job_retry_logic(mock_redis_queue, mock_execution_agent, sample_job, mock_task):
     """Test job retry with exponential backoff."""
     worker = AsyncJobWorker(
         queue=mock_redis_queue,
@@ -120,18 +147,19 @@ async def test_job_retry_logic(mock_redis_queue, mock_execution_agent, sample_jo
         worker_id="test-worker",
     )
 
-    # Mock execution failure
-    async def failing_execution(*args, **kwargs):
-        raise ValueError("Test error")
+    # Mock RedisStreamTask.get to return our mock task
+    with patch('app.workers.job_worker.RedisStreamTask') as MockRedisStreamTask:
+        MockRedisStreamTask.get.return_value = mock_task
 
-    worker._execute_task_placeholder = failing_execution
+        # Mock execution failure
+        mock_task.run.side_effect = ValueError("Test error")
 
-    # Process job (should fail and retry)
-    await worker._process_job(sample_job)
+        # Process job (should fail and retry)
+        await worker._process_job(sample_job)
 
-    # Verify retry enqueued
-    assert mock_redis_queue.enqueue.called
-    assert sample_job.attempts > 0
+        # Verify retry enqueued
+        assert mock_redis_queue.enqueue.called
+        assert sample_job.attempts > 0
 
 
 @pytest.mark.asyncio
@@ -146,13 +174,7 @@ async def test_dead_letter_queue(mock_redis_queue, mock_execution_agent, sample_
         worker_id="test-worker",
     )
 
-    # Mock execution failure
-    async def failing_execution(*args, **kwargs):
-        raise ValueError("Test error")
-
-    worker._execute_task_placeholder = failing_execution
-
-    # Handle failure
+    # Handle failure (no need to mock task execution, testing failure handler directly)
     await worker._handle_job_failure(sample_job, "Test error", "ValueError")
 
     # Verify moved to dead-letter queue
@@ -187,7 +209,9 @@ async def test_concurrent_job_processing(mock_redis_queue, mock_execution_agent)
     # Process jobs concurrently
     async def process_jobs():
         for _ in range(len(jobs)):
-            await worker._process_job_concurrent(mock_redis_queue.dequeue.return_value)
+            # Await the mocked dequeue coroutine so each side_effect job is returned
+            job = await mock_redis_queue.dequeue()
+            await worker._process_job_concurrent(job)
 
     # Run for short time
     import contextlib
@@ -290,3 +314,96 @@ async def test_priority_job_processing(mock_redis_queue, mock_execution_agent):
     # Process second job
     job2 = await mock_redis_queue.dequeue()
     assert job2.priority == JobPriority.LOW
+
+
+@pytest.mark.asyncio
+async def test_task_not_found_in_registry(mock_redis_queue, mock_execution_agent, sample_job):
+    """Test job failure when task not found in RedisStreamTask registry."""
+    worker = AsyncJobWorker(
+        queue=mock_redis_queue,
+        execution_agent=mock_execution_agent,
+        worker_id="test-worker",
+    )
+
+    # Mock RedisStreamTask.get to return None (task not found)
+    with patch('app.workers.job_worker.RedisStreamTask') as MockRedisStreamTask:
+        MockRedisStreamTask.get.return_value = None
+
+        # Process job (should fail with RuntimeError)
+        await worker._process_job(sample_job)
+
+        # Verify task lookup was attempted
+        MockRedisStreamTask.get.assert_called_once_with("task-123")
+
+        # Verify job marked as failed or retried
+        assert mock_redis_queue.mark_failed.called or mock_redis_queue.enqueue.called
+
+
+@pytest.mark.asyncio
+async def test_missing_payload_fields(mock_redis_queue, mock_execution_agent):
+    """Test job failure when required payload fields are missing."""
+    worker = AsyncJobWorker(
+        queue=mock_redis_queue,
+        execution_agent=mock_execution_agent,
+        worker_id="test-worker",
+    )
+
+    # Job with missing task_id
+    job_missing_task_id = Job(
+        job_id="test-job-missing-task",
+        queue_name="test_queue",
+        priority=JobPriority.NORMAL,
+        payload={"session_id": "session-456"},  # Missing task_id
+        max_retries=3,
+    )
+
+    # Process job (should fail with ValueError)
+    await worker._process_job(job_missing_task_id)
+
+    # Verify job marked as failed or retried
+    assert mock_redis_queue.mark_failed.called or mock_redis_queue.enqueue.called
+
+
+@pytest.mark.asyncio
+async def test_task_execution_with_completion_polling(
+    mock_redis_queue, mock_execution_agent, sample_job, mock_task
+):
+    """Test worker polls task.done until completion."""
+    worker = AsyncJobWorker(
+        queue=mock_redis_queue,
+        execution_agent=mock_execution_agent,
+        worker_id="test-worker",
+    )
+
+    # Mock RedisStreamTask.get to return our mock task
+    with patch('app.workers.job_worker.RedisStreamTask') as MockRedisStreamTask:
+        MockRedisStreamTask.get.return_value = mock_task
+
+        # Simulate gradual task completion
+        completion_count = [0]
+
+        async def gradual_completion():
+            await asyncio.sleep(0.01)
+            # Task completes after a few polls
+            completion_count[0] += 1
+
+        mock_task.run.side_effect = gradual_completion
+
+        # Task starts as not done, becomes done after 3 checks
+        def check_done():
+            if completion_count[0] >= 3:
+                return True
+            completion_count[0] += 1
+            return False
+
+        type(mock_task).done = property(lambda self: check_done())
+
+        # Process job
+        await worker._process_job(sample_job)
+
+        # Verify task was executed and worker waited for completion
+        mock_task.run.assert_called_once()
+        assert completion_count[0] >= 3  # At least 3 polling iterations
+
+        # Verify job marked as completed
+        mock_redis_queue.mark_completed.assert_called_once_with(sample_job)
