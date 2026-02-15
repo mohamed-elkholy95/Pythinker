@@ -125,7 +125,7 @@ def get_llm_from_factory() -> LLM | None:
 
         # Get Redis client for distributed coordination
         try:
-            from app.infrastructure.persistence.redis_client import get_redis
+            from app.infrastructure.storage.redis import get_redis
 
             redis_client = get_redis()
             kwargs["redis_client"] = redis_client
@@ -145,7 +145,7 @@ def get_llm_from_factory() -> LLM | None:
 
         # Get Redis client for distributed coordination
         try:
-            from app.infrastructure.persistence.redis_client import get_redis
+            from app.infrastructure.storage.redis import get_redis
 
             redis_client = get_redis()
             kwargs["redis_client"] = redis_client

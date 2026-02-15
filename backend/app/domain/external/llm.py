@@ -17,6 +17,8 @@ class LLM(Protocol):
         tool_choice: str | None = None,
         enable_caching: bool = True,
         model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
         """Send chat request to AI service
 
@@ -26,7 +28,9 @@ class LLM(Protocol):
             response_format: Optional response format configuration
             tool_choice: Optional tool choice configuration
             enable_caching: Whether to use prompt caching
-            model: Optional model override for adaptive model selection (DeepCode Phase 1)
+            model: Optional model override (unified adaptive routing)
+            temperature: Optional temperature override (unified adaptive routing)
+            max_tokens: Optional max_tokens override (unified adaptive routing)
         Returns:
             Response message from AI service
         """
@@ -40,6 +44,8 @@ class LLM(Protocol):
         tool_choice: str | None = None,
         enable_caching: bool = True,
         model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> T:
         """Send chat request with structured output validation.
 
@@ -51,7 +57,9 @@ class LLM(Protocol):
             tools: Optional tools (usually None for structured output)
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
-            model: Optional model override for adaptive model selection (DeepCode Phase 1)
+            model: Optional model override (unified adaptive routing)
+            temperature: Optional temperature override (unified adaptive routing)
+            max_tokens: Optional max_tokens override (unified adaptive routing)
 
         Returns:
             Validated Pydantic model instance
@@ -66,6 +74,8 @@ class LLM(Protocol):
         tool_choice: str | None = None,
         enable_caching: bool = True,
         model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response.
 
@@ -77,7 +87,9 @@ class LLM(Protocol):
             response_format: Optional response format
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
-            model: Optional model override for adaptive model selection (DeepCode Phase 1)
+            model: Optional model override (unified adaptive routing)
+            temperature: Optional temperature override (unified adaptive routing)
+            max_tokens: Optional max_tokens override (unified adaptive routing)
 
         Yields:
             Content chunks as strings
