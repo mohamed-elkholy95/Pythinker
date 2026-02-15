@@ -88,7 +88,6 @@ BLOCKED_URL_PATTERNS = [
     r".*\.googleadservices\.com.*",
     r".*\.google\.com/pagead.*",
     r".*\.googletag\.com.*",
-
     # ============================================================================
     # Social Media Tracking & Advertising
     # ============================================================================
@@ -101,7 +100,6 @@ BLOCKED_URL_PATTERNS = [
     r".*\.linkedin\.com/li/track.*",
     r".*\.pinterest\.com/ct.*",
     r".*\.tiktok\.com/i18n/pixel.*",
-
     # ============================================================================
     # Major Analytics Platforms
     # ============================================================================
@@ -117,7 +115,6 @@ BLOCKED_URL_PATTERNS = [
     r".*\.sentry\.io.*",
     r".*\.newrelic\.com.*",
     r".*\.nr-data\.net.*",
-
     # ============================================================================
     # A/B Testing & Optimization
     # ============================================================================
@@ -126,7 +123,6 @@ BLOCKED_URL_PATTERNS = [
     r".*\.crazyegg\.com.*",
     r".*\.quantserve\.com.*",
     r".*\.quantcast\.com.*",
-
     # ============================================================================
     # Major Ad Exchanges & Networks
     # ============================================================================
@@ -150,7 +146,6 @@ BLOCKED_URL_PATTERNS = [
     r".*\.advertising\.com.*",
     r".*\.yieldmo\.com.*",
     r".*\.33across\.com.*",
-
     # ============================================================================
     # Ad Verification & Metrics
     # ============================================================================
@@ -160,25 +155,22 @@ BLOCKED_URL_PATTERNS = [
     r".*\.scorecardresearch\.com.*",
     r".*\.parsely\.com.*",
     r".*\.chartbeat\.com.*",
-
     # ============================================================================
     # Generic Ad Patterns (specific domains only)
     # ============================================================================
     r".*\.ads\..*",  # Subdomains like ads.example.com
-    r".*/ads/.*",    # Path-based ads
+    r".*/ads/.*",  # Path-based ads
     r".*/advert.*",  # Advertisement paths
     r".*/banner.*",  # Banner ad paths
     r".*\.adserver.*",
     r".*\.adzerk.*",
     r".*\.adroll.*",
     r".*\.adcolony.*",
-
     # ============================================================================
     # Amazon Advertising
     # ============================================================================
     r".*\.aps\.amazon.*",
     r".*\.aax\.amazon-adsystem\.com.*",
-
     # ============================================================================
     # Other Major Ad Networks
     # ============================================================================
@@ -882,6 +874,7 @@ class PlaywrightBrowser:
         Args:
             context: Browser context to configure routes on
         """
+
         async def route_handler(route):
             request = route.request
             resource_type = request.resource_type

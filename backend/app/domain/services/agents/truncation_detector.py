@@ -15,6 +15,7 @@ Context7 validated: Pydantic v2 @model_validator, pattern detection.
 import logging
 import re
 from dataclasses import dataclass
+from typing import ClassVar
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -67,7 +68,7 @@ class TruncationPattern(BaseModel):
         try:
             re.compile(self.pattern)
         except re.error as e:
-            raise ValueError(f"Invalid regex pattern: {e}")
+            raise ValueError(f"Invalid regex pattern: {e}") from e
         return self
 
 
@@ -84,7 +85,7 @@ class TruncationDetector:
     """
 
     # Default truncation patterns
-    DEFAULT_PATTERNS: list[TruncationPattern] = [
+    DEFAULT_PATTERNS: ClassVar[list[TruncationPattern]] = [
         # Mid-sentence truncation (ends without punctuation)
         TruncationPattern(
             name="mid_sentence_no_punctuation",
@@ -125,8 +126,7 @@ class TruncationDetector:
             truncation_type="mid_list",
             confidence=0.75,
             continuation_prompt=(
-                "Your previous list or enumeration appears incomplete. "
-                "Please continue and complete the list."
+                "Your previous list or enumeration appears incomplete. Please continue and complete the list."
             ),
         ),
         # Common truncation phrases
@@ -136,8 +136,7 @@ class TruncationDetector:
             truncation_type="mid_sentence",
             confidence=0.85,
             continuation_prompt=(
-                "Your previous response indicated you intended to continue. "
-                "Please complete your response."
+                "Your previous response indicated you intended to continue. Please complete your response."
             ),
         ),
     ]

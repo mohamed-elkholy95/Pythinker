@@ -9,7 +9,6 @@ Context7 validated: Tool interface pattern, Pydantic v2, singleton usage.
 """
 
 import logging
-from typing import Any
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
@@ -83,7 +82,6 @@ class CodeAnalysisTool:
         try:
             from app.domain.services.agents.document_segmenter import (
                 ChunkingStrategy,
-                DocumentType,
                 SegmentationConfig,
                 get_document_segmenter,
             )
@@ -119,19 +117,18 @@ class CodeAnalysisTool:
             result = segmenter.segment(content)
 
             # Format chunks for output
-            chunks_info = []
-            for chunk in result.chunks:
-                chunks_info.append(
-                    {
-                        "index": chunk.chunk_index + 1,
-                        "total": chunk.total_chunks,
-                        "start_line": chunk.start_line,
-                        "end_line": chunk.end_line,
-                        "line_count": chunk.end_line - chunk.start_line + 1,
-                        "type": chunk.chunk_type,
-                        "content_preview": chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
-                    }
-                )
+            chunks_info = [
+                {
+                    "index": chunk.chunk_index + 1,
+                    "total": chunk.total_chunks,
+                    "start_line": chunk.start_line,
+                    "end_line": chunk.end_line,
+                    "line_count": chunk.end_line - chunk.start_line + 1,
+                    "type": chunk.chunk_type,
+                    "content_preview": chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
+                }
+                for chunk in result.chunks
+            ]
 
             output = {
                 "file": file,
@@ -153,7 +150,7 @@ class CodeAnalysisTool:
 
         except Exception as e:
             logger.error(f"Document segmentation failed: {e}", exc_info=True)
-            return ToolResult(success=False, message=f"Segmentation error: {str(e)}")
+            return ToolResult(success=False, message=f"Segmentation error: {e!s}")
 
     @tool(
         name="track_implementation",
@@ -237,31 +234,29 @@ class CodeAnalysisTool:
             report = tracker.track_multiple(file_contents)
 
             # Format output
-            file_summaries = []
-            for file_status in report.files:
-                file_summaries.append(
-                    {
-                        "file": file_status.file_path,
-                        "status": file_status.status.value,
-                        "completeness": f"{file_status.completeness_score:.0%}",
-                        "issues": len(file_status.issues),
-                        "functions": f"{file_status.complete_functions}/{file_status.total_functions}",
-                        "classes": f"{file_status.complete_classes}/{file_status.total_classes}",
-                    }
-                )
+            file_summaries = [
+                {
+                    "file": file_status.file_path,
+                    "status": file_status.status.value,
+                    "completeness": f"{file_status.completeness_score:.0%}",
+                    "issues": len(file_status.issues),
+                    "functions": f"{file_status.complete_functions}/{file_status.total_functions}",
+                    "classes": f"{file_status.complete_classes}/{file_status.total_classes}",
+                }
+                for file_status in report.files
+            ]
 
             # High priority issues
-            high_priority_details = []
-            for issue in report.high_priority_issues[:5]:  # Top 5
-                high_priority_details.append(
-                    {
-                        "file": issue.file_path,
-                        "line": issue.line_number,
-                        "reason": issue.reason.value,
-                        "snippet": issue.code_snippet,
-                        "suggestion": issue.suggestion,
-                    }
-                )
+            high_priority_details = [
+                {
+                    "file": issue.file_path,
+                    "line": issue.line_number,
+                    "reason": issue.reason.value,
+                    "snippet": issue.code_snippet,
+                    "suggestion": issue.suggestion,
+                }
+                for issue in report.high_priority_issues[:5]  # Top 5
+            ]
 
             output = {
                 "overall_status": report.overall_status.value,
@@ -289,7 +284,7 @@ class CodeAnalysisTool:
 
         except Exception as e:
             logger.error(f"Implementation tracking failed: {e}", exc_info=True)
-            return ToolResult(success=False, message=f"Tracking error: {str(e)}")
+            return ToolResult(success=False, message=f"Tracking error: {e!s}")
 
 
 def create_code_analysis_tool(sandbox: Sandbox) -> CodeAnalysisTool:

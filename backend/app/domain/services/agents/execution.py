@@ -723,9 +723,7 @@ class ExecutionAgent(BaseAgent):
                         # Single continuation attempt for pattern-based detection
                         logger.info("Requesting continuation based on content patterns...")
                         continuation_text = ""
-                        continuation_iter = self.llm.ask_stream(
-                            continuation_messages, tools=None, tool_choice=None
-                        )
+                        continuation_iter = self.llm.ask_stream(continuation_messages, tools=None, tool_choice=None)
                         async with aclosing(continuation_iter) as cont_stream:
                             async for chunk in cont_stream:
                                 continuation_text += chunk

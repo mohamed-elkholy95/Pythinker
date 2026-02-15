@@ -6,7 +6,6 @@ Context7 validated:
 - Settings mock patterns
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from app.domain.services.agents.complexity_assessor import (

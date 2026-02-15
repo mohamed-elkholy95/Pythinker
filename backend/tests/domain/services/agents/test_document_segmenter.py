@@ -9,7 +9,6 @@ import pytest
 
 from app.domain.services.agents.document_segmenter import (
     ChunkingStrategy,
-    DocumentChunk,
     DocumentSegmenter,
     DocumentType,
     SegmentationConfig,
@@ -42,7 +41,7 @@ class TestSegmentationConfig:
 
     def test_overlap_validation_fails_when_too_large(self):
         """Test overlap validation fails when overlap >= max_chunk."""
-        with pytest.raises(ValueError, match="overlap_lines.*must be less than"):
+        with pytest.raises(ValueError, match=r"overlap_lines.*must be less than"):
             SegmentationConfig(max_chunk_lines=100, overlap_lines=100)
 
     def test_overlap_validation_passes_when_valid(self):
@@ -96,18 +95,7 @@ class TestPythonSemanticSegmentation:
 
     def test_preserves_function_boundaries(self):
         """Test functions are not split mid-definition."""
-        python_code = "\n".join(
-            [
-                "def function1():",
-                "    pass",
-                "",
-                "def function2():",
-                "    pass",
-                "",
-                "def function3():",
-                "    pass",
-            ]
-        )
+        python_code = "def function1():\n    pass\n\ndef function2():\n    pass\n\ndef function3():\n    pass"
 
         config = SegmentationConfig(max_chunk_lines=3, overlap_lines=0)
         segmenter = DocumentSegmenter(config)
@@ -126,19 +114,7 @@ class TestPythonSemanticSegmentation:
 
     def test_preserves_class_boundaries(self):
         """Test classes are not split mid-definition."""
-        python_code = "\n".join(
-            [
-                "class MyClass:",
-                "    def method1(self):",
-                "        pass",
-                "    def method2(self):",
-                "        pass",
-                "",
-                "class AnotherClass:",
-                "    def method3(self):",
-                "        pass",
-            ]
-        )
+        python_code = "class MyClass:\n    def method1(self):\n        pass\n    def method2(self):\n        pass\n\nclass AnotherClass:\n    def method3(self):\n        pass"
 
         config = SegmentationConfig(max_chunk_lines=5, overlap_lines=0)
         segmenter = DocumentSegmenter(config)
@@ -164,18 +140,7 @@ class TestMarkdownSemanticSegmentation:
 
     def test_preserves_heading_boundaries(self):
         """Test markdown splits at heading boundaries."""
-        markdown = "\n".join(
-            [
-                "# Heading 1",
-                "Content 1",
-                "",
-                "## Subheading 1.1",
-                "More content",
-                "",
-                "# Heading 2",
-                "Content 2",
-            ]
-        )
+        markdown = "# Heading 1\nContent 1\n\n## Subheading 1.1\nMore content\n\n# Heading 2\nContent 2"
 
         config = SegmentationConfig(max_chunk_lines=3, overlap_lines=0)
         segmenter = DocumentSegmenter(config)
@@ -186,16 +151,7 @@ class TestMarkdownSemanticSegmentation:
 
     def test_never_splits_inside_code_blocks(self):
         """Test markdown never splits inside ``` code blocks."""
-        markdown = "\n".join(
-            [
-                "# Heading",
-                "```python",
-                "def function():",
-                "    pass",
-                "```",
-                "More text",
-            ]
-        )
+        markdown = "# Heading\n```python\ndef function():\n    pass\n```\nMore text"
 
         config = SegmentationConfig(max_chunk_lines=2, overlap_lines=0)
         segmenter = DocumentSegmenter(config)
@@ -230,7 +186,7 @@ class TestFixedSizeSegmentation:
         assert result.total_chunks == 5
 
         # Each chunk (except last) should have exactly 20 lines
-        for i, chunk in enumerate(result.chunks[:-1]):
+        for _i, chunk in enumerate(result.chunks[:-1]):
             lines = chunk.content.split("\n")
             assert len(lines) == 20
 
@@ -335,17 +291,8 @@ class TestReconstruction:
 
     def test_perfect_reconstruction_semantic(self):
         """Test perfect reconstruction with semantic strategy."""
-        python_code = "\n".join(
-            [
-                "def function1():",
-                "    pass",
-                "",
-                "def function2():",
-                "    return 42",
-                "",
-                "def function3():",
-                "    print('hello')",
-            ]
+        python_code = (
+            "def function1():\n    pass\n\ndef function2():\n    return 42\n\ndef function3():\n    print('hello')"
         )
 
         config = SegmentationConfig(

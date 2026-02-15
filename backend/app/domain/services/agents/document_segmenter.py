@@ -256,10 +256,9 @@ class DocumentSegmenter:
         """
         if document_type == DocumentType.PYTHON:
             return self._segment_python_semantic(lines)
-        elif document_type == DocumentType.MARKDOWN:
+        if document_type == DocumentType.MARKDOWN:
             return self._segment_markdown_semantic(lines)
-        else:
-            return self._segment_text_semantic(lines)
+        return self._segment_text_semantic(lines)
 
     def _segment_python_semantic(self, lines: list[str]) -> list[DocumentChunk]:
         """Segment Python code respecting function/class boundaries.
@@ -456,9 +455,7 @@ class DocumentSegmenter:
             chunk_line_count = chunk.end_line - chunk.start_line + 1
             if chunk_line_count > self.config.max_chunk_lines * 2:
                 # Fallback to fixed-size for this document
-                logger.debug(
-                    f"Hybrid strategy: chunk too large ({chunk_line_count} lines), " f"falling back to fixed-size"
-                )
+                logger.debug(f"Hybrid strategy: chunk too large ({chunk_line_count} lines), falling back to fixed-size")
                 return self._segment_fixed_size(lines)
 
         return chunks

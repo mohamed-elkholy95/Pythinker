@@ -28,9 +28,10 @@ except ImportError:
     ActionResult = None
 
 from app.core.config import get_settings
-from app.infrastructure.external.browser.url_filters import VIDEO_URL_PATTERNS, filter_video_urls, is_video_url
+from app.infrastructure.external.browser.url_filters import VIDEO_URL_PATTERNS, is_video_url
 
 logger = logging.getLogger(__name__)
+
 
 class BrowserUseService:
     """Service for autonomous browser control using browser-use library

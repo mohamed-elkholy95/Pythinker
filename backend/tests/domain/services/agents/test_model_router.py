@@ -12,18 +12,16 @@ Tests cover:
 - Edge cases and error handling
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+from app.core.config import Settings
 from app.domain.services.agents.model_router import (
-    ModelRouter,
     ModelConfig,
+    ModelRouter,
     ModelTier,
     TaskComplexity,
     get_model_router,
 )
-from app.core.config import Settings
-
 
 # ============================================================================
 # Test Class 1: ModelConfig Validation
@@ -325,6 +323,7 @@ class TestSingletonFactory:
 
         # Clear singleton
         import app.domain.services.agents.model_router as router_module
+
         router_module._model_router = None
 
         router1 = get_model_router()

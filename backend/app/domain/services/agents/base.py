@@ -656,7 +656,7 @@ class BaseAgent:
                         )
 
                         # Record Prometheus metric
-                        _metrics.increment(
+                        self._metrics.increment(
                             "pythinker_tool_efficiency_nudges_total",
                             labels={
                                 "threshold": "strong" if signal.confidence >= 0.9 else "soft",
@@ -753,7 +753,7 @@ class BaseAgent:
                     f"Tool efficiency nudge (after failure): {signal.nudge_message} "
                     f"(reads={signal.read_count}, actions={signal.action_count})"
                 )
-                _metrics.increment(
+                self._metrics.increment(
                     "pythinker_tool_efficiency_nudges_total",
                     labels={
                         "threshold": "strong" if signal.confidence >= 0.9 else "soft",

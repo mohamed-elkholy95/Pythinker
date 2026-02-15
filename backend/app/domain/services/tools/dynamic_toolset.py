@@ -64,7 +64,19 @@ TASK_PATTERNS = {
     ],
     "file_management": [r"file", r"read", r"write", r"create", r"delete", r"move", r"copy", r"directory", r"folder"],
     "web_browsing": [r"browse", r"navigate", r"website", r"page", r"click", r"form", r"screenshot", r"scrape"],
-    "analysis": [r"analyze", r"compare", r"evaluate", r"assess", r"review", r"summarize", r"report", r"chart", r"graph", r"visualize", r"plot"],
+    "analysis": [
+        r"analyze",
+        r"compare",
+        r"evaluate",
+        r"assess",
+        r"review",
+        r"summarize",
+        r"report",
+        r"chart",
+        r"graph",
+        r"visualize",
+        r"plot",
+    ],
     "communication": [r"ask", r"tell", r"notify", r"message", r"clarify"],
 }
 

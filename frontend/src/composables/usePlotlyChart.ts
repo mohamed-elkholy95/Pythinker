@@ -200,7 +200,11 @@ export function usePlotlyChart(options: PlotlyChartOptions = {}) {
   // Watch for dark mode changes
   watch(() => options.darkMode, (isDark) => {
     if (plotlyLayout.value) {
-      isDark ? applyDarkModeTheme() : applyLightModeTheme();
+      if (isDark) {
+        applyDarkModeTheme();
+      } else {
+        applyLightModeTheme();
+      }
     }
   });
 

@@ -48,25 +48,88 @@ class ChartTool(BaseTool):
         name="chart_create",
         description="""Create professional interactive Plotly charts following industry best practices.
 
-CHART TYPE SELECTION GUIDE (Context7 MCP Validated):
-- bar: Categorical comparisons, rankings (default: vertical; use orientation='h' for labels >4 chars)
-- line: Time-series data, trends over continuous range
-- scatter: Correlation analysis, distribution patterns, outlier detection
-- pie: Part-to-whole relationships (max 5-7 categories, avoid if values are similar)
-- area: Cumulative trends, stacked contributions over time
-- grouped_bar: Multi-series categorical comparison
-- stacked_bar: Part-to-whole over categories
-- box: Distribution analysis, quartiles, outliers
+STEP 1: IDENTIFY YOUR DATA TYPE
+Before choosing a chart, classify your data:
+- Categorical/Ordinal: Groups with no inherent order (product types, regions) or ordered categories (satisfaction levels)
+- Time Series: Numerical values measured over ordered time points (sales by month, daily users)
+- Numerical Continuous: Measurements like price, speed, weight, temperature
+- Part-to-Whole: Components that sum to a total (market share, budget breakdown)
+- Relationship/Correlation: Two or more variables to compare (ad spend vs conversions, height vs weight)
+- Distribution: Spread of values showing frequency, quartiles, outliers
 
-BEST PRACTICES:
+STEP 2: MATCH DATA TYPE TO CHART TYPE
+
+COMPARISON & CATEGORICAL DATA:
+- bar: Compare values across categories (sales by product, cost by model)
+  • Use when: You have discrete categories and want to show which is larger/smaller
+  • Variable type: Categorical + Numerical metric
+  • Example: "Compare average response time across 5 LLM models"
+  • Orientation: Vertical (default) for short labels; Horizontal ('h') for labels >4 characters
+
+- grouped_bar: Compare multiple series across categories (Q1 vs Q2 sales by region)
+  • Use when: Multiple metrics per category need side-by-side comparison
+  • Variable type: Categorical + Multiple numerical series
+  • Example: "Compare speed and accuracy scores for each model"
+
+- stacked_bar: Show part-to-whole composition across categories
+  • Use when: You want to see both total and components per category
+  • Variable type: Categorical + Multiple numerical components
+  • Example: "Total budget by department, broken down by expense type"
+
+TRENDS & TIME-SERIES DATA:
+- line: Show how values change over time or continuous range
+  • Use when: Data points are ordered and continuity matters
+  • Variable type: Time/ordered variable + Numerical metric
+  • Example: "Daily active users over the past 6 months"
+  • Tip: Add markers for discrete data points; use multiple lines for series comparison
+
+- area: Emphasize volume and cumulative trends over time
+  • Use when: Magnitude of change is more important than precise values
+  • Variable type: Time/ordered variable + Numerical metric
+  • Example: "Revenue accumulation over quarters"
+
+DISTRIBUTION & SPREAD:
+- box: Show distribution quartiles, median, and outliers
+  • Use when: Understanding data spread and identifying outliers is key
+  • Variable type: Numerical continuous data (single variable or grouped by category)
+  • Example: "Distribution of response times across different API endpoints"
+
+RELATIONSHIP & CORRELATION:
+- scatter: Explore relationship between two numerical variables
+  • Use when: Looking for correlation, clusters, or outliers between variables
+  • Variable type: Two numerical variables
+  • Example: "Correlation between model size (parameters) and inference speed"
+  • Tip: Use color/size for third dimension (bubble chart effect)
+
+PART-TO-WHOLE:
+- pie: Show proportions of a total (max 5-7 slices)
+  • Use when: You have a small number of categories that sum to 100%
+  • Variable type: Categorical + Percentage/proportion
+  • Example: "Market share distribution among top 5 vendors"
+  • AVOID when: More than 7 categories (use bar instead), or values are similar (hard to distinguish)
+
+STEP 3: APPLY BEST PRACTICES
 - Vertical bars (default): Best for rankings, histograms, categorical comparisons
-- Horizontal bars ('h'): Switch to this when labels are longer than 3-4 characters
-- Sorting: Charts auto-sort by value (descending) for optimal readability
-- Colors: Professional Plotly qualitative palette applied automatically
+- Horizontal bars ('h'): Switch when labels are longer than 3-4 characters to prevent rotation
+- Sorting: Charts auto-sort by value (descending) for optimal readability in comparisons
+- Colors: Professional Plotly qualitative palette applied automatically (10 distinct colors)
 - Theme: 'plotly_white' recommended for clean, professional appearance
 - Text: Auto-formatted with smart number abbreviations (12k, 1.5M, etc.)
 - Data Sanitization: Markdown formatting (**bold**, *italic*) automatically removed from labels
 - Smart Scaling: Log scale automatically applied when value range >5x to prevent crushing small values
+
+STEP 4: AVOID COMMON MISTAKES
+- Don't use pie charts for >7 categories or similar values → Use bar chart instead
+- Don't use line charts for unordered categories → Use bar chart
+- Don't use bar charts for time-series → Use line chart
+- Don't use vertical bars with long labels → Use horizontal orientation ('h')
+
+DECISION FLOWCHART:
+1. Is data categorical? → YES: Are labels long (>4 chars)? → Use bar (orientation='h'), else bar (orientation='v')
+2. Is data time-series? → YES: Use line chart
+3. Is data continuous relationship? → YES: Use scatter plot
+4. Is data part-to-whole with <7 categories? → YES: Use pie chart
+5. Is data distribution/spread? → YES: Use box plot
 
 Returns both interactive HTML and static PNG files.""",
         parameters={

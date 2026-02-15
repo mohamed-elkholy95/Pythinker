@@ -11,6 +11,7 @@ from app.api.v1 import (
     export,
     vnc,
     screencast,
+    input,
 )
 
 api_router = APIRouter()
@@ -24,3 +25,4 @@ api_router.include_router(test_runner.router, prefix="/test", tags=["test"])
 api_router.include_router(export.router, prefix="/export", tags=["export"])
 api_router.include_router(vnc.router, prefix="/vnc", tags=["vnc"])
 api_router.include_router(screencast.router, prefix="/screencast", tags=["screencast"])
+api_router.include_router(input.router, prefix="/input", tags=["input"])

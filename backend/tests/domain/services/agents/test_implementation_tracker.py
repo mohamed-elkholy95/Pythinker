@@ -463,9 +463,7 @@ class TestCompletionChecklist:
     def test_limits_suggestions_per_file(self):
         """Test checklist limits suggestions per file."""
         # Create file with many issues
-        code = "\n".join(
-            [f"def func{i}():\n    raise NotImplementedError()\n" for i in range(10)]
-        )
+        code = "\n".join([f"def func{i}():\n    raise NotImplementedError()\n" for i in range(10)])
 
         files = {"many_issues.py": code}
 

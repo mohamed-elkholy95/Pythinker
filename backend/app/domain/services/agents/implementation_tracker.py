@@ -225,7 +225,9 @@ class ImplementationTracker:
         high_priority = [issue for issue in all_issues if issue.severity == "high"]
 
         # Overall completeness score (average)
-        avg_completeness = sum(f.completeness_score for f in file_statuses) / len(file_statuses) if file_statuses else 0.0
+        avg_completeness = (
+            sum(f.completeness_score for f in file_statuses) / len(file_statuses) if file_statuses else 0.0
+        )
 
         # Overall status (worst case)
         status_priority = {
@@ -261,19 +263,22 @@ class ImplementationTracker:
 
         for node in ast.walk(tree):
             # Check for NotImplementedError raises
-            if isinstance(node, ast.Raise):
-                if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
-                    if node.exc.func.id == "NotImplementedError":
-                        issues.append(
-                            ImplementationIssue(
-                                reason=IncompleteReason.NOT_IMPLEMENTED_ERROR,
-                                file_path=file_path,
-                                line_number=node.lineno,
-                                code_snippet=self._get_line_snippet(lines, node.lineno),
-                                suggestion="Implement this function/method",
-                                severity="high",
-                            )
-                        )
+            if (
+                isinstance(node, ast.Raise)
+                and isinstance(node.exc, ast.Call)
+                and isinstance(node.exc.func, ast.Name)
+                and node.exc.func.id == "NotImplementedError"
+            ):
+                issues.append(
+                    ImplementationIssue(
+                        reason=IncompleteReason.NOT_IMPLEMENTED_ERROR,
+                        file_path=file_path,
+                        line_number=node.lineno,
+                        code_snippet=self._get_line_snippet(lines, node.lineno),
+                        suggestion="Implement this function/method",
+                        severity="high",
+                    )
+                )
 
             # Check for empty functions (only pass or ...)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and self.config.check_empty_functions:
@@ -298,18 +303,21 @@ class ImplementationTracker:
                                 severity="medium",
                             )
                         )
-                    elif isinstance(first_stmt, ast.Expr) and isinstance(first_stmt.value, ast.Constant):
-                        if first_stmt.value.value is ...:
-                            issues.append(
-                                ImplementationIssue(
-                                    reason=IncompleteReason.ELLIPSIS_ONLY,
-                                    file_path=file_path,
-                                    line_number=node.lineno,
-                                    code_snippet=f"def {node.name}(...): ...",
-                                    suggestion=f"Implement function body for '{node.name}'",
-                                    severity="medium",
-                                )
+                    elif (
+                        isinstance(first_stmt, ast.Expr)
+                        and isinstance(first_stmt.value, ast.Constant)
+                        and first_stmt.value.value is ...
+                    ):
+                        issues.append(
+                            ImplementationIssue(
+                                reason=IncompleteReason.ELLIPSIS_ONLY,
+                                file_path=file_path,
+                                line_number=node.lineno,
+                                code_snippet=f"def {node.name}(...): ...",
+                                suggestion=f"Implement function body for '{node.name}'",
+                                severity="medium",
                             )
+                        )
 
         return issues
 
@@ -379,9 +387,7 @@ class ImplementationTracker:
         total_penalty = sum(severity_weights.get(issue.severity, 0.2) for issue in issues)
 
         # Cap at 0.0 (can't be negative)
-        score = max(0.0, 1.0 - total_penalty)
-
-        return score
+        return max(0.0, 1.0 - total_penalty)
 
     def _determine_status(self, completeness_score: float, issues: list[ImplementationIssue]) -> ImplementationStatus:
         """Determine overall implementation status.
@@ -396,12 +402,11 @@ class ImplementationTracker:
         # Score-based classification
         if completeness_score >= 0.9:
             return ImplementationStatus.COMPLETE
-        elif completeness_score >= 0.6:
+        if completeness_score >= 0.6:
             return ImplementationStatus.PARTIAL
-        elif completeness_score >= 0.3:
+        if completeness_score >= 0.3:
             return ImplementationStatus.INCOMPLETE
-        else:
-            return ImplementationStatus.PLACEHOLDER
+        return ImplementationStatus.PLACEHOLDER
 
     def _count_completeness(self, tree: ast.AST, content: str) -> tuple[int, int, int, int]:
         """Count total and complete functions/classes.
@@ -470,8 +475,12 @@ class ImplementationTracker:
 
                 # Add high-priority issue items
                 high_priority = [i for i in file_issues if i.severity == "high"]
-                for issue in high_priority[:3]:  # Limit to top 3
-                    checklist.append(f"  - Line {issue.line_number}: {issue.suggestion or issue.reason.value}")
+                checklist.extend(
+                    [
+                        f"  - Line {issue.line_number}: {issue.suggestion or issue.reason.value}"
+                        for issue in high_priority[:3]  # Limit to top 3
+                    ]
+                )
 
         return checklist
 
