@@ -88,7 +88,10 @@ class FastAcknowledgmentRefiner:
                     "- Correct obvious typos and awkward phrasing from the user request.\n"
                     "- State what you will do next immediately (review/research/build/create/fix as appropriate).\n"
                     "- Do not ask follow-up questions.\n"
-                    "- Do not include bullet points or markdown."
+                    "- Do not include bullet points or markdown.\n"
+                    "- NEVER expand vague references into specific version numbers, model names, or product details.\n"
+                    "  If the user says 'latest Claude' just say 'latest Claude' — do NOT guess 'Claude 3.5 Sonnet'.\n"
+                    "  Mirror the user's own wording for product/model names."
                 ),
             },
             {"role": "user", "content": user_message},
