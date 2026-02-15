@@ -66,13 +66,21 @@ def test_screenshot_returns_503_when_no_backend_available(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that 503 is returned only when all backends fail AND cache is empty."""
     async def _fake_cdp_capture(quality: int, requested_format: str) -> bytes | None:
         assert quality == 75
         assert requested_format == "jpeg"
         return None
 
+    async def _fake_xwd_pillow(quality: int, scale: float, requested_format: str) -> bytes | None:
+        return None
+
+    # Clear the module-level cache before this test
+    vnc_module._screenshot_cache._entries.clear()
+
     monkeypatch.setattr(vnc_module, "_capture_with_cdp", _fake_cdp_capture)
     monkeypatch.setattr(vnc_module, "_xwd_pipeline_available", lambda: False)
+    monkeypatch.setattr(vnc_module, "_capture_with_xwd_pillow", _fake_xwd_pillow)
 
     response = client.get("/api/v1/vnc/screenshot?quality=75&scale=0.5&format=jpeg")
 
