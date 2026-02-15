@@ -134,9 +134,7 @@ class AsyncJobWorker:
         self.is_healthy = True
         WORKER_HEALTH.labels(worker_id=worker_id).set(1)
 
-        logger.info(
-            f"Worker {worker_id} initialized (max_concurrent={max_concurrent_jobs})"
-        )
+        logger.info(f"Worker {worker_id} initialized (max_concurrent={max_concurrent_jobs})")
 
     async def start(self) -> None:
         """
@@ -271,9 +269,7 @@ class AsyncJobWorker:
                 priority=job.priority.name,
             ).observe(duration)
 
-            logger.info(
-                f"Job {job.job_id} completed successfully in {duration:.2f}s"
-            )
+            logger.info(f"Job {job.job_id} completed successfully in {duration:.2f}s")
 
         except TimeoutError:
             # Job exceeded timeout
@@ -324,40 +320,33 @@ class AsyncJobWorker:
         if not task_id or not session_id:
             raise ValueError("Job payload missing required fields: task_id, session_id")
 
-        logger.debug(
-            f"Executing task {task_id} for session {session_id} (job={job.job_id})"
-        )
+        logger.info(f"Executing task {task_id} for session {session_id} (job={job.job_id})")
 
-        # Execute task via ExecutionAgent
-        # NOTE: This is a placeholder - actual integration with ExecutionAgent
-        # requires proper session/task setup and event streaming
-        return await self._execute_task_placeholder(task_id, session_id, user_id)
+        # Get task from registry
+        from app.infrastructure.external.task.redis_task import RedisStreamTask
 
-    async def _execute_task_placeholder(
-        self, task_id: str, session_id: str, user_id: str | None
-    ) -> dict:
-        """
-        Placeholder for task execution.
+        task = RedisStreamTask.get(task_id)
+        if not task:
+            raise RuntimeError(f"Task {task_id} not found in registry")
 
-        TODO: Replace with actual ExecutionAgent integration:
-        1. Load task from database
-        2. Set up execution context
-        3. Stream events to session
-        4. Return execution result
-        """
-        # Simulate task execution
-        await asyncio.sleep(0.5)
+        # Run the task (this will call the AgentTaskRunner)
+        await task.run()
+
+        # Wait for task completion
+        # The task execution happens in the background, we need to wait
+        while not task.done:
+            await asyncio.sleep(0.1)
+
+        logger.info(f"Task {task_id} completed (job={job.job_id})")
 
         return {
             "task_id": task_id,
             "session_id": session_id,
             "status": "completed",
-            "result": "Task executed successfully",
+            "message": "Task executed successfully via worker"
         }
 
-    async def _handle_job_failure(
-        self, job: Job, error: str, error_type: str
-    ) -> None:
+    async def _handle_job_failure(self, job: Job, error: str, error_type: str) -> None:
         """
         Handle job failure with retry logic or dead-letter queue.
 
@@ -377,10 +366,7 @@ class AsyncJobWorker:
         # Check if retry limit exceeded
         if job.attempts >= job.max_retries:
             # Move to dead-letter queue
-            logger.error(
-                f"Job {job.job_id} exceeded max retries ({job.max_retries}), "
-                f"moving to dead-letter queue"
-            )
+            logger.error(f"Job {job.job_id} exceeded max retries ({job.max_retries}), moving to dead-letter queue")
 
             await self.queue.mark_failed(job, error=error)
 
@@ -388,22 +374,39 @@ class AsyncJobWorker:
 
         else:
             # Retry with exponential backoff
-            retry_delay = job.retry_delay_seconds * (
-                job.retry_backoff_multiplier ** (job.attempts - 1)
-            )
+            retry_delay = job.retry_delay_seconds * (job.retry_backoff_multiplier ** (job.attempts - 1))
 
-            logger.info(
-                f"Job {job.job_id} will retry in {retry_delay:.0f}s "
-                f"(attempt {job.attempts}/{job.max_retries})"
-            )
+            logger.info(f"Job {job.job_id} will retry in {retry_delay:.0f}s (attempt {job.attempts}/{job.max_retries})")
 
             JOBS_RETRIED.labels(
                 queue=self.queue.queue_name,
                 attempt=str(job.attempts),
             ).inc()
 
-            # Re-enqueue with delay
-            await asyncio.sleep(retry_delay)
+            # Schedule a delayed re-enqueue so the worker loop isn't blocked
+            try:
+                asyncio.create_task(self._delayed_reenqueue(job, retry_delay))
+            except Exception:
+                # Fallback: attempt immediate enqueue if scheduling fails
+                logger.exception("Failed to schedule delayed re-enqueue, attempting immediate enqueue")
+                await self.queue.enqueue(
+                    job_id=job.job_id,
+                    payload=job.payload,
+                    priority=job.priority,
+                    max_retries=job.max_retries,
+                    timeout_seconds=job.timeout_seconds,
+                )
+
+    async def _delayed_reenqueue(self, job: Job, delay: float) -> None:
+        """
+        Helper to re-enqueue a job after a delay without blocking the worker loop.
+
+        Args:
+            job: Job to re-enqueue
+            delay: Seconds to wait before re-enqueueing
+        """
+        try:
+            await asyncio.sleep(delay)
             await self.queue.enqueue(
                 job_id=job.job_id,
                 payload=job.payload,
@@ -411,6 +414,9 @@ class AsyncJobWorker:
                 max_retries=job.max_retries,
                 timeout_seconds=job.timeout_seconds,
             )
+            logger.info(f"Delayed re-enqueue scheduled job {job.job_id} after {delay}s")
+        except Exception as e:
+            logger.error(f"Delayed re-enqueue failed for job {job.job_id}: {e}", exc_info=True)
 
     async def _health_check_loop(self) -> None:
         """Periodic health check loop."""
@@ -453,10 +459,7 @@ class AsyncJobWorker:
             logger.info("All in-flight jobs completed")
 
         except TimeoutError:
-            logger.warning(
-                f"Graceful shutdown timeout exceeded, "
-                f"{len(self.in_flight_jobs)} jobs still in-flight"
-            )
+            logger.warning(f"Graceful shutdown timeout exceeded, {len(self.in_flight_jobs)} jobs still in-flight")
 
             # Cancel remaining jobs
             for task in self.in_flight_jobs:
