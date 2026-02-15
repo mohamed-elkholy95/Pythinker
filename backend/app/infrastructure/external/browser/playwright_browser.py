@@ -73,42 +73,118 @@ TIMEZONE_POOL = [
 
 # Resource types to block for faster page loads (configurable)
 BLOCKABLE_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
+
+# Professional Ad/Tracker Blocking Patterns
+# These patterns are ALWAYS active regardless of block_resources setting
+# Designed to block ads and trackers while preserving legitimate content
 BLOCKED_URL_PATTERNS = [
-    # Google ad/analytics networks
+    # ============================================================================
+    # Google Advertising & Analytics Networks
+    # ============================================================================
     r".*\.doubleclick\.net.*",
     r".*\.google-analytics\.com.*",
     r".*\.googlesyndication\.com.*",
     r".*\.googletagmanager\.com.*",
-    # Social media tracking
+    r".*\.googleadservices\.com.*",
+    r".*\.google\.com/pagead.*",
+    r".*\.googletag\.com.*",
+
+    # ============================================================================
+    # Social Media Tracking & Advertising
+    # ============================================================================
     r".*\.facebook\.net.*",
     r".*\.facebook\.com/tr.*",
+    r".*\.facebook\.com/plugins.*",
     r".*\.twitter\.com/i/.*",
-    # Generic ad patterns
-    r".*\.ads\..*",
-    r".*tracking.*",
-    r".*analytics.*",
-    # Analytics platforms
-    r".*hotjar\.com.*",
-    r".*mixpanel\.com.*",
-    r".*segment\.io.*",
-    r".*optimizely\.com.*",
-    # Major ad exchanges (observed in failing session)
+    r".*\.ads-twitter\.com.*",
+    r".*\.linkedin\.com/px.*",
+    r".*\.linkedin\.com/li/track.*",
+    r".*\.pinterest\.com/ct.*",
+    r".*\.tiktok\.com/i18n/pixel.*",
+
+    # ============================================================================
+    # Major Analytics Platforms
+    # ============================================================================
+    r".*\.hotjar\.com.*",
+    r".*\.mouseflow\.com.*",
+    r".*\.mixpanel\.com.*",
+    r".*\.segment\.io.*",
+    r".*\.segment\.com.*",
+    r".*\.amplitude\.com.*",
+    r".*\.heap\.io.*",
+    r".*\.fullstory\.com.*",
+    r".*\.logrocket\.com.*",
+    r".*\.sentry\.io.*",
+    r".*\.newrelic\.com.*",
+    r".*\.nr-data\.net.*",
+
+    # ============================================================================
+    # A/B Testing & Optimization
+    # ============================================================================
+    r".*\.optimizely\.com.*",
+    r".*\.vwo\.com.*",
+    r".*\.crazyegg\.com.*",
+    r".*\.quantserve\.com.*",
+    r".*\.quantcast\.com.*",
+
+    # ============================================================================
+    # Major Ad Exchanges & Networks
+    # ============================================================================
     r".*\.pubmatic\.com.*",
     r".*\.casalemedia\.com.*",
     r".*\.openx\.net.*",
     r".*\.rubiconproject\.com.*",
     r".*\.criteo\.com.*",
+    r".*\.criteo\.net.*",
     r".*\.taboola\.com.*",
     r".*\.outbrain\.com.*",
     r".*\.amazon-adsystem\.com.*",
     r".*\.adsrvr\.org.*",
+    r".*\.adnxs\.com.*",  # AppNexus
+    r".*\.adform\.net.*",
     r".*\.bidswitch\.net.*",
     r".*\.sharethrough\.com.*",
     r".*\.spotxchange\.com.*",
     r".*\.indexexchange\.com.*",
+    r".*\.contextweb\.com.*",
+    r".*\.advertising\.com.*",
+    r".*\.yieldmo\.com.*",
+    r".*\.33across\.com.*",
+
+    # ============================================================================
+    # Ad Verification & Metrics
+    # ============================================================================
     r".*\.moatads\.com.*",
     r".*\.doubleverify\.com.*",
+    r".*\.adsafeprotected\.com.*",
+    r".*\.scorecardresearch\.com.*",
+    r".*\.parsely\.com.*",
+    r".*\.chartbeat\.com.*",
+
+    # ============================================================================
+    # Generic Ad Patterns (specific domains only)
+    # ============================================================================
+    r".*\.ads\..*",  # Subdomains like ads.example.com
+    r".*/ads/.*",    # Path-based ads
+    r".*/advert.*",  # Advertisement paths
+    r".*/banner.*",  # Banner ad paths
+    r".*\.adserver.*",
+    r".*\.adzerk.*",
+    r".*\.adroll.*",
+    r".*\.adcolony.*",
+
+    # ============================================================================
+    # Amazon Advertising
+    # ============================================================================
     r".*\.aps\.amazon.*",
+    r".*\.aax\.amazon-adsystem\.com.*",
+
+    # ============================================================================
+    # Other Major Ad Networks
+    # ============================================================================
+    r".*\.serving-sys\.com.*",
+    r".*\.2mdn\.net.*",  # Google display ads
+    r".*\.gravatar\.com/avatar/ad32.*",  # Gravatar tracking pixels
 ]
 
 # Browser crash error signatures — when exceptions contain these strings,
@@ -180,7 +256,9 @@ class PlaywrightBrowser:
         configured_cdp_url = getattr(self.settings, "browser_cdp_url", None)
         self.cdp_url = cdp_url or configured_cdp_url or "ws://localhost:9222"
         self.block_resources = block_resources
-        self.blocked_types = blocked_types or BLOCKABLE_RESOURCE_TYPES if block_resources else set()
+        # Use settings-configured blocked types, fallback to BLOCKABLE_RESOURCE_TYPES
+        default_blocked_types = self.settings.browser_blocked_types_set or BLOCKABLE_RESOURCE_TYPES
+        self.blocked_types = blocked_types or default_blocked_types if block_resources else set()
         self._interactive_elements_cache: list[dict] = []
         self._connection_healthy = False
         self._randomize_fingerprint = randomize_fingerprint
