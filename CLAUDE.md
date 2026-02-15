@@ -89,7 +89,6 @@ For comprehensive coding standards, see:
 - **[Engineering Instructions](instructions.md)** - Core behaviors, leverage patterns, output standards (MUST READ)
 - **[Python Standards](docs/guides/PYTHON_STANDARDS.md)** - Pydantic v2, FastAPI, Legacy Flow, async patterns
 - **[Vue Standards](docs/guides/VUE_STANDARDS.md)** - Composition API, Pinia, TypeScript
-- **[Superpowers Workflow](docs/guides/SUPERPOWERS.md)** - `/brainstorm`, `/tdd`, `/debug` commands
 - **[Replay & Sandbox](docs/guides/OPENREPLAY.md)** - Screenshot replay, CDP screencast
 
 ---
