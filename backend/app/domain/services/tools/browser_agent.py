@@ -4,7 +4,6 @@ import json
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
 
 # browser_use is an optional dependency
 try:
@@ -19,59 +18,9 @@ except ImportError:
 
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
+from app.infrastructure.external.browser.url_filters import is_video_url
 
 logger = logging.getLogger(__name__)
-
-# =============================================================================
-# URL FILTERING - Skip video sites and heavy media content
-# =============================================================================
-
-VIDEO_DOMAINS: set[str] = {
-    "youtube.com",
-    "youtu.be",
-    "vimeo.com",
-    "dailymotion.com",
-    "twitch.tv",
-    "tiktok.com",
-    "netflix.com",
-    "hulu.com",
-    "disneyplus.com",
-    "primevideo.com",
-    "hbomax.com",
-    "max.com",
-    "crunchyroll.com",
-    "rumble.com",
-    "bitchute.com",
-    "odysee.com",
-    "bilibili.com",
-    "nicovideo.jp",
-    "pornhub.com",
-    "xvideos.com",
-}
-
-VIDEO_EXTENSIONS: set[str] = {".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv", ".m3u8"}
-
-
-def is_video_url(url: str) -> bool:
-    """Check if URL is a video URL that should be skipped."""
-    if not url:
-        return False
-    try:
-        parsed = urlparse(url.lower())
-        domain = parsed.netloc.replace("www.", "")
-        # Check domain
-        if domain in VIDEO_DOMAINS:
-            return True
-        # Check extension
-        for ext in VIDEO_EXTENSIONS:
-            if parsed.path.endswith(ext):
-                return True
-        # Check patterns
-        if "/watch?v=" in url or "/video/" in url or "/embed/" in url:
-            return True
-    except Exception as e:
-        logger.debug(f"URL video check failed for {url}: {e}")
-    return False
 
 
 def extract_first_json(text: str) -> str:

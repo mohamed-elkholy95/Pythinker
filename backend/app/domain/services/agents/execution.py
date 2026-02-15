@@ -170,6 +170,54 @@ class ExecutionAgent(BaseAgent):
         """Set per-run response policy for summarize stage."""
         self._response_policy = policy
 
+    def _select_model_for_step(self, step_description: str) -> str | None:
+        """Select appropriate model tier for the current step based on complexity.
+
+        DeepCode Integration Phase 1: Adaptive Model Selection.
+        Routes steps to fast/balanced/powerful models based on complexity.
+
+        Args:
+            step_description: The step description to analyze
+
+        Returns:
+            Model name override if adaptive selection is enabled and tier differs,
+            None to use default model
+
+        Context7 validated: Uses ComplexityAssessor.recommend_model_tier()
+        with Settings model configuration.
+        """
+        from app.core.config import get_settings
+        from app.domain.services.agents.complexity_assessor import ComplexityAssessor
+
+        settings = get_settings()
+        if not settings.adaptive_model_selection_enabled:
+            return None
+
+        try:
+            assessor = ComplexityAssessor()
+            tier = assessor.recommend_model_tier(step_description)
+
+            # Map tier to model configuration
+            if tier.value == "fast":
+                selected_model = settings.fast_model
+            elif tier.value == "powerful":
+                selected_model = settings.powerful_model
+            else:  # balanced
+                selected_model = settings.effective_balanced_model
+
+            # Increment Prometheus counter for model tier selections
+            _metrics.increment(
+                "pythinker_model_tier_selections_total",
+                labels={"tier": tier.value, "agent": self.name},
+            )
+
+            logger.debug(f"Adaptive model selection: tier={tier.value}, model={selected_model}")
+            return selected_model
+
+        except Exception as e:
+            logger.warning(f"Model selection failed, using default: {e}")
+            return None
+
     async def invoke_tool(
         self,
         tool: BaseTool,
@@ -397,6 +445,12 @@ class ExecutionAgent(BaseAgent):
         else:
             execution_message = base_prompt
 
+        # DeepCode Phase 1: Select model tier based on step complexity
+        selected_model = self._select_model_for_step(step.description)
+        if selected_model:
+            self._step_model_override = selected_model
+            logger.info(f"Using adaptive model for step: {selected_model}")
+
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
         try:
@@ -522,9 +576,10 @@ class ExecutionAgent(BaseAgent):
             if step.status != ExecutionStatus.FAILED:
                 step.status = ExecutionStatus.COMPLETED
         finally:
-            # Always restore tools and system prompt after step, even on early return/exception
+            # Always restore tools, system prompt, and model override after step
             self.tools = original_tools
             self.system_prompt = original_system_prompt
+            self._step_model_override = None  # DeepCode Phase 1: Reset model override
 
     async def summarize(self, response_policy: ResponsePolicy | None = None) -> AsyncGenerator[BaseEvent, None]:
         """

@@ -148,6 +148,18 @@ export interface RepoMapToolContent extends ToolContentBase {
   structure?: Record<string, unknown> | null;
 }
 
+export interface ChartToolContent extends ToolContentBase {
+  chart_type: string;
+  title: string;
+  html_file_id?: string | null;
+  png_file_id?: string | null;
+  html_filename?: string | null;
+  png_filename?: string | null;
+  data_points?: number;
+  series_count?: number;
+  execution_time_ms?: number | null;
+}
+
 export type ToolContentPayload =
   | BrowserToolContent
   | SearchToolContent
@@ -169,4 +181,5 @@ export type ToolContentPayload =
   | CodeDevToolContent
   | CanvasToolContent
   | PlanToolContent
-  | RepoMapToolContent;
+  | RepoMapToolContent
+  | ChartToolContent;

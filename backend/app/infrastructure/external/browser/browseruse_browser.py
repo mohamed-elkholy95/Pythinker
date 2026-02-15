@@ -13,9 +13,7 @@ Hardening features:
 
 import asyncio
 import logging
-import re
 from typing import Any
-from urllib.parse import urlparse
 
 try:
     from browser_use import Agent, BrowserSession
@@ -30,135 +28,9 @@ except ImportError:
     ActionResult = None
 
 from app.core.config import get_settings
+from app.infrastructure.external.browser.url_filters import VIDEO_URL_PATTERNS, filter_video_urls, is_video_url
 
 logger = logging.getLogger(__name__)
-
-# Video domains to skip - these waste time and resources
-VIDEO_DOMAINS: set[str] = {
-    "youtube.com",
-    "www.youtube.com",
-    "youtu.be",
-    "m.youtube.com",
-    "vimeo.com",
-    "www.vimeo.com",
-    "player.vimeo.com",
-    "dailymotion.com",
-    "www.dailymotion.com",
-    "twitch.tv",
-    "www.twitch.tv",
-    "clips.twitch.tv",
-    "tiktok.com",
-    "www.tiktok.com",
-    "vm.tiktok.com",
-    "netflix.com",
-    "www.netflix.com",
-    "hulu.com",
-    "www.hulu.com",
-    "disneyplus.com",
-    "www.disneyplus.com",
-    "primevideo.com",
-    "www.primevideo.com",
-    "hbomax.com",
-    "www.hbomax.com",
-    "max.com",
-    "peacocktv.com",
-    "www.peacocktv.com",
-    "crunchyroll.com",
-    "www.crunchyroll.com",
-    "funimation.com",
-    "www.funimation.com",
-    "pornhub.com",
-    "www.pornhub.com",
-    "xvideos.com",
-    "www.xvideos.com",
-    "rumble.com",
-    "www.rumble.com",
-    "bitchute.com",
-    "www.bitchute.com",
-    "odysee.com",
-    "www.odysee.com",
-    "bilibili.com",
-    "www.bilibili.com",
-    "nicovideo.jp",
-    "www.nicovideo.jp",
-}
-
-# Video file extensions to skip
-VIDEO_EXTENSIONS: set[str] = {
-    ".mp4",
-    ".webm",
-    ".avi",
-    ".mov",
-    ".mkv",
-    ".flv",
-    ".wmv",
-    ".m4v",
-    ".mpg",
-    ".mpeg",
-    ".3gp",
-    ".ogv",
-}
-
-# URL patterns that indicate video content
-VIDEO_URL_PATTERNS: list[re.Pattern] = [
-    re.compile(r"/watch\?v=", re.IGNORECASE),
-    re.compile(r"/video/", re.IGNORECASE),
-    re.compile(r"/videos/", re.IGNORECASE),
-    re.compile(r"/embed/", re.IGNORECASE),
-    re.compile(r"/player/", re.IGNORECASE),
-    re.compile(r"\.m3u8", re.IGNORECASE),
-    re.compile(r"/stream/", re.IGNORECASE),
-]
-
-
-def is_video_url(url: str) -> bool:
-    """Check if URL is a video URL that should be skipped.
-
-    Args:
-        url: URL to check
-
-    Returns:
-        True if URL is a video URL, False otherwise
-    """
-    if not url:
-        return False
-
-    try:
-        parsed = urlparse(url.lower())
-        domain = parsed.netloc.replace("www.", "")
-
-        # Check domain
-        if domain in VIDEO_DOMAINS or f"www.{domain}" in VIDEO_DOMAINS:
-            return True
-
-        # Check file extension
-        path = parsed.path.lower()
-        for ext in VIDEO_EXTENSIONS:
-            if path.endswith(ext):
-                return True
-
-        # Check URL patterns
-        for pattern in VIDEO_URL_PATTERNS:
-            if pattern.search(url):
-                return True
-
-    except Exception:
-        logger.debug("Failed to check if URL is video URL", exc_info=True)
-
-    return False
-
-
-def filter_video_urls(urls: list[str]) -> list[str]:
-    """Filter out video URLs from a list.
-
-    Args:
-        urls: List of URLs
-
-    Returns:
-        Filtered list without video URLs
-    """
-    return [url for url in urls if not is_video_url(url)]
-
 
 class BrowserUseService:
     """Service for autonomous browser control using browser-use library

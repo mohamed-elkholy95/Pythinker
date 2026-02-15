@@ -12,6 +12,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.core.retry import RetryConfig, calculate_delay
+
 
 class OutboxOperation(str, Enum):
     """Types of sync operations."""
@@ -66,11 +68,18 @@ class OutboxEntry(BaseModel):
         return not (self.next_retry_at and self.next_retry_at > datetime.utcnow())
 
     def calculate_next_retry(self) -> datetime:
-        """Calculate next retry time with exponential backoff.
+        """Calculate next retry time with exponential backoff using centralized retry logic.
 
         Backoff schedule: 1s, 2s, 4s, 8s, 16s, 32s (max)
         """
-        delay_seconds = min(2**self.retry_count, 32)
+        # Use centralized exponential backoff (base=1.0, max=32s)
+        retry_config = RetryConfig(
+            base_delay=1.0,
+            exponential_base=2.0,
+            max_delay=32.0,
+            jitter=True,
+        )
+        delay_seconds = calculate_delay(self.retry_count + 1, retry_config)
         return datetime.utcnow() + timedelta(seconds=delay_seconds)
 
     def mark_processing(self) -> None:

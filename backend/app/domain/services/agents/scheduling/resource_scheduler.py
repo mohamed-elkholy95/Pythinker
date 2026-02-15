@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, ClassVar
 
+from app.core.retry import RetryConfig, calculate_delay
+
 logger = logging.getLogger(__name__)
 
 
@@ -331,9 +333,15 @@ class ResourceScheduler:
                 self._metrics.tasks_dropped += 1
                 return False
 
-            # Requeue with exponential backoff
+            # Requeue with exponential backoff using centralized retry logic
             task.retry_count += 1
-            delay_seconds = min(300, 10 * (2**task.retry_count))
+            retry_config = RetryConfig(
+                base_delay=10.0,
+                exponential_base=2.0,
+                max_delay=300.0,
+                jitter=True,
+            )
+            delay_seconds = calculate_delay(task.retry_count + 1, retry_config)
             task.execute_after = datetime.now() + timedelta(seconds=delay_seconds)
 
             self._queue.append(task)

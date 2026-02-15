@@ -52,7 +52,6 @@ class AgentService:
     CHAT_RESUME_MAX_SKIPPED_EVENTS = 200  # Disable skip mode if resume cursor appears stale.
     CHAT_RESUME_MAX_SKIP_SECONDS = 10.0  # Upper bound to avoid infinite resume skipping.
     CHAT_WARMUP_WAIT_SECONDS = 10.0
-    BROWSER_PREWARM_TIMEOUT_SECONDS = 12.0
 
     def __init__(
         self,
@@ -467,19 +466,13 @@ class AgentService:
                             f"Skipping redundant browser pre-warm for pooled sandbox {sandbox.id} "
                             f"(session {session_id})"
                         )
-                    elif uses_static_sandboxes:
-                        # Static SANDBOX_ADDRESS mode: browser will be lazily
-                        # initialised on first use via _ensure_browser().
-                        # Pre-warm is skipped because the connection is released
-                        # after warm-up, and stale-session cleanup may close
-                        # CDP connections on the shared sandbox.
-                        logger.info(
-                            "Skipping browser pre-warm for static sandbox mode "
-                            f"(session {session_id}, sandbox {sandbox.id})"
-                        )
                     else:
-                        # Phase 1: Pre-warm browser context for immediate use.
-                        await self._prewarm_browser(sandbox, session_id)
+                        # Non-pooled sandboxes: browser will be lazily initialized on first use
+                        # Prewarming removed to eliminate redundancy - sandbox_pool handles prewarming for pooled sandboxes
+                        logger.info(
+                            f"Browser will be initialized on first use for non-pooled sandbox {sandbox.id} "
+                            f"(session {session_id})"
+                        )
 
                     logger.info(f"Sandbox {sandbox.id} fully ready with browser for session {session_id}")
 
@@ -511,76 +504,6 @@ class AgentService:
                 f"Failed to destroy unbound sandbox {getattr(sandbox, 'id', '<unknown>')} "
                 f"for session {session_id}: {reason}; error={e}"
             )
-
-    async def _prewarm_browser(self, sandbox: Sandbox, session_id: str) -> None:
-        """Pre-warm browser context so it's ready for immediate use.
-
-        Phase 1 enhancement: Initializes browser connection during sandbox warm-up
-        to eliminate browser startup delay on first user action.
-
-        Note: This warms the Chrome browser via CDP. We disconnect Playwright
-        but DO NOT close the browser context - it stays ready for later use.
-        """
-        browser = None
-        had_error = False
-        release_browser = callable(getattr(sandbox, "release_pooled_browser", None))
-        try:
-            # Use sandbox's pooled browser path so pre-warm shares one lifecycle with normal chat usage.
-            try:
-                browser = await asyncio.wait_for(
-                    sandbox.get_browser(clear_session=False, verify_connection=False, use_pool=True),
-                    timeout=self.BROWSER_PREWARM_TIMEOUT_SECONDS,
-                )
-            except TypeError:
-                # Fallback for alternate sandbox implementations that only accept clear_session.
-                browser = await asyncio.wait_for(
-                    sandbox.get_browser(clear_session=False),
-                    timeout=self.BROWSER_PREWARM_TIMEOUT_SECONDS,
-                )
-
-            if not browser:
-                logger.warning(f"Browser pre-warm could not acquire browser for session {session_id}")
-                return
-
-            # Navigate to blank page to fully initialize rendering pipeline
-            result = await asyncio.wait_for(
-                browser.navigate("about:blank", timeout=10000, auto_extract=False),
-                timeout=self.BROWSER_PREWARM_TIMEOUT_SECONDS,
-            )
-            if result.success:
-                logger.info(f"Browser pre-warmed successfully for session {session_id}")
-            else:
-                logger.warning(f"Browser pre-warm navigation failed: {result.message}")
-
-        except TimeoutError:
-            had_error = True
-            logger.warning(
-                f"Browser pre-warm timed out after {self.BROWSER_PREWARM_TIMEOUT_SECONDS:.0f}s (session {session_id})"
-            )
-        except Exception as e:
-            had_error = True
-            # Non-fatal - browser will be initialized on first use
-            logger.warning(f"Browser pre-warm failed (non-fatal) for session {session_id}: {e}")
-        finally:
-            # Release pooled browser when applicable; otherwise ensure the
-            # non-pooled browser instance is fully cleaned up.
-            if browser:
-                released_to_pool = False
-                try:
-                    if release_browser:
-                        released_to_pool = bool(await sandbox.release_pooled_browser(browser, had_error=had_error))
-                    if not released_to_pool:
-                        if callable(getattr(browser, "cleanup", None)):
-                            await browser.cleanup()
-                        else:
-                            if getattr(browser, "playwright", None):
-                                await browser.playwright.stop()
-                            browser.page = None
-                            browser.context = None
-                            browser.browser = None
-                            browser.playwright = None
-                except Exception as cleanup_error:
-                    logger.debug(f"Browser pre-warm disconnect error (non-fatal): {cleanup_error}")
 
     async def _wait_for_sandbox_warmup_if_needed(self, session_id: str) -> None:
         """Wait briefly for background warm-up to finish to avoid CDP init races."""

@@ -293,9 +293,21 @@ class AgentDomainService:
         # Browser connection is faster after parallel health check
         try:
             browser = await asyncio.wait_for(
-                sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False),
+                sandbox.get_browser(
+                    clear_session=should_clear_browser,
+                    verify_connection=False,
+                    block_resources=True,
+                ),
                 timeout=browser_init_timeout,
             )
+            # P1.5: Clear any leftover heavy content from previous sessions
+            if should_clear_browser and browser.page:
+                try:
+                    await browser.page.goto("about:blank", timeout=5000)
+                    logger.info("Cleared browser page to about:blank for new session")
+                except Exception as clear_error:
+                    logger.debug(f"Best-effort page clear failed: {clear_error}")
+                    # Non-fatal - continue with session start
         except TimeoutError:
             logger.error(f"Browser init timed out for sandbox {sandbox.id}; recycling sandbox for session {session.id}")
             sandbox = await recycle_sandbox(sandbox, "browser initialization timeout")
@@ -304,7 +316,11 @@ class AgentDomainService:
             should_clear_browser = True
             await run_parallel_init(sandbox)
             browser = await asyncio.wait_for(
-                sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False),
+                sandbox.get_browser(
+                    clear_session=should_clear_browser,
+                    verify_connection=False,
+                    block_resources=True,
+                ),
                 timeout=browser_init_timeout,
             )
         except Exception as e:
@@ -320,7 +336,11 @@ class AgentDomainService:
             should_clear_browser = True
             await run_parallel_init(sandbox)
             browser = await asyncio.wait_for(
-                sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False),
+                sandbox.get_browser(
+                    clear_session=should_clear_browser,
+                    verify_connection=False,
+                    block_resources=True,
+                ),
                 timeout=browser_init_timeout,
             )
         if not browser:
@@ -1368,7 +1388,11 @@ NOTE: The browser state may have changed. When you next use the browser:
         if session.sandbox_id:
             sandbox = await self._sandbox_cls.get(session.sandbox_id)
             if sandbox:
-                browser = await sandbox.get_browser(clear_session=False, verify_connection=True)
+                browser = await sandbox.get_browser(
+                    clear_session=False,
+                    verify_connection=True,
+                    block_resources=True,
+                )
 
         if not browser:
             logger.error(f"Browser not available for session {session_id}")

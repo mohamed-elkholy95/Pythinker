@@ -74,6 +74,7 @@ const DEFAULT_ACTION_BY_TOOL: Record<string, string> = {
   message: 'Notifying',
   idle: 'Waiting',
   canvas: 'Designing',
+  chart: 'Creating chart',
 };
 
 function humanize(input: string): string {

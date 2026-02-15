@@ -105,6 +105,10 @@ class PlotlyChartOrchestrator:
             return None
 
         # Build JSON payload for sandbox script
+        # Create simple filename from title (slugified)
+        simple_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in report_title[:50].lower())
+        simple_name = simple_name.strip("_") or "chart"
+
         script_input = {
             "title": numeric_spec.title,
             "metric_name": numeric_spec.metric_name,
@@ -112,8 +116,8 @@ class PlotlyChartOrchestrator:
             "points": [
                 {"label": p.label, "value": p.value, "display_value": p.display_value} for p in numeric_spec.points
             ],
-            "output_html": f"/home/ubuntu/comparison-chart-{report_id}.html",
-            "output_png": f"/home/ubuntu/comparison-chart-{report_id}.png",
+            "output_html": f"/home/ubuntu/{simple_name}.html",
+            "output_png": f"/home/ubuntu/{simple_name}.png",
         }
 
         # Run Plotly chart generator script in sandbox
@@ -145,7 +149,14 @@ class PlotlyChartOrchestrator:
                 return None
 
             # Parse JSON output from script stdout
-            raw_output = (result.data if isinstance(result.data, str) else result.message) or ""
+            # Sandbox API returns data as dict with "output" key
+            if isinstance(result.data, dict):
+                raw_output = result.data.get("output", "")
+            elif isinstance(result.data, str):
+                raw_output = result.data
+            else:
+                raw_output = result.message or ""
+
             try:
                 output = json.loads(raw_output.strip())
             except json.JSONDecodeError as e:

@@ -67,6 +67,7 @@ from app.domain.services.flows.prompt_quick_validator import (
 from app.domain.services.flows.request_contract_extractor import extract as extract_request_contract
 from app.domain.services.flows.step_failure import StepFailureHandler
 from app.domain.services.tools.browser import BrowserTool
+from app.domain.services.tools.chart import ChartTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.mcp import MCPTool
@@ -263,6 +264,7 @@ class PlanActFlow(BaseFlow):
             BrowserTool(browser),
             FileTool(sandbox, session_id=session_id),
             CodeExecutorTool(sandbox=sandbox, session_id=session_id),
+            ChartTool(sandbox=sandbox, session_id=session_id),
             MessageTool(),
             IdleTool(),
             mcp_tool,

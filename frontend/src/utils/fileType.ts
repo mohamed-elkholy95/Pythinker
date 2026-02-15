@@ -21,10 +21,39 @@ export const isInteractiveChartFile = (metadata?: Record<string, any>): boolean 
   if (!metadata) return false;
 
   // Only allow HTML files with explicit chart metadata
-  const isChart = metadata.is_comparison_chart === true;
+  const isChart = metadata.is_comparison_chart === true || metadata.is_chart === true;
   const isPlotly = metadata.chart_engine === 'plotly';
 
   return isChart && isPlotly;
+};
+
+/**
+ * Check if a file is a chart PNG file based on metadata or filename
+ */
+export const isChartPngFile = (filename: string, metadata?: Record<string, any>): boolean => {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  if (ext !== 'png') return false;
+
+  // Check metadata first
+  if (metadata) {
+    const isChart = metadata.is_comparison_chart === true || metadata.is_chart === true;
+    const isPlotly = metadata.chart_engine === 'plotly';
+    if (isChart && isPlotly) return true;
+  }
+
+  // Fallback to filename pattern
+  return filename.startsWith('chart-') || filename.startsWith('comparison-chart-');
+};
+
+/**
+ * Get the corresponding HTML chart file for a PNG chart file
+ */
+export const getChartHtmlFile = (pngFile: any, allFiles: any[]): any | null => {
+  if (!isChartPngFile(pngFile.filename, pngFile.metadata)) return null;
+
+  // Find corresponding HTML file by replacing .png with .html
+  const htmlFilename = pngFile.filename.replace(/\.png$/, '.html');
+  return allFiles.find(f => f.filename === htmlFilename && isInteractiveChartFile(f.metadata));
 };
 
 const codeFileExtensions = [

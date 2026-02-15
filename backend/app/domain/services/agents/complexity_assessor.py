@@ -1,10 +1,50 @@
-"""Task complexity assessment for dynamic iteration limits."""
+"""Task complexity assessment for dynamic iteration limits.
+
+Includes adaptive model selection support for routing steps to
+appropriate model tiers based on complexity.
+"""
 
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from typing import ClassVar
 
+from pydantic import BaseModel, computed_field
+
 logger = logging.getLogger(__name__)
+
+
+class ModelTier(str, Enum):
+    """LLM model tier for cost-optimized routing.
+
+    Maps to actual model identifiers in Settings.
+    Context7 validated: Enum pattern for configuration selection.
+    """
+
+    FAST = "fast"  # Haiku-class: summaries, simple transforms, status checks
+    BALANCED = "balanced"  # Sonnet-class: planning, standard execution
+    POWERFUL = "powerful"  # Opus-class: complex reasoning, architecture
+
+
+class StepModelRecommendation(BaseModel):
+    """Model recommendation for a specific step.
+
+    Context7 validated: Pydantic v2 computed_field pattern.
+    """
+
+    step_description: str
+    complexity: str  # "simple", "medium", "complex", "very_complex"
+    tier: ModelTier
+
+    @computed_field  # Context7: Pydantic v2 @computed_field (not @property)
+    @property
+    def model_key(self) -> str:
+        """Settings key for the recommended model.
+
+        Returns:
+            The Settings attribute name (e.g., "fast_model", "balanced_model")
+        """
+        return f"{self.tier.value}_model"
 
 
 @dataclass
@@ -183,3 +223,59 @@ class ComplexityAssessor:
         logger.info(f"Complexity assessment: {assessment.reasoning}")
 
         return assessment
+
+    def recommend_model_tier(self, step_description: str, complexity_category: str | None = None) -> ModelTier:
+        """Recommend model tier for a specific step.
+
+        Args:
+            step_description: The step description to analyze
+            complexity_category: Optional pre-computed complexity ("simple", "medium", etc.)
+
+        Returns:
+            Recommended ModelTier (FAST, BALANCED, or POWERFUL)
+
+        Context7: Uses Pydantic v2 StepModelRecommendation internally.
+        """
+        step_lower = step_description.lower()
+
+        # Fast tier: summaries, lists, simple data transforms, status checks
+        fast_keywords = {
+            "summarize",
+            "summary",
+            "list",
+            "format",
+            "status",
+            "count",
+            "show",
+            "display",
+            "get",
+            "fetch",
+        }
+        if any(kw in step_lower for kw in fast_keywords):
+            return ModelTier.FAST
+
+        # Powerful tier: architecture, refactoring, debugging, design
+        powerful_keywords = {
+            "architect",
+            "architecture",
+            "refactor",
+            "debug",
+            "design",
+            "optimize",
+            "analyze deeply",
+            "research",
+            "investigate",
+            "complex analysis",
+        }
+        if any(kw in step_lower for kw in powerful_keywords):
+            return ModelTier.POWERFUL
+
+        # Use complexity category if provided
+        if complexity_category:
+            if complexity_category in ("simple", "medium"):
+                return ModelTier.BALANCED  # Default for most cases
+            if complexity_category in ("complex", "very_complex"):
+                return ModelTier.POWERFUL
+
+        # Default: balanced tier for standard execution
+        return ModelTier.BALANCED
