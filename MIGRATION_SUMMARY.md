@@ -289,3 +289,20 @@ Pythinker now has a **complete, self-contained Superpowers implementation** that
 The integration is **superior to using Superpowers as an external plugin** and provides a foundation for future enhancements like skill composition, marketplace UI, and custom skill creation tools.
 
 🎉 **Migration Complete!** 🎉
+
+---
+
+## 2026-02-14: Superpowers Skills Removal
+
+**Removed:**
+- All 14 bundled superpowers workflow skills
+- Command registry mappings (/brainstorm, /tdd, /debug, etc.)
+- Superpowers-specific infrastructure and documentation
+
+**Retained:**
+- Core skill system (OFFICIAL_SKILLS in skills_seed.py)
+- Built-in skill-creator for custom skill development
+- Command registry infrastructure for future custom commands
+
+**Rationale:**
+Nuclear clean removal - architectural simplification during development phase.
