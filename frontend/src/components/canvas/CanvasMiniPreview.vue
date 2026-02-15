@@ -92,7 +92,7 @@ const operationLabel = computed(() => {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--text-link, #3b82f6);
+  color: var(--text-link, #000000);
   text-decoration: none;
 }
 .preview-link:hover {

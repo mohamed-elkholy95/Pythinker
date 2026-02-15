@@ -129,10 +129,10 @@ const statusClass = computed(() => ({
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
+  background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
   box-shadow:
-    0 0 0 3px rgba(59, 130, 246, 0.12),
-    0 2px 8px rgba(59, 130, 246, 0.3);
+    0 0 0 3px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.3);
   animation: search-pulse 1.5s ease-in-out infinite;
 }
 

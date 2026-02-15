@@ -809,7 +809,7 @@ watch(isOpen, (newVal) => {
 .doc-body.prose {
   --tw-prose-body: var(--text-primary);
   --tw-prose-headings: var(--text-primary);
-  --tw-prose-links: #3b82f6;
+  --tw-prose-links: #000000;
   --tw-prose-bold: var(--text-primary);
   --tw-prose-counters: var(--text-secondary);
   --tw-prose-bullets: var(--text-tertiary);
@@ -825,7 +825,7 @@ watch(isOpen, (newVal) => {
 }
 
 :global(.dark) .doc-body.prose {
-  --tw-prose-links: #93c5fd;
+  --tw-prose-links: #e5e5e5;
 }
 
 /* `v-html` content is not scoped; use deep selectors for reliable dark-mode text colors */

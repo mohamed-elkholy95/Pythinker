@@ -11,8 +11,8 @@ import { ref, onMounted, onUnmounted } from 'vue'
  */
 export const THEME_COLORS = {
   light: {
-    primary: '#3b82f6',
-    secondary: '#6366f1',
+    primary: '#000000',
+    secondary: '#262626',
     success: '#22c55e',
     warning: '#f59e0b',
     error: '#ef4444',
@@ -26,16 +26,16 @@ export const THEME_COLORS = {
     },
     timeline: {
       track: '#e5e7eb',
-      marker: '#3b82f6',
-      markerHover: '#2563eb',
+      marker: '#000000',
+      markerHover: '#0a0a0a',
       scrubber: '#1f2937',
       activeMarker: '#22c55e',
       errorMarker: '#ef4444',
     },
   },
   dark: {
-    primary: '#58a6ff',
-    secondary: '#79b8ff',
+    primary: '#ffffff',
+    secondary: '#e5e5e5',
     success: '#3fb950',
     warning: '#d29922',
     error: '#f85149',
@@ -49,8 +49,8 @@ export const THEME_COLORS = {
     },
     timeline: {
       track: '#21262d',
-      marker: '#58a6ff',
-      markerHover: '#79b8ff',
+      marker: '#ffffff',
+      markerHover: '#e5e5e5',
       scrubber: '#e6edf3',
       activeMarker: '#3fb950',
       errorMarker: '#f85149',

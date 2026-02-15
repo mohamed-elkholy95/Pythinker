@@ -387,7 +387,7 @@ async function handleSubmit() {
   justify-content: center;
   width: 44px;
   height: 44px;
-  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  background: linear-gradient(135deg, #1a1a1a 0%, #262626 100%);
   border-radius: 12px;
   color: white;
 }

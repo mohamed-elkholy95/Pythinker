@@ -202,7 +202,7 @@ const openChangePasswordDialog = () => {
   position: absolute;
   inset: -3px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--text-brand) 0%, #60a5fa 100%);
+  background: linear-gradient(135deg, var(--text-brand) 0%, #1a1a1a 100%);
   opacity: 0.3;
 }
 
@@ -216,9 +216,9 @@ const openChangePasswordDialog = () => {
   font-size: 36px;
   font-weight: 700;
   color: #fff;
-  background: linear-gradient(135deg, var(--text-brand) 0%, #60a5fa 100%);
+  background: linear-gradient(135deg, var(--text-brand) 0%, #1a1a1a 100%);
   border-radius: 50%;
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .name-edit-section {

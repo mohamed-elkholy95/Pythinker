@@ -258,7 +258,7 @@ function handleSubmit() {
   padding: 8px 20px;
   border-radius: 8px;
   border: none;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: linear-gradient(135deg, #000000, #0a0a0a);
   color: white;
   font-size: 13px;
   font-weight: 500;
