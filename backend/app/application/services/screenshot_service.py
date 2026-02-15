@@ -10,6 +10,7 @@ from functools import lru_cache
 from uuid import uuid4
 
 from app.core.config import get_settings
+from app.core.retry import RetryConfig, calculate_delay
 from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
 from app.domain.repositories.screenshot_repository import ScreenshotRepository
 from app.domain.repositories.screenshot_storage import ScreenshotStorage
@@ -245,6 +246,9 @@ class ScreenshotCaptureService:
                 if not image_data:
                     return None
 
+                # Detect stale screenshots from sandbox cache tier
+                is_stale_response = response.headers.get("X-Screenshot-Stale") == "true"
+
                 size_bytes = len(image_data)
                 screenshot_id = uuid4().hex[:16]
 
@@ -284,9 +288,9 @@ class ScreenshotCaptureService:
                 else:
                     await self._minio.store_screenshot(image_data, storage_key)
 
-                # Store thumbnail in MinIO (skip entirely for duplicates)
+                # Store thumbnail in MinIO (skip for duplicates and stale responses)
                 thumbnail_storage_key: str | None = None
-                if not is_duplicate:
+                if not is_duplicate and not is_stale_response:
                     try:
                         thumb_response = await self._sandbox.get_screenshot(
                             quality=self._settings.screenshot_thumbnail_quality,
@@ -399,6 +403,11 @@ class ScreenshotCaptureService:
 
         Priority 2: Screenshot Service Reliability - retry logic to handle transient failures.
 
+        The sandbox endpoint now supports multi-tier fallback with an in-memory cache,
+        so 503 errors are rare. When the sandbox returns a stale cached screenshot,
+        the response includes ``X-Screenshot-Stale: true`` - we still accept the image
+        but mark the response for downstream handling (e.g., skip thumbnail re-capture).
+
         Args:
             quality: JPEG quality (1-100)
             scale: Scale factor (0.0-1.0)
@@ -426,13 +435,32 @@ class ScreenshotCaptureService:
 
                         screenshot_retry_attempts_total.inc({})
                         logger.info("Screenshot capture succeeded on retry attempt %d/%d", attempt + 1, max_attempts)
+
+                    # Check if the sandbox returned a stale cached screenshot
+                    is_stale = response.headers.get("X-Screenshot-Stale") == "true"
+                    if is_stale:
+                        stale_age = response.headers.get("X-Screenshot-Stale-Age-Ms", "?")
+                        backend = response.headers.get("X-Screenshot-Backend", "unknown")
+                        logger.debug(
+                            "Screenshot from stale cache (age=%sms, backend=%s) for session %s",
+                            stale_age,
+                            backend,
+                            self._session_id,
+                        )
+
                     return response
 
             except Exception as e:
                 last_exception = e
                 if attempt < max_attempts - 1:
-                    # Exponential backoff: 2s, 4s, 8s
-                    delay = base_delay * (2**attempt)
+                    # Use centralized exponential backoff
+                    retry_config = RetryConfig(
+                        base_delay=base_delay,
+                        exponential_base=2.0,
+                        max_delay=16.0,  # Cap at 16s
+                        jitter=True,
+                    )
+                    delay = calculate_delay(attempt + 1, retry_config)
                     logger.debug(
                         "Screenshot capture attempt %d/%d failed: %s. Retrying in %.1fs...",
                         attempt + 1,

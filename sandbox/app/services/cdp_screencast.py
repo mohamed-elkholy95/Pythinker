@@ -9,11 +9,14 @@ Features:
 - JPEG frame streaming for low bandwidth
 - Configurable quality and frame rate
 - WebSocket-based delivery for real-time updates
+- Persistent connection with auto-reconnect
+- Health checks to detect stale connections
 """
 
 import asyncio
 import base64
 import logging
+import time
 from dataclasses import dataclass
 from typing import AsyncGenerator, Callable
 
@@ -25,6 +28,12 @@ logger = logging.getLogger(__name__)
 CDP_HOST = "127.0.0.1"
 CDP_PORT = 9222
 CDP_ENDPOINT = f"http://{CDP_HOST}:{CDP_PORT}"
+
+# Connection management
+_WS_URL_CACHE_TTL = 60.0  # Cache the WebSocket URL for 60 seconds
+_HEALTH_CHECK_TIMEOUT = 2.0  # Quick health check timeout
+_CAPTURE_COMMAND_TIMEOUT = 4.0  # Timeout for the actual capture CDP command
+_CONNECT_TIMEOUT = 3.0  # Timeout for WebSocket connection establishment
 
 
 @dataclass
@@ -54,6 +63,9 @@ class CDPScreencastService:
 
     Uses Page.startScreencast for low-latency frame streaming directly
     from Chrome's rendering pipeline.
+
+    Supports persistent connections with auto-reconnect for low-latency
+    repeated captures (e.g., periodic screenshot service).
     """
 
     def __init__(self, config: ScreencastConfig | None = None):
@@ -63,12 +75,43 @@ class CDPScreencastService:
         self._running = False
         self._streaming = False
         self._frame_callback: Callable[[ScreencastFrame], None] | None = None
+        self._msg_counter: int = 0
+
+        # Connection caching
+        self._cached_ws_url: str | None = None
+        self._ws_url_cached_at: float = 0.0
+        self._last_successful_capture: float = 0.0
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if the WebSocket connection is alive."""
+        return (
+            self._ws is not None
+            and not self._ws.closed
+            and self._session is not None
+            and not self._session.closed
+        )
+
+    async def _get_cached_ws_url(self) -> str | None:
+        """Get WebSocket URL with caching to avoid repeated /json lookups."""
+        now = time.monotonic()
+        if self._cached_ws_url and (now - self._ws_url_cached_at) < _WS_URL_CACHE_TTL:
+            return self._cached_ws_url
+
+        url = await self.get_ws_debugger_url()
+        if url:
+            self._cached_ws_url = url
+            self._ws_url_cached_at = now
+        return url
 
     async def get_ws_debugger_url(self) -> str | None:
         """Get the WebSocket debugger URL for the first browser page."""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{CDP_ENDPOINT}/json") as resp:
+                async with session.get(
+                    f"{CDP_ENDPOINT}/json",
+                    timeout=aiohttp.ClientTimeout(total=_CONNECT_TIMEOUT),
+                ) as resp:
                     if resp.status == 200:
                         pages = await resp.json()
                         if pages:
@@ -79,29 +122,24 @@ class CDPScreencastService:
                             # Fallback to first item
                             return pages[0].get("webSocketDebuggerUrl")
         except Exception as e:
-            logger.error(f"Failed to get CDP WebSocket URL: {e}")
+            logger.debug(f"Failed to get CDP WebSocket URL: {e}")
         return None
 
-    async def connect(self) -> bool:
-        """Connect to Chrome via CDP WebSocket."""
-        ws_url = await self.get_ws_debugger_url()
-        if not ws_url:
-            logger.error("No CDP WebSocket URL available")
-            return False
+    async def ensure_connected(self) -> bool:
+        """Ensure connection is alive, reconnecting if needed.
 
-        try:
-            self._session = aiohttp.ClientSession()
-            self._ws = await self._session.ws_connect(ws_url)
-            logger.info(f"Connected to CDP at {ws_url}")
+        This is the primary entry point for persistent connection usage.
+        Avoids full connect/disconnect overhead on every call.
+        """
+        if self.is_connected:
             return True
-        except Exception as e:
-            logger.error(f"Failed to connect to CDP: {e}")
-            await self.disconnect()
-            return False
 
-    async def disconnect(self):
-        """Disconnect from CDP."""
-        self._running = False
+        # Connection is dead or doesn't exist, try to reconnect
+        await self._cleanup_stale_connection()
+        return await self.connect()
+
+    async def _cleanup_stale_connection(self) -> None:
+        """Clean up any stale connection state without logging disconnect."""
         if self._ws:
             try:
                 await self._ws.close()
@@ -114,20 +152,62 @@ class CDPScreencastService:
             except Exception:
                 pass
             self._session = None
-        logger.info("Disconnected from CDP")
 
-    _msg_counter: int = 0
+    async def connect(self) -> bool:
+        """Connect to Chrome via CDP WebSocket."""
+        ws_url = await self._get_cached_ws_url()
+        if not ws_url:
+            logger.debug("No CDP WebSocket URL available")
+            return False
+
+        try:
+            self._session = aiohttp.ClientSession()
+            self._ws = await asyncio.wait_for(
+                self._session.ws_connect(ws_url),
+                timeout=_CONNECT_TIMEOUT,
+            )
+            logger.info(f"Connected to CDP at {ws_url}")
+            return True
+        except asyncio.TimeoutError:
+            logger.warning("CDP WebSocket connection timed out")
+            await self._cleanup_stale_connection()
+            return False
+        except Exception as e:
+            logger.warning(f"Failed to connect to CDP: {e}")
+            await self._cleanup_stale_connection()
+            return False
+
+    async def disconnect(self):
+        """Disconnect from CDP."""
+        self._running = False
+        await self._cleanup_stale_connection()
+        logger.debug("Disconnected from CDP")
+
+    async def health_check(self) -> bool:
+        """Quick health check - verify Chrome is responsive via the /json endpoint.
+
+        This is cheaper than a full WebSocket roundtrip and detects
+        Chrome crashes or restarts without disturbing the WS connection.
+        """
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{CDP_ENDPOINT}/json/version",
+                    timeout=aiohttp.ClientTimeout(total=_HEALTH_CHECK_TIMEOUT),
+                ) as resp:
+                    return resp.status == 200
+        except Exception:
+            return False
 
     async def _send_command(
-        self, method: str, params: dict | None = None, timeout: float = 10.0
+        self, method: str, params: dict | None = None, timeout: float = _CAPTURE_COMMAND_TIMEOUT
     ) -> dict | None:
         """Send a CDP command and wait for response with timeout."""
         if not self._ws or self._ws.closed:
             return None
 
-        # Use incrementing counter for message IDs (CDP expects small integers)
-        CDPScreencastService._msg_counter += 1
-        msg_id = CDPScreencastService._msg_counter
+        self._msg_counter += 1
+        msg_id = self._msg_counter
 
         message = {"id": msg_id, "method": method}
         if params:
@@ -161,10 +241,10 @@ class CDPScreencastService:
                         return data
                     # Otherwise it might be an event, continue waiting
                 elif msg.type == aiohttp.WSMsgType.ERROR:
-                    logger.error(f"CDP WebSocket error: {msg.data}")
+                    logger.warning(f"CDP WebSocket error: {msg.data}")
                     return None
                 elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
-                    logger.error("CDP WebSocket closed unexpectedly")
+                    logger.warning("CDP WebSocket closed unexpectedly")
                     return None
 
         except RuntimeError as e:
@@ -172,9 +252,9 @@ class CDPScreencastService:
             if "closing transport" in str(e).lower():
                 logger.debug(f"CDP command skipped on closing transport: {method}")
             else:
-                logger.error(f"CDP command error: {e}")
+                logger.warning(f"CDP command error: {e}")
         except Exception as e:
-            logger.error(f"CDP command error: {e}")
+            logger.warning(f"CDP command error: {e}")
         return None
 
     async def start_screencast(self) -> bool:
@@ -278,14 +358,13 @@ class CDPScreencastService:
         """
         Capture a single frame from the browser.
 
+        Uses persistent connection via ensure_connected() for low overhead.
         Useful for one-off screenshots with lower latency than xwd approach.
         """
-        if not self._ws:
-            if not await self.connect():
-                return None
+        if not await self.ensure_connected():
+            return None
 
         try:
-            # Use Page.captureScreenshot for single frame (faster for one-off)
             result = await self._send_command(
                 "Page.captureScreenshot",
                 {"format": self.config.format, "quality": self.config.quality},
@@ -294,22 +373,45 @@ class CDPScreencastService:
             if result and "result" in result:
                 data = result["result"].get("data")
                 if data:
+                    self._last_successful_capture = time.monotonic()
                     return base64.b64decode(data)
 
+            # Command succeeded but no data - connection may be stale
+            if result and "error" in result:
+                logger.warning(f"CDP capture error response: {result['error']}")
+                # Force reconnect on next attempt
+                await self._cleanup_stale_connection()
+
         except Exception as e:
-            logger.error(f"Failed to capture single frame: {e}")
+            logger.warning(f"Failed to capture single frame: {e}")
+            # Force reconnect on next attempt
+            await self._cleanup_stale_connection()
 
         return None
 
 
-# Singleton instance for reuse
+# Singleton instance for reuse across requests
 _service_instance: CDPScreencastService | None = None
+_service_lock = asyncio.Lock()
+
+
+async def get_or_create_screencast_service(
+    config: ScreencastConfig | None = None,
+) -> CDPScreencastService:
+    """Get or create the singleton CDP screencast service (async-safe)."""
+    global _service_instance
+    if _service_instance is None:
+        async with _service_lock:
+            # Double-check after acquiring lock
+            if _service_instance is None:
+                _service_instance = CDPScreencastService(config)
+    return _service_instance
 
 
 def get_screencast_service(
     config: ScreencastConfig | None = None,
 ) -> CDPScreencastService:
-    """Get or create the singleton CDP screencast service."""
+    """Get or create the singleton CDP screencast service (sync version)."""
     global _service_instance
     if _service_instance is None:
         _service_instance = CDPScreencastService(config)

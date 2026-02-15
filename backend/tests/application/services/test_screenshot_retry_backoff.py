@@ -25,6 +25,7 @@ async def test_retry_succeeds_on_second_attempt():
         # Success on second attempt
         response = Mock()
         response.content = b"fake_image_data"
+        response.headers = {}  # Empty headers for non-stale response
         return response
 
     mock_sandbox.get_screenshot = mock_get_screenshot
@@ -78,11 +79,12 @@ async def test_retry_uses_exponential_backoff():
         with suppress(Exception):
             await service._get_screenshot_with_retry(quality=80, scale=1.0)
 
-    # Should have delays: 1s, 2s (exponential backoff)
+    # Should have delays: ~1s, ~2s (exponential backoff with jitter)
     # Note: Last attempt doesn't sleep
     assert len(delays) == 2
-    assert delays[0] == 1.0  # 1 * 2^0
-    assert delays[1] == 2.0  # 1 * 2^1
+    # Jitter adds randomness, so check ranges instead of exact values
+    assert 0.5 <= delays[0] <= 1.5  # ~1 * 2^0 with jitter
+    assert 1.0 <= delays[1] <= 3.0  # ~1 * 2^1 with jitter
 
 
 @pytest.mark.asyncio
@@ -131,6 +133,7 @@ async def test_successful_retry_increments_metric():
             raise Exception("Transient error")
         response = Mock()
         response.content = b"fake_image_data"
+        response.headers = {}  # Empty headers for non-stale response
         return response
 
     mock_sandbox.get_screenshot = mock_get_screenshot
