@@ -26,14 +26,14 @@ TESTS_FAILED=0
 # Helper functions
 pass() {
     echo -e "${GREEN}✓ PASS${NC}: $1"
-    ((TESTS_PASSED++))
-    ((TESTS_RUN++))
+    ((++TESTS_PASSED))
+    ((++TESTS_RUN))
 }
 
 fail() {
     echo -e "${RED}✗ FAIL${NC}: $1"
-    ((TESTS_FAILED++))
-    ((TESTS_RUN++))
+    ((++TESTS_FAILED))
+    ((++TESTS_RUN))
 }
 
 info() {

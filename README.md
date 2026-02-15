@@ -155,6 +155,29 @@ cp .env.example .env
 
 2. Update `.env` with your API key and settings.
 
+**Pre-deployment environment**
+
+Before running `docker compose up` for deployment, create a `.env` from `.env.example` and ensure required secrets are set. This project expects MinIO credentials to be provided via environment variables used by `docker-compose.yml`:
+
+- `MINIO_ROOT_USER` - MinIO admin username (example placeholder in `.env.example`)
+- `MINIO_ROOT_PASSWORD` - MinIO admin password (example placeholder in `.env.example`)
+
+Example workflow:
+
+```bash
+cp .env.example .env
+# Edit .env and set secure values for MINIO_ROOT_USER and MINIO_ROOT_PASSWORD
+# Generate a secure password, e.g. on macOS: openssl rand -base64 32
+```
+
+Verify the variables are present before running `docker compose`:
+
+```bash
+grep -E "MINIO_ROOT_USER|MINIO_ROOT_PASSWORD" .env
+```
+
+If a variable is missing, `docker-compose.yml` may fail the substitution checks. Use strong, unique values for MinIO credentials in production.
+
 3. Run in development mode:
 ```bash
 docker compose -f docker-compose-development.yml up
