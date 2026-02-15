@@ -452,7 +452,7 @@ class DockerSandbox(Sandbox):
                 # Note: runtime_init, context_generator, xrandr_setup, fix_permissions are expected to EXIT (run once at startup)
                 all_running = True
                 non_running_services = []
-                expected_exit_services = {"runtime_init", "context_generator", "xrandr_setup", "fix_permissions"}
+                expected_exit_services = {"runtime_init", "context_generator", "xrandr_setup", "fix_permissions", "chrome_cdp_only"}
 
                 for service in services:
                     service_name = service.get("name", "unknown")
