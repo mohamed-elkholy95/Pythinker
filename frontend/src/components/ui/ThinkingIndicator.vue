@@ -1,159 +1,96 @@
 <template>
   <div class="thinking-lamp-wrapper" @mouseenter="hovered = true" @mouseleave="hovered = false">
     <div class="thinking-lamp" :class="{ 'lamp-with-text': props.showText, 'lamp-hovered': hovered }">
-      <!-- The lamp SVG — Futuristic AI Core Design -->
+      <!-- Scan line sweeping across -->
+      <div class="scan-line"></div>
+
+      <!-- Core energy ring -->
+      <div class="energy-ring"></div>
+
+      <!-- The lamp SVG -->
       <svg
         class="lamp-svg"
-        viewBox="0 0 200 200"
+        viewBox="0 0 32 36"
+        fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
-          <!-- Clip interior to hex core -->
-          <clipPath id="core-clip">
-            <polygon points="100,18 162,52 162,118 100,152 38,118 38,52" />
+          <!-- Animated gradient for bulb -->
+          <linearGradient id="bulb-fuel" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#f8e5c4" stop-opacity="0.35" />
+            <stop offset="40%" stop-color="#f2c88a" stop-opacity="0.65" />
+            <stop offset="100%" stop-color="#e3a45a" stop-opacity="0.9" />
+          </linearGradient>
+          <!-- Circuit pattern clip -->
+          <clipPath id="bulb-clip">
+            <path d="M16 3C10.48 3 6 7.48 6 13c0 3.68 2 6.9 5 8.65V24c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-2.35c3-1.75 5-4.97 5-8.65 0-5.52-4.48-10-10-10z" />
           </clipPath>
-          <!-- Pulsing core gradient -->
-          <radialGradient id="core-energy" cx="50%" cy="45%" r="45%">
-            <stop offset="0%" stop-color="#ffe4a0" stop-opacity="0.9">
-              <animate attributeName="stop-opacity" values="0.9;0.3;0.9" dur="2s" repeatCount="indefinite" />
-            </stop>
-            <stop offset="55%" stop-color="#c48a50" stop-opacity="0.2">
-              <animate attributeName="stop-opacity" values="0.2;0.05;0.2" dur="2s" repeatCount="indefinite" />
-            </stop>
-            <stop offset="100%" stop-color="transparent" />
-          </radialGradient>
-          <!-- Plasma blob gradient -->
-          <radialGradient id="plasma-glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#ffd080" stop-opacity="0.65" />
-            <stop offset="80%" stop-color="#c48a50" stop-opacity="0.1" />
-            <stop offset="100%" stop-color="transparent" />
-          </radialGradient>
         </defs>
 
-        <!-- Sequential thinking rays — left to right -->
-        <g class="rays-group">
-          <line class="thinking-ray ray-1" x1="22" y1="85" x2="6" y2="85" stroke-width="3" stroke-linecap="round" />
-          <line class="thinking-ray ray-2" x1="32" y1="40" x2="18" y2="22" stroke-width="3" stroke-linecap="round" />
-          <line class="thinking-ray ray-3" x1="72" y1="14" x2="66" y2="-2" stroke-width="3" stroke-linecap="round" />
-          <line class="thinking-ray ray-4" x1="100" y1="8" x2="100" y2="-8" stroke-width="3" stroke-linecap="round" />
-          <line class="thinking-ray ray-5" x1="128" y1="14" x2="134" y2="-2" stroke-width="3" stroke-linecap="round" />
-          <line class="thinking-ray ray-6" x1="168" y1="40" x2="182" y2="22" stroke-width="3" stroke-linecap="round" />
-          <line class="thinking-ray ray-7" x1="178" y1="85" x2="194" y2="85" stroke-width="3" stroke-linecap="round" />
-        </g>
-
-        <!-- Outer rotating hex ring -->
-        <polygon
-          class="hex-ring outer"
-          points="100,10 168,48 168,122 100,160 32,122 32,48"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-dasharray="8 6"
-        />
-
-        <!-- Inner hex frame (main shape) -->
-        <polygon
+        <!-- Outer hex frame -->
+        <path
           class="hex-frame"
-          points="100,18 162,52 162,118 100,152 38,118 38,52"
-          fill="currentColor"
-          stroke="currentColor"
-          stroke-width="1"
+          d="M16 1 L27 7 L27 19 L16 25 L5 19 L5 7 Z"
+          stroke-width="0.5"
+          fill="none"
         />
 
-        <!-- Base connector — futuristic stem -->
-        <rect class="base-seg s1" x="82" y="152" width="36" height="8" rx="2" fill="currentColor" />
-        <rect class="base-seg s2" x="86" y="162" width="28" height="7" rx="2" fill="currentColor" />
-        <rect class="base-seg s3" x="90" y="171" width="20" height="6" rx="2" fill="currentColor" />
-        <!-- Base accent lines -->
-        <line class="base-accent" x1="82" y1="156" x2="118" y2="156" stroke="currentColor" stroke-width="0.5" opacity="0.3" />
-        <line class="base-accent" x1="86" y1="165" x2="114" y2="165" stroke="currentColor" stroke-width="0.5" opacity="0.3" />
+        <!-- Bulb body — futuristic capsule -->
+        <path
+          class="lamp-bulb"
+          d="M16 3C10.48 3 6 7.48 6 13c0 3.68 2 6.9 5 8.65V24c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-2.35c3-1.75 5-4.97 5-8.65 0-5.52-4.48-10-10-10z"
+        />
 
-        <!-- Interior animations (clipped to hex) -->
-        <g clip-path="url(#core-clip)">
-          <!-- Energy core -->
-          <circle class="energy-core" cx="100" cy="82" r="28" fill="url(#core-energy)">
-            <animate attributeName="r" values="24;32;24" dur="2.2s" repeatCount="indefinite" />
-          </circle>
-
-          <!-- Orbiting plasma blob 1 -->
-          <ellipse class="plasma-blob" cx="100" cy="65" rx="18" ry="12" fill="url(#plasma-glow)" opacity="0.55">
-            <animateTransform attributeName="transform" type="rotate" values="0 100 85;360 100 85" dur="5s" repeatCount="indefinite" />
-            <animate attributeName="rx" values="18;10;18" dur="2.5s" repeatCount="indefinite" />
-            <animate attributeName="ry" values="12;20;12" dur="2.5s" repeatCount="indefinite" />
-          </ellipse>
-
-          <!-- Orbiting plasma blob 2 (counter) -->
-          <ellipse class="plasma-blob" cx="100" cy="105" rx="14" ry="10" fill="url(#plasma-glow)" opacity="0.4">
-            <animateTransform attributeName="transform" type="rotate" values="360 100 85;0 100 85" dur="4s" repeatCount="indefinite" />
-            <animate attributeName="rx" values="14;22;14" dur="2s" repeatCount="indefinite" />
-            <animate attributeName="ry" values="10;6;10" dur="2s" repeatCount="indefinite" />
-          </ellipse>
-
-          <!-- Figure-8 wandering spark -->
-          <ellipse class="plasma-blob" rx="10" ry="8" fill="url(#plasma-glow)" opacity="0.5">
-            <animate attributeName="cx" values="75;125;75" dur="3.5s" repeatCount="indefinite" />
-            <animate attributeName="cy" values="70;100;70" dur="1.75s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0.3;0.6;0.3" dur="3.5s" repeatCount="indefinite" />
-          </ellipse>
-
-          <!-- Rising sparks -->
-          <circle class="spark" r="2.5" fill="currentColor" opacity="0">
-            <animate attributeName="cx" values="90;95;90" dur="2.4s" repeatCount="indefinite" />
-            <animate attributeName="cy" values="130;45;130" dur="2.4s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0;0.8;0" dur="2.4s" repeatCount="indefinite" />
-          </circle>
-          <circle class="spark" r="2" fill="currentColor" opacity="0">
-            <animate attributeName="cx" values="112;108;112" dur="2.9s" repeatCount="indefinite" />
-            <animate attributeName="cy" values="125;40;125" dur="2.9s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0;0.7;0" dur="2.9s" repeatCount="indefinite" />
-          </circle>
-          <circle class="spark" r="1.8" fill="currentColor" opacity="0">
-            <animate attributeName="cx" values="100;103;100" dur="2s" repeatCount="indefinite" />
-            <animate attributeName="cy" values="135;35;135" dur="2s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0;0.9;0" dur="2s" repeatCount="indefinite" />
-          </circle>
-
-          <!-- Swirling dashed orbit -->
-          <ellipse class="swirl-ring" cx="100" cy="85" rx="42" ry="16" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="5 8" opacity="0.12">
-            <animateTransform attributeName="transform" type="rotate" values="0 100 85;360 100 85" dur="7s" repeatCount="indefinite" />
-            <animate attributeName="ry" values="16;28;16" dur="3.5s" repeatCount="indefinite" />
-          </ellipse>
-
-          <!-- Electric arc flashes -->
-          <polyline class="electric-arc" points="65,110 80,80 70,65 95,50" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0">
-            <animate attributeName="opacity" values="0;0.7;0;0;0" dur="3.2s" repeatCount="indefinite" />
-          </polyline>
-          <polyline class="electric-arc" points="135,105 120,78 130,60 105,48" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0">
-            <animate attributeName="opacity" values="0;0;0.6;0;0" dur="3.6s" repeatCount="indefinite" />
-          </polyline>
-
-          <!-- Scanning horizontal line -->
-          <line class="scan-beam" x1="42" y1="85" x2="158" y2="85" stroke="currentColor" stroke-width="0.8" opacity="0">
-            <animate attributeName="y1" values="55;145;55" dur="3s" repeatCount="indefinite" />
-            <animate attributeName="y2" values="55;145;55" dur="3s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0.3;0.1;0.3" dur="3s" repeatCount="indefinite" />
-          </line>
+        <!-- Internal circuit lines -->
+        <g class="circuit-lines" clip-path="url(#bulb-clip)">
+          <line x1="10" y1="8" x2="10" y2="22" stroke-width="0.3" />
+          <line x1="14" y1="5" x2="14" y2="22" stroke-width="0.3" />
+          <line x1="18" y1="5" x2="18" y2="22" stroke-width="0.3" />
+          <line x1="22" y1="8" x2="22" y2="22" stroke-width="0.3" />
+          <line x1="6" y1="10" x2="26" y2="10" stroke-width="0.3" />
+          <line x1="6" y1="16" x2="26" y2="16" stroke-width="0.3" />
         </g>
 
-        <!-- Corner node accents (tech detail) -->
-        <circle class="corner-node" cx="100" cy="18" r="3" fill="currentColor" opacity="0.4">
-          <animate attributeName="opacity" values="0.4;0.8;0.4" dur="1.5s" repeatCount="indefinite" />
-        </circle>
-        <circle class="corner-node" cx="162" cy="52" r="2.5" fill="currentColor" opacity="0.3">
-          <animate attributeName="opacity" values="0.3;0.7;0.3" dur="1.5s" begin="0.25s" repeatCount="indefinite" />
-        </circle>
-        <circle class="corner-node" cx="38" cy="52" r="2.5" fill="currentColor" opacity="0.3">
-          <animate attributeName="opacity" values="0.3;0.7;0.3" dur="1.5s" begin="0.5s" repeatCount="indefinite" />
-        </circle>
-        <circle class="corner-node" cx="162" cy="118" r="2.5" fill="currentColor" opacity="0.3">
-          <animate attributeName="opacity" values="0.3;0.7;0.3" dur="1.5s" begin="0.75s" repeatCount="indefinite" />
-        </circle>
-        <circle class="corner-node" cx="38" cy="118" r="2.5" fill="currentColor" opacity="0.3">
-          <animate attributeName="opacity" values="0.3;0.7;0.3" dur="1.5s" begin="1s" repeatCount="indefinite" />
-        </circle>
-        <circle class="corner-node" cx="100" cy="152" r="3" fill="currentColor" opacity="0.4">
-          <animate attributeName="opacity" values="0.4;0.8;0.4" dur="1.5s" begin="1.25s" repeatCount="indefinite" />
-        </circle>
+        <!-- Bulb outline -->
+        <path
+          class="lamp-outline"
+          d="M16 3C10.48 3 6 7.48 6 13c0 3.68 2 6.9 5 8.65V24c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-2.35c3-1.75 5-4.97 5-8.65 0-5.52-4.48-10-10-10z"
+          stroke-width="0.6"
+          fill="none"
+        />
+
+        <!-- Core filament — energy arc -->
+        <path
+          class="lamp-filament core"
+          d="M13 14c0-1.65 1.35-3 3-3s3 1.35 3 3"
+          stroke-width="0.8"
+          stroke-linecap="round"
+          fill="none"
+        />
+        <line class="lamp-filament stem" x1="13.5" y1="16" x2="13.5" y2="20" stroke-width="0.5" stroke-linecap="round" />
+        <line class="lamp-filament stem" x1="18.5" y1="16" x2="18.5" y2="20" stroke-width="0.5" stroke-linecap="round" />
+        <!-- Energy node at filament peak -->
+        <circle class="filament-node" cx="16" cy="11" r="1" />
+
+        <!-- Base — segmented tech connector -->
+        <rect class="lamp-base seg-1" x="11" y="25.5" width="10" height="1.5" rx="0.3" />
+        <rect class="lamp-base seg-2" x="12" y="27.5" width="8" height="1.5" rx="0.3" />
+        <rect class="lamp-base seg-3" x="13" y="29.5" width="6" height="1.2" rx="0.3" />
+        <!-- Base accent lines -->
+        <line class="base-accent" x1="11" y1="26.3" x2="21" y2="26.3" stroke-width="0.3" />
+        <line class="base-accent" x1="12" y1="28.3" x2="20" y2="28.3" stroke-width="0.3" />
+
+        <!-- Light rays — angular/geometric -->
+        <line class="lamp-ray ray-1" x1="3" y1="13" x2="0.5" y2="13" stroke-width="0.7" stroke-linecap="round" />
+        <line class="lamp-ray ray-2" x1="5.5" y1="5.5" x2="3.5" y2="3.5" stroke-width="0.7" stroke-linecap="round" />
+        <line class="lamp-ray ray-3" x1="16" y1="0.5" x2="16" y2="-1.5" stroke-width="0.7" stroke-linecap="round" />
+        <line class="lamp-ray ray-4" x1="26.5" y1="5.5" x2="28.5" y2="3.5" stroke-width="0.7" stroke-linecap="round" />
+        <line class="lamp-ray ray-5" x1="29" y1="13" x2="31.5" y2="13" stroke-width="0.7" stroke-linecap="round" />
+        <!-- Secondary short rays -->
+        <line class="lamp-ray-s ray-s1" x1="4" y1="9" x2="2.5" y2="8" stroke-width="0.4" stroke-linecap="round" />
+        <line class="lamp-ray-s ray-s2" x1="10" y1="2.5" x2="9" y2="1" stroke-width="0.4" stroke-linecap="round" />
+        <line class="lamp-ray-s ray-s3" x1="22" y1="2.5" x2="23" y2="1" stroke-width="0.4" stroke-linecap="round" />
+        <line class="lamp-ray-s ray-s4" x1="28" y1="9" x2="29.5" y2="8" stroke-width="0.4" stroke-linecap="round" />
       </svg>
     </div>
     <span v-if="props.showText" class="thinking-text">Thinking</span>
@@ -202,113 +139,171 @@ const hovered = ref(false)
   height: 27px;
 }
 
+/* Hover: slight scale + faster animations */
 .thinking-lamp.lamp-hovered {
-  transform: scale(1.2);
+  transform: scale(1.15);
 }
 
-/* === SVG === */
+.thinking-lamp.lamp-hovered .lamp-bulb {
+  animation-duration: 1.2s !important;
+}
+
+.thinking-lamp.lamp-hovered .lamp-ray {
+  animation-duration: 1.5s !important;
+}
+
+.thinking-lamp.lamp-hovered .scan-line {
+  animation-duration: 0.8s !important;
+}
+
+.thinking-lamp.lamp-hovered .energy-ring {
+  opacity: 0.5;
+  transform: scale(1.3);
+}
+
+.thinking-lamp.lamp-hovered .filament-node {
+  animation-duration: 0.4s !important;
+}
+
+/* === Scan line — sweeps top to bottom === */
+.scan-line {
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, #c48a50 50%, transparent 100%);
+  opacity: 0.4;
+  animation: scan-sweep 2s linear infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* === Energy ring — subtle rotating border === */
+.energy-ring {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: 6px;
+  border-radius: 50%;
+  border: 0.5px solid transparent;
+  border-top-color: rgba(196, 138, 80, 0.3);
+  border-right-color: rgba(196, 138, 80, 0.1);
+  animation: ring-spin 4s linear infinite;
+  pointer-events: none;
+  opacity: 0.3;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+/* === SVG lamp === */
 .lamp-svg {
   width: 100%;
   height: 100%;
   position: relative;
   z-index: 1;
-  overflow: visible;
+  overflow: hidden;
 }
 
-/* Hex frame — main body */
+/* Hex frame — faint geometric border */
 .hex-frame {
-  color: #8b6914;
-  animation: bulb-breathe 2.5s ease-in-out infinite;
-  filter: drop-shadow(0 0 2px rgba(196, 138, 80, 0.3));
-  transition: color 0.3s ease, filter 0.3s ease;
+  stroke: #3d3020;
+  stroke-dasharray: 3 2;
+  stroke-dashoffset: 0;
+  animation: hex-rotate 8s linear infinite;
+  opacity: 0.25;
 }
 
-.thinking-lamp.lamp-hovered .hex-frame {
-  color: #b8860b;
-  filter: drop-shadow(0 0 6px rgba(196, 138, 80, 0.5));
+/* Bulb fill — muted orange with fuel gradient */
+.lamp-bulb {
+  fill: url(#bulb-fuel);
+  animation: bulb-glow 2.5s ease-in-out infinite;
 }
 
-/* Outer rotating hex ring */
-.hex-ring.outer {
-  color: #8b6914;
-  opacity: 0.2;
-  animation: hex-spin 12s linear infinite;
-  transform-origin: 100px 85px;
+/* Bulb outline — dark stroke */
+.lamp-outline {
+  stroke: #3b2a1a;
+  animation: outline-pulse 2.5s ease-in-out infinite;
 }
 
-.thinking-lamp.lamp-hovered .hex-ring.outer {
-  opacity: 0.4;
-  animation-duration: 6s;
+/* Circuit lines inside bulb */
+.circuit-lines line {
+  stroke: #3b2a1a;
+  opacity: 0.12;
+  animation: circuit-flicker 3s ease-in-out infinite;
 }
 
-/* Base connector */
-.base-seg {
-  color: #6b5a48;
+.circuit-lines line:nth-child(odd) {
+  animation-delay: 0.5s;
+}
+
+/* Filament — dark energy arc */
+.lamp-filament {
+  stroke: #4a3017;
+  opacity: 0.7;
+  animation: filament-flicker 1.8s ease-in-out infinite;
+}
+
+.lamp-filament.core {
+  stroke-width: 0.8;
+  animation: filament-pulse 1.8s ease-in-out infinite;
+}
+
+.lamp-filament.stem {
+  opacity: 0.5;
+}
+
+/* Energy node — pulsing dot at filament peak */
+.filament-node {
+  fill: #f2b66b;
   opacity: 0.8;
+  animation: node-pulse 0.8s ease-in-out infinite;
 }
 
-.base-seg.s1 { opacity: 0.9; }
-.base-seg.s2 { opacity: 0.7; }
-.base-seg.s3 { opacity: 0.55; }
+/* Base segments — tech connector look */
+.lamp-base {
+  fill: #6b5a48;
+}
 
-/* === Sequential thinking rays === */
-.thinking-ray {
-  stroke: #1a1a1a;
-  opacity: 0;
-  animation: ray-sequential 3.5s ease-in-out infinite;
-  transform-origin: center;
+.lamp-base.seg-1 {
+  fill: #7a6852;
+}
+
+.lamp-base.seg-2 {
+  fill: #6b5a48;
+}
+
+.lamp-base.seg-3 {
+  fill: #5a4a3a;
+}
+
+.base-accent {
+  stroke: #2a2018;
+  opacity: 0.4;
+}
+
+/* Light rays — dark lines, staggered */
+.lamp-ray {
+  stroke: #000000;
+  animation: ray-appear 2.4s ease-in-out infinite;
 }
 
 .ray-1 { animation-delay: 0s; }
-.ray-2 { animation-delay: 0.2s; }
-.ray-3 { animation-delay: 0.4s; }
-.ray-4 { animation-delay: 0.6s; }
-.ray-5 { animation-delay: 0.8s; }
-.ray-6 { animation-delay: 1.0s; }
-.ray-7 { animation-delay: 1.2s; }
+.ray-2 { animation-delay: 0.15s; }
+.ray-3 { animation-delay: 0.3s; }
+.ray-4 { animation-delay: 0.45s; }
+.ray-5 { animation-delay: 0.6s; }
 
-.thinking-lamp.lamp-hovered .thinking-ray {
-  animation-duration: 2s;
-  stroke: #000;
+/* Secondary short rays */
+.lamp-ray-s {
+  stroke: #000000;
+  animation: ray-appear-s 2.4s ease-in-out infinite;
 }
 
-/* Interior elements */
-.energy-core {
-  mix-blend-mode: screen;
-}
-
-.plasma-blob {
-  mix-blend-mode: screen;
-}
-
-.spark {
-  color: #c48a50;
-}
-
-.swirl-ring {
-  color: #c48a50;
-}
-
-.electric-arc {
-  color: #daa520;
-  filter: drop-shadow(0 0 2px currentColor);
-}
-
-.scan-beam {
-  color: #c48a50;
-}
-
-.corner-node {
-  color: #c48a50;
-}
-
-.thinking-lamp.lamp-hovered .spark {
-  color: #e0a030;
-}
-
-.thinking-lamp.lamp-hovered .electric-arc {
-  filter: drop-shadow(0 0 5px currentColor);
-}
+.ray-s1 { animation-delay: 0.1s; }
+.ray-s2 { animation-delay: 0.25s; }
+.ray-s3 { animation-delay: 0.4s; }
+.ray-s4 { animation-delay: 0.55s; }
 
 /* === Thinking text === */
 .thinking-text {
@@ -347,102 +342,227 @@ const hovered = ref(false)
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  filter: none;
   animation: text-shimmer 2.2s linear infinite;
+}
+
+:deep(.dark) .thinking-lamp,
+.dark .thinking-lamp {
+  filter: none;
+  animation: none;
+}
+
+:deep(.dark) .lamp-bulb,
+.dark .lamp-bulb {
+  opacity: 0.98;
+  filter: saturate(1.3) brightness(1.18) contrast(1.04);
+}
+
+:deep(.dark) .lamp-outline,
+.dark .lamp-outline {
+  stroke: #c58e3f;
+  opacity: 0.9;
 }
 
 :deep(.dark) .hex-frame,
 .dark .hex-frame {
-  color: #ffd67a;
-  filter: drop-shadow(0 0 4px rgba(255, 214, 122, 0.4));
+  stroke: #f2c274;
+  opacity: 0.28;
 }
 
-:deep(.dark) .thinking-lamp.lamp-hovered .hex-frame,
-.dark .thinking-lamp.lamp-hovered .hex-frame {
-  color: #ffe4a0;
-  filter: drop-shadow(0 0 8px rgba(255, 214, 122, 0.6));
+:deep(.dark) .lamp-filament,
+.dark .lamp-filament {
+  stroke: #ffd989;
+  opacity: 0.92;
 }
 
-:deep(.dark) .hex-ring.outer,
-.dark .hex-ring.outer {
-  color: #ffd67a;
-  opacity: 0.18;
+:deep(.dark) .circuit-lines line,
+.dark .circuit-lines line {
+  stroke: #f1c173;
+  opacity: 0.14;
 }
 
-:deep(.dark) .base-seg,
-.dark .base-seg {
-  color: #4a4038;
+:deep(.dark) .lamp-base.seg-1,
+.dark .lamp-base.seg-1 {
+  fill: #4a4038;
 }
 
-:deep(.dark) .thinking-ray,
-.dark .thinking-ray {
+:deep(.dark) .lamp-base.seg-2,
+.dark .lamp-base.seg-2 {
+  fill: #3e3530;
+}
+
+:deep(.dark) .lamp-base.seg-3,
+.dark .lamp-base.seg-3 {
+  fill: #332a25;
+}
+
+:deep(.dark) .base-accent,
+.dark .base-accent {
+  stroke: #f4cb86;
+  opacity: 0.28;
+}
+
+:deep(.dark) .lamp-ray,
+.dark .lamp-ray,
+:deep(.dark) .lamp-ray-s,
+.dark .lamp-ray-s {
   stroke: #ffd67a;
 }
 
-:deep(.dark) .thinking-lamp.lamp-hovered .thinking-ray,
-.dark .thinking-lamp.lamp-hovered .thinking-ray {
-  stroke: #ffe4a0;
+:deep(.dark) .scan-line,
+.dark .scan-line {
+  background: linear-gradient(90deg, transparent 0%, #ffd57a 50%, transparent 100%);
+  opacity: 0.45;
 }
 
-:deep(.dark) .spark,
-.dark .spark,
-:deep(.dark) .corner-node,
-.dark .corner-node,
-:deep(.dark) .swirl-ring,
-.dark .swirl-ring,
-:deep(.dark) .scan-beam,
-.dark .scan-beam {
-  color: #ffe4a0;
+:deep(.dark) .energy-ring,
+.dark .energy-ring {
+  border-top-color: rgba(255, 216, 120, 0.28);
+  border-right-color: rgba(255, 216, 120, 0.12);
+  opacity: 0.22;
 }
 
-:deep(.dark) .electric-arc,
-.dark .electric-arc {
-  color: #ffd67a;
-  filter: drop-shadow(0 0 4px rgba(255, 214, 122, 0.6));
+:deep(.dark) .filament-node,
+.dark .filament-node {
+  fill: #ffe9ae;
+  filter: none;
 }
 
 /* ============ KEYFRAMES ============ */
 
-@keyframes bulb-breathe {
+@keyframes bulb-glow {
   0%, 100% {
-    opacity: 0.75;
-    filter: drop-shadow(0 0 2px rgba(196, 138, 80, 0.2));
+    opacity: 0.85;
   }
   50% {
     opacity: 1;
-    filter: drop-shadow(0 0 5px rgba(196, 138, 80, 0.45));
   }
 }
 
-@keyframes hex-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+@keyframes outline-pulse {
+  0%, 100% {
+    stroke-opacity: 0.5;
+  }
+  50% {
+    stroke-opacity: 0.9;
+  }
 }
 
-@keyframes ray-sequential {
+@keyframes circuit-flicker {
+  0%, 100% {
+    opacity: 0.08;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes filament-flicker {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  30% {
+    opacity: 0.85;
+  }
+  60% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes filament-pulse {
+  0%, 100% {
+    stroke: #4a3017;
+    opacity: 0.6;
+  }
+  50% {
+    stroke: #6d4220;
+    opacity: 0.9;
+  }
+}
+
+@keyframes node-pulse {
+  0%, 100% {
+    opacity: 0.5;
+    r: 0.8;
+  }
+  50% {
+    opacity: 1;
+    r: 1.2;
+  }
+}
+
+@keyframes ray-appear {
+  0%, 10% {
+    opacity: 0;
+    transform: scaleX(0.3);
+  }
+  30%, 55% {
+    opacity: 0.55;
+    transform: scaleX(1);
+  }
+  75%, 100% {
+    opacity: 0;
+    transform: scaleX(0.3);
+  }
+}
+
+@keyframes ray-appear-s {
+  0%, 15% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  35%, 55% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  75%, 100% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+@keyframes scan-sweep {
   0% {
+    top: 0%;
     opacity: 0;
-    transform: scaleY(0.3);
   }
-  8% {
-    opacity: 0.7;
-    transform: scaleY(1);
+  10% {
+    opacity: 0.4;
   }
-  25% {
-    opacity: 0.7;
-    transform: scaleY(1);
-  }
-  40% {
-    opacity: 0;
-    transform: scaleY(0.3);
+  90% {
+    opacity: 0.4;
   }
   100% {
+    top: 85%;
     opacity: 0;
-    transform: scaleY(0.3);
+  }
+}
+
+@keyframes ring-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes hex-rotate {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 30;
   }
 }
 
 @keyframes text-shimmer {
-  0% { background-position: 100% 0%; }
-  100% { background-position: 0% 100%; }
+  0% {
+    background-position: 100% 0%;
+  }
+  100% {
+    background-position: 0% 100%;
+  }
 }
 </style>
