@@ -211,13 +211,13 @@ onUnmounted(() => {
 
 /* Dark mode */
 :global(.dark) .shell-surface {
-  background: #1a1a1a;
-  color: #e5e7eb;
+  background: var(--terminal-bg);
+  color: var(--text-primary);
 }
 
 :global(.dark) .shell-view :deep(.empty-icon),
 :global(.dark) .shell-view :deep(.empty-message) {
-  color: rgba(229, 231, 235, 0.65);
+  color: var(--text-tertiary);
 }
 
 /* Green prompt in dark mode */
@@ -231,7 +231,7 @@ onUnmounted(() => {
 }
 
 :global(.dark) .shell-output :deep(.shell-command) {
-  color: #e5e7eb;
+  color: var(--text-primary);
 }
 
 /* Shiki dark theme support */
@@ -245,6 +245,6 @@ onUnmounted(() => {
 }
 
 :global(.dark) .shell-output :deep(.shell-output-text) {
-  color: #9ca3af;
+  color: var(--text-secondary);
 }
 </style>

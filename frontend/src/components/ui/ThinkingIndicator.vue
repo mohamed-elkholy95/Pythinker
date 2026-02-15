@@ -80,17 +80,17 @@
         <line class="base-accent" x1="11" y1="26.3" x2="21" y2="26.3" stroke-width="0.3" />
         <line class="base-accent" x1="12" y1="28.3" x2="20" y2="28.3" stroke-width="0.3" />
 
-        <!-- Light rays — angular/geometric -->
-        <line class="lamp-ray ray-1" x1="3" y1="13" x2="0.5" y2="13" stroke-width="0.7" stroke-linecap="round" />
-        <line class="lamp-ray ray-2" x1="5.5" y1="5.5" x2="3.5" y2="3.5" stroke-width="0.7" stroke-linecap="round" />
-        <line class="lamp-ray ray-3" x1="16" y1="0.5" x2="16" y2="-1.5" stroke-width="0.7" stroke-linecap="round" />
-        <line class="lamp-ray ray-4" x1="26.5" y1="5.5" x2="28.5" y2="3.5" stroke-width="0.7" stroke-linecap="round" />
-        <line class="lamp-ray ray-5" x1="29" y1="13" x2="31.5" y2="13" stroke-width="0.7" stroke-linecap="round" />
-        <!-- Secondary short rays -->
-        <line class="lamp-ray-s ray-s1" x1="4" y1="9" x2="2.5" y2="8" stroke-width="0.4" stroke-linecap="round" />
-        <line class="lamp-ray-s ray-s2" x1="10" y1="2.5" x2="9" y2="1" stroke-width="0.4" stroke-linecap="round" />
-        <line class="lamp-ray-s ray-s3" x1="22" y1="2.5" x2="23" y2="1" stroke-width="0.4" stroke-linecap="round" />
-        <line class="lamp-ray-s ray-s4" x1="28" y1="9" x2="29.5" y2="8" stroke-width="0.4" stroke-linecap="round" />
+        <!-- Light rays — angular/geometric (extended) -->
+        <line class="lamp-ray ray-1" x1="3" y1="13" x2="-1" y2="13" stroke-width="0.7" stroke-linecap="round" />
+        <line class="lamp-ray ray-2" x1="5.5" y1="5.5" x2="2" y2="2" stroke-width="0.7" stroke-linecap="round" />
+        <line class="lamp-ray ray-3" x1="16" y1="0.5" x2="16" y2="-3" stroke-width="0.7" stroke-linecap="round" />
+        <line class="lamp-ray ray-4" x1="26.5" y1="5.5" x2="30" y2="2" stroke-width="0.7" stroke-linecap="round" />
+        <line class="lamp-ray ray-5" x1="29" y1="13" x2="33" y2="13" stroke-width="0.7" stroke-linecap="round" />
+        <!-- Secondary short rays (extended) -->
+        <line class="lamp-ray-s ray-s1" x1="4" y1="9" x2="1.5" y2="7" stroke-width="0.4" stroke-linecap="round" />
+        <line class="lamp-ray-s ray-s2" x1="10" y1="2.5" x2="8" y2="-0.5" stroke-width="0.4" stroke-linecap="round" />
+        <line class="lamp-ray-s ray-s3" x1="22" y1="2.5" x2="24" y2="-0.5" stroke-width="0.4" stroke-linecap="round" />
+        <line class="lamp-ray-s ray-s4" x1="28" y1="9" x2="30.5" y2="7" stroke-width="0.4" stroke-linecap="round" />
       </svg>
     </div>
     <span v-if="props.showText" class="thinking-text">Thinking</span>
@@ -282,28 +282,30 @@ const hovered = ref(false)
   opacity: 0.4;
 }
 
-/* Light rays — dark lines, staggered */
+/* Light rays — dark warm tone, sequential left-to-right sweep */
 .lamp-ray {
-  stroke: #000000;
-  animation: ray-appear 2.4s ease-in-out infinite;
+  stroke: #5a3d1e;
+  opacity: 0;
+  animation: ray-appear 3.6s ease-in-out infinite;
 }
 
 .ray-1 { animation-delay: 0s; }
-.ray-2 { animation-delay: 0.15s; }
-.ray-3 { animation-delay: 0.3s; }
-.ray-4 { animation-delay: 0.45s; }
-.ray-5 { animation-delay: 0.6s; }
+.ray-2 { animation-delay: 0.4s; }
+.ray-3 { animation-delay: 0.8s; }
+.ray-4 { animation-delay: 1.2s; }
+.ray-5 { animation-delay: 1.6s; }
 
-/* Secondary short rays */
+/* Secondary short rays — staggered between primaries */
 .lamp-ray-s {
-  stroke: #000000;
-  animation: ray-appear-s 2.4s ease-in-out infinite;
+  stroke: #6b4c2a;
+  opacity: 0;
+  animation: ray-appear-s 3.6s ease-in-out infinite;
 }
 
-.ray-s1 { animation-delay: 0.1s; }
-.ray-s2 { animation-delay: 0.25s; }
-.ray-s3 { animation-delay: 0.4s; }
-.ray-s4 { animation-delay: 0.55s; }
+.ray-s1 { animation-delay: 0.2s; }
+.ray-s2 { animation-delay: 0.6s; }
+.ray-s3 { animation-delay: 1.0s; }
+.ray-s4 { animation-delay: 1.4s; }
 
 /* === Thinking text === */
 .thinking-text {
@@ -404,10 +406,15 @@ const hovered = ref(false)
 }
 
 :deep(.dark) .lamp-ray,
-.dark .lamp-ray,
+.dark .lamp-ray {
+  stroke: #ffcc44;
+  filter: drop-shadow(0 0 1.5px rgba(255, 204, 68, 0.4));
+}
+
 :deep(.dark) .lamp-ray-s,
 .dark .lamp-ray-s {
-  stroke: #ffd67a;
+  stroke: #ffd966;
+  filter: drop-shadow(0 0 1px rgba(255, 217, 102, 0.3));
 }
 
 :deep(.dark) .scan-line,
@@ -493,32 +500,40 @@ const hovered = ref(false)
 }
 
 @keyframes ray-appear {
-  0%, 10% {
+  0%, 5% {
     opacity: 0;
-    transform: scaleX(0.3);
+    transform: scaleX(0);
   }
-  30%, 55% {
-    opacity: 0.55;
+  15% {
+    opacity: 0;
+    transform: scaleX(0.2);
+  }
+  25%, 40% {
+    opacity: 0.6;
     transform: scaleX(1);
   }
-  75%, 100% {
+  55%, 100% {
     opacity: 0;
-    transform: scaleX(0.3);
+    transform: scaleX(0.2);
   }
 }
 
 @keyframes ray-appear-s {
-  0%, 15% {
+  0%, 8% {
     opacity: 0;
-    transform: scale(0.4);
+    transform: scale(0);
   }
-  35%, 55% {
-    opacity: 0.35;
+  20% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  30%, 42% {
+    opacity: 0.4;
     transform: scale(1);
   }
-  75%, 100% {
+  58%, 100% {
     opacity: 0;
-    transform: scale(0.4);
+    transform: scale(0.2);
   }
 }
 

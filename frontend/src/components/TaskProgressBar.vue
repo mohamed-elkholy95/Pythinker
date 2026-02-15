@@ -30,7 +30,7 @@
 
             <!-- Title and Tool Info -->
             <div class="flex-1 min-w-0">
-              <h2 class="text-[16px] font-semibold text-gray-900 dark:text-[#f0f0f0] mb-2.5">
+              <h2 class="text-[16px] font-semibold text-gray-900 dark:text-[var(--text-primary)] mb-2.5">
                 {{ $t("Pythinker's computer") }}
               </h2>
 
@@ -38,8 +38,8 @@
                 <div class="tool-icon-badge">
                   <component :is="currentToolIcon" class="w-3.5 h-3.5" />
                 </div>
-                <span class="text-[13px] text-gray-500 dark:text-[#909090]">
-                  Using <span class="text-gray-800 dark:text-[#d0d0d0] font-medium">{{ currentToolDisplayName }}</span>
+                <span class="text-[13px] text-gray-500 dark:text-[var(--text-secondary)]">
+                  Using <span class="text-gray-800 dark:text-[var(--text-primary)] font-medium">{{ currentToolDisplayName }}</span>
                 </span>
               </div>
             </div>
@@ -63,11 +63,11 @@
         <!-- Task Progress Section -->
         <div class="expanded-content">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-[13px] font-semibold text-gray-700 dark:text-[#a0a0a0] uppercase tracking-wide">{{ $t('Task progress') }}</h3>
+            <h3 class="text-[13px] font-semibold text-gray-700 dark:text-[var(--text-secondary)] uppercase tracking-wide">{{ $t('Task progress') }}</h3>
             <div class="flex items-center gap-2">
               <div class="progress-pill-lg">
                 <span class="text-[13px] font-semibold tabular-nums">{{ completedCount }}</span>
-                <span class="text-[11px] text-gray-400 dark:text-[#505050] mx-0.5">/</span>
+                <span class="text-[11px] text-gray-400 dark:text-[var(--text-tertiary)] mx-0.5">/</span>
                 <span class="text-[13px] font-semibold tabular-nums">{{ totalCount }}</span>
               </div>
               <button v-if="hideExpandedHeader" @click="toggleExpand" class="action-btn">
@@ -146,7 +146,7 @@
                   <path d="M12 6v6l4 2" />
                 </svg>
               </div>
-              <span class="text-[11px] text-gray-500 dark:text-[#707070] uppercase tracking-wider">Elapsed</span>
+              <span class="text-[11px] text-gray-500 dark:text-[var(--text-tertiary)] uppercase tracking-wider">Elapsed</span>
             </div>
             <span class="timer-value">{{ formattedElapsedTime }}</span>
           </div>
@@ -197,15 +197,15 @@
             <TransitionGroup name="flip-board" tag="div" class="flip-board-wrapper">
               <span
                 :key="currentTaskDescription"
-                class="flip-board-text text-[13px] font-medium text-gray-900 dark:text-[#f0f0f0] truncate"
+                class="flip-board-text text-[13px] font-medium text-gray-900 dark:text-[var(--text-primary)] truncate"
               >
                 {{ currentTaskDescription }}
               </span>
             </TransitionGroup>
           </div>
-          <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-[#808080]">
+          <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-[var(--text-tertiary)]">
             <span v-if="taskStartTime" class="font-mono tabular-nums">{{ formattedElapsedTime }}</span>
-            <span v-if="taskStartTime && currentActivityText" class="text-gray-300 dark:text-[#404040]">·</span>
+            <span v-if="taskStartTime && currentActivityText" class="text-gray-300 dark:text-[var(--text-tertiary)]">·</span>
             <span v-if="currentActivityText" class="truncate" :class="currentActivityClass">{{ currentActivityText }}</span>
           </div>
         </div>
@@ -214,7 +214,7 @@
         <div class="flex items-center gap-2 flex-shrink-0">
           <div class="progress-pill">
             <span class="text-[12px] font-medium tabular-nums">{{ completedCount }}</span>
-            <span class="text-[10px] text-gray-400 dark:text-[#606060]">/</span>
+            <span class="text-[10px] text-gray-400 dark:text-[var(--text-tertiary)]">/</span>
             <span class="text-[12px] font-medium tabular-nums">{{ totalCount }}</span>
           </div>
           <button @click.stop="toggleExpand" class="expand-btn">

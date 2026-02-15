@@ -283,6 +283,9 @@
                   {{ currentPlanningMessage }}
                 </span>
               </div>
+              <div class="flex-shrink-0">
+                <PlannerActivityIndicator />
+              </div>
             </div>
           </div>
 
@@ -440,6 +443,7 @@ import type { ReportData } from '@/components/report';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
+import PlannerActivityIndicator from '@/components/ui/PlannerActivityIndicator.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
 import ConnectionStatusBanner from '@/components/ConnectionStatusBanner.vue';
