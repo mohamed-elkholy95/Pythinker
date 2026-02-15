@@ -1,12 +1,7 @@
-"""Command Registry for Superpowers-style /command invocation.
+"""Command Registry for /command invocation.
 
-Maps user-friendly commands like `/brainstorm`, `/write-plan`, `/tdd`
-to skill invocations.
-
-Example:
-    /brainstorm → invokes "brainstorming" skill
-    /write-plan → invokes "writing-plans" skill
-    /tdd → invokes "test-driven-development" skill
+Maps user-friendly commands to skill invocations.
+Custom commands can be registered programmatically via register_command().
 """
 
 import logging
@@ -26,106 +21,7 @@ class CommandMapping:
     aliases: list[str]  # Alternative command names
 
 
-# Built-in Superpowers command mappings
-SUPERPOWERS_COMMANDS: list[CommandMapping] = [
-    # Design & Planning
-    CommandMapping(
-        command="brainstorm",
-        skill_id="brainstorming",
-        description="Interactive design refinement - explore ideas before implementation",
-        aliases=["design", "plan-design"],
-    ),
-    CommandMapping(
-        command="write-plan",
-        skill_id="writing-plans",
-        description="Create detailed implementation plan with bite-sized tasks",
-        aliases=["plan", "create-plan"],
-    ),
-    CommandMapping(
-        command="execute-plan",
-        skill_id="executing-plans",
-        description="Execute implementation plan in batches with checkpoints",
-        aliases=["exec-plan", "run-plan"],
-    ),
-    # Development
-    CommandMapping(
-        command="tdd",
-        skill_id="test-driven-development",
-        description="Test-Driven Development - RED-GREEN-REFACTOR cycle",
-        aliases=["test-first"],
-    ),
-    CommandMapping(
-        command="debug",
-        skill_id="systematic-debugging",
-        description="Systematic debugging - 4-phase root cause process",
-        aliases=["fix-bug", "troubleshoot"],
-    ),
-    CommandMapping(
-        command="subagent",
-        skill_id="subagent-driven-development",
-        description="Dispatch fresh subagent per task with two-stage review",
-        aliases=["subagent-dev"],
-    ),
-    CommandMapping(
-        command="parallel",
-        skill_id="dispatching-parallel-agents",
-        description="Concurrent subagent workflows for parallel execution",
-        aliases=["parallel-agents"],
-    ),
-    # Git Workflow
-    CommandMapping(
-        command="worktree",
-        skill_id="using-git-worktrees",
-        description="Create isolated workspace on new branch",
-        aliases=["git-worktree", "new-worktree"],
-    ),
-    CommandMapping(
-        command="finish-branch",
-        skill_id="finishing-a-development-branch",
-        description="Verify tests, present merge/PR options, clean up",
-        aliases=["complete-branch", "merge-branch"],
-    ),
-    # Code Review
-    CommandMapping(
-        command="request-review",
-        skill_id="requesting-code-review",
-        description="Review code against plan, report issues by severity",
-        aliases=["code-review", "review"],
-    ),
-    CommandMapping(
-        command="receive-review",
-        skill_id="receiving-code-review",
-        description="Respond to code review feedback systematically",
-        aliases=["handle-feedback"],
-    ),
-    # Verification
-    CommandMapping(
-        command="verify",
-        skill_id="verification-before-completion",
-        description="Ensure fix/feature actually works before marking complete",
-        aliases=["check", "validate"],
-    ),
-    # Meta
-    CommandMapping(
-        command="superpowers",
-        skill_id="using-superpowers",
-        description="Introduction to the Superpowers skills system",
-        aliases=["help-skills", "skills-help"],
-    ),
-    CommandMapping(
-        command="write-skill",
-        skill_id="writing-skills",
-        description="Create new skills following best practices",
-        aliases=["create-skill", "new-skill"],
-    ),
-    # Skill creation via guided conversation
-    CommandMapping(
-        command="skill-creator",
-        skill_id="skill-creator",
-        description="Create new skills through guided conversation with the agent",
-        aliases=["build-skill"],
-    ),
-]
+# Command mappings start empty - register custom commands via register_command()
 
 
 class CommandRegistry:
@@ -138,26 +34,12 @@ class CommandRegistry:
         self._initialized = False
 
     def _ensure_initialized(self) -> None:
-        """Ensure registry is initialized with Superpowers commands."""
+        """Ensure registry is initialized (empty by default)."""
         if self._initialized:
             return
 
-        for mapping in SUPERPOWERS_COMMANDS:
-            # Register primary command
-            self._command_map[mapping.command] = mapping.skill_id
-            self._skill_commands[mapping.skill_id] = mapping.command
-            self._command_help[mapping.command] = mapping.description
-
-            # Register aliases
-            for alias in mapping.aliases:
-                self._command_map[alias] = mapping.skill_id
-                self._command_help[alias] = f"{mapping.description} (alias for /{mapping.command})"
-
         self._initialized = True
-        logger.info(
-            f"✓ CommandRegistry initialized with {len(SUPERPOWERS_COMMANDS)} commands "
-            f"({len(self._command_map)} total including aliases)"
-        )
+        logger.info("✓ CommandRegistry initialized (no default commands)")
 
     def parse_command(self, message: str) -> tuple[str | None, str]:
         """Parse a message for command syntax.
@@ -214,10 +96,13 @@ class CommandRegistry:
         commands = []
         seen_skills = set()
 
-        for mapping in SUPERPOWERS_COMMANDS:
-            if mapping.skill_id not in seen_skills:
-                commands.append((mapping.command, mapping.skill_id, mapping.description))
-                seen_skills.add(mapping.skill_id)
+        # Build list from registered commands
+        for command, skill_id in self._command_map.items():
+            if skill_id not in seen_skills and command == self._skill_commands.get(skill_id):
+                # Only include primary commands, not aliases
+                description = self._command_help.get(command, "")
+                commands.append((command, skill_id, description))
+                seen_skills.add(skill_id)
 
         return commands
 
