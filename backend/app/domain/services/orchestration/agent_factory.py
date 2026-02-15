@@ -25,6 +25,7 @@ from app.domain.services.orchestration.agent_types import (
 )
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.browser import BrowserTool
+from app.domain.services.tools.code_analysis import CodeAnalysisTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.mcp import MCPTool
@@ -333,6 +334,8 @@ class DefaultAgentFactory:
 
         if AgentCapability.CODE_EXECUTION in spec.capabilities and self._sandbox:
             tools.append(CodeExecutorTool(sandbox=self._sandbox, session_id=spec.agent_type.value))
+            # Add code analysis tools (document segmentation, implementation tracking)
+            tools.append(CodeAnalysisTool(sandbox=self._sandbox))
 
         # Add MCP tool if available (provides additional capabilities)
         if self._mcp_tool:

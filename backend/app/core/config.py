@@ -135,8 +135,18 @@ class Settings(BaseSettings):
     qdrant_use_hybrid_search: bool = True  # Enable dense+sparse hybrid retrieval (RRF fusion)
     qdrant_sparse_vector_enabled: bool = True  # Generate BM25 sparse vectors
 
+    # MinIO configuration (object storage for sandbox snapshots)
+    minio_endpoint: str = "minio:9000"
+    minio_access_key: str | None = None
+    minio_secret_key: str | None = None
+    minio_bucket_snapshots: str = "sandbox-snapshots"
+    minio_secure: bool = False  # Use HTTPS (false for local dev)
+
     # Sandbox configuration
     sandbox_lifecycle_mode: str = "static"  # "static" | "ephemeral"
+    sandbox_streaming_mode: str = "dual"  # "dual" (CDP + VNC) | "cdp_only" (no X11/VNC stack)
+    sandbox_snapshot_enabled: bool = False  # Enable snapshot on task completion
+    sandbox_snapshot_ttl_days: int = 7  # Snapshot retention period
     sandbox_address: str | None = None
     sandbox_image: str | None = None
     sandbox_name_prefix: str | None = None

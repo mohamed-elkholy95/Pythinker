@@ -927,6 +927,8 @@ To extract data from a webpage:
         tool_choice: str | None = None,
         enable_caching: bool = True,
         model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         _attempt: int = 0,
     ) -> dict[str, Any]:
         """Send chat request to OpenAI API with automatic key rotation and retry.
@@ -937,7 +939,9 @@ To extract data from a webpage:
             response_format: Optional response format
             tool_choice: Optional tool choice configuration
             enable_caching: Whether to enable prompt caching
-            model: Optional model override for adaptive model selection (DeepCode Phase 1)
+            model: Optional model override (unified adaptive routing)
+            temperature: Optional temperature override (unified adaptive routing)
+            max_tokens: Optional max_tokens override (unified adaptive routing)
             _attempt: Internal retry counter for key rotation
 
         Returns:
@@ -985,8 +989,10 @@ To extract data from a webpage:
                     logger.info(f"Retrying API request (attempt {attempt + 1}/{max_retries + 1}) after {delay}s delay")
                     await asyncio.sleep(delay)
 
-                # Use model override if provided (DeepCode Phase 1: adaptive model selection)
+                # Use overrides if provided (Unified Adaptive Routing)
                 effective_model = model or self._model_name
+                effective_temperature = temperature if temperature is not None else self._temperature
+                effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
 
                 # GPT-5 nano/mini and o1/o3 models have different parameter requirements
                 is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
@@ -999,11 +1005,11 @@ To extract data from a webpage:
 
                 if is_new_model:
                     # GPT-5+ models use max_completion_tokens and don't support custom temperature
-                    params["max_completion_tokens"] = self._max_tokens
+                    params["max_completion_tokens"] = effective_max_tokens
                 else:
                     # Older models use max_tokens and support temperature
-                    params["max_tokens"] = self._max_tokens
-                    params["temperature"] = self._temperature
+                    params["max_tokens"] = effective_max_tokens
+                    params["temperature"] = effective_temperature
 
                 # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
                 # to avoid reasoning_content errors when replaying messages

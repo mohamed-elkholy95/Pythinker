@@ -639,6 +639,46 @@ class BaseAgent:
                     error=result.message if result and not result.success else None,
                 )
 
+                # Tool efficiency monitoring (analysis paralysis detection)
+                try:
+                    from app.domain.services.agents.tool_efficiency_monitor import get_efficiency_monitor
+
+                    efficiency_monitor = get_efficiency_monitor()
+                    efficiency_monitor.record(function_name)
+                    signal = efficiency_monitor.check_efficiency()
+
+                    if not signal.is_balanced and signal.nudge_message:
+                        # Inject nudge message into conversation context
+                        logger.info(
+                            f"Tool efficiency nudge: {signal.nudge_message} "
+                            f"(reads={signal.read_count}, actions={signal.action_count}, "
+                            f"confidence={signal.confidence})"
+                        )
+
+                        # Record Prometheus metric
+                        _metrics.increment(
+                            "pythinker_tool_efficiency_nudges_total",
+                            labels={
+                                "threshold": "strong" if signal.confidence >= 0.9 else "soft",
+                                "read_count": str(signal.read_count),
+                                "action_count": str(signal.action_count),
+                            },
+                        )
+
+                        # Store nudge in agent context for next LLM call
+                        if not hasattr(self, "_efficiency_nudges"):
+                            self._efficiency_nudges = []
+                        self._efficiency_nudges.append(
+                            {
+                                "message": signal.nudge_message,
+                                "read_count": signal.read_count,
+                                "action_count": signal.action_count,
+                                "confidence": signal.confidence,
+                            }
+                        )
+                except Exception as e:
+                    logger.debug(f"Tool efficiency monitoring failed for {function_name}: {e}")
+
                 try:
                     from app.domain.services.agents.task_state_manager import get_task_state_manager
 
@@ -699,6 +739,40 @@ class BaseAgent:
             success=False,
             error=last_error[:200],
         )
+
+        # Tool efficiency monitoring (even on failure, track the attempt)
+        try:
+            from app.domain.services.agents.tool_efficiency_monitor import get_efficiency_monitor
+
+            efficiency_monitor = get_efficiency_monitor()
+            efficiency_monitor.record(function_name)
+            signal = efficiency_monitor.check_efficiency()
+
+            if not signal.is_balanced and signal.nudge_message:
+                logger.info(
+                    f"Tool efficiency nudge (after failure): {signal.nudge_message} "
+                    f"(reads={signal.read_count}, actions={signal.action_count})"
+                )
+                _metrics.increment(
+                    "pythinker_tool_efficiency_nudges_total",
+                    labels={
+                        "threshold": "strong" if signal.confidence >= 0.9 else "soft",
+                        "read_count": str(signal.read_count),
+                        "action_count": str(signal.action_count),
+                    },
+                )
+                if not hasattr(self, "_efficiency_nudges"):
+                    self._efficiency_nudges = []
+                self._efficiency_nudges.append(
+                    {
+                        "message": signal.nudge_message,
+                        "read_count": signal.read_count,
+                        "action_count": signal.action_count,
+                        "confidence": signal.confidence,
+                    }
+                )
+        except Exception as e:
+            logger.debug(f"Tool efficiency monitoring failed for {function_name}: {e}")
 
         try:
             from app.domain.services.agents.task_state_manager import get_task_state_manager
@@ -1149,6 +1223,18 @@ class BaseAgent:
         # Check and handle token limits before making LLM call
         await self._ensure_within_token_limit()
 
+        # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
+        if hasattr(self, "_efficiency_nudges") and self._efficiency_nudges:
+            # Take the most recent nudge
+            nudge = self._efficiency_nudges[-1]
+            nudge_message = {
+                "role": "user",
+                "content": f"⚠️ **Efficiency Notice**: {nudge['message']}",
+            }
+            await self._add_to_memory([nudge_message])
+            # Clear nudges after injection
+            self._efficiency_nudges.clear()
+
         response_format = None
         if format:
             response_format = {"type": format}
@@ -1455,6 +1541,18 @@ class BaseAgent:
         """
         self._stuck_detector.reset()
         self._stuck_recovery_exhausted = False
+
+        # Reset efficiency monitor (DeepCode Phase 2: Tool Efficiency Monitor)
+        try:
+            from app.domain.services.agents.tool_efficiency_monitor import get_efficiency_monitor
+
+            efficiency_monitor = get_efficiency_monitor()
+            efficiency_monitor.reset()
+            if hasattr(self, "_efficiency_nudges"):
+                self._efficiency_nudges.clear()
+        except Exception as e:
+            logger.debug(f"Efficiency monitor reset failed: {e}")
+
         logger.debug("Reliability state reset")
 
     async def ask_streaming(self, request: str, format: str | None = None) -> AsyncGenerator[BaseEvent, None]:
@@ -1473,6 +1571,16 @@ class BaseAgent:
         # Add request to memory
         await self._add_to_memory([{"role": "user", "content": request}])
         await self._ensure_within_token_limit()
+
+        # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
+        if hasattr(self, "_efficiency_nudges") and self._efficiency_nudges:
+            nudge = self._efficiency_nudges[-1]
+            nudge_message = {
+                "role": "user",
+                "content": f"⚠️ **Efficiency Notice**: {nudge['message']}",
+            }
+            await self._add_to_memory([nudge_message])
+            self._efficiency_nudges.clear()
 
         # Check if LLM supports streaming
         if not hasattr(self.llm, "ask_stream"):

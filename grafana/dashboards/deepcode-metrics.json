@@ -1,0 +1,546 @@
+{
+  "dashboard": {
+    "title": "DeepCode Integration Metrics",
+    "tags": ["deepcode", "performance", "reliability"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Model Tier Distribution (Last 1h)",
+        "type": "piechart",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 8,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "sum by(tier) (increase(pythinker_model_tier_selections_total[1h]))",
+            "legendFormat": "{{tier}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "values": ["value", "percent"]
+          },
+          "pieType": "pie",
+          "tooltip": {
+            "mode": "single"
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "description": "Distribution of model tier selections (FAST, BALANCED, POWERFUL) over the last hour. Shows cost optimization effectiveness."
+      },
+      {
+        "id": 2,
+        "title": "Model Tier Selection Rate",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 8,
+          "y": 0,
+          "w": 16,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(pythinker_model_tier_selections_total{tier=\"fast\"}[5m])",
+            "legendFormat": "FAST (Haiku)",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(pythinker_model_tier_selections_total{tier=\"balanced\"}[5m])",
+            "legendFormat": "BALANCED (Default)",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(pythinker_model_tier_selections_total{tier=\"powerful\"}[5m])",
+            "legendFormat": "POWERFUL (Sonnet/Opus)",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "FAST (Haiku)"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "green"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "POWERFUL (Sonnet/Opus)"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "red"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "description": "Rate of model tier selections per second. Green = cost savings, Red = expensive but high quality."
+      },
+      {
+        "id": 3,
+        "title": "Tool Efficiency Nudges (Last 24h)",
+        "type": "stat",
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "w": 6,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(pythinker_tool_efficiency_nudges_total[24h]))",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "green"
+                },
+                {
+                  "value": 10,
+                  "color": "yellow"
+                },
+                {
+                  "value": 50,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "textMode": "value_and_name",
+          "graphMode": "area",
+          "colorMode": "background"
+        },
+        "description": "Total efficiency nudges triggered in last 24h. High values indicate frequent analysis paralysis."
+      },
+      {
+        "id": 4,
+        "title": "Efficiency Nudge Rate",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 6,
+          "y": 8,
+          "w": 18,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(pythinker_tool_efficiency_nudges_total{threshold=\"soft\"}[5m])",
+            "legendFormat": "Soft Nudges (5 reads)",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(pythinker_tool_efficiency_nudges_total{threshold=\"strong\"}[5m])",
+            "legendFormat": "Strong Nudges (10+ reads)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 20,
+              "showPoints": "never",
+              "stacking": {
+                "mode": "normal"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Strong Nudges (10+ reads)"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "red"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "description": "Rate of efficiency nudges over time. Strong nudges (red) indicate severe analysis paralysis."
+      },
+      {
+        "id": 5,
+        "title": "Truncation Detections (Last 24h)",
+        "type": "stat",
+        "gridPos": {
+          "x": 0,
+          "y": 16,
+          "w": 6,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(pythinker_output_truncations_total{detection_method=\"pattern\"}[24h]))",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "green"
+                },
+                {
+                  "value": 5,
+                  "color": "yellow"
+                },
+                {
+                  "value": 20,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "textMode": "value_and_name",
+          "graphMode": "area",
+          "colorMode": "background"
+        },
+        "description": "Total pattern-based truncation detections in last 24h. Lower is better."
+      },
+      {
+        "id": 6,
+        "title": "Truncation Types Distribution",
+        "type": "piechart",
+        "gridPos": {
+          "x": 6,
+          "y": 16,
+          "w": 9,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "sum by(truncation_type) (increase(pythinker_output_truncations_total{detection_method=\"pattern\"}[1h]))",
+            "legendFormat": "{{truncation_type}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "values": ["value", "percent"]
+          },
+          "pieType": "donut",
+          "tooltip": {
+            "mode": "single"
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "description": "Distribution of truncation types detected. Helps identify common truncation patterns."
+      },
+      {
+        "id": 7,
+        "title": "Truncation Recovery Rate",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 15,
+          "y": 16,
+          "w": 9,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(pythinker_output_truncations_total{confidence_tier=\"continuation_completed\"}[5m])",
+            "legendFormat": "Successful Recoveries",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(pythinker_output_truncations_total{confidence_tier!=\"continuation_completed\"}[5m])",
+            "legendFormat": "Detections (Pending Recovery)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10,
+              "showPoints": "never"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Successful Recoveries"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "green"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "description": "Rate of truncation recoveries. Green line shows successful continuation requests."
+      },
+      {
+        "id": 8,
+        "title": "Cost Savings Estimate (Last 1h)",
+        "type": "stat",
+        "gridPos": {
+          "x": 0,
+          "y": 24,
+          "w": 8,
+          "h": 6
+        },
+        "targets": [
+          {
+            "expr": "(sum(increase(pythinker_model_tier_selections_total{tier=\"fast\"}[1h])) * 0.7 + sum(increase(pythinker_model_tier_selections_total{tier=\"balanced\"}[1h])) * 0) / sum(increase(pythinker_model_tier_selections_total[1h])) * 100",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 1,
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "red"
+                },
+                {
+                  "value": 10,
+                  "color": "yellow"
+                },
+                {
+                  "value": 20,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "textMode": "value_and_name",
+          "graphMode": "area",
+          "colorMode": "background",
+          "text": {
+            "titleSize": 16,
+            "valueSize": 40
+          }
+        },
+        "description": "Estimated cost savings from using FAST tier vs POWERFUL tier. Assumes 70% cost reduction for FAST tier."
+      },
+      {
+        "id": 9,
+        "title": "Agent Efficiency Score",
+        "type": "gauge",
+        "gridPos": {
+          "x": 8,
+          "y": 24,
+          "w": 8,
+          "h": 6
+        },
+        "targets": [
+          {
+            "expr": "100 - (sum(increase(pythinker_tool_efficiency_nudges_total{threshold=\"strong\"}[1h])) * 10 + sum(increase(pythinker_tool_efficiency_nudges_total{threshold=\"soft\"}[1h])) * 2)",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "red"
+                },
+                {
+                  "value": 60,
+                  "color": "yellow"
+                },
+                {
+                  "value": 80,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "description": "Overall agent efficiency score. Lower scores indicate more analysis paralysis episodes. Target: >80%."
+      },
+      {
+        "id": 10,
+        "title": "Output Completeness Score",
+        "type": "gauge",
+        "gridPos": {
+          "x": 16,
+          "y": 24,
+          "w": 8,
+          "h": 6
+        },
+        "targets": [
+          {
+            "expr": "100 - (sum(increase(pythinker_output_truncations_total{detection_method=\"pattern\",confidence_tier!=\"continuation_completed\"}[1h])) * 5)",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "red"
+                },
+                {
+                  "value": 70,
+                  "color": "yellow"
+                },
+                {
+                  "value": 90,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "description": "Overall output completeness score. Lower scores indicate more truncated outputs. Target: >90%."
+      }
+    ],
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h"]
+    },
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": "-- Grafana --",
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        }
+      ]
+    }
+  }
+}
