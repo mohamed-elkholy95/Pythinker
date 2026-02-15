@@ -242,6 +242,15 @@ RELEVANT CONTEXT FROM MEMORY:
 ---
 """
 
+PRE_PLANNING_SEARCH_CONTEXT_SIGNAL = """
+---
+CURRENT WEB INFORMATION (retrieved at planning time — use these facts):
+{search_context}
+IMPORTANT: Use the product names, version numbers, and facts above instead of your training data.
+When searching, use the correct current names from this context (e.g., if it says "GLM-5", search for "GLM-5" not older versions).
+---
+"""
+
 COT_REASONING_SIGNAL = """
 ---
 🧠 STRUCTURED REASONING (use before taking action):
@@ -1285,6 +1294,7 @@ def build_execution_prompt(
     pressure_signal: str | None = None,
     task_state: str | None = None,
     memory_context: str | None = None,
+    search_context: str | None = None,
     enable_cot: bool = True,
     include_current_date: bool = True,
     enable_source_attribution: bool = True,
@@ -1301,6 +1311,7 @@ def build_execution_prompt(
         pressure_signal: Optional context pressure warning
         task_state: Optional current task state for recitation
         memory_context: Optional relevant memories from long-term storage
+        search_context: Optional real-time web search results from pre-planning search
         enable_cot: Enable Chain-of-Thought for complex tasks (default: True)
         include_current_date: Include current date context (default: True)
         enable_source_attribution: Enable source attribution signal for research tasks (default: True)
@@ -1377,6 +1388,10 @@ def build_execution_prompt(
         # Inject general intent analysis for complex/research tasks
         if is_complex_task(step) or is_research_task(step):
             prompt = INTENT_ANALYSIS_SIGNAL + prompt
+
+    # Inject pre-planning search context if present (real-time web info)
+    if search_context:
+        prompt = PRE_PLANNING_SEARCH_CONTEXT_SIGNAL.format(search_context=search_context) + prompt
 
     # Inject memory context if present (Phase 6: Qdrant integration)
     if memory_context:

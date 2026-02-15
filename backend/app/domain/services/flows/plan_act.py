@@ -2216,6 +2216,11 @@ class PlanActFlow(BaseFlow):
                             if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                                 self.plan = event.plan
 
+                                # Propagate pre-planning search context to execution agent
+                                if hasattr(self.planner, "_last_search_context") and self.planner._last_search_context:
+                                    self.executor._pre_planning_search_context = self.planner._last_search_context
+                                    logger.info("Propagated pre-planning search context to execution agent")
+
                                 # Infer smart dependencies for BLOCKED cascade and parallel execution
                                 self.plan.infer_smart_dependencies(use_sequential_fallback=True)
 

@@ -279,6 +279,7 @@ class PlannerAgent(BaseAgent):
 
         # Pre-planning search engine for real-time web context
         self._search_engine = search_engine
+        self._last_search_context: str | None = None
 
     async def _stream_thinking(self, message: str) -> AsyncGenerator[BaseEvent, None]:
         """Stream thinking process before creating a plan.
@@ -492,6 +493,9 @@ class PlannerAgent(BaseAgent):
                 search_task.cancel()
             except Exception:
                 logger.warning("Pre-planning search failed at await point", exc_info=True)
+
+        # Store for propagation to execution agent
+        self._last_search_context = search_context
 
         # Extract just filenames from attachment paths for cleaner display
         attachment_names = []

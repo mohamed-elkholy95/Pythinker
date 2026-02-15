@@ -131,6 +131,9 @@ class ExecutionAgent(BaseAgent):
         self._memory_service = memory_service
         self._user_id = user_id
 
+        # Pre-planning search context for real-time web info propagation
+        self._pre_planning_search_context: str | None = None
+
         # Context manager for execution continuity (Phase 1)
         self._context_manager = ContextManager(max_context_tokens=8000)
 
@@ -171,51 +174,38 @@ class ExecutionAgent(BaseAgent):
         self._response_policy = policy
 
     def _select_model_for_step(self, step_description: str) -> str | None:
-        """Select appropriate model tier for the current step based on complexity.
+        """Select appropriate model for the current step using unified ModelRouter.
 
-        DeepCode Integration Phase 1: Adaptive Model Selection.
-        Routes steps to fast/balanced/powerful models based on complexity.
+        Unified Hybrid Approach:
+        - Uses ModelRouter for complexity-based routing
+        - Pulls configuration from Settings
+        - Includes Prometheus metrics
+        - Returns model name for LLM override
 
         Args:
             step_description: The step description to analyze
 
         Returns:
-            Model name override if adaptive selection is enabled and tier differs,
+            Model name override if adaptive selection is enabled,
             None to use default model
 
-        Context7 validated: Uses ComplexityAssessor.recommend_model_tier()
-        with Settings model configuration.
+        Context7 validated: ModelRouter integration, Settings feature flag.
         """
-        from app.core.config import get_settings
-        from app.domain.services.agents.complexity_assessor import ComplexityAssessor
-
-        settings = get_settings()
-        if not settings.adaptive_model_selection_enabled:
-            return None
+        from app.domain.services.agents.model_router import get_model_router
 
         try:
-            assessor = ComplexityAssessor()
-            tier = assessor.recommend_model_tier(step_description)
+            router = get_model_router(metrics=_metrics)
+            config = router.route(step_description)
 
-            # Map tier to model configuration
-            if tier.value == "fast":
-                selected_model = settings.fast_model
-            elif tier.value == "powerful":
-                selected_model = settings.powerful_model
-            else:  # balanced
-                selected_model = settings.effective_balanced_model
-
-            # Increment Prometheus counter for model tier selections
-            _metrics.increment(
-                "pythinker_model_tier_selections_total",
-                labels={"tier": tier.value, "agent": self.name},
+            logger.debug(
+                f"Model routing: tier={config.tier.value}, model={config.model_name}, "
+                f"temp={config.temperature}, max_tokens={config.max_tokens}"
             )
 
-            logger.debug(f"Adaptive model selection: tier={tier.value}, model={selected_model}")
-            return selected_model
+            return config.model_name
 
         except Exception as e:
-            logger.warning(f"Model selection failed, using default: {e}")
+            logger.warning(f"Model routing failed, using default: {e}")
             return None
 
     async def invoke_tool(
@@ -399,6 +389,7 @@ class ExecutionAgent(BaseAgent):
             pressure_signal=pressure_signal,
             task_state=task_state_signal,
             memory_context=memory_context,
+            search_context=self._pre_planning_search_context,
         )
 
         # Add working context if available
@@ -686,6 +677,79 @@ class ExecutionAgent(BaseAgent):
             yield StreamEvent(content="", is_final=True, phase="summarizing")
 
             message_content = accumulated_text.strip()
+
+            # DeepCode Phase 2.2: Pattern-based truncation detection
+            # Enhances finish_reason="length" detection with content pattern matching
+            if delivery_integrity_enabled and not truncation_exhausted:
+                try:
+                    from app.domain.services.agents.truncation_detector import get_truncation_detector
+
+                    truncation_detector = get_truncation_detector()
+                    truncation_assessment = truncation_detector.detect(
+                        content=message_content,
+                        finish_reason=stream_metadata.get("finish_reason"),
+                        max_tokens_used=bool(stream_metadata.get("truncated")),
+                    )
+
+                    # Request continuation if pattern-based detector finds truncation
+                    # (even if finish_reason was not "length")
+                    if truncation_detector.should_request_continuation(
+                        truncation_assessment, confidence_threshold=0.85
+                    ):
+                        logger.warning(
+                            f"Truncation detector: pattern-based truncation detected "
+                            f"(type={truncation_assessment.truncation_type}, "
+                            f"confidence={truncation_assessment.confidence:.2f}, "
+                            f"evidence={truncation_assessment.evidence})"
+                        )
+
+                        # Record metric for pattern-based detection
+                        _metrics.increment(
+                            "pythinker_output_truncations_total",
+                            labels={
+                                "detection_method": "pattern",
+                                "truncation_type": truncation_assessment.truncation_type or "unknown",
+                                "confidence_tier": "high" if truncation_assessment.confidence >= 0.9 else "medium",
+                            },
+                        )
+
+                        # Request continuation using pattern-specific prompt
+                        continuation_messages = [
+                            *stream_messages,
+                            {"role": "assistant", "content": message_content},
+                            {"role": "user", "content": truncation_assessment.continuation_prompt},
+                        ]
+
+                        # Single continuation attempt for pattern-based detection
+                        logger.info("Requesting continuation based on content patterns...")
+                        continuation_text = ""
+                        continuation_iter = self.llm.ask_stream(
+                            continuation_messages, tools=None, tool_choice=None
+                        )
+                        async with aclosing(continuation_iter) as cont_stream:
+                            async for chunk in cont_stream:
+                                continuation_text += chunk
+                                accumulated_text += chunk
+                                yield StreamEvent(content=chunk, is_final=False, phase="completing")
+
+                        message_content = accumulated_text.strip()
+
+                        # Record outcome
+                        _metrics.increment(
+                            "pythinker_output_truncations_total",
+                            labels={
+                                "detection_method": "pattern",
+                                "truncation_type": truncation_assessment.truncation_type or "unknown",
+                                "confidence_tier": "continuation_completed",
+                            },
+                        )
+
+                        logger.info(
+                            f"Truncation recovery: added {len(continuation_text)} chars via pattern-based continuation"
+                        )
+
+                except Exception as e:
+                    logger.debug(f"Pattern-based truncation detection failed: {e}")
 
             # Extract title from first # heading
             message_title = self._extract_title(message_content)
