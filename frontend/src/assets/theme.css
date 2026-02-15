@@ -141,6 +141,20 @@
   --gradual-gray-100: rgba(250, 250, 250, 0);
   --gradual-gray-0: rgba(250, 250, 250, 0);
   --gradual-dark-20: rgba(0, 0, 0, 0.2);
+
+  /* Code & terminal surfaces */
+  --code-block-bg: #f6f8fa;
+  --code-block-border: rgba(15, 23, 42, 0.12);
+  --terminal-bg: #ffffff;
+
+  /* Disabled states */
+  --button-disabled-bg: #898988;
+  --button-disabled-text: rgba(255, 255, 255, 0.7);
+
+  /* Status colors */
+  --status-running: #3b82f6;
+  --status-completed: #22c55e;
+  --status-warning: #f79009;
 }
 
 :root[data-theme='dark'],
@@ -262,6 +276,20 @@
   --gradual-gray-100: rgba(22, 27, 34, 0.9);
   --gradual-gray-0: rgba(13, 17, 23, 0);
   --gradual-dark-20: rgba(255, 255, 255, 0.08);
+
+  /* Code & terminal surfaces */
+  --code-block-bg: #0d1117;
+  --code-block-border: rgba(48, 54, 61, 0.8);
+  --terminal-bg: #0d1117;
+
+  /* Disabled states */
+  --button-disabled-bg: rgba(110, 118, 129, 0.3);
+  --button-disabled-text: rgba(230, 237, 243, 0.5);
+
+  /* Status colors */
+  --status-running: #60a5fa;
+  --status-completed: #3fb950;
+  --status-warning: #d29922;
 }
 
 /* Subtle radial gradient for dark mode — adds depth and ambient glow */

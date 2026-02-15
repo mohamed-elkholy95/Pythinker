@@ -192,8 +192,8 @@ defineExpose({
 }
 
 :global(.dark) .shiki-code-block {
-  background: #1a1a2e;
-  border-color: #30363d;
+  background: var(--code-block-bg);
+  border-color: var(--code-block-border);
 }
 
 /* Header */
@@ -208,7 +208,7 @@ defineExpose({
 
 :global(.dark) .code-header {
   background: rgba(255, 255, 255, 0.03);
-  border-color: #30363d;
+  border-color: var(--code-block-border);
 }
 
 .header-left {

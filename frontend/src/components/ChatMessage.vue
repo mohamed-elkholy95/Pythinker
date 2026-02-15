@@ -902,8 +902,8 @@ watch(
 }
 
 :global(.dark) .shiki-wrapper {
-  background: #1a1a2e;
-  border-color: #30363d;
+  background: var(--code-block-bg);
+  border-color: var(--code-block-border);
 }
 
 .shiki-wrapper :deep(pre) {
@@ -933,8 +933,8 @@ watch(
 }
 
 :global(.dark) .shiki-pending {
-  background: #1a1a2e;
-  border-color: #30363d;
+  background: var(--code-block-bg);
+  border-color: var(--code-block-border);
 }
 
 .message-markdown {

@@ -818,14 +818,14 @@ watch(isOpen, (newVal) => {
   --tw-prose-quote-borders: var(--border-main);
   --tw-prose-captions: var(--text-tertiary);
   --tw-prose-code: var(--text-primary);
-  --tw-prose-pre-code: #d4d4d4;
-  --tw-prose-pre-bg: #1e1e1e;
+  --tw-prose-pre-code: var(--text-primary);
+  --tw-prose-pre-bg: var(--code-block-bg);
   --tw-prose-th-borders: var(--border-main);
   --tw-prose-td-borders: var(--border-light);
 }
 
 :global(.dark) .doc-body.prose {
-  --tw-prose-links: #e5e5e5;
+  --tw-prose-links: var(--text-primary);
 }
 
 /* `v-html` content is not scoped; use deep selectors for reliable dark-mode text colors */

@@ -10,7 +10,7 @@
   <div class="flex-1 min-h-0 w-full overflow-y-auto">
     <!-- Creating Animation -->
     <div v-if="isCreating"
-      class="flex-1 h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e] py-12">
+      class="flex-1 h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#0d1117] dark:to-[#161b22] py-12">
       <div class="chart-animation">
         <!-- Animated chart bars -->
         <div class="chart-bars">
@@ -47,7 +47,7 @@
               :class="[
                 'px-2 py-1 text-xs rounded-md transition-colors',
                 viewMode === 'interactive'
-                  ? 'bg-white dark:bg-[#2a2a3e] text-[var(--text-primary)] shadow-sm'
+                  ? 'bg-white dark:bg-[var(--code-block-bg)] text-[var(--text-primary)] shadow-sm'
                   : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
               ]"
               :disabled="!canShowInteractive"
@@ -59,7 +59,7 @@
               :class="[
                 'px-2 py-1 text-xs rounded-md transition-colors',
                 viewMode === 'static'
-                  ? 'bg-white dark:bg-[#2a2a3e] text-[var(--text-primary)] shadow-sm'
+                  ? 'bg-white dark:bg-[var(--code-block-bg)] text-[var(--text-primary)] shadow-sm'
                   : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
               ]"
             >
@@ -74,7 +74,7 @@
 
       <!-- Interactive Plotly Chart (embedded) -->
       <div v-if="viewMode === 'interactive' && canShowInteractive"
-        class="chart-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[#1a1a2e] mb-4">
+        class="chart-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-4">
         <div ref="plotlyDiv" class="plotly-chart" v-show="plotlyReady"></div>
         <div v-if="!plotlyReady" class="p-8 flex items-center justify-center">
           <div class="text-[var(--text-tertiary)] text-sm">Loading interactive chart...</div>
@@ -82,7 +82,7 @@
       </div>
 
       <!-- Static PNG preview -->
-      <div v-else class="chart-preview-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[#1a1a2e] mb-4">
+      <div v-else class="chart-preview-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-4">
         <img v-if="pngUrl" :src="pngUrl" :alt="chartContent.content?.title || 'Chart'" class="w-full h-auto object-contain" />
         <div v-else class="p-8 flex items-center justify-center bg-[var(--background-gray-light)]">
           <div class="text-[var(--text-tertiary)] text-sm">Chart preview loading...</div>
@@ -230,21 +230,21 @@ const applyDarkModeTheme = () => {
 
   plotlyLayout.value = {
     ...plotlyLayout.value,
-    paper_bgcolor: '#1a1a2e',
-    plot_bgcolor: '#1a1a2e',
+    paper_bgcolor: '#0d1117',
+    plot_bgcolor: '#0d1117',
     font: {
       ...plotlyLayout.value.font,
-      color: '#e0e0e0',
+      color: '#e6edf3',
     },
     xaxis: {
       ...plotlyLayout.value.xaxis,
-      gridcolor: '#2a2a3e',
-      color: '#e0e0e0',
+      gridcolor: '#21262d',
+      color: '#e6edf3',
     },
     yaxis: {
       ...plotlyLayout.value.yaxis,
-      gridcolor: '#2a2a3e',
-      color: '#e0e0e0',
+      gridcolor: '#21262d',
+      color: '#e6edf3',
     },
   };
 };
