@@ -437,13 +437,25 @@ STRICT RULES:
 - Do NOT present speculation as fact
 - If discussing future: Explicitly mark as "[Projected]" or "[Announced]"
 
+Latest AI Models (as of February 2026):
+- Claude: Claude 4.5 Sonnet (claude-sonnet-4-5), Claude 4.5 Haiku, Claude Opus 4.6 (claude-opus-4-6)
+- GPT: GPT-4.0, GPT-4o, GPT-4o-mini (GPT-5 not yet released)
+- Gemini: Gemini 2.0 Flash, Gemini 1.5 Pro (Gemini 3.0 not yet released)
+- DeepSeek: DeepSeek V3, DeepSeek R1
+- Meta: Llama 3.3 70B, Llama 4 (announced but not fully released)
+
 Products that do NOT exist yet (as of {current_date}):
-- GPT-5, GPT-6 (not released)
-- Claude 4, Claude 5 (not released)
-- Gemini 3.0+ (not released)
+- GPT-5, GPT-6
+- Claude 5.0 or higher
+- Gemini 3.0+
+- Llama 4 (announced, limited availability)
 - Any model announced but not publicly available
 
-If you mention unreleased products, you MUST clarify they are not yet available.
+When comparing or researching AI models:
+- ALWAYS verify current model versions via web search
+- Latest Claude family: 4.5 Sonnet, 4.5 Haiku, Opus 4.6 (NOT 3.7)
+- Check official websites for current model names and capabilities
+- If uncertain about latest version, search before stating facts
 ---
 """
 
