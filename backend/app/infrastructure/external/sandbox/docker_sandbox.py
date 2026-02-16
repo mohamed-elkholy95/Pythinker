@@ -13,7 +13,7 @@ from async_lru import alru_cache
 from docker.errors import NotFound as DockerNotFound
 from docker.types import Ulimit
 
-from app.core.config import get_settings
+from app.core.config import StreamingMode, get_settings
 from app.core.prometheus_metrics import (
     sandbox_connection_attempts_total,
     sandbox_connection_failure_total,
@@ -467,6 +467,17 @@ class DockerSandbox(Sandbox):
                     "chrome_cdp_only",
                     "dbus",
                 }
+
+                # In CDP-only mode, VNC services are intentionally not started
+                if settings.sandbox_streaming_mode == StreamingMode.CDP_ONLY:
+                    expected_exit_services.update({
+                        "chrome_dual",
+                        "openbox",
+                        "websockify",
+                        "x11vnc",
+                        "xrandr_setup",
+                        "xvfb",
+                    })
 
                 for service in services:
                     service_name = service.get("name", "unknown")
