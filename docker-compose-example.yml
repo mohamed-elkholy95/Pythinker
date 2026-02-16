@@ -1,10 +1,15 @@
+# Quick-start Docker Compose for Pythinker
+# Copy this file and customize environment variables for your deployment.
+# For development, use docker-compose-development.yml instead.
+
 services:
   frontend:
     image: pythinker/pythinker-frontend
     ports:
-      - "5173:80"
+      - "5174:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -14,10 +19,18 @@ services:
   backend:
     image: pythinker/pythinker-backend
     depends_on:
-      - sandbox
-      - mongodb
-      - redis
-      - qdrant
+      sandbox:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_started
+      redis-cache:
+        condition: service_started
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -25,118 +38,188 @@ services:
     networks:
       - pythinker-network
     environment:
-      # OpenAI API base URL
+      # OpenAI-compatible API configuration
       - API_BASE=https://api.openai.com/v1
-      # OpenAI API key, replace with your own
-      - API_KEY=sk-xxxx
-      # LLM model name
+      - API_KEY=sk-xxxx  # Replace with your API key
       - MODEL_NAME=gpt-4o
-      # LLM temperature parameter, controls randomness
       - TEMPERATURE=0.7
-      # Maximum tokens for LLM response
       - MAX_TOKENS=2000
 
-      # MongoDB connection URI
-      #- MONGODB_URI=mongodb://mongodb:27017
-      # MongoDB database name
-      #- MONGODB_DATABASE=pythinker
-      # MongoDB username (optional)
-      #- MONGODB_USERNAME=
-      # MongoDB password (optional)
-      #- MONGODB_PASSWORD=
+      # Sandbox configuration
+      - SANDBOX_LIFECYCLE_MODE=static
+      - SANDBOX_ADDRESS=sandbox
+      - SANDBOX_API_SECRET=change-me-to-a-real-secret
+      - SANDBOX_STREAMING_MODE=cdp_only
 
-      # Redis server hostname
-      #- REDIS_HOST=redis
-      # Redis server port
-      #- REDIS_PORT=6379
-      # Redis database number
-      #- REDIS_DB=0
-      # Redis password (optional)
-      #- REDIS_PASSWORD=
+      # Search engine (options: duckduckgo, bing, google, brave, tavily, serper)
+      - SEARCH_PROVIDER=duckduckgo
 
-      # Sandbox server address (optional)
-      #- SANDBOX_ADDRESS=
-      # Docker image used for the sandbox
-      - SANDBOX_IMAGE=pythinker/pythinker-sandbox
-      # Prefix for sandbox container names
-      - SANDBOX_NAME_PREFIX=sandbox
-      # Time-to-live for sandbox containers in minutes
-      - SANDBOX_TTL_MINUTES=30
-      # Docker network for sandbox containers
-      - SANDBOX_NETWORK=pythinker-network
-      # Chrome browser arguments for sandbox (optional)
-      # Note: For better browser stability, consider running sandbox containers with:
-      #   --shm-size=2g to increase shared memory (prevents Chrome crashes)
-      #- SANDBOX_CHROME_ARGS=
-      # HTTPS proxy for sandbox (optional)
-      #- SANDBOX_HTTPS_PROXY=
-      # HTTP proxy for sandbox (optional)
-      #- SANDBOX_HTTP_PROXY=
-      # No proxy hosts for sandbox (optional)
-      #- SANDBOX_NO_PROXY=
-
-      # Search engine configuration
-      # Options: duckduckgo, bing, google, baidu, brave, tavily, serper
-      - SEARCH_PROVIDER=bing
-
-      # Google search configuration, only used when SEARCH_PROVIDER=google
-      #- GOOGLE_SEARCH_API_KEY=
-      #- GOOGLE_SEARCH_ENGINE_ID=
-
-      # Auth configuration
-      # Options: password, none, local
+      # Auth configuration (options: password, none, local)
       - AUTH_PROVIDER=password
-
-      # Password auth configuration, only used when AUTH_PROVIDER=password
-      - PASSWORD_SALT=
-      - PASSWORD_HASH_ROUNDS=10
-
-      # Local auth configuration, only used when AUTH_PROVIDER=local
-      #- LOCAL_AUTH_EMAIL=admin@example.com
-      #- LOCAL_AUTH_PASSWORD=admin
+      - PASSWORD_SALT=  # Generate: python -c "import secrets; print(secrets.token_urlsafe(16))"
 
       # JWT configuration
-      - JWT_SECRET_KEY=your-secret-key-here
+      - JWT_SECRET_KEY=your-secret-key-here  # Generate: python -c "import secrets; print(secrets.token_urlsafe(32))"
       - JWT_ALGORITHM=HS256
       - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
       - JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
 
-      # Email configuration
-      # Only used when AUTH_PROVIDER=password
-      #- EMAIL_HOST=smtp.gmail.com
-      #- EMAIL_PORT=587
-      #- EMAIL_USERNAME=your-email@gmail.com
-      #- EMAIL_PASSWORD=your-password
-      #- EMAIL_FROM=your-email@gmail.com
+      # MinIO object storage
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
 
-      # MCP configuration file path
-      #- MCP_CONFIG_PATH=/etc/mcp.json
+      # Suppress noisy warnings
+      - GRPC_ENABLE_FORK_SUPPORT=0
+      - NODE_OPTIONS=--no-deprecation
 
-      # Application log level
       - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   sandbox:
     image: pythinker/pythinker-sandbox
-    command: /bin/sh -c "exit 0"  # prevent sandbox from starting, ensure image is pulled
-    restart: "no"
+    hostname: sandbox
+    init: true
+    restart: unless-stopped
+    environment:
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
+      - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome
+      - SANDBOX_API_SECRET=change-me-to-a-real-secret
+      - SANDBOX_STREAMING_MODE=cdp_only
+    shm_size: '2g'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+      - SYS_CHROOT
+    tmpfs:
+      - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
+      - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+      - /tmp:size=1g,nosuid,nodev
+      - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 4096
+        hard: 8192
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1'
+          pids: 300
+        reservations:
+          memory: 512M
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin       # Change in production
+      - MINIO_ROOT_PASSWORD=minioadmin   # Change in production
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   mongodb:
     image: mongo:7.0
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped
-    #ports:
-    #  - "27017:27017"
     networks:
       - pythinker-network
 
   redis:
     image: redis:8.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --aof-use-rdb-preamble
+      - "yes"
+      - --loglevel
+      - warning
+      - --timeout
+      - "0"
+      - --maxmemory
+      - "512mb"
+      - --maxmemory-policy
+      - volatile-lfu
+      - --lazyfree-lazy-eviction
+      - "yes"
+      - --latency-monitor-threshold
+      - "100"
+    volumes:
+      - redis_runtime_data:/data
     restart: unless-stopped
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  redis-cache:
+    image: redis:8.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --loglevel
+      - warning
+      - --timeout
+      - "0"
+      - --maxmemory
+      - "512mb"
+      - --maxmemory-policy
+      - allkeys-lfu
+      - --lazyfree-lazy-eviction
+      - "yes"
+      - --latency-monitor-threshold
+      - "100"
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   qdrant:
     image: qdrant/qdrant:v1.16.3
@@ -160,8 +243,12 @@ services:
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
+  redis_runtime_data:
+    name: pythinker-redis-runtime-data
   qdrant_data:
     name: pythinker-qdrant-data
+  minio_data:
+    name: pythinker-minio-data
 
 networks:
   pythinker-network:
