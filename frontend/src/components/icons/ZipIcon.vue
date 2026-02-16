@@ -22,32 +22,16 @@ const viewBox = computed(() => `0 0 32 32`)
   >
     <path
       d="M3.55566 26.8889C3.55566 28.6071 4.94856 30 6.66678 30H25.3334C27.0517 30 28.4446 28.6071 28.4446 26.8889V9.77778L20.6668 2H6.66678C4.94856 2 3.55566 3.39289 3.55566 5.11111V26.8889Z"
-      fill="#4999E9"
+      fill="#F8A100"
     />
     <path
-      d="M20.6685 6.66647C20.6685 8.38469 22.0613 9.77759 23.7796 9.77759H28.4462L20.6685 1.99981V6.66647Z"
-      fill="#A3CDFA"
+      opacity="0.8"
+      d="M20.6665 6.66672C20.6665 8.38494 22.0594 9.77783 23.7776 9.77783H28.4443L20.6665 2.00005V6.66672Z"
+      fill="#FFCE76"
     />
     <path
-      d="M12 16L9 19L12 22"
-      stroke="white"
-      stroke-width="1.75"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-    <path
-      d="M20 16L23 19L20 22"
-      stroke="white"
-      stroke-width="1.75"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-    <path
-      d="M17 14L15 24"
-      stroke="white"
-      stroke-width="1.75"
-      stroke-linecap="round"
-      stroke-linejoin="round"
+      d="M16.0952 14.9524V12.7935H14V10.635H16.0952V8.47619H14V6.31733H16.0952V4.15886H14V2H16.0952V4.15886H18.1905V6.31733H16.0952V8.47619H18.1905V10.635H16.0952V12.7935H18.1905V21.0476H14V14.9524H16.0952ZM17.4286 17.2381H14.7619V20.2857H17.4286V17.2381Z"
+      fill="white"
     />
   </svg>
 </template>
