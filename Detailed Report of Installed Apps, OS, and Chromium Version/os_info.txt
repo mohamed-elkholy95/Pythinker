@@ -1,8 +1,0 @@
-OS Information:
-PRETTY_NAME="Ubuntu 22.04.5 LTS"
-Kernel: 6.1.102 #1 SMP PREEMPT_DYNAMIC Tue Sep 3 09:03:50 UTC 2024 x86_64
-Architecture: x86_64
-CPU: Intel(R) Xeon(R) Processor @ 2.50GHz (6 cores)
-Memory: 3.8Gi Total
-Disk: 42G Total, 32G Available
-Uptime: 1 day, 14 hours

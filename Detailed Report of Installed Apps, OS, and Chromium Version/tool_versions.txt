@@ -1,8 +1,0 @@
-Chromium: 128.0.6613.137
-Python: 3.11.0rc1
-Node.js: v22.13.0
-NPM: 10.9.2
-PNPM: 10.29.2
-Git: 2.34.1
-Curl: 7.81.0
-Wget: 1.21.2
