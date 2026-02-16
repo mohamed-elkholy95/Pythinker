@@ -33,6 +33,81 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 - **Python Environment**: Always `conda activate pythinker` before running tests
 - **Plan Execution**: Complete ALL phases - priorities indicate order, not optional phases
 
+### Automatic Skill Activation (Python + Frontend)
+
+**CRITICAL**: PreToolUse hooks automatically monitor file operations and recommend appropriate skills.
+
+#### Python Skill Hook (`~/.claude/hooks/python_skill_activator.py`)
+
+**When you see:**
+```
+╔════════════════════════════════════════════════════════════════╗
+║  🤖 PRO AGENT ACTIVATION RECOMMENDED                    ║
+║  Recommended: python-development:fastapi-pro                   ║
+╚════════════════════════════════════════════════════════════════╝
+```
+
+**YOU MUST immediately invoke:** `Skill tool: python-development:fastapi-pro`
+
+**Available Python Agents:**
+- `python-development:fastapi-pro` - FastAPI Expert • API routes, SQLAlchemy 2.0, Pydantic V2
+- `python-development:python-pro` - Python 3.12+ Expert • Modern tooling, domain models
+- `python-development:django-pro` - Django Expert • ORM, DRF, Celery
+
+**Available Python Skills:**
+- `python-development:python-testing-patterns` - pytest, fixtures, mocking
+- `python-development:async-python-patterns` - asyncio, concurrent programming
+- `python-development:python-configuration` - Environment variables, Pydantic Settings
+- Others: python-packaging, python-type-safety, python-error-handling, python-observability
+
+**Detects:** FastAPI, Pydantic, pytest, async/await, domain models, infrastructure, config
+**Disable:** `export ENABLE_PYTHON_SKILL_HOOK=0`
+
+#### Frontend Skill Hook (`~/.claude/hooks/frontend_skill_activator.py`)
+
+**When you see:**
+```
+╔════════════════════════════════════════════════════════════════╗
+║  ⚡ VUE SKILL ACTIVATION RECOMMENDED                    ║
+║  Recommended: vue-best-practices:vue-best-practices            ║
+╚════════════════════════════════════════════════════════════════╝
+```
+
+**YOU MUST immediately invoke:** `Skill tool: vue-best-practices:vue-best-practices`
+
+**Available Vue Skills:**
+- `vue-best-practices:vue-best-practices` - Vue 3 Expert • Composition API, `<script setup>`, TypeScript
+- `vue-best-practices:vue-router-best-practices` - Vue Router 4 • Navigation, guards, params
+- `vue-best-practices:vue-pinia-best-practices` - Pinia • State management, stores
+- `vue-best-practices:vue-testing-best-practices` - Vitest, Vue Test Utils, component testing
+- `vue-best-practices:create-adaptable-composable` - MaybeRef patterns, reactive inputs
+- `vue-best-practices:vue-debug-guides` - Debugging, errors, hydration issues
+- `vue-best-practices:vue-jsx-best-practices` - JSX in Vue, render functions
+- `vue-best-practices:vue-options-api-best-practices` - Options API (legacy)
+
+**Frontend Design Skill:**
+- `frontend-design:frontend-design` - 🎨 Production UI Design • Distinctive aesthetics, creative components
+
+**Detects:**
+- Vue components (.vue files)
+- Composables (40+ in Pythinker: useSSE, useAuth, useSandbox, etc.)
+- API client (SSE, HTTP, WebSocket)
+- TypeScript types
+- Router configuration
+- Pinia stores
+- Component tests (Vitest)
+- Styling and visual design
+- Utils, plugins, config
+
+**Disable:** `export ENABLE_FRONTEND_SKILL_HOOK=0`
+
+#### Hook Behavior (Both Hooks)
+- **Triggers on:** Edit, Write, MultiEdit, Bash, Read operations
+- **Non-blocking:** Shows recommendation but allows operation to proceed
+- **Session-aware:** Only shows once per file/skill per session
+- **Professional coverage:** Comprehensive pattern detection for entire codebase
+- **Debug logs:** `/tmp/python-skill-hook-log.txt`, `/tmp/frontend-skill-hook-log.txt`
+
 ### Multi-API Key Management
 
 - **Always use APIKeyPool** for external API providers (search, LLM, embedding)
