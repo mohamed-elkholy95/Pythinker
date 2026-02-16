@@ -20,6 +20,7 @@ from app.domain.models.event import (
     ToolContent,
     ToolEvent,
     ToolStatus,
+    ToolStreamEvent,
     WideResearchEvent,
 )
 from app.domain.models.plan import ExecutionStatus
@@ -213,6 +214,36 @@ class ToolSSEEvent(BaseSSEEvent):
                 security_reason=event.security_reason,
                 security_suggestions=event.security_suggestions,
                 confirmation_state=event.confirmation_state,
+            )
+        )
+
+
+class ToolStreamEventData(BaseEventData):
+    """SSE data for streaming partial tool content during LLM generation."""
+
+    tool_call_id: str
+    tool_name: str
+    function_name: str
+    partial_content: str
+    content_type: str = "text"
+    is_final: bool = False
+
+
+class ToolStreamSSEEvent(BaseSSEEvent):
+    event: Literal["tool_stream"] = "tool_stream"
+    data: ToolStreamEventData
+
+    @classmethod
+    def from_event(cls, event: ToolStreamEvent) -> Self:
+        return cls(
+            data=ToolStreamEventData(
+                **BaseEventData.base_event_data(event),
+                tool_call_id=event.tool_call_id,
+                tool_name=event.tool_name,
+                function_name=event.function_name,
+                partial_content=event.partial_content,
+                content_type=event.content_type,
+                is_final=event.is_final,
             )
         )
 
@@ -629,6 +660,7 @@ AgentSSEEvent = (
     | MessageSSEEvent
     | TitleSSEEvent
     | ToolSSEEvent
+    | ToolStreamSSEEvent
     | StepSSEEvent
     | DoneSSEEvent
     | ErrorSSEEvent
