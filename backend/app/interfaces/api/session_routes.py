@@ -1171,6 +1171,7 @@ async def screencast_websocket(
             logger.info(f"Connected to screencast at {sandbox_ws_url}")
 
             async def forward_from_sandbox():
+                """Relay frames from sandbox → browser."""
                 try:
                     async for message in sandbox_ws:
                         if isinstance(message, bytes):
@@ -1189,7 +1190,29 @@ async def screencast_websocket(
                 except Exception as e:
                     logger.error(f"Error forwarding from screencast: {e}")
 
-            await forward_from_sandbox()
+            async def monitor_browser_disconnect():
+                """Detect browser close immediately instead of waiting for next send failure."""
+                try:
+                    while True:
+                        msg = await websocket.receive()
+                        if msg.get("type") == "websocket.disconnect":
+                            break
+                except (WebSocketDisconnect, RuntimeError):
+                    pass
+
+            # Run both directions concurrently — finish when either side closes.
+            tasks = [
+                asyncio.create_task(forward_from_sandbox()),
+                asyncio.create_task(monitor_browser_disconnect()),
+            ]
+            try:
+                _done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for task in tasks:
+                    task.cancel()
+                for task in tasks:
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
     except (ConnectionError, websockets.exceptions.WebSocketException) as e:
         error_text = _safe_exc_text(e)

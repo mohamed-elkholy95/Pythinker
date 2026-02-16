@@ -91,6 +91,10 @@ tzlocal==5.3.1
 uritools==5.0.0
 urllib3==2.5.0
 uvicorn[standard]==0.37.0  # Includes websockets, watchfiles, python-dotenv, uvloop
+# Explicit extras — pip can silently skip [standard] extras in pinned requirements
+websockets>=15.0
+httptools>=0.6.4
+uvloop>=0.22.0
 weasyprint==66.0
 webencodings==0.5.1
 werkzeug==3.1.3
