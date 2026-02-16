@@ -6,8 +6,8 @@
         <!-- Header (hidden when panel is open above) -->
         <div v-if="!hideExpandedHeader" class="expanded-header">
           <div class="flex items-start gap-4">
-            <!-- Tool/VNC Mini Preview -->
-            <VncMiniPreview
+            <!-- Tool/Live Mini Preview -->
+            <LiveMiniPreview
               v-if="showExpandedThumbnail && sessionId"
               :session-id="sessionId"
               :enabled="true"
@@ -156,14 +156,14 @@
 
     <!-- Collapsed View - always in DOM to maintain space -->
     <div class="collapsed-wrapper" :class="[showCollapsedThumbnail && sessionId ? 'has-thumbnail' : '', { 'invisible': isExpanded }]">
-      <!-- Floating Live VNC Mini Preview -->
+      <!-- Floating Live Mini Preview -->
       <div
         v-if="showCollapsedThumbnail && sessionId && !isExpanded"
-        class="vnc-thumbnail-floating"
+        class="live-preview-thumbnail-floating"
         @mouseenter="showTooltip"
         @mouseleave="scheduleHideTooltip"
       >
-        <VncMiniPreview
+        <LiveMiniPreview
           :session-id="sessionId"
           :enabled="true"
           :tool-name="props.currentTool?.name"
@@ -246,7 +246,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, type Component } from 'vue'
 import { ChevronUp, ChevronDown, Check, MonitorPlay, Terminal, Globe, FolderOpen } from 'lucide-vue-next'
-import VncMiniPreview from './VncMiniPreview.vue'
+import LiveMiniPreview from './LiveMiniPreview.vue'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState'
@@ -256,11 +256,11 @@ interface Props {
   plan?: PlanEventData
   isLoading: boolean
   isThinking: boolean
-  /** Whether to show the VNC thumbnail */
+  /** Whether to show the live preview thumbnail */
   showThumbnail?: boolean
   defaultExpanded?: boolean
   compact?: boolean
-  /** Session ID for live VNC mini preview */
+  /** Session ID for live mini preview */
   sessionId?: string
   currentTool?: { name: string; function: string; functionArg?: string; status?: string; icon?: Component | null } | null
   toolContent?: ToolContent | null
@@ -603,7 +603,7 @@ onUnmounted(() => {
 }
 
 .collapsed-wrapper.has-thumbnail {
-  margin-top: 100px; /* Space for floating VNC preview (144px width @ 16:10 = 90px height + gap) */
+  margin-top: 100px; /* Space for floating preview (144px width @ 16:10 = 90px height + gap) */
 }
 
 .progress-bar-collapsed {
@@ -659,8 +659,8 @@ onUnmounted(() => {
   color: var(--bolt-elements-textSecondary);
 }
 
-/* ===== VNC THUMBNAILS ===== */
-.vnc-thumbnail-floating {
+/* ===== LIVE PREVIEW THUMBNAILS ===== */
+.live-preview-thumbnail-floating {
   position: absolute;
   left: 12px;
   bottom: 8px;
@@ -668,10 +668,10 @@ onUnmounted(() => {
 }
 
 .progress-bar-collapsed.has-thumbnail {
-  padding-left: 160px; /* Space for 144px wide VNC preview + gap */
+  padding-left: 160px; /* Space for 144px wide preview + gap */
 }
 
-.vnc-thumbnail-expanded {
+.live-preview-thumbnail-expanded {
   flex-shrink: 0;
   width: 150px;
   height: 86px;
@@ -684,11 +684,11 @@ onUnmounted(() => {
   position: relative;
 }
 
-.vnc-thumbnail-expanded:hover {
+.live-preview-thumbnail-expanded:hover {
   border-color: var(--bolt-elements-borderColorActive);
 }
 
-.vnc-thumbnail-overlay {
+.live-preview-thumbnail-overlay {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
@@ -699,8 +699,8 @@ onUnmounted(() => {
   transition: opacity 0.2s ease;
 }
 
-.vnc-thumbnail-floating:hover .vnc-thumbnail-overlay,
-.vnc-thumbnail-expanded:hover .vnc-thumbnail-overlay {
+.live-preview-thumbnail-floating:hover .live-preview-thumbnail-overlay,
+.live-preview-thumbnail-expanded:hover .live-preview-thumbnail-overlay {
   opacity: 1;
 }
 

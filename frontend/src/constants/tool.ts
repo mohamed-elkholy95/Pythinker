@@ -520,7 +520,7 @@ export const FUNCTION_ICON_MAP: Record<string, Component> = {
 /**
  * Content view types for the unified tool panel
  */
-export type ContentViewType = 'vnc' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research' | 'chart';
+export type ContentViewType = 'live_preview' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research' | 'chart';
 export type ViewMode = 'primary' | 'secondary' | 'tertiary';
 
 export interface ContentConfig {
@@ -540,7 +540,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === SHELL/TERMINAL ===
   shell: {
     primaryView: 'terminal',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -548,21 +548,21 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === BROWSER ===
   browser: {
-    primaryView: 'vnc',
+    primaryView: 'live_preview',
     secondaryView: 'terminal',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   browser_agent: {
-    primaryView: 'vnc',
+    primaryView: 'live_preview',
     secondaryView: 'terminal',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   playwright: {
-    primaryView: 'vnc',
+    primaryView: 'live_preview',
     secondaryView: 'terminal',
     tabLabels: [],
     defaultView: 'primary',
@@ -573,7 +573,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   code_executor: {
     primaryView: 'terminal',
     secondaryView: 'editor',
-    tertiaryView: 'vnc',
+    tertiaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -582,7 +582,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   code_execute: {
     primaryView: 'terminal',
     secondaryView: 'editor',
-    tertiaryView: 'vnc',
+    tertiaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -608,7 +608,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === GIT ===
   git: {
     primaryView: 'terminal',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -617,7 +617,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === SEARCH ===
   search: {
     primaryView: 'search',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -626,35 +626,35 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === CHART ===
   chart: {
     primaryView: 'chart',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   info: {
     primaryView: 'search',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   info_search_web: {
     primaryView: 'search',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   wide_research: {
     primaryView: 'search',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   web_search: {
     primaryView: 'search',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -663,7 +663,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === TEST ===
   test_runner: {
     primaryView: 'terminal',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -725,7 +725,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === WORKSPACE ===
   workspace: {
     primaryView: 'terminal',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -742,14 +742,14 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === DEEP SCAN ===
   deep_scan_analyzer: {
     primaryView: 'terminal',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   deep_scan: {
     primaryView: 'terminal',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -774,7 +774,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === REPO MAP ===
   repo_map: {
     primaryView: 'terminal',
-    secondaryView: 'vnc',
+    secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false

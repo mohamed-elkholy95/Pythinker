@@ -1167,15 +1167,15 @@ const checkStaleConnection = () => {
   }
 };
 
-// Track if ToolPanel is open (needed for VNC thumbnail management)
+// Track if ToolPanel is open (needed for live preview thumbnail management)
 const isToolPanelOpen = ref(false);
 // Tracks whether user manually closed the panel during the current agent run.
 // Prevents auto-reopening until the next user message is sent.
 const userDismissedPanel = ref(false);
 
-// Handler for TaskProgressBar's requestRefresh event (no-op with live VNC preview)
+// Handler for TaskProgressBar's requestRefresh event (no-op with live preview)
 const handleThumbnailRefresh = () => {
-  // With live VNC preview, no refresh is needed - it's always up to date
+  // With live preview, no refresh is needed - it's always up to date
 };
 
 // Start stale detection when loading starts
@@ -1374,7 +1374,7 @@ const showTaskProgressBar = computed(() =>
   (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
 );
 
-// Add extra bottom scroll room when mini VNC thumbnail is rendered with the task progress bar.
+// Add extra bottom scroll room when mini preview thumbnail is rendered with the task progress bar.
 const showThumbnailDockSpacer = computed(() => showTaskProgressBar.value && shouldShowThumbnail.value);
 
 // Handle tool panel state changes
@@ -1396,7 +1396,7 @@ const isComputerTool = (tool?: ToolContent | null) => {
 const shouldShowThumbnail = computed(() => {
   if (isToolPanelOpen.value) return false;
   if (!sessionId.value) return false;
-  // Show live VNC thumbnail when there's an active plan, loading, or tool activity
+  // Show live preview thumbnail when there's an active plan, loading, or tool activity
   return !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value || !!lastNoMessageTool.value;
 });
 

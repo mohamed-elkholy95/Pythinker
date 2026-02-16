@@ -385,7 +385,7 @@ transition: color 0.2s ease, background-color 0.2s ease;
 **Priority: MEDIUM**
 
 Tool views to refactor:
-- [x] `VNCContentView.vue` - Extract animation to shared component
+- [x] Legacy browser content view removed in CDP-only migration (replaced by `BrowserToolView.vue` + `LiveViewer.vue`)
 - [x] `TerminalContentView.vue` - Standardize empty state
 - [x] `EditorContentView.vue` - Add loading/error states
 - [x] `SearchContentView.vue` - Use shared animation component
@@ -455,11 +455,11 @@ Tool views to refactor:
 
 ## 📝 Component Specifications
 
-### VNCContentView (Standardized)
+### LiveContentView (Standardized, CDP-only)
 
 ```vue
 <template>
-  <ContentContainer :scrollable="false" padding="none" class="vnc-view">
+  <ContentContainer :scrollable="false" padding="none" class="live-view">
     <!-- Loading State with Globe Animation -->
     <LoadingState
       v-if="showPlaceholder"
@@ -469,15 +469,15 @@ Tool views to refactor:
       animation="globe"
     />
 
-    <!-- Live VNC Viewer -->
-    <VNCViewer
+    <!-- Live CDP Viewer -->
+    <LiveViewer
       v-else-if="enabled"
       :session-id="sessionId"
       :enabled="enabled"
       :view-only="viewOnly"
       @connected="emit('connected')"
       @disconnected="emit('disconnected')"
-      class="vnc-viewer"
+      class="live-viewer"
     />
 
     <!-- Static Screenshot Fallback -->
@@ -485,7 +485,7 @@ Tool views to refactor:
       v-else-if="screenshot"
       :src="screenshot"
       alt="Screenshot"
-      class="vnc-screenshot"
+      class="live-screenshot"
     />
 
     <!-- Take Over Button Slot -->

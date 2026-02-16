@@ -1,6 +1,6 @@
 export type StreamPhase = 'idle' | 'thinking' | 'summarizing' | 'summary_final';
 
-export type StreamingViewType = 'vnc' | 'terminal' | 'editor' | 'search' | 'generic' | 'report';
+export type StreamingViewType = 'live_preview' | 'terminal' | 'editor' | 'search' | 'generic' | 'report';
 
 export const STREAMING_LABELS = {
   thinking: 'Thinking',

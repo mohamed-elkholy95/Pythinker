@@ -100,7 +100,7 @@ export interface AuthStatusResponse {
  * Resource access token request type
  */
 export interface AccessTokenRequest {
-  resource_type: 'file' | 'vnc';
+  resource_type: 'file' | 'sandbox';
   resource_id: string;
   expire_minutes?: number;
 }

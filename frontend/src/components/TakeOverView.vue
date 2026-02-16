@@ -5,8 +5,8 @@
                 :session-id="sessionId"
                 :enabled="shouldShow"
                 :view-only="false"
-                @connected="onVNCConnected"
-                @disconnected="onVNCDisconnected"
+                @connected="onLivePreviewConnected"
+                @disconnected="onLivePreviewDisconnected"
             />
         </div>
 
@@ -164,13 +164,13 @@ const handleTakeOverEvent = (event: Event) => {
     currentSessionId.value = customEvent.detail.sessionId;
 };
 
-// VNC event handlers
-const onVNCConnected = () => {
-    // VNC connection established
+// Live preview event handlers
+const onLivePreviewConnected = () => {
+    // Live preview connection established
 };
 
-const onVNCDisconnected = (_reason?: string) => {
-    // VNC connection lost
+const onLivePreviewDisconnected = (_reason?: string) => {
+    // Live preview connection lost
 };
 
 // Calculate whether to show takeover view
@@ -181,9 +181,8 @@ const shouldShow = computed(() => {
     }
 
     // Also check route parameters (for direct URL access or page refresh)
-    const { params: { sessionId }, query: { vnc } } = route;
-    // Only show if both sessionId exists in route AND vnc=1 in query
-    return !!sessionId && vnc === '1';
+    const { params: { sessionId }, query: { preview } } = route;
+    return !!sessionId && preview === '1';
 });
 
 // Add event listener when component is mounted

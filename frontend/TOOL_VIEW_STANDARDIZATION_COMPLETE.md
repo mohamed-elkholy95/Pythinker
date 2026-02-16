@@ -46,7 +46,7 @@ The Tool View Standardization project has successfully completed Phases 1-4, est
 ### Phase 3: Component Refactoring (100% Complete)
 **Standardized: 5 ContentView Components**
 
-1. **VNCContentView.vue** - Live VNC viewer with placeholder states
+1. **BrowserToolView.vue** - Live browser preview view with placeholder states
 2. **TerminalContentView.vue** - xterm.js integration with empty states
 3. **EditorContentView.vue** - Monaco editor with loading/error states
 4. **SearchContentView.vue** - Progressive search results with skeleton loading
@@ -159,7 +159,7 @@ const { recommendedAnimation } = useAnimation(toolContent);
 ToolPanelContent.vue (Unified Router)
 ├── LoadingState (with animation variants)
 ├── ContentViews (5 standardized views)
-│   ├── VNCContentView
+│   ├── BrowserToolView
 │   ├── TerminalContentView
 │   ├── EditorContentView
 │   ├── SearchContentView
@@ -303,7 +303,7 @@ frontend/src/composables/
 ### Modified (5 files)
 ```
 frontend/src/components/toolViews/
-├── VNCContentView.vue (standardized)
+├── BrowserToolView.vue (standardized)
 ├── TerminalContentView.vue (standardized)
 ├── EditorContentView.vue (standardized)
 ├── SearchContentView.vue (standardized)

@@ -173,7 +173,7 @@ const handleRetry = () => {
       :detail="url"
       animation="globe"
     />
-    <VNCViewer v-else :session-id="sessionId" />
+    <LiveViewer v-else :session-id="sessionId" />
   </ContentContainer>
 </template>
 ```
