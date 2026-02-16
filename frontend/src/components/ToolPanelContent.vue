@@ -1,8 +1,11 @@
 <template>
-  <div class="bg-[var(--background-white-main)] sm:bg-[var(--background-white-main)] sm:rounded-[20px] shadow-[0px_10px_30px_rgba(15,23,42,0.08)] border border-[var(--border-light)] flex h-full w-full">
-    <div class="flex-1 min-w-0 p-4 flex flex-col h-full">
-      <!-- Frame Header: Pythinker's Computer + window controls -->
-      <div class="flex items-center gap-2 w-full">
+  <div
+    class="flex h-full w-full"
+    :class="{ 'bg-[var(--background-white-main)] sm:bg-[var(--background-white-main)] sm:rounded-[20px] shadow-[0px_10px_30px_rgba(15,23,42,0.08)] border border-[var(--border-light)]': !embedded }"
+  >
+    <div :class="['flex-1 min-w-0 flex flex-col h-full', embedded ? 'px-3 pb-3' : 'p-4']">
+      <!-- Frame Header: Pythinker's Computer + window controls (hidden in embedded/workspace mode) -->
+      <div v-if="!embedded" class="flex items-center gap-2 w-full">
         <div class="text-[var(--text-primary)] text-[15px] font-semibold flex-1">{{ $t("Pythinker's Computer") }}</div>
         <div class="flex items-center gap-1">
           <button
@@ -55,7 +58,12 @@
 
       <!-- Content Container with rounded frame -->
       <div
-        class="relative flex flex-col rounded-[14px] overflow-hidden bg-[var(--background-white-main)] border border-[var(--border-light)] shadow-[0px_6px_24px_rgba(15,23,42,0.06)] flex-1 min-h-0 mt-[16px]">
+        :class="[
+          'relative flex flex-col overflow-hidden bg-[var(--background-white-main)] flex-1 min-h-0',
+          embedded
+            ? 'rounded-[10px] border border-[var(--border-light)] mt-2'
+            : 'rounded-[14px] border border-[var(--border-light)] shadow-[0px_6px_24px_rgba(15,23,42,0.06)] mt-[16px]'
+        ]">
 
         <!-- Content Header: Centered operation label + View mode tabs -->
         <div
@@ -99,9 +107,9 @@
             :is-final="!isSummaryStreaming"
           />
 
-          <!-- Replay mode: static screenshots (only when no richer tool view is available) -->
+          <!-- Replay mode: static screenshots (second highest priority) -->
           <div
-            v-else-if="isReplayMode && !!replayScreenshotUrl && !hasRichToolView"
+            v-else-if="isReplayMode && !!replayScreenshotUrl"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <ScreenshotReplayViewer
@@ -110,9 +118,9 @@
             />
           </div>
 
-          <!-- Replay mode loading: screenshots not yet fetched (only when no richer tool view) -->
+          <!-- Replay mode loading: screenshots not yet fetched -->
           <div
-            v-else-if="isReplayMode && !replayScreenshotUrl && !hasRichToolView"
+            v-else-if="isReplayMode && !replayScreenshotUrl"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <LoadingState
@@ -327,6 +335,8 @@ import { normalizeSearchResults } from '@/utils/searchResults';
 import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
 import type { ScreenshotMetadata } from '@/types/screenshot';
 
+import type { ContentViewType } from '@/constants/tool';
+
 const props = defineProps<{
   sessionId?: string;
   realTime: boolean;
@@ -347,6 +357,10 @@ const props = defineProps<{
   replayScreenshots?: ScreenshotMetadata[];
   summaryStreamText?: string;
   isSummaryStreaming?: boolean;
+  /** When true, hides the frame header and outer card styling (used inside WorkspacePanel) */
+  embedded?: boolean;
+  /** Override the auto-detected content view type (used for workspace tab switching) */
+  forceViewType?: ContentViewType;
 }>();
 
 // Computed for TaskProgressBar current tool
@@ -389,6 +403,7 @@ const shouldShowArtifactEditor = computed(() => {
 });
 
 const currentViewType = computed(() => {
+  if (props.forceViewType) return props.forceViewType;
   if (forceBrowserView.value) return 'live_preview';
   if (shouldShowArtifactEditor.value) return 'editor';
   return computedViewType.value;
@@ -409,6 +424,8 @@ const isArtifactTool = computed(() => {
 
 const artifactInlineContent = computed(() => {
   if (!isArtifactTool.value) return '';
+  // Prefer streaming_content (from tool_stream event) for instant preview
+  if (props.toolContent?.streaming_content) return props.toolContent.streaming_content;
   const argContent = props.toolContent?.args?.content;
   if (typeof argContent === 'string' && argContent.length > 0) return argContent;
   const payload = props.toolContent?.content as { content?: unknown } | undefined;
@@ -554,11 +571,6 @@ const livePreviewEnabled = computed(() => {
 
 // Whether the current tool has a rich native view (editor, terminal, search, chart)
 // that is more informative than a screenshot replay
-const hasRichToolView = computed(() => {
-  const vt = currentViewType.value;
-  return vt === 'editor' || vt === 'terminal' || vt === 'search' || vt === 'wide_research' || vt === 'chart';
-});
-
 // ============ URL Bar Overlay ============
 const BROWSER_TOOL_PREFIXES = ['browser', 'playwright', 'browsing'];
 const isBrowserTool = (name: string) =>
@@ -624,6 +636,10 @@ const terminalContent = computed(() => {
       // During execution, show a message indicating the command is running
       if (isActiveOperation.value && command) {
         return `$ ${command}\n[executing...]`;
+      }
+      // For code execution, show streaming code preview if available
+      if (isActiveOperation.value && props.toolContent?.streaming_content) {
+        return props.toolContent.streaming_content;
       }
       return '';
     }
@@ -792,10 +808,12 @@ const editorContent = computed(() => {
   // Modified view (primary)
   if (viewModeIndex.value === 0) {
     if (isFileWriting.value) {
+      // Prefer streaming_content (from tool_stream event) for instant preview
+      const streamContent = props.toolContent?.streaming_content || '';
       const argContent = typeof props.toolContent?.args?.content === 'string'
         ? props.toolContent?.args?.content
         : '';
-      return argContent || getToolContentText() || fileContent.value;
+      return streamContent || argContent || getToolContentText() || fileContent.value;
     }
     return fileContent.value || getToolContentText() || '';
   }
