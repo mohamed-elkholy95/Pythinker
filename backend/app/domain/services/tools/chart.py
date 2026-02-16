@@ -321,11 +321,7 @@ Returns both interactive HTML and static PNG files.""",
             # Parse JSON output from script
             # Output is in exec_result.data['output'], not exec_result.message
             try:
-                output_str = (
-                    exec_result.data.get("output")
-                    if exec_result.data
-                    else exec_result.message
-                )
+                output_str = exec_result.data.get("output") if exec_result.data else exec_result.message
                 if not output_str:
                     # Fallback to message if output is empty/None
                     output_str = exec_result.message
