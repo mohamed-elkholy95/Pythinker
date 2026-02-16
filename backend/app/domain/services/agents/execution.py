@@ -678,6 +678,23 @@ class ExecutionAgent(BaseAgent):
 
             message_content = accumulated_text.strip()
 
+            # Strip hallucinated tool-call XML and boilerplate that the LLM
+            # may reproduce from earlier conversation history during summarization.
+            message_content = self._clean_report_content(message_content)
+
+            if not message_content:
+                logger.warning("Summarization produced only tool-call XML / boilerplate — no real content")
+                yield StepEvent(
+                    status=StepStatus.FAILED,
+                    step=Step(
+                        id="summarize",
+                        description="Summary contained no usable content",
+                        status=ExecutionStatus.FAILED,
+                    ),
+                )
+                yield ErrorEvent(error="Summary generation failed: LLM produced no report content")
+                return
+
             # DeepCode Phase 2.2: Pattern-based truncation detection
             # Enhances finish_reason="length" detection with content pattern matching
             if delivery_integrity_enabled and not truncation_exhausted:
@@ -1168,6 +1185,54 @@ class ExecutionAgent(BaseAgent):
                 return clean[:80] + ("..." if len(clean) > 80 else "")
 
         return "Task Report"
+
+    # Pre-compiled patterns for _clean_report_content (module-level would be
+    # cleaner but keeping them close to usage for clarity).
+    _TOOL_CALL_RE = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL)
+    _FUNCTION_CALL_RE = re.compile(r"<function_call>.*?</function_call>", re.DOTALL)
+    _BOILERPLATE_FINAL_RESULT_RE = re.compile(
+        r"##\s*Final Result\s*\n+"
+        r"(?:The requested work has been completed[^\n]*\n*)+",
+    )
+    _BOILERPLATE_ARTIFACT_REFS_RE = re.compile(
+        r"##\s*Artifact References?\s*\n+"
+        r"(?:-\s*No (?:file )?artifacts? (?:were |was )[^\n]*\n*)+",
+    )
+    _EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
+
+    def _clean_report_content(self, content: str) -> str:
+        """Strip hallucinated tool-call XML and boilerplate from summarization output.
+
+        During summarization the LLM sometimes reproduces tool-call XML from
+        earlier conversation history (e.g. ``<tool_call>file_read...</tool_call>``)
+        and appends boilerplate sections ("Final Result", "Artifact References")
+        instead of actual report content.  This method removes those artifacts.
+        """
+        if not content:
+            return content
+
+        original_len = len(content)
+
+        # 1. Strip <tool_call>...</tool_call> and <function_call>...</function_call> blocks
+        cleaned = self._TOOL_CALL_RE.sub("", content)
+        cleaned = self._FUNCTION_CALL_RE.sub("", cleaned)
+
+        # 2. Strip boilerplate sections with generic/empty content
+        cleaned = self._BOILERPLATE_FINAL_RESULT_RE.sub("", cleaned)
+        cleaned = self._BOILERPLATE_ARTIFACT_REFS_RE.sub("", cleaned)
+
+        # 3. Collapse excess blank lines left by removals
+        cleaned = self._EXCESS_BLANK_LINES_RE.sub("\n\n", cleaned)
+        cleaned = cleaned.strip()
+
+        removed = original_len - len(cleaned)
+        if removed > 0:
+            logger.info(
+                "Cleaned %d chars of hallucinated tool-call XML / boilerplate from report content",
+                removed,
+            )
+
+        return cleaned
 
     async def _generate_confirmation_summary(self, report_content: str, title: str | None) -> str | None:
         """Generate a brief confirmation message summarizing key findings.

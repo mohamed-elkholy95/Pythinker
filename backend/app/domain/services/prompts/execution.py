@@ -1257,8 +1257,11 @@ FORBIDDEN:
 - Meta-commentary about the report itself
 - Work-in-progress language
 - Excessive caveats or hedging
+- Tool call XML (e.g. <tool_call>, <function_call>) — you cannot call tools here
+- Generic boilerplate like "The requested work has been completed as summarized above"
+- "Artifact References" sections listing no artifacts
 
-IMPORTANT: Write ONLY the Markdown report. No JSON wrapping, no prose before or after. Start directly with the # title heading.
+IMPORTANT: Write ONLY the Markdown report. No JSON wrapping, no prose before or after. Start directly with the # title heading. All information you need is already in the conversation — do NOT attempt to call tools or reproduce tool call syntax.
 """
 
 # Confirmation summary prompt - emitted as a MessageEvent before the ReportEvent
