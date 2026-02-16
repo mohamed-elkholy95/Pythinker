@@ -197,6 +197,7 @@ class Settings(BaseSettings):
     sandbox_pool_enabled: bool = True  # Enable sandbox pool for instant allocation (20-32s → 2-5s cold start)
     sandbox_pool_min_size: int = 1  # Pre-warm 1 sandbox, create 2nd on demand (saves ~3GB idle RAM)
     sandbox_pool_max_size: int = 2  # Cap at 2 for 2-concurrent-task target
+    max_concurrent_agents: int = 2  # In-process concurrency guard; matches sandbox_pool_max_size
     sandbox_pool_warmup_interval: int = 30  # Seconds between pool maintenance checks
 
     # Sandbox idle management (optimized for 2 concurrent tasks)
@@ -224,7 +225,7 @@ class Settings(BaseSettings):
     # Search engine configuration
     search_provider: str | None = "duckduckgo"  #  "google", "bing", "duckduckgo", "brave", "tavily", "serper"
     search_prefer_browser: bool = (
-        False  # API search is faster and more reliable; browser search only useful for sandbox VNC visibility
+        False  # API search is faster and more reliable; browser search is only useful for live preview visibility
     )
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None
