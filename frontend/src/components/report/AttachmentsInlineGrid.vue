@@ -32,11 +32,8 @@
           class="file-card flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--background-card)] border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-main)] hover:shadow-sm transition-all"
           @click="openFile(file)"
         >
-          <div
-            class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center"
-            :class="getFileIconBgClass(file.filename)"
-          >
-            <component :is="getFileIcon(file.filename)" class="w-4 h-4 text-white" />
+          <div class="flex-shrink-0 w-9 h-9 flex items-center justify-center text-[var(--icon-secondary)]">
+            <component :is="getFileIcon(file.filename)" :size="36" />
           </div>
           <div class="flex flex-col min-w-0 flex-1">
             <span class="text-sm text-[var(--text-primary)] truncate font-medium leading-tight">
@@ -67,17 +64,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import {
-  FileText,
-  FileCode,
-  FileArchive,
-  FileImage,
-  File,
   FolderOpen,
   BarChart3,
 } from 'lucide-vue-next';
 import type { FileInfo } from '@/api/file';
 import { fileApi } from '@/api/file';
-import { isChartPngFile, getChartHtmlFile } from '@/utils/fileType';
+import { isChartPngFile, getChartHtmlFile, getFileIconComponent } from '@/utils/fileType';
 
 const props = defineProps<{
   attachments: FileInfo[];
@@ -129,39 +121,9 @@ const formatFileSize = (bytes: number) => {
 };
 
 const getFileIcon = (filename: string) => {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  if (['md', 'txt', 'doc', 'docx', 'pdf'].includes(ext)) return FileText;
-  if (['js', 'ts', 'py', 'json', 'html', 'css', 'vue', 'jsx', 'tsx'].includes(ext)) return FileCode;
-  if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext)) return FileArchive;
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return FileImage;
-  return File;
+  return getFileIconComponent(filename);
 };
 
-const getFileIconBgClass = (filename: string) => {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  // Code files - blue
-  if (['js', 'ts', 'py', 'json', 'html', 'css', 'vue', 'jsx', 'tsx', 'java', 'go', 'rs'].includes(ext)) {
-    return 'bg-[#4285f4]';
-  }
-  // Markdown/Document files - blue
-  if (['md', 'txt'].includes(ext)) {
-    return 'bg-[#4285f4]';
-  }
-  // Office documents - blue
-  if (['doc', 'docx', 'pdf'].includes(ext)) {
-    return 'bg-[#4285f4]';
-  }
-  // Archive files - orange/red
-  if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext)) {
-    return 'bg-[#EA4335]';
-  }
-  // Image files - green
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) {
-    return 'bg-[#10B981]';
-  }
-  // Default - gray
-  return 'bg-[#6B7280]';
-};
 
 const getFileTypeLabel = (filename: string) => {
   const ext = filename.split('.').pop()?.toLowerCase() || '';

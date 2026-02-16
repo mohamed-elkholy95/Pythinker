@@ -23,8 +23,8 @@
                     >
                         <ArrowLeft class="w-5 h-5" />
                     </button>
-                    <div v-if="previewFile" class="header-icon">
-                        <component :is="getFileIconComponent(previewFile.filename)" class="w-5 h-5 text-[var(--text-white)]" />
+                    <div v-if="previewFile" class="header-icon text-[var(--icon-secondary)]">
+                        <component :is="getFileIconComponent(previewFile.filename)" :size="36" />
                     </div>
                     <div class="header-info">
                         <h2 class="header-title">
@@ -100,11 +100,8 @@
                                 @click="showFile(file)"
                             >
                                 <!-- File Icon -->
-                                <div
-                                    class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
-                                    :class="getFileIconBgClass(file.filename)"
-                                >
-                                    <component :is="getFileIconComponent(file.filename)" class="w-5 h-5 text-[var(--text-white)]" />
+                                <div class="flex-shrink-0 w-10 h-10 flex items-center justify-center text-[var(--icon-secondary)]">
+                                    <component :is="getFileIconComponent(file.filename)" :size="40" />
                                 </div>
 
                                 <!-- File Info -->
@@ -184,7 +181,7 @@
 </template>
 
 <script setup lang="ts">
-import { X, Download, MoreHorizontal, Eye, Link, FileText, FileCode, FileImage, FileArchive, File, FolderDown, FileQuestion, Globe, ArrowLeft } from 'lucide-vue-next';
+import { X, Download, MoreHorizontal, Eye, Link, FolderDown, FileQuestion, ArrowLeft } from 'lucide-vue-next';
 import { ref, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -196,7 +193,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { showSuccessToast, showErrorToast } from '../utils/toast';
-import { getFileType, isInteractiveChartFile } from '../utils/fileType';
+import { getFileType, isInteractiveChartFile, getFileIconComponent } from '../utils/fileType';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -300,68 +297,7 @@ const groupedFiles = computed(() => {
 });
 
 // Get file icon component based on extension
-const getFileIconComponent = (filename: string) => {
-    const ext = getFileExtension(filename);
 
-    // Documents
-    if (['md', 'txt', 'pdf', 'doc', 'docx', 'rtf', 'odt'].includes(ext)) {
-        return FileText;
-    }
-    // Code files
-    if (fileCategories.code.includes(ext)) {
-        return FileCode;
-    }
-    // Images
-    if (fileCategories.images.includes(ext)) {
-        return FileImage;
-    }
-    // Archives
-    if (['zip', 'tar', 'gz', 'rar', '7z', 'bz2'].includes(ext)) {
-        return FileArchive;
-    }
-    // Links
-    if (fileCategories.links.includes(ext)) {
-        return Globe;
-    }
-
-    return File;
-};
-
-// Get file icon background class based on extension
-const getFileIconBgClass = (filename: string): string => {
-    const ext = getFileExtension(filename);
-
-    // Code files - primary color
-    if (fileCategories.code.includes(ext)) {
-        return 'bg-[var(--color-primary)]';
-    }
-    // Documents - primary color
-    if (['md', 'txt', 'pdf', 'doc', 'docx', 'rtf', 'odt'].includes(ext)) {
-        return 'bg-[var(--color-primary)]';
-    }
-    // Spreadsheets - green
-    if (['xls', 'xlsx', 'csv'].includes(ext)) {
-        return 'bg-[var(--function-success)]';
-    }
-    // Presentations - orange
-    if (['ppt', 'pptx'].includes(ext)) {
-        return 'bg-[var(--function-warning)]';
-    }
-    // Images - green
-    if (fileCategories.images.includes(ext)) {
-        return 'bg-[var(--function-success)]';
-    }
-    // Archives - red
-    if (['zip', 'tar', 'gz', 'rar', '7z', 'bz2'].includes(ext)) {
-        return 'bg-[var(--function-error)]';
-    }
-    // Links - accent color
-    if (fileCategories.links.includes(ext)) {
-        return 'bg-[var(--color-accent)]';
-    }
-
-    return 'bg-[var(--color-text-tertiary)]';
-};
 
 // Format file date
 const formatFileDate = (dateStr: string | undefined): string => {
