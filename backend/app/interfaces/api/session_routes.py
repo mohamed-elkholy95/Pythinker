@@ -718,12 +718,29 @@ async def chat(
                     next_event_task = asyncio.create_task(stream_iter.__anext__())
                     heartbeat_task = asyncio.create_task(asyncio.sleep(heartbeat_interval_seconds))
 
-            # Cleanup stream
+            # Cleanup stream and pending tasks
+            for task in (next_event_task, heartbeat_task):
+                if task is not None:
+                    if not task.done():
+                        task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await task
+                    # Retrieve result to suppress "Task exception was never retrieved"
+                    with contextlib.suppress(Exception):
+                        task.result()
             with contextlib.suppress(Exception):
                 await stream_iter.aclose()
         except asyncio.CancelledError:
             # Client disconnected - log and gracefully terminate
             # CRITICAL FIX: Close the stream_iter to clean up orphaned agent_service.chat()
+            for task in (next_event_task, heartbeat_task):
+                if task is not None:
+                    if not task.done():
+                        task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await task
+                    with contextlib.suppress(Exception):
+                        task.result()
             with contextlib.suppress(Exception):
                 await stream_iter.aclose()
             logger.warning(f"Chat stream cancelled for session {session_id} (client disconnected)")

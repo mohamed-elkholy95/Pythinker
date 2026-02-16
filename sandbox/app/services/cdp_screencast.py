@@ -77,6 +77,10 @@ class CDPScreencastService:
         self._frame_callback: Callable[[ScreencastFrame], None] | None = None
         self._msg_counter: int = 0
 
+        # Serialize all CDP command send/receive cycles on the shared WebSocket
+        # to prevent "Concurrent call to receive() is not allowed" errors.
+        self._command_lock: asyncio.Lock = asyncio.Lock()
+
         # Connection caching
         self._cached_ws_url: str | None = None
         self._ws_url_cached_at: float = 0.0
@@ -130,31 +134,22 @@ class CDPScreencastService:
 
         This is the primary entry point for persistent connection usage.
         Avoids full connect/disconnect overhead on every call.
+        Serialized via _command_lock to prevent multiple callers from
+        racing to reconnect (which causes unclosed client sessions).
         """
         if self.is_connected:
             return True
 
-        # Connection is dead or doesn't exist, try to reconnect
-        await self._cleanup_stale_connection()
-        return await self.connect()
+        async with self._command_lock:
+            # Double-check after acquiring lock
+            if self.is_connected:
+                return True
+            # Connection is dead or doesn't exist, try to reconnect
+            await self._cleanup_stale_connection()
+            return await self._connect_unlocked()
 
-    async def _cleanup_stale_connection(self) -> None:
-        """Clean up any stale connection state without logging disconnect."""
-        if self._ws:
-            try:
-                await self._ws.close()
-            except Exception:
-                pass
-            self._ws = None
-        if self._session:
-            try:
-                await self._session.close()
-            except Exception:
-                pass
-            self._session = None
-
-    async def connect(self) -> bool:
-        """Connect to Chrome via CDP WebSocket."""
+    async def _connect_unlocked(self) -> bool:
+        """Connect to Chrome via CDP WebSocket (caller must hold _command_lock)."""
         ws_url = await self._get_cached_ws_url()
         if not ws_url:
             logger.debug("No CDP WebSocket URL available")
@@ -176,6 +171,26 @@ class CDPScreencastService:
             logger.warning(f"Failed to connect to CDP: {e}")
             await self._cleanup_stale_connection()
             return False
+
+    async def _cleanup_stale_connection(self) -> None:
+        """Clean up any stale connection state without logging disconnect."""
+        if self._ws:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
+        if self._session:
+            try:
+                await self._session.close()
+            except Exception:
+                pass
+            self._session = None
+
+    async def connect(self) -> bool:
+        """Connect to Chrome via CDP WebSocket."""
+        async with self._command_lock:
+            return await self._connect_unlocked()
 
     async def disconnect(self):
         """Disconnect from CDP."""
@@ -202,60 +217,69 @@ class CDPScreencastService:
     async def _send_command(
         self, method: str, params: dict | None = None, timeout: float = _CAPTURE_COMMAND_TIMEOUT
     ) -> dict | None:
-        """Send a CDP command and wait for response with timeout."""
+        """Send a CDP command and wait for response with timeout.
+
+        Serialized via _command_lock to prevent concurrent receive() calls
+        on the shared WebSocket (aiohttp forbids this).
+        """
         if not self._ws or self._ws.closed:
             return None
 
-        self._msg_counter += 1
-        msg_id = self._msg_counter
+        async with self._command_lock:
+            # Re-check after acquiring lock (connection may have been cleaned up)
+            if not self._ws or self._ws.closed:
+                return None
 
-        message = {"id": msg_id, "method": method}
-        if params:
-            message["params"] = params
+            self._msg_counter += 1
+            msg_id = self._msg_counter
 
-        try:
-            await self._ws.send_json(message)
-            logger.debug(f"Sent CDP command: {method} (id={msg_id})")
+            message = {"id": msg_id, "method": method}
+            if params:
+                message["params"] = params
 
-            # Wait for response with timeout
-            start_time = asyncio.get_event_loop().time()
-            while True:
-                remaining = timeout - (asyncio.get_event_loop().time() - start_time)
-                if remaining <= 0:
-                    logger.warning(f"CDP command timed out: {method}")
-                    return None
+            try:
+                await self._ws.send_json(message)
+                logger.debug(f"Sent CDP command: {method} (id={msg_id})")
 
-                try:
-                    msg = await asyncio.wait_for(self._ws.receive(), timeout=remaining)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        f"CDP command timed out waiting for response: {method}"
-                    )
-                    return None
+                # Wait for response with timeout
+                start_time = asyncio.get_event_loop().time()
+                while True:
+                    remaining = timeout - (asyncio.get_event_loop().time() - start_time)
+                    if remaining <= 0:
+                        logger.warning(f"CDP command timed out: {method}")
+                        return None
 
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    data = msg.json()
-                    # Check if this is our response
-                    if data.get("id") == msg_id:
-                        logger.debug(f"Got CDP response for {method}")
-                        return data
-                    # Otherwise it might be an event, continue waiting
-                elif msg.type == aiohttp.WSMsgType.ERROR:
-                    logger.warning(f"CDP WebSocket error: {msg.data}")
-                    return None
-                elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
-                    logger.warning("CDP WebSocket closed unexpectedly")
-                    return None
+                    try:
+                        msg = await asyncio.wait_for(self._ws.receive(), timeout=remaining)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            f"CDP command timed out waiting for response: {method}"
+                        )
+                        return None
 
-        except RuntimeError as e:
-            # Transport can close during rapid restarts/teardown.
-            if "closing transport" in str(e).lower():
-                logger.debug(f"CDP command skipped on closing transport: {method}")
-            else:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = msg.json()
+                        # Check if this is our response
+                        if data.get("id") == msg_id:
+                            logger.debug(f"Got CDP response for {method}")
+                            return data
+                        # Otherwise it might be an event, continue waiting
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        logger.warning(f"CDP WebSocket error: {msg.data}")
+                        return None
+                    elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
+                        logger.warning("CDP WebSocket closed unexpectedly")
+                        return None
+
+            except RuntimeError as e:
+                # Transport can close during rapid restarts/teardown.
+                if "closing transport" in str(e).lower():
+                    logger.debug(f"CDP command skipped on closing transport: {method}")
+                else:
+                    logger.warning(f"CDP command error: {e}")
+            except Exception as e:
                 logger.warning(f"CDP command error: {e}")
-        except Exception as e:
-            logger.warning(f"CDP command error: {e}")
-        return None
+            return None
 
     async def start_screencast(self) -> bool:
         """Start the screencast stream."""
@@ -375,7 +399,8 @@ class CDPScreencastService:
             # P1.2: Detect timeout (result is None) and force reconnect
             if result is None:
                 logger.warning("CDP capture timed out, forcing reconnect")
-                await self._cleanup_stale_connection()
+                async with self._command_lock:
+                    await self._cleanup_stale_connection()
                 return None
 
             if "result" in result:
@@ -387,13 +412,13 @@ class CDPScreencastService:
             # Command succeeded but no data - connection may be stale
             if "error" in result:
                 logger.warning(f"CDP capture error response: {result['error']}")
-                # Force reconnect on next attempt
-                await self._cleanup_stale_connection()
+                async with self._command_lock:
+                    await self._cleanup_stale_connection()
 
         except Exception as e:
             logger.warning(f"Failed to capture single frame: {e}")
-            # Force reconnect on next attempt
-            await self._cleanup_stale_connection()
+            async with self._command_lock:
+                await self._cleanup_stale_connection()
 
         return None
 

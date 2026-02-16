@@ -91,7 +91,7 @@ All 5 shared components and 7 animation components have been audited and enhance
 - `shared/LoadingDots.vue` — dark dot color
 - `shared/ContentContainer.vue` — verified, no changes needed
 
-### Phase 6.2 (5 files)
+### Phase 6.2 (7 files)
 - `shared/animations/SpinnerAnimation.vue` — dark opacity + color-mix
 - `shared/animations/GlobeAnimation.vue` — dark orbs + glow
 - `shared/animations/SearchAnimation.vue` — dark ring color-mix

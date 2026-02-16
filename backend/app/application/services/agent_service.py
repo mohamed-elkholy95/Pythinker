@@ -861,10 +861,15 @@ class AgentService:
                     "[DEBUG-SVC] chat:finally SKIPPED pop - cancel_event was replaced by newer stream session=%s",
                     session_id,
                 )
-            if next_task is not None and not next_task.done():
-                next_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await next_task
+            if next_task is not None:
+                if not next_task.done():
+                    next_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await next_task
+                # Retrieve result to suppress "Task exception was never retrieved"
+                # (e.g. StopAsyncIteration when stream ends while cancel fires)
+                with contextlib.suppress(Exception):
+                    next_task.result()
             # Cancel the cancel_task to avoid "Task was destroyed but it is pending" on disconnect
             if cancel_task is not None and not cancel_task.done():
                 cancel_task.cancel()

@@ -94,7 +94,7 @@ services:
     deploy:
       replicas: ${WORKER_REPLICAS:-1}
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python -m app.workers.job_worker' || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import os, signal; os.kill(1, 0)' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
