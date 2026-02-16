@@ -189,34 +189,53 @@ const handleBrowseUrl = (url: string) => {
 }
 
 .tool-shimmer {
-  position: relative;
-  overflow: hidden;
   background: var(--fill-tsp-gray-main);
   border: 1px solid var(--border-main);
 }
 
-.tool-shimmer::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
+/* Text-only shimmer effect (matches ThinkingIndicator design) */
+.tool-shimmer .tool-chip-text {
   background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.45) 50%,
-    transparent 100%
+    120deg,
+    #3a3a3a 0%,
+    #3a3a3a 38%,
+    #c6894b 48%,
+    #d8a26f 52%,
+    #3a3a3a 62%,
+    #3a3a3a 100%
   );
-  animation: shimmer-sweep 1.4s ease-in-out infinite;
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2.5s ease-in-out infinite;
 }
 
-@keyframes shimmer-sweep {
+/* Dark mode text shimmer */
+:deep(.dark) .tool-shimmer .tool-chip-text,
+.dark .tool-shimmer .tool-chip-text {
+  background: linear-gradient(
+    120deg,
+    #fff6dd 0%,
+    #fff2cc 38%,
+    #ffd969 48%,
+    #ffe9aa 54%,
+    #fff3cf 62%,
+    #fff6dd 100%
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2.2s linear infinite;
+}
+
+@keyframes text-shimmer {
   0% {
-    left: -100%;
+    background-position: 100% 0%;
   }
   100% {
-    left: 100%;
+    background-position: 0% 100%;
   }
 }
 
