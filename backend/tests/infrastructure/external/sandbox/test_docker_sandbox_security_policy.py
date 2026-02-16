@@ -18,6 +18,8 @@ class TestDockerSandboxCreateTaskSecurityPolicy:
             patch("app.infrastructure.external.sandbox.docker_sandbox.get_settings") as settings_mock,
             patch("app.infrastructure.external.sandbox.docker_sandbox.get_sandbox_security_policy") as policy_mock,
         ):
+            from app.core.config import StreamingMode
+
             settings_mock.return_value = SimpleNamespace(
                 sandbox_image="pythinker/pythinker-sandbox",
                 sandbox_name_prefix="sandbox",
@@ -33,6 +35,7 @@ class TestDockerSandboxCreateTaskSecurityPolicy:
                 sandbox_cpu_limit=1.5,
                 sandbox_pids_limit=300,
                 sandbox_framework_port=8082,
+                sandbox_streaming_mode=StreamingMode.CDP_ONLY,
             )
             policy = MagicMock()
             policy.cap_drop = ["ALL"]
