@@ -50,12 +50,75 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - pythinker-network
-    env_file:
-      - .env.dokploy
     environment:
+      # Core Settings
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # LLM Provider
+      - LLM_PROVIDER=${LLM_PROVIDER:?Set LLM_PROVIDER}
+      - API_KEY=${API_KEY:?Set API_KEY}
+      - API_BASE=${API_BASE}
+      - MODEL_NAME=${MODEL_NAME:?Set MODEL_NAME}
+      - TEMPERATURE=${TEMPERATURE:-0.6}
+      - MAX_TOKENS=${MAX_TOKENS:-16384}
+
+      # Embedding
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:?Set EMBEDDING_API_KEY}
+      - EMBEDDING_API_BASE=${EMBEDDING_API_BASE:-https://api.openai.com/v1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+
+      # Database
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-pythinker}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_GRPC_PORT=${QDRANT_GRPC_PORT:-6334}
+      - QDRANT_PREFER_GRPC=${QDRANT_PREFER_GRPC:-true}
+
+      # MinIO Storage
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - MINIO_BUCKET_SNAPSHOTS=${MINIO_BUCKET_SNAPSHOTS:-sandbox-snapshots}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-pythinker}
+      - MINIO_SECURE=${MINIO_SECURE:-false}
+      - FILE_STORAGE_BACKEND=${FILE_STORAGE_BACKEND:-minio}
+
+      # Sandbox
       - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
       - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET}
+      - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
+      - SANDBOX_IMAGE=${SANDBOX_IMAGE:-pythinker/pythinker-sandbox}
+      - SANDBOX_POOL_ENABLED=${SANDBOX_POOL_ENABLED:-true}
+      - SANDBOX_POOL_MIN_SIZE=${SANDBOX_POOL_MIN_SIZE:-1}
+      - SANDBOX_POOL_MAX_SIZE=${SANDBOX_POOL_MAX_SIZE:-2}
+
+      # Search
+      - SEARCH_PROVIDER=${SEARCH_PROVIDER:-tavily}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - SERPER_API_KEY=${SERPER_API_KEY}
+
+      # Auth
+      - AUTH_PROVIDER=${AUTH_PROVIDER:-local}
+      - LOCAL_AUTH_EMAIL=${LOCAL_AUTH_EMAIL}
+      - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Set JWT_SECRET_KEY}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+
+      # CORS
+      - CORS_ORIGINS=${CORS_ORIGINS}
+
+      # Agent
+      - BROWSER_AGENT_ENABLED=${BROWSER_AGENT_ENABLED:-true}
+      - AUTONOMY_LEVEL=${AUTONOMY_LEVEL:-guided}
+      - MAX_ITERATIONS=${MAX_ITERATIONS:-400}
+      - MAX_TOOL_CALLS=${MAX_TOOL_CALLS:-500}
+
+      # System
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
     healthcheck:
