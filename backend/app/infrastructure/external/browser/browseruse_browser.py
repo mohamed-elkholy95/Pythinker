@@ -84,8 +84,8 @@ class BrowserUseService:
         try:
             import aiohttp
 
-            # Get all targets from CDP
-            async with aiohttp.ClientSession() as http_session, http_session.get(f"{self.cdp_url}/json") as resp:
+            # Get all targets from CDP (single session for all requests)
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as http_session, http_session.get(f"{self.cdp_url}/json") as resp:
                 if resp.status != 200:
                     return False
                 targets = await resp.json()
@@ -100,11 +100,13 @@ class BrowserUseService:
                     continue
 
                 try:
-                    async with aiohttp.ClientSession() as ws_session, ws_session.ws_connect(ws_url) as ws:
-                        # Get window ID
+                    async with aiohttp.ClientSession() as ws_session, ws_session.ws_connect(
+                        ws_url, timeout=5.0
+                    ) as ws:
+                        # Get window ID (with timeout to prevent hangs on unresponsive Chrome)
                         await ws.send_json({"id": 1, "method": "Browser.getWindowForTarget"})
 
-                        response = await ws.receive_json()
+                        response = await asyncio.wait_for(ws.receive_json(), timeout=5.0)
                         window_id = response.get("result", {}).get("windowId")
 
                         if window_id:
@@ -116,7 +118,7 @@ class BrowserUseService:
                                     "params": {"windowId": window_id, "bounds": {"windowState": "normal"}},
                                 }
                             )
-                            await ws.receive_json()
+                            await asyncio.wait_for(ws.receive_json(), timeout=5.0)
 
                             # Force position to (0,0) and size to match VNC
                             await ws.send_json(
@@ -129,7 +131,7 @@ class BrowserUseService:
                                     },
                                 }
                             )
-                            await ws.receive_json()
+                            await asyncio.wait_for(ws.receive_json(), timeout=5.0)
 
                         logger.info(f"Forced window {window_id} to position (0,0)")
                 except Exception as e:

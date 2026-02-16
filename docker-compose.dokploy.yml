@@ -57,6 +57,7 @@ services:
     environment:
       - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
       - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET}
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
     healthcheck:
@@ -86,12 +87,10 @@ services:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/usr/local/bin/chromium  # Playwright Chromium symlink (USE_CHROMIUM=1)
-    ports:
-      - "8083:8080"
-      - "8082:8082"
-      - "5902:5900"
-      - "5901:5901"
-    shm_size: '2g'  # Playwright recommended minimum
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET}
+    # No host port publishing in production — backend proxies all sandbox access
+    # VNC/CDP never exposed externally
+    shm_size: '2g'
     security_opt:
       - no-new-privileges:true
       - seccomp:./sandbox/seccomp-sandbox.json
@@ -152,6 +151,7 @@ services:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/usr/local/bin/chromium  # Playwright Chromium symlink (USE_CHROMIUM=1)
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET}
     ports:
       - "8084:8080"
       - "8085:8082"

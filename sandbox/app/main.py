@@ -16,7 +16,7 @@ from app.core.exceptions import (
     validation_exception_handler,
     general_exception_handler,
 )
-from app.core.middleware import auto_extend_timeout_middleware
+from app.core.middleware import SandboxAuthMiddleware, auto_extend_timeout_middleware
 
 
 # Configure logging
@@ -65,7 +65,8 @@ app.add_middleware(
 
 logger.info("Sandbox API server starting")
 
-# Register middleware
+# Register middleware — auth middleware runs first (ASGI), then timeout extension (HTTP)
+app.add_middleware(SandboxAuthMiddleware)
 app.middleware("http")(auto_extend_timeout_middleware)
 
 # Register exception handlers

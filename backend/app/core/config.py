@@ -163,6 +163,7 @@ class Settings(BaseSettings):
     sandbox_framework_port: int = 8082
     sandbox_framework_enabled: bool = True
     sandbox_framework_required: bool = False
+    sandbox_api_secret: str | None = None  # Shared secret for sandbox API auth (X-Sandbox-Secret header)
 
     # Phase 3: HTTP/2 Configuration
     sandbox_http2_enabled: bool = False  # Enable HTTP/2 for sandbox API communication (requires httpx[http2])
@@ -231,6 +232,12 @@ class Settings(BaseSettings):
     serper_api_key: str | None = None  # Serper.dev Google Search API key (free tier: 2500 queries/mo)
     serper_api_key_2: str | None = None  # Fallback Serper key (auto-rotates on quota/billing errors)
     serper_api_key_3: str | None = None  # Third fallback Serper key
+    serper_api_key_4: str | None = None  # Fourth fallback Serper key
+    serper_api_key_5: str | None = None  # Fifth fallback Serper key
+    serper_api_key_6: str | None = None  # Sixth fallback Serper key
+    serper_api_key_7: str | None = None  # Seventh fallback Serper key
+    serper_api_key_8: str | None = None  # Eighth fallback Serper key
+    serper_api_key_9: str | None = None  # Ninth fallback Serper key
 
     # Browser Agent configuration
     browser_agent_enabled: bool = True

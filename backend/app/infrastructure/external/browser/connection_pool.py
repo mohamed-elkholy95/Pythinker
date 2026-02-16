@@ -129,9 +129,14 @@ class BrowserConnectionPool:
 
     @classmethod
     def get_instance(cls) -> "BrowserConnectionPool":
-        """Get the singleton pool instance."""
+        """Get the singleton pool instance.
+
+        Note: Prefer get_instance_async() for coroutine safety.
+        This sync version is safe for single-threaded startup only.
+        """
         if cls._instance is None:
             cls._instance = BrowserConnectionPool()
+            cls._instance._start_cleanup_task()
         return cls._instance
 
     @classmethod

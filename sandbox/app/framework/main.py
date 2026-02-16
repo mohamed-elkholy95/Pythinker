@@ -3,6 +3,7 @@ import logging
 
 from fastapi import FastAPI
 
+from app.core.middleware import SandboxAuthMiddleware
 from app.framework.db import init_db, shutdown_db
 from app.framework.router import router
 
@@ -26,6 +27,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Shared secret auth — same secret protects both sandbox API and framework API
+app.add_middleware(SandboxAuthMiddleware)
 app.include_router(router)
 
 

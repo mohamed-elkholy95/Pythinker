@@ -70,15 +70,10 @@ let connectionId = 0;
 async function loadRFB(): Promise<any> {
   if (RFBClass) return RFBClass;
 
-  try {
-    const module = await import('@novnc/novnc/lib/rfb');
-    RFBClass = module.default || module.RFB || module;
-    return RFBClass;
-  } catch {
-    const module = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/gh/novnc/noVNC@v1.5.0/core/rfb.js');
-    RFBClass = module.default || module.RFB || module;
-    return RFBClass;
-  }
+  // Load from local npm package only — no CDN fallback (supply chain security)
+  const module = await import('@novnc/novnc/lib/rfb');
+  RFBClass = module.default || module.RFB || module;
+  return RFBClass;
 }
 
 async function initVNCConnection() {
