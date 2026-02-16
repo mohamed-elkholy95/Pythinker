@@ -1144,6 +1144,10 @@ def main() -> int:
     try:
         fig.write_html(output_html, include_plotlyjs="cdn")
         html_size = Path(output_html).stat().st_size
+        if html_size == 0:
+            Path(output_html).unlink(missing_ok=True)
+            print(_error_response("HTML write produced 0-byte file"), file=sys.stderr)
+            return 3
     except Exception as exc:
         print(_error_response(f"HTML write failed: {exc}"), file=sys.stderr)
         return 3
@@ -1152,6 +1156,14 @@ def main() -> int:
     try:
         fig.write_image(output_png, width=width, height=height, scale=2)
         png_size = Path(output_png).stat().st_size
+        if png_size == 0:
+            Path(output_png).unlink(missing_ok=True)
+            Path(output_html).unlink(missing_ok=True)
+            print(
+                _error_response("PNG render produced 0-byte file (Kaleido rendering failed)"),
+                file=sys.stderr,
+            )
+            return 3
     except Exception as exc:
         # Clean up HTML on PNG failure
         Path(output_html).unlink(missing_ok=True)

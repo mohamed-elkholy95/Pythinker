@@ -321,13 +321,32 @@ Returns both interactive HTML and static PNG files.""",
             # Parse JSON output from script
             # Output is in exec_result.data['output'], not exec_result.message
             try:
-                output_str = exec_result.data.get("output") if exec_result.data else exec_result.message
+                output_str = (
+                    exec_result.data.get("output")
+                    if exec_result.data
+                    else exec_result.message
+                )
+                if not output_str:
+                    # Fallback to message if output is empty/None
+                    output_str = exec_result.message
+                if not output_str:
+                    return ToolResult(
+                        success=False,
+                        message="Chart script produced no output",
+                    )
                 output_data = json.loads(output_str)
-            except (json.JSONDecodeError, AttributeError) as e:
+            except (json.JSONDecodeError, TypeError, AttributeError) as e:
                 logger.warning(f"Failed to parse chart script output: {e}")
+                # Include stderr if available for better diagnostics
+                stderr = (
+                    exec_result.data.get("stderr", "")
+                    if exec_result.data and isinstance(exec_result.data, dict)
+                    else ""
+                )
+                detail = stderr or (str(output_str)[:500] if output_str else exec_result.message)
                 return ToolResult(
                     success=False,
-                    message=f"Failed to parse chart output: {output_str if 'output_str' in locals() else exec_result.message}",
+                    message=f"Failed to parse chart output: {detail}",
                 )
 
             if not output_data.get("success"):

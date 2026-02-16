@@ -1405,6 +1405,7 @@ class AgentTaskRunner(TaskRunner):
                         # Sync files independently (not requiring both to exist)
                         html_info = None
                         png_info = None
+                        sync_errors: list[str] = []
                         sync_tasks = []
 
                         if html_path:
@@ -1419,16 +1420,27 @@ class AgentTaskRunner(TaskRunner):
                             # Map results back to html_info/png_info based on which paths were present
                             result_idx = 0
                             if html_path:
-                                if not isinstance(results[result_idx], Exception):
-                                    html_info = results[result_idx]
-                                else:
+                                if isinstance(results[result_idx], Exception):
+                                    sync_errors.append(f"HTML sync failed: {results[result_idx]}")
                                     logger.warning(f"HTML sync failed: {results[result_idx]}")
+                                elif results[result_idx] is None:
+                                    sync_errors.append("HTML file missing or empty in sandbox")
+                                    logger.warning("HTML sync returned None for %s", html_path)
+                                else:
+                                    html_info = results[result_idx]
                                 result_idx += 1
                             if png_path:
-                                if not isinstance(results[result_idx], Exception):
-                                    png_info = results[result_idx]
-                                else:
+                                if isinstance(results[result_idx], Exception):
+                                    sync_errors.append(f"PNG sync failed: {results[result_idx]}")
                                     logger.warning(f"PNG sync failed: {results[result_idx]}")
+                                elif results[result_idx] is None:
+                                    sync_errors.append("PNG file missing or empty in sandbox")
+                                    logger.warning("PNG sync returned None for %s", png_path)
+                                else:
+                                    png_info = results[result_idx]
+
+                        # Build error message if any sync failed
+                        chart_error = "; ".join(sync_errors) if sync_errors else None
 
                         # Set ChartToolContent on the event
                         event.tool_content = ChartToolContent(
@@ -1438,18 +1450,21 @@ class AgentTaskRunner(TaskRunner):
                             png_file_id=png_info.file_id if png_info else None,
                             html_filename=html_info.filename if html_info else None,
                             png_filename=png_info.filename if png_info else None,
+                            html_size=data.get("html_size"),
                             data_points=data.get("data_points", 0),
                             series_count=data.get("series_count", 0),
+                            error=chart_error,
                         )
 
                         logger.info(
-                            "Chart created: type=%s title=%s data_points=%s series=%s html=%s png=%s",
+                            "Chart created: type=%s title=%s data_points=%s series=%s html=%s png=%s error=%s",
                             data.get("chart_type"),
                             data.get("title"),
                             data.get("data_points"),
                             data.get("series_count"),
                             "synced" if html_info else "missing/failed",
                             "synced" if png_info else "missing/failed",
+                            chart_error,
                         )
                 elif event.tool_name == "shell":
                     # observation_type set by ToolEventHandler
