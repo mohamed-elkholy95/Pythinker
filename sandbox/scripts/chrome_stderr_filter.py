@@ -27,6 +27,11 @@ SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
         r".*UPower.*ServiceUnknown"
     ),
     re.compile(r"GLib-GIO-CRITICAL.*g_settings_schema_source_lookup"),
+    # GPU/EGL init failures — expected in headless/no-display containers
+    re.compile(r"ui/gl/(angle_platform_impl|egl_util|gl_display)\.cc"),
+    re.compile(r"ui/ozone/common/gl_ozone_egl\.cc"),
+    re.compile(r"components/viz/service/main/viz_main_impl\.cc.*Exiting GPU process"),
+    re.compile(r"^ERR: Display"),
 )
 
 

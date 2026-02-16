@@ -77,5 +77,6 @@ tiktoken>=0.8.0
 # TOTP authentication
 pyotp>=2.9.0
 
-# Structured logging
+# Observability
+prometheus_client>=0.21.0
 structlog>=24.4.0
