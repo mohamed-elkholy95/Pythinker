@@ -152,9 +152,7 @@ services:
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/usr/local/bin/chromium  # Playwright Chromium symlink (USE_CHROMIUM=1)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET}
-    ports:
-      - "8084:8080"
-      - "8085:8082"
+    # No host port publishing in production — backend proxies all sandbox access
     shm_size: '2g'  # Playwright recommended minimum
     security_opt:
       - no-new-privileges:true

@@ -236,18 +236,23 @@ class DockerSandbox(Sandbox):
                 security_opt.append(f"seccomp={policy.seccomp_profile_path}")
 
             # Prepare container configuration
+            # Build environment — include SANDBOX_API_SECRET for auth middleware
+            container_env = {
+                "SERVICE_TIMEOUT_MINUTES": settings.sandbox_ttl_minutes,
+                "CHROME_ARGS": settings.sandbox_chrome_args,
+                "HTTPS_PROXY": settings.sandbox_https_proxy,
+                "HTTP_PROXY": settings.sandbox_http_proxy,
+                "NO_PROXY": settings.sandbox_no_proxy,
+            }
+            if settings.sandbox_api_secret:
+                container_env["SANDBOX_API_SECRET"] = settings.sandbox_api_secret
+
             container_config = {
                 "image": image,
                 "name": container_name,
                 "detach": True,
                 "remove": True,
-                "environment": {
-                    "SERVICE_TIMEOUT_MINUTES": settings.sandbox_ttl_minutes,
-                    "CHROME_ARGS": settings.sandbox_chrome_args,
-                    "HTTPS_PROXY": settings.sandbox_https_proxy,
-                    "HTTP_PROXY": settings.sandbox_http_proxy,
-                    "NO_PROXY": settings.sandbox_no_proxy,
-                },
+                "environment": container_env,
                 # Security hardening from centralized policy contract
                 "security_opt": security_opt,
                 "cap_drop": policy.cap_drop,

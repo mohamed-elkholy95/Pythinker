@@ -782,6 +782,13 @@ class PlaywrightBrowser:
                 await route.abort()
                 return
 
+            # SSRF protection: block subrequests/redirects to internal addresses
+            ssrf_reason = is_ssrf_target(request.url)
+            if ssrf_reason:
+                logger.warning("SSRF blocked (subrequest): %s → %s", request.url, ssrf_reason)
+                await route.abort()
+                return
+
             await route.continue_()
 
         await context.route("**/*", route_handler)

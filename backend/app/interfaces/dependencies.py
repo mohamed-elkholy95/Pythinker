@@ -390,11 +390,11 @@ async def _verify_signature(
         HTTPException: If signature is missing or invalid (status code 401)
     """
     if not signature:
-        logger.error(f"Missing signature: {request.url}")
+        logger.error("Missing signature for path: %s", request.url.path)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature")
 
     if not token_service.verify_signed_url(str(request.url)):
-        logger.error(f"Invalid signature: {request.url}")
+        logger.error("Invalid signature for path: %s", request.url.path)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
 
     return signature

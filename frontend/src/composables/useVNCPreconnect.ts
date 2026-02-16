@@ -58,8 +58,18 @@ async function preloadRFBModule(): Promise<boolean> {
   }
 }
 
-// Global URL cache per session
-const urlCache = new Map<string, string>();
+// Global URL cache per session with TTL (signed URLs expire, cache should too)
+const URL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes (signed URLs typically expire in 60min)
+const urlCache = new Map<string, { url: string; cachedAt: number }>();
+
+function pruneExpiredCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of urlCache) {
+    if (now - entry.cachedAt > URL_CACHE_TTL_MS) {
+      urlCache.delete(key);
+    }
+  }
+}
 
 export interface UseVNCPreconnectOptions {
   /** Session ID to preconnect */
@@ -104,9 +114,10 @@ export function useVNCPreconnect(options: UseVNCPreconnectOptions): UseVNCPrecon
     const sid = sessionId.value;
     if (!sid) return;
 
-    // Check cache first
-    if (urlCache.has(sid)) {
-      state.value.cachedUrl = urlCache.get(sid)!;
+    // Check cache first (with TTL awareness)
+    const cached = getPreconnectedVNCUrl(sid);
+    if (cached) {
+      state.value.cachedUrl = cached;
       state.value.isFetched = true;
     }
 
@@ -115,7 +126,7 @@ export function useVNCPreconnect(options: UseVNCPreconnectOptions): UseVNCPrecon
       const urlPromise = state.value.isFetched
         ? Promise.resolve(state.value.cachedUrl)
         : getVNCUrl(sid).then(url => {
-            urlCache.set(sid, url);
+            cacheVNCUrl(sid, url);
             state.value.cachedUrl = url;
             state.value.isFetched = true;
             if (import.meta.env.DEV) {
@@ -147,7 +158,7 @@ export function useVNCPreconnect(options: UseVNCPreconnectOptions): UseVNCPrecon
    * Get cached URL for a session
    */
   function getCachedUrl(sid: string): string | null {
-    return urlCache.get(sid) ?? null;
+    return getPreconnectedVNCUrl(sid);
   }
 
   // Watch for session status changes to trigger preconnect
@@ -179,12 +190,21 @@ export function useVNCPreconnect(options: UseVNCPreconnectOptions): UseVNCPrecon
  * Export utility to check if URL is cached
  */
 export function getPreconnectedVNCUrl(sessionId: string): string | null {
-  return urlCache.get(sessionId) ?? null;
+  pruneExpiredCache();
+  const entry = urlCache.get(sessionId);
+  if (!entry) return null;
+  // Check TTL
+  if (Date.now() - entry.cachedAt > URL_CACHE_TTL_MS) {
+    urlCache.delete(sessionId);
+    return null;
+  }
+  return entry.url;
 }
 
 /**
  * Export utility to manually cache a URL
  */
 export function cacheVNCUrl(sessionId: string, url: string): void {
-  urlCache.set(sessionId, url);
+  pruneExpiredCache();
+  urlCache.set(sessionId, { url, cachedAt: Date.now() });
 }

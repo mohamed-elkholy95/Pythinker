@@ -289,12 +289,13 @@ class TokenService:
             logger.warning(f"Failed to check user token revocation: {e}")
             return False
 
-    def create_signed_url(self, base_url: str, expire_minutes: int = 60) -> str:
+    def create_signed_url(self, base_url: str, expire_minutes: int = 60, user_id: str | None = None) -> str:
         """Create URL with signature for resource access
 
         Args:
             base_url: Base URL for the resource (e.g., '/api/v1/files/123' or '/api/v1/sessions/456/vnc')
             expire_minutes: URL expiration time in minutes
+            user_id: Optional user ID to bind the URL to (prevents URL sharing across users)
 
         Returns:
             Signed URL with signature and expiration parameters
@@ -303,14 +304,10 @@ class TokenService:
         expire = now + timedelta(minutes=expire_minutes)
         expires_timestamp = int(expire.timestamp())
 
-        # Use the base URL directly - no placeholder replacement needed
         final_url = base_url
 
-        # SECURITY NOTE: Signed URLs are possession-based (bearer tokens).
-        # Anyone with a valid URL can access the stream until expiry.
-        # This is intentional for shareability (e.g., team viewing).
-        # To add user-binding, include user_id in the payload below.
-        payload_data = f"{final_url}|{expires_timestamp}"
+        # Include user_id in HMAC payload when provided (user-bound URLs)
+        payload_data = f"{final_url}|{expires_timestamp}|{user_id}" if user_id else f"{final_url}|{expires_timestamp}"
 
         # Generate HMAC signature
         signature = hmac.new(
@@ -324,6 +321,8 @@ class TokenService:
         # Add signature parameters
         query_params["signature"] = [signature]
         query_params["expires"] = [str(expires_timestamp)]
+        if user_id:
+            query_params["uid"] = [user_id]
 
         # Rebuild URL with signature parameters
         new_query = urllib.parse.urlencode(query_params, doseq=True)
@@ -331,7 +330,7 @@ class TokenService:
             ("", "", parsed_url.path, parsed_url.params, new_query, parsed_url.fragment)
         )
 
-        logger.debug(f"Created signed URL for: {final_url}")
+        logger.debug("Created signed URL for: %s (user_bound=%s)", final_url, bool(user_id))
         return signed_url
 
     def verify_signed_url(self, request_url: str) -> bool:
@@ -344,7 +343,11 @@ class TokenService:
             True if valid, False if invalid
         """
         try:
-            logger.info(f"Verifying signed URL: {request_url}")
+            # Redact signature from log output to prevent token leakage
+            parsed_for_log = urllib.parse.urlparse(request_url)
+            log_path = parsed_for_log.path
+            logger.debug("Verifying signed URL for path: %s", log_path)
+
             # Parse URL and extract query parameters
             parsed_url = urllib.parse.urlparse(request_url)
             query_params = urllib.parse.parse_qs(parsed_url.query)
@@ -352,6 +355,7 @@ class TokenService:
             # Extract required parameters
             signature = query_params.get("signature", [None])[0]
             expires_str = query_params.get("expires", [None])[0]
+            user_id = query_params.get("uid", [None])[0]
 
             if not all([signature, expires_str]):
                 logger.warning("Missing required signature parameters in URL")
@@ -364,14 +368,14 @@ class TokenService:
                 return False
 
             # Reconstruct base URL without signature parameters
-            base_query_params = {k: v for k, v in query_params.items() if k not in ["signature", "expires"]}
+            base_query_params = {k: v for k, v in query_params.items() if k not in ["signature", "expires", "uid"]}
             base_query = urllib.parse.urlencode(base_query_params, doseq=True)
             base_url = urllib.parse.urlunparse(
                 ("", "", parsed_url.path, parsed_url.params, base_query, parsed_url.fragment)
             )
 
-            # Recreate payload for signature verification using simplified method
-            payload_data = f"{base_url}|{expires_timestamp}"
+            # Recreate payload for signature verification (include user_id if present)
+            payload_data = f"{base_url}|{expires_timestamp}|{user_id}" if user_id else f"{base_url}|{expires_timestamp}"
 
             # Generate expected signature
             expected_signature = hmac.new(
@@ -383,7 +387,7 @@ class TokenService:
                 logger.warning("Invalid signature in signed URL")
                 return False
 
-            logger.debug(f"Signed URL verified for: {base_url}")
+            logger.debug("Signed URL verified for: %s", log_path)
             return True
 
         except Exception as e:

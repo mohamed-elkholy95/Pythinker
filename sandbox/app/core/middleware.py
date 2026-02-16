@@ -33,7 +33,14 @@ class SandboxAuthMiddleware:
             )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not self._secret:
+        if not self._secret:
+            await self.app(scope, receive, send)
+            return
+
+        scope_type = scope["type"]
+
+        # Only gate http and websocket scopes
+        if scope_type not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
 
@@ -44,16 +51,28 @@ class SandboxAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Check auth header for all /api/* routes
+        # Check auth header for all /api/* routes (covers both HTTP and WebSocket)
+        # WebSocket clients pass the secret via query param ?secret= or header
         if path.startswith("/api/"):
             headers = dict(scope.get("headers", []))
             token = headers.get(_AUTH_HEADER.encode(), b"").decode()
+
+            # Fallback: check query string for WebSocket clients that can't set headers
+            if not token and scope_type == "websocket":
+                from urllib.parse import parse_qs
+                qs = parse_qs(scope.get("query_string", b"").decode())
+                token = qs.get("secret", [""])[0]
+
             if token != self._secret:
-                response = JSONResponse(
-                    status_code=403,
-                    content={"detail": "Invalid or missing sandbox API secret"},
-                )
-                await response(scope, receive, send)
+                if scope_type == "http":
+                    response = JSONResponse(
+                        status_code=403,
+                        content={"detail": "Invalid or missing sandbox API secret"},
+                    )
+                    await response(scope, receive, send)
+                else:
+                    # For WebSocket: must accept then close (ASGI spec)
+                    await send({"type": "websocket.close", "code": 4003})
                 return
 
         await self.app(scope, receive, send)
