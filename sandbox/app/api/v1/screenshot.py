@@ -29,7 +29,6 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from app.services.cdp_screencast import (
     CDPScreencastService,
     ScreencastConfig,
-    get_screencast_service,
 )
 
 router = APIRouter()
@@ -143,8 +142,12 @@ _screenshot_cache = _ScreenshotCache()
 # CDP capture (Tier 1) - persistent connection, lowest latency
 # ---------------------------------------------------------------------------
 
-# Reuse singleton CDP service across requests (persistent WebSocket)
-_cdp_service: CDPScreencastService | None = None
+# Dedicated CDP service for screenshot capture.
+# This is intentionally SEPARATE from the screencast singleton to avoid:
+# 1. _command_lock contention between polling screenshots and streaming frames
+# 2. _cleanup_stale_connection() in screenshot killing the screencast WebSocket
+# 3. Shared connection state causing race conditions on error recovery
+_screenshot_cdp_service: CDPScreencastService | None = None
 
 # P1.3: CDP failure tracking to skip tier after consecutive failures
 _cdp_consecutive_failures: int = 0
@@ -154,20 +157,23 @@ _CDP_SKIP_DURATION: float = 5.0  # Skip for 5s after threshold (reduced from 30s
 
 
 def _get_cdp_service() -> CDPScreencastService:
-    """Get or create persistent CDP service singleton.
+    """Get or create dedicated CDP service for screenshot capture.
 
-    P2.8 FIX: Removed per-request config mutations to prevent race conditions.
-    Quality and format are now passed as parameters to capture_single_frame()
-    instead of mutating the singleton's config.
+    IMPORTANT: This returns a SEPARATE instance from the screencast service.
+    Screenshot capture (Page.captureScreenshot) and screencast streaming
+    (Page.startScreencast/Page.screencastFrame) use different CDP commands
+    and have different lifecycle requirements. Sharing a single WebSocket
+    connection causes command interleaving and lock contention.
 
-    The singleton uses default config values, and per-request overrides are
-    passed directly to the capture method, ensuring thread-safe operation.
+    P2.8 FIX: Quality and format are passed as parameters to
+    capture_single_frame() instead of mutating config.
     """
-    global _cdp_service
-    if _cdp_service is None:
-        # Initialize with default config (overridden per-request)
-        _cdp_service = get_screencast_service(ScreencastConfig(format="jpeg", quality=70))
-    return _cdp_service
+    global _screenshot_cdp_service
+    if _screenshot_cdp_service is None:
+        _screenshot_cdp_service = CDPScreencastService(
+            ScreencastConfig(format="jpeg", quality=70)
+        )
+    return _screenshot_cdp_service
 
 
 async def _capture_with_cdp(
@@ -636,8 +642,8 @@ async def test_screenshot_availability():
     Tests all four tiers and reports which backends are operational.
     """
     try:
-        # Check CDP availability
-        cdp_service = get_screencast_service()
+        # Check CDP availability (uses screenshot's dedicated service)
+        cdp_service = _get_cdp_service()
         cdp_ws_url = await cdp_service.get_ws_debugger_url()
         cdp_available = cdp_ws_url is not None
         cdp_connected = cdp_service.is_connected

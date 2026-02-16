@@ -44,6 +44,8 @@ _CAPTURE_COMMAND_TIMEOUT = (
 _CONNECT_TIMEOUT = 3.0  # Timeout for WebSocket connection establishment
 _PAGE_REDISCOVERY_DELAY = 0.3  # Brief pause for Chrome to register new page target
 _MAX_RETRY_ATTEMPTS = 2  # Initial attempt + 1 retry after page re-discovery
+_STREAM_FRAME_TIMEOUT = 10.0  # Max seconds to wait for next frame before declaring stream dead
+_STREAM_HEALTH_CHECK_INTERVAL = 30.0  # Periodic health check during streaming
 
 
 @dataclass
@@ -462,22 +464,93 @@ class CDPScreencastService:
                 }
             )
 
-    async def stream_frames(self) -> AsyncGenerator[ScreencastFrame, None]:
+    async def stream_frames(
+        self,
+        cancel_event: asyncio.Event | None = None,
+    ) -> AsyncGenerator[ScreencastFrame, None]:
         """
         Stream screencast frames as an async generator.
 
         Yields ScreencastFrame objects with decoded image data.
         Automatically acknowledges frames to keep the stream flowing.
+
+        Args:
+            cancel_event: Optional event that, when set, causes the stream to
+                exit promptly. Used to propagate client disconnects so the
+                stream doesn't linger for the full frame timeout cycle.
+
+        Frame Timeout Watchdog:
+            If no frame is received within _STREAM_FRAME_TIMEOUT seconds and
+            Chrome's health check fails, the stream exits to trigger recovery.
+            When the health check passes (page is simply static), the timeout
+            counter resets and the stream continues waiting.
+
+        Health Check:
+            Every _STREAM_HEALTH_CHECK_INTERVAL seconds, a lightweight /json
+            health check verifies Chrome is still responsive. If Chrome is dead,
+            the stream exits early rather than waiting for the full frame timeout.
         """
         if not self._running:
             if not await self.start_screencast():
                 return
 
         self._streaming = True
+        last_health_check = time.monotonic()
+        consecutive_timeouts = 0
+        _MAX_CONSECUTIVE_TIMEOUTS = 2  # Exit after 2 consecutive failed health checks
+
         try:
-            async for msg in self._ws:
-                if not self._running:
+            while self._running:
+                # Check cancel signal at the top of each iteration
+                if cancel_event and cancel_event.is_set():
+                    logger.info("Stream cancelled by caller (client disconnect)")
                     break
+                try:
+                    # Wait for next message with timeout — prevents indefinite hang
+                    # when Chrome stops producing frames
+                    msg = await asyncio.wait_for(
+                        self._ws.receive(), timeout=_STREAM_FRAME_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    # Check cancel before doing any timeout processing
+                    if cancel_event and cancel_event.is_set():
+                        logger.info("Stream cancelled during timeout wait")
+                        break
+
+                    consecutive_timeouts += 1
+                    logger.warning(
+                        f"No CDP frame received in {_STREAM_FRAME_TIMEOUT}s "
+                        f"(timeout {consecutive_timeouts}/{_MAX_CONSECUTIVE_TIMEOUTS})"
+                    )
+
+                    if consecutive_timeouts >= _MAX_CONSECUTIVE_TIMEOUTS:
+                        logger.error(
+                            "CDP stream appears dead — Chrome renderer may be hung. "
+                            "Breaking stream to trigger recovery."
+                        )
+                        break
+
+                    # Verify Chrome is still alive before escalating
+                    if not await self.health_check():
+                        logger.error(
+                            "Chrome health check failed during stream timeout. "
+                            "Breaking stream to trigger recovery."
+                        )
+                        break
+
+                    # Chrome is alive — page is likely static (no visual changes
+                    # means no compositor updates, so no screencast frames).
+                    # Reset the counter: a passing health check is proof of life,
+                    # so we should not escalate toward killing the stream.
+                    consecutive_timeouts = 0
+                    logger.info(
+                        "Chrome health check passed — page likely static, "
+                        "resetting timeout counter"
+                    )
+                    continue
+
+                # Reset timeout counter on any received message
+                consecutive_timeouts = 0
 
                 if msg.type == aiohttp.WSMsgType.TEXT:
                     data = msg.json()
@@ -508,6 +581,25 @@ class CDPScreencastService:
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     logger.error(f"CDP WebSocket error during stream: {msg.data}")
                     break
+
+                elif msg.type in (
+                    aiohttp.WSMsgType.CLOSE,
+                    aiohttp.WSMsgType.CLOSED,
+                    aiohttp.WSMsgType.CLOSING,
+                ):
+                    logger.info("CDP WebSocket closed during stream")
+                    break
+
+                # Periodic health check (lightweight, doesn't block frame flow)
+                now = time.monotonic()
+                if now - last_health_check >= _STREAM_HEALTH_CHECK_INTERVAL:
+                    last_health_check = now
+                    if not await self.health_check():
+                        logger.warning(
+                            "Chrome health check failed during active stream. "
+                            "Breaking stream to trigger recovery."
+                        )
+                        break
 
         except asyncio.CancelledError:
             logger.info("Screencast stream cancelled")
