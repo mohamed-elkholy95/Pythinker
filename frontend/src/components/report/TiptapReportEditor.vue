@@ -71,7 +71,7 @@ const editor = useEditor({
     Link.configure({
       openOnClick: true,
       HTMLAttributes: {
-        class: 'text-[#1a73e8] hover:underline cursor-pointer',
+        class: 'report-link hover:underline cursor-pointer',
         target: '_blank',
         rel: 'noopener noreferrer',
       },
@@ -149,6 +149,22 @@ defineExpose({
   --tw-prose-pre-bg: var(--fill-tsp-gray-main);
   --tw-prose-th-borders: var(--border-main);
   --tw-prose-td-borders: var(--border-light);
+}
+
+:global(.dark) :deep(.prose),
+:global([data-theme='dark']) :deep(.prose) {
+  --tw-prose-links: #58a6ff;
+}
+
+/* Link styling — theme-aware for dark mode */
+:deep(.report-link) {
+  color: #1a73e8;
+  transition: color 0.15s ease;
+}
+
+:global(.dark) :deep(.report-link),
+:global([data-theme='dark']) :deep(.report-link) {
+  color: #58a6ff;
 }
 
 :deep(.prose h1) {
@@ -284,7 +300,7 @@ defineExpose({
 :deep(.prose-compact) {
   --tw-prose-body: var(--text-secondary);
   --tw-prose-headings: var(--text-primary);
-  --tw-prose-links: #1a73e8;
+  --tw-prose-links: var(--tw-prose-links, #1a73e8);
   --tw-prose-bold: var(--text-primary);
   --tw-prose-counters: var(--text-secondary);
   --tw-prose-bullets: var(--text-tertiary);
