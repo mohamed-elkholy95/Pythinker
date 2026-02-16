@@ -1,16 +1,8 @@
 <template>
-  <div
-    class="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
-    <div class="flex-1 flex items-center justify-center">
-      <div class="max-w-[250px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center">
-        {{ isCreating ? 'Creating Chart' : chartContent.content?.title || 'Chart' }}
-      </div>
-    </div>
-  </div>
-  <div class="flex-1 min-h-0 w-full overflow-y-auto">
+  <div class="flex-1 min-h-0 w-full flex flex-col">
     <!-- Creating Animation -->
     <div v-if="isCreating"
-      class="flex-1 h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#0d1117] dark:to-[#161b22] py-12">
+      class="flex-1 overflow-y-auto flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#0d1117] dark:to-[#161b22] py-12">
       <div class="chart-animation">
         <!-- Animated chart bars -->
         <div class="chart-bars">
@@ -30,7 +22,7 @@
     </div>
 
     <!-- Chart Results -->
-    <div v-else class="flex-1 min-h-0 max-w-[900px] mx-auto px-4 py-4">
+    <div v-else class="flex-1 min-h-0 overflow-y-auto max-w-[900px] mx-auto px-4 py-4">
       <!-- Chart header -->
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
