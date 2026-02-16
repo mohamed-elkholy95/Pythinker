@@ -2722,6 +2722,16 @@ class PlanActFlow(BaseFlow):
                             if isinstance(event, ErrorEvent):
                                 logger.warning(f"Agent {self._agent_id} summarization failed: {event.error}")
                                 yield event
+                                # Bridge ErrorEvent → ErrorContext so handle_error_state() can recover.
+                                # ErrorEvents bypass state_context's except block (they aren't Exceptions),
+                                # so we must populate _error_context manually.
+                                self._error_context = ErrorContext(
+                                    error_type=ErrorType.TOOL_EXECUTION,
+                                    message=f"Summarization failed: {event.error}",
+                                    recoverable=True,
+                                    recovery_strategy="Retry summarization with relaxed coverage requirements",
+                                )
+                                self._previous_status = AgentStatus.SUMMARIZING
                                 self._transition_to(AgentStatus.ERROR, force=True, reason="summarization failed")
                                 break
 

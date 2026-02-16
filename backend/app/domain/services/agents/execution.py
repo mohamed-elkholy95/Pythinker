@@ -987,11 +987,16 @@ class ExecutionAgent(BaseAgent):
 
         if not getattr(coverage_result, "is_valid", True):
             missing = getattr(coverage_result, "missing_requirements", [])
-            missing_text = ", ".join(missing) if missing else "unknown_requirements"
-            if strict_mode:
-                issues.append(f"coverage_missing:{missing_text}")
+            if missing:
+                missing_text = ", ".join(missing)
+                if strict_mode:
+                    issues.append(f"coverage_missing:{missing_text}")
+                else:
+                    warnings.append(f"coverage_missing:{missing_text}")
             else:
-                warnings.append(f"coverage_missing:{missing_text}")
+                # is_valid=False with no missing requirements means addresses_user_request
+                # failed.  Term-overlap heuristic has high false-positive rate — always warn.
+                warnings.append("coverage_relevance_low")
 
         if warnings:
             logger.warning("Delivery integrity warnings: %s", "; ".join(warnings))
