@@ -74,6 +74,11 @@
   }
 }
 
+/* Dark mode: boost minimum opacity */
+:global(.dark) .file-icon {
+  opacity: 0.85;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .file-icon,
   .file-arrow {

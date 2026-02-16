@@ -108,6 +108,15 @@
   }
 }
 
+/* Dark mode: boost visibility */
+:global(.dark) .code-icon {
+  opacity: 0.9;
+}
+
+:global(.dark) .particle {
+  background: color-mix(in srgb, var(--text-brand) 80%, white 20%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .code-icon,
   .code-brackets,

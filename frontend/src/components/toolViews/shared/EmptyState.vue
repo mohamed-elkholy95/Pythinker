@@ -97,4 +97,14 @@ const iconComponent = computed(() => {
 .empty-state :deep(button) {
   margin-top: var(--space-4);
 }
+
+/* Dark mode enhancements */
+:global(.dark) .empty-icon {
+  opacity: 0.8;
+  color: var(--text-secondary);
+}
+
+:global(.dark) .empty-message {
+  color: var(--text-secondary);
+}
 </style>

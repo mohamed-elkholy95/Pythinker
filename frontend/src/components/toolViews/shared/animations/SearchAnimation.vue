@@ -88,6 +88,11 @@
   }
 }
 
+/* Dark mode: boost ring visibility */
+:global(.dark) .ring {
+  border-color: color-mix(in srgb, var(--text-brand) 80%, white 20%);
+}
+
 /* Accessibility: Reduce motion */
 @media (prefers-reduced-motion: reduce) {
   .ring,

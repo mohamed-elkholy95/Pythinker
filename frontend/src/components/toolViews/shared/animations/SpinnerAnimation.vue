@@ -113,6 +113,16 @@
   }
 }
 
+/* Dark mode: ensure full visibility */
+:global(.dark) .spinner-path-outer {
+  opacity: 1;
+}
+
+:global(.dark) .spinner-path-inner {
+  stroke: color-mix(in srgb, var(--text-brand) 60%, white 40%);
+  opacity: 0.9;
+}
+
 /* Accessibility: Reduce motion */
 @media (prefers-reduced-motion: reduce) {
   .spinner-outer,

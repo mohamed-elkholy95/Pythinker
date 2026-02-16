@@ -40,7 +40,7 @@
 .orb {
   position: absolute;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--text-brand), #1a1a1a);
+  background: linear-gradient(135deg, var(--text-brand), rgba(0, 0, 0, 0.6));
   filter: blur(1px);
   opacity: 0.8;
 }
@@ -130,6 +130,16 @@
   50% {
     transform: scale(1.05);
   }
+}
+
+/* Dark mode: brighter orbs for visibility */
+:global(.dark) .orb {
+  background: linear-gradient(135deg, var(--text-brand), rgba(255, 255, 255, 0.2));
+  opacity: 0.9;
+}
+
+:global(.dark) .globe-wrapper::before {
+  background: radial-gradient(circle, rgba(156, 125, 255, 0.25) 0%, transparent 70%);
 }
 
 /* Accessibility: Reduce motion */
