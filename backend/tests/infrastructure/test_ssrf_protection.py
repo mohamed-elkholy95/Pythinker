@@ -6,7 +6,7 @@ Docker service hostnames, and cloud metadata endpoints.
 
 import pytest
 
-from app.infrastructure.external.browser.url_filters import is_ssrf_target
+from app.domain.utils.url_filters import is_ssrf_target
 
 
 class TestSSRFBlockedTargets:

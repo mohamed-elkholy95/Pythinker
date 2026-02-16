@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.application.errors.exceptions import AppError
+from app.core.prometheus_metrics import record_error
 from app.domain.exceptions.browser import (
     BrowserError,
     ConnectionPoolExhaustedError,
@@ -14,7 +15,6 @@ from app.domain.models.recovery import (
     MalformedResponseError,
     RecoveryBudgetExhaustedError,
 )
-from app.infrastructure.observability.prometheus_metrics import record_error
 from app.interfaces.schemas.base import APIResponse
 
 logger = logging.getLogger(__name__)

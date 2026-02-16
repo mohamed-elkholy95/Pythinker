@@ -205,7 +205,7 @@ class DockerSandbox(Sandbox):
 
 ## Prometheus Metrics
 
-**Location:** `backend/app/infrastructure/observability/prometheus_metrics.py`
+**Location:** `backend/app/core/prometheus_metrics.py`
 
 ### Available Metrics
 
@@ -220,7 +220,7 @@ class DockerSandbox(Sandbox):
 ### Helper Functions
 
 ```python
-from app.infrastructure.observability.prometheus_metrics import (
+from app.core.prometheus_metrics import (
     record_http_pool_request,
     record_http_pool_error,
     update_http_pool_connections,

@@ -29,7 +29,7 @@ FILES=(
     "app/domain/services/agents/token_manager.py"
     "app/application/services/screenshot_service.py"
     "app/infrastructure/external/browser/playwright_browser.py"
-    "app/infrastructure/observability/prometheus_metrics.py"
+    "app/core/prometheus_metrics.py"
     "app/interfaces/api/rating_routes.py"
     "app/interfaces/dependencies.py"
 )
@@ -54,7 +54,7 @@ from app.core.sandbox_pool import SandboxPool
 from app.domain.models.pressure import PressureLevel
 from app.domain.services.agents.token_manager import TokenManager
 from app.application.services.screenshot_service import ScreenshotCaptureService, ScreenshotCircuitBreaker
-from app.infrastructure.observability.prometheus_metrics import (
+from app.core.prometheus_metrics import (
     record_sandbox_health_check,
     record_sandbox_oom_kill,
     record_sandbox_runtime_crash,

@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.prometheus_metrics import record_error
 from app.core.retry import RetryConfig, calculate_delay
 from app.domain.exceptions.browser import (
     BrowserCrashedError,
@@ -30,7 +31,6 @@ from app.domain.exceptions.browser import (
     ConnectionTimeoutError,
 )
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
-from app.infrastructure.observability.prometheus_metrics import record_error
 
 logger = logging.getLogger(__name__)
 

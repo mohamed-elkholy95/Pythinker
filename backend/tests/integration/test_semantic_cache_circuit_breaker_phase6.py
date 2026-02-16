@@ -132,11 +132,11 @@ class TestSemanticCacheCircuitBreakerIntegration:
     @pytest.mark.asyncio
     async def test_prometheus_metrics_updated_on_cache_operations(self):
         """Test Prometheus metrics are updated during cache operations."""
-        from app.infrastructure.external.cache.semantic_cache import SemanticCache
-        from app.infrastructure.observability.prometheus_metrics import (
+        from app.core.prometheus_metrics import (
             semantic_cache_hit_total,
             semantic_cache_query_total,
         )
+        from app.infrastructure.external.cache.semantic_cache import SemanticCache
 
         # Create mocks
         embedding_client_mock = AsyncMock()
@@ -182,14 +182,14 @@ class TestSemanticCacheCircuitBreakerIntegration:
     @pytest.mark.asyncio
     async def test_circuit_breaker_state_metric_updated(self):
         """Test circuit breaker state metric is updated."""
+        from app.core.prometheus_metrics import (
+            semantic_cache_circuit_breaker_state,
+        )
         from app.infrastructure.external.cache.circuit_breaker import (
             CircuitState,
             get_circuit_breaker,
         )
         from app.infrastructure.external.cache.semantic_cache import SemanticCache
-        from app.infrastructure.observability.prometheus_metrics import (
-            semantic_cache_circuit_breaker_state,
-        )
 
         # Create mocks
         embedding_client_mock = AsyncMock()

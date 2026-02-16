@@ -14,17 +14,17 @@ from docker.errors import NotFound as DockerNotFound
 from docker.types import Ulimit
 
 from app.core.config import get_settings
+from app.core.prometheus_metrics import (
+    sandbox_connection_attempts_total,
+    sandbox_connection_failure_total,
+    sandbox_warmup_duration,
+)
 from app.domain.external.browser import Browser
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.sandbox_security_policy_service import get_sandbox_security_policy
 from app.infrastructure.external.browser.connection_pool import BrowserConnectionPool
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
-from app.infrastructure.observability.prometheus_metrics import (
-    sandbox_connection_attempts_total,
-    sandbox_connection_failure_total,
-    sandbox_warmup_duration,
-)
 
 logger = logging.getLogger(__name__)
 

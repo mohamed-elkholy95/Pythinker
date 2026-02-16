@@ -38,7 +38,7 @@ def redis_mock():
 @pytest.fixture
 def clear_metrics():
     """Clear Prometheus metrics before each test."""
-    from app.infrastructure.observability.prometheus_metrics import reset_all_metrics
+    from app.core.prometheus_metrics import reset_all_metrics
 
     reset_all_metrics()
     yield
@@ -51,7 +51,7 @@ class TestAPIKeyPoolMetrics:
 
     async def test_key_selection_increments_counter(self, redis_mock, clear_metrics):
         """Selecting a key should increment api_key_selections_total counter."""
-        from app.infrastructure.observability.prometheus_metrics import api_key_selections_total
+        from app.core.prometheus_metrics import api_key_selections_total
 
         pool = APIKeyPool(
             provider="test",
@@ -71,7 +71,7 @@ class TestAPIKeyPoolMetrics:
 
     async def test_exhaustion_increments_counter(self, redis_mock, clear_metrics):
         """Marking key exhausted should increment api_key_exhaustions_total."""
-        from app.infrastructure.observability.prometheus_metrics import api_key_exhaustions_total
+        from app.core.prometheus_metrics import api_key_exhaustions_total
 
         pool = APIKeyPool(
             provider="serper",
@@ -89,7 +89,7 @@ class TestAPIKeyPoolMetrics:
 
     async def test_invalid_increments_counter(self, redis_mock, clear_metrics):
         """Marking key invalid should increment api_key_exhaustions_total."""
-        from app.infrastructure.observability.prometheus_metrics import api_key_exhaustions_total
+        from app.core.prometheus_metrics import api_key_exhaustions_total
 
         pool = APIKeyPool(
             provider="anthropic",

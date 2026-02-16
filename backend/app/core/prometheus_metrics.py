@@ -4,7 +4,7 @@ Provides Prometheus-compatible metrics collection and export.
 Supports counters, gauges, and histograms for LLM, tool, and session metrics.
 
 Usage:
-    from app.infrastructure.observability.prometheus_metrics import (
+    from app.core.prometheus_metrics import (
         llm_calls_total,
         tool_calls_total,
         record_llm_call,

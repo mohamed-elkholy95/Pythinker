@@ -57,7 +57,10 @@ async def test_stop_session_destroys_sandbox_and_clears_session_references():
 @patch("app.core.config.get_settings")
 @pytest.mark.asyncio
 async def test_stop_session_skips_destroy_for_unowned_sandbox(mock_get_settings: MagicMock):
-    mock_get_settings.return_value = SimpleNamespace(sandbox_lifecycle_mode="static")
+    mock_get_settings.return_value = SimpleNamespace(
+        sandbox_lifecycle_mode="static",
+        max_concurrent_agents=2,
+    )
     session = Session(
         id="session-id",
         user_id="user-id",

@@ -21,6 +21,16 @@ COMPARISON_MARKDOWN = """# LLM Comparison
 """
 
 
+@pytest.fixture(autouse=True)
+def clear_settings_cache():
+    """Clear settings cache before each test to prevent state contamination."""
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture
 def mock_sandbox() -> AsyncMock:
     sandbox = AsyncMock()

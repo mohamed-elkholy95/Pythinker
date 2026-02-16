@@ -18,7 +18,7 @@ except ImportError:
 
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
-from app.infrastructure.external.browser.url_filters import is_ssrf_target, is_video_url
+from app.domain.utils.url_filters import is_ssrf_target, is_video_url
 
 logger = logging.getLogger(__name__)
 

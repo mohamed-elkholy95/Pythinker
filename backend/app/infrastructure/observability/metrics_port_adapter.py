@@ -2,8 +2,8 @@
 
 import logging
 
+from app.core import prometheus_metrics as pm
 from app.domain.external.observability import MetricsPort
-from app.infrastructure.observability import prometheus_metrics as pm
 
 logger = logging.getLogger(__name__)
 

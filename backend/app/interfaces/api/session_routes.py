@@ -14,6 +14,7 @@ from app.application.errors.exceptions import NotFoundError, UnauthorizedError
 from app.application.services.agent_service import AgentService
 from app.application.services.screenshot_service import ScreenshotQueryService
 from app.application.services.token_service import TokenService
+from app.core import prometheus_metrics as pm
 from app.core.config import get_settings
 from app.core.deep_research_manager import get_deep_research_manager
 from app.domain.external.sandbox import Sandbox
@@ -31,7 +32,6 @@ from app.domain.services.stream_guard import (
     unregister_active_stream,
 )
 from app.domain.utils.cancellation import CancellationToken
-from app.infrastructure.observability import prometheus_metrics as pm
 from app.interfaces.dependencies import (
     get_agent_service,
     get_current_user,

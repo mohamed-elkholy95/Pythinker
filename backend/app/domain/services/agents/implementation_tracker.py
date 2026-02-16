@@ -507,14 +507,26 @@ def get_implementation_tracker(config: ImplementationConfig | None = None) -> Im
     """Get or create the global implementation tracker.
 
     Args:
-        config: Optional custom config (only used on first call)
+        config: Optional custom config. If provided, creates a new instance
+               (useful for tests). If None, returns the default singleton.
 
     Returns:
         ImplementationTracker instance
 
-    Context7 validated: Singleton factory pattern.
+    Context7 validated: Singleton factory pattern with test override.
+
+    Note: This fixes config-order sensitivity in tests. When a specific
+    config is provided, we create a new instance instead of reusing the
+    singleton, preventing test interference.
     """
     global _implementation_tracker
+
+    # If custom config provided, create new instance (don't use singleton)
+    # This allows tests to pass custom configs without affecting other tests
+    if config is not None:
+        return ImplementationTracker(config=config)
+
+    # Otherwise, use default singleton
     if _implementation_tracker is None:
-        _implementation_tracker = ImplementationTracker(config=config)
+        _implementation_tracker = ImplementationTracker(config=None)
     return _implementation_tracker

@@ -10,14 +10,14 @@ from functools import lru_cache
 from uuid import uuid4
 
 from app.core.config import get_settings
+from app.core.prometheus_metrics import (
+    record_screenshot_capture,
+    record_screenshot_fetch,
+)
 from app.core.retry import RetryConfig, calculate_delay
 from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
 from app.domain.repositories.screenshot_repository import ScreenshotRepository
 from app.domain.repositories.screenshot_storage import ScreenshotStorage
-from app.infrastructure.observability.prometheus_metrics import (
-    record_screenshot_capture,
-    record_screenshot_fetch,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ class ScreenshotCircuitBreaker:
         self._state = new_state
 
         # Record state to metrics
-        from app.infrastructure.observability.prometheus_metrics import screenshot_circuit_state
+        from app.core.prometheus_metrics import screenshot_circuit_state
 
         state_value = {"closed": 0, "half_open": 1, "open": 2}
         screenshot_circuit_state.set({"state": new_state.value}, state_value[new_state.value])
@@ -274,7 +274,7 @@ class ScreenshotCaptureService:
                     if original_storage_key:
                         storage_key = original_storage_key
                         # Record dedup metrics
-                        from app.infrastructure.observability.prometheus_metrics import (
+                        from app.core.prometheus_metrics import (
                             screenshot_dedup_saved_bytes,
                             screenshot_dedup_total,
                         )
@@ -429,7 +429,7 @@ class ScreenshotCaptureService:
                 if response and response.content:
                     if attempt > 0:
                         # Record successful retry
-                        from app.infrastructure.observability.prometheus_metrics import (
+                        from app.core.prometheus_metrics import (
                             screenshot_retry_attempts_total,
                         )
 

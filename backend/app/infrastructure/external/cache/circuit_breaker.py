@@ -284,7 +284,7 @@ class SemanticCacheCircuitBreaker:
             to_state: New state
         """
         try:
-            from app.infrastructure.observability.prometheus_metrics import (
+            from app.core.prometheus_metrics import (
                 semantic_cache_circuit_transitions_total,
             )
 

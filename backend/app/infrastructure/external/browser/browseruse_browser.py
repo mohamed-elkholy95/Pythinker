@@ -28,7 +28,7 @@ except ImportError:
     ActionResult = None
 
 from app.core.config import get_settings
-from app.infrastructure.external.browser.url_filters import VIDEO_URL_PATTERNS, is_ssrf_target, is_video_url
+from app.domain.utils.url_filters import VIDEO_URL_PATTERNS, is_ssrf_target, is_video_url
 
 logger = logging.getLogger(__name__)
 

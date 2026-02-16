@@ -4,9 +4,9 @@ import re
 from enum import Enum
 from typing import Any
 
+from app.core.prometheus_metrics import record_error
 from app.domain.utils.json_parser import JsonParser
 from app.infrastructure.external.llm import get_llm
-from app.infrastructure.observability.prometheus_metrics import record_error
 
 logger = logging.getLogger(__name__)
 

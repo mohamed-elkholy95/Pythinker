@@ -30,7 +30,7 @@ Usage:
 
 import logging
 
-from app.infrastructure.observability.prometheus_metrics import Counter, Gauge, Histogram
+from app.core.prometheus_metrics import Counter, Gauge, Histogram
 
 logger = logging.getLogger(__name__)
 

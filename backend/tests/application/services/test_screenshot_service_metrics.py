@@ -5,14 +5,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.services.screenshot_service import ScreenshotCaptureService, ScreenshotQueryService
-from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
-from app.infrastructure.observability.prometheus_metrics import (
+from app.core.prometheus_metrics import (
     reset_all_metrics,
     screenshot_capture_size_bytes,
     screenshot_captures_total,
     screenshot_fetch_size_bytes,
     screenshot_fetch_total,
 )
+from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
 
 
 @pytest.fixture(autouse=True)

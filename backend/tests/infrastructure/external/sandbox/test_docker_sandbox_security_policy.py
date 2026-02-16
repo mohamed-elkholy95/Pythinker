@@ -36,11 +36,13 @@ class TestDockerSandboxCreateTaskSecurityPolicy:
                 sandbox_pids_limit=300,
                 sandbox_framework_port=8082,
                 sandbox_streaming_mode=StreamingMode.CDP_ONLY,
+                sandbox_api_secret=None,
             )
             policy = MagicMock()
             policy.cap_drop = ["ALL"]
             policy.cap_add_allowlist = ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"]
             policy.require_no_new_privileges = True
+            policy.require_custom_seccomp = True
             policy.seccomp_profile_path = "sandbox/seccomp-sandbox.json"
             policy.tmpfs_mounts = [
                 "/run:size=50M,nosuid,nodev",

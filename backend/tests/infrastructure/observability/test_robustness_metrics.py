@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.infrastructure.observability.prometheus_metrics import (
+from app.core.prometheus_metrics import (
     delivery_fidelity_blocks_total,
     entity_drift_detected_total,
     guardrail_latency_seconds,

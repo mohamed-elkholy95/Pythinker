@@ -115,7 +115,7 @@ async def test_heavy_page_skips_smart_scroll():
 @pytest.mark.asyncio
 async def test_heavy_page_detection_increments_metric():
     """Test that heavy page detection increments the appropriate metric."""
-    from app.infrastructure.observability.prometheus_metrics import browser_heavy_page_detections_total
+    from app.core.prometheus_metrics import browser_heavy_page_detections_total
 
     browser = PlaywrightBrowser()
     await browser.start()

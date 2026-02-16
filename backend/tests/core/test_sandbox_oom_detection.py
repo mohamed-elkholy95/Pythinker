@@ -127,7 +127,7 @@ async def test_oom_killed_sandbox_removed_from_pool():
 @pytest.mark.asyncio
 async def test_oom_metric_incremented():
     """Test that OOM kill metric is incremented."""
-    from app.infrastructure.observability.prometheus_metrics import sandbox_oom_kills_total
+    from app.core.prometheus_metrics import sandbox_oom_kills_total
 
     initial_count = sandbox_oom_kills_total._value.get(frozenset(), 0)
 

@@ -234,7 +234,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         # Phase 1: Use named 'dense' vector
         import time
 
-        from app.infrastructure.observability.prometheus_metrics import (
+        from app.core.prometheus_metrics import (
             qdrant_query_duration_seconds,
         )
 
@@ -333,7 +333,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         # Hybrid query with RRF fusion
         import time
 
-        from app.infrastructure.observability.prometheus_metrics import (
+        from app.core.prometheus_metrics import (
             qdrant_query_duration_seconds,
         )
 

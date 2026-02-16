@@ -319,7 +319,7 @@ class RateLimitMiddleware:
             logger.warning(f"Redis unavailable for rate limiting, using in-memory fallback: {e}")
             using_fallback = True
             try:
-                from app.infrastructure.observability.prometheus_metrics import rate_limit_fallback_total
+                from app.core.prometheus_metrics import rate_limit_fallback_total
 
                 rate_limit_fallback_total.inc({"reason": "redis_unavailable"})
             except Exception:

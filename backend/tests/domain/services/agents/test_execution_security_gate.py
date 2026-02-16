@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.prometheus_metrics import security_gate_blocks_total
 from app.domain.services.agents.security_critic import SecurityCritic
 from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.shell import ShellTool
-from app.infrastructure.observability.prometheus_metrics import security_gate_blocks_total
 
 
 @pytest.mark.asyncio

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.application.schemas.session import (
@@ -11,6 +13,7 @@ from app.interfaces.schemas.event import AgentSSEEvent
 
 ConsoleRecord = ApplicationConsoleRecord
 ShellViewResponse = ApplicationShellViewResponse
+StreamingMode = Literal["cdp_only"]
 
 
 class CreateSessionRequest(BaseModel):
@@ -76,7 +79,7 @@ class SandboxInfo(BaseModel):
     """Sandbox connection info returned at session creation."""
 
     sandbox_id: str
-    streaming_mode: str = "cdp_only"
+    streaming_mode: StreamingMode = "cdp_only"
     status: str = "initializing"
 
 
@@ -95,7 +98,7 @@ class GetSessionResponse(BaseModel):
     session_id: str
     title: str | None = None
     status: SessionStatus
-    streaming_mode: str | None = None
+    streaming_mode: StreamingMode | None = None
     events: list[AgentSSEEvent] = []
     is_shared: bool = False
 
@@ -106,7 +109,7 @@ class SessionStatusResponse(BaseModel):
     session_id: str
     status: SessionStatus
     sandbox_id: str | None = None
-    streaming_mode: str | None = None
+    streaming_mode: StreamingMode | None = None
     created_at: float | None = None
 
 

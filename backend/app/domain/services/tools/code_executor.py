@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 def _record_security_gate_block(risk_level: str, pattern_type: str) -> None:
     """Record a security gate block metric without static infra-layer imports."""
     try:
-        metrics = import_module("app.infrastructure.observability.prometheus_metrics")
+        metrics = import_module("app.core.prometheus_metrics")
         metrics.record_security_gate_block(risk_level=risk_level, pattern_type=pattern_type)
     except Exception:
         logger.debug("Failed to record security_gate_block metric", exc_info=True)
@@ -37,7 +37,7 @@ def _record_security_gate_block(risk_level: str, pattern_type: str) -> None:
 def _record_security_gate_override(override_reason: str) -> None:
     """Record a security gate override metric without static infra-layer imports."""
     try:
-        metrics = import_module("app.infrastructure.observability.prometheus_metrics")
+        metrics = import_module("app.core.prometheus_metrics")
         metrics.record_security_gate_override(override_reason=override_reason)
     except Exception:
         logger.debug("Failed to record security_gate_override metric", exc_info=True)

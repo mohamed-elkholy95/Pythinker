@@ -57,7 +57,7 @@ def main():
         "app/domain/services/agents/token_manager.py",
         "app/application/services/screenshot_service.py",
         "app/infrastructure/external/browser/playwright_browser.py",
-        "app/infrastructure/observability/prometheus_metrics.py",
+        "app/core/prometheus_metrics.py",
         "app/interfaces/api/rating_routes.py",
         "app/interfaces/dependencies.py",
     ]
@@ -100,7 +100,7 @@ def main():
         all_valid = False
 
     # Check prometheus_metrics.py has record functions
-    metrics_file = backend_dir / "app/infrastructure/observability/prometheus_metrics.py"
+    metrics_file = backend_dir / "app/core/prometheus_metrics.py"
     with open(metrics_file, "r") as f:
         metrics_content = f.read()
 

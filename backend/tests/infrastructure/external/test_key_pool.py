@@ -39,9 +39,22 @@ def mock_redis():
     async def mock_set(key, value):
         redis._state[key] = value
 
+    async def mock_call(method, *args):
+        method = method.lower()
+        if method == "exists":
+            return await mock_exists(args[0])
+        if method == "setex":
+            await mock_setex(args[0], args[1], args[2])
+            return True
+        if method == "set":
+            await mock_set(args[0], args[1])
+            return True
+        raise AssertionError(f"Unexpected Redis method in test mock: {method}")
+
     redis.exists.side_effect = mock_exists
     redis.setex.side_effect = mock_setex
     redis.set.side_effect = mock_set
+    redis.call.side_effect = mock_call
 
     return redis
 
@@ -189,12 +202,13 @@ class TestHealthTracking:
 
         await pool.mark_exhausted("key1", ttl_seconds=300)
 
-        # Verify Redis setex was called with correct params
-        mock_redis.setex.assert_called_once()
-        call_args = mock_redis.setex.call_args
-        assert call_args[0][0].startswith("api_key:exhausted:test:")
-        assert call_args[0][1] == 300
-        assert call_args[0][2] == KeyHealthStatus.EXHAUSTED.value
+        # Verify Redis call("setex", ...) was issued with correct params
+        setex_calls = [call for call in mock_redis.call.call_args_list if call.args and call.args[0] == "setex"]
+        assert len(setex_calls) == 1
+        call_args = setex_calls[0].args
+        assert call_args[1].startswith("api_key:exhausted:test:")
+        assert call_args[2] == 300
+        assert call_args[3] == KeyHealthStatus.EXHAUSTED.value
 
     async def test_mark_invalid_permanent(self, mock_redis, basic_keys):
         """mark_invalid should set Redis key with no TTL."""
@@ -207,11 +221,12 @@ class TestHealthTracking:
 
         await pool.mark_invalid("key1")
 
-        # Verify Redis set was called (no TTL)
-        mock_redis.set.assert_called_once()
-        call_args = mock_redis.set.call_args
-        assert call_args[0][0].startswith("api_key:invalid:test:")
-        assert call_args[0][1] == KeyHealthStatus.INVALID.value
+        # Verify Redis call("set", ...) was issued (no TTL)
+        set_calls = [call for call in mock_redis.call.call_args_list if call.args and call.args[0] == "set"]
+        assert len(set_calls) == 1
+        call_args = set_calls[0].args
+        assert call_args[1].startswith("api_key:invalid:test:")
+        assert call_args[2] == KeyHealthStatus.INVALID.value
 
     async def test_ttl_recovery(self, mock_redis, basic_keys):
         """Exhausted keys should become healthy after TTL expires."""
@@ -231,6 +246,8 @@ class TestHealthTracking:
 
         # Simulate TTL expiry (clear Redis state)
         mock_redis._state.clear()
+        exhausted_hash = pool._hash_key("key2")
+        pool._memory_exhausted[exhausted_hash] = 0.0
 
         # Should be able to use key2 again
         results = []

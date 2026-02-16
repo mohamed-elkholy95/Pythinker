@@ -6,25 +6,25 @@ import httpx
 import pytest
 
 from app.infrastructure.external.search.serper_search import SerperSearchEngine
-from app.infrastructure.storage.redis import get_redis
 
 
 @pytest.fixture
-async def redis_client():
-    """Get Redis client for testing."""
-    client = get_redis()
-    await client.initialize()
-    yield client
-    # Cleanup
-    await client.shutdown()
+def mock_redis():
+    """Mock Redis client for testing."""
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    redis.set = AsyncMock(return_value=True)
+    redis.delete = AsyncMock(return_value=1)
+    redis.expire = AsyncMock(return_value=True)
+    return redis
 
 
-async def test_serper_uses_key_pool_rotation(redis_client):
+async def test_serper_uses_key_pool_rotation(mock_redis):
     """Serper should use APIKeyPool for multi-key rotation."""
     engine = SerperSearchEngine(
         api_key="key1",
         fallback_api_keys=["key2", "key3"],
-        redis_client=redis_client,
+        redis_client=mock_redis,
     )
 
     # Verify pool is initialized
@@ -38,12 +38,12 @@ async def test_serper_uses_key_pool_rotation(redis_client):
 
 
 @pytest.mark.asyncio
-async def test_serper_respects_retry_limit(redis_client, mocker):
+async def test_serper_respects_retry_limit(mock_redis, mocker):
     """Test that search() doesn't recurse infinitely when all keys are exhausted."""
     engine = SerperSearchEngine(
         api_key="key1",
         fallback_api_keys=["key2", "key3"],
-        redis_client=redis_client,
+        redis_client=mock_redis,
     )
 
     # Mock the HTTP client to always return 429 (rate limit)
