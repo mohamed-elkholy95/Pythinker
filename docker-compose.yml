@@ -88,20 +88,16 @@ services:
       timeout: 10s
       start_period: 60s
       retries: 3
-    volumes:
-      # Openbox config for proper window management - ensures Chrome stays centered at 0,0
-      - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml:ro
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
     # Sandbox ports bound to localhost only — backend proxies API/live-preview to users.
-    # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file/legacy-VNC access).
+    # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file access).
     ports:
       - "127.0.0.1:8083:8080"  # Sandbox API (localhost only)
       - "127.0.0.1:8082:8082"  # Sandbox framework API (localhost only)
-      # Legacy VNC ports not published — accessed only via authenticated backend proxy when dual mode is enabled
     shm_size: '2g'
     # Security hardening
     security_opt:
@@ -156,8 +152,6 @@ services:
     hostname: sandbox2
     init: true  # Prevent zombie Chrome processes (Playwright best practice)
     restart: unless-stopped
-    volumes:
-      - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml:ro
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db

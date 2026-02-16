@@ -79,8 +79,6 @@ services:
     hostname: sandbox
     init: true  # Prevent zombie Chrome processes (Playwright best practice)
     restart: unless-stopped
-    volumes:
-      - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml:ro
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
@@ -143,8 +141,6 @@ services:
     hostname: sandbox2
     init: true  # Prevent zombie Chrome processes (Playwright best practice)
     restart: unless-stopped
-    volumes:
-      - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml:ro
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
