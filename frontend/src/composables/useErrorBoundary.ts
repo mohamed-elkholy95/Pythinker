@@ -36,6 +36,26 @@ const NON_RECOVERABLE_MESSAGES = [
 ]
 
 /**
+ * Transient render errors from non-critical UI subsystems.
+ * These are typically timing/race conditions during component mount/unmount
+ * that don't affect core functionality. They are logged but NOT reported
+ * to the error reporter (which would trigger the scary connection banner).
+ */
+const TRANSIENT_ERROR_PATTERNS = [
+  // Screencast/live viewer stats timing races
+  "reading 'fps'",
+  "reading 'bytesPerSec'",
+  "reading 'frameCount'",
+  "reading 'toFixed'",
+  // Konva/canvas teardown races
+  "reading 'getNode'",
+  "reading 'batchDraw'",
+  // Vue template ref access during unmount
+  "reading 'zoomCtrl'",
+  "reading 'annotationLayer'",
+]
+
+/**
  * Check if an error is recoverable
  */
 function isRecoverableError(err: unknown): boolean {
@@ -128,6 +148,19 @@ export function useErrorBoundary() {
     const normalized = normalizeError(err, componentName)
     lastCapturedError.value = normalized
     errorCount.value += 1
+
+    // Check if this is a transient render error from a non-critical UI subsystem.
+    // These are timing races (e.g., accessing screencast stats during component
+    // teardown) that resolve on the next render cycle. Log them but don't report
+    // to the error reporter — reporting triggers the ConnectionStatusBanner which
+    // is disproportionate for a benign UI timing glitch.
+    const errMsg = err instanceof Error ? err.message : String(err)
+    const isTransient = TRANSIENT_ERROR_PATTERNS.some(p => errMsg.includes(p))
+
+    if (isTransient) {
+      console.warn(`[ErrorBoundary] Transient render error in ${info} (suppressed from banner):`, err)
+      return false
+    }
 
     console.error(`[ErrorBoundary] Captured error in ${info}:`, err)
 

@@ -118,6 +118,10 @@ function handleRefresh() {
 }
 
 function handleDismiss() {
+  // Clear errors from the reporter so the banner actually goes away.
+  // Without this, unrecoverable errors persist in the reporter and
+  // the banner stays visible even after the user clicks dismiss.
+  errorReporter.clearErrors()
   emit('dismiss')
 }
 
