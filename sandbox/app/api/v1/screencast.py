@@ -143,6 +143,9 @@ async def stream_frames_ws(
 
         last_frame_time = 0
 
+        # Shared event to signal the frame loop when the client disconnects
+        disconnected = asyncio.Event()
+
         # Create tasks for sending frames and receiving control messages
         async def receive_control():
             nonlocal paused
@@ -158,12 +161,15 @@ async def stream_frames_ws(
                     elif msg == "pong":
                         pass  # Keep-alive response
             except WebSocketDisconnect:
-                pass
+                disconnected.set()
 
         receive_task = asyncio.create_task(receive_control())
 
         try:
             async for frame in service.stream_frames():
+                if disconnected.is_set():
+                    break
+
                 if paused:
                     await asyncio.sleep(0.1)
                     continue
@@ -175,7 +181,11 @@ async def stream_frames_ws(
                 last_frame_time = now
 
                 # Send frame as binary
-                await websocket.send_bytes(frame.data)
+                try:
+                    await websocket.send_bytes(frame.data)
+                except (RuntimeError, WebSocketDisconnect):
+                    # Client already disconnected
+                    break
                 frame_count += 1
 
                 if frame_count % 100 == 0:
