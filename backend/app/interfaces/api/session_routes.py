@@ -1154,6 +1154,12 @@ async def screencast_websocket(
         sandbox_ws_url = sandbox.base_url.replace("http", "ws")
         sandbox_ws_url = f"{sandbox_ws_url}/api/v1/screencast/stream?quality={quality}&max_fps={max_fps}"
 
+        # Add authentication secret as query parameter (fallback for websockets library compatibility)
+        settings = get_settings()
+        if settings.sandbox_api_secret:
+            from urllib.parse import quote
+            sandbox_ws_url = f"{sandbox_ws_url}&secret={quote(settings.sandbox_api_secret)}"
+
         logger.info(f"Connecting to screencast at {sandbox_ws_url}")
 
         async with websockets.connect(
@@ -1229,6 +1235,12 @@ async def input_websocket(
 
         sandbox_ws_url = sandbox.base_url.replace("http", "ws")
         sandbox_ws_url = f"{sandbox_ws_url}/api/v1/input/stream"
+
+        # Add authentication secret as query parameter (fallback for websockets library compatibility)
+        settings = get_settings()
+        if settings.sandbox_api_secret:
+            from urllib.parse import quote
+            sandbox_ws_url = f"{sandbox_ws_url}?secret={quote(settings.sandbox_api_secret)}"
 
         async with websockets.connect(
             sandbox_ws_url,
