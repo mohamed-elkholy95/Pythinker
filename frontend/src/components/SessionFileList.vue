@@ -333,11 +333,11 @@ const getFileIconBgClass = (filename: string): string => {
 
     // Code files - blue
     if (fileCategories.code.includes(ext)) {
-        return 'bg-[var(--text-brand)]';
+        return 'bg-blue-600 dark:bg-blue-500';
     }
     // Documents - blue
     if (['md', 'txt', 'pdf', 'doc', 'docx', 'rtf', 'odt'].includes(ext)) {
-        return 'bg-[var(--text-brand)]';
+        return 'bg-blue-600 dark:bg-blue-500';
     }
     // Spreadsheets - green
     if (['xls', 'xlsx', 'csv'].includes(ext)) {
@@ -357,10 +357,10 @@ const getFileIconBgClass = (filename: string): string => {
     }
     // Links - purple
     if (fileCategories.links.includes(ext)) {
-        return 'bg-[var(--icon-secondary)]';
+        return 'bg-purple-600 dark:bg-purple-500';
     }
 
-    return 'bg-[var(--text-secondary)]';
+    return 'bg-gray-500 dark:bg-gray-600';
 };
 
 // Format file date
@@ -519,7 +519,7 @@ watch(visible, (newVisible) => {
     width: 36px;
     height: 36px;
     border-radius: 8px;
-    background: linear-gradient(135deg, var(--text-brand) 0%, var(--button-primary-hover) 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
     display: flex;
     align-items: center;
     justify-content: center;
