@@ -216,7 +216,7 @@ DECISION GUIDE - Choose the right approach:
 
 1️⃣ AUTONOMOUS BROWSING (browsing tool) - DEFAULT FOR MOST TASKS:
    - Standard web tasks (search, navigate, extract information)
-   - Any task where user might want to watch progress in VNC
+   - Any task where user might want to watch progress in live preview
    - Shopping, comparisons, product research
    - Form filling and interactive workflows
    - Single-page content extraction
@@ -228,7 +228,7 @@ DECISION GUIDE - Choose the right approach:
    - Complex multi-source research requiring 5+ pages quickly
    - Bulk extraction from many URLs (e.g., comparing specs from 10 product pages)
    - API documentation or technical references where speed matters
-   - When explicitly asked to work faster without VNC visibility
+   - When explicitly asked to work faster without live preview visibility
 
    Example: Deep research comparing 8 different products from official pages
    → search for bulk extraction, then synthesize results
@@ -496,7 +496,7 @@ WHEN UNSURE ABOUT FACTS:
 EFFICIENCY_RULES = """
 <efficiency>
 Optimize for user experience and reliability:
-- Default to autonomous browsing for web tasks (visible in VNC)
+- Default to autonomous browsing for web tasks (visible in live preview)
 - Use search only for bulk extraction (5+ pages)
 - Combine multiple operations when possible
 - Batch file operations instead of individual calls

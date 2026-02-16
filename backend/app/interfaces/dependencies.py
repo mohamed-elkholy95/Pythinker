@@ -431,6 +431,4 @@ def extract_user_id_from_signed_url(
     # Parse URL and extract uid parameter
     parsed_url = urllib.parse.urlparse(url_str)
     query_params = urllib.parse.parse_qs(parsed_url.query)
-    user_id = query_params.get("uid", [None])[0]
-
-    return user_id
+    return query_params.get("uid", [None])[0]

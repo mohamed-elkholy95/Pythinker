@@ -79,7 +79,7 @@ Example step: "Gather detailed requirements from the user"
    - Pattern search (grep): Exact matches ("function login")
    - File list: Structure exploration
 
-3. **Web Research Workflow** (ALL search/browse visible in VNC):
+3. **Web Research Workflow** (ALL search/browse visible in live preview):
    - `info_search_web` - Search queries (ALWAYS visible in browser)
    - `search` - Fast HTTP fetch for known URLs (bulk extraction)
    - `browser_navigate` - Navigate to specific URL with optional intent/focus

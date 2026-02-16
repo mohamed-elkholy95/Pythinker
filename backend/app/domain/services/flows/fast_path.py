@@ -392,7 +392,7 @@ class FastPathRouter:
         url = self.resolve_target_to_url(target)
         tool_call_id = f"fast_browse_{uuid.uuid4().hex[:8]}"
 
-        # Emit ToolEvent CALLING to trigger VNC display in frontend
+        # Emit ToolEvent CALLING to trigger live preview in frontend
         yield ToolEvent(
             status=ToolStatus.CALLING,
             tool_call_id=tool_call_id,
@@ -401,7 +401,7 @@ class FastPathRouter:
             function_args={"url": url},
         )
 
-        # Small delay to allow frontend to establish VNC connection and render preview
+        # Small delay to allow frontend to establish preview connection and render
         await asyncio.sleep(0.3)
 
         # Emit progress

@@ -121,7 +121,7 @@ complexity_score: Optional[float] = None  # 0.0-1.0
 
 ### Screenshots
 - **Bucket**: `screenshots`
-- **Purpose**: Store VNC screenshots from sandbox
+- **Purpose**: Store sandbox browser screenshots
 - **Metadata**: session_id, task_id, capture_reason, timestamp
 - **Format**: JPEG (compressed, quality=85)
 

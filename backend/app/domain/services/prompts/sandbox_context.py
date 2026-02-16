@@ -167,7 +167,7 @@ NO npm install needed for: {nodejs_builtin_modules}
 
 ## Service Endpoints (Internal)
 
-- VNC Server: localhost:5900 (WebSocket: 5901)
+- Live Preview (CDP screencast/input via backend proxy)
 - Chrome DevTools: localhost:9222
 - Code Server: localhost:8081
 

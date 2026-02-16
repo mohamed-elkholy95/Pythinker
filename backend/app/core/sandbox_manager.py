@@ -47,7 +47,6 @@ class SandboxHealth:
 
     api_responsive: bool = False
     browser_responsive: bool = False
-    vnc_responsive: bool = False
     last_check: datetime = None
 
     @property
@@ -371,23 +370,24 @@ class ManagedSandbox:
             # Run all health checks in parallel for faster response
             api_task = asyncio.create_task(self._check_api_health())
             browser_task = asyncio.create_task(self._check_browser_health())
-            vnc_task = asyncio.create_task(self._check_vnc_health())
+            health_tasks: list[asyncio.Task[Any]] = [api_task, browser_task]
 
             # Wait for all checks with individual exception handling
             # Use TaskGroup-based gather if feature flag enabled
             results = await gather_compat(
-                api_task, browser_task, vnc_task, return_exceptions=True, use_taskgroup=use_taskgroup
+                *health_tasks,
+                return_exceptions=True,
+                use_taskgroup=use_taskgroup,
             )
 
             # Process results (handle exceptions as False)
             self.health.api_responsive = results[0] is True
             self.health.browser_responsive = results[1] is True
-            self.health.vnc_responsive = results[2] is True
 
             # Log any exceptions that occurred
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
-                    check_names = ["API", "Browser", "VNC"]
+                    check_names = ["API", "Browser"]
                     logger.debug(f"{check_names[i]} health check exception: {result}")
 
             return self.health.is_healthy
@@ -420,20 +420,6 @@ class ManagedSandbox:
         )
         response = await client.get("/json/version")
         return response.status_code == 200
-
-    @sandbox_retry
-    async def _check_vnc_health(self) -> bool:
-        """Check if VNC is responsive.
-
-        Phase 3 enhancement: Reduced timeout from 5s to 2s for faster checks.
-        Note: VNC is optional for health determination.
-        Uses @sandbox_retry (3 attempts, 2-30s backoff) for transient failures.
-        """
-        # Simple TCP connection check
-        _reader, writer = await asyncio.wait_for(asyncio.open_connection(self.ip_address, 5900), timeout=2.0)
-        writer.close()
-        await writer.wait_closed()
-        return True
 
     async def _restart_services(self) -> bool:
         """Restart sandbox services"""

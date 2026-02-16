@@ -278,7 +278,7 @@ FEATURES:
 - Automatic paywall detection
 - Optional focused content extraction
 - Falls back to full browser rendering if needed
-- Visible in VNC when fallback is triggered
+- Visible in live preview when fallback is triggered
 
 WHEN TO USE:
 - When you have a specific URL to visit
@@ -366,7 +366,7 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                 )
             del self._url_cache[url]
 
-        # Start browser navigation concurrently so VNC shows activity immediately
+        # Start browser navigation concurrently so live preview shows activity immediately
         nav_task: asyncio.Task[None] | None = None
         if hasattr(self.browser, "navigate_for_display"):
             nav_task = asyncio.create_task(self.browser.navigate_for_display(url))
@@ -471,7 +471,7 @@ Use element indices with browser_click, browser_input, etc.""",
 
     @tool(
         name="browser_navigate",
-        description="""Navigate browser to URL with automatic content loading (VNC visible).
+        description="""Navigate browser to URL with automatic content loading (live preview visible).
 
 AUTOMATIC BEHAVIOR (faster response, fewer tool calls):
 - Scrolls page to load lazy content

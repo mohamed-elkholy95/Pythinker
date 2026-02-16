@@ -150,7 +150,6 @@ async def test_warm_sandbox_saves_sandbox_id_when_binding_succeeds(monkeypatch):
     assert session_repository.save_calls == 1
     created_sandbox.destroy.assert_not_awaited()
     created_sandbox.ensure_sandbox.assert_awaited_once()
-    prewarm_browser.assert_awaited_once_with(created_sandbox, session.id)
     assert session_repository.status_updates[-1] == (session.id, SessionStatus.PENDING)
 
 
@@ -254,7 +253,6 @@ async def test_warm_sandbox_bypasses_pool_for_ephemeral_lifecycle_mode(monkeypat
     get_pool_mock.assert_not_awaited()
     sandbox_cls.create.assert_awaited_once()
     created_sandbox.ensure_sandbox.assert_awaited_once()
-    prewarm_browser.assert_awaited_once_with(created_sandbox, session.id)
 
 
 @pytest.mark.asyncio

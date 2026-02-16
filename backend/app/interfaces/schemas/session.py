@@ -77,7 +77,6 @@ class SandboxInfo(BaseModel):
 
     sandbox_id: str
     streaming_mode: str = "cdp_only"
-    vnc_url: str | None = None
     status: str = "initializing"
 
 
@@ -86,7 +85,7 @@ class CreateSessionResponse(BaseModel):
 
     session_id: str
     mode: AgentMode = AgentMode.AGENT
-    sandbox: SandboxInfo | None = None  # Phase 4: Early sandbox info for optimistic VNC
+    sandbox: SandboxInfo | None = None  # Phase 4: Early sandbox info for optimistic live preview setup
     status: SessionStatus = SessionStatus.PENDING
 
 

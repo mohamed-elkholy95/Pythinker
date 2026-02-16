@@ -417,7 +417,7 @@ CRITICAL INSTRUCTIONS:
         name="browser_agent_run",
         description="""Execute web tasks autonomously using AI-powered browser agent.
 
-ALL ACTIONS VISIBLE IN REAL-TIME VIA VNC.
+ALL ACTIONS VISIBLE IN REAL-TIME VIA LIVE PREVIEW.
 
 Use this tool when you need to perform tasks that require:
 - Multiple interactions across different pages

@@ -1,5 +1,5 @@
 """
-Test script to verify browser window positioning fix in VNC.
+Test script to verify browser window positioning fix for live preview rendering.
 
 This script tests that the browser window stays centered at position 0,0
 during navigation, browsing, and restart operations.
@@ -25,7 +25,7 @@ async def test_browser_positioning():
 
     try:
         logger.info("=" * 80)
-        logger.info("TEST: Browser Window Positioning in VNC")
+        logger.info("TEST: Browser Window Positioning for Live Preview")
         logger.info("=" * 80)
 
         # Test 1: Initial connection
@@ -119,7 +119,7 @@ async def test_browser_positioning():
         logger.info("TEST COMPLETED SUCCESSFULLY")
         logger.info("=" * 80)
         logger.info("\nManual Verification:")
-        logger.info("1. Check VNC display (port 5902)")
+        logger.info("1. Check live preview in the app UI while running this test")
         logger.info("2. Verify browser window is centered and not shifted right")
         logger.info("3. All browser content should be visible")
 
