@@ -185,9 +185,10 @@
             </button>
           </div>
 
-          <!-- Connection interrupted - SSE closed without completion -->
+          <!-- Connection interrupted - SSE closed without completion (amber) -->
+          <!-- Also shows when timeoutReason is null (transport-level timeouts from useSessionStreamController) -->
           <div
-            v-if="responsePhase === 'timed_out'"
+            v-if="responsePhase === 'timed_out' && (!timeoutReason || timeoutReason === 'connection')"
             class="timeout-notice flex items-center gap-3 px-4 py-3 mx-4 mt-[1cm] mb-2 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/20 transition-all duration-300"
             role="status"
           >
@@ -206,6 +207,25 @@
               class="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
             >
               {{ $t('Retry') }}
+            </button>
+          </div>
+
+          <!-- Workflow timeout - agent idle or wall-clock limit (blue, with Continue) -->
+          <div
+            v-if="responsePhase === 'timed_out' && (timeoutReason === 'workflow_idle' || timeoutReason === 'workflow_limit')"
+            class="timeout-notice flex items-center gap-3 px-4 py-3 mx-4 mt-[1cm] mb-2 rounded-xl border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/20 transition-all duration-300"
+            role="status"
+          >
+            <div class="w-2.5 h-2.5 rounded-full bg-blue-400 dark:bg-blue-500 flex-shrink-0 animate-pulse" aria-hidden="true"></div>
+            <div class="flex-1 min-w-0">
+              <span class="text-sm font-medium text-blue-800 dark:text-blue-300">{{ lastError?.message }}</span>
+              <span v-if="lastError?.hint" class="block mt-1 text-xs text-blue-600 dark:text-blue-400">{{ lastError.hint }}</span>
+            </div>
+            <button
+              @click="handleContinueAfterTimeout"
+              class="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+            >
+              {{ $t('Continue') }}
             </button>
           </div>
 
@@ -529,7 +549,7 @@ const {
   startStaleDetection,
   stopStaleDetection,
 } = useSSEConnection({
-  staleThresholdMs: 60000, // 60 seconds
+  staleThresholdMs: 120000, // 120s (4× heartbeat) — only stale when NO events at all
   onStaleDetected: handleStaleConnection,
   onDegradedDetected: () => {
     if (
@@ -608,6 +628,8 @@ const createInitialState = () => ({
   lastError: null as { message: string; type: string | null; recoverable: boolean; hint: string | null } | null,
   autoRetryCount: 0,
   isFallbackStatusPolling: false,
+  agentModeOriginalPrompt: null as string | null, // Tracks original prompt for agent-mode echo suppression
+  timeoutReason: null as 'connection' | 'workflow_idle' | 'workflow_limit' | null, // Discriminates timeout source
 });
 
 // Create reactive state
@@ -658,6 +680,8 @@ const {
   lastError,
   autoRetryCount,
   isFallbackStatusPolling,
+  agentModeOriginalPrompt,
+  timeoutReason,
 } = toRefs(state);
 
 let activeChatStreamTraceId: string | null = null;
@@ -1128,12 +1152,17 @@ watch(filePreviewOpen, (isOpen) => {
 });
 
 // ===== Agent Connection Health Monitoring =====
-const STALE_TIMEOUT_MS = 60000; // 60s without heartbeat = possibly unstable (avoids false positives on slow LLM/sandbox)
-const HEARTBEAT_LIVENESS_MS = 25000; // Expect heartbeat every ~15s, allow 25s grace
+// Backend heartbeat interval is 30s. Thresholds are multiples of this:
+//   Liveness: 1.5× (45s) — tolerates one delayed heartbeat
+//   Stale:    4× (120s) — requires 4 missed heartbeats before declaring stale
+const HEARTBEAT_LIVENESS_MS = 45000; // 1.5× heartbeat interval — grace for network jitter
+const STALE_TIMEOUT_MS = 120000; // 4× heartbeat interval — connection truly dead
 const STALE_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
 let staleCheckInterval: ReturnType<typeof setInterval> | null = null;
+let heartbeatBridgeHandler: ((event: Event) => void) | null = null;
 
-// Track whether we're receiving heartbeats (backend alive)
+// Track whether we're receiving heartbeats (backend alive).
+// Uses lastHeartbeatAt which is updated by the sse:heartbeat custom event bridge below.
 const isReceivingHeartbeats = computed(() => {
   if (lastHeartbeatAt.value === 0) return false;
   return (Date.now() - lastHeartbeatAt.value) < HEARTBEAT_LIVENESS_MS;
@@ -1146,7 +1175,9 @@ const updateEventTimeAndResetStale = () => {
   isStale.value = false
 }
 
-// Check if connection appears stale
+// Check if connection appears stale.
+// Only marks stale when BOTH real events AND heartbeats are missing for STALE_TIMEOUT_MS.
+// If heartbeats are arriving, the connection is alive — the agent is just working on a long task.
 const checkStaleConnection = () => {
   if (!isLoading.value) {
     isStale.value = false;
@@ -1156,12 +1187,18 @@ const checkStaleConnection = () => {
   const timeSinceLastEvent = Date.now() - lastEventTime.value;
   const timeSinceHeartbeat = lastHeartbeatAt.value > 0 ? Date.now() - lastHeartbeatAt.value : Infinity;
 
-  // If heartbeats are arriving but no real events, we're alive but working
-  // Only mark stale if BOTH real events AND heartbeats are missing
   if (timeSinceLastEvent > STALE_TIMEOUT_MS && timeSinceHeartbeat > STALE_TIMEOUT_MS && lastEventTime.value > 0) {
+    if (!isStale.value) {
+      logChatSseDiagnostics('stale:marked', {
+        timeSinceLastEvent,
+        timeSinceHeartbeat,
+      })
+    }
     isStale.value = true;
-    logChatSseDiagnostics('stale:marked', {
-      timeSinceLastEvent,
+  } else if (isStale.value && timeSinceHeartbeat < HEARTBEAT_LIVENESS_MS) {
+    // Heartbeat arrived while stale — connection recovered
+    isStale.value = false;
+    logChatSseDiagnostics('stale:recovered_via_heartbeat', {
       timeSinceHeartbeat,
     })
   }
@@ -1178,15 +1215,40 @@ const handleThumbnailRefresh = () => {
   // With live preview, no refresh is needed - it's always up to date
 };
 
-// Start stale detection when loading starts
+// Bridge heartbeats from client.ts → ChatPage state.
+// client.ts intentionally filters heartbeats out of onMessage (they're silent keep-alives)
+// and dispatches them as sse:heartbeat custom events instead. We listen here to update
+// lastHeartbeatAt so the stale check and isReceivingHeartbeats work correctly.
+const startHeartbeatBridge = () => {
+  if (heartbeatBridgeHandler) return;
+  heartbeatBridgeHandler = () => {
+    lastHeartbeatAt.value = Date.now();
+    // Also clear stale if heartbeat arrives while marked stale
+    if (isStale.value) {
+      isStale.value = false;
+    }
+  };
+  window.addEventListener('sse:heartbeat', heartbeatBridgeHandler);
+};
+
+const stopHeartbeatBridge = () => {
+  if (heartbeatBridgeHandler) {
+    window.removeEventListener('sse:heartbeat', heartbeatBridgeHandler);
+    heartbeatBridgeHandler = null;
+  }
+};
+
+// Start stale detection + heartbeat bridge when loading starts
 watch(isLoading, (loading) => {
   if (loading) {
     updateEventTimeAndResetStale();
+    startHeartbeatBridge();
     if (!staleCheckInterval) {
       staleCheckInterval = setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS);
     }
   } else {
     isStale.value = false;
+    stopHeartbeatBridge();
     if (staleCheckInterval) {
       clearInterval(staleCheckInterval);
       staleCheckInterval = null;
@@ -1243,6 +1305,7 @@ onUnmounted(() => {
     clearInterval(staleCheckInterval);
     staleCheckInterval = null;
   }
+  stopHeartbeatBridge();
   stopFallbackStatusPolling();
   stopPlanningMessageCycle();
 });
@@ -1655,6 +1718,19 @@ const handleMessageEvent = (messageData: MessageEventData) => {
     return;
   }
 
+  // Suppress agent-mode guided prompt echo from server.
+  // When the user clicks "Use Agent Mode", we send a guided prompt wrapping the original.
+  // The server echoes it back as a user message — suppress it to avoid a duplicate bubble.
+  if (messageData.role === 'user' && agentModeOriginalPrompt.value) {
+    const incoming = (messageData.content || '').trim();
+    if (incoming.includes(agentModeOriginalPrompt.value)) {
+      agentModeOriginalPrompt.value = null;
+      console.debug('Suppressed agent-mode guided prompt echo');
+      return;
+    }
+    agentModeOriginalPrompt.value = null;
+  }
+
   // Prevent duplicate user messages - check against LAST user message (not just last message)
   // This handles cases where tool/step events appear between duplicate user messages
   if (messageData.role === 'user' && messages.value.length > 0) {
@@ -1973,16 +2049,9 @@ const currentPlanningMessage = computed(() => {
 });
 
 // Handle progress event (instant feedback during planning)
+// Note: heartbeat progress events never reach here — client.ts filters them
+// and dispatches sse:heartbeat custom events instead (handled by startHeartbeatBridge).
 const handleProgressEvent = (progressData: ProgressEventData) => {
-  // Heartbeat: update timestamp for liveness tracking
-  if (progressData.phase === 'heartbeat') {
-    lastHeartbeatAt.value = Date.now();
-    logChatSseDiagnostics('event:heartbeat', {
-      heartbeatAt: lastHeartbeatAt.value,
-    })
-    return;
-  }
-
   // Start message cycling if not already running
   startPlanningMessageCycle();
 
@@ -2530,14 +2599,19 @@ const processEvent = (event: AgentSSEEvent) => {
     }
 
     if (isRecoverableTimeout) {
-      // Backend may still be actively processing long-running work.
-      // Treat timeout errors as recoverable transport interruptions so reconnect logic can resume.
       lastError.value = {
         message: errorData.error || 'Chat stream timed out',
         type: errorData.error_type ?? null,
         recoverable: true,
         hint: errorData.retry_hint ?? null,
       };
+      // Discriminate workflow timeouts (agent stopped) from connection timeouts (transport)
+      const code = errorData.error_code ?? '';
+      if (code === 'workflow_idle_timeout' || code === 'workflow_wall_clock_timeout') {
+        timeoutReason.value = code === 'workflow_idle_timeout' ? 'workflow_idle' : 'workflow_limit';
+      } else {
+        timeoutReason.value = 'connection';
+      }
       transitionTo('timed_out')
     } else {
       transitionTo('error')
@@ -2606,6 +2680,9 @@ const handleUseAgentMode = () => {
   bypassShortPathLockOnce.value = true;
   showAgentGuidanceCta.value = false;
   markLastUserMessageAsAgentModeUpgrade();
+
+  // Track original prompt so we can suppress the guided echo from the server
+  agentModeOriginalPrompt.value = originalPrompt;
 
   const guidedPrompt = `Use full agent mode for this task. First create a clear plan, then execute it:\n\n${originalPrompt}`;
   chat(guidedPrompt, [], { skipOptimistic: true });
@@ -2713,6 +2790,8 @@ const chat = async (
   receivedDoneEvent.value = false;
   lastHeartbeatAt.value = 0;
   isWaitingForReply.value = false;
+  agentModeOriginalPrompt.value = null;
+  timeoutReason.value = null;
   transitionTo('connecting')
   dismissConnectionBanner();
 
@@ -3141,6 +3220,11 @@ const handleStop = async () => {
   // NO ensureCompletionSuggestions() — user intentionally stopped
   sessionStatus.value = SessionStatus.COMPLETED;
 }
+
+const handleContinueAfterTimeout = () => {
+  timeoutReason.value = null;
+  chat('Continue the task from where you left off.', []);
+};
 
 const handleRetryConnection = async () => {
   const streamAttemptId = beginStreamAttempt();

@@ -7,7 +7,7 @@ export function useResponsePhase() {
   let settleTimer: ReturnType<typeof setTimeout> | null = null
 
   const isLoading = computed(() =>
-    ['connecting', 'streaming', 'completing', 'reconnecting'].includes(phase.value)
+    ['connecting', 'streaming', 'completing', 'reconnecting', 'degraded'].includes(phase.value)
   )
 
   const isThinking = computed(() => phase.value === 'connecting')
