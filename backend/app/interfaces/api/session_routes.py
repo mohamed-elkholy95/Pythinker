@@ -72,8 +72,13 @@ from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifes
 
 logger = logging.getLogger(__name__)
 SESSION_POLL_INTERVAL = 10
-SANDBOX_WS_CONNECT_KWARGS = {
-    "ping_interval": None,
+SANDBOX_WS_CONNECT_KWARGS: dict = {
+    # RFC 6455 §5.5.2: Ping every 20s to detect dead sandbox connections.
+    # Without this, the backend proxy hangs indefinitely when the sandbox
+    # container dies or the screencast stream silently stops.
+    "ping_interval": 20,
+    # If no pong received within 10s of a ping, consider connection dead.
+    "ping_timeout": 10,
     "max_size": None,
 }
 
