@@ -151,6 +151,7 @@
               :session-id="sessionId || ''"
               :enabled="livePreviewEnabled"
               :view-only="true"
+              :is-canvas-mode="currentViewType === 'chart'"
               @connected="onLivePreviewConnected"
               @disconnected="onLivePreviewDisconnected"
             />
@@ -248,6 +249,7 @@
               :session-id="sessionId"
               :enabled="true"
               :view-only="true"
+              :is-canvas-mode="currentViewType === 'chart'"
               @connected="onLivePreviewConnected"
               @disconnected="onLivePreviewDisconnected"
             />
