@@ -40,9 +40,7 @@ Pythinker uses screenshot-based replay for completed sessions. Live view default
 
 `LiveViewer` is the single live surface used by main panel, takeover, and mini preview contexts.
 
-- Default renderer: CDP (`VITE_LIVE_RENDERER=cdp`)
-- Runtime fallback: VNC when CDP fails/disconnects
-- Optional force: set `VITE_LIVE_RENDERER=vnc` to make VNC primary
+- Renderer: CDP screencast (CDP-only architecture, VNC stack removed)
 
 ## CDP Screencast (Primary)
 

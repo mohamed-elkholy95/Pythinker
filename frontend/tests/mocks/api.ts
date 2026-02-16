@@ -186,14 +186,6 @@ export const mockImageFileInfo = {
   mtime: Date.now(),
 }
 
-// Mock VNC data
-export const mockVNCConfig = {
-  host: 'localhost',
-  port: 5902,
-  password: 'secret',
-  path: '/websockify',
-}
-
 // Mock report data
 export const mockReportData = {
   id: 'report-123',
@@ -272,14 +264,6 @@ export function createMockFileAPI() {
     getFileDownloadUrl: vi.fn().mockResolvedValue('http://localhost:8000/download/test.txt'),
     uploadFile: vi.fn().mockResolvedValue({ data: mockFileInfo }),
     deleteFile: vi.fn().mockResolvedValue({ data: { success: true } }),
-  }
-}
-
-// Mock VNC API
-export function createMockVNCAPI() {
-  return {
-    getVNCUrl: vi.fn().mockResolvedValue('ws://localhost:5902/websockify'),
-    getVNCConfig: vi.fn().mockResolvedValue({ data: mockVNCConfig }),
   }
 }
 

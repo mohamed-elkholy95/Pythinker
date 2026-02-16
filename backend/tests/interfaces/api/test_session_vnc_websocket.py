@@ -3,10 +3,12 @@
 import asyncio
 from types import SimpleNamespace
 from typing import Never
+from unittest.mock import patch
 
 import pytest
 from fastapi import WebSocketDisconnect
 
+from app.core.config import StreamingMode
 from app.interfaces.api import session_routes
 from app.interfaces.api.session_routes import vnc_websocket
 
@@ -58,17 +60,46 @@ class _FakeSandboxConnectCtx:
         return None
 
 
+_DUAL_MODE_SETTINGS = SimpleNamespace(
+    is_vnc_enabled=True,
+    sandbox_streaming_mode=StreamingMode.DUAL,
+)
+
+
+@pytest.mark.asyncio
+async def test_vnc_websocket_rejects_in_cdp_only_mode():
+    """VNC WebSocket should close with 1008 when streaming mode is cdp_only."""
+    websocket = _FakeClientWebSocket()
+    agent_service = SimpleNamespace(get_vnc_url=_return_vnc_url)
+
+    mock_settings = SimpleNamespace(
+        is_vnc_enabled=False,
+        sandbox_streaming_mode=StreamingMode.CDP_ONLY,
+    )
+    with patch("app.interfaces.api.session_routes.get_settings", return_value=mock_settings):
+        await vnc_websocket(
+            websocket=websocket,
+            session_id="session-1",
+            signature="sig",
+            agent_service=agent_service,
+        )
+
+    assert websocket.accept_calls == ["binary"]
+    assert websocket.close_calls == [(1008, "VNC disabled (cdp_only mode)")]
+
+
 @pytest.mark.asyncio
 async def test_vnc_websocket_returns_policy_violation_for_missing_sandbox_runtime_error():
     websocket = _FakeClientWebSocket()
     agent_service = SimpleNamespace(get_vnc_url=_raise_no_sandbox_runtime_error)
 
-    await vnc_websocket(
-        websocket=websocket,
-        session_id="session-1",
-        signature="sig",
-        agent_service=agent_service,
-    )
+    with patch("app.interfaces.api.session_routes.get_settings", return_value=_DUAL_MODE_SETTINGS):
+        await vnc_websocket(
+            websocket=websocket,
+            session_id="session-1",
+            signature="sig",
+            agent_service=agent_service,
+        )
 
     assert websocket.accept_calls == ["binary"]
     assert websocket.close_calls == [(1008, "Session has no sandbox environment")]
@@ -85,12 +116,13 @@ async def test_vnc_websocket_closes_gracefully_when_client_disconnects(monkeypat
 
     monkeypatch.setattr(session_routes.websockets, "connect", _fake_connect)
 
-    await vnc_websocket(
-        websocket=websocket,
-        session_id="session-1",
-        signature="sig",
-        agent_service=agent_service,
-    )
+    with patch("app.interfaces.api.session_routes.get_settings", return_value=_DUAL_MODE_SETTINGS):
+        await vnc_websocket(
+            websocket=websocket,
+            session_id="session-1",
+            signature="sig",
+            agent_service=agent_service,
+        )
 
     assert websocket.accept_calls == ["binary"]
     assert websocket.close_calls == []

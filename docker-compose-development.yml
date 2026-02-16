@@ -20,7 +20,7 @@ services:
       - BACKEND_URL=http://backend:8000
       - VITE_USE_POLLING=true
       - VITE_POLLING_INTERVAL=100
-      - VITE_LIVE_RENDERER=${LIVE_RENDERER:-cdp}
+
     depends_on:
       backend:
         condition: service_healthy

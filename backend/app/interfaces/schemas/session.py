@@ -73,9 +73,10 @@ class ConfirmActionRequest(BaseModel):
 
 
 class SandboxInfo(BaseModel):
-    """Sandbox connection info for optimistic VNC connection (Phase 4)"""
+    """Sandbox connection info returned at session creation."""
 
     sandbox_id: str
+    streaming_mode: str = "cdp_only"
     vnc_url: str | None = None
     status: str = "initializing"
 
@@ -95,6 +96,7 @@ class GetSessionResponse(BaseModel):
     session_id: str
     title: str | None = None
     status: SessionStatus
+    streaming_mode: str | None = None
     events: list[AgentSSEEvent] = []
     is_shared: bool = False
 
@@ -105,6 +107,7 @@ class SessionStatusResponse(BaseModel):
     session_id: str
     status: SessionStatus
     sandbox_id: str | None = None
+    streaming_mode: str | None = None
     created_at: float | None = None
 
 

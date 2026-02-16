@@ -14,9 +14,11 @@ export enum AgentMode {
     AGENT = "agent"
 }
 
-// Phase 4: Sandbox info for optimistic VNC connection
+export type StreamingMode = 'dual' | 'cdp_only'
+
 export interface SandboxInfo {
     sandbox_id: string;
+    streaming_mode: StreamingMode;
     vnc_url: string | null;
     status: string;
 }
@@ -24,7 +26,7 @@ export interface SandboxInfo {
 export interface CreateSessionResponse {
     session_id: string;
     mode: AgentMode;
-    sandbox: SandboxInfo | null;  // Phase 4: Early sandbox info for optimistic VNC
+    sandbox: SandboxInfo | null;
     status: SessionStatus;
 }
 
@@ -32,6 +34,7 @@ export interface GetSessionResponse {
     session_id: string;
     title: string | null;
     status: SessionStatus;
+    streaming_mode: string | null;
     events: AgentSSEEvent[];
     is_shared: boolean;
 }

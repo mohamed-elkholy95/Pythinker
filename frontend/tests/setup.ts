@@ -62,20 +62,6 @@ class IntersectionObserverMock {
 }
 window.IntersectionObserver = IntersectionObserverMock as unknown as typeof IntersectionObserver
 
-// Mock NoVNC for VNCViewer component
-vi.mock('@novnc/novnc/lib/rfb', () => ({
-  default: class MockRFB {
-    constructor() {}
-    disconnect() {}
-    sendCredentials() {}
-    addEventListener() {}
-    removeEventListener() {}
-    scaleViewport = true
-    resizeSession = true
-    clipViewport = false
-  },
-}))
-
 // Mock Monaco Editor
 vi.mock('monaco-editor', () => ({
   editor: {
@@ -133,7 +119,7 @@ class MockWebSocket {
 }
 global.WebSocket = MockWebSocket as unknown as typeof WebSocket
 
-// Mock canvas for VNC and other canvas-based components
+// Mock canvas for canvas-based components
 HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
   fillRect: vi.fn(),
   clearRect: vi.fn(),

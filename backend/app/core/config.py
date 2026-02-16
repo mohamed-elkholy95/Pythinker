@@ -9,6 +9,17 @@ from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class StreamingMode(str, Enum):
+    """Sandbox streaming mode selection.
+
+    Controls whether the sandbox uses VNC (X11 + websockify) alongside CDP,
+    or runs in CDP-only mode (lighter, no X11/VNC stack).
+    """
+
+    DUAL = "dual"  # CDP + VNC (legacy)
+    CDP_ONLY = "cdp_only"  # CDP screencast only (default)
+
+
 class FlowMode(str, Enum):
     """Unified flow engine selection.
 
@@ -141,7 +152,7 @@ class Settings(BaseSettings):
 
     # Sandbox configuration
     sandbox_lifecycle_mode: str = "static"  # "static" | "ephemeral"
-    sandbox_streaming_mode: str = "dual"  # "dual" (CDP + VNC) | "cdp_only" (no X11/VNC stack)
+    sandbox_streaming_mode: StreamingMode = StreamingMode.CDP_ONLY  # "dual" (CDP + VNC) | "cdp_only" (no X11/VNC stack)
     sandbox_snapshot_enabled: bool = False  # Enable snapshot on task completion
     sandbox_snapshot_ttl_days: int = 7  # Snapshot retention period
     sandbox_address: str | None = None
@@ -472,6 +483,12 @@ class Settings(BaseSettings):
         if self.enable_coordinator:
             return FlowMode.COORDINATOR
         return FlowMode.PLAN_ACT
+
+    @computed_field
+    @property
+    def is_vnc_enabled(self) -> bool:
+        """Whether VNC streaming is enabled (requires dual streaming mode)."""
+        return self.sandbox_streaming_mode == StreamingMode.DUAL
 
     @computed_field
     @property

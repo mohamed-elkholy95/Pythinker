@@ -1105,6 +1105,9 @@ class AgentService:
 
     async def get_vnc_url(self, session_id: str) -> str:
         """Get VNC URL for a session, ensuring it belongs to the user"""
+        if not get_settings().is_vnc_enabled:
+            raise NotFoundError("VNC disabled (cdp_only mode)")
+
         logger.info(f"Getting VNC URL for session {session_id}")
 
         session = await self._session_repository.find_by_id(session_id)
