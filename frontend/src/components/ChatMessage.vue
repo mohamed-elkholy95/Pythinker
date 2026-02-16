@@ -4,11 +4,19 @@
       <div
         class="user-message-bubble relative flex items-center rounded-[20px] overflow-hidden bg-[var(--background-white-main)] px-5 py-3.5 border border-[var(--border-main)]"
       >
-        <div
-          class="message-markdown markdown-content w-full"
-          :class="{ 'message-markdown-collapsed': shouldCollapseMessageContent }"
-        >
-          <TiptapMessageViewer :content="messageContent.content ?? ''" />
+        <div class="flex items-center gap-2 w-full">
+          <div
+            class="message-markdown markdown-content flex-1 min-w-0"
+            :class="{ 'message-markdown-collapsed': shouldCollapseMessageContent }"
+          >
+            <TiptapMessageViewer :content="messageContent.content ?? ''" />
+          </div>
+          <span
+            v-if="message.type === 'user' && messageContent?.agentModeUpgrade"
+            class="shrink-0 rounded-md bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:text-green-300 self-start mt-0.5"
+          >
+            Agent
+          </span>
         </div>
         <div v-if="showMessageExpandControl" class="message-collapse-overlay">
           <button class="message-expand-btn" @click="toggleMessageExpand">
@@ -21,12 +29,6 @@
         </div>
       </div>
       <div class="user-message-actions flex items-center justify-end gap-1 visible sm:invisible sm:group-hover:visible">
-        <span
-          v-if="message.type === 'user' && messageContent?.agentModeUpgrade"
-          class="shrink-0 rounded-md bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:text-green-300"
-        >
-          Agent mode
-        </span>
         <button
           @click="handleCopyUserMessage"
           class="p-2 rounded-lg text-[var(--icon-secondary)] hover:bg-[var(--fill-tsp-gray-main)] hover:text-[var(--icon-primary)] border border-transparent hover:border-[var(--border-main)] transition-colors"

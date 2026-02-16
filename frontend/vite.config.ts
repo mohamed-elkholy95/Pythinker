@@ -39,7 +39,7 @@ export default defineConfig({
     }
   },
   server: {
-    host: true,
+    host: process.env.VITE_HOST === 'true' ? true : 'localhost',
     port: 5174,
     ...(usePolling && {
       watch: {
