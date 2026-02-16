@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Dokploy-optimized Docker Compose for Pythinker
 # Deployment: Use this file in Dokploy's Docker Compose deployment
 # Documentation: https://docs.dokploy.com/docs/core/docker-compose
@@ -75,7 +73,7 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CHROMIUM: "1"
-        ENABLE_SANDBOX_ADDONS: "1"  # Enable screenshot tools (xwd, imagemagick)
+        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"
       platforms:
         - linux/amd64
     hostname: sandbox
@@ -86,10 +84,10 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/usr/local/bin/chromium  # Playwright Chromium symlink (USE_CHROMIUM=1)
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET}
+      - SANDBOX_STREAMING_MODE=cdp_only
     # No host port publishing in production — backend proxies all sandbox access
-    # VNC/CDP never exposed externally
     shm_size: '2g'
     security_opt:
       - no-new-privileges:true
@@ -139,7 +137,7 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CHROMIUM: "1"
-        ENABLE_SANDBOX_ADDONS: "1"  # Enable screenshot tools (xwd, imagemagick)
+        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"
       platforms:
         - linux/amd64
     hostname: sandbox2
@@ -150,8 +148,9 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/usr/local/bin/chromium  # Playwright Chromium symlink (USE_CHROMIUM=1)
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET}
+      - SANDBOX_STREAMING_MODE=cdp_only
     # No host port publishing in production — backend proxies all sandbox access
     shm_size: '2g'  # Playwright recommended minimum
     security_opt:
@@ -200,8 +199,8 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
