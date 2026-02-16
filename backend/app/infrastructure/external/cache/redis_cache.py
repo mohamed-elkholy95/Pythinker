@@ -17,7 +17,7 @@ class RedisCache:
     """
 
     def __init__(self):
-        self.redis_client = get_cache_redis()
+        self.redis_client = get_cache_redis()  # None when redis_cache_enabled=False
         self._initialized = False
         self._init_lock = asyncio.Lock()
         try:
@@ -26,11 +26,19 @@ class RedisCache:
         except Exception:
             self._scan_count = 1000
 
+    @property
+    def available(self) -> bool:
+        """Whether cache Redis is configured and available."""
+        return self.redis_client is not None
+
     async def _ensure_initialized(self) -> None:
         """Ensure Redis is initialized (lazy, thread-safe).
 
         Only calls initialize() once, subsequent calls are fast no-ops.
+        Returns immediately when cache Redis is disabled.
         """
+        if self.redis_client is None:
+            return
         if self._initialized:
             return
 
@@ -42,6 +50,8 @@ class RedisCache:
 
     async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Store a value with optional TTL."""
+        if not self.available:
+            return False
         try:
             await self._ensure_initialized()
 
@@ -63,6 +73,8 @@ class RedisCache:
 
     async def get(self, key: str) -> Any | None:
         """Retrieve a value from cache."""
+        if not self.available:
+            return None
         try:
             await self._ensure_initialized()
 
@@ -83,6 +95,8 @@ class RedisCache:
 
     async def delete(self, key: str) -> bool:
         """Delete a value from cache."""
+        if not self.available:
+            return False
         try:
             await self._ensure_initialized()
 
@@ -96,6 +110,8 @@ class RedisCache:
 
     async def exists(self, key: str) -> bool:
         """Check if a key exists in cache."""
+        if not self.available:
+            return False
         try:
             await self._ensure_initialized()
 
@@ -109,6 +125,8 @@ class RedisCache:
 
     async def get_ttl(self, key: str) -> int | None:
         """Get the remaining TTL of a key."""
+        if not self.available:
+            return None
         try:
             await self._ensure_initialized()
 
@@ -127,6 +145,8 @@ class RedisCache:
 
     async def keys(self, pattern: str) -> list[str]:
         """Get all keys matching a pattern using SCAN (non-blocking)."""
+        if not self.available:
+            return []
         try:
             await self._ensure_initialized()
 
@@ -153,6 +173,8 @@ class RedisCache:
 
     async def clear_pattern(self, pattern: str) -> int:
         """Clear all keys matching a pattern using SCAN + UNLINK/DEL."""
+        if not self.available:
+            return 0
         try:
             await self._ensure_initialized()
 
