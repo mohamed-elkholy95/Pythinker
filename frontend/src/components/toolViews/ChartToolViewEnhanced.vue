@@ -84,8 +84,10 @@
       <!-- Static PNG preview -->
       <div v-else class="chart-preview-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-4">
         <img v-if="pngUrl" :src="pngUrl" :alt="chartContent.content?.title || 'Chart'" class="w-full h-auto object-contain" />
-        <div v-else class="p-8 flex items-center justify-center bg-[var(--background-gray-light)]">
-          <div class="text-[var(--text-tertiary)] text-sm">Chart preview loading...</div>
+        <div v-else class="p-8 flex flex-col items-center justify-center gap-2 bg-[var(--background-gray-light)]">
+          <div class="text-[var(--text-tertiary)] text-sm">
+            {{ chartContent.status === 'called' && !chartContent.content?.png_file_id ? 'Chart image unavailable — try opening interactive view or regenerating' : 'Chart preview loading...' }}
+          </div>
         </div>
       </div>
 
