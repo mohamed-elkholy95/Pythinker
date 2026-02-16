@@ -36,6 +36,7 @@
               stroke: action.color,
               strokeWidth: 2.5,
               opacity: action.opacity,
+              perfectDrawEnabled: false,
             }"
           />
           <!-- Type: pulsing dot with label -->
@@ -50,6 +51,7 @@
                 radius: 6,
                 fill: action.color,
                 opacity: action.opacity,
+                perfectDrawEnabled: false,
               }"
             />
             <v-text
@@ -76,6 +78,7 @@
               pointerLength: 10,
               pointerWidth: 8,
               opacity: action.opacity,
+              perfectDrawEnabled: false,
             }"
           />
           <!-- Navigate: flash bar at top -->
@@ -88,6 +91,7 @@
               height: 4,
               fill: action.color,
               opacity: action.opacity,
+              perfectDrawEnabled: false,
             }"
           />
           <!-- Default: dot + label -->
@@ -99,6 +103,7 @@
                 radius: action.radius,
                 fill: action.color,
                 opacity: action.opacity * 0.4,
+                perfectDrawEnabled: false,
               }"
             />
             <v-circle
@@ -108,6 +113,7 @@
                 radius: action.radius * 0.4,
                 fill: action.color,
                 opacity: action.opacity,
+                perfectDrawEnabled: false,
               }"
             />
             <v-text
@@ -143,6 +149,7 @@
               lineJoin: 'round',
               tension: 0.3,
               listening: false,
+              perfectDrawEnabled: false,
             }"
           />
           <!-- Rectangle -->
@@ -157,6 +164,7 @@
               strokeWidth: ann.style.strokeWidth,
               opacity: ann.style.opacity,
               listening: false,
+              perfectDrawEnabled: false,
             }"
           />
           <!-- Ellipse -->
@@ -171,6 +179,7 @@
               strokeWidth: ann.style.strokeWidth,
               opacity: ann.style.opacity,
               listening: false,
+              perfectDrawEnabled: false,
             }"
           />
           <!-- Arrow -->
@@ -185,6 +194,7 @@
               pointerWidth: 10,
               fill: ann.style.color,
               listening: false,
+              perfectDrawEnabled: false,
             }"
           />
           <!-- Text -->
@@ -199,6 +209,7 @@
               fill: ann.style.color,
               opacity: ann.style.opacity,
               listening: false,
+              perfectDrawEnabled: false,
             }"
           />
         </template>
@@ -303,16 +314,30 @@ let _panStartX = 0
 let _panStartY = 0
 let _isPanDrag = false
 
+/**
+ * Convert Konva pointer position to stage-space coordinates
+ * by undoing the current zoom and pan transform.
+ * Returns null if stage or pointer is unavailable.
+ */
+function getStagePointer(): { x: number; y: number } | null {
+  const stage = stageRef.value?.getNode()
+  if (!stage) return null
+  const pos = stage.getPointerPosition()
+  if (!pos) return null
+  return {
+    x: (pos.x - zoomCtrl.panX.value) / zoomCtrl.zoom.value,
+    y: (pos.y - zoomCtrl.panY.value) / zoomCtrl.zoom.value,
+  }
+}
+
 function handleWheel(e: WheelEvent): void {
   if (e.ctrlKey || e.metaKey) {
-    // Ctrl+scroll = zoom to point
     const rect = containerRef.value?.getBoundingClientRect()
     if (!rect) return
     const pointerX = e.clientX - rect.left
     const pointerY = e.clientY - rect.top
     zoomCtrl.zoomToPoint(pointerX, pointerY, e.deltaY)
   }
-  // Note: regular scroll is not intercepted (allows page scroll)
 }
 
 function handleStageMouseDown(e: Konva.KonvaEventObject<MouseEvent>): void {
@@ -327,19 +352,12 @@ function handleStageMouseDown(e: Konva.KonvaEventObject<MouseEvent>): void {
 
   // Annotation drawing
   if (annotationLayer.isActive.value && e.evt.button === 0) {
-    const stage = stageRef.value?.getNode()
-    if (!stage) return
-    const pos = stage.getPointerPosition()
-    if (!pos) return
-    // Convert to stage space (undo zoom/pan)
-    const stageX = (pos.x - zoomCtrl.panX.value) / zoomCtrl.zoom.value
-    const stageY = (pos.y - zoomCtrl.panY.value) / zoomCtrl.zoom.value
-    annotationLayer.startDrawing(stageX, stageY)
+    const pt = getStagePointer()
+    if (pt) annotationLayer.startDrawing(pt.x, pt.y)
   }
 }
 
 function handleStageMouseMove(e: Konva.KonvaEventObject<MouseEvent>): void {
-  // Pan drag
   if (_isPanDrag) {
     zoomCtrl.setPan(
       e.evt.clientX - _panStartX,
@@ -348,15 +366,9 @@ function handleStageMouseMove(e: Konva.KonvaEventObject<MouseEvent>): void {
     return
   }
 
-  // Annotation drawing
   if (annotationLayer.drawingElement.value) {
-    const stage = stageRef.value?.getNode()
-    if (!stage) return
-    const pos = stage.getPointerPosition()
-    if (!pos) return
-    const stageX = (pos.x - zoomCtrl.panX.value) / zoomCtrl.zoom.value
-    const stageY = (pos.y - zoomCtrl.panY.value) / zoomCtrl.zoom.value
-    annotationLayer.continueDrawing(stageX, stageY)
+    const pt = getStagePointer()
+    if (pt) annotationLayer.continueDrawing(pt.x, pt.y)
   }
 }
 
@@ -374,27 +386,21 @@ function handleStageMouseUp(_e: Konva.KonvaEventObject<MouseEvent>): void {
 // Touch event handlers
 function handleStageTouchStart(e: Konva.KonvaEventObject<TouchEvent>): void {
   if (annotationLayer.isActive.value) {
-    const stage = stageRef.value?.getNode()
-    if (!stage) return
-    const pos = stage.getPointerPosition()
-    if (!pos) return
-    const stageX = (pos.x - zoomCtrl.panX.value) / zoomCtrl.zoom.value
-    const stageY = (pos.y - zoomCtrl.panY.value) / zoomCtrl.zoom.value
-    annotationLayer.startDrawing(stageX, stageY)
-    e.evt.preventDefault()
+    const pt = getStagePointer()
+    if (pt) {
+      annotationLayer.startDrawing(pt.x, pt.y)
+      e.evt.preventDefault()
+    }
   }
 }
 
 function handleStageTouchMove(e: Konva.KonvaEventObject<TouchEvent>): void {
   if (annotationLayer.drawingElement.value) {
-    const stage = stageRef.value?.getNode()
-    if (!stage) return
-    const pos = stage.getPointerPosition()
-    if (!pos) return
-    const stageX = (pos.x - zoomCtrl.panX.value) / zoomCtrl.zoom.value
-    const stageY = (pos.y - zoomCtrl.panY.value) / zoomCtrl.zoom.value
-    annotationLayer.continueDrawing(stageX, stageY)
-    e.evt.preventDefault()
+    const pt = getStagePointer()
+    if (pt) {
+      annotationLayer.continueDrawing(pt.x, pt.y)
+      e.evt.preventDefault()
+    }
   }
 }
 
@@ -520,15 +526,12 @@ onBeforeUnmount(() => {
   annotationLayer.unbind()
 })
 
-// Auto-fit on first frame
-watch(
-  () => screencast.hasFrame.value,
-  (hasFrame) => {
-    if (hasFrame && zoomCtrl.zoom.value === 1 && zoomCtrl.panX.value === 0) {
-      nextTick(() => fitToScreen())
-    }
-  },
-)
+// Auto-fit on first frame (pass ref directly, not a getter returning .value)
+watch(screencast.hasFrame, (hasFrame) => {
+  if (hasFrame && zoomCtrl.zoom.value === 1 && zoomCtrl.panX.value === 0) {
+    nextTick(() => fitToScreen())
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Expose

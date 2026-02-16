@@ -77,12 +77,12 @@ export interface CanvasElement {
   visible: boolean
   locked: boolean
   z_index: number
-  fill?: Record<string, unknown>
-  stroke?: Record<string, unknown>
-  shadow?: Record<string, unknown>
+  fill?: Fill
+  stroke?: Stroke
+  shadow?: Shadow
   corner_radius: number
   text?: string
-  text_style?: Record<string, unknown>
+  text_style?: TextStyle
   src?: string
   points?: number[]
   children?: string[]

@@ -22,28 +22,28 @@
             @transformend="handleTransformEnd($event, element)"
           />
           <v-ellipse
-            v-if="element.type === 'ellipse'"
+            v-else-if="element.type === 'ellipse'"
             :config="getEllipseConfig(element)"
             @click="handleElementClick($event, element)"
             @dragend="handleDragEnd($event, element)"
             @transformend="handleTransformEnd($event, element)"
           />
           <v-text
-            v-if="element.type === 'text'"
+            v-else-if="element.type === 'text'"
             :config="getTextConfig(element)"
             @click="handleElementClick($event, element)"
             @dragend="handleDragEnd($event, element)"
             @transformend="handleTransformEnd($event, element)"
           />
           <v-image
-            v-if="element.type === 'image'"
+            v-else-if="element.type === 'image'"
             :config="getImageConfig(element)"
             @click="handleElementClick($event, element)"
             @dragend="handleDragEnd($event, element)"
             @transformend="handleTransformEnd($event, element)"
           />
           <v-line
-            v-if="element.type === 'line' || element.type === 'path'"
+            v-else-if="element.type === 'line' || element.type === 'path'"
             :config="getLineConfig(element)"
             @click="handleElementClick($event, element)"
             @dragend="handleDragEnd($event, element)"
@@ -66,7 +66,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import type Konva from 'konva'
-import type { CanvasElement, EditorState } from '@/types/canvas'
+import type { CanvasElement, EditorState, Fill, Stroke } from '@/types/canvas'
 
 interface Props {
   elements: CanvasElement[]
@@ -97,17 +97,36 @@ const containerHeight = ref(600)
 
 let resizeObserver: ResizeObserver | null = null
 
-// Image cache for v-image elements
+// Image cache for v-image elements (LRU-like with max size)
+const IMAGE_CACHE_MAX = 50
 const imageCache = ref<Record<string, HTMLImageElement>>({})
+const imageCacheOrder: string[] = []
 
 function loadImage(src: string): HTMLImageElement | undefined {
   if (imageCache.value[src]) return imageCache.value[src]
+
   const img = new Image()
-  img.src = src
   img.onload = () => {
-    imageCache.value = { ...imageCache.value, [src]: img }
+    // Evict oldest entry if cache is full
+    if (imageCacheOrder.length >= IMAGE_CACHE_MAX) {
+      const evictKey = imageCacheOrder.shift()!
+      const { [evictKey]: _evicted, ...rest } = imageCache.value
+      imageCache.value = { ...rest, [src]: img }
+    } else {
+      imageCache.value = { ...imageCache.value, [src]: img }
+    }
+    imageCacheOrder.push(src)
   }
+  img.onerror = () => {
+    // Silently handle broken image URLs — don't pollute cache
+  }
+  img.src = src
   return undefined
+}
+
+function clearImageCache() {
+  imageCache.value = {}
+  imageCacheOrder.length = 0
 }
 
 const sortedElements = computed(() =>
@@ -151,24 +170,22 @@ function isElementDraggable(element: CanvasElement): boolean {
   return props.editorState.activeTool === 'select' && !element.locked
 }
 
-function extractFillColor(element: CanvasElement): string {
-  if (!element.fill) return 'transparent'
-  const fill = element.fill as Record<string, unknown>
-  if (fill.type === 'solid' && typeof fill.color === 'string') return fill.color
+function extractFillColor(fill?: Fill): string {
+  if (!fill) return 'transparent'
+  if (fill.type === 'solid') return fill.color
   return 'transparent'
 }
 
-function extractStroke(element: CanvasElement): { stroke: string; strokeWidth: number } {
-  if (!element.stroke) return { stroke: '', strokeWidth: 0 }
-  const s = element.stroke as Record<string, unknown>
+function extractStroke(stroke?: Stroke): { stroke: string; strokeWidth: number } {
+  if (!stroke) return { stroke: '', strokeWidth: 0 }
   return {
-    stroke: (s.color as string) || '',
-    strokeWidth: (s.width as number) || 0,
+    stroke: stroke.color || '',
+    strokeWidth: stroke.width || 0,
   }
 }
 
 function getBaseConfig(element: CanvasElement): Record<string, unknown> {
-  const { stroke, strokeWidth } = extractStroke(element)
+  const { stroke, strokeWidth } = extractStroke(element.stroke)
   return {
     id: element.id,
     name: element.id,
@@ -181,6 +198,7 @@ function getBaseConfig(element: CanvasElement): Record<string, unknown> {
     draggable: isElementDraggable(element),
     stroke,
     strokeWidth,
+    perfectDrawEnabled: false,
   }
 }
 
@@ -189,7 +207,7 @@ function getRectConfig(element: CanvasElement): Record<string, unknown> {
     ...getBaseConfig(element),
     width: element.width,
     height: element.height,
-    fill: extractFillColor(element),
+    fill: extractFillColor(element.fill),
     cornerRadius: element.corner_radius,
   }
 }
@@ -199,28 +217,28 @@ function getEllipseConfig(element: CanvasElement): Record<string, unknown> {
     ...getBaseConfig(element),
     radiusX: element.width / 2,
     radiusY: element.height / 2,
-    fill: extractFillColor(element),
+    fill: extractFillColor(element.fill),
     offsetX: 0,
     offsetY: 0,
   }
 }
 
 function getTextConfig(element: CanvasElement): Record<string, unknown> {
-  const style = (element.text_style ?? {}) as Record<string, unknown>
+  const ts = element.text_style
   return {
     ...getBaseConfig(element),
     width: element.width,
     height: element.height,
     text: element.text || '',
-    fontSize: (style.font_size as number) || 16,
-    fontFamily: (style.font_family as string) || 'Arial',
-    fontStyle: (style.font_style as string) || 'normal',
+    fontSize: ts?.font_size ?? 16,
+    fontFamily: ts?.font_family ?? 'Arial',
+    fontStyle: ts?.font_style ?? 'normal',
     fontVariant: undefined,
-    align: (style.text_align as string) || 'left',
-    verticalAlign: (style.vertical_align as string) || 'top',
-    lineHeight: (style.line_height as number) || 1.2,
-    letterSpacing: (style.letter_spacing as number) || 0,
-    fill: extractFillColor(element),
+    align: ts?.text_align ?? 'left',
+    verticalAlign: ts?.vertical_align ?? 'top',
+    lineHeight: ts?.line_height ?? 1.2,
+    letterSpacing: ts?.letter_spacing ?? 0,
+    fill: extractFillColor(element.fill),
     wrap: 'word',
   }
 }
@@ -239,7 +257,7 @@ function getLineConfig(element: CanvasElement): Record<string, unknown> {
   return {
     ...getBaseConfig(element),
     points: element.points || [],
-    fill: extractFillColor(element),
+    fill: extractFillColor(element.fill),
     closed: element.type === 'path',
     tension: element.type === 'path' ? 0.5 : 0,
   }
@@ -332,6 +350,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   resizeObserver?.disconnect()
+  clearImageCache()
 })
 
 defineExpose({

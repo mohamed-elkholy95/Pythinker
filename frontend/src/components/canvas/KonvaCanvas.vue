@@ -170,12 +170,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   resizeObserver?.disconnect()
-
-  // Destroy Konva stage to prevent memory leaks
-  if (stageRef.value) {
-    const stage = stageRef.value.getNode()
-    stage.destroy()
-  }
+  // Note: vue-konva automatically destroys Konva nodes when v-stage unmounts.
+  // Do NOT call stage.destroy() manually — it causes double-destroy errors.
 })
 
 // Watch for prop changes
