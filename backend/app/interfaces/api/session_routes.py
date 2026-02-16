@@ -1158,6 +1158,7 @@ async def screencast_websocket(
         settings = get_settings()
         if settings.sandbox_api_secret:
             from urllib.parse import quote
+
             sandbox_ws_url = f"{sandbox_ws_url}&secret={quote(settings.sandbox_api_secret)}"
 
         logger.info(f"Connecting to screencast at {sandbox_ws_url}")
@@ -1240,6 +1241,7 @@ async def input_websocket(
         settings = get_settings()
         if settings.sandbox_api_secret:
             from urllib.parse import quote
+
             sandbox_ws_url = f"{sandbox_ws_url}?secret={quote(settings.sandbox_api_secret)}"
 
         async with websockets.connect(
