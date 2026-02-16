@@ -315,7 +315,7 @@ class AsyncJobWorker:
         # Extract task parameters from job payload
         task_id = job.payload.get("task_id")
         session_id = job.payload.get("session_id")
-        user_id = job.payload.get("user_id")
+        # user_id available in payload for future per-user limits
 
         if not task_id or not session_id:
             raise ValueError("Job payload missing required fields: task_id, session_id")
@@ -333,9 +333,20 @@ class AsyncJobWorker:
         await task.run()
 
         # Wait for task completion
-        # The task execution happens in the background, we need to wait
-        while not task.done:
-            await asyncio.sleep(0.1)
+        execution_task = getattr(task, "_execution_task", None)
+        if isinstance(execution_task, asyncio.Task):
+            await asyncio.wait_for(
+                asyncio.shield(execution_task),
+                timeout=job.timeout_seconds or 3600,
+            )
+        else:
+            # Fallback: poll with bounded timeout
+            timeout = job.timeout_seconds or 3600
+            deadline = asyncio.get_event_loop().time() + timeout
+            while not task.done:
+                if asyncio.get_event_loop().time() > deadline:
+                    raise TimeoutError(f"Task {task_id} timed out after {timeout}s")
+                await asyncio.sleep(0.1)
 
         logger.info(f"Task {task_id} completed (job={job.job_id})")
 
@@ -343,7 +354,7 @@ class AsyncJobWorker:
             "task_id": task_id,
             "session_id": session_id,
             "status": "completed",
-            "message": "Task executed successfully via worker"
+            "message": "Task executed successfully via worker",
         }
 
     async def _handle_job_failure(self, job: Job, error: str, error_type: str) -> None:
@@ -385,7 +396,9 @@ class AsyncJobWorker:
 
             # Schedule a delayed re-enqueue so the worker loop isn't blocked
             try:
-                asyncio.create_task(self._delayed_reenqueue(job, retry_delay))
+                retry_task = asyncio.create_task(self._delayed_reenqueue(job, retry_delay))
+                self.in_flight_jobs.add(retry_task)
+                retry_task.add_done_callback(self.in_flight_jobs.discard)
             except Exception:
                 # Fallback: attempt immediate enqueue if scheduling fails
                 logger.exception("Failed to schedule delayed re-enqueue, attempting immediate enqueue")

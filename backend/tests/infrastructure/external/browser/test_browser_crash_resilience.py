@@ -174,9 +174,8 @@ class TestNavigateForDisplayCircuitBreaker:
         browser._display_failure_count = 1
         browser.page.goto = AsyncMock()
         browser.page.bring_to_front = AsyncMock()
-        browser.page.context = MagicMock()
         cdp = AsyncMock()
-        browser.page.context.new_cdp_session = AsyncMock(return_value=cdp)
+        browser.context.new_cdp_session = AsyncMock(return_value=cdp)
         browser._ensure_page = AsyncMock()
 
         result = await browser.navigate_for_display("https://example.com")

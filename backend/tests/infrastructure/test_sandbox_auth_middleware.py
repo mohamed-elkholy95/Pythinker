@@ -106,10 +106,11 @@ class TestHTTPAuth:
 
 class TestWebSocketAuth:
     def test_ws_blocked_no_secret(self) -> None:
+        from starlette.websockets import WebSocketDisconnect
+
         client = TestClient(_make_app("s3cret"))
-        with pytest.raises(Exception):
-            with client.websocket_connect("/api/v1/ws"):
-                pass
+        with pytest.raises(WebSocketDisconnect), client.websocket_connect("/api/v1/ws"):
+            pass
 
     def test_ws_allowed_query_param(self) -> None:
         client = TestClient(_make_app("s3cret"))

@@ -130,11 +130,15 @@ async def stream_input(websocket: WebSocket):
     try:
         # Connect to CDP
         if not await service.connect():
-            await websocket.send_json({"type": "error", "message": "Failed to connect to Chrome CDP"})
+            await websocket.send_json(
+                {"type": "error", "message": "Failed to connect to Chrome CDP"}
+            )
             await websocket.close()
             return
 
-        await websocket.send_json({"type": "ready", "message": "CDP input service ready"})
+        await websocket.send_json(
+            {"type": "ready", "message": "CDP input service ready"}
+        )
 
         # Process input events
         while True:
@@ -183,10 +187,12 @@ async def stream_input(websocket: WebSocket):
                     await service.dispatch_wheel_event(event)
 
                 else:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Unknown message type: {msg_type}"
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": f"Unknown message type: {msg_type}",
+                        }
+                    )
                     continue
 
                 event_count += 1
@@ -198,10 +204,9 @@ async def stream_input(websocket: WebSocket):
 
             except Exception as e:
                 logger.error(f"[CDP Input] Failed to process event: {e}", exc_info=True)
-                await websocket.send_json({
-                    "type": "error",
-                    "message": f"Failed to process event: {str(e)}"
-                })
+                await websocket.send_json(
+                    {"type": "error", "message": f"Failed to process event: {str(e)}"}
+                )
 
     except WebSocketDisconnect:
         logger.info(f"[CDP Input] Client disconnected after {event_count} events")

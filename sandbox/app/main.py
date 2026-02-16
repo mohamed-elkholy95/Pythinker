@@ -105,8 +105,9 @@ async def health_check(response: Response):
         "framework": await _check_port("127.0.0.1", 8082),
     }
 
-    # VNC is only required in dual mode
+    # VNC is only required in dual mode (x11vnc on 5900, websockify on 5901)
     if streaming_mode != "cdp_only":
+        checks["vnc"] = await _check_port("127.0.0.1", 5900)
         checks["vnc_ws"] = await _check_port("127.0.0.1", 5901)
 
     if not all(checks.values()):

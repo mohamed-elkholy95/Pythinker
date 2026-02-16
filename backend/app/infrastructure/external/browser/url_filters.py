@@ -173,27 +173,29 @@ def filter_video_urls(urls: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 # Internal Docker service hostnames that the browser must never reach
-_BLOCKED_HOSTNAMES: frozenset[str] = frozenset({
-    "localhost",
-    "sandbox",
-    "sandbox2",
-    "backend",
-    "mongodb",
-    "redis",
-    "redis-cache",
-    "qdrant",
-    "minio",
-    "prometheus",
-    "grafana",
-    "loki",
-    "promtail",
-    "worker",
-    "frontend",
-    "frontend-dev",
-    # Cloud metadata endpoints
-    "metadata.google.internal",
-    "metadata.goog",
-})
+_BLOCKED_HOSTNAMES: frozenset[str] = frozenset(
+    {
+        "localhost",
+        "sandbox",
+        "sandbox2",
+        "backend",
+        "mongodb",
+        "redis",
+        "redis-cache",
+        "qdrant",
+        "minio",
+        "prometheus",
+        "grafana",
+        "loki",
+        "promtail",
+        "worker",
+        "frontend",
+        "frontend-dev",
+        # Cloud metadata endpoints
+        "metadata.google.internal",
+        "metadata.goog",
+    }
+)
 
 # Schemes the browser is allowed to use
 _ALLOWED_SCHEMES: frozenset[str] = frozenset({"http", "https"})

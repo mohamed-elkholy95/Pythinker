@@ -154,20 +154,27 @@ _CDP_SKIP_DURATION: float = 30.0  # Skip for 30s after threshold
 
 
 def _get_cdp_service(quality: int, image_format: str) -> CDPScreencastService:
-    """Get or create persistent CDP service singleton."""
+    """Get or create persistent CDP service singleton.
+
+    Config updates (quality/format) are applied per-request. Since the sandbox
+    runs as a single-process async app, concurrent config mutations between
+    await points are safe.
+    """
     global _cdp_service
     if _cdp_service is None:
         _cdp_service = get_screencast_service(
             ScreencastConfig(format=image_format, quality=quality)
         )
-    else:
-        # Update config for this request (quality/format may vary)
-        _cdp_service.config.format = image_format
-        _cdp_service.config.quality = quality
+        return _cdp_service
+    # Update config for this request (quality/format may vary)
+    _cdp_service.config.format = image_format
+    _cdp_service.config.quality = quality
     return _cdp_service
 
 
-async def _capture_with_cdp(quality: int, image_format: Literal["jpeg", "png"]) -> bytes | None:
+async def _capture_with_cdp(
+    quality: int, image_format: Literal["jpeg", "png"]
+) -> bytes | None:
     """Capture via CDP using a persistent WebSocket connection.
 
     The singleton service maintains the WebSocket across requests,
@@ -206,7 +213,10 @@ async def _capture_with_cdp(quality: int, image_format: Literal["jpeg", "png"]) 
         _cdp_consecutive_failures = 0
         return image_data
     except asyncio.TimeoutError:
-        logger.warning("[Screenshot] CDP capture timed out after %.1fs", _SCREENSHOT_TIMEOUT_SECONDS)
+        logger.warning(
+            "[Screenshot] CDP capture timed out after %.1fs",
+            _SCREENSHOT_TIMEOUT_SECONDS,
+        )
         # P1.3: Track failure
         _cdp_consecutive_failures += 1
         if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
@@ -474,7 +484,9 @@ def _build_screenshot_response(
 @router.get("/screenshot")
 async def capture_screenshot(
     quality: int = Query(default=75, ge=1, le=100, description="JPEG quality (1-100)"),
-    scale: float = Query(default=0.5, ge=0.1, le=1.0, description="Scale factor (0.1-1.0)"),
+    scale: float = Query(
+        default=0.5, ge=0.1, le=1.0, description="Scale factor (0.1-1.0)"
+    ),
     format: Literal["jpeg", "png"] = Query(default="jpeg", description="Image format"),
     _t: int = Query(default=0, description="Cache-busting timestamp"),
 ) -> Response:
@@ -520,7 +532,9 @@ async def capture_screenshot(
             logger.info(
                 f"[Screenshot] Captured {len(pillow_image)} bytes via xwd+Pillow in {elapsed:.3f}s"
             )
-            await _screenshot_cache.put(pillow_image, "xwd_pillow", quality, scale, format)
+            await _screenshot_cache.put(
+                pillow_image, "xwd_pillow", quality, scale, format
+            )
             return _build_screenshot_response(
                 pillow_image,
                 quality=quality,
@@ -651,7 +665,9 @@ async def test_screenshot_availability():
             "entries": _screenshot_cache.size,
             "hits": _screenshot_cache.hits,
             "misses": _screenshot_cache.misses,
-            "latest_age_seconds": round(cache_entry.age_seconds, 1) if cache_entry else None,
+            "latest_age_seconds": round(cache_entry.age_seconds, 1)
+            if cache_entry
+            else None,
             "latest_backend": cache_entry.backend if cache_entry else None,
         }
 
@@ -713,7 +729,9 @@ async def test_screenshot_availability():
                 "display_1": display_available,
             },
             "cache": cache_info,
-            "message": "Screenshot system ready" if available else "No screenshot backend available",
+            "message": "Screenshot system ready"
+            if available
+            else "No screenshot backend available",
         }
 
     except Exception as e:

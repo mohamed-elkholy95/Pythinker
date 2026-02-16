@@ -160,9 +160,19 @@ class BrowserConnectionPool:
             cls._instance = None
 
     def _start_cleanup_task(self) -> None:
-        """Start the background cleanup task."""
+        """Start the background cleanup task.
+
+        Gracefully handles missing event loops (e.g. sync singleton access
+        during tests). The cleanup task will be started lazily on next
+        async access.
+        """
         if self._cleanup_task is None or self._cleanup_task.done():
-            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+            try:
+                self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+            except RuntimeError:
+                # No running event loop — cleanup will be started on first async access
+                logger.debug("No event loop for cleanup task; will start lazily")
+                self._cleanup_task = None
 
     async def _cleanup_loop(self) -> None:
         """Background task to clean up idle and unhealthy connections."""

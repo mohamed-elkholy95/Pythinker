@@ -1104,7 +1104,13 @@ class AgentService:
         raise RuntimeError(f"Failed to get shell output: {result.message}")
 
     async def get_vnc_url(self, session_id: str) -> str:
-        """Get VNC URL for a session, ensuring it belongs to the user"""
+        """Get VNC URL for a session.
+
+        Security: User ownership is enforced at the transport layer via
+        HMAC-signed URLs (verify_signature_websocket). The signed URL is
+        generated for the authenticated user and is bound to the session_id
+        path, so it cannot be reused across sessions or users.
+        """
         if not get_settings().is_vnc_enabled:
             raise NotFoundError("VNC disabled (cdp_only mode)")
 

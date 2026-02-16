@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { h } from 'vue';
 import { mount } from '@vue/test-utils';
 import ContentContainer from '../ContentContainer.vue';
 
@@ -345,9 +346,9 @@ describe('ContentContainer.vue', () => {
 
       const wrapper = mount(ContentContainer, {
         slots: {
-          default: [
-            { render: () => mount(ChildComponent, { props: { id: 1 } }).html() },
-            { render: () => mount(ChildComponent, { props: { id: 2 } }).html() },
+          default: () => [
+            h(ChildComponent, { id: 1 }),
+            h(ChildComponent, { id: 2 }),
           ],
         },
       });

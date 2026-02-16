@@ -5,11 +5,9 @@ Translates mouse, keyboard, and scroll events into CDP Input.dispatch* commands
 for interactive browser control.
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal
 
 import aiohttp
 

@@ -27,7 +27,12 @@ class FakeSandbox:
         self._content = content
 
     async def get_screenshot(self, quality: int, scale: float):
-        return SimpleNamespace(content=self._content, quality=quality, scale=scale)
+        return SimpleNamespace(
+            content=self._content,
+            quality=quality,
+            scale=scale,
+            headers={},
+        )
 
 
 class FailingSandbox:

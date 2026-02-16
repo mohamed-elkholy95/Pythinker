@@ -5,7 +5,9 @@ from pathlib import Path
 
 
 def _run_filter(input_text: str) -> subprocess.CompletedProcess[str]:
-    script_path = Path(__file__).resolve().parents[1] / "scripts" / "chrome_stderr_filter.py"
+    script_path = (
+        Path(__file__).resolve().parents[1] / "scripts" / "chrome_stderr_filter.py"
+    )
     return subprocess.run(
         ["python3", str(script_path)],
         input=input_text,
@@ -25,12 +27,17 @@ def test_chrome_stderr_filter_suppresses_known_benign_noise() -> None:
         "org.freedesktop.DBus.Properties.GetAll: object_path= /org/freedesktop/UPower/devices/DisplayDevice: "
         "org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files",
     ]
-    actionable_line = "[123:456:0213/191200.000000:ERROR:net/socket.cc:42] Actionable network failure"
+    actionable_line = (
+        "[123:456:0213/191200.000000:ERROR:net/socket.cc:42] Actionable network failure"
+    )
     proc = _run_filter("\n".join([*noisy_lines, actionable_line]) + "\n")
 
     assert proc.returncode == 0
     assert actionable_line in proc.stderr
     for line in noisy_lines:
         assert line not in proc.stderr
-    assert "[chrome-stderr-filter] Final suppressed benign Chromium lines: 3" in proc.stderr
+    assert (
+        "[chrome-stderr-filter] Final suppressed benign Chromium lines: 3"
+        in proc.stderr
+    )
     assert proc.stdout == ""
