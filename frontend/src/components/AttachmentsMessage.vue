@@ -5,8 +5,8 @@
       <div v-for="attachment in content.attachments" :key="attachment.file_id || attachment.filename" @click="handleFileClick(attachment)"
         class="flex items-center gap-1.5 p-2 pr-2.5 w-[280px] group/attach relative overflow-hidden cursor-pointer rounded-[12px] border-[0.5px] border-[var(--border-dark)] bg-[var(--background-menu-white)] hover:bg-[--background-tsp-menu-white]">
         <div class="flex items-center justify-center w-8 h-8 rounded-md">
-          <div class="relative flex items-center justify-center">
-            <component :is="getFileType(attachment.filename).icon" />
+          <div class="relative flex items-center justify-center text-[var(--icon-secondary)]">
+            <component :is="getFileType(attachment.filename).icon" :size="32" />
           </div>
         </div>
         <div class="flex flex-col gap-0.5 flex-1 min-w-0">
@@ -32,8 +32,8 @@
       <div v-for="attachment in content.attachments" :key="attachment.file_id || attachment.filename" @click="handleFileClick(attachment)"
         class="flex items-center gap-1.5 p-2 pr-2.5 w-[280px] group/attach relative overflow-hidden cursor-pointer rounded-[12px] border-[0.5px] border-[var(--border-dark)] bg-[var(--background-menu-white)] hover:bg-[--background-tsp-menu-white]">
         <div class="flex items-center justify-center w-8 h-8 rounded-md">
-          <div class="relative flex items-center justify-center">
-            <component :is="getFileType(attachment.filename).icon" />
+          <div class="relative flex items-center justify-center text-[var(--icon-secondary)]">
+            <component :is="getFileType(attachment.filename).icon" :size="32" />
           </div>
         </div>
         <div class="flex flex-col gap-0.5 flex-1 min-w-0">
