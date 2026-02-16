@@ -1,8 +1,11 @@
 /**
  * Core canvas editor composable.
  * Manages project state, element CRUD, zoom/pan, and auto-save.
+ *
+ * State is scoped per-instance to prevent cross-session leakage.
+ * Call dispose() or rely on onScopeDispose to clean up timers.
  */
-import { ref, computed } from 'vue'
+import { ref, computed, onScopeDispose } from 'vue'
 import type {
   CanvasProject,
   CanvasElement,
@@ -11,24 +14,32 @@ import type {
 } from '@/types/canvas'
 import * as canvasApi from '@/api/canvas'
 
-const project = ref<CanvasProject | null>(null)
-const editorState = ref<EditorState>({
-  activeTool: 'select',
-  activePageIndex: 0,
-  selectedElementIds: [],
-  zoom: 1,
-  panX: 0,
-  panY: 0,
-  showGrid: false,
-  snapEnabled: true,
-  isDirty: false,
-})
-const loading = ref(false)
-const saving = ref(false)
-
-let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
-
 export function useCanvasEditor() {
+  // ---------------------------------------------------------------------------
+  // Instance-scoped state (was previously module-level — caused C1 bug)
+  // ---------------------------------------------------------------------------
+
+  const project = ref<CanvasProject | null>(null)
+  const editorState = ref<EditorState>({
+    activeTool: 'select',
+    activePageIndex: 0,
+    selectedElementIds: [],
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    showGrid: false,
+    snapEnabled: true,
+    isDirty: false,
+  })
+  const loading = ref(false)
+  const saving = ref(false)
+
+  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+  // ---------------------------------------------------------------------------
+  // Computed
+  // ---------------------------------------------------------------------------
+
   const activePage = computed(() => {
     if (!project.value) return null
     return project.value.pages[editorState.value.activePageIndex] ?? null
@@ -41,7 +52,10 @@ export function useCanvasEditor() {
     return elements.value.filter((el) => ids.has(el.id))
   })
 
-  // --- Project CRUD ---
+  // ---------------------------------------------------------------------------
+  // Project CRUD
+  // ---------------------------------------------------------------------------
+
   async function loadProject(projectId: string) {
     loading.value = true
     try {
@@ -96,7 +110,10 @@ export function useCanvasEditor() {
     scheduleAutoSave()
   }
 
-  // --- Element operations ---
+  // ---------------------------------------------------------------------------
+  // Element operations
+  // ---------------------------------------------------------------------------
+
   function addElement(element: CanvasElement) {
     if (!project.value || !activePage.value) return
     activePage.value.elements.push(element)
@@ -123,7 +140,10 @@ export function useCanvasEditor() {
     markDirty()
   }
 
-  // --- Selection ---
+  // ---------------------------------------------------------------------------
+  // Selection
+  // ---------------------------------------------------------------------------
+
   function selectElement(elementId: string, multi = false) {
     if (multi) {
       const idx = editorState.value.selectedElementIds.indexOf(elementId)
@@ -146,12 +166,18 @@ export function useCanvasEditor() {
     editorState.value.selectedElementIds = activePage.value.elements.map((el) => el.id)
   }
 
-  // --- Tool ---
+  // ---------------------------------------------------------------------------
+  // Tool
+  // ---------------------------------------------------------------------------
+
   function setTool(tool: EditorTool) {
     editorState.value.activeTool = tool
   }
 
-  // --- Zoom / Pan ---
+  // ---------------------------------------------------------------------------
+  // Zoom / Pan
+  // ---------------------------------------------------------------------------
+
   function setZoom(zoom: number) {
     editorState.value.zoom = Math.max(0.1, Math.min(zoom, 5))
   }
@@ -175,7 +201,10 @@ export function useCanvasEditor() {
     editorState.value.panY = y
   }
 
-  // --- Layer ordering ---
+  // ---------------------------------------------------------------------------
+  // Layer ordering
+  // ---------------------------------------------------------------------------
+
   function bringToFront(elementId: string) {
     if (!activePage.value) return
     const maxZ = Math.max(...activePage.value.elements.map((el) => el.z_index), 0)
@@ -187,6 +216,24 @@ export function useCanvasEditor() {
     const minZ = Math.min(...activePage.value.elements.map((el) => el.z_index), 0)
     updateElement(elementId, { z_index: minZ - 1 })
   }
+
+  // ---------------------------------------------------------------------------
+  // Cleanup
+  // ---------------------------------------------------------------------------
+
+  function dispose() {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer)
+      autoSaveTimer = null
+    }
+  }
+
+  // Auto-cleanup when the effect scope is disposed (component unmount)
+  onScopeDispose(dispose)
+
+  // ---------------------------------------------------------------------------
+  // Return
+  // ---------------------------------------------------------------------------
 
   return {
     project,
@@ -214,5 +261,6 @@ export function useCanvasEditor() {
     setPan,
     bringToFront,
     sendToBack,
+    dispose,
   }
 }

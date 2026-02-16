@@ -8,7 +8,7 @@
  * runs entry/exit animations via requestAnimationFrame, and auto-removes
  * completed animations.
  */
-import { ref, shallowRef, onBeforeUnmount } from 'vue'
+import { shallowRef, triggerRef, onBeforeUnmount } from 'vue'
 import type Konva from 'konva'
 import type { AgentAction, AgentActionType } from '@/types/liveViewer'
 import type { ToolEventData } from '@/types/event'
@@ -20,15 +20,15 @@ import {
   SANDBOX_HEIGHT,
 } from '@/types/liveViewer'
 
-let _actionIdCounter = 0
-
 export function useAgentActionOverlay() {
+  /** Instance-scoped counter to prevent ID collisions across instances */
+  let _actionIdCounter = 0
   // ---------------------------------------------------------------------------
   // State
   // ---------------------------------------------------------------------------
 
-  /** Currently active (animating) actions */
-  const actions = ref<AgentAction[]>([])
+  /** Currently active (animating) actions — shallowRef for perf in hot animation path */
+  const actions = shallowRef<AgentAction[]>([])
 
   /** Whether the overlay is enabled */
   const enabled = shallowRef(true)
@@ -220,33 +220,37 @@ export function useAgentActionOverlay() {
     if (!_animating || !_layer) return
 
     const now = Date.now()
+    const items = actions.value
     let changed = false
+    let removedCount = 0
 
-    // Update progress for each action
-    const updated = actions.value.map((action) => {
+    // Update progress in-place (avoids creating new objects per frame)
+    for (let i = 0; i < items.length; i++) {
+      const action = items[i]
       const elapsed = now - action.timestamp
       const progress = Math.min(1, elapsed / action.duration)
       if (progress !== action.progress) {
+        action.progress = progress
         changed = true
-        return { ...action, progress }
       }
-      return action
-    })
+      if (progress >= 1) removedCount++
+    }
 
-    // Remove completed actions
-    const alive = updated.filter((a) => a.progress < 1)
-
-    if (changed) {
-      actions.value = alive
+    // Only allocate a new array when completed items need removal
+    if (removedCount > 0) {
+      actions.value = items.filter((a) => a.progress < 1)
+    } else if (changed) {
+      // Notify Vue of in-place mutation without allocating
+      triggerRef(actions)
     }
 
     // Redraw the overlay layer
-    if (_layer && changed) {
+    if (changed) {
       _layer.batchDraw()
     }
 
     // Continue or stop
-    if (alive.length > 0) {
+    if (actions.value.length > 0) {
       _rafId = requestAnimationFrame(_tick)
     } else {
       _animating = false

@@ -16,6 +16,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import type Konva from 'konva'
 import type { TimelineDimensions } from '@/composables/useKonvaTimeline'
 import { getScrubberConfig } from '@/composables/useKonvaTimeline'
 
@@ -40,7 +41,7 @@ const emit = defineEmits<{
 }>()
 
 // Refs
-const groupRef = ref(null)
+const groupRef = ref<{ getNode: () => Konva.Group } | null>(null)
 const isHovered = ref(false)
 
 // Computed configurations
@@ -70,35 +71,32 @@ const handleConfig = computed(() => {
   }
 })
 
+// Helpers
+function getStageContainer(): HTMLDivElement | null {
+  const node = groupRef.value?.getNode()
+  return node?.getStage()?.container() ?? null
+}
+
 // Event handlers
 const handleMouseEnter = () => {
   isHovered.value = true
-  // Change cursor to grab
-  const stage = (groupRef.value as any)?.getNode?.()?.getStage?.()
-  if (stage) {
-    stage.container().style.cursor = 'grab'
-  }
+  const container = getStageContainer()
+  if (container) container.style.cursor = 'grab'
 }
 
 const handleMouseLeave = () => {
   if (!props.isDragging) {
     isHovered.value = false
-    // Reset cursor
-    const stage = (groupRef.value as any)?.getNode?.()?.getStage?.()
-    if (stage) {
-      stage.container().style.cursor = 'default'
-    }
+    const container = getStageContainer()
+    if (container) container.style.cursor = 'default'
   }
 }
 
-const handleDragStart = (e: any) => {
+const handleDragStart = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
   e.evt?.preventDefault?.()
 
-  // Change cursor to grabbing
-  const stage = (groupRef.value as any)?.getNode?.()?.getStage?.()
-  if (stage) {
-    stage.container().style.cursor = 'grabbing'
-  }
+  const container = getStageContainer()
+  if (container) container.style.cursor = 'grabbing'
 
   emit('drag-start')
 }

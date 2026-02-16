@@ -6,7 +6,7 @@
  * Provides undo/redo, clear all, and coordinate transformation
  * from screen space to Konva stage space.
  */
-import { ref, computed, onBeforeUnmount } from 'vue'
+import { ref, shallowRef, triggerRef, computed, onBeforeUnmount } from 'vue'
 import type Konva from 'konva'
 import type {
   AnnotationElement,
@@ -15,12 +15,12 @@ import type {
 } from '@/types/liveViewer'
 import { DEFAULT_ANNOTATION_STYLE } from '@/types/liveViewer'
 
-let _annotationIdCounter = 0
-
 /** Max undo history depth */
 const MAX_HISTORY = 50
 
 export function useAnnotationLayer() {
+  /** Instance-scoped counter to prevent ID collisions across instances */
+  let _annotationIdCounter = 0
   // ---------------------------------------------------------------------------
   // State
   // ---------------------------------------------------------------------------
@@ -37,8 +37,8 @@ export function useAnnotationLayer() {
   /** Current style settings */
   const style = ref<AnnotationStyle>({ ...DEFAULT_ANNOTATION_STYLE })
 
-  /** Element currently being drawn (null when idle) */
-  const drawingElement = ref<AnnotationElement | null>(null)
+  /** Element currently being drawn (null when idle) — shallowRef for perf during pen drawing */
+  const drawingElement = shallowRef<AnnotationElement | null>(null)
 
   // Undo/redo stacks (JSON snapshots)
   const undoStack = ref<string[]>([])
@@ -190,6 +190,7 @@ export function useAnnotationLayer() {
 
   /**
    * Continue drawing (mousemove/touchmove in stage space).
+   * Mutates in-place + triggerRef to avoid allocating new objects every mousemove.
    */
   function continueDrawing(stageX: number, stageY: number): void {
     if (!drawingElement.value) return
@@ -198,16 +199,14 @@ export function useAnnotationLayer() {
 
     switch (el.type) {
       case 'pen':
-        // Append point
-        el.points = [...(el.points || []), stageX, stageY]
-        // Trigger reactivity
-        drawingElement.value = { ...el }
+        // Push points in-place (avoids spreading the full array every move)
+        if (!el.points) el.points = []
+        el.points.push(stageX, stageY)
         break
 
       case 'rectangle':
         el.width = stageX - _drawStartX
         el.height = stageY - _drawStartY
-        drawingElement.value = { ...el }
         break
 
       case 'ellipse':
@@ -215,15 +214,15 @@ export function useAnnotationLayer() {
         el.height = Math.abs(stageY - _drawStartY) * 2
         el.x = _drawStartX
         el.y = _drawStartY
-        drawingElement.value = { ...el }
         break
 
       case 'arrow':
         el.points = [_drawStartX, _drawStartY, stageX, stageY]
-        drawingElement.value = { ...el }
         break
     }
 
+    // Notify Vue of in-place mutation without allocating a new object
+    triggerRef(drawingElement)
     _layer?.batchDraw()
   }
 

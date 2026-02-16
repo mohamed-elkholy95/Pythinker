@@ -45,8 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import type { Ref } from 'vue'
+import { ref, computed, onMounted, onUnmounted, toRef } from 'vue'
 import type { AgentSSEEvent } from '@/types/event'
 import KonvaCanvas from '@/components/canvas/KonvaCanvas.vue'
 import TimelineMarkerNode from './TimelineMarkerNode.vue'
@@ -86,11 +85,8 @@ const backgroundLayerRef = ref(null)
 const markersLayerRef = ref(null)
 const scrubberLayerRef = ref(null)
 
-// Create events ref for composable
-const eventsRef = ref(props.events) as Ref<AgentSSEEvent[]>
-watch(() => props.events, (newEvents) => {
-  eventsRef.value = newEvents
-})
+// Reactive ref from prop (stays in sync automatically)
+const eventsRef = toRef(props, 'events')
 
 // Theme colors
 const { colors } = useThemeColors()

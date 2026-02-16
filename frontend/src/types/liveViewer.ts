@@ -155,13 +155,16 @@ export const ACTION_COLORS: Record<AgentActionType, string> = {
 // Annotation Layer
 // ---------------------------------------------------------------------------
 
-export type AnnotationToolType =
+/** Element types that can be persisted as annotations */
+export type AnnotationElementType =
   | 'pen'
   | 'rectangle'
   | 'ellipse'
   | 'arrow'
   | 'text'
-  | 'eraser'
+
+/** Tool types available in the annotation toolbar (includes destructive tools) */
+export type AnnotationToolType = AnnotationElementType | 'eraser'
 
 export interface AnnotationStyle {
   color: string
@@ -181,8 +184,8 @@ export const DEFAULT_ANNOTATION_STYLE: Readonly<AnnotationStyle> = {
 export interface AnnotationElement {
   /** Unique ID */
   id: string
-  /** Annotation tool type */
-  type: AnnotationToolType
+  /** Element type (only persistable types, never 'eraser') */
+  type: AnnotationElementType
   /** Points array for pen/arrow (flat [x1,y1,x2,y2,...]) */
   points?: number[]
   /** Position for rect/ellipse/text */

@@ -201,23 +201,31 @@ export function useKonvaTimeline(
   const startDrag = () => {
     isDragging.value = true
     timeline.pause()
+    startAnimation() // Ensure animation loop is running while dragging
   }
 
   const endDrag = () => {
     isDragging.value = false
+    // Animation loop will self-stop on next frame since isDragging is false
   }
 
-  // Animation loop for smooth updates
+  // Animation loop — only runs when timeline is playing or scrubber is dragging
   let rafId: number | null = null
 
   const animate = () => {
+    // Only continue the loop when there's actual animation work to do
+    const needsAnimation = timeline.isPlaying.value || isDragging.value
+    if (!needsAnimation) {
+      rafId = null
+      return
+    }
     animationFrame.value++
     rafId = requestAnimationFrame(animate)
   }
 
   const startAnimation = () => {
     if (!rafId) {
-      animate()
+      rafId = requestAnimationFrame(animate)
     }
   }
 
