@@ -5,10 +5,10 @@
     <path class="icon-glyph arrow-path" d="M2 2L7.5 8L2 14" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
 
     <!-- Terminal line -->
-    <path class="icon-glyph" d="M9 14H14" stroke-width="1.3" stroke-linecap="round" />
+    <path class="icon-glyph" d="M9 14H13.5" stroke-width="1.3" stroke-linecap="round" />
 
-    <!-- Blinking cursor at the end of the line -->
-    <rect class="cursor" x="14.2" y="12.5" width="1.2" height="3" rx="0.3" />
+    <!-- Breathing animated dash -->
+    <line class="terminal-dash" x1="14" y1="14" x2="15" y2="14" stroke-width="1.3" stroke-linecap="round" />
   </svg>
 </template>
 
@@ -24,34 +24,48 @@ defineProps({
   fill: none;
 }
 
-/* Arrow pulse animation */
+/* Arrow slide animation - smooth slide in */
 .arrow-path {
-  animation: arrow-pulse 1.5s ease-in-out infinite;
+  animation: arrow-slide 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  transform-origin: center;
 }
 
-@keyframes arrow-pulse {
+@keyframes arrow-slide {
   0%, 100% {
-    opacity: 1;
     transform: translateX(0);
+    opacity: 1;
   }
   50% {
-    opacity: 0.5;
-    transform: translateX(0.5px);
+    transform: translateX(2px);
+    opacity: 0.6;
   }
 }
 
-/* Blinking cursor */
-.cursor {
-  fill: var(--icon-secondary, #535350);
-  animation: cursor-blink 1.2s step-end infinite;
+/* Breathing dash animation - organic pulse */
+.terminal-dash {
+  stroke: var(--icon-secondary, #535350);
+  animation: dash-breathe 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  transform-origin: center;
 }
 
-@keyframes cursor-blink {
-  0%, 49% {
+@keyframes dash-breathe {
+  0%, 100% {
     opacity: 1;
+    transform: scale(1);
   }
-  50%, 100% {
-    opacity: 0;
+  50% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .arrow-path,
+  .terminal-dash {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
 </style>
