@@ -112,7 +112,7 @@ class TestReportFileAttachment:
 
         html_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.html")
         assert html_attachment.content_type == "text/html"
-        assert html_attachment.file_path == "/home/ubuntu/comparison-chart-report-chart-1.html"
+        assert html_attachment.file_path == "/home/ubuntu/model_comparison.html"
         assert html_attachment.metadata is not None
         assert html_attachment.metadata.get("is_comparison_chart") is True
         assert html_attachment.metadata.get("chart_format") == "plotly_html_png"
@@ -122,7 +122,7 @@ class TestReportFileAttachment:
 
         png_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.png")
         assert png_attachment.content_type == "image/png"
-        assert png_attachment.file_path == "/home/ubuntu/comparison-chart-report-chart-1.png"
+        assert png_attachment.file_path == "/home/ubuntu/model_comparison.png"
         assert png_attachment.metadata is not None
         assert png_attachment.metadata.get("is_comparison_chart") is True
         assert png_attachment.metadata.get("chart_format") == "plotly_html_png"
@@ -131,10 +131,7 @@ class TestReportFileAttachment:
 
         chart_input_write_call = mock_sandbox.file_write.call_args_list[1]
         assert chart_input_write_call.kwargs["file"].startswith("/tmp/plotly_input_")
-        assert (
-            '"output_html": "/home/ubuntu/comparison-chart-report-chart-1.html"'
-            in chart_input_write_call.kwargs["content"]
-        )
+        assert '"output_html": "/home/ubuntu/model_comparison.html"' in chart_input_write_call.kwargs["content"]
 
     @pytest.mark.asyncio
     async def test_chart_generation_can_be_skipped_with_user_flag(self, runner, mock_sandbox):
