@@ -1211,7 +1211,7 @@ async def screencast_websocket(
                 asyncio.create_task(monitor_browser_disconnect()),
             ]
             try:
-                _done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                _done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             finally:
                 for task in tasks:
                     task.cancel()
