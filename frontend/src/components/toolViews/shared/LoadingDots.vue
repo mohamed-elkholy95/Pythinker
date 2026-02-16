@@ -40,6 +40,11 @@
   }
 }
 
+/* Dark mode: boost dot visibility */
+:global(.dark) .dot {
+  background-color: var(--text-secondary);
+}
+
 /* Accessibility: Reduce motion */
 @media (prefers-reduced-motion: reduce) {
   .dot {

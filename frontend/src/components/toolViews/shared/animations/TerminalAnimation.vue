@@ -35,6 +35,7 @@
   background: #1e1e1e;
   border-radius: 6px;
   overflow: hidden;
+  border: 1px solid transparent;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
@@ -85,6 +86,21 @@
   51%, 100% {
     opacity: 0;
   }
+}
+
+/* Dark mode: prevent terminal from blending into dark background */
+:global(.dark) .terminal-window {
+  background: #252526;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+:global(.dark) .terminal-header {
+  background: #333333;
+}
+
+:global(.dark) .terminal-dot {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 @media (prefers-reduced-motion: reduce) {

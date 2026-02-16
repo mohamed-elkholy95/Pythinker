@@ -103,4 +103,23 @@ const emit = defineEmits<{
   outline: 2px solid var(--text-brand);
   outline-offset: 2px;
 }
+
+/* Dark mode enhancements */
+:global(.dark) .error-icon {
+  color: #f85149; /* Softer red for dark backgrounds */
+}
+
+:global(.dark) .error-message {
+  color: var(--text-primary);
+}
+
+:global(.dark) .retry-button {
+  background: var(--background-secondary);
+  border-color: var(--border-main);
+}
+
+:global(.dark) .retry-button:hover {
+  background: var(--fill-tsp-gray-main);
+  border-color: var(--border-dark);
+}
 </style>

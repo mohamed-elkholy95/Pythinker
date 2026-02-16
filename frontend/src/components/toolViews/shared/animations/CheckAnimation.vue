@@ -52,7 +52,7 @@
 .check-icon {
   width: 48px;
   height: 48px;
-  color: #22c55e;
+  color: var(--success-green, #22c55e);
 }
 
 .circle-bg {
@@ -80,6 +80,11 @@
     transform: scale(1.1);
     opacity: 0.8;
   }
+}
+
+/* Dark mode: brighter success glow */
+:global(.dark) .check-circle::before {
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.22) 0%, transparent 70%);
 }
 
 /* Accessibility: Reduce motion */
