@@ -28,7 +28,7 @@ except ImportError:
     ActionResult = None
 
 from app.core.config import get_settings
-from app.infrastructure.external.browser.url_filters import VIDEO_URL_PATTERNS, is_video_url
+from app.infrastructure.external.browser.url_filters import VIDEO_URL_PATTERNS, is_ssrf_target, is_video_url
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +237,19 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
                 - error: Error message if failed
                 - skipped_video_urls: List of video URLs that were skipped
         """
+        # SSRF protection — block internal/private URLs
+        if start_url:
+            ssrf_reason = is_ssrf_target(start_url)
+            if ssrf_reason:
+                logger.warning("SSRF blocked in browseruse: %s → %s", start_url, ssrf_reason)
+                return {
+                    "success": False,
+                    "error": f"Navigation blocked for security: {ssrf_reason}",
+                    "actions": [],
+                    "total_steps": 0,
+                    "skipped_video_urls": [],
+                }
+
         # Check if start_url is a video URL
         skipped_urls = []
         if start_url and self._skip_video_urls and is_video_url(start_url):

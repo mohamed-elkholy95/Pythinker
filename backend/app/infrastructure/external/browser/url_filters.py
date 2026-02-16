@@ -134,7 +134,7 @@ def is_video_url(url: str) -> bool:
         # Use hostname instead of netloc to exclude ports
         # hostname returns None for invalid URLs, handle gracefully
         hostname = parsed.hostname
-        domain = hostname if hostname else parsed.netloc.split(":")[0] if parsed.netloc else ""
+        domain = hostname or (parsed.netloc.split(":")[0] if parsed.netloc else "")
 
         # Normalize domain (remove www. prefix)
         domain_normalized = domain.replace("www.", "") if domain else ""
@@ -238,15 +238,15 @@ def is_ssrf_target(url: str) -> str | None:
             return f"Blocked internal hostname: {hostname_lower}"
 
         # Block 169.254.169.254 (AWS/GCP metadata) even if hostname differs
-        if hostname_lower in ("169.254.169.254",):
+        if hostname_lower == "169.254.169.254":
             return "Blocked cloud metadata endpoint"
 
         # Resolve hostname to IP(s) and check each
         try:
             addr_infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
         except socket.gaierror:
-            # DNS resolution failed — allow the browser to handle the error naturally
-            return None
+            # DNS resolution failed — fail-closed: block unknown hosts
+            return f"DNS resolution failed for {hostname} (blocked for safety)"
 
         for addr_info in addr_infos:
             ip_str = addr_info[4][0]
@@ -261,6 +261,6 @@ def is_ssrf_target(url: str) -> str | None:
         return None
 
     except Exception as e:
-        logger.warning("SSRF check failed for %s: %s", url, e)
-        # Fail-open for parsing errors — the browser will handle invalid URLs
-        return None
+        logger.warning("SSRF check failed for %s: %s — blocking", url, e)
+        # Fail-closed: block URLs that can't be validated
+        return f"URL validation failed: {e}"

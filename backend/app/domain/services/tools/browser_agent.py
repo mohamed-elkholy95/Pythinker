@@ -18,7 +18,7 @@ except ImportError:
 
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
-from app.infrastructure.external.browser.url_filters import is_video_url
+from app.infrastructure.external.browser.url_filters import is_ssrf_target, is_video_url
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +276,18 @@ CRITICAL INSTRUCTIONS:
         Returns:
             Task execution result dictionary
         """
+        # SSRF protection — block internal/private URLs
+        if start_url:
+            ssrf_reason = is_ssrf_target(start_url)
+            if ssrf_reason:
+                logger.warning("SSRF blocked in browser_agent: %s → %s", start_url, ssrf_reason)
+                return {
+                    "success": False,
+                    "error": f"Navigation blocked for security: {ssrf_reason}",
+                    "result": None,
+                    "skipped_reason": "ssrf_blocked",
+                }
+
         # Check if start_url is a video URL - skip immediately
         if start_url and is_video_url(start_url):
             logger.info(f"Skipping video URL: {start_url}")
