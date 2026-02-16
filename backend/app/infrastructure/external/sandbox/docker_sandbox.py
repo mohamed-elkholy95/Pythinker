@@ -470,14 +470,16 @@ class DockerSandbox(Sandbox):
 
                 # In CDP-only mode, VNC services are intentionally not started
                 if settings.sandbox_streaming_mode == StreamingMode.CDP_ONLY:
-                    expected_exit_services.update({
-                        "chrome_dual",
-                        "openbox",
-                        "websockify",
-                        "x11vnc",
-                        "xrandr_setup",
-                        "xvfb",
-                    })
+                    expected_exit_services.update(
+                        {
+                            "chrome_dual",
+                            "openbox",
+                            "websockify",
+                            "x11vnc",
+                            "xrandr_setup",
+                            "xvfb",
+                        }
+                    )
 
                 for service in services:
                     service_name = service.get("name", "unknown")
