@@ -2,7 +2,7 @@
 
 Tests the crash detection, circuit breaker, and auto-recovery
 mechanisms in PlaywrightBrowser, SearchTool._browse_top_results,
-and BrowserTool search VNC guard.
+and BrowserTool search live-preview guard.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -244,7 +244,7 @@ class TestBrowseTopResultsResilience:
         assert search_tool._browser.navigate_for_display.await_count == 3
 
 
-# --- 6. BrowserTool search VNC guard ---
+# --- 6. BrowserTool search live-preview guard ---
 
 
 class TestBrowserToolSearchGuard:

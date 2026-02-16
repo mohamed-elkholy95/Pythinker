@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Default browser configuration for realistic browsing
 # Viewport is the content area inside the browser window.
-# With Xvfb at 1280x1024 and browser chrome (~90px for tabs/address bar),
+# With a 1280x1024 browser window and chrome (~90px for tabs/address bar),
 # the actual visible content area is approximately 1280x934.
 # We use the full width to avoid horizontal cutoff.
 DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
@@ -163,8 +163,8 @@ class PlaywrightBrowser:
             "content": None,
         }
 
-        # Circuit breaker for navigate_for_display (VNC display)
-        # Stops attempting VNC navigations after repeated failures (e.g., browser crash)
+        # Circuit breaker for navigate_for_display (live preview display)
+        # Stops attempting live preview navigations after repeated failures (e.g., browser crash)
         self._display_failure_count: int = 0
         self._display_failure_threshold: int = 2
 
@@ -325,12 +325,12 @@ class PlaywrightBrowser:
         )
 
     async def _ensure_page_visible(self) -> None:
-        """Bring page to front for VNC visibility.
+        """Bring page to front for live preview visibility.
 
         Uses both Playwright API and CDP commands to ensure the page is visible
-        in the VNC viewer. This is critical for user visibility of browser actions.
+        in the live preview viewer. This is critical for user visibility of browser actions.
 
-        Handles errors gracefully - VNC visibility is best-effort and should not
+        Handles errors gracefully - live preview visibility is best-effort and should not
         block browser operations.
         """
         # Guard against uninitialized state
@@ -340,12 +340,12 @@ class PlaywrightBrowser:
 
         try:
             await self.page.bring_to_front()
-            # Also try CDP-level activation for VNC visibility
+            # Also try CDP-level activation for live preview visibility
             cdp_session = None
             try:
                 cdp_session = await self.context.new_cdp_session(self.page)
                 await cdp_session.send("Page.bringToFront")
-                logger.info("Brought page to front via CDP for VNC visibility")
+                logger.info("Brought page to front via CDP for live preview visibility")
             except (PlaywrightError, OSError) as cdp_error:
                 logger.debug(f"CDP bring_to_front: {cdp_error}")
             finally:
@@ -626,7 +626,7 @@ class PlaywrightBrowser:
     ) -> bool:
         """Force browser window to specific position using CDP.
 
-        This is critical for VNC display - Chrome's --window-position flag only affects
+        This is critical for live preview display - Chrome's --window-position flag only affects
         the FIRST window. Subsequent windows created by new_page() will be offset.
         Using CDP Browser.setWindowBounds forces the window to the correct position.
 
@@ -634,8 +634,8 @@ class PlaywrightBrowser:
             page: The page whose window to position
             x: Left position (default 0)
             y: Top position (default 0)
-            width: Window width (default 1280 to match Xvfb)
-            height: Window height (default 1024 to match Xvfb)
+            width: Window width (default 1280 for stable live preview rendering)
+            height: Window height (default 1024 for stable live preview rendering)
 
         Returns:
             bool: True if positioning succeeded, False otherwise
@@ -664,7 +664,7 @@ class PlaywrightBrowser:
                 },
             )
 
-            # Set window bounds to force position at 0,0 and exact size matching Xvfb
+            # Set window bounds to force position at 0,0 with exact expected size
             expected_bounds = {"left": x, "top": y, "width": width, "height": height}
             await cdp_session.send(
                 "Browser.setWindowBounds",
@@ -723,10 +723,10 @@ class PlaywrightBrowser:
                     await cdp_session.detach()
 
     async def _new_page_with_bounds(self, context: BrowserContext | None = None) -> Page:
-        """Create a new page with proper window positioning for VNC display.
+        """Create a new page with proper window positioning for live preview display.
 
         This is the ONLY correct way to create a new page in this class.
-        It ensures the browser window is positioned at (0,0) to avoid VNC offset issues.
+        It ensures the browser window is positioned at (0,0) to avoid live preview offset issues.
 
         Args:
             context: Browser context to create page in. Uses self.context if not provided.
@@ -754,7 +754,7 @@ class PlaywrightBrowser:
         # New windows may be offset by the WM without this
         success = await self._force_window_position(page)
         if not success:
-            logger.warning("Failed to force window position on new page - VNC display may be offset")
+            logger.warning("Failed to force window position on new page - live preview display may be offset")
 
         # Small delay to let WM settle after positioning
         await asyncio.sleep(0.05)
@@ -1146,7 +1146,7 @@ class PlaywrightBrowser:
         """Clear browser state while preserving the original window position.
 
         This method clears browser state for a fresh session, but PRESERVES the first
-        window to avoid VNC positioning issues. When context.new_page() is called,
+        window to avoid live preview positioning issues. When context.new_page() is called,
         Chrome creates a NEW WINDOW (not a tab), which may appear shifted right
         since only the first window respects --window-position=0,0.
 
@@ -1238,14 +1238,16 @@ class PlaywrightBrowser:
                 contexts = self.browser.contexts
 
                 if contexts:
-                    # ALWAYS use the default (first) context - this is the visible one in VNC
+                    # ALWAYS use the default (first) context - this is the visible one in live preview
                     self.context = contexts[0]
                     pages = self.context.pages
 
-                    logger.info(f"Using existing default context with {len(pages)} page(s) - will be visible in VNC")
+                    logger.info(
+                        f"Using existing default context with {len(pages)} page(s) - will be visible in live preview"
+                    )
 
                     # CRITICAL: Reuse ANY existing page to avoid creating new windows
-                    # New windows may not be positioned correctly by openbox, causing VNC display issues
+                    # New windows can desync from the active live-preview capture surface.
                     reuse_page = None
                     if len(pages) > 0:
                         # Prefer to reuse the FIRST page (original Chrome window at position 0,0)
@@ -1298,12 +1300,12 @@ class PlaywrightBrowser:
                         logger.warning("No existing pages available, creating new page with bounds")
                         self.page = await self._new_page_with_bounds(self.context)
 
-                    # Ensure the page is brought to front and visible in VNC
+                    # Ensure the page is brought to front and visible in live preview
                     await self._ensure_page_visible()
                 else:
                     # No contexts exist yet - wait for Chrome to create default context
                     # IMPORTANT: Do NOT use browser.new_context() as it creates an isolated
-                    # context that is NOT visible in VNC. VNC only shows the default Chrome window.
+                    # context that is NOT visible in live preview. live preview only shows the default Chrome window.
                     logger.warning("No browser contexts found, waiting for Chrome default context...")
 
                     # Wait up to 5 seconds for Chrome to create its default context
@@ -1331,7 +1333,7 @@ class PlaywrightBrowser:
                         # Try to create a page directly, which will use default context
                         self.context = await self.browser.new_context()
                         self.page = await self._new_page_with_bounds(self.context)
-                        logger.warning("Created new context as fallback - VNC may show different content")
+                        logger.warning("Created new context as fallback - live preview may show different content")
 
                     # Set fingerprint values for consistency
                     if self._randomize_fingerprint:
@@ -1509,7 +1511,7 @@ class PlaywrightBrowser:
         This method ensures we're working with an active page, preferring
         the most recently opened tab in multi-tab scenarios.
 
-        IMPORTANT: Avoids creating new pages when possible to prevent VNC positioning issues.
+        IMPORTANT: Avoids creating new pages when possible to prevent live preview positioning issues.
         """
         await self._ensure_browser()
 
@@ -1524,7 +1526,7 @@ class PlaywrightBrowser:
                 )
 
             # CRITICAL: Try to reuse any existing page before creating a new one
-            # New pages create new windows which may shift in VNC display
+            # New pages create new windows which may shift in live preview display
             pages = self.context.pages
             if pages:
                 # Reuse the first available page
@@ -1763,7 +1765,7 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
 
-        # Ensure page is visible in VNC when viewing
+        # Ensure page is visible in live preview when viewing
         await self._ensure_page_visible()
 
         try:
@@ -2160,7 +2162,7 @@ class PlaywrightBrowser:
             # Extract interactive elements after page loads
             interactive_elements = await self._extract_interactive_elements()
 
-            # Ensure page is visible in VNC after navigation
+            # Ensure page is visible in live preview after navigation
             await self._ensure_page_visible()
 
             # AUTOMATIC BEHAVIOR: Extract page content automatically for faster response
@@ -2232,7 +2234,7 @@ class PlaywrightBrowser:
 
                 interactive_elements = await self._extract_interactive_elements()
 
-                # Ensure page is visible in VNC even after timeout
+                # Ensure page is visible in live preview even after timeout
                 await self._ensure_page_visible()
 
                 result_data = {
@@ -2355,7 +2357,7 @@ class PlaywrightBrowser:
             if response and response.status >= 400:
                 logger.warning(f"Fast navigation to {url} returned status {response.status}")
 
-            # Bring page to front for VNC visibility
+            # Bring page to front for live preview visibility
             await self._ensure_page_visible()
 
             # Extract basic content quickly (no scrolling, no full element extraction)
@@ -2426,10 +2428,10 @@ class PlaywrightBrowser:
             return ToolResult(success=False, message=f"Failed to navigate to {url}: {e!s}")
 
     async def navigate_for_display(self, url: str, timeout: int = 10000) -> bool:  # noqa: ASYNC109
-        """Navigate to URL purely for VNC display (best-effort, non-blocking).
+        """Navigate to URL purely for live preview display (best-effort, non-blocking).
 
         This is a lightweight navigation used after HTTP-based content fetching
-        so the user can see the fetched page in the VNC viewer. It does NOT
+        so the user can see the fetched page in the live preview viewer. It does NOT
         extract content, scroll, or interact with the page.
 
         Uses a trylock pattern: if the browser is already busy navigating,
@@ -2445,23 +2447,23 @@ class PlaywrightBrowser:
         if is_video_url(url) or is_ssrf_target(url):
             return False
 
-        # Circuit breaker: stop attempting VNC display after repeated failures
+        # Circuit breaker: stop attempting live preview display after repeated failures
         if self._display_failure_count >= self._display_failure_threshold:
-            logger.debug("navigate_for_display: circuit breaker open, skipping VNC display")
+            logger.debug("navigate_for_display: circuit breaker open, skipping live preview display")
             return False
 
-        # Trylock: if browser is already navigating, skip VNC display
+        # Trylock: if browser is already navigating, skip live preview display
         if self._navigation_lock.locked():
-            logger.debug("navigate_for_display: browser busy, skipping VNC display")
+            logger.debug("navigate_for_display: browser busy, skipping live preview display")
             return False
 
         try:
             async with self._navigation_lock:
                 await self._ensure_page()
                 await self.page.goto(url, timeout=timeout, wait_until="domcontentloaded")
-                # Bring page to front for VNC visibility
+                # Bring page to front for live preview visibility
                 await self._ensure_page_visible()
-                logger.debug(f"navigate_for_display: showed {url} on VNC")
+                logger.debug(f"navigate_for_display: showed {url} on live preview")
                 self._display_failure_count = 0
                 return True
         except Exception as e:
@@ -2478,7 +2480,7 @@ class PlaywrightBrowser:
 
         IMPORTANT: This does NOT restart Chrome itself (which runs continuously).
         It only refreshes Playwright's connection and navigates to a new URL.
-        Reuses existing browser windows to avoid VNC positioning issues.
+        Reuses existing browser windows to avoid live preview positioning issues.
 
         Args:
             url: URL to navigate to after restart
@@ -2488,7 +2490,7 @@ class PlaywrightBrowser:
         """
         # Don't call cleanup() - it closes pages which creates new windows when reinitializing
         # Instead, just reinitialize the connection if needed and navigate
-        # This reuses the existing browser window and avoids VNC positioning issues
+        # This reuses the existing browser window and avoids live preview positioning issues
 
         # Verify connection is healthy, reinitialize only if necessary
         try:
@@ -2630,7 +2632,7 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
 
-        # Ensure page is visible in VNC before clicking
+        # Ensure page is visible in live preview before clicking
         await self._ensure_page_visible()
 
         try:
@@ -2729,7 +2731,7 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
 
-        # Ensure page is visible in VNC before input
+        # Ensure page is visible in live preview before input
         await self._ensure_page_visible()
 
         try:
@@ -2836,7 +2838,7 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
         try:
-            # Ensure page is visible in VNC before scrolling
+            # Ensure page is visible in live preview before scrolling
             await self._ensure_page_visible()
 
             if to_top:
@@ -2878,7 +2880,7 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
         try:
-            # Ensure page is visible in VNC before scrolling
+            # Ensure page is visible in live preview before scrolling
             await self._ensure_page_visible()
 
             # Get initial metrics for lazy loading detection

@@ -45,7 +45,6 @@ class DockerSandbox(Sandbox):
         raw_address = ip or settings.sandbox_address or "localhost"
         self.ip = self._resolve_to_ip(raw_address)
         self.base_url = f"http://{self.ip}:8080"
-        self._vnc_url = f"ws://{self.ip}:5901"
         self._cdp_url = f"http://{self.ip}:9222"
         self._framework_url = f"http://{self.ip}:{settings.sandbox_framework_port}"
         self._container_name = container_name
@@ -165,10 +164,6 @@ class DockerSandbox(Sandbox):
         return self._cdp_url
 
     @property
-    def vnc_url(self) -> str:
-        return self._vnc_url
-
-    @property
     def framework_url(self) -> str:
         return self._framework_url
 
@@ -243,6 +238,7 @@ class DockerSandbox(Sandbox):
                 "HTTPS_PROXY": settings.sandbox_https_proxy,
                 "HTTP_PROXY": settings.sandbox_http_proxy,
                 "NO_PROXY": settings.sandbox_no_proxy,
+                "SANDBOX_STREAMING_MODE": settings.sandbox_streaming_mode.value,
             }
             if settings.sandbox_api_secret:
                 container_env["SANDBOX_API_SECRET"] = settings.sandbox_api_secret
@@ -460,23 +456,15 @@ class DockerSandbox(Sandbox):
                     continue
 
                 # Check if all services are RUNNING
-                # Note: runtime_init, context_generator, xrandr_setup, fix_permissions are expected to EXIT (run once at startup)
+                # Note: runtime_init/context_generator/fix_permissions can exit after startup.
                 all_running = True
                 non_running_services = []
                 expected_exit_services = {
                     "runtime_init",
                     "context_generator",
-                    "xrandr_setup",
                     "fix_permissions",
-                    # Chrome programs: one of these will always exit/fatal
-                    # based on SANDBOX_STREAMING_MODE (dual vs cdp_only)
+                    # chrome_cdp_only can transiently restart during bootstrap.
                     "chrome_cdp_only",
-                    "chrome_dual",
-                    # VNC/X11 services skip in cdp_only mode
-                    "xvfb",
-                    "openbox",
-                    "x11vnc",
-                    "websockify",
                     "dbus",
                 }
 
@@ -484,8 +472,7 @@ class DockerSandbox(Sandbox):
                     service_name = service.get("name", "unknown")
                     state_name = service.get("statename", "")
 
-                    # Allow EXITED/FATAL state for services that are expected to exit
-                    # (e.g., chrome_cdp_only enters FATAL in dual mode after skipping itself)
+                    # Allow EXITED/FATAL state for services expected to exit/restart.
                     if service_name in expected_exit_services:
                         if state_name not in ("EXITED", "RUNNING", "FATAL"):
                             all_running = False
@@ -1300,7 +1287,7 @@ class DockerSandbox(Sandbox):
         try:
             client = await self.get_client()
             response = await client.get(
-                f"{self.base_url}/api/v1/vnc/screenshot",
+                f"{self.base_url}/api/v1/screenshot",
                 params={"quality": quality, "scale": scale, "format": format},
                 timeout=10.0,
             )

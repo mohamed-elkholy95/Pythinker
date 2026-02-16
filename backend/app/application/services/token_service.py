@@ -185,7 +185,7 @@ class TokenService:
         """Create JWT resource access token for URL-based access
 
         Args:
-            resource_type: Type of resource (file, vnc, etc.)
+            resource_type: Type of resource (file, screencast/input stream, etc.)
             resource_id: ID of the resource (file_id, session_id, etc.)
             user_id: User ID who requested the token
             expire_minutes: Token expiration time in minutes
@@ -293,7 +293,7 @@ class TokenService:
         """Create URL with signature for resource access
 
         Args:
-            base_url: Base URL for the resource (e.g., '/api/v1/files/123' or '/api/v1/sessions/456/vnc')
+            base_url: Base URL for the resource (e.g., '/api/v1/files/123' or '/api/v1/sessions/456/screencast')
             expire_minutes: URL expiration time in minutes
             user_id: Optional user ID to bind the URL to (prevents URL sharing across users)
 

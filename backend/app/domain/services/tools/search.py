@@ -265,7 +265,7 @@ class SearchTool(BaseTool):
     """Search tool class, providing search engine interaction functions with caching.
 
     When `search_prefer_browser` is enabled in settings and a browser instance is provided,
-    searches will be performed visually in the browser (visible in VNC/sandbox viewer)
+    searches will be performed visually in the browser (visible in live preview/sandbox viewer)
     instead of using the API-based search engine.
     """
 
@@ -287,7 +287,7 @@ class SearchTool(BaseTool):
 
         Args:
             search_engine: Search engine service for API-based search
-            browser: Optional browser instance for visual search (visible in VNC)
+            browser: Optional browser instance for visual search (visible in live preview)
             max_observe: Optional custom observation limit (default: 8000)
         """
         super().__init__(max_observe=max_observe)
@@ -312,7 +312,7 @@ class SearchTool(BaseTool):
         return prefer_browser and self._browser is not None
 
     async def _search_via_browser(self, query: str, date_range: str | None = None) -> ToolResult:
-        """Perform search using browser navigation (visible in VNC/sandbox viewer).
+        """Perform search using browser navigation (visible in live preview/sandbox viewer).
 
         This navigates the browser to DuckDuckGo and extracts results,
         making the search visible to users in the sandbox viewer.
@@ -482,7 +482,7 @@ class SearchTool(BaseTool):
         if search_type == SearchType.NEWS and date_range is None:
             date_range = "past_week"
 
-        # Use browser-based search if enabled (visible in VNC/sandbox viewer)
+        # Use browser-based search if enabled (visible in live preview/sandbox viewer)
         if self._should_use_browser_search():
             logger.info(f"Using browser search for {search_type.value} query: {query}")
             result = await self._search_via_browser(query, date_range)
@@ -616,10 +616,10 @@ class SearchTool(BaseTool):
         return ToolResult(success=True, data=aggregated_data, message=message)
 
     async def _browse_top_results(self, search_data: Any, count: int = 3) -> None:
-        """Open top search result URLs in the browser for VNC visibility.
+        """Open top search result URLs in the browser for live preview visibility.
 
         After API search returns results, navigates to the top URLs so the user
-        can see browsing activity in the sandbox VNC viewer. This runs as a
+        can see browsing activity in the sandbox live preview. This runs as a
         fire-and-forget background task and does not block the search response.
 
         Args:
@@ -654,7 +654,7 @@ class SearchTool(BaseTool):
             if not urls:
                 return
 
-            logger.info(f"Browsing top {len(urls)} search results for VNC visibility")
+            logger.info(f"Browsing top {len(urls)} search results for live preview visibility")
             consecutive_failures = 0
             max_failures = 2
             navigation_timeout_seconds = 20.0
@@ -675,7 +675,7 @@ class SearchTool(BaseTool):
                             timeout=navigation_timeout_seconds,
                         )
                         consecutive_failures = 0
-                    # Brief pause for VNC render (kept short to avoid blocking)
+                    # Brief pause for live preview render (kept short to avoid blocking)
                     await asyncio.sleep(1.0)
                 except Exception as e:
                     consecutive_failures += 1
@@ -735,7 +735,7 @@ class SearchTool(BaseTool):
     async def info_search_web(self, query: str, date_range: str | None = None) -> ToolResult:
         """Search webpages using search engine.
 
-        Tries browser-based search first (visible in VNC), falls back to API search.
+        Tries browser-based search first (visible in live preview), falls back to API search.
 
         Args:
             query: Search query, Google search style, using 3-5 keywords
@@ -778,7 +778,7 @@ class SearchTool(BaseTool):
         elif result.success:
             result.message = "[INFO SEARCH]"
 
-        # Fire-and-forget: open top 3 results in browser for VNC visibility
+        # Fire-and-forget: open top 3 results in browser for live preview visibility
         if result.success and self._browser and result.data:
             task = asyncio.create_task(self._browse_top_results(result.data, count=3))
             self._background_tasks.add(task)
@@ -977,7 +977,7 @@ wide_research(
                 "Visit official pages to verify before making claims."
             )
 
-        # Fire-and-forget: open top 3 results in browser for VNC visibility
+        # Fire-and-forget: open top 3 results in browser for live preview visibility
         if self._browser and search_data:
             task = asyncio.create_task(self._browse_top_results(search_data, count=3))
             self._background_tasks.add(task)

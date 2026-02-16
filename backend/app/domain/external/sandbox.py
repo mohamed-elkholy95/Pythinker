@@ -573,11 +573,6 @@ class Sandbox(Protocol):
         """CDP URL"""
         ...
 
-    @property
-    def vnc_url(self) -> str:
-        """VNC URL"""
-        ...
-
     @classmethod
     async def create(cls) -> "Sandbox":
         """Create a new sandbox instance"""

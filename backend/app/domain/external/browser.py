@@ -98,10 +98,10 @@ class Browser(Protocol):
         ...
 
     async def navigate_for_display(self, url: str, timeout: int = 10000) -> bool:  # noqa: ASYNC109
-        """Navigate to URL purely for VNC display (best-effort, non-blocking).
+        """Navigate to URL purely for live preview display (best-effort, non-blocking).
 
         Used after HTTP-based content fetching so the user can see the
-        fetched page in the VNC viewer. Does not extract content.
+        fetched page in the live preview. Does not extract content.
 
         Args:
             url: URL to display in the browser

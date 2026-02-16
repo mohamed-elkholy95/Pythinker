@@ -2,7 +2,7 @@
 
 This module provides autonomous browsing capabilities using the browser-use library.
 It enables AI agents to perform complex multi-step browsing tasks with natural language
-instructions, all visible in real-time via VNC.
+instructions, all visible in real-time via live preview.
 
 Hardening features:
 - Video URL filtering (skip video sites)
@@ -40,7 +40,7 @@ class BrowserUseService:
     - Natural language task execution
     - Multi-step autonomous workflows
     - Form filling and data extraction
-    - Real-time VNC visibility
+    - Real-time live preview visibility
     - Full execution history tracking
 
     Hardening:
@@ -78,7 +78,7 @@ class BrowserUseService:
     async def _force_window_to_origin(self) -> bool:
         """Force all browser windows to position (0,0) using CDP.
 
-        This is critical for VNC display - new windows created by browser-use
+        This is critical for live preview display - new windows created by browser-use
         may not respect the original --window-position=0,0 flag.
         """
         try:
@@ -121,7 +121,7 @@ class BrowserUseService:
                             )
                             await asyncio.wait_for(ws.receive_json(), timeout=5.0)
 
-                            # Force position to (0,0) and size to match VNC
+                            # Force position to (0,0) and size to match live preview
                             await ws.send_json(
                                 {
                                     "id": 3,
@@ -155,7 +155,7 @@ class BrowserUseService:
             try:
                 from browser_use.browser.config import BrowserConfig
 
-                # Configure viewport to match VNC display (1280x1024)
+                # Configure viewport to match live preview display (1280x1024)
                 # This prevents browser-use from setting 1920x1080 which causes content cutoff
                 browser_config = BrowserConfig(
                     viewport_width=1280,

@@ -51,7 +51,7 @@ SAFE_PARALLEL_TOOLS = {
     "file_search",
     "file_list_directory",
     # Browser read operations
-    # "search" removed — now navigates browser for VNC, must be sequential
+    # "search" removed — now navigates browser for live preview, must be sequential
     "browser_view",
     # Code executor read-only operations
     "code_list_artifacts",

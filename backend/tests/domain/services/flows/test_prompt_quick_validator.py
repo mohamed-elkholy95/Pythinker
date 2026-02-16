@@ -39,14 +39,14 @@ def test_quick_validator_fixes_additional_common_misspellings() -> None:
 def test_quick_validator_does_not_overcorrect_technical_terms() -> None:
     validator = PromptQuickValidator()
 
-    raw = "research qdrant kubectl pytest fastapi and novnc integration patterns"
+    raw = "research qdrant kubectl pytest fastapi and prometheus integration patterns"
     cleaned = validator.validate(raw)
 
     assert "qdrant" in cleaned.lower()
     assert "kubectl" in cleaned.lower()
     assert "pytest" in cleaned.lower()
     assert "fastapi" in cleaned.lower()
-    assert "novnc" in cleaned.lower()
+    assert "prometheus" in cleaned.lower()
 
 
 def test_quick_validator_fixes_glm_and_coding_typo_for_research_prompts() -> None:

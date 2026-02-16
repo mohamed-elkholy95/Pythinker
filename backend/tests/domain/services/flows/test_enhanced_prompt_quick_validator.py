@@ -301,7 +301,7 @@ class TestIntegrationScenarios:
 
     def test_no_overcorrection(self, validator):
         """System should not overcorrect valid text."""
-        text = "research qdrant kubectl pytest fastapi and novnc integration patterns"
+        text = "research qdrant kubectl pytest fastapi and prometheus integration patterns"
         cleaned = validator.validate(text)
 
         # All technical terms should remain unchanged
@@ -309,7 +309,7 @@ class TestIntegrationScenarios:
         assert "kubectl" in cleaned.lower()
         assert "pytest" in cleaned.lower()
         assert "fastapi" in cleaned.lower()
-        assert "novnc" in cleaned.lower()
+        assert "prometheus" in cleaned.lower()
 
 
 class TestEdgeCases:

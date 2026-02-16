@@ -1007,6 +1007,7 @@ async def confirm_action(
     )
     return APIResponse.success()
 
+
 @router.get("/{session_id}/files")
 async def get_session_files(
     session_id: str,

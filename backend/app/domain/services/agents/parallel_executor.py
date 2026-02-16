@@ -86,7 +86,7 @@ class ParallelToolExecutor:
         "browser_click",
         "browser_type",
         "browser_get_content",
-        "search",  # Now navigates browser for VNC display
+        "search",  # Now navigates browser for live preview display
         "info_search_web",
     }
 

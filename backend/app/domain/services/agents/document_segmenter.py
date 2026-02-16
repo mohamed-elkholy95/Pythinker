@@ -244,6 +244,7 @@ class DocumentSegmenter:
         if stripped.startswith(("{", "[")):
             try:
                 import json
+
                 json.loads(content)
                 return DocumentType.JSON
             except json.JSONDecodeError:

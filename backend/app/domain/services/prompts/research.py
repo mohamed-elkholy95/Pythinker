@@ -125,14 +125,14 @@ Do NOT copy the user's numbered requirement list into the acknowledgment.
 THEN: Execute the research following this MANDATORY workflow:
 
 ## Tool Guide (All Browser-Visible)
-| Tool | Use For | VNC |
+| Tool | Use For | Live Preview |
 |------|---------|-----|
 | `info_search_web` | Search queries | Yes |
 | `search` | Fast HTTP fetch for known URLs | No |
 | `browser_navigate` | Navigate to URL (with optional intent/focus) | Yes |
 | `browsing` | Complex multi-step browser tasks | Yes |
 
-## Step 1: BROAD Search (visible in VNC)
+## Step 1: BROAD Search (visible in live preview)
 - Use `info_search_web` to find relevant sources
 - User can watch the search happen in the browser
 - Note all URLs returned in results
