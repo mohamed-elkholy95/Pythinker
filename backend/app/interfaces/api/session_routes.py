@@ -88,6 +88,8 @@ def _sandbox_ws_extra_headers() -> list[tuple[str, str]]:
     if settings.sandbox_api_secret:
         headers.append(("x-sandbox-secret", settings.sandbox_api_secret))
     return headers
+
+
 SSE_PROTOCOL_VERSION = "2"
 SSE_RETRY_MAX_ATTEMPTS = 7
 SSE_RETRY_BASE_DELAY_MS = 1000
@@ -202,15 +204,21 @@ async def create_session(
         sandbox_wait_seconds=request.sandbox_wait_seconds,
     )
 
-    # Phase 4: Include sandbox info if available for optimistic VNC connection
+    # Include sandbox info if available
     sandbox_info = None
+    settings = get_settings()
     if session.sandbox_id:
         try:
             sandbox = await sandbox_cls.get(session.sandbox_id)
             if sandbox:
-                sandbox_info = SandboxInfo(sandbox_id=sandbox.id, vnc_url=sandbox.vnc_url, status="initializing")
+                sandbox_info = SandboxInfo(
+                    sandbox_id=sandbox.id,
+                    streaming_mode=settings.sandbox_streaming_mode.value,
+                    vnc_url=sandbox.vnc_url if settings.is_vnc_enabled else None,
+                    status="initializing",
+                )
         except Exception as e:
-            logger.debug(f"Could not fetch sandbox info for optimistic VNC: {e}")
+            logger.debug(f"Could not fetch sandbox info: {e}")
 
     return APIResponse.success(
         CreateSessionResponse(session_id=session.id, mode=session.mode, sandbox=sandbox_info, status=session.status)
@@ -231,6 +239,7 @@ async def get_session(
             session_id=session.id,
             title=session.title,
             status=session.status,
+            streaming_mode=get_settings().sandbox_streaming_mode.value,
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
         )
@@ -252,6 +261,7 @@ async def get_session_status(
             session_id=session.id,
             status=session.status,
             sandbox_id=session.sandbox_id,
+            streaming_mode=get_settings().sandbox_streaming_mode.value,
             created_at=session.created_at.timestamp() if session.created_at else None,
         )
     )
@@ -1021,6 +1031,11 @@ async def vnc_websocket(
         session_id: Session ID
         signature: Verified signature from dependency injection
     """
+    # Gate: reject immediately in CDP-only mode
+    if not get_settings().is_vnc_enabled:
+        await websocket.accept(subprotocol="binary")
+        await _safe_ws_close(websocket, code=1008, reason="VNC disabled (cdp_only mode)")
+        return
 
     await websocket.accept(subprotocol="binary")
     logger.info(f"Accepted WebSocket connection for session {session_id}")
@@ -1122,6 +1137,9 @@ async def create_vnc_signed_url(
     This endpoint creates a signed URL that allows temporary access to the VNC
     WebSocket for a specific session without requiring authentication headers.
     """
+    # Gate: reject in CDP-only mode
+    if not get_settings().is_vnc_enabled:
+        raise HTTPException(status_code=503, detail="VNC disabled (cdp_only mode)")
 
     # Validate expiration time (max 15 minutes)
     expire_minutes = request_data.expire_minutes
@@ -1149,6 +1167,7 @@ async def create_vnc_signed_url(
     )
 
 
+@router.get("/{session_id}/screenshot")
 @router.get("/{session_id}/vnc/screenshot")
 async def get_vnc_screenshot(
     session_id: str,

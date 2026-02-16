@@ -1,92 +1,81 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { nextTick } from 'vue'
 import LiveViewer from '@/components/LiveViewer.vue'
-import VNCViewer from '@/components/VNCViewer.vue'
 
-describe('LiveViewer reconnection progress', () => {
+describe('LiveViewer (CDP-only)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('passes reconnectAttempt=0 to VNCViewer initially', async () => {
+  it('renders SandboxViewer with correct props', async () => {
     const wrapper = mount(LiveViewer, {
       props: {
         sessionId: 'test-session',
         enabled: true,
-        prefer: 'vnc' as const
+        viewOnly: true,
+        quality: 80,
+        maxFps: 20,
       },
       global: {
         stubs: {
-          SandboxViewer: true,
-          VNCViewer: {
-            template: '<div class="vnc-viewer"></div>',
-            props: ['sessionId', 'enabled', 'viewOnly', 'compactLoading', 'reconnectAttempt']
-          }
-        }
-      }
+          SandboxViewer: {
+            template: '<div class="sandbox-viewer"></div>',
+            props: ['sessionId', 'enabled', 'viewOnly', 'quality', 'maxFps', 'showStats'],
+          },
+        },
+      },
     })
 
     await flushPromises()
 
-    const vncViewer = wrapper.findComponent(VNCViewer)
-    expect(vncViewer.exists()).toBe(true)
-    expect(vncViewer.props('reconnectAttempt')).toBe(0)
+    const viewer = wrapper.find('.sandbox-viewer')
+    expect(viewer.exists()).toBe(true)
   })
 
-  it('increments reconnectAttempt when VNC disconnects', async () => {
+  it('emits connected event from SandboxViewer', async () => {
     const wrapper = mount(LiveViewer, {
       props: {
         sessionId: 'test-session',
         enabled: true,
-        prefer: 'vnc' as const
       },
       global: {
         stubs: {
-          SandboxViewer: true
-        }
-      }
+          SandboxViewer: {
+            template: '<div class="sandbox-viewer"></div>',
+            emits: ['connected', 'disconnected', 'error'],
+          },
+        },
+      },
     })
 
     await flushPromises()
 
-    const vncViewer = wrapper.findComponent(VNCViewer)
-    expect(vncViewer.props('reconnectAttempt')).toBe(0)
-
-    // Trigger disconnection
-    vncViewer.vm.$emit('disconnected', 'test disconnect')
-    await nextTick()
-
-    // Wait for reconnection timer setup (immediate check)
-    expect(vncViewer.props('reconnectAttempt')).toBe(1)
+    const sandboxViewer = wrapper.findComponent({ name: 'SandboxViewer' })
+    sandboxViewer.vm.$emit('connected')
+    expect(wrapper.emitted('connected')).toHaveLength(1)
   })
 
-  it('resets reconnectAttempt to 0 when VNC connects', async () => {
+  it('emits disconnected event from SandboxViewer', async () => {
     const wrapper = mount(LiveViewer, {
       props: {
         sessionId: 'test-session',
         enabled: true,
-        prefer: 'vnc' as const
       },
       global: {
         stubs: {
-          SandboxViewer: true
-        }
-      }
+          SandboxViewer: {
+            template: '<div class="sandbox-viewer"></div>',
+            emits: ['connected', 'disconnected', 'error'],
+          },
+        },
+      },
     })
 
     await flushPromises()
 
-    const vncViewer = wrapper.findComponent(VNCViewer)
-
-    // Trigger disconnection
-    vncViewer.vm.$emit('disconnected')
-    await nextTick()
-    expect(vncViewer.props('reconnectAttempt')).toBe(1)
-
-    // Trigger successful connection
-    vncViewer.vm.$emit('connected')
-    await nextTick()
-    expect(vncViewer.props('reconnectAttempt')).toBe(0)
+    const sandboxViewer = wrapper.findComponent({ name: 'SandboxViewer' })
+    sandboxViewer.vm.$emit('disconnected', 'connection lost')
+    expect(wrapper.emitted('disconnected')).toHaveLength(1)
+    expect(wrapper.emitted('disconnected')![0]).toEqual(['connection lost'])
   })
 })

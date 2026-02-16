@@ -22,15 +22,7 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     vue(),
-    commonjs({
-      filter(id) {
-        // Transform @novnc/novnc CommonJS modules to ESM
-        if (id.includes('@novnc/novnc')) {
-          return true;
-        }
-        return false;
-      }
-    }),
+    commonjs(),
   ],
   resolve: {
     alias: {
@@ -38,7 +30,7 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['monaco-editor', '@novnc/novnc/lib/rfb', 'lottie-web', 'konva'],
+    include: ['monaco-editor', 'lottie-web', 'konva'],
     esbuildOptions: {
       target: 'esnext',
       supported: {
