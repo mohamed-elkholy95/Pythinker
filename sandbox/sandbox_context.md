@@ -1,55 +1,47 @@
 # Sandbox Environment Context
 
-**Generated:** 2026-02-16T00:03:44.898419
+**Generated:** 2026-02-16T03:46:32.202545
 **Version:** 1.0.0
-**Checksum:** b138ae99a84cb8b0
+**Checksum:** 355aa9edd4edf5c3
 
 ## Operating System
 
 - **Distribution:** Ubuntu 22.04
-- **Kernel:** 6.12.67-linuxkit
-- **Architecture:** aarch64
-- **User:** ubuntu
-- **Home:** /home/ubuntu
+- **Kernel:** 25.2.0
+- **Architecture:** arm64
+- **User:** panda
+- **Home:** /Users/panda
 
 ## Python Environment
 
-- **Version:** Python 3.11.14
-- **Path:** /opt/base-python-venv/bin/python3
-- **Pip:** pip 26.0.1 from /opt/base-python-venv/lib/python3.11/site-packages/pip (python 3.11)
-- **Total Packages:** 123
+- **Version:** Python 3.9.6
+- **Path:** /usr/bin/python3
+- **Pip:** pip 21.2.4 from /Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/site-packages/pip (python 3.9)
+- **Total Packages:** 33
 
 ### Key Python Packages
 
-- **fastapi:** 0.119.0
-- **uvicorn:** 0.37.0
-- **pydantic:** 2.12.1
-- **playwright:** 1.55.0
-- **pytest:** 9.0.2
 - **requests:** 2.32.5
-- **httpx:** 0.28.1
-- **aiohttp:** 3.13.3
-- **pandas:** 2.3.3
-- **numpy:** 2.3.3
+- **numpy:** 2.0.2
 
 ## Node.js Environment
 
-- **Version:** v22.13.0
-- **NPM:** 10.9.2
-- **PNPM:** 10.29.2
-- **Yarn:** None
-- **Global Packages:** 8
+- **Version:** v24.12.0
+- **NPM:** 11.6.2
+- **PNPM:** 10.28.0
+- **Yarn:** 1.22.22
+- **Global Packages:** 9
 
 ## Browser Automation
 
-- **Chrome for Testing:** Chromium 140.0.7339.16
-- **Playwright:** Available (browsers: chromium, firefox, webkit)
-- **Stealth Mode:** No
 
 ## System Tools
 
 ### Development Tools
-- **git:** git version 2.34.1
+- **git:** git version 2.52.0
+- **gcc:** Apple clang version 17.0.0 (clang-1700.6.3.2)
+- **make:** GNU Make 3.81
+- **gh:** gh version 2.83.2 (2025-12-10)
 
 ### Text Processing
 - grep
@@ -60,6 +52,9 @@
 ### Network Tools
 - curl
 - wget
+- netstat
+- ping
+- nc
 
 ## Sandbox Capabilities
 
@@ -70,14 +65,11 @@
 - Browser automation (Playwright, Puppeteer)
 
 ### Services
-- **VNC Server:** Port 5900 (WebSocket: 5901)
+- **Live Preview:** CDP screencast/input via backend proxy (default)
 - **Chrome DevTools Protocol:** Port 9222
 - **Code Server:** Port 8081
 
 ### File System
-- **/workspace:** User code execution workspace (RW)
-- **/home/ubuntu:** Default user home directory (RW)
-- **/app:** Sandbox service application (RW)
 - **/tmp:** Temporary files (RW)
 
 ## Execution Patterns
@@ -166,17 +158,16 @@ No npm install needed for these modules:
 ## Environment Variables
 
 Key variables available:
-- **PATH:** `/opt/base-python-venv/bin:/home/ubuntu/.local/s...`
-- **HOME:** `/home/ubuntu`
-- **DISPLAY:** `:1`
-- **NODE_VERSION:** `22.13.0`
-- **NVM_DIR:** `/usr/local/nvm`
-- **VIRTUAL_ENV:** `/opt/base-python-venv`
-- **PNPM_HOME:** `/home/ubuntu/.local/share/pnpm`
+- **PATH:** `/Users/panda/.codex/tmp/arg0/codex-arg03sUFDt:/...`
+- **HOME:** `/Users/panda`
+- **USER:** `panda`
+- **SHELL:** `/bin/zsh`
+- **TERM:** `xterm-256color`
+- **LANG:** `C.UTF-8`
+- **LC_ALL:** `C.UTF-8`
+- **NVM_DIR:** `/Users/panda/.nvm`
 
 ## Resource Limits
-
-- **Disk Space:** 21G available (73% used)
 - **Shared Memory:** 2gb
 
 ---

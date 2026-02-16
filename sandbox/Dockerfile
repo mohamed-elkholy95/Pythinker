@@ -18,14 +18,11 @@ RUN apt-get update && apt-get install -y \
     libxinerama1 libxkbfile1 perl xauth x11-xkb-utils xkb-data x11-utils dbus-x11 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y x11vnc websockify xvfb \
-    && rm -rf /var/lib/apt/lists/*
-
 # Create user ubuntu (sudo removed in runtime stage)
 RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu && \
     echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu
 
-RUN mkdir -p /home/ubuntu/.vnc /run/user/1000 && chown -R ubuntu:ubuntu /home/ubuntu/.vnc /run/user/1000
+RUN mkdir -p /run/user/1000 && chown -R ubuntu:ubuntu /run/user/1000
 
 # Python 3.11
 RUN add-apt-repository ppa:deadsnakes/ppa && apt-get update && \
@@ -136,7 +133,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xterm perl xauth x11-xkb-utils xkb-data x11-utils dbus-x11 \
     libjpeg-turbo8 libpng16-16 libxfont2 libgl1-mesa-dri libgl1-mesa-glx libgif7 \
     libssl3 libgnutls30 libxtst6 libxrandr2 libxcursor1 libxinerama1 libxkbfile1 \
-    x11vnc websockify xvfb openbox x11-xserver-utils dmz-cursor-theme \
     ripgrep jq git zip unzip \
     fonts-noto-cjk fonts-noto-color-emoji \
     fonts-liberation fonts-dejavu-core fonts-freefont-ttf fontconfig \
@@ -162,7 +158,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create ubuntu user — no NOPASSWD (removed for hardened non-root runtime)
 RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu
 
-RUN mkdir -p /home/ubuntu/.vnc /home/ubuntu/.config/openbox /run/user/1000 && \
+RUN mkdir -p /run/user/1000 && \
     chown -R ubuntu:ubuntu /home/ubuntu /run/user/1000
 
 # Copy from builder (no dev tools); chrome-for-testing empty when USE_CHROMIUM=1
@@ -203,22 +199,15 @@ RUN if [ "$USE_CHROMIUM" = "1" ]; then \
 WORKDIR /app
 COPY --from=builder /app/app /app/app
 COPY --from=builder /app/scripts /app/scripts
-COPY --from=builder /app/openbox-rc.xml /app/openbox-rc.xml
 COPY --from=builder /app/sandbox_context.json /app/sandbox_context.json
 COPY --from=builder /app/sandbox_context.md /app/sandbox_context.md
 COPY --from=builder /app/requirements.runtime.txt /app/requirements.runtime.txt
 COPY --from=builder /app/requirements.addons.txt /app/requirements.addons.txt
 COPY --from=builder /app/requirements.txt /app/requirements.txt
 
-RUN mkdir -p /home/ubuntu/.config/openbox && cp /app/openbox-rc.xml /home/ubuntu/.config/openbox/rc.xml && \
-    mkdir -p /home/ubuntu/.icons/default && \
-    printf '[Icon Theme]\nInherits=DMZ-Black\n' > /home/ubuntu/.icons/default/index.theme && \
-    chown -R ubuntu:ubuntu /home/ubuntu/.config /home/ubuntu/.icons
-
 COPY supervisord.conf /app/supervisord.conf
 
-ENV UVI_ARGS="" FRAMEWORK_UVI_ARGS="" CHROME_ARGS="" DISPLAY=:1 SANDBOX_STREAMING_MODE=dual \
-    XCURSOR_THEME=DMZ-Black XCURSOR_SIZE=24
+ENV UVI_ARGS="" FRAMEWORK_UVI_ARGS="" CHROME_ARGS="" SANDBOX_STREAMING_MODE=cdp_only
 
 # BROWSER_PATH: When USE_CHROMIUM=1, symlink Playwright Chromium to the default path
 # so BROWSER_PATH=/opt/chrome-for-testing/chrome works for both modes.
@@ -236,7 +225,7 @@ RUN chown -R ubuntu:ubuntu /home/ubuntu && chmod 750 /home/ubuntu && \
     mkdir -p /workspace && chown ubuntu:ubuntu /workspace && chmod 755 /workspace && \
     chown -R ubuntu:ubuntu /app
 
-EXPOSE 8080 8082 9222 5900 5901
+EXPOSE 8080 8082 9222
 
 # Health check: verify sandbox API is responding
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

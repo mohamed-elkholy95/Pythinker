@@ -37,9 +37,9 @@ The sandbox environment provides the following core features:
    - Built-in Google Chrome browser
    - Chrome DevTools Protocol support
    - Remote debugging interface
-4. **VNC Remote Access**:
-   - VNC remote desktop service
-   - WebSocket interface
+4. **Live Browser Streaming (CDP)**:
+   - Screencast stream for real-time preview
+   - Input stream for interactive takeover
 5. **Process Management**: Manage component processes through Supervisor
 
 ## System Requirements
@@ -83,7 +83,7 @@ docker build -t pythinker-sandbox .
 docker build --build-arg ENABLE_SANDBOX_ADDONS=1 -t pythinker-sandbox:full .
 
 # Run the container (use compose for proper tmpfs/security opts)
-docker run -p 8080:8080 -p 8082:8082 -p 9222:9222 -p 5900:5900 -p 5901:5901 pythinker-sandbox
+docker run -p 8080:8080 -p 8082:8082 -p 9222:9222 pythinker-sandbox
 ```
 
 ## Port Information
@@ -91,8 +91,6 @@ docker run -p 8080:8080 -p 8082:8082 -p 9222:9222 -p 5900:5900 -p 5901:5901 pyth
 - **8080**: FastAPI service port
 - **8082**: Sandbox framework API (agent DB + workflow coordination)
 - **9222**: Chrome remote debugging port
-- **5900**: VNC service port
-- **5901**: VNC WebSocket port
 
 ## Configuration Options
 
@@ -103,6 +101,7 @@ The sandbox service supports the following configuration options, which can be s
 - **LOG_LEVEL**: Log level, can be set to `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`, default is `INFO`.
 - **ALLOW_SUDO**: Allow privileged file operations and shell commands (default `false`).
 - **SHELL_MAX_OUTPUT_CHARS**: Max in-memory shell output buffer size (default `200000`).
+- **SANDBOX_STREAMING_MODE**: Streaming mode (`cdp_only`).
 - **FRAMEWORK_DATABASE_URL**: Postgres DSN for the sandbox framework service (default `postgresql+asyncpg://postgres@127.0.0.1:5432/pythinker_sandbox`).
 
 Example `.env` file:
@@ -112,6 +111,7 @@ SERVICE_TIMEOUT_MINUTES=60
 LOG_LEVEL=DEBUG
 ALLOW_SUDO=false
 SHELL_MAX_OUTPUT_CHARS=200000
+SANDBOX_STREAMING_MODE=cdp_only
 FRAMEWORK_DATABASE_URL=postgresql+asyncpg://postgres@127.0.0.1:5432/pythinker_sandbox
 ```
 
@@ -546,5 +546,5 @@ The sandbox container includes the following environments:
 
 ### Browser Debugging
 
-1. Connect to `localhost:5900` using a VNC client
-2. Access `http://localhost:9222/devtools/inspector.html` in your browser 
+1. Access `http://localhost:9222/devtools/inspector.html` in your browser
+2. For UI preview, use backend `screencast`/`input` proxy routes

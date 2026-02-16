@@ -36,7 +36,7 @@ async def capture_frame(
     """
     Capture a single frame from the browser via CDP.
 
-    This is faster than the VNC/xwd approach for one-off screenshots.
+    This is faster than the xwd fallback approach for one-off screenshots.
     Typical latency: 10-30ms vs 50-100ms for xwd.
 
     Args:
