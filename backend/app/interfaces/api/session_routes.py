@@ -183,12 +183,6 @@ def _build_sse_protocol_headers(heartbeat_interval_seconds: float = SSE_HEARTBEA
     }
 
 
-async def _safe_ws_close(websocket: WebSocket, code: int, reason: str) -> None:
-    """Best-effort websocket close to avoid raising on already-closed channels."""
-    with contextlib.suppress(Exception):
-        await websocket.close(code=code, reason=reason[:240])
-
-
 @router.put("", response_model=APIResponse[CreateSessionResponse])
 async def create_session(
     request: CreateSessionRequest = CreateSessionRequest(),
@@ -214,7 +208,6 @@ async def create_session(
                 sandbox_info = SandboxInfo(
                     sandbox_id=sandbox.id,
                     streaming_mode=settings.sandbox_streaming_mode.value,
-                    vnc_url=sandbox.vnc_url if settings.is_vnc_enabled else None,
                     status="initializing",
                 )
         except Exception as e:
@@ -290,6 +283,7 @@ async def get_active_session(
                 session_id=active.id,
                 status=active.status,
                 sandbox_id=active.sandbox_id,
+                streaming_mode=get_settings().sandbox_streaming_mode.value,
                 created_at=active.created_at.timestamp() if active.created_at else None,
             )
         )
@@ -336,7 +330,7 @@ async def pause_session(
     """Pause a session for user takeover
 
     This endpoint pauses the agent execution so the user can take control
-    of the browser via VNC without conflicts.
+    of the browser live preview without conflicts.
     """
     await agent_service.pause_session(session_id, current_user.id)
     return APIResponse.success()
@@ -1013,105 +1007,6 @@ async def confirm_action(
     )
     return APIResponse.success()
 
-
-@router.websocket("/{session_id}/vnc")
-async def vnc_websocket(
-    websocket: WebSocket,
-    session_id: str,
-    signature: str = Depends(verify_signature_websocket),
-    agent_service: AgentService = Depends(get_agent_service),
-) -> None:
-    """VNC WebSocket endpoint (binary mode)
-
-    Establishes a connection with the VNC WebSocket service in the sandbox environment and forwards data bidirectionally
-    Supports authentication via signed URL with signature verification
-
-    Args:
-        websocket: WebSocket connection
-        session_id: Session ID
-        signature: Verified signature from dependency injection
-    """
-    # Gate: reject immediately in CDP-only mode
-    if not get_settings().is_vnc_enabled:
-        await websocket.accept(subprotocol="binary")
-        await _safe_ws_close(websocket, code=1008, reason="VNC disabled (cdp_only mode)")
-        return
-
-    await websocket.accept(subprotocol="binary")
-    logger.info(f"Accepted WebSocket connection for session {session_id}")
-
-    try:
-        # Get sandbox environment address with user validation
-        sandbox_ws_url = await agent_service.get_vnc_url(session_id)
-
-        logger.info(f"Connecting to VNC WebSocket at {sandbox_ws_url}")
-
-        # Connect to sandbox WebSocket (standard RFB protocol)
-        async with websockets.connect(sandbox_ws_url, **SANDBOX_WS_CONNECT_KWARGS) as sandbox_ws:
-            logger.info(f"Connected to VNC WebSocket at {sandbox_ws_url}")
-
-            # Create two tasks to forward data bidirectionally
-            async def forward_to_sandbox():
-                try:
-                    while True:
-                        data = await websocket.receive_bytes()
-                        await sandbox_ws.send(data)
-                except WebSocketDisconnect:
-                    logger.info("Web -> VNC connection closed")
-                except RuntimeError as e:
-                    if "disconnect message has been received" in str(e):
-                        logger.info("Web -> VNC connection closed")
-                    else:
-                        logger.error(f"Error forwarding data to sandbox: {e}")
-                except Exception as e:
-                    logger.error(f"Error forwarding data to sandbox: {e}")
-
-            async def forward_from_sandbox():
-                try:
-                    while True:
-                        data = await sandbox_ws.recv()
-                        await websocket.send_bytes(data)
-                except websockets.exceptions.ConnectionClosed:
-                    logger.info("VNC -> Web connection closed")
-                    pass
-                except Exception as e:
-                    logger.error(f"Error forwarding data from sandbox: {e}")
-
-            # Run two forwarding tasks concurrently
-            forward_task1 = asyncio.create_task(forward_to_sandbox())
-            forward_task2 = asyncio.create_task(forward_from_sandbox())
-
-            # Wait for either task to complete (meaning connection has closed)
-            _done, pending = await asyncio.wait([forward_task1, forward_task2], return_when=asyncio.FIRST_COMPLETED)
-
-            logger.info("WebSocket connection closed")
-
-            # Cancel pending tasks
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
-
-    except ConnectionError as e:
-        error_text = _safe_exc_text(e)
-        logger.error(f"Unable to connect to sandbox environment: {error_text}")
-        await _safe_ws_close(websocket, code=1011, reason=f"Unable to connect to sandbox environment: {error_text}")
-    except NotFoundError as e:
-        error_text = _safe_exc_text(e)
-        logger.info(f"VNC WebSocket rejected: {error_text}")
-        await _safe_ws_close(websocket, code=1008, reason=error_text)
-    except Exception as e:
-        error_text = _safe_exc_text(e)
-        if "Session has no sandbox environment" in error_text:
-            logger.info(f"VNC WebSocket rejected: {error_text}")
-            await _safe_ws_close(websocket, code=1008, reason=error_text)
-        elif "No such container" in error_text or "404 Client Error" in error_text:
-            logger.warning(f"VNC WebSocket: sandbox container no longer exists: {error_text}")
-            await _safe_ws_close(websocket, code=1001, reason="Sandbox container terminated")
-        else:
-            logger.error(f"WebSocket error: {error_text}")
-            await _safe_ws_close(websocket, code=1011, reason=f"WebSocket error: {error_text}")
-
-
 @router.get("/{session_id}/files")
 async def get_session_files(
     session_id: str,
@@ -1124,52 +1019,8 @@ async def get_session_files(
     return APIResponse.success(files)
 
 
-@router.post("/{session_id}/vnc/signed-url", response_model=APIResponse[SignedUrlResponse])
-async def create_vnc_signed_url(
-    session_id: str,
-    request_data: AccessTokenRequest,
-    current_user: User = Depends(get_current_user),
-    agent_service: AgentService = Depends(get_agent_service),
-    token_service: TokenService = Depends(get_token_service),
-) -> APIResponse[SignedUrlResponse]:
-    """Generate signed URL for VNC WebSocket access
-
-    This endpoint creates a signed URL that allows temporary access to the VNC
-    WebSocket for a specific session without requiring authentication headers.
-    """
-    # Gate: reject in CDP-only mode
-    if not get_settings().is_vnc_enabled:
-        raise HTTPException(status_code=503, detail="VNC disabled (cdp_only mode)")
-
-    # Validate expiration time (max 15 minutes)
-    expire_minutes = request_data.expire_minutes
-    if expire_minutes > 15:
-        expire_minutes = 15
-
-    # Check if session exists and belongs to user
-    session = await agent_service.get_session(session_id, current_user.id)
-    if not session:
-        raise NotFoundError("Session not found")
-
-    # Create signed URL for VNC WebSocket
-    ws_base_url = f"/api/v1/sessions/{session_id}/vnc"
-    signed_url = token_service.create_signed_url(
-        base_url=ws_base_url, expire_minutes=expire_minutes, user_id=current_user.id
-    )
-
-    logger.info(f"Created signed URL for VNC access for user {current_user.id}, session {session_id}")
-
-    return APIResponse.success(
-        SignedUrlResponse(
-            signed_url=signed_url,
-            expires_in=expire_minutes * 60,
-        )
-    )
-
-
 @router.get("/{session_id}/screenshot")
-@router.get("/{session_id}/vnc/screenshot")
-async def get_vnc_screenshot(
+async def get_session_screenshot(
     session_id: str,
     quality: int = Query(default=75, ge=1, le=100, description="JPEG quality (1-100)"),
     scale: float = Query(default=0.5, ge=0.1, le=1.0, description="Scale factor (0.1-1.0)"),
@@ -1177,7 +1028,7 @@ async def get_vnc_screenshot(
     agent_service: AgentService = Depends(get_agent_service),
     sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
 ):
-    """Get VNC screenshot from sandbox"""
+    """Get a screenshot from the session sandbox."""
     from fastapi.responses import Response
 
     # Check if session exists and belongs to user
@@ -1198,7 +1049,7 @@ async def get_vnc_screenshot(
         response = await sandbox.get_screenshot(quality=quality, scale=scale, format="jpeg")
 
         content_size = len(response.content)
-        logger.info("Fetched VNC screenshot for session %s (%d bytes)", session_id, content_size)
+        logger.info("Fetched screenshot for session %s (%d bytes)", session_id, content_size)
 
         return Response(
             content=response.content,
@@ -1212,7 +1063,7 @@ async def get_vnc_screenshot(
         )
     except Exception as e:
         error_text = _safe_exc_text(e)
-        logger.error(f"Failed to fetch VNC screenshot: {error_text}")
+        logger.error(f"Failed to fetch screenshot: {error_text}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch screenshot: {error_text}") from e
 
 
@@ -1279,7 +1130,17 @@ async def screencast_websocket(
     logger.info(f"Accepted screencast WebSocket for session {session_id}")
 
     try:
-        session = await agent_service.get_session(session_id)
+        # Extract user_id from signed URL (uid parameter) for authorization
+        from app.interfaces.dependencies import extract_user_id_from_signed_url
+
+        user_id = extract_user_id_from_signed_url(websocket=websocket)
+
+        # Get session with user validation if user_id is present
+        if user_id:
+            session = await agent_service.get_session(session_id, user_id)
+        else:
+            session = await agent_service.get_session(session_id)
+
         if not session or not session.sandbox_id:
             await websocket.close(code=1008, reason="Session or sandbox not found")
             return

@@ -398,3 +398,39 @@ async def _verify_signature(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
 
     return signature
+
+
+def extract_user_id_from_signed_url(
+    request: Request = None,
+    websocket: WebSocket = None,
+) -> str | None:
+    """Extract user_id from signed URL query parameter.
+
+    This dependency extracts the 'uid' parameter from signed URLs,
+    which binds the URL to a specific user for authorization.
+
+    Args:
+        request: HTTP request (for regular endpoints)
+        websocket: WebSocket connection (for WebSocket endpoints)
+
+    Returns:
+        User ID from 'uid' parameter, or None if not present
+
+    Context7 validated: Query parameter extraction pattern.
+    """
+    import urllib.parse
+
+    # Get URL from either request or websocket
+    if websocket:
+        url_str = str(websocket.url)
+    elif request:
+        url_str = str(request.url)
+    else:
+        return None
+
+    # Parse URL and extract uid parameter
+    parsed_url = urllib.parse.urlparse(url_str)
+    query_params = urllib.parse.parse_qs(parsed_url.query)
+    user_id = query_params.get("uid", [None])[0]
+
+    return user_id

@@ -118,6 +118,7 @@ class BrowserConnectionPool:
         self._shutdown = False
         self._force_release_last_at: dict[str, float] = {}
         self._force_release_cooldown_seconds = 30.0
+        self._background_tasks: set[asyncio.Task[Any]] = set()  # Prevent task GC warnings
 
         # Statistics tracking
         self._stats: dict[str, dict[str, Any]] = {}
@@ -165,10 +166,15 @@ class BrowserConnectionPool:
         Gracefully handles missing event loops (e.g. sync singleton access
         during tests). The cleanup task will be started lazily on next
         async access.
+
+        Context7 validated: Background task tracking pattern to prevent GC warnings.
         """
         if self._cleanup_task is None or self._cleanup_task.done():
             try:
                 self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+                # Track task to prevent "unawaited coroutine" warnings
+                self._background_tasks.add(self._cleanup_task)
+                self._cleanup_task.add_done_callback(self._background_tasks.discard)
             except RuntimeError:
                 # No running event loop — cleanup will be started on first async access
                 logger.debug("No event loop for cleanup task; will start lazily")

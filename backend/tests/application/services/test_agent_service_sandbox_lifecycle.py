@@ -97,15 +97,12 @@ async def test_warm_sandbox_destroys_new_sandbox_when_session_already_bound(monk
         "app.application.services.agent_service.get_settings",
         lambda: SimpleNamespace(sandbox_pool_enabled=False),
     )
-    prewarm_browser = AsyncMock()
-    monkeypatch.setattr(service, "_prewarm_browser", prewarm_browser)
 
     await service._warm_sandbox_for_session(session.id)
 
     assert session.sandbox_id == "existing-sandbox"
     created_sandbox.destroy.assert_awaited_once()
     created_sandbox.ensure_sandbox.assert_not_awaited()
-    prewarm_browser.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -121,14 +118,11 @@ async def test_warm_sandbox_destroys_new_sandbox_when_session_missing(monkeypatc
         "app.application.services.agent_service.get_settings",
         lambda: SimpleNamespace(sandbox_pool_enabled=False),
     )
-    prewarm_browser = AsyncMock()
-    monkeypatch.setattr(service, "_prewarm_browser", prewarm_browser)
 
     await service._warm_sandbox_for_session("missing-session")
 
     created_sandbox.destroy.assert_awaited_once()
     created_sandbox.ensure_sandbox.assert_not_awaited()
-    prewarm_browser.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -149,8 +143,6 @@ async def test_warm_sandbox_saves_sandbox_id_when_binding_succeeds(monkeypatch):
         "app.application.services.agent_service.get_settings",
         lambda: SimpleNamespace(sandbox_pool_enabled=False),
     )
-    prewarm_browser = AsyncMock()
-    monkeypatch.setattr(service, "_prewarm_browser", prewarm_browser)
 
     await service._warm_sandbox_for_session(session.id)
 
@@ -176,8 +168,6 @@ async def test_warm_sandbox_skips_redundant_prewarm_for_pooled_sandbox(monkeypat
     sandbox_cls.create = AsyncMock()  # Should not be used when pool acquire succeeds
 
     service = _build_service(session_repository, sandbox_cls)
-    prewarm_browser = AsyncMock()
-    monkeypatch.setattr(service, "_prewarm_browser", prewarm_browser)
 
     fake_pool = SimpleNamespace(
         is_started=True,
@@ -199,7 +189,6 @@ async def test_warm_sandbox_skips_redundant_prewarm_for_pooled_sandbox(monkeypat
     fake_pool.acquire.assert_awaited_once()
     sandbox_cls.create.assert_not_awaited()
     pooled_sandbox.ensure_sandbox.assert_awaited_once()
-    prewarm_browser.assert_not_awaited()
     assert session_repository.status_updates[-1] == (session.id, SessionStatus.PENDING)
 
 
@@ -217,8 +206,6 @@ async def test_warm_sandbox_bypasses_pool_for_static_sandbox_addresses(monkeypat
     sandbox_cls.create = AsyncMock(return_value=created_sandbox)
 
     service = _build_service(session_repository, sandbox_cls)
-    prewarm_browser = AsyncMock()
-    monkeypatch.setattr(service, "_prewarm_browser", prewarm_browser)
 
     monkeypatch.setattr(
         "app.application.services.agent_service.get_settings",
@@ -235,7 +222,6 @@ async def test_warm_sandbox_bypasses_pool_for_static_sandbox_addresses(monkeypat
     get_pool_mock.assert_not_awaited()
     sandbox_cls.create.assert_awaited_once()
     created_sandbox.ensure_sandbox.assert_awaited_once()
-    prewarm_browser.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -252,8 +238,6 @@ async def test_warm_sandbox_bypasses_pool_for_ephemeral_lifecycle_mode(monkeypat
     sandbox_cls.create = AsyncMock(return_value=created_sandbox)
 
     service = _build_service(session_repository, sandbox_cls)
-    prewarm_browser = AsyncMock()
-    monkeypatch.setattr(service, "_prewarm_browser", prewarm_browser)
 
     monkeypatch.setattr(
         "app.application.services.agent_service.get_settings",

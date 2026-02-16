@@ -868,7 +868,8 @@ class AgentService:
                         await next_task
                 # Retrieve result to suppress "Task exception was never retrieved"
                 # (e.g. StopAsyncIteration when stream ends while cancel fires)
-                with contextlib.suppress(Exception):
+                # Note: CancelledError is BaseException (not Exception) in Python 3.8+
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     next_task.result()
             # Cancel the cancel_task to avoid "Task was destroyed but it is pending" on disconnect
             if cancel_task is not None and not cancel_task.done():
@@ -1102,34 +1103,6 @@ class AgentService:
         if result.success:
             return ShellViewResponse(**result.data)
         raise RuntimeError(f"Failed to get shell output: {result.message}")
-
-    async def get_vnc_url(self, session_id: str) -> str:
-        """Get VNC URL for a session.
-
-        Security: User ownership is enforced at the transport layer via
-        HMAC-signed URLs (verify_signature_websocket). The signed URL is
-        generated for the authenticated user and is bound to the session_id
-        path, so it cannot be reused across sessions or users.
-        """
-        if not get_settings().is_vnc_enabled:
-            raise NotFoundError("VNC disabled (cdp_only mode)")
-
-        logger.info(f"Getting VNC URL for session {session_id}")
-
-        session = await self._session_repository.find_by_id(session_id)
-        if not session:
-            logger.error(f"Session {session_id} not found")
-            raise NotFoundError("Session not found")
-
-        if not session.sandbox_id:
-            raise NotFoundError("Session has no sandbox environment")
-
-        # Get sandbox and return VNC URL
-        sandbox = await self._sandbox_cls.get(session.sandbox_id)
-        if not sandbox:
-            raise NotFoundError("Sandbox environment not found")
-
-        return sandbox.vnc_url
 
     async def file_view(self, session_id: str, file_path: str, user_id: str) -> FileViewResponse:
         """View file content, ensuring session belongs to the user"""
