@@ -244,7 +244,7 @@ bun run test:run     # Single test run
 
 ### Browser Architecture
 
-**Standard Browser Stack** (CDP-Only, VNC removed 2026-02-15):
+**Standard Browser Stack** (CDP-only):
 - **Engine:** Playwright Chromium (lighter, more stable than Chrome for Testing)
 - **Control:** Chrome DevTools Protocol (CDP) on port 9222
 - **Display:** CDP screencast streaming for real-time user visibility
@@ -268,12 +268,10 @@ Tool Services (BrowserTool, BrowserAgentTool)
 - ✅ All browser actions visible in real-time via CDP screencast
 
 **Streaming Mode:**
-- Default: `SANDBOX_STREAMING_MODE=cdp_only` (VNC stack removed, -847 lines)
-- Legacy: `dual` mode available but deprecated (requires X11 stack)
+- `SANDBOX_STREAMING_MODE=cdp_only`
 
 **Documentation:**
 - **Comprehensive Guide:** `docs/architecture/BROWSER_ARCHITECTURE.md`
-- **Architecture Decisions:** `docs/architecture/BROWSER_STANDARDIZATION_ADR.md`
 - **Automatic Behavior:** `docs/architecture/AUTOMATIC_BROWSER_BEHAVIOR.md`
 
 ### Memory System Architecture (Phase 1: Hybrid Retrieval)

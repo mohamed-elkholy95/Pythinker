@@ -5,7 +5,7 @@ import json
 import time
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -66,7 +66,6 @@ async def create_session(req: CreateSessionRequest, request: Request):
         "sandbox": {
             "sandbox_id": f"sbx_{session['session_id'][-8:]}",
             "streaming_mode": "cdp_only",
-            "vnc_url": None,
             "status": "initializing",
         },
         "status": session["status"],
@@ -368,7 +367,7 @@ async def deep_research_status(session_id: str):
     })
 
 
-# ── VNC / Sandbox ────────────────────────────────────────────────────
+# ── Sandbox Preview Helpers ───────────────────────────────────────────
 
 # Minimal valid JPEG: 1x1 gray pixel
 _JPEG_1x1 = bytes([
@@ -404,20 +403,6 @@ _JPEG_1x1 = bytes([
 ])
 
 
-class SignedUrlRequest(BaseModel):
-    expire_minutes: int = 15
-
-
-@router.post("/{session_id}/vnc/signed-url")
-async def vnc_signed_url(session_id: str, req: SignedUrlRequest):
-    """VNC signed URL — disabled in CDP-only mode."""
-    return JSONResponse(
-        status_code=503,
-        content={"detail": "VNC disabled (cdp_only)"},
-    )
-
-
-@router.get("/{session_id}/vnc/screenshot")
 @router.get("/{session_id}/screenshot")
 async def screenshot(session_id: str, quality: int = 75, scale: float = 0.5):
     return Response(content=_JPEG_1x1, media_type="image/jpeg")

@@ -1,6 +1,6 @@
 # Replay & Sandbox Architecture
 
-Pythinker uses screenshot-based replay for completed sessions. Live view defaults to CDP screencast via `LiveViewer`, with VNC as runtime fallback.
+Pythinker runs in a CDP-only live-streaming architecture.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ Pythinker uses screenshot-based replay for completed sessions. Live view default
 ┌─────────────────────────────────────────────────────────────┐
 │  Frontend (Vue 3)                                           │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │  SandboxViewer (Canvas - CDP Screencast)              │ │
+│  │  LiveViewer -> SandboxViewer (Canvas CDP Screencast)  │ │
 │  └────────────────────────────────────────────────────────┘ │
 │  ┌──────────────┐ ┌──────────────┐ ┌────────────────────┐   │
 │  │ Chat Panel   │ │ Tool Panel   │ │ Timeline + Events  │   │
@@ -31,8 +31,8 @@ Pythinker uses screenshot-based replay for completed sessions. Live view default
 |-----------|------|---------|
 | `useScreenshotReplay` | `frontend/src/composables/useScreenshotReplay.ts` | Loads and controls screenshot replay timeline |
 | `ScreenshotReplayViewer` | `frontend/src/components/ScreenshotReplayViewer.vue` | Renders replay frame + metadata |
-| `LiveViewer` | `frontend/src/components/LiveViewer.vue` | Live renderer with CDP/VNC fallback |
-| `SandboxViewer` | `frontend/src/components/SandboxViewer.vue` | CDP screencast canvas viewer |
+| `LiveViewer` | `frontend/src/components/LiveViewer.vue` | Thin CDP-only live view wrapper |
+| `SandboxViewer` | `frontend/src/components/SandboxViewer.vue` | CDP screencast canvas viewer + input forwarding |
 | `ToolPanelContent` | `frontend/src/components/ToolPanelContent.vue` | Replay mode rendering in tool panel |
 | `SessionHistoryPage` | `frontend/src/pages/SessionHistoryPage.vue` | Session browsing |
 
@@ -40,9 +40,10 @@ Pythinker uses screenshot-based replay for completed sessions. Live view default
 
 `LiveViewer` is the single live surface used by main panel, takeover, and mini preview contexts.
 
-- Renderer: CDP screencast (CDP-only architecture, VNC stack removed)
+- Renderer: CDP screencast only
+- Signed transport: backend `sandbox/signed-url` endpoints
 
-## CDP Screencast (Primary)
+## CDP Screencast
 
 CDP is accessed through backend-signed URLs:
 
@@ -52,10 +53,12 @@ CDP is accessed through backend-signed URLs:
 
 Important: `quality` and `max_fps` are part of signature verification and must be included at sign time.
 
-VNC remains available as a backend-proxied fallback via:
+## Input Forwarding
 
-- `POST /sessions/{session_id}/vnc/signed-url`
-- `WS /sessions/{session_id}/vnc?...signature=...`
+For interactive takeover, input events are forwarded through a signed backend WebSocket:
+
+- Frontend requests `POST /sessions/{session_id}/sandbox/signed-url?target=input`
+- Frontend connects to `WS /sessions/{session_id}/input?...signature=...`
 
 ## Replay Strategy
 
@@ -66,37 +69,17 @@ Replay uses screenshot timeline data:
 
 The UI enters replay mode for `completed`/`failed` sessions when screenshot data exists.
 
-## Sandbox Architecture
+## Sandbox APIs
 
-### CDP Screencast API
+### Screencast
 
 ```
 GET /api/v1/screencast/stream  # WebSocket - continuous JPEG frames
 GET /api/v1/screencast/frame   # Single frame capture
 ```
 
-### Input Forwarding
-
-For interactive takeover, input events are forwarded to the sandbox:
+### Input
 
 ```
-POST /api/v1/input/mouse      # { x, y, type, button }
-POST /api/v1/input/keyboard   # { key, type, modifiers }
-POST /api/v1/input/scroll     # { x, y, deltaX, deltaY }
-```
-
-### Container Resources
-
-```yaml
-# docker-compose-development.yml sandbox config
-shm_size: '2gb'           # Chrome stability
-tmpfs:
-  - /run:size=100M
-  - /tmp:size=500M
-deploy:
-  resources:
-    limits:
-      memory: 4G
-    reservations:
-      memory: 1G
+WS /api/v1/input/stream        # Mouse/keyboard/wheel events over JSON
 ```

@@ -294,7 +294,7 @@
 			},
 			"sandbox_isolation": {
 				"description": "Each task runs in isolated Docker container",
-				"features": ["VNC access", "Browser automation", "Terminal access", "File system isolation"]
+				"features": ["CDP live preview", "Browser automation", "Terminal access", "File system isolation"]
 			}
 		},
 		"api": {
@@ -303,7 +303,7 @@
 				"sessions": {
 					"PUT /sessions": "Create session",
 					"POST /sessions/{id}/chat": "Chat (SSE stream)",
-					"WS /sessions/{id}/vnc": "VNC WebSocket tunnel"
+					"WS /sessions/{id}/screencast": "CDP screencast WebSocket tunnel"
 				},
 				"deep_research": {
 					"POST /sessions/{id}/deep-research/approve": "Approve pending research",
@@ -316,7 +316,7 @@
 			"frontend": 5173,
 			"backend": 8000,
 			"sandbox": 8080,
-			"sandbox_vnc": 5902,
+			"sandbox_cdp_debug": 9222,
 			"mongodb": 27017,
 			"redis": 6379
 		},

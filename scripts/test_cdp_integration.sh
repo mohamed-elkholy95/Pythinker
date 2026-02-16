@@ -97,7 +97,7 @@ echo ""
 echo "[TEST 4] Supervisor Process Status"
 echo "-----------------------------------"
 
-SANDBOX_MODE=$(docker exec pythinker-backend-1 printenv SANDBOX_STREAMING_MODE 2>/dev/null || echo "dual")
+SANDBOX_MODE=$(docker exec pythinker-backend-1 printenv SANDBOX_STREAMING_MODE 2>/dev/null || echo "cdp_only")
 info "SANDBOX_STREAMING_MODE=$SANDBOX_MODE"
 
 CHROME_PROCESS=$(docker exec pythinker-sandbox-1 supervisorctl status | grep chrome || true)
@@ -183,10 +183,10 @@ echo "[TEST 9] Environment Configuration"
 echo "----------------------------------"
 
 STREAMING_MODE=$(docker exec pythinker-sandbox-1 printenv SANDBOX_STREAMING_MODE 2>/dev/null || echo "not set")
-if [ "$STREAMING_MODE" = "dual" ] || [ "$STREAMING_MODE" = "cdp_only" ]; then
+if [ "$STREAMING_MODE" = "cdp_only" ]; then
     pass "SANDBOX_STREAMING_MODE configured: $STREAMING_MODE"
 else
-    fail "SANDBOX_STREAMING_MODE not configured (got: $STREAMING_MODE)"
+    fail "SANDBOX_STREAMING_MODE must be cdp_only (got: $STREAMING_MODE)"
 fi
 
 echo ""
@@ -221,7 +221,7 @@ if [ $TESTS_FAILED -eq 0 ]; then
     echo "1. Test WebSocket connection from frontend"
     echo "2. Verify mouse/keyboard input forwarding"
     echo "3. Measure input latency (target: <10ms)"
-    echo "4. Test in both dual and cdp_only modes"
+    echo "4. Keep SANDBOX_STREAMING_MODE set to cdp_only"
     exit 0
 else
     echo -e "${RED}✗ SOME TESTS FAILED${NC}"

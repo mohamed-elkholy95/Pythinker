@@ -187,7 +187,9 @@ Development ports:
 - 5173: Web frontend
 - 8000: Backend API
 - 8080: Sandbox API
-- 5902: Sandbox VNC
+
+Browser live preview is streamed through authenticated backend CDP WebSocket proxies
+(`screencast` + `input`); no direct sandbox desktop port is required.
 
 ### Run GitHub Tests Locally (Exact Workflow Replica)
 

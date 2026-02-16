@@ -39,7 +39,7 @@ backend/
    - File read/write operations
    - Web search integration
 4. **Sandbox Environment**: Use Docker containers to provide isolated execution environments
-5. **VNC Visualization**: Support remote viewing of the sandbox environment via WebSocket connection
+5. **Live Browser Preview**: CDP screencast streaming via authenticated WebSocket proxy
 
 ## Requirements
 
@@ -285,14 +285,13 @@ Base URL: `/api/v1`
   }
   ```
 
-### 9. VNC Connection
+### 9. Browser Screencast Stream (CDP)
 
-- **Endpoint**: `WebSocket /api/v1/sessions/{session_id}/vnc`
-- **Description**: Establish a VNC WebSocket connection to the session's sandbox environment
+- **Endpoint**: `WebSocket /api/v1/sessions/{session_id}/screencast`
+- **Description**: Stream live browser frames from the session sandbox to the client
 - **Path Parameters**:
   - `session_id`: Session ID
 - **Protocol**: WebSocket (binary mode)
-- **Subprotocol**: `binary`
 
 ## Error Handling
 
