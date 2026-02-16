@@ -12,10 +12,12 @@ from app.infrastructure.storage.redis import get_redis
 @pytest.fixture
 async def redis_client():
     """Get Redis client for testing. Skips if Redis is unavailable."""
+    import redis.exceptions
+
     client = get_redis()
     try:
         await client.initialize()
-    except (ConnectionError, OSError):
+    except (redis.exceptions.ConnectionError, ConnectionError, OSError):
         pytest.skip("Redis unavailable")
     yield client
     # Cleanup

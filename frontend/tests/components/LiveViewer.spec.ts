@@ -1,14 +1,24 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import LiveViewer from '@/components/LiveViewer.vue'
 
 describe('LiveViewer (CDP-only)', () => {
+  let wrapper: VueWrapper | null = null
+
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
+  afterEach(() => {
+    // Clean up: unmount wrapper to prevent cross-test contamination
+    if (wrapper) {
+      wrapper.unmount()
+      wrapper = null
+    }
+  })
+
   it('renders SandboxViewer with correct props', async () => {
-    const wrapper = mount(LiveViewer, {
+    wrapper = mount(LiveViewer, {
       props: {
         sessionId: 'test-session',
         enabled: true,
@@ -19,6 +29,7 @@ describe('LiveViewer (CDP-only)', () => {
       global: {
         stubs: {
           SandboxViewer: {
+            name: 'SandboxViewer',
             template: '<div class="sandbox-viewer"></div>',
             props: ['sessionId', 'enabled', 'viewOnly', 'quality', 'maxFps', 'showStats'],
           },
@@ -33,7 +44,7 @@ describe('LiveViewer (CDP-only)', () => {
   })
 
   it('emits connected event from SandboxViewer', async () => {
-    const wrapper = mount(LiveViewer, {
+    wrapper = mount(LiveViewer, {
       props: {
         sessionId: 'test-session',
         enabled: true,
@@ -41,6 +52,7 @@ describe('LiveViewer (CDP-only)', () => {
       global: {
         stubs: {
           SandboxViewer: {
+            name: 'SandboxViewer',
             template: '<div class="sandbox-viewer"></div>',
             emits: ['connected', 'disconnected', 'error'],
           },
@@ -50,13 +62,13 @@ describe('LiveViewer (CDP-only)', () => {
 
     await flushPromises()
 
-    const sandboxViewer = wrapper.findComponent({ name: 'SandboxViewer' })
+    const sandboxViewer = wrapper.getComponent({ name: 'SandboxViewer' })
     sandboxViewer.vm.$emit('connected')
     expect(wrapper.emitted('connected')).toHaveLength(1)
   })
 
   it('emits disconnected event from SandboxViewer', async () => {
-    const wrapper = mount(LiveViewer, {
+    wrapper = mount(LiveViewer, {
       props: {
         sessionId: 'test-session',
         enabled: true,
@@ -64,6 +76,7 @@ describe('LiveViewer (CDP-only)', () => {
       global: {
         stubs: {
           SandboxViewer: {
+            name: 'SandboxViewer',
             template: '<div class="sandbox-viewer"></div>',
             emits: ['connected', 'disconnected', 'error'],
           },
@@ -73,7 +86,7 @@ describe('LiveViewer (CDP-only)', () => {
 
     await flushPromises()
 
-    const sandboxViewer = wrapper.findComponent({ name: 'SandboxViewer' })
+    const sandboxViewer = wrapper.getComponent({ name: 'SandboxViewer' })
     sandboxViewer.vm.$emit('disconnected', 'connection lost')
     expect(wrapper.emitted('disconnected')).toHaveLength(1)
     expect(wrapper.emitted('disconnected')![0]).toEqual(['connection lost'])

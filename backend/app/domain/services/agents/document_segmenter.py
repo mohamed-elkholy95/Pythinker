@@ -102,6 +102,7 @@ class SegmentationResult:
     chunks: list[DocumentChunk]
     document_type: DocumentType
     total_lines: int
+    total_chunks: int  # Total number of chunks created
     strategy_used: ChunkingStrategy
     boundaries_preserved: int = 0  # Number of function/class boundaries preserved
     metadata: dict[str, str] = field(default_factory=dict)
@@ -123,9 +124,9 @@ class DocumentSegmenter:
     PYTHON_DEF_PATTERN: ClassVar[re.Pattern] = re.compile(r"^\s*(def|class|async\s+def)\s+\w+")
     PYTHON_DECORATOR_PATTERN: ClassVar[re.Pattern] = re.compile(r"^\s*@\w+")
 
-    # Markdown boundary patterns
-    MARKDOWN_HEADING_PATTERN: ClassVar[re.Pattern] = re.compile(r"^#{1,6}\s+.+")
-    MARKDOWN_CODE_FENCE_PATTERN: ClassVar[re.Pattern] = re.compile(r"^```")
+    # Markdown boundary patterns (MULTILINE flag for per-line matching)
+    MARKDOWN_HEADING_PATTERN: ClassVar[re.Pattern] = re.compile(r"^#{1,6}\s+.+", re.MULTILINE)
+    MARKDOWN_CODE_FENCE_PATTERN: ClassVar[re.Pattern] = re.compile(r"^```", re.MULTILINE)
 
     # General boundary patterns
     EMPTY_LINE_PATTERN: ClassVar[re.Pattern] = re.compile(r"^\s*$")
@@ -157,6 +158,7 @@ class DocumentSegmenter:
                 chunks=[],
                 document_type=DocumentType.TEXT,
                 total_lines=0,
+                total_chunks=0,
                 strategy_used=self.config.strategy,
             )
 
@@ -167,13 +169,16 @@ class DocumentSegmenter:
         lines = content.split("\n")
         total_lines = len(lines)
 
-        # Select chunking strategy
+        # Select chunking strategy and track actual strategy used
+        actual_strategy = self.config.strategy
         if self.config.strategy == ChunkingStrategy.SEMANTIC:
             chunks = self._segment_semantic(lines, document_type)
         elif self.config.strategy == ChunkingStrategy.FIXED_SIZE:
             chunks = self._segment_fixed_size(lines)
         else:  # HYBRID
             chunks = self._segment_hybrid(lines, document_type)
+            # Note: HYBRID may fall back to SEMANTIC or FIXED_SIZE internally
+            # For now, we report HYBRID as configured (future: track actual fallback)
 
         # Post-process: add overlap if configured
         if self.config.overlap_lines > 0:
@@ -183,7 +188,8 @@ class DocumentSegmenter:
             chunks=chunks,
             document_type=document_type,
             total_lines=total_lines,
-            strategy_used=self.config.strategy,
+            total_chunks=len(chunks),
+            strategy_used=actual_strategy,
             boundaries_preserved=sum(1 for c in chunks if c.chunk_type == "boundary"),
         )
 
@@ -227,7 +233,22 @@ class DocumentSegmenter:
         """Auto-detect document type from content.
 
         Context7 validated: Pattern matching, early returns.
+
+        Note: JSON detection is done before Python AST parsing because
+        valid JSON like {"key": "value"} is also valid Python (dict literal).
+        We prioritize JSON classification for structured data.
         """
+        # Check for JSON first (before AST parse)
+        # Valid JSON like {"key": "value"} is also valid Python syntax
+        stripped = content.strip()
+        if stripped.startswith(("{", "[")):
+            try:
+                import json
+                json.loads(content)
+                return DocumentType.JSON
+            except json.JSONDecodeError:
+                pass  # Fall through to other checks
+
         # Try Python AST parsing
         try:
             ast.parse(content)
@@ -238,10 +259,6 @@ class DocumentSegmenter:
         # Check for markdown patterns
         if self.MARKDOWN_HEADING_PATTERN.search(content) or self.MARKDOWN_CODE_FENCE_PATTERN.search(content):
             return DocumentType.MARKDOWN
-
-        # Check for JSON
-        if content.strip().startswith(("{", "[")):
-            return DocumentType.JSON
 
         # Check for YAML
         if re.search(r"^\w+:\s*.+", content, re.MULTILINE):
@@ -505,14 +522,26 @@ def get_document_segmenter(config: SegmentationConfig | None = None) -> Document
     """Get or create the global document segmenter.
 
     Args:
-        config: Optional custom config (only used on first call)
+        config: Optional custom config. If provided, creates a new instance
+               (useful for tests). If None, returns the default singleton.
 
     Returns:
         DocumentSegmenter instance
 
-    Context7 validated: Singleton factory pattern.
+    Context7 validated: Singleton factory pattern with test override.
+
+    Note: This fixes config-order sensitivity in tests. When a specific
+    config is provided, we create a new instance instead of reusing the
+    singleton, preventing test interference.
     """
     global _document_segmenter
+
+    # If custom config provided, create new instance (don't use singleton)
+    # This allows tests to pass custom configs without affecting other tests
+    if config is not None:
+        return DocumentSegmenter(config=config)
+
+    # Otherwise, use default singleton
     if _document_segmenter is None:
-        _document_segmenter = DocumentSegmenter(config=config)
+        _document_segmenter = DocumentSegmenter(config=None)
     return _document_segmenter

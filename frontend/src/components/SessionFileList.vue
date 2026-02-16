@@ -331,13 +331,13 @@ const getFileIconComponent = (filename: string) => {
 const getFileIconBgClass = (filename: string): string => {
     const ext = getFileExtension(filename);
 
-    // Code files - blue
+    // Code files - primary color
     if (fileCategories.code.includes(ext)) {
-        return 'bg-blue-600 dark:bg-blue-500';
+        return 'bg-[var(--color-primary)]';
     }
-    // Documents - blue
+    // Documents - primary color
     if (['md', 'txt', 'pdf', 'doc', 'docx', 'rtf', 'odt'].includes(ext)) {
-        return 'bg-blue-600 dark:bg-blue-500';
+        return 'bg-[var(--color-primary)]';
     }
     // Spreadsheets - green
     if (['xls', 'xlsx', 'csv'].includes(ext)) {
@@ -355,12 +355,12 @@ const getFileIconBgClass = (filename: string): string => {
     if (['zip', 'tar', 'gz', 'rar', '7z', 'bz2'].includes(ext)) {
         return 'bg-[var(--function-error)]';
     }
-    // Links - purple
+    // Links - accent color
     if (fileCategories.links.includes(ext)) {
-        return 'bg-purple-600 dark:bg-purple-500';
+        return 'bg-[var(--color-accent)]';
     }
 
-    return 'bg-gray-500 dark:bg-gray-600';
+    return 'bg-[var(--color-text-tertiary)]';
 };
 
 // Format file date
@@ -519,7 +519,7 @@ watch(visible, (newVisible) => {
     width: 36px;
     height: 36px;
     border-radius: 8px;
-    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
     display: flex;
     align-items: center;
     justify-content: center;

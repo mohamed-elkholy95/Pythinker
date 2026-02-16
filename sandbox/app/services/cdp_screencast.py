@@ -2,7 +2,7 @@
 CDP Screencast Service - Low-latency browser streaming via Chrome DevTools Protocol.
 
 This service provides real-time browser view streaming with 10-50ms latency,
-significantly faster than VNC-based approaches (50-200ms).
+significantly faster than traditional screenshot polling approaches (50-200ms).
 
 Features:
 - Direct CDP connection to Chrome
@@ -388,22 +388,33 @@ class CDPScreencastService:
         finally:
             self._streaming = False
 
-    async def capture_single_frame(self) -> bytes | None:
+    async def capture_single_frame(
+        self, quality: int | None = None, image_format: str | None = None
+    ) -> bytes | None:
         """
         Capture a single frame from the browser.
 
         Uses persistent connection via ensure_connected() for low overhead.
         Useful for one-off screenshots with lower latency than xwd approach.
 
+        Args:
+            quality: Override quality setting for this capture (default: use config)
+            image_format: Override format for this capture (default: use config)
+
         P1.2: Enhanced with timeout detection and automatic reconnect.
+        P2.8: Added per-request config parameters to fix singleton race condition.
         """
         if not await self.ensure_connected():
             return None
 
+        # Use per-request config if provided, otherwise fall back to instance config
+        capture_quality = quality if quality is not None else self.config.quality
+        capture_format = image_format if image_format is not None else self.config.format
+
         try:
             result = await self._send_command(
                 "Page.captureScreenshot",
-                {"format": self.config.format, "quality": self.config.quality},
+                {"format": capture_format, "quality": capture_quality},
             )
 
             # P1.2: Detect timeout (result is None) and force reconnect
