@@ -7,6 +7,7 @@
     :quality="quality"
     :max-fps="maxFps"
     :show-stats="showStats"
+    :is-canvas-mode="isCanvasMode"
     @connected="emit('connected')"
     @disconnected="(reason?: string) => emit('disconnected', reason)"
     @error="(error: string) => emit('error', error)"
@@ -25,6 +26,8 @@ withDefaults(
     maxFps?: number
     showStats?: boolean
     compactLoading?: boolean
+    /** True when viewing canvas/chart content (shows agent action overlay toggle) */
+    isCanvasMode?: boolean
   }>(),
   {
     sessionId: '',
@@ -33,7 +36,8 @@ withDefaults(
     quality: 70,
     maxFps: 15,
     showStats: false,
-    compactLoading: false
+    compactLoading: false,
+    isCanvasMode: false
   }
 )
 

@@ -54,6 +54,7 @@
         :can-redo="lsCanRedo"
         :annotation-count="lsAnnotationCount"
         :show-agent-actions="showAgentActions"
+        :show-agent-actions-toggle="isCanvasMode"
         :show-stats="showStats"
         :has-frame="lsHasFrame"
         :fps="lsFps"
@@ -122,13 +123,16 @@ const props = withDefaults(
     quality?: number
     maxFps?: number
     showStats?: boolean
+    /** True when viewing canvas/chart content (shows agent action overlay toggle) */
+    isCanvasMode?: boolean
   }>(),
   {
     viewOnly: true,
     inactiveMessage: "Pythinker's computer is inactive",
     quality: 70,
     maxFps: 15,
-    showStats: false
+    showStats: false,
+    isCanvasMode: false
   }
 )
 

@@ -10,9 +10,9 @@
       @close="emit('hide')"
     />
 
-    <!-- Browser Chrome (Preview mode only) -->
+    <!-- Browser Chrome (Canvas mode only) -->
     <BrowserChrome
-      v-if="activeTab === 'preview'"
+      v-if="activeTab === 'canvas'"
       :url="browserUrl"
       :device="deviceMode"
       :is-fullscreen="isFullscreen"

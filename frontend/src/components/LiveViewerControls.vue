@@ -40,8 +40,9 @@
         <Pencil :size="15" />
       </button>
 
-      <!-- Agent action overlay toggle -->
+      <!-- Agent action overlay toggle (Canvas mode only) -->
       <button
+        v-if="showAgentActionsToggle"
         class="ctrl-btn"
         :class="{ active: showAgentActions }"
         title="Agent Action Overlay"
@@ -148,6 +149,7 @@ defineProps<{
   canRedo: boolean
   annotationCount: number
   showAgentActions: boolean
+  showAgentActionsToggle?: boolean
   showStats: boolean
   hasFrame: boolean
   fps: number
