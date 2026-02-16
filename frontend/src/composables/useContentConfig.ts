@@ -30,7 +30,7 @@ export function useContentConfig(toolContent: Ref<ToolContent | undefined>) {
     return TOOL_CONTENT_CONFIG[toolName] || null;
   });
 
-  // Check if current function is text-only (no VNC needed)
+  // Check if current function is text-only (no live preview needed)
   const isTextOnlyOperation = computed(() => {
     const func = toolContent.value?.function;
     return func ? TEXT_ONLY_FUNCTIONS.has(func) : false;

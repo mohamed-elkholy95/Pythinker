@@ -14,12 +14,11 @@ export enum AgentMode {
     AGENT = "agent"
 }
 
-export type StreamingMode = 'dual' | 'cdp_only'
+export type StreamingMode = 'cdp_only'
 
 export interface SandboxInfo {
     sandbox_id: string;
     streaming_mode: StreamingMode;
-    vnc_url: string | null;
     status: string;
 }
 

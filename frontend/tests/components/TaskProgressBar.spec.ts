@@ -466,7 +466,7 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    const miniPreview = wrapper.findComponent({ name: 'VncMiniPreview' })
+    const miniPreview = wrapper.findComponent({ name: 'LiveMiniPreview' })
     expect(miniPreview.exists()).toBe(true)
     expect(miniPreview.props('summaryStreamText')).toBe('summary text')
   })

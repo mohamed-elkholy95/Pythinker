@@ -122,29 +122,29 @@
             />
           </div>
 
-          <!-- VNC View (via backend proxy - works from browser) — skip for completed sessions -->
+          <!-- Live preview view (via backend proxy) — skip for completed sessions -->
           <div
-            v-else-if="currentViewType === 'vnc' && !isReplayMode"
+            v-else-if="currentViewType === 'live_preview' && !isReplayMode"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <!-- Placeholder for loading/text-only operations -->
             <LoadingState
-              v-if="showVncPlaceholder"
-              :label="vncPlaceholderLabel || 'Loading'"
-              :detail="vncPlaceholderDetail"
+              v-if="showLivePreviewPlaceholder"
+              :label="livePreviewPlaceholderLabel || 'Loading'"
+              :detail="livePreviewPlaceholderDetail"
               :is-active="isActiveOperation"
-              :animation="vncPlaceholderAnimation || 'globe'"
+              :animation="livePreviewPlaceholderAnimation || 'globe'"
             />
 
-            <!-- VNC Viewer when enabled -->
+            <!-- Live viewer when enabled -->
             <LiveViewer
-              v-else-if="vncEnabled"
-              :key="'vnc-main-' + (sessionId || 'none')"
+              v-else-if="livePreviewEnabled"
+              :key="'live-preview-main-' + (sessionId || 'none')"
               :session-id="sessionId || ''"
-              :enabled="vncEnabled"
+              :enabled="livePreviewEnabled"
               :view-only="true"
-              @connected="onVNCConnected"
-              @disconnected="onVNCDisconnected"
+              @connected="onLivePreviewConnected"
+              @disconnected="onLivePreviewDisconnected"
             />
 
             <!-- Inactive state when no session -->
@@ -153,18 +153,18 @@
               message="Pythinker's computer is inactive"
             />
 
-            <!-- VNC URL bar overlay - shows current URL during browser operations -->
-            <div v-if="showVncUrlBar" class="vnc-url-bar">
-              <div class="vnc-url-status">
-                <Loader2 v-if="isActiveOperation" :size="12" class="vnc-url-spinner" />
+            <!-- URL bar overlay - shows current URL during browser operations -->
+            <div v-if="showLivePreviewUrlBar" class="live-preview-url-bar">
+              <div class="live-preview-url-status">
+                <Loader2 v-if="isActiveOperation" :size="12" class="live-preview-url-spinner" />
                 <Check v-else :size="12" />
               </div>
-              <span class="vnc-url-text">{{ vncUrlBarText }}</span>
+              <span class="live-preview-url-text">{{ livePreviewUrlBarText }}</span>
             </div>
 
             <!-- Take over button — visible whenever session is active -->
             <button
-              v-if="!isShare && !!props.sessionId && !showVncPlaceholder"
+              v-if="!isShare && !!props.sessionId && !showLivePreviewPlaceholder"
               @click="takeOver"
               class="takeover-btn absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-[var(--text-onblack)] group transition-all duration-300">
               <TakeOverIcon />
@@ -230,18 +230,18 @@
             :always-show="true"
           />
 
-          <!-- VNC fallback when session exists but no dedicated view — skip for completed sessions -->
+          <!-- Live preview fallback when session exists but no dedicated view — skip for completed sessions -->
           <div
             v-else-if="sessionId && !isReplayMode"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <LiveViewer
-              :key="'vnc-fallback-' + (sessionId || 'none')"
+              :key="'live-preview-fallback-' + (sessionId || 'none')"
               :session-id="sessionId"
               :enabled="true"
               :view-only="true"
-              @connected="onVNCConnected"
-              @disconnected="onVNCDisconnected"
+              @connected="onLivePreviewConnected"
+              @disconnected="onLivePreviewDisconnected"
             />
           </div>
 
@@ -389,7 +389,7 @@ const shouldShowArtifactEditor = computed(() => {
 });
 
 const currentViewType = computed(() => {
-  if (forceBrowserView.value) return 'vnc';
+  if (forceBrowserView.value) return 'live_preview';
   if (shouldShowArtifactEditor.value) return 'editor';
   return computedViewType.value;
 });
@@ -484,8 +484,8 @@ const streamingPresentation = useStreamingPresentationState({
     if (currentViewType.value === 'terminal' || currentViewType.value === 'editor' || currentViewType.value === 'search') {
       return currentViewType.value;
     }
-    if (currentViewType.value === 'vnc') {
-      return 'vnc';
+    if (currentViewType.value === 'live_preview') {
+      return 'live_preview';
     }
     return 'generic';
   }),
@@ -524,52 +524,52 @@ const contentHeaderLabel = computed(() => {
   return toolDisplay.value?.displayName || '';
 });
 
-const showVncPlaceholder = computed(() => {
+const showLivePreviewPlaceholder = computed(() => {
   if (forceBrowserView.value) return false;
   if (!props.sessionId) return true;
-  if (vncDisconnected.value) return true;
+  if (livePreviewDisconnected.value) return true;
   return false;
 });
 
-const vncPlaceholderLabel = computed(() => {
+const livePreviewPlaceholderLabel = computed(() => {
   if (!props.sessionId) return 'No live session';
-  if (vncDisconnected.value) return 'Reconnecting';
+  if (livePreviewDisconnected.value) return 'Reconnecting';
   return 'Connecting';
 });
 
-const vncPlaceholderDetail = computed(() => {
+const livePreviewPlaceholderDetail = computed(() => {
   if (!props.sessionId) return 'Open a session to view the screen.';
-  if (vncDisconnected.value) return 'Waiting for the live stream.';
+  if (livePreviewDisconnected.value) return 'Waiting for the live stream.';
   return '';
 });
 
-// Animation type for VNC placeholder
-const vncPlaceholderAnimation = computed<'globe' | 'check' | 'spinner'>(() => {
+// Animation type for live preview placeholder
+const livePreviewPlaceholderAnimation = computed<'globe' | 'check' | 'spinner'>(() => {
   return 'globe';
 });
 
-const vncEnabled = computed(() => {
-  return !!props.sessionId && !showVncPlaceholder.value;
+const livePreviewEnabled = computed(() => {
+  return !!props.sessionId && !showLivePreviewPlaceholder.value;
 });
 
 // Whether the current tool has a rich native view (editor, terminal, search, chart)
-// that is more informative than a VNC screenshot replay
+// that is more informative than a screenshot replay
 const hasRichToolView = computed(() => {
   const vt = currentViewType.value;
   return vt === 'editor' || vt === 'terminal' || vt === 'search' || vt === 'wide_research' || vt === 'chart';
 });
 
-// ============ VNC URL Bar Overlay ============
+// ============ URL Bar Overlay ============
 const BROWSER_TOOL_PREFIXES = ['browser', 'playwright', 'browsing'];
 const isBrowserTool = (name: string) =>
   BROWSER_TOOL_PREFIXES.some(prefix => name.startsWith(prefix));
 
-const showVncUrlBar = computed(() => {
-  if (showVncPlaceholder.value) return false;
+const showLivePreviewUrlBar = computed(() => {
+  if (showLivePreviewPlaceholder.value) return false;
   return isBrowserTool(toolName.value) && !!toolDisplay.value?.resourceLabel;
 });
 
-const vncUrlBarText = computed(() => {
+const livePreviewUrlBarText = computed(() => {
   return toolDisplay.value?.resourceLabel || '';
 });
 
@@ -757,7 +757,7 @@ onUnmounted(() => {
 // ============ Editor Content ============
 const fileContent = ref('');
 const originalContent = ref('');
-const vncDisconnected = ref(false);
+const livePreviewDisconnected = ref(false);
 
 const getToolContentText = () => {
   const content = props.toolContent?.content;
@@ -1013,11 +1013,11 @@ const handleSeekByProgress = (progress: number) => {
   emit('seekByProgress', progress);
 };
 
-const onVNCConnected = () => {
-  vncDisconnected.value = false;
+const onLivePreviewConnected = () => {
+  livePreviewDisconnected.value = false;
 };
-const onVNCDisconnected = () => {
-  vncDisconnected.value = true;
+const onLivePreviewDisconnected = () => {
+  livePreviewDisconnected.value = true;
 };
 
 const onNewTerminalContent = () => {
@@ -1027,7 +1027,7 @@ const onNewTerminalContent = () => {
 /**
  * Handle browse URL request from search results
  * Navigates the browser directly to the clicked URL
- * Switches to browser/VNC view immediately and listens to SSE events
+ * Switches to browser/live-preview view immediately and listens to SSE events
  */
 const handleBrowseUrl = async (url: string) => {
   if (!props.sessionId || !url) return;
@@ -1065,7 +1065,7 @@ const handleBrowseUrl = async (url: string) => {
   box-shadow: inset 0 1px 0 0 var(--border-white);
 }
 
-.vnc-url-bar {
+.live-preview-url-bar {
   position: absolute;
   top: 8px;
   left: 8px;
@@ -1081,7 +1081,7 @@ const handleBrowseUrl = async (url: string) => {
   -webkit-backdrop-filter: blur(8px);
 }
 
-.vnc-url-status {
+.live-preview-url-status {
   flex-shrink: 0;
   color: white;
   opacity: 0.7;
@@ -1089,16 +1089,16 @@ const handleBrowseUrl = async (url: string) => {
   align-items: center;
 }
 
-.vnc-url-spinner {
-  animation: vnc-spin 1s linear infinite;
+.live-preview-url-spinner {
+  animation: live-preview-spin 1s linear infinite;
 }
 
-@keyframes vnc-spin {
+@keyframes live-preview-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
-.vnc-url-text {
+.live-preview-url-text {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.85);
   overflow: hidden;

@@ -10,9 +10,9 @@
     <!-- View mode toggle -->
     <div class="flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
       <button
-        @click="viewMode = 'vnc'"
+        @click="viewMode = 'screen'"
         class="px-2 py-1 text-xs rounded-md transition-colors"
-        :class="viewMode === 'vnc' ? 'bg-[var(--background-white-main)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'"
+        :class="viewMode === 'screen' ? 'bg-[var(--background-white-main)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'"
       >
         Screen
       </button>
@@ -29,8 +29,8 @@
 
   <ContentContainer :scrollable="false" padding="none" class="tool-view-body">
     <div class="h-full flex flex-col relative">
-      <!-- VNC View -->
-      <div v-show="viewMode === 'vnc'" class="w-full h-full flex items-center justify-center bg-[var(--fill-white)] relative">
+      <!-- Live preview -->
+      <div v-show="viewMode === 'screen'" class="w-full h-full flex items-center justify-center bg-[var(--fill-white)] relative">
         <!-- Text-only operation placeholder -->
         <LoadingState
           v-if="showTextPlaceholder"
@@ -40,14 +40,14 @@
           animation="globe"
         />
 
-        <!-- Live VNC -->
+        <!-- Live preview -->
         <LiveViewer
-          v-else-if="showLiveVnc"
+          v-else-if="showLivePreview"
           :session-id="props.sessionId"
           :enabled="props.live"
           :view-only="true"
-          @connected="onVNCConnected"
-          @disconnected="onVNCDisconnected"
+          @connected="onLivePreviewConnected"
+          @disconnected="onLivePreviewDisconnected"
           class="w-full h-full"
         />
 
@@ -132,7 +132,7 @@ const props = defineProps<{
 const { t } = useI18n();
 
 // View mode state
-const viewMode = ref<'vnc' | 'output'>('vnc');
+const viewMode = ref<'screen' | 'output'>('screen');
 const hasNewOutput = ref(false);
 const outputRef = ref<HTMLElement>();
 const imageUrl = ref('');
@@ -158,17 +158,17 @@ const TEXT_ONLY_FUNCTIONS = new Set(['browser_get_content', 'browser_agent_extra
 const isTextOnlyOperation = computed(() => TEXT_ONLY_FUNCTIONS.has(toolFunction.value));
 
 // Default view mode per tool
-const defaultViewMode = computed<'vnc' | 'output'>(() => {
+const defaultViewMode = computed<'screen' | 'output'>(() => {
   if (toolName.value === 'shell' || toolName.value === 'file' || toolName.value === 'code_executor') {
     return 'output';
   }
   if (isTextOnlyOperation.value) return 'output';
-  return 'vnc';
+  return 'screen';
 });
 
 // Show states
 const showTextPlaceholder = computed(() => isTextOnlyOperation.value);
-const showLiveVnc = computed(() => props.live && !isTextOnlyOperation.value);
+const showLivePreview = computed(() => props.live && !isTextOnlyOperation.value);
 
 // Header text
 const headerText = computed(() => toolDisplay.value.displayName);
@@ -301,7 +301,7 @@ watch([shellOutput, fileContent, browserContent], async () => {
 watch([shellOutput, fileContent], () => {
   if (isActiveOperation.value && (shellOutput.value || fileContent.value)) {
     // Auto-switch to output view when content starts streaming
-    if (viewMode.value === 'vnc' && !showLiveVnc.value) {
+    if (viewMode.value === 'screen' && !showLivePreview.value) {
       viewMode.value = 'output';
     }
   }
@@ -317,9 +317,9 @@ watch(
   { immediate: true }
 );
 
-// VNC handlers
-const onVNCConnected = () => { /* VNC connected */ };
-const onVNCDisconnected = () => { /* VNC disconnected */ };
+// Live preview handlers
+const onLivePreviewConnected = () => { /* live preview connected */ };
+const onLivePreviewDisconnected = () => { /* live preview disconnected */ };
 
 // Screenshot handling
 watch(() => props.toolContent?.content?.screenshot, (screenshot) => {

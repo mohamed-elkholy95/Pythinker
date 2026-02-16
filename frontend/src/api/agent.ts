@@ -88,7 +88,7 @@ export async function getActiveSession(): Promise<SessionStatusResponse | null> 
 
 /**
  * Pause a session for user takeover
- * This pauses agent execution so the user can control the browser via VNC
+ * This pauses agent execution so the user can control the live browser session
  * @param sessionId Session ID to pause
  */
 export async function pauseSession(sessionId: string): Promise<void> {
