@@ -45,14 +45,6 @@ scrape_configs:
           service: 'redis'
           component: 'runtime'
 
-  # Cache Redis metrics via redis-cache-exporter
-  - job_name: 'redis-cache-exporter'
-    static_configs:
-      - targets: ['redis-cache-exporter:9121']
-        labels:
-          service: 'redis-cache'
-          component: 'cache'
-
   # Node Exporter (optional - for host metrics)
   # - job_name: 'node-exporter'
   #   static_configs:

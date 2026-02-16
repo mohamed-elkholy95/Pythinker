@@ -362,6 +362,9 @@ def get_redis() -> RedisClient:
 
 
 @lru_cache
-def get_cache_redis() -> RedisClient:
-    """Get the cache Redis client singleton instance."""
+def get_cache_redis() -> RedisClient | None:
+    """Get the cache Redis client singleton, or None if cache Redis is disabled."""
+    settings = get_settings()
+    if not settings.redis_cache_enabled:
+        return None
     return RedisClient(role="cache")

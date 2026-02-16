@@ -25,8 +25,6 @@ services:
         condition: service_started
       redis:
         condition: service_started
-      redis-cache:
-        condition: service_started
       qdrant:
         condition: service_healthy
       minio:
@@ -183,35 +181,6 @@ services:
       - "100"
     volumes:
       - redis_runtime_data:/data
-    restart: unless-stopped
-    networks:
-      - pythinker-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  redis-cache:
-    image: redis:8.4-alpine
-    command:
-      - redis-server
-      - --save
-      - ""
-      - --appendonly
-      - "no"
-      - --loglevel
-      - warning
-      - --timeout
-      - "0"
-      - --maxmemory
-      - "512mb"
-      - --maxmemory-policy
-      - allkeys-lfu
-      - --lazyfree-lazy-eviction
-      - "yes"
-      - --latency-monitor-threshold
-      - "100"
     restart: unless-stopped
     networks:
       - pythinker-network

@@ -508,11 +508,15 @@ async def lifespan(app: FastAPI):
         # Initialize Redis
         await get_redis().initialize()
         _health_state["redis"] = True
-        try:
-            await get_cache_redis().initialize()
-            _health_state["redis_cache"] = True
-        except Exception as e:
-            logger.warning("Cache Redis initialization failed (graceful degradation): %s", e)
+        cache_redis = get_cache_redis()
+        if cache_redis is not None:
+            try:
+                await cache_redis.initialize()
+                _health_state["redis_cache"] = True
+            except Exception as e:
+                logger.warning("Cache Redis initialization failed (graceful degradation): %s", e)
+                _health_state["redis_cache"] = False
+        else:
             _health_state["redis_cache"] = False
 
         # Initialize Qdrant (optional, graceful degradation if unavailable)
@@ -805,14 +809,16 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"Redis shutdown error: {e}")
 
-            # Disconnect from cache Redis
-            try:
-                await asyncio.wait_for(get_cache_redis().shutdown(), timeout=10.0)
-                _health_state["redis_cache"] = False
-            except TimeoutError:
-                logger.warning("Cache Redis shutdown timed out")
-            except Exception as e:
-                logger.error(f"Cache Redis shutdown error: {e}")
+            # Disconnect from cache Redis (if enabled)
+            cache_redis = get_cache_redis()
+            if cache_redis is not None:
+                try:
+                    await asyncio.wait_for(cache_redis.shutdown(), timeout=10.0)
+                    _health_state["redis_cache"] = False
+                except TimeoutError:
+                    logger.warning("Cache Redis shutdown timed out")
+                except Exception as e:
+                    logger.error(f"Cache Redis shutdown error: {e}")
 
             # Disconnect from Qdrant
             try:

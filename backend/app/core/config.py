@@ -105,6 +105,8 @@ class Settings(BaseSettings):
     redis_health_check_interval: int = 30  # 30s health check interval
     redis_retry_on_timeout: bool = True  # Retry on timeout
     # Dedicated cache Redis (split from runtime Redis for eviction isolation)
+    # Disabled by default — enable when a redis-cache service is running
+    redis_cache_enabled: bool = False
     redis_cache_host: str = "redis-cache"
     redis_cache_port: int = 6379
     redis_cache_db: int = 0
@@ -557,7 +559,8 @@ class Settings(BaseSettings):
     # Safety Limits
     max_iterations: int = 400  # Maximum loop iterations per run (doubled for complex tasks)
     max_tool_calls: int = 500  # Maximum tool invocations per run (increased for codebase analysis)
-    max_execution_time_seconds: int = 3600  # 60 minutes for complex tasks
+    max_execution_time_seconds: int = 3600  # 60 minutes wall-clock ceiling
+    workflow_idle_timeout_seconds: int = 300  # 5 minutes between events before idle timeout
     max_tokens_per_run: int = 500000  # Token limit across all LLM calls
     max_cost_usd: float | None = None  # Optional cost limit
 

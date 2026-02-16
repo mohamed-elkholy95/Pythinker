@@ -235,12 +235,19 @@ class HealthMonitor:
         """Check cache Redis connectivity.
 
         Cache Redis is optional for correctness. Failures degrade performance but should
-        not make the entire system unavailable.
+        not make the entire system unavailable. Skipped entirely when redis_cache_enabled=False.
         """
-        try:
-            from app.infrastructure.storage.redis import get_cache_redis
+        from app.infrastructure.storage.redis import get_cache_redis
 
-            redis = get_cache_redis()
+        redis = get_cache_redis()
+        if redis is None:
+            health.status = ComponentStatus.HEALTHY
+            health.add_metric(
+                HealthMetric(name="response_time", value=0, status=health.status, timestamp=datetime.now())
+            )
+            return
+
+        try:
             await redis.initialize()
             await redis.call("ping", max_retries=2)
 
