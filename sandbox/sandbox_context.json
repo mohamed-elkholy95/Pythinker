@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-02-16T22:26:34.763356",
+  "generated_at": "2026-02-16T23:05:15.959805",
   "version": "1.0.0",
   "environment": {
     "os": {
@@ -800,9 +800,9 @@
       "shared_memory": "2gb",
       "disk": {
         "total": "79G",
-        "used": "48G",
-        "available": "27G",
-        "use_percent": "64%"
+        "used": "32G",
+        "available": "43G",
+        "use_percent": "43%"
       }
     }
   },
