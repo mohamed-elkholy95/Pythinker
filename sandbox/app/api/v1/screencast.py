@@ -129,15 +129,43 @@ async def stream_frames_ws(
     min_frame_interval = 1.0 / max_fps
     paused = False
     frame_count = 0
+    _MAX_START_RETRIES = 3
+    _RETRY_DELAY = 0.5  # seconds between retries
 
     try:
-        if not await service.connect():
-            await websocket.send_json({"error": "Failed to connect to Chrome CDP"})
-            await websocket.close()
-            return
+        # Retry connection + screencast start to recover from page navigation/crash.
+        # When Chrome navigates, the old page target becomes detached. Retrying
+        # gives Chrome time to register the new page target.
+        started = False
+        for attempt in range(_MAX_START_RETRIES):
+            if not await service.connect():
+                if attempt < _MAX_START_RETRIES - 1:
+                    logger.warning(
+                        f"[CDP Stream] Connect failed (attempt {attempt + 1}/{_MAX_START_RETRIES}), "
+                        f"retrying in {_RETRY_DELAY}s..."
+                    )
+                    service.invalidate_cache()
+                    await asyncio.sleep(_RETRY_DELAY)
+                    continue
+                await websocket.send_json({"error": "Failed to connect to Chrome CDP"})
+                await websocket.close()
+                return
 
-        if not await service.start_screencast():
-            await websocket.send_json({"error": "Failed to start screencast"})
+            if await service.start_screencast():
+                started = True
+                break
+
+            # start_screencast failed - page may be detached
+            logger.warning(
+                f"[CDP Stream] Screencast start failed (attempt {attempt + 1}/{_MAX_START_RETRIES})"
+            )
+            await service.disconnect()
+            if attempt < _MAX_START_RETRIES - 1:
+                service.invalidate_cache()
+                await asyncio.sleep(_RETRY_DELAY)
+
+        if not started:
+            await websocket.send_json({"error": "Failed to start screencast after retries"})
             await websocket.close()
             return
 
