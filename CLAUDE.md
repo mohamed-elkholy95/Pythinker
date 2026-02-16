@@ -244,10 +244,10 @@ bun run test:run     # Single test run
 
 ### Browser Architecture
 
-**Standard Browser Stack** (Standardized 2026-02-15):
+**Standard Browser Stack** (CDP-Only, VNC removed 2026-02-15):
 - **Engine:** Playwright Chromium (lighter, more stable than Chrome for Testing)
 - **Control:** Chrome DevTools Protocol (CDP) on port 9222
-- **Display:** VNC streaming (x11vnc + websockify) on port 5901 for real-time user visibility
+- **Display:** CDP screencast streaming for real-time user visibility
 - **Tools:**
   - `BrowserTool`: Manual control (single actions: navigate, click, input)
   - `BrowserAgentTool`: Autonomous operation (multi-step workflows via browser-use library)
@@ -264,8 +264,12 @@ Tool Services (BrowserTool, BrowserAgentTool)
 **Key Features:**
 - ✅ Automatic crash recovery with progress events
 - ✅ Connection pooling via HTTPClientPool (60-75% latency reduction)
-- ✅ VNC health monitoring in SandboxHealth
-- ✅ All browser actions visible in real-time via VNC
+- ✅ CDP screencast health monitoring in SandboxHealth
+- ✅ All browser actions visible in real-time via CDP screencast
+
+**Streaming Mode:**
+- Default: `SANDBOX_STREAMING_MODE=cdp_only` (VNC stack removed, -847 lines)
+- Legacy: `dual` mode available but deprecated (requires X11 stack)
 
 **Documentation:**
 - **Comprehensive Guide:** `docs/architecture/BROWSER_ARCHITECTURE.md`

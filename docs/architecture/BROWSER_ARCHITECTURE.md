@@ -7,12 +7,12 @@
 
 ## Overview
 
-Pythinker's browser architecture provides AI agents with safe, observable, and reliable web automation capabilities. All browser operations execute in isolated Docker sandboxes with real-time user visibility via VNC streaming.
+Pythinker's browser architecture provides AI agents with safe, observable, and reliable web automation capabilities. All browser operations execute in isolated Docker sandboxes with real-time user visibility via CDP screencast streaming.
 
 ### Core Capabilities
 
 - 🔒 **Isolated Execution:** Chromium runs in Docker sandbox, no host access
-- 👁️ **Real-Time Visibility:** VNC streaming shows browser actions as they happen
+- 👁️ **Real-Time Visibility:** CDP screencast streaming shows browser actions as they happen
 - 🤖 **Autonomous Operation:** AI agent performs multi-step web tasks independently
 - 🎯 **Manual Control:** Users direct specific browser actions via tool calls
 - 🔄 **Auto-Recovery:** Crash detection and automatic reconnection with progress events
@@ -28,10 +28,10 @@ Pythinker's browser architecture provides AI agents with safe, observable, and r
 │                                                                      │
 │  ┌────────────────┐     ┌─────────────────┐                         │
 │  │  ChatPage      │────▶│  LiveViewer     │                         │
-│  │                │     │  (VNC Primary)  │                         │
+│  │                │     │  (CDP-Only)     │                         │
 │  └────────────────┘     └─────────────────┘                         │
 │                                  │                                   │
-│                         WebSocket (VNC)                              │
+│                      WebSocket (CDP Screencast)                      │
 └──────────────────────────────────┼──────────────────────────────────┘
                                    │
 ┌──────────────────────────────────┼──────────────────────────────────┐
@@ -79,25 +79,18 @@ Pythinker's browser architecture provides AI agents with safe, observable, and r
 │  │  Chromium --display=:1 --remote-debugging-port=9222            │ │
 │  │  - Playwright-installed Chromium                               │ │
 │  │  - CDP on 0.0.0.0:9222                                         │ │
-│  │  - Headless rendering to Xvfb                                  │ │
+│  │  - Headless rendering (no X11 in cdp_only mode)               │ │
 │  └──────────────┬─────────────────────────────────────────────────┘ │
-│                 │                          │                         │
-│        ┌────────▼────────┐        ┌───────▼───────┐                │
-│        │  x11vnc :5900   │        │  CDP :9222    │                │
-│        │  (VNC Server)   │        │  (Control)    │                │
-│        └────────┬────────┘        └───────────────┘                │
 │                 │                                                    │
 │        ┌────────▼────────┐                                          │
-│        │ websockify      │                                          │
-│        │   5901→5900     │                                          │
-│        │ (WS Proxy)      │                                          │
+│        │  CDP :9222      │                                          │
+│        │  (Control +     │                                          │
+│        │   Screencast)   │                                          │
 │        └─────────────────┘                                          │
 │                                                                      │
 │  Ports Exposed:                                                     │
 │  - 8080  : Sandbox API                                             │
-│  - 9222  : CDP (Chrome DevTools Protocol)                          │
-│  - 5900  : VNC (native)                                            │
-│  - 5901  : VNC WebSocket (websockify)                              │
+│  - 9222  : CDP (Chrome DevTools Protocol + Screencast)             │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -130,51 +123,39 @@ Manages browser connection lifecycle, health checks, and crash recovery with aut
 
 ---
 
-## VNC Architecture
+## CDP Screencast Architecture
 
-### VNC Streaming Pipeline
+### CDP Streaming Pipeline
 
 ```
 Browser Actions (Chromium)
          │
          ▼
-Xvfb :1 (Virtual Display)
+CDP :9222 (Page.startScreencast)
          │
          ▼
-x11vnc (VNC Server) :5900
+Backend WS Proxy /api/v1/sandbox/proxy
          │
          ▼
-websockify (WS Proxy) :5901
+Frontend SandboxViewer.vue (CDP Binary WS)
          │
          ▼
-Backend WS Proxy /api/v1/sessions/{id}/vnc
-         │
-         ▼
-Frontend VNCViewer.vue (noVNC)
-         │
-         ▼
-User's Browser
+User's Browser (JPEG frames via WebSocket)
 ```
 
-### VNC Configuration
+### CDP Screencast Configuration
 
-**Sandbox supervisord.conf:**
-```ini
-[program:xvfb]
-command=/usr/bin/Xvfb :1 -screen 0 1280x720x24 -ac +extension GLX +render -noreset
-priority=10
-autorestart=true
-
-[program:x11vnc]
-command=/usr/bin/x11vnc -display :1 -forever -shared -rfbport 5900 -nopw
-priority=20
-autorestart=true
-
-[program:websockify]
-command=/usr/bin/websockify --web=/usr/share/novnc 5901 localhost:5900
-priority=30
-autorestart=true
+**Backend CDP Proxy:**
+```python
+# backend/app/interfaces/api/session_routes.py
+# Proxies CDP screencast stream with signed URLs
+# Quality: 1-100 (JPEG compression)
+# Max FPS: 1-30 (frame rate limit)
 ```
+
+**Streaming Mode** (`SANDBOX_STREAMING_MODE`):
+- `cdp_only` (default): CDP screencast only, no X11 stack (-50% image size)
+- `dual` (deprecated): CDP + X11 for legacy VNC support
 
 ---
 
@@ -205,15 +186,16 @@ autorestart=true
 | Input | 80-120ms | 25-40ms | 68% |
 | Screenshot | 200-300ms | 80-120ms | 60% |
 
-### VNC Streaming Performance
+### CDP Screencast Performance
 
 | Quality | FPS | Bandwidth | Latency |
 |---------|-----|-----------|---------|
-| Low | 15 | 200-400 KB/s | 30-50ms |
-| Medium | 30 | 500-800 KB/s | 50-100ms |
-| High | 60 | 1-2 MB/s | 80-150ms |
+| Low (50) | 15 | 150-300 KB/s | 20-40ms |
+| Medium (70) | 15 | 200-400 KB/s | 30-50ms |
+| High (90) | 30 | 500-800 KB/s | 40-80ms |
 
-**Recommended:** Medium quality at 30 FPS for optimal balance
+**Recommended:** Medium quality (70) at 15 FPS for optimal balance
+**Default:** Quality 70, FPS 15
 
 ---
 
@@ -293,14 +275,14 @@ autorestart=true
 - Verify Chromium installation
 - Check CDP endpoint health
 
-### VNC Display Frozen
+### CDP Screencast Frozen
 
-**Symptoms:** VNC viewer shows static image, no updates
+**Symptoms:** Screen viewer shows static image, no updates
 
 **Solutions:**
-- Restart VNC services via supervisord
-- Check x11vnc, websockify, Xvfb processes
-- Verify port 5901 is accessible
+- Check CDP WebSocket connection status
+- Restart browser via connection pool health check
+- Verify port 9222 is accessible
 
 ### Slow Browser Performance
 
@@ -309,7 +291,7 @@ autorestart=true
 **Solutions:**
 - Verify HTTPClientPool usage (not direct httpx)
 - Check Docker resource limits
-- Reduce VNC quality/FPS if bandwidth-limited
+- Reduce CDP screencast quality/FPS if bandwidth-limited
 - Check Prometheus metrics for connection reuse rate
 
 ---
@@ -319,7 +301,7 @@ autorestart=true
 - **ADR:** `docs/architecture/BROWSER_STANDARDIZATION_ADR.md`
 - **HTTP Pooling:** `docs/architecture/HTTP_CLIENT_POOLING.md`
 - **Automatic Behavior:** `docs/architecture/AUTOMATIC_BROWSER_BEHAVIOR.md`
-- **VNC Guide:** `docs/guides/OPENREPLAY.md`
+- **Streaming Guide:** `docs/guides/OPENREPLAY.md`
 - **Testing:** `docs/guides/TEST_GUIDE.md`
 
 ---
@@ -335,8 +317,8 @@ autorestart=true
 | Browser Agent Tool | `backend/app/domain/services/tools/browser_agent.py` |
 | Sandbox Manager | `backend/app/core/sandbox_manager.py` |
 | Docker Sandbox | `backend/app/infrastructure/external/sandbox/docker_sandbox.py` |
-| VNC Viewer | `frontend/src/components/VNCViewer.vue` |
-| Live Viewer | `frontend/src/components/LiveViewer.vue` |
+| CDP Screencast Viewer | `frontend/src/components/SandboxViewer.vue` |
+| Live Viewer (CDP-Only) | `frontend/src/components/LiveViewer.vue` |
 
 ---
 
