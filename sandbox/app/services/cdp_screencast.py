@@ -1,16 +1,20 @@
 """
 CDP Screencast Service - Low-latency browser streaming via Chrome DevTools Protocol.
 
-This service provides real-time browser view streaming with 10-50ms latency,
-significantly faster than traditional screenshot polling approaches (50-200ms).
+Provides real-time browser view streaming with 10-50ms latency, significantly
+faster than traditional screenshot polling (50-200ms).
 
 Features:
-- Direct CDP connection to Chrome
+- Direct CDP connection to Chrome with automatic page target discovery
 - JPEG frame streaming for low bandwidth
 - Configurable quality and frame rate
-- WebSocket-based delivery for real-time updates
-- Persistent connection with auto-reconnect
+- Persistent connection with smart auto-reconnect on page navigation/crash
+- Cache invalidation on stale page targets (handles browser navigation/crash)
 - Health checks to detect stale connections
+- Exponential backoff for retry attempts
+
+Architecture:
+    Frontend → Backend proxy → Sandbox screencast API → CDP Service → Chrome
 """
 
 import asyncio
@@ -24,7 +28,9 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
 # CDP connection settings
+# ---------------------------------------------------------------------------
 CDP_HOST = "127.0.0.1"
 CDP_PORT = 9222
 CDP_ENDPOINT = f"http://{CDP_HOST}:{CDP_PORT}"
@@ -36,6 +42,8 @@ _CAPTURE_COMMAND_TIMEOUT = (
     6.0  # P1.2: Increased from 4.0s to allow more time for heavy pages
 )
 _CONNECT_TIMEOUT = 3.0  # Timeout for WebSocket connection establishment
+_PAGE_REDISCOVERY_DELAY = 0.3  # Brief pause for Chrome to register new page target
+_MAX_RETRY_ATTEMPTS = 2  # Initial attempt + 1 retry after page re-discovery
 
 
 @dataclass
@@ -66,9 +74,32 @@ class CDPScreencastService:
     Uses Page.startScreencast for low-latency frame streaming directly
     from Chrome's rendering pipeline.
 
-    Supports persistent connections with auto-reconnect for low-latency
-    repeated captures (e.g., periodic screenshot service).
+    Key resilience features:
+    - Automatic page target re-discovery when CDP pages become detached
+      (e.g., after browser navigation, tab close, or page crash)
+    - Cache invalidation ensures stale WebSocket URLs are never reused
+    - Retry-once pattern: on detached errors, invalidate + re-discover + retry
+    - Persistent connections with auto-reconnect for low-latency repeated captures
+
+    Error Recovery Flow:
+        CDP command → "Not attached to active page" error
+            → invalidate_cache() (clears stale WS URL)
+            → _cleanup_stale_connection() (closes dead WS)
+            → sleep(0.3s) (let Chrome register new target)
+            → get_ws_debugger_url() (fresh /json lookup)
+            → connect to new page target
+            → retry command (succeeds)
     """
+
+    # CDP error messages that indicate the page target is stale/detached.
+    # When any of these appear in an error response, we invalidate the cached
+    # WebSocket URL and re-discover the active page target.
+    _PAGE_DETACHED_INDICATORS = frozenset({
+        "Not attached to an active page",
+        "Internal error",
+        "Target closed",
+        "Session with given id not found",
+    })
 
     def __init__(self, config: ScreencastConfig | None = None):
         self.config = config or ScreencastConfig()
@@ -88,6 +119,10 @@ class CDPScreencastService:
         self._ws_url_cached_at: float = 0.0
         self._last_successful_capture: float = 0.0
 
+    # ------------------------------------------------------------------
+    # Connection state
+    # ------------------------------------------------------------------
+
     @property
     def is_connected(self) -> bool:
         """Check if the WebSocket connection is alive."""
@@ -97,6 +132,34 @@ class CDPScreencastService:
             and self._session is not None
             and not self._session.closed
         )
+
+    # ------------------------------------------------------------------
+    # Page target discovery & cache management
+    # ------------------------------------------------------------------
+
+    def _is_page_detached_error(self, result: dict) -> bool:
+        """Check if a CDP error response indicates the page target is stale/detached.
+
+        These errors occur when Chrome navigates to a new page, the tab is closed,
+        or the renderer process crashes. The old page UUID becomes invalid but may
+        still be returned by /json briefly.
+        """
+        error = result.get("error", {})
+        message = error.get("message", "") if isinstance(error, dict) else str(error)
+        return any(indicator in message for indicator in self._PAGE_DETACHED_INDICATORS)
+
+    def invalidate_cache(self) -> None:
+        """Invalidate the cached WebSocket URL to force fresh page discovery.
+
+        Call this when CDP commands fail with page-detached errors so the next
+        connection attempt discovers the current active page target via /json.
+        """
+        if self._cached_ws_url:
+            logger.info(
+                f"Invalidating cached CDP URL (was: ...{self._cached_ws_url[-20:]})"
+            )
+        self._cached_ws_url = None
+        self._ws_url_cached_at = 0.0
 
     async def _get_cached_ws_url(self) -> str | None:
         """Get WebSocket URL with caching to avoid repeated /json lookups."""
@@ -111,7 +174,12 @@ class CDPScreencastService:
         return url
 
     async def get_ws_debugger_url(self) -> str | None:
-        """Get the WebSocket debugger URL for the first browser page."""
+        """Get the WebSocket debugger URL for the active browser page.
+
+        Queries Chrome's /json introspection endpoint to discover page targets.
+        Filters for type="page" targets, preferring non-blank pages when multiple
+        targets exist (e.g., after a crash creates a new blank tab).
+        """
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -119,17 +187,32 @@ class CDPScreencastService:
                     timeout=aiohttp.ClientTimeout(total=_CONNECT_TIMEOUT),
                 ) as resp:
                     if resp.status == 200:
-                        pages = await resp.json()
-                        if pages:
-                            # Find first page (not extension or devtools)
-                            for page in pages:
-                                if page.get("type") == "page":
-                                    return page.get("webSocketDebuggerUrl")
-                            # Fallback to first item
-                            return pages[0].get("webSocketDebuggerUrl")
+                        targets = await resp.json()
+                        if not targets:
+                            return None
+
+                        # Collect all page-type targets
+                        pages = [t for t in targets if t.get("type") == "page"]
+                        if not pages:
+                            # Fallback: use first target regardless of type
+                            return targets[0].get("webSocketDebuggerUrl")
+
+                        # Prefer non-blank pages (after crash, Chrome may have
+                        # both a crashed target and a new blank tab)
+                        for page in pages:
+                            url = page.get("url", "")
+                            if url and url not in ("about:blank", "chrome://newtab/"):
+                                return page.get("webSocketDebuggerUrl")
+
+                        # All pages are blank - return the first one
+                        return pages[0].get("webSocketDebuggerUrl")
         except Exception as e:
             logger.debug(f"Failed to get CDP WebSocket URL: {e}")
         return None
+
+    # ------------------------------------------------------------------
+    # Connection lifecycle
+    # ------------------------------------------------------------------
 
     async def ensure_connected(self) -> bool:
         """Ensure connection is alive, reconnecting if needed.
@@ -189,6 +272,25 @@ class CDPScreencastService:
                 pass
             self._session = None
 
+    async def _handle_page_detached(self, context: str) -> None:
+        """Common handler for page-detached errors.
+
+        Cleans up the stale connection and invalidates the URL cache so the
+        next connection attempt discovers the current active page target.
+
+        Args:
+            context: Description of where the error occurred (for logging)
+        """
+        async with self._command_lock:
+            await self._cleanup_stale_connection()
+        self.invalidate_cache()
+        logger.info(
+            f"Page detached during {context} - invalidated cache, "
+            f"will retry with fresh page discovery"
+        )
+        # Brief delay for Chrome to register the new page target
+        await asyncio.sleep(_PAGE_REDISCOVERY_DELAY)
+
     async def connect(self) -> bool:
         """Connect to Chrome via CDP WebSocket."""
         async with self._command_lock:
@@ -215,6 +317,10 @@ class CDPScreencastService:
                     return resp.status == 200
         except Exception:
             return False
+
+    # ------------------------------------------------------------------
+    # CDP command transport
+    # ------------------------------------------------------------------
 
     async def _send_command(
         self,
@@ -291,12 +397,16 @@ class CDPScreencastService:
                 logger.warning(f"CDP command error: {e}")
             return None
 
-    async def start_screencast(self) -> bool:
-        """Start the screencast stream."""
-        if not self._ws:
-            if not await self.connect():
-                return False
+    # ------------------------------------------------------------------
+    # Screencast streaming
+    # ------------------------------------------------------------------
 
+    async def start_screencast(self) -> bool:
+        """Start the screencast stream.
+
+        On page-detached errors, invalidates the cache and retries once
+        with fresh page discovery so the screencast recovers from navigation/crashes.
+        """
         params = {
             "format": self.config.format,
             "quality": self.config.quality,
@@ -305,13 +415,31 @@ class CDPScreencastService:
             "everyNthFrame": self.config.every_nth_frame,
         }
 
-        result = await self._send_command("Page.startScreencast", params)
-        if result and "error" not in result:
-            self._running = True
-            logger.info(f"CDP screencast started with config: {self.config}")
-            return True
+        for attempt in range(_MAX_RETRY_ATTEMPTS):
+            if not self._ws:
+                if not await self.connect():
+                    if attempt == 0:
+                        self.invalidate_cache()
+                        continue
+                    return False
 
-        logger.error(f"Failed to start screencast: {result}")
+            result = await self._send_command("Page.startScreencast", params)
+            if result and "error" not in result:
+                self._running = True
+                logger.info(f"CDP screencast started with config: {self.config}")
+                return True
+
+            # Check for page-detached error and retry
+            if result and self._is_page_detached_error(result) and attempt == 0:
+                logger.warning(
+                    f"Screencast start failed (page detached): {result.get('error')}"
+                )
+                await self._handle_page_detached("start_screencast")
+                continue
+
+            logger.error(f"Failed to start screencast: {result}")
+            return False
+
         return False
 
     async def stop_screencast(self):
@@ -388,6 +516,10 @@ class CDPScreencastService:
         finally:
             self._streaming = False
 
+    # ------------------------------------------------------------------
+    # Single-frame capture
+    # ------------------------------------------------------------------
+
     async def capture_single_frame(
         self, quality: int | None = None, image_format: str | None = None
     ) -> bytes | None:
@@ -395,7 +527,8 @@ class CDPScreencastService:
         Capture a single frame from the browser.
 
         Uses persistent connection via ensure_connected() for low overhead.
-        Useful for one-off screenshots with lower latency than xwd approach.
+        On page-detached errors, invalidates the cached URL and retries once
+        with fresh page discovery so navigation/crashes recover automatically.
 
         Args:
             quality: Override quality setting for this capture (default: use config)
@@ -404,47 +537,64 @@ class CDPScreencastService:
         P1.2: Enhanced with timeout detection and automatic reconnect.
         P2.8: Added per-request config parameters to fix singleton race condition.
         """
-        if not await self.ensure_connected():
-            return None
-
-        # Use per-request config if provided, otherwise fall back to instance config
         capture_quality = quality if quality is not None else self.config.quality
         capture_format = image_format if image_format is not None else self.config.format
 
-        try:
-            result = await self._send_command(
-                "Page.captureScreenshot",
-                {"format": capture_format, "quality": capture_quality},
-            )
-
-            # P1.2: Detect timeout (result is None) and force reconnect
-            if result is None:
-                logger.warning("CDP capture timed out, forcing reconnect")
-                async with self._command_lock:
-                    await self._cleanup_stale_connection()
+        # Try up to 2 times: initial attempt + 1 retry after page re-discovery
+        for attempt in range(_MAX_RETRY_ATTEMPTS):
+            if not await self.ensure_connected():
+                if attempt == 0:
+                    self.invalidate_cache()
+                    continue
                 return None
 
-            if "result" in result:
-                data = result["result"].get("data")
-                if data:
-                    self._last_successful_capture = time.monotonic()
-                    return base64.b64decode(data)
+            try:
+                result = await self._send_command(
+                    "Page.captureScreenshot",
+                    {"format": capture_format, "quality": capture_quality},
+                )
 
-            # Command succeeded but no data - connection may be stale
-            if "error" in result:
-                logger.warning(f"CDP capture error response: {result['error']}")
+                # Detect timeout (result is None) and force reconnect
+                if result is None:
+                    logger.warning("CDP capture timed out, forcing reconnect")
+                    await self._handle_page_detached("capture_screenshot_timeout")
+                    if attempt == 0:
+                        continue
+                    return None
+
+                if "result" in result:
+                    data = result["result"].get("data")
+                    if data:
+                        self._last_successful_capture = time.monotonic()
+                        return base64.b64decode(data)
+
+                # Command returned error - check if page is detached
+                if "error" in result:
+                    logger.warning(f"CDP capture error response: {result['error']}")
+
+                    if self._is_page_detached_error(result) and attempt == 0:
+                        await self._handle_page_detached("capture_screenshot")
+                        continue
+
+                    # Non-retryable error
+                    async with self._command_lock:
+                        await self._cleanup_stale_connection()
+
+            except Exception as e:
+                logger.warning(f"Failed to capture single frame: {e}")
+                if attempt == 0:
+                    await self._handle_page_detached("capture_screenshot_exception")
+                    continue
                 async with self._command_lock:
                     await self._cleanup_stale_connection()
-
-        except Exception as e:
-            logger.warning(f"Failed to capture single frame: {e}")
-            async with self._command_lock:
-                await self._cleanup_stale_connection()
 
         return None
 
 
-# Singleton instance for reuse across requests
+# ---------------------------------------------------------------------------
+# Singleton management
+# ---------------------------------------------------------------------------
+
 _service_instance: CDPScreencastService | None = None
 _service_lock = asyncio.Lock()
 

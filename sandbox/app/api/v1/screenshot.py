@@ -150,7 +150,7 @@ _cdp_service: CDPScreencastService | None = None
 _cdp_consecutive_failures: int = 0
 _CDP_FAILURE_THRESHOLD: int = 3  # Skip after 3 consecutive failures
 _cdp_skip_until: float = 0.0
-_CDP_SKIP_DURATION: float = 30.0  # Skip for 30s after threshold
+_CDP_SKIP_DURATION: float = 5.0  # Skip for 5s after threshold (reduced from 30s)
 
 
 def _get_cdp_service() -> CDPScreencastService:
@@ -179,6 +179,8 @@ async def _capture_with_cdp(
     eliminating ~150ms of connection overhead per capture.
 
     P1.3: Tracks consecutive failures and skips CDP tier during cooldown.
+    On cooldown expiry, invalidates the CDP URL cache so the next attempt
+    discovers the current active page (handles navigation/crash recovery).
     """
     global _cdp_consecutive_failures, _cdp_skip_until
 
@@ -190,7 +192,15 @@ async def _capture_with_cdp(
         )
         return None
 
+    # When cooldown expires, invalidate cache so we re-discover the active page
     service = _get_cdp_service()
+    if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD and now >= _cdp_skip_until:
+        logger.info(
+            "[Screenshot] CDP cooldown expired, invalidating cache for fresh page discovery"
+        )
+        _cdp_consecutive_failures = 0
+        service.invalidate_cache()
+
     try:
         # P2.8 FIX: Pass quality and format per-request to avoid singleton config race
         image_data = await asyncio.wait_for(
