@@ -68,6 +68,11 @@ class DockerSandbox(Sandbox):
 
         settings = get_settings()
 
+        # Inject shared secret header for sandbox API authentication (Phase 2 security)
+        auth_headers: dict[str, str] = {}
+        if settings.sandbox_api_secret:
+            auth_headers["x-sandbox-secret"] = settings.sandbox_api_secret
+
         return await HTTPClientPool.get_client(
             name=self._pool_client_name,
             base_url=self.base_url,
@@ -83,6 +88,7 @@ class DockerSandbox(Sandbox):
                 max_keepalive_connections=5,
                 keepalive_expiry=30.0,  # Keep connections alive longer for sandbox
                 http2=settings.sandbox_http2_enabled,  # Phase 3: Controlled by feature flag
+                headers=auth_headers,
             ),
         )
 

@@ -49,7 +49,7 @@ ENV CHROME_FOR_TESTING_PATH=/opt/chrome-for-testing
 RUN mkdir -p ${CHROME_FOR_TESTING_PATH} && \
     if [ "$USE_CHROMIUM" != "1" ] && [ "$TARGETARCH" != "arm64" ]; then \
         apt-get update && apt-get install -y --no-install-recommends unzip && \
-        CHROME_VER=128.0.6613.137 && \
+        CHROME_VER=131.0.6778.204 && \
         curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER}/linux64/chrome-linux64.zip" \
             -o /tmp/chrome-linux64.zip && \
         unzip -q /tmp/chrome-linux64.zip -d /tmp/chrome-extract && \
@@ -61,9 +61,18 @@ RUN mkdir -p ${CHROME_FOR_TESTING_PATH} && \
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
-# Fonts
-RUN apt-get update && apt-get install -y fonts-noto-cjk fonts-noto-color-emoji locales \
-    && locale-gen en_US.UTF-8 && apt-get clean && rm -rf /var/lib/apt/lists/*
+# Fonts — comprehensive set for proper web rendering
+# fonts-liberation: metric-compatible with Arial, Times New Roman, Courier (used by 90%+ of websites)
+# fonts-dejavu-core: fallback sans/serif/mono
+# fonts-freefont-ttf: additional Unicode coverage
+# fontconfig: font configuration and caching system
+RUN apt-get update && apt-get install -y \
+    fonts-noto-cjk fonts-noto-color-emoji \
+    fonts-liberation fonts-dejavu-core fonts-freefont-ttf fontconfig \
+    locales \
+    && locale-gen en_US.UTF-8 \
+    && fc-cache -f \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt requirements.runtime.txt requirements.addons.txt ./
@@ -127,15 +136,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xterm perl xauth x11-xkb-utils xkb-data x11-utils dbus-x11 \
     libjpeg-turbo8 libpng16-16 libxfont2 libgl1-mesa-dri libgl1-mesa-glx libgif7 \
     libssl3 libgnutls30 libxtst6 libxrandr2 libxcursor1 libxinerama1 libxkbfile1 \
-    x11vnc websockify xvfb openbox x11-xserver-utils \
+    x11vnc websockify xvfb openbox x11-xserver-utils dmz-cursor-theme \
     ripgrep jq git zip unzip \
-    fonts-noto-cjk fonts-noto-color-emoji locales && \
+    fonts-noto-cjk fonts-noto-color-emoji \
+    fonts-liberation fonts-dejavu-core fonts-freefont-ttf fontconfig \
+    locales && \
     if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
         apt-get install -y --no-install-recommends \
             poppler-utils graphviz mysql-client lsof psmisc make patch \
             vim nano xclip xdg-utils tree ffmpeg imagemagick xdotool x11-apps; \
     fi && \
     locale-gen en_US.UTF-8 && \
+    fc-cache -f && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Playwright/Chromium runtime libs
@@ -199,12 +211,24 @@ COPY --from=builder /app/requirements.addons.txt /app/requirements.addons.txt
 COPY --from=builder /app/requirements.txt /app/requirements.txt
 
 RUN mkdir -p /home/ubuntu/.config/openbox && cp /app/openbox-rc.xml /home/ubuntu/.config/openbox/rc.xml && \
-    chown -R ubuntu:ubuntu /home/ubuntu/.config
+    mkdir -p /home/ubuntu/.icons/default && \
+    printf '[Icon Theme]\nInherits=DMZ-Black\n' > /home/ubuntu/.icons/default/index.theme && \
+    chown -R ubuntu:ubuntu /home/ubuntu/.config /home/ubuntu/.icons
 
 COPY supervisord.conf /app/supervisord.conf
 
-ENV UVI_ARGS="" FRAMEWORK_UVI_ARGS="" CHROME_ARGS="" DISPLAY=:1
-# BROWSER_PATH: default Chrome for Testing; override to /usr/local/bin/chromium when USE_CHROMIUM=1
+ENV UVI_ARGS="" FRAMEWORK_UVI_ARGS="" CHROME_ARGS="" DISPLAY=:1 SANDBOX_STREAMING_MODE=dual \
+    XCURSOR_THEME=DMZ-Black XCURSOR_SIZE=24
+
+# BROWSER_PATH: When USE_CHROMIUM=1, symlink Playwright Chromium to the default path
+# so BROWSER_PATH=/opt/chrome-for-testing/chrome works for both modes.
+# This is the cleanest approach since Docker ENV can't be conditional.
+RUN if [ "$USE_CHROMIUM" = "1" ] && [ -f /usr/local/bin/chromium ]; then \
+        mkdir -p /opt/chrome-for-testing && \
+        ln -sf /usr/local/bin/chromium /opt/chrome-for-testing/chrome && \
+        echo "USE_CHROMIUM=1: symlinked /usr/local/bin/chromium -> /opt/chrome-for-testing/chrome"; \
+    fi
+
 ENV BROWSER_PATH=/opt/chrome-for-testing/chrome
 ENV CHROME_BIN="/opt/chrome-for-testing/chrome"
 

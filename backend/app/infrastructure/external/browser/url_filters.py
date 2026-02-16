@@ -1,11 +1,14 @@
 """URL filtering utilities for browser automation.
 
-Consolidated video URL detection logic to avoid processing heavy media content
-that can cause browser crashes or timeouts.
+Consolidated video URL detection and SSRF protection logic.
+- Video URL detection: avoid processing heavy media content
+- SSRF protection: block navigation to internal/private network addresses
 """
 
+import ipaddress
 import logging
 import re
+import socket
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -163,3 +166,101 @@ def filter_video_urls(urls: list[str]) -> list[str]:
         Filtered list containing only non-video URLs
     """
     return [url for url in urls if not is_video_url(url)]
+
+
+# ---------------------------------------------------------------------------
+# SSRF Protection — block navigation to internal/private network addresses
+# ---------------------------------------------------------------------------
+
+# Internal Docker service hostnames that the browser must never reach
+_BLOCKED_HOSTNAMES: frozenset[str] = frozenset({
+    "localhost",
+    "sandbox",
+    "sandbox2",
+    "backend",
+    "mongodb",
+    "redis",
+    "redis-cache",
+    "qdrant",
+    "minio",
+    "prometheus",
+    "grafana",
+    "loki",
+    "promtail",
+    "worker",
+    "frontend",
+    "frontend-dev",
+    # Cloud metadata endpoints
+    "metadata.google.internal",
+    "metadata.goog",
+})
+
+# Schemes the browser is allowed to use
+_ALLOWED_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+
+
+def is_ssrf_target(url: str) -> str | None:
+    """Check if a URL targets an internal/private network address (SSRF).
+
+    Resolves the hostname to an IP and checks against private ranges.
+    Also blocks known Docker service hostnames and cloud metadata endpoints.
+
+    Args:
+        url: URL to validate
+
+    Returns:
+        None if the URL is safe, or an error message string if it's blocked.
+    """
+    if not url:
+        return "Empty URL"
+
+    try:
+        # Normalize
+        url_lower = url.strip()
+        if not url_lower.startswith(("http://", "https://", "//")):
+            url_lower = f"https://{url_lower}"
+
+        parsed = urlparse(url_lower)
+
+        # Scheme check
+        scheme = parsed.scheme.lower()
+        if scheme not in _ALLOWED_SCHEMES:
+            return f"Blocked scheme: {scheme} (only http/https allowed)"
+
+        hostname = parsed.hostname
+        if not hostname:
+            return "No hostname in URL"
+
+        hostname_lower = hostname.lower().rstrip(".")
+
+        # Block known internal hostnames
+        if hostname_lower in _BLOCKED_HOSTNAMES:
+            return f"Blocked internal hostname: {hostname_lower}"
+
+        # Block 169.254.169.254 (AWS/GCP metadata) even if hostname differs
+        if hostname_lower in ("169.254.169.254",):
+            return "Blocked cloud metadata endpoint"
+
+        # Resolve hostname to IP(s) and check each
+        try:
+            addr_infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        except socket.gaierror:
+            # DNS resolution failed — allow the browser to handle the error naturally
+            return None
+
+        for addr_info in addr_infos:
+            ip_str = addr_info[4][0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return f"Blocked private/internal IP: {ip_str} (resolved from {hostname})"
+
+        return None
+
+    except Exception as e:
+        logger.warning("SSRF check failed for %s: %s", url, e)
+        # Fail-open for parsing errors — the browser will handle invalid URLs
+        return None

@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     ALLOW_SUDO: bool = False
     SHELL_MAX_OUTPUT_CHARS: int = 200000
 
+    # API authentication — shared secret with backend
+    # When set, all /api/v1/* requests must include X-Sandbox-Secret header
+    SANDBOX_API_SECRET: Optional[str] = None
+
     # Log configuration
     LOG_LEVEL: str = "INFO"
 

@@ -1,9 +1,62 @@
 import logging
+
 from fastapi import Request
+from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+_AUTH_HEADER = "x-sandbox-secret"
+# Paths exempt from auth (health checks used by Docker/k8s probes)
+_PUBLIC_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
+
+
+class SandboxAuthMiddleware:
+    """ASGI middleware that validates a shared secret on every API request.
+
+    When SANDBOX_API_SECRET is set, requests to /api/* must include
+    a matching X-Sandbox-Secret header. Health endpoints are exempt so
+    container orchestrators can probe without credentials.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+        self._secret = settings.SANDBOX_API_SECRET
+        if self._secret:
+            logger.info("Sandbox API secret authentication enabled")
+        else:
+            logger.warning(
+                "SANDBOX_API_SECRET not set — sandbox API is unauthenticated. "
+                "Set SANDBOX_API_SECRET in production."
+            )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not self._secret:
+            await self.app(scope, receive, send)
+            return
+
+        path: str = scope.get("path", "")
+
+        # Allow health/docs endpoints without auth
+        if path in _PUBLIC_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        # Check auth header for all /api/* routes
+        if path.startswith("/api/"):
+            headers = dict(scope.get("headers", []))
+            token = headers.get(_AUTH_HEADER.encode(), b"").decode()
+            if token != self._secret:
+                response = JSONResponse(
+                    status_code=403,
+                    content={"detail": "Invalid or missing sandbox API secret"},
+                )
+                await response(scope, receive, send)
+                return
+
+        await self.app(scope, receive, send)
 
 
 async def auto_extend_timeout_middleware(request: Request, call_next):

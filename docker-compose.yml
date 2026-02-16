@@ -57,6 +57,7 @@ services:
     environment:
       - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
       - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
     healthcheck:
@@ -126,13 +127,14 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/opt/playwright-browsers/chromium-1187/chrome-linux/chrome  # Playwright Chromium (USE_CHROMIUM=1)
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
+    # Sandbox ports bound to localhost only — backend proxies VNC/API to users.
+    # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file/VNC access).
     ports:
-      - "8083:8080"  # Sandbox API
-      - "8082:8082"  # Sandbox framework API
-      - "5902:5900"  # VNC
-      - "5901:5901"  # VNC WebSocket
-    # Shared memory: 2GB (Playwright recommended minimum)
+      - "127.0.0.1:8083:8080"  # Sandbox API (localhost only)
+      - "127.0.0.1:8082:8082"  # Sandbox framework API (localhost only)
+      # VNC ports not published — accessed via authenticated backend WebSocket proxy
     shm_size: '2g'
     # Security hardening
     security_opt:
@@ -150,7 +152,7 @@ services:
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome --disable-dev-shm-usage shared memory
+      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome temp files and user data
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     # File descriptor limits for browser and node processes
     ulimits:
@@ -192,13 +194,12 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/opt/playwright-browsers/chromium-1187/chrome-linux/chrome  # Playwright Chromium (USE_CHROMIUM=1)
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
     ports:
-      - "8084:8080"  # Sandbox API
-      - "8085:8082"  # Sandbox framework API
-      - "5904:5900"  # VNC native port
-      - "5903:5901"  # VNC WebSocket port
-    shm_size: '2g'  # Playwright recommended minimum
+      - "127.0.0.1:8084:8080"  # Sandbox API (localhost only)
+      - "127.0.0.1:8085:8082"  # Sandbox framework API (localhost only)
+    shm_size: '2g'
     security_opt:
       - no-new-privileges:true
       - seccomp:./sandbox/seccomp-sandbox.json
@@ -213,7 +214,7 @@ services:
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome --disable-dev-shm-usage shared memory
+      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome temp files and user data
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     ulimits:
       nofile:

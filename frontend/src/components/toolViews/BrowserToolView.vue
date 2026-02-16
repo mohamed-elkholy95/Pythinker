@@ -269,10 +269,20 @@ const genericOutput = computed(() => {
 });
 
 // Format shell output with ANSI colors
+const escapeHtml = (text: string): string => {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 const formatShellOutput = (output: string) => {
-  // Simple formatting - highlight prompts
-  return output
-    .replace(/(\$|>)\s/g, '<span class="text-green-400">$1</span> ')
+  // Escape HTML first to prevent XSS, then apply formatting highlights
+  const escaped = escapeHtml(output);
+  return escaped
+    .replace(/(\$|&gt;)\s/g, '<span class="text-green-400">$1</span> ')
     .replace(/(error|Error|ERROR)/gi, '<span class="text-red-400">$1</span>')
     .replace(/(warning|Warning|WARNING)/gi, '<span class="text-yellow-400">$1</span>')
     .replace(/(success|Success|SUCCESS|done|Done|DONE)/gi, '<span class="text-green-400">$1</span>');

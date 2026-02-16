@@ -71,6 +71,7 @@ services:
       - SANDBOX_ADDRESS=sandbox
       - SANDBOX_IMAGE=pythinker/pythinker-sandbox
       - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
       - "LOCAL_AUTH_PASSWORD=admin*123"  # Override .env to handle special chars
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
@@ -147,13 +148,12 @@ services:
       - /app/__pycache__  # Avoid overwriting cache files
       - /app/.venv  # Avoid overwriting virtual environment
     ports:
-      # VNC is proxied via the backend WebSocket endpoint, so host ports are
-      # optional. Uncomment below for direct host VNC access (debugging).
-      #- "9222:9222"        # CDP port (direct Chrome DevTools)
-      - "5902:5900"         # VNC native port (direct VNC client access)
-      - "5901:5901"         # VNC WebSocket port (noVNC browser access)
-      - "8083:8080"         # Sandbox API
-      - "8082:8082"         # Framework API
+      # Sandbox ports bound to localhost only — accessed via authenticated backend proxy.
+      # To debug VNC directly: use a VNC client to connect to 127.0.0.1:5902
+      - "127.0.0.1:5902:5900"   # VNC native (localhost only, for debugging)
+      - "127.0.0.1:5901:5901"   # VNC WebSocket (localhost only, for debugging)
+      - "127.0.0.1:8083:8080"   # Sandbox API (localhost only)
+      - "127.0.0.1:8082:8082"   # Framework API (localhost only)
     # Shared memory for Chrome: 4GB for Mojo data pipes (avoids "Failed to create Mojo data pipe" on heavy sites)
     shm_size: '4gb'
     # Temp filesystem - improves I/O performance for browser temp files
@@ -181,6 +181,7 @@ services:
           memory: 1G
     environment:
       - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-dual}
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
       - UVI_ARGS="--reload"
       - FRAMEWORK_UVI_ARGS="--reload"
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db

@@ -13,7 +13,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.core.config import get_settings
 from app.domain.models.tool_result import ToolResult
-from app.infrastructure.external.browser.url_filters import is_video_url
+from app.infrastructure.external.browser.url_filters import is_ssrf_target, is_video_url
 from app.infrastructure.external.llm import get_llm
 from app.infrastructure.observability.prometheus_metrics import (
     browser_element_extraction_latency,
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # We use the full width to avoid horizontal cutoff.
 DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
 DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.137 Safari/537.36"
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 DEFAULT_TIMEZONE = "America/New_York"
 
@@ -39,26 +39,22 @@ DEFAULT_TIMEZONE = "America/New_York"
 # Aligned with Chrome for Testing 128.0.6613.137 (Ubuntu 22.04 sandbox)
 USER_AGENT_POOL = [
     # Chrome on Linux (matches sandbox Chrome 128.0.6613.137)
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.137 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     # Chrome on Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.137 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     # Chrome on macOS
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.137 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     # Firefox on Windows (secondary)
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
     # Edge on Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.137 Safari/537.36 Edg/128.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/128.0.0.0",
 ]
 
-# Viewport variations for fingerprint randomization
-# IMPORTANT: All viewports must fit within VNC display (1280x1024 in Xvfb)
-# Wider viewports cause content to render off-screen and get cut off
+# Fixed viewport — consistent 1280x900 for reliable rendering.
+# Randomized viewports (especially 1024x768) trigger mobile/tablet layouts
+# and cause inconsistent element positioning. Stability > anti-detection.
 VIEWPORT_POOL = [
     {"width": 1280, "height": 900},
-    {"width": 1280, "height": 800},
-    {"width": 1280, "height": 720},
-    {"width": 1024, "height": 768},
-    {"width": 1200, "height": 800},
 ]
 
 # Timezone variations
@@ -71,8 +67,10 @@ TIMEZONE_POOL = [
     "Europe/Berlin",
 ]
 
-# Resource types to block for faster page loads (configurable)
-BLOCKABLE_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
+# Resource types to block for faster page loads (configurable).
+# NOTE: font and stylesheet are NOT blocked by default — blocking them breaks
+# page rendering (wrong fonts, no styling). Only block media for performance.
+BLOCKABLE_RESOURCE_TYPES = {"media"}
 
 # Ad/Tracker blocking disabled — was causing browsing issues
 BLOCKED_URL_PATTERNS: list[str] = []
@@ -1211,20 +1209,18 @@ class PlaywrightBrowser:
 
         for attempt in range(max_retries):
             try:
+                # Stop any existing Playwright instance to prevent subprocess leaks
+                if self.playwright is not None:
+                    with contextlib.suppress(Exception):
+                        await self.playwright.stop()
+                    self.playwright = None
+
                 self.playwright = await async_playwright().start()
 
                 # Connect to existing Chrome instance via CDP
                 self.browser = await self.playwright.chromium.connect_over_cdp(
                     self.cdp_url,
                     timeout=cdp_connect_timeout_ms,
-                )
-
-                # Register disconnected handler for crash detection (Playwright best practice)
-                self.browser.on(
-                    "disconnected",
-                    lambda: logger.warning(
-                        f"Browser disconnected (CDP: {self.cdp_url}) - may have crashed or been closed"
-                    ),
                 )
 
                 # Clear existing pages for fresh session
@@ -1398,6 +1394,22 @@ class PlaywrightBrowser:
     async def start(self, clear_existing: bool = False) -> bool:
         """Backward-compatible alias for initialize()."""
         return await self.initialize(clear_existing=clear_existing)
+
+    async def _release_playwright_resources(self) -> None:
+        """Release Playwright subprocess without closing Chrome pages.
+
+        Used by restart() — Chrome stays running (managed by supervisord),
+        we only disconnect Playwright's Node.js subprocess to avoid leaks.
+        """
+        # Stop Playwright subprocess (prevents Node.js zombie processes)
+        if self.playwright is not None:
+            with contextlib.suppress(Exception):
+                await self.playwright.stop()
+
+        self.page = None
+        self.context = None
+        self.browser = None
+        self.playwright = None
 
     async def cleanup(self):
         """Clean up Playwright resources safely
@@ -2034,6 +2046,16 @@ class PlaywrightBrowser:
         Returns:
             ToolResult with navigation status, interactive elements, and optionally page content
         """
+        # SSRF protection — block navigation to internal/private addresses
+        ssrf_reason = is_ssrf_target(url)
+        if ssrf_reason:
+            logger.warning("SSRF blocked: %s → %s", url, ssrf_reason)
+            return ToolResult(
+                success=False,
+                message=f"Navigation blocked for security: {ssrf_reason}",
+                data={"blocked_url": url, "reason": ssrf_reason},
+            )
+
         # Check if URL is a video URL before acquiring the lock
         if is_video_url(url):
             logger.info(f"Skipping video URL: {url}")
@@ -2297,6 +2319,16 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
 
+        # SSRF protection
+        ssrf_reason = is_ssrf_target(url)
+        if ssrf_reason:
+            logger.warning("SSRF blocked (fast): %s → %s", url, ssrf_reason)
+            return ToolResult(
+                success=False,
+                message=f"Navigation blocked for security: {ssrf_reason}",
+                data={"blocked_url": url, "reason": ssrf_reason},
+            )
+
         # Check if URL is a video URL - skip to save agent time
         if is_video_url(url):
             logger.info(f"Skipping video URL in fast mode: {url}")
@@ -2403,7 +2435,7 @@ class PlaywrightBrowser:
         Returns:
             True if navigation succeeded, False if skipped or failed
         """
-        if is_video_url(url):
+        if is_video_url(url) or is_ssrf_target(url):
             return False
 
         # Circuit breaker: stop attempting VNC display after repeated failures
@@ -2455,23 +2487,14 @@ class PlaywrightBrowser:
         try:
             self._connection_healthy = await self._verify_connection_health()
             if not self._connection_healthy:
-                # Connection is dead, need to reinitialize
                 logger.info("Browser connection unhealthy, reinitializing without closing pages")
-                # Set references to None without closing (Chrome stays running)
-                self.page = None
-                self.context = None
-                self.browser = None
-                self.playwright = None
+                await self._release_playwright_resources()
 
                 if not await self.initialize():
                     return ToolResult(success=False, message="Failed to reinitialize browser after restart")
         except Exception as e:
             logger.warning(f"Health check failed: {e}, reinitializing")
-            # Set references to None without closing
-            self.page = None
-            self.context = None
-            self.browser = None
-            self.playwright = None
+            await self._release_playwright_resources()
 
             if not await self.initialize():
                 return ToolResult(success=False, message="Failed to reinitialize browser after restart")
