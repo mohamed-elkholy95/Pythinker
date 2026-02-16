@@ -6,7 +6,12 @@
     </div>
 
     <div class="warmup-body">
-      <div class="warmup-text-wrap">
+      <!-- Use ThinkingIndicator for 'thinking' state -->
+      <div v-if="props.state === 'thinking'" class="warmup-thinking-indicator">
+        <ThinkingIndicator :showText="true" />
+      </div>
+      <!-- Fallback to text for other states -->
+      <div v-else class="warmup-text-wrap">
         <span class="warmup-text">{{ statusText }}</span>
         <span v-if="showBouncingDots" class="warmup-dots" aria-hidden="true">
           <span class="warmup-dot" />
@@ -31,6 +36,7 @@
 import { Bot } from 'lucide-vue-next';
 import { computed } from 'vue';
 import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
+import ThinkingIndicator from './ui/ThinkingIndicator.vue';
 
 const emit = defineEmits<{
   (e: 'retry'): void;
@@ -93,6 +99,12 @@ const showBouncingDots = computed(() => props.state !== 'timed_out');
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.warmup-thinking-indicator {
+  display: flex;
+  align-items: center;
+  padding-left: 1px;
 }
 
 .warmup-text {
