@@ -35,6 +35,7 @@ from app.domain.models.event import (
     TitleEvent,
     ToolEvent,
     ToolStatus,
+    ToolStreamEvent,
     WaitEvent,
 )
 from app.domain.models.file import FileInfo
@@ -1754,6 +1755,11 @@ class AgentTaskRunner(TaskRunner):
                     while task.paused:
                         logger.debug(f"Agent {self._agent_id} paused, waiting for resume...")
                         await asyncio.sleep(0.5)
+
+                    # ToolStreamEvent is ephemeral (preview only) — send to SSE but skip persistence
+                    if isinstance(event, ToolStreamEvent):
+                        await task.output_stream.put(event.model_dump_json())
+                        continue
 
                     await self._put_and_add_event(task, event)
                     if isinstance(event, TitleEvent):

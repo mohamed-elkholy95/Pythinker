@@ -616,6 +616,26 @@ class StreamEvent(BaseEvent):
     phase: str = "thinking"  # "thinking" for planning, "summarizing" for report generation
 
 
+class ToolStreamEvent(BaseEvent):
+    """Streams partial tool content during LLM generation.
+
+    Emitted while the LLM is still generating tool call arguments,
+    allowing the frontend to show progressive content (e.g., file
+    content appearing character-by-character in the editor view).
+
+    The normal ToolEvent(status=CALLING) is still emitted once the
+    full tool call is ready — this event provides early previews.
+    """
+
+    type: Literal["tool_stream"] = "tool_stream"
+    tool_call_id: str
+    tool_name: str
+    function_name: str
+    partial_content: str  # Accumulated content extracted so far
+    content_type: str = "text"  # "text" | "code" | "json"
+    is_final: bool = False  # True when the full content is available
+
+
 class VerificationStatus(str, Enum):
     """Verification status enum"""
 
@@ -872,6 +892,7 @@ AgentEvent = Annotated[
         ErrorEvent,
         PlanEvent,
         ToolEvent,
+        ToolStreamEvent,
         ToolProgressEvent,
         StepEvent,
         MessageEvent,

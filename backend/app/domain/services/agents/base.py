@@ -15,6 +15,7 @@ from app.domain.models.event import (
     StreamEvent,
     ToolEvent,
     ToolStatus,
+    ToolStreamEvent,
     WaitEvent,
 )
 from app.domain.models.message import Message
@@ -27,6 +28,11 @@ from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, To
 from app.domain.services.agents.hallucination_detector import ToolHallucinationDetector
 from app.domain.services.agents.security_assessor import ActionSecurityRisk, SecurityAssessor
 from app.domain.services.agents.stuck_detector import StuckDetector
+from app.domain.services.agents.tool_stream_parser import (
+    content_type_for_function,
+    extract_partial_content,
+    is_streamable_function,
+)
 
 if TYPE_CHECKING:
     from app.domain.external.circuit_breaker import CircuitBreakerPort
@@ -984,6 +990,21 @@ class BaseAgent:
                     # Prevents tools from starting if SSE disconnect happened
                     await self._cancel_token.check_cancelled()
 
+                    # Emit tool_stream preview so the frontend can show content
+                    # in the editor/terminal BEFORE the tool starts executing.
+                    raw_args = tool_call["function"].get("arguments", "{}")
+                    if is_streamable_function(function_name):
+                        partial = extract_partial_content(function_name, raw_args)
+                        if partial:
+                            yield ToolStreamEvent(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool.name,
+                                function_name=function_name,
+                                partial_content=partial,
+                                content_type=content_type_for_function(function_name),
+                                is_final=True,
+                            )
+
                     # Emit CALLING events for all parallel tools
                     yield self._create_tool_event(
                         tool_call_id=tool_call_id,
@@ -1089,6 +1110,21 @@ class BaseAgent:
                     # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
                     # Prevents tools from starting if SSE disconnect happened
                     await self._cancel_token.check_cancelled()
+
+                    # Emit tool_stream preview so the frontend can show content
+                    # in the editor/terminal BEFORE the tool starts executing.
+                    raw_args_seq = tool_call["function"].get("arguments", "{}")
+                    if is_streamable_function(function_name):
+                        partial = extract_partial_content(function_name, raw_args_seq)
+                        if partial:
+                            yield ToolStreamEvent(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool.name,
+                                function_name=function_name,
+                                partial_content=partial,
+                                content_type=content_type_for_function(function_name),
+                                is_final=True,
+                            )
 
                     yield self._create_tool_event(
                         tool_call_id=tool_call_id,
