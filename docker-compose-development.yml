@@ -108,7 +108,6 @@ services:
     volumes:
       - ./sandbox:/app  # Mount source code directory
       - ./sandbox/supervisord.conf:/etc/supervisor/conf.d/app.conf
-      - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml  # Openbox config for window management
       - /app/__pycache__  # Avoid overwriting cache files
       - /app/.venv  # Avoid overwriting virtual environment
     ports:
