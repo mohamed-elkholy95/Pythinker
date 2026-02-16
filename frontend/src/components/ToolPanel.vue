@@ -8,8 +8,8 @@
     }"
     :style="{ 'width': isShow ? panelWidth : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
     <div class="h-full flex flex-col" :style="{ 'width': isShow ? '100%' : '0px' }">
-      <ToolPanelContent
-        ref="toolPanelContentRef"
+      <WorkspacePanel
+        ref="workspacePanelRef"
         v-if="isShow && toolContent"
         :sessionId="sessionId"
         :realTime="realTime"
@@ -46,7 +46,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import type { ToolContent } from '../types/message'
 import type { PlanEventData } from '../types/event'
 import type { ScreenshotMetadata } from '../types/screenshot'
-import ToolPanelContent from './ToolPanelContent.vue'
+import WorkspacePanel from './workspace/WorkspacePanel.vue'
 import { useResizeObserver } from '../composables/useResizeObserver'
 import { eventBus } from '../utils/eventBus'
 import { EVENT_SHOW_FILE_PANEL, EVENT_SHOW_TOOL_PANEL, EVENT_TOOL_PANEL_STATE_CHANGE } from '../constants/event'
@@ -70,7 +70,7 @@ const isShow = ref(false)
 const live = ref(false)
 const toolContent = ref<ToolContent>()
 const visible = ref(true)
-const toolPanelContentRef = ref<InstanceType<typeof ToolPanelContent> | null>(null)
+const workspacePanelRef = ref<InstanceType<typeof WorkspacePanel> | null>(null)
 
 const emit = defineEmits<{
   (e: 'jumpToRealTime'): void

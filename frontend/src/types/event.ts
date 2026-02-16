@@ -14,6 +14,7 @@ export interface FollowUp {
 export type AgentSSEEvent = {
   event:
     | 'tool'
+    | 'tool_stream'
     | 'step'
     | 'message'
     | 'error'
@@ -37,6 +38,7 @@ export type AgentSSEEvent = {
     | 'canvas_update';
   data:
     | ToolEventData
+    | ToolStreamEventData
     | StepEventData
     | MessageEventData
     | ErrorEventData
@@ -62,6 +64,15 @@ export type AgentSSEEvent = {
 export interface BaseEventData {
   event_id: string;
   timestamp: number;
+}
+
+export interface ToolStreamEventData extends BaseEventData {
+  tool_call_id: string;
+  tool_name: string;
+  function_name: string;
+  partial_content: string;
+  content_type: string;
+  is_final: boolean;
 }
 
 export interface ToolEventData extends BaseEventData {
