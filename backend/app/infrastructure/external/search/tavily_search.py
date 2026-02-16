@@ -28,7 +28,7 @@ from app.infrastructure.external.search.factory import SearchProviderRegistry
 logger = logging.getLogger(__name__)
 
 # HTTP status codes that indicate the API key should be rotated
-_ROTATE_STATUS_CODES = {401, 402, 403, 429}
+_ROTATE_STATUS_CODES = {401, 402, 403, 429, 432}
 
 
 @SearchProviderRegistry.register("tavily")

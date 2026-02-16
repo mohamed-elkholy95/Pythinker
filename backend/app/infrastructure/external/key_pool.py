@@ -277,7 +277,7 @@ class APIKeyPool:
             try:
                 # Check if key is invalid (permanent)
                 invalid_key = f"api_key:invalid:{self.provider}:{key_hash}"
-                invalid_result = await self._redis.exists(invalid_key)
+                invalid_result = await self._redis.call("exists", invalid_key)
                 # Only trust result if it's actually a boolean or int (0/1)
                 if isinstance(invalid_result, (bool, int)) and invalid_result:
                     # Sync to in-memory state
@@ -286,7 +286,7 @@ class APIKeyPool:
 
                 # Check if key is exhausted (temporary with TTL)
                 exhausted_key = f"api_key:exhausted:{self.provider}:{key_hash}"
-                exhausted_result = await self._redis.exists(exhausted_key)
+                exhausted_result = await self._redis.call("exists", exhausted_key)
                 # Only trust result if it's actually a boolean or int (0/1)
                 if isinstance(exhausted_result, (bool, int)) and exhausted_result:
                     # Sync to in-memory state (with default 60s TTL since we can't get exact TTL easily)
@@ -319,7 +319,7 @@ class APIKeyPool:
         if self._redis is not None:
             try:
                 redis_key = f"api_key:exhausted:{self.provider}:{key_hash}"
-                await self._redis.setex(redis_key, ttl_seconds, KeyHealthStatus.EXHAUSTED.value)
+                await self._redis.call("setex", redis_key, ttl_seconds, KeyHealthStatus.EXHAUSTED.value)
             except Exception as e:
                 logger.warning(f"[{self.provider}] Failed to mark key exhausted in Redis, using in-memory only: {e}")
 
@@ -353,7 +353,7 @@ class APIKeyPool:
         if self._redis is not None:
             try:
                 redis_key = f"api_key:invalid:{self.provider}:{key_hash}"
-                await self._redis.set(redis_key, KeyHealthStatus.INVALID.value)
+                await self._redis.call("set", redis_key, KeyHealthStatus.INVALID.value)
             except Exception as e:
                 logger.warning(f"[{self.provider}] Failed to mark key invalid in Redis, using in-memory only: {e}")
 

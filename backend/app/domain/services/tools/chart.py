@@ -297,7 +297,7 @@ Returns both interactive HTML and static PNG files.""",
         try:
             exec_result = await self.sandbox.exec_command(
                 session_id=self.session_id,
-                cwd="/home/ubuntu",
+                exec_dir="/home/ubuntu",
                 command=command,
             )
 
@@ -305,7 +305,7 @@ Returns both interactive HTML and static PNG files.""",
             try:
                 await self.sandbox.exec_command(
                     session_id=self.session_id,
-                    cwd="/home/ubuntu",
+                    exec_dir="/home/ubuntu",
                     command=f"rm -f {temp_input_path}",
                 )
             except Exception:

@@ -179,7 +179,12 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
             logger.warning("Serper Search not configured: missing API key")
             return None
         kwargs = {"api_key": settings.serper_api_key}
-        fallback_keys = [key for key in [settings.serper_api_key_2, settings.serper_api_key_3] if key]
+        fallback_keys = [key for key in [
+            settings.serper_api_key_2, settings.serper_api_key_3,
+            settings.serper_api_key_4, settings.serper_api_key_5,
+            settings.serper_api_key_6, settings.serper_api_key_7,
+            settings.serper_api_key_8, settings.serper_api_key_9,
+        ] if key]
         if fallback_keys:
             kwargs["fallback_api_keys"] = fallback_keys
         if redis_client:
@@ -252,10 +257,13 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         provider = "duckduckgo"
 
     # Get Redis client for API key pool coordination
-    # FIXME: RedisClient wrapper doesn't expose .exists() method needed by APIKeyPool
-    # Passing None uses in-memory mode (graceful degradation, no Redis coordination)
-    # Proper fix: Pass get_redis().client after ensuring initialization, or refactor APIKeyPool
     redis_client = None
+    try:
+        from app.infrastructure.storage.redis import get_redis
+
+        redis_client = get_redis()
+    except Exception as e:
+        logger.warning(f"Failed to get Redis client for search key pool: {e}")
 
     # Provider-level failover chain for API-backed search reliability.
     # Each provider still does its own API key rotation internally.

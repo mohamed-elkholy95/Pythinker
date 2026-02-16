@@ -214,6 +214,9 @@ class SerperSearchEngine(SearchEngineBase):
                 # Mark key exhausted with 1-hour TTL (Serper resets hourly)
                 await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
 
+                # Close cached client so next retry creates one with the new key
+                await self.close()
+
                 # Retry with next key
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
@@ -224,6 +227,7 @@ class SerperSearchEngine(SearchEngineBase):
         except httpx.HTTPStatusError as e:
             if e.response.status_code in _ROTATE_STATUS_CODES:
                 await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
+                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
             return self._create_error_result(query, date_range, self._handle_http_error(e))
 
