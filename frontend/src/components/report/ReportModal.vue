@@ -308,6 +308,21 @@ renderer.heading = function({ text, depth }: { text: string; depth: number }) {
   return `<h${depth} id="${id}">${parsedText}</h${depth}>`;
 };
 
+// Transform verification badge text into styled HTML spans
+const transformVerificationBadges = (html: string): string => {
+  // Match [Unverified], [Unverified factual claim], [Unverified statistical claim], etc.
+  html = html.replace(
+    /\[Unverified(?:\s+[\w\s]*?claim)?\]/gi,
+    '<span class="verification-badge badge-unverified">Unverified</span>'
+  );
+  // Match [Verified]
+  html = html.replace(
+    /\[Verified\]/gi,
+    '<span class="verification-badge badge-verified">Verified</span>'
+  );
+  return html;
+};
+
 const renderedContent = computed(() => {
   if (!props.report?.content) return '';
   try {
@@ -317,8 +332,9 @@ const renderedContent = computed(() => {
     const filteredLines = lines.filter(line => !line.match(/^#\s+/));
     content = filteredLines.join('\n');
 
-    const html = marked.parse(content, { renderer });
-    return DOMPurify.sanitize(html as string);
+    let html = marked.parse(content, { renderer }) as string;
+    html = transformVerificationBadges(html);
+    return DOMPurify.sanitize(html);
   } catch {
     return '<p class="text-red-500">Failed to render content</p>';
   }
@@ -755,6 +771,12 @@ watch(isOpen, (newVal) => {
   min-height: 0;
   overflow: hidden;
   position: relative;
+  --toc-accent: #1a73e8;
+}
+
+:global(.dark) .content-wrapper,
+:global([data-theme='dark']) .content-wrapper {
+  --toc-accent: #58a6ff;
 }
 
 .document-container {
@@ -809,7 +831,7 @@ watch(isOpen, (newVal) => {
 .doc-body.prose {
   --tw-prose-body: var(--text-primary);
   --tw-prose-headings: var(--text-primary);
-  --tw-prose-links: #000000;
+  --tw-prose-links: #1a73e8;
   --tw-prose-bold: var(--text-primary);
   --tw-prose-counters: var(--text-secondary);
   --tw-prose-bullets: var(--text-tertiary);
@@ -824,8 +846,9 @@ watch(isOpen, (newVal) => {
   --tw-prose-td-borders: var(--border-light);
 }
 
-:global(.dark) .doc-body.prose {
-  --tw-prose-links: var(--text-primary);
+:global(.dark) .doc-body.prose,
+:global([data-theme='dark']) .doc-body.prose {
+  --tw-prose-links: #58a6ff;
 }
 
 /* `v-html` content is not scoped; use deep selectors for reliable dark-mode text colors */
@@ -891,13 +914,20 @@ watch(isOpen, (newVal) => {
   font-style: italic;
 }
 
-.doc-body.prose a {
+/* Links inside v-html need :deep() since injected elements lack the scoping attribute */
+.doc-body.prose :deep(a) {
   color: #1a73e8;
   text-decoration: none;
+  transition: color 0.15s ease;
 }
 
-.doc-body.prose a:hover {
+.doc-body.prose :deep(a:hover) {
   text-decoration: underline;
+}
+
+:global(.dark) .doc-body.prose :deep(a),
+:global([data-theme='dark']) .doc-body.prose :deep(a) {
+  color: #58a6ff;
 }
 
 .doc-body.prose ul,
@@ -998,6 +1028,38 @@ watch(isOpen, (newVal) => {
   margin: 24px 0;
 }
 
+/* ===== VERIFICATION BADGES ===== */
+.doc-body.prose :deep(.verification-badge) {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 10px;
+  vertical-align: baseline;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.doc-body.prose :deep(.badge-verified) {
+  background: var(--function-success-tsp);
+  color: var(--function-success);
+  border: 1px solid var(--function-success-border);
+}
+
+.doc-body.prose :deep(.badge-unverified) {
+  background: var(--function-warning-tsp);
+  color: var(--function-warning);
+  border: 1px solid rgba(247, 144, 9, 0.3);
+}
+
+:global(.dark) .doc-body.prose :deep(.badge-unverified),
+:global([data-theme='dark']) .doc-body.prose :deep(.badge-unverified) {
+  border-color: rgba(210, 153, 34, 0.35);
+}
+
 /* ===== TOC CONTAINER ===== */
 .toc-container {
   position: absolute;
@@ -1028,13 +1090,13 @@ watch(isOpen, (newVal) => {
 .toc-line {
   width: 28px;
   height: 4px;
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--border-light);
   border-radius: 2px;
   transition: all 0.15s ease;
 }
 
 .toc-line-active {
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--text-tertiary);
 }
 
 .toc-line-sub {
@@ -1042,11 +1104,11 @@ watch(isOpen, (newVal) => {
 }
 
 .toc-mini:hover .toc-line {
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--border-main);
 }
 
 .toc-mini:hover .toc-line-active {
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--text-secondary);
 }
 
 /* ===== TOC SIDEBAR (Expanded) ===== */
@@ -1062,7 +1124,7 @@ watch(isOpen, (newVal) => {
   overflow-y: auto;
   padding: 24px 20px;
   border-radius: 12px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 24px var(--shadow-S);
 }
 
 .toc-nav {
@@ -1078,7 +1140,7 @@ watch(isOpen, (newVal) => {
   margin-bottom: 20px;
   font-size: 17px;
   font-weight: 500;
-  color: #1a73e8;
+  color: var(--toc-accent, #1a73e8);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1104,11 +1166,11 @@ watch(isOpen, (newVal) => {
 }
 
 .toc-item:hover {
-  color: #1a73e8;
+  color: var(--toc-accent, #1a73e8);
 }
 
 .toc-item-active {
-  color: #1a73e8;
+  color: var(--toc-accent, #1a73e8);
 }
 
 .toc-level-2 {
@@ -1187,14 +1249,14 @@ watch(isOpen, (newVal) => {
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
-  color: white;
-  background: #1a1a1a;
+  color: var(--text-onblack);
+  background: var(--Button-primary-black);
   border-radius: 6px;
   transition: background-color 0.15s ease;
 }
 
 .suggestion-action:hover {
-  background: #333;
+  background: var(--button-primary-hover);
 }
 
 /* ===== SCROLLBAR ===== */
