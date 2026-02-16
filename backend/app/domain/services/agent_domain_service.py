@@ -68,6 +68,12 @@ class AgentDomainService:
         self._task_creation_locks: dict[str, asyncio.Lock] = {}
         # Background tasks (prevents garbage collection of fire-and-forget tasks)
         self._background_tasks: set[asyncio.Task[None]] = set()
+        # Global concurrency guard: limits active agent tasks to available sandbox slots.
+        # When saturated, new chat() calls wait (not reject) — matching queue semantics
+        # without the overhead of a separate worker process.
+        from app.core.config import get_settings as _init_settings
+
+        self._agent_concurrency = asyncio.Semaphore(_init_settings().max_concurrent_agents)
         logger.info("AgentDomainService initialization completed")
 
     def _get_task_creation_lock(self, session_id: str) -> asyncio.Lock:
@@ -278,7 +284,7 @@ class AgentDomainService:
         # browser restarts on every new task (fast prompts issue). Now we only clear for:
         # 1. New sandbox created (is_new_sandbox=True) - browser has no user state
         # For existing sandboxes with running tasks, preserve browser state to:
-        # - Avoid VNC positioning issues (new windows shift right)
+        # - Avoid live preview positioning issues (new windows shift right)
         # - Preserve ongoing browser work and navigation
         # - Allow smooth handling of fast/consecutive prompts
         should_clear_browser = is_new_sandbox
@@ -817,6 +823,9 @@ NOTE: The browser state may have changed. When you next use the browser:
                 Domain service checks this periodically and cancels active task execution.
         """
 
+        # Acquire concurrency slot — blocks when all sandbox slots are busy.
+        await self._agent_concurrency.acquire()
+
         try:
             session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
             if not session:
@@ -1207,6 +1216,7 @@ NOTE: The browser state may have changed. When you next use the browser:
             await self._teardown_session_runtime(session_id, status=SessionStatus.FAILED, destroy_sandbox=False)
             yield event
         finally:
+            self._agent_concurrency.release()
             await self._session_repository.update_unread_message_count(session_id, 0)
             # Extract and store memories from session (fire-and-forget)
             if self._memory_service:

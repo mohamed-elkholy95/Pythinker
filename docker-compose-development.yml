@@ -82,42 +82,6 @@ services:
       retries: 5
       start_period: 20s
 
-  worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: python -m app.workers.job_worker
-    volumes:
-      - ./backend:/app  # Mount source code for hot reload
-      - /app/__pycache__  # Avoid overwriting cache
-      - /app/.venv  # Avoid overwriting venv
-    depends_on:
-      backend:
-        condition: service_healthy
-      mongodb:
-        condition: service_started
-      redis:
-        condition: service_started
-      redis-cache:
-        condition: service_started
-    restart: unless-stopped
-    networks:
-      - pythinker-network
-    env_file:
-      - .env
-    environment:
-      - WORKER_ID=worker-dev-1
-      - MAX_CONCURRENT_JOBS=3
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - GRPC_ENABLE_FORK_SUPPORT=0
-    healthcheck:
-      test: ["CMD-SHELL", "python -c 'import os, signal; os.kill(1, 0)' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
   sandbox:
     build:
       context: ./sandbox
@@ -149,9 +113,6 @@ services:
       - /app/.venv  # Avoid overwriting virtual environment
     ports:
       # Sandbox ports bound to localhost only — accessed via authenticated backend proxy.
-      # To debug VNC directly: use a VNC client to connect to 127.0.0.1:5902
-      - "127.0.0.1:5902:5900"   # VNC native (localhost only, for debugging)
-      - "127.0.0.1:5901:5901"   # VNC WebSocket (localhost only, for debugging)
       - "127.0.0.1:8083:8080"   # Sandbox API (localhost only)
       - "127.0.0.1:8082:8082"   # Framework API (localhost only)
     # Shared memory for Chrome: 4GB for Mojo data pipes (avoids "Failed to create Mojo data pipe" on heavy sites)
@@ -180,7 +141,7 @@ services:
         reservations:
           memory: 1G
     environment:
-      - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-dual}
+      - SANDBOX_STREAMING_MODE=${SANDBOX_STREAMING_MODE:-cdp_only}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
       - UVI_ARGS="--reload"
       - FRAMEWORK_UVI_ARGS="--reload"
