@@ -153,7 +153,7 @@
           />
 
           <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
-          <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1">
+          <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4">
             <ThinkingIndicator :showText="true" />
           </div>
           <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
@@ -1169,6 +1169,9 @@ const checkStaleConnection = () => {
 
 // Track if ToolPanel is open (needed for VNC thumbnail management)
 const isToolPanelOpen = ref(false);
+// Tracks whether user manually closed the panel during the current agent run.
+// Prevents auto-reopening until the next user message is sent.
+const userDismissedPanel = ref(false);
 
 // Handler for TaskProgressBar's requestRefresh event (no-op with live VNC preview)
 const handleThumbnailRefresh = () => {
@@ -1375,8 +1378,11 @@ const showTaskProgressBar = computed(() =>
 const showThumbnailDockSpacer = computed(() => showTaskProgressBar.value && shouldShowThumbnail.value);
 
 // Handle tool panel state changes
-const handlePanelStateChange = (isOpen: boolean) => {
+const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) => {
   isToolPanelOpen.value = isOpen;
+  if (!isOpen && userAction) {
+    userDismissedPanel.value = true;
+  }
 };
 
 // Computer-related tools that should show thumbnail
@@ -1736,6 +1742,9 @@ const handleToolEvent = (toolData: ToolEventData) => {
       panelToolId.value = toolContent.tool_call_id;
       if (isToolPanelOpen.value) {
         // Auto-switch panel content when panel is open and new tool starts
+        toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
+      } else if (!userDismissedPanel.value) {
+        // Auto-open panel on first tool event (user hasn't dismissed it yet)
         toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
       }
     }
@@ -2613,6 +2622,8 @@ const chat = async (
 ) => {
   const streamAttemptId = beginStreamAttempt();
   if (!sessionId.value) return;
+  // Reset user dismissal so the panel auto-opens for the new agent run
+  userDismissedPanel.value = false;
   const normalizedMessage = message.trim();
 
   // Prevent duplicate message submission within 2 seconds

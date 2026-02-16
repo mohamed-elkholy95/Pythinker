@@ -14,7 +14,7 @@
             class="w-full h-auto object-contain bg-white dark:bg-[var(--code-block-bg)]"
           />
           <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-            <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--background-brand)] text-white shadow-lg">
+            <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 dark:bg-blue-500 text-white shadow-lg">
               <BarChart3 :size="16" />
               <span class="text-sm font-medium">Open Interactive Chart</span>
             </div>

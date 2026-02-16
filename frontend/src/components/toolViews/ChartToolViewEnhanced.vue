@@ -108,12 +108,12 @@
       <!-- Actions -->
       <div class="flex gap-2">
         <button v-if="chartContent.content?.html_file_id" @click="openInteractive"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--background-brand)] text-white text-sm font-medium hover:bg-[var(--background-brand-hover)] transition-colors">
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors">
           <ExternalLink :size="14" />
           <span>Open in New Tab</span>
         </button>
         <button v-if="chartContent.content?.png_file_id" @click="downloadPng"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--border-main)] text-[var(--text-primary)] text-sm font-medium hover:bg-[var(--background-gray-light)] transition-colors">
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
           <Download :size="14" />
           <span>Download PNG</span>
         </button>
@@ -352,7 +352,7 @@ onBeforeUnmount(() => {
 
 .bar {
   width: 16px;
-  background: linear-gradient(to top, var(--background-brand), var(--background-brand-hover));
+  background: linear-gradient(to top, #2563eb, #3b82f6);
   border-radius: 4px 4px 0 0;
   animation: bar-grow 1.5s ease-in-out infinite;
 }

@@ -127,7 +127,7 @@
                 class="group flex flex-1 items-center gap-3 rounded-lg p-2 text-start hover:bg-[var(--fill-tsp-gray-main)] transition-colors min-w-0 outline-none"
                 aria-label="Open user menu"
               >
-                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--bolt-elements-item-contentAccent)] text-white text-sm font-semibold shadow-sm">
+                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-800 dark:bg-gray-600 text-white text-sm font-semibold shadow-sm">
                   {{ avatarLetter }}
                 </span>
                 <div class="flex flex-col min-w-0 overflow-hidden">

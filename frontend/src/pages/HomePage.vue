@@ -23,7 +23,7 @@
               @mouseenter="handleUserMenuEnter" @mouseleave="handleUserMenuLeave">
               <div class="relative flex items-center justify-center font-bold cursor-pointer flex-shrink-0">
                 <div
-                  class="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden bg-[var(--bolt-elements-item-contentAccent)] text-white"
+                  class="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden bg-gray-800 dark:bg-gray-600 text-white"
                   style="width: 32px; height: 32px; font-size: 16px;">
                   {{ avatarLetter }}</div>
               </div>
