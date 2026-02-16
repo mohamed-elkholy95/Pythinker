@@ -32,8 +32,8 @@ export interface StreamHealthMetrics {
 
 export function useSSEConnection(config: SSEConnectionConfig = {}) {
   const {
-    staleThresholdMs = 60000, // 60 seconds default
-    degradedThresholdMs = 60000, // 60 seconds without real events
+    staleThresholdMs = 120000, // 120 seconds (4× heartbeat interval) — no events at all
+    degradedThresholdMs = 180000, // 180 seconds (6× heartbeat interval) — heartbeats only, no real events
     onStaleDetected,
     onDegradedDetected
   } = config
