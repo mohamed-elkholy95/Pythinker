@@ -46,6 +46,8 @@ export interface ErrorSummary {
 
 const MAX_STORED_ERRORS = 50
 const STORAGE_KEY = 'pythinker-error-log'
+/** Errors older than this are excluded from the summary (prevents stale banners) */
+const ERROR_SUMMARY_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
 /**
  * Categorize an error based on its message and type
@@ -179,7 +181,8 @@ export function useErrorReporter() {
     const now = Date.now()
     const durationMs = now - startTime.value
     const durationMinutes = durationMs / 60000
-    
+    const ttlCutoff = now - ERROR_SUMMARY_TTL_MS
+
     const categoryCounts: Record<ErrorCategory, number> = {
       network: 0,
       timeout: 0,
@@ -189,22 +192,27 @@ export function useErrorReporter() {
       circuit_breaker: 0,
       unknown: 0,
     }
-    
+
     let criticalCount = 0
     let unrecoverableCount = 0
-    
-    for (const error of errors.value) {
+
+    // Only count recent errors in the summary to prevent stale banners.
+    // Errors older than ERROR_SUMMARY_TTL_MS are kept in storage for
+    // post-mortem analysis but don't affect the UI.
+    const recentErrors = errors.value.filter(e => e.timestamp > ttlCutoff)
+
+    for (const error of recentErrors) {
       categoryCounts[error.category]++
       if (error.severity === 'critical') criticalCount++
       if (!error.recoverable) unrecoverableCount++
     }
-    
+
     return {
-      totalErrors: errors.value.length,
+      totalErrors: recentErrors.length,
       criticalCount,
       unrecoverableCount,
-      mostRecentError: errors.value[0] ?? null,
-      errorRate: durationMinutes > 0 ? errors.value.length / durationMinutes : 0,
+      mostRecentError: recentErrors[0] ?? null,
+      errorRate: durationMinutes > 0 ? recentErrors.length / durationMinutes : 0,
       categories: categoryCounts,
     }
   })
