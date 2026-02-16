@@ -72,14 +72,10 @@ Pythinker's browser architecture provides AI agents with safe, observable, and r
 │                   SANDBOX (Docker Container)                         │
 │                            │                                         │
 │  ┌─────────────────────────▼──────────────────────────────────────┐ │
-│  │               Xvfb :1 (Virtual X Server)                        │ │
-│  └─────────────────────────┬──────────────────────────────────────┘ │
-│                            │                                         │
-│  ┌─────────────────────────▼──────────────────────────────────────┐ │
-│  │  Chromium --display=:1 --remote-debugging-port=9222            │ │
+│  │  Chromium --headless=new --remote-debugging-port=9222           │ │
 │  │  - Playwright-installed Chromium                               │ │
 │  │  - CDP on 0.0.0.0:9222                                         │ │
-│  │  - Headless rendering (no X11 in cdp_only mode)               │ │
+│  │  - Headless rendering (no desktop display stack)               │ │
 │  └──────────────┬─────────────────────────────────────────────────┘ │
 │                 │                                                    │
 │        ┌────────▼────────┐                                          │
@@ -154,8 +150,7 @@ User's Browser (JPEG frames via WebSocket)
 ```
 
 **Streaming Mode** (`SANDBOX_STREAMING_MODE`):
-- `cdp_only` (default): CDP screencast only, no X11 stack (-50% image size)
-- `dual` (deprecated): CDP + X11 for legacy VNC support
+- `cdp_only` (default): CDP screencast only, no desktop display stack (-50% image size)
 
 ---
 
@@ -240,11 +235,11 @@ User's Browser (JPEG frames via WebSocket)
 - Read-only filesystem with tmpfs mounts
 - Network isolation (bridge mode)
 
-### VNC Authentication
+### Sandbox WebSocket Authentication
 
-- Signed URLs with 60-second expiration
-- Signature includes session_id, user_id, timestamp
-- WebSocket upgrade requires valid signature
+- Signed URLs with short expiration
+- Signature includes session_id, user_id, and timestamp
+- WebSocket upgrade requires valid signature for screencast/input routes
 
 ---
 
@@ -298,7 +293,6 @@ User's Browser (JPEG frames via WebSocket)
 
 ## Related Documentation
 
-- **ADR:** `docs/architecture/BROWSER_STANDARDIZATION_ADR.md`
 - **HTTP Pooling:** `docs/architecture/HTTP_CLIENT_POOLING.md`
 - **Automatic Behavior:** `docs/architecture/AUTOMATIC_BROWSER_BEHAVIOR.md`
 - **Streaming Guide:** `docs/guides/OPENREPLAY.md`

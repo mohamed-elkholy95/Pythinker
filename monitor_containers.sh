@@ -69,7 +69,7 @@ monitor_sandbox() {
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo ""
     echo "Container: pythinker-sandbox-1"
-    echo "Focus: Context generation, VNC, Chrome, supervisord"
+    echo "Focus: Context generation, CDP/Chrome, supervisord"
     echo ""
 
     docker logs -f --tail=50 pythinker-sandbox-1

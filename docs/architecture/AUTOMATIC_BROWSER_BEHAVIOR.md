@@ -22,8 +22,7 @@ The objective is fewer round-trips and faster response while preserving reliabil
 
 Browser actions are visible in the computer panel through:
 
-- CDP screencast primary path
-- VNC fallback path when CDP is unavailable
+- CDP screencast path (`LiveViewer` -> `SandboxViewer`)
 
 ## Operational Notes
 
@@ -35,6 +34,5 @@ Browser actions are visible in the computer panel through:
 
 Use `docs/guides/TEST_GUIDE.md` for end-to-end validation of:
 
-- CDP-first live rendering
-- Fallback behavior
+- CDP live rendering
 - Replay behavior

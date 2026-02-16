@@ -2,7 +2,7 @@
 
 Validated: **2026-02-15**
 
-Scope: Python 3.11+, FastAPI/ASGI, Vue 3 + TypeScript, MongoDB/Beanie, Redis, Qdrant, MinIO, WebSockets/SSE, xterm.js/noVNC, MCP/LLM agents, Docker + Supervisord, Playwright/Monaco.
+Scope: Python 3.11+, FastAPI/ASGI, Vue 3 + TypeScript, MongoDB/Beanie, Redis, Qdrant, MinIO, WebSockets/SSE, xterm.js/CDP screencast, MCP/LLM agents, Docker + Supervisord, Playwright/Monaco.
 
 This playbook standardizes how to classify, detect, triage, and stabilize failures in the current stack. Use the taxonomy tags in incidents, PRs, tests, dashboards, and postmortems.
 
@@ -16,7 +16,7 @@ Context7 validation baseline used for this revision:
 ### Plane tags (origin)
 - `CL`: Client (Vue/TS/UI runtime)
 - `CP`: Control plane (FastAPI, auth, routing, orchestration)
-- `EP`: Execution plane (sandbox containers, browser/tool runtime, VNC/X)
+- `EP`: Execution plane (sandbox containers, browser/tool runtime, CDP/X)
 - `DP`: Data plane (Mongo/Redis/Qdrant/MinIO)
 
 ### Failure mode tags (type)
@@ -136,7 +136,7 @@ Each entry: **Issue -> Symptoms -> Deterministic Detection -> Heuristic Detectio
 - Heuristic detection: handler counts increase on repeated mount/unmount cycles.
 - Stabilizing pattern: register hooks synchronously; move async work inside hook callback; composable authoring checklist.
 
-### E) xterm.js / noVNC security + correctness (`CL/EP/SEC/STRM`)
+### E) xterm.js / browser streaming security + correctness (`CL/EP/SEC/STRM`)
 
 #### 14. PTY resize race corrupts terminal rendering
 - Symptoms: wrap corruption and curses glitches during resize under load.
@@ -340,7 +340,7 @@ Dependency/security hygiene:
 Run these in a compose-backed CI job at least once per merge to `main`:
 
 1. SSE stream opens, heartbeat arrives, forced reconnect replays without duplicates.
-2. WS takeover channels (`vnc`, `screencast`, `input`) connect and exchange expected frames/messages.
+2. WS takeover channels (`screencast`, `input`) connect and exchange expected frames/messages.
 3. Sandbox starts and runs one minimal Python tool, one minimal Node tool, one minimal Playwright navigation.
 4. Mongo CRUD for session docs with linked-document retrieval path.
 5. Redis coordination key round-trip and cache key TTL/eviction sanity.

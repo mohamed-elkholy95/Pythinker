@@ -48,7 +48,7 @@ function show_menu() {
     echo "8) Sandbox Tool Execution Logs"
     echo "9) Backend API Request Logs"
     echo "10) Docker/Browser Logs from Sandbox"
-    echo "11) VNC/CDP Connection Logs"
+    echo "11) CDP Connection Logs"
     echo "12) Complete System Snapshot"
     echo "0) Exit"
     echo ""
@@ -209,20 +209,9 @@ function show_docker_browser_logs() {
         tail -10 || echo "No CDP logs found"
 }
 
-function show_vnc_cdp_logs() {
-    echo -e "${BLUE}VNC/CDP Connection Logs:${NC}"
+function show_cdp_logs() {
+    echo -e "${BLUE}CDP Connection Logs:${NC}"
     echo ""
-
-    echo "=== VNC Server Logs (Sandbox) ==="
-    docker logs ${SANDBOX_CONTAINER} --tail 200 | \
-        grep -E "VNC|vnc|x11vnc|websockify|5901" | \
-        tail -15 || echo "No VNC logs found"
-
-    echo ""
-    echo "=== VNC Client Logs (Backend) ==="
-    docker logs ${BACKEND_CONTAINER} --tail 200 | \
-        grep -E "VNC|vnc|WebSocket.*5901|Connecting to VNC" | \
-        tail -15 || echo "No VNC client logs found"
 
     echo ""
     echo "=== CDP Connection (Backend) ==="
@@ -277,7 +266,7 @@ while true; do
         8) show_sandbox_tool_execution ;;
         9) show_backend_api_logs ;;
         10) show_docker_browser_logs ;;
-        11) show_vnc_cdp_logs ;;
+        11) show_cdp_logs ;;
         12) show_complete_snapshot ;;
         0) echo "Exiting..."; exit 0 ;;
         *) echo -e "${RED}Invalid option${NC}" ;;
