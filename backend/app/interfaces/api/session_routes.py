@@ -76,6 +76,18 @@ SANDBOX_WS_CONNECT_KWARGS = {
     "ping_interval": None,
     "max_size": None,
 }
+
+
+def _sandbox_ws_extra_headers() -> list[tuple[str, str]]:
+    """Build extra headers for backend→sandbox WebSocket connections.
+
+    Includes the shared secret so sandbox auth middleware accepts the connection.
+    """
+    settings = get_settings()
+    headers: list[tuple[str, str]] = []
+    if settings.sandbox_api_secret:
+        headers.append(("x-sandbox-secret", settings.sandbox_api_secret))
+    return headers
 SSE_PROTOCOL_VERSION = "2"
 SSE_RETRY_MAX_ATTEMPTS = 7
 SSE_RETRY_BASE_DELAY_MS = 1000
@@ -1106,7 +1118,9 @@ async def create_vnc_signed_url(
 
     # Create signed URL for VNC WebSocket
     ws_base_url = f"/api/v1/sessions/{session_id}/vnc"
-    signed_url = token_service.create_signed_url(base_url=ws_base_url, expire_minutes=expire_minutes)
+    signed_url = token_service.create_signed_url(
+        base_url=ws_base_url, expire_minutes=expire_minutes, user_id=current_user.id
+    )
 
     logger.info(f"Created signed URL for VNC access for user {current_user.id}, session {session_id}")
 
@@ -1197,7 +1211,9 @@ async def create_sandbox_signed_url(
     ws_base_url = f"/api/v1/sessions/{session_id}/{target}"
     if target == "screencast":
         ws_base_url = f"{ws_base_url}?quality={quality}&max_fps={max_fps}"
-    signed_url = token_service.create_signed_url(base_url=ws_base_url, expire_minutes=expire_minutes)
+    signed_url = token_service.create_signed_url(
+        base_url=ws_base_url, expire_minutes=expire_minutes, user_id=current_user.id
+    )
 
     return APIResponse.success(
         SignedUrlResponse(
@@ -1242,7 +1258,11 @@ async def screencast_websocket(
 
         logger.info(f"Connecting to screencast at {sandbox_ws_url}")
 
-        async with websockets.connect(sandbox_ws_url, **SANDBOX_WS_CONNECT_KWARGS) as sandbox_ws:
+        async with websockets.connect(
+            sandbox_ws_url,
+            additional_headers=_sandbox_ws_extra_headers(),
+            **SANDBOX_WS_CONNECT_KWARGS,
+        ) as sandbox_ws:
             logger.info(f"Connected to screencast at {sandbox_ws_url}")
 
             async def forward_from_sandbox():
@@ -1312,7 +1332,11 @@ async def input_websocket(
         sandbox_ws_url = sandbox.base_url.replace("http", "ws")
         sandbox_ws_url = f"{sandbox_ws_url}/api/v1/input/stream"
 
-        async with websockets.connect(sandbox_ws_url, **SANDBOX_WS_CONNECT_KWARGS) as sandbox_ws:
+        async with websockets.connect(
+            sandbox_ws_url,
+            additional_headers=_sandbox_ws_extra_headers(),
+            **SANDBOX_WS_CONNECT_KWARGS,
+        ) as sandbox_ws:
 
             async def forward_to_sandbox():
                 try:

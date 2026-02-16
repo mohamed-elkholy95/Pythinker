@@ -59,7 +59,7 @@ async function preloadRFBModule(): Promise<boolean> {
 }
 
 // Global URL cache per session with TTL (signed URLs expire, cache should too)
-const URL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes (signed URLs typically expire in 60min)
+const URL_CACHE_TTL_MS = 14 * 60 * 1000; // 14 minutes (must be < 15-min signed URL max expiry)
 const urlCache = new Map<string, { url: string; cachedAt: number }>();
 
 function pruneExpiredCache(): void {
