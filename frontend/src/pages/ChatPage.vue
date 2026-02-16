@@ -440,6 +440,7 @@ import {
   SkillDeliveryEventData,
   SkillActivationEventData,
   CanvasUpdateEventData,
+  ToolStreamEventData,
 } from '../types/event';
 import type { DeepResearchContent } from '../types/message';
 import Suggestions from '../components/Suggestions.vue';
@@ -683,6 +684,10 @@ const {
   agentModeOriginalPrompt,
   timeoutReason,
 } = toRefs(state);
+
+// Buffer for tool_stream events that arrive before tool(calling)
+// Keyed by tool_call_id → { content, functionName, contentType }
+const streamingContentBuffer = new Map<string, { content: string; functionName: string; contentType: string }>();
 
 let activeChatStreamTraceId: string | null = null;
 let activeStreamAttemptId = 0;
@@ -1127,6 +1132,9 @@ const resetState = () => {
   // handleStop, done handler, or explicit session deletion.
 
   researchWorkflow.reset();
+
+  // Clear streaming content buffer
+  streamingContentBuffer.clear();
 
   // Reset reactive state to initial values
   Object.assign(state, createInitialState());
@@ -1785,11 +1793,29 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   }
 }
 
+// Handle tool_stream event — buffer partial content before tool(calling)
+const handleToolStreamEvent = (data: ToolStreamEventData) => {
+  streamingContentBuffer.set(data.tool_call_id, {
+    content: data.partial_content,
+    functionName: data.function_name,
+    contentType: data.content_type,
+  });
+}
+
 // Handle tool event
 const handleToolEvent = (toolData: ToolEventData) => {
   const lastStep = getLastStep();
+  // Merge buffered streaming content into the tool content
+  const buffered = streamingContentBuffer.get(toolData.tool_call_id);
   const toolContent: ToolContent = {
-    ...toolData
+    ...toolData,
+    ...(buffered && {
+      streaming_content: buffered.content,
+      streaming_content_type: buffered.contentType,
+    }),
+  }
+  if (buffered) {
+    streamingContentBuffer.delete(toolData.tool_call_id);
   }
   if (lastTool.value && lastTool.value.tool_call_id === toolContent.tool_call_id) {
     Object.assign(lastTool.value, toolContent);
@@ -2553,6 +2579,8 @@ const processEvent = (event: AgentSSEEvent) => {
     suggestions.value = [];
   } else if (event.event === 'tool') {
     handleToolEvent(event.data as ToolEventData);
+  } else if (event.event === 'tool_stream') {
+    handleToolStreamEvent(event.data as ToolStreamEventData);
   } else if (event.event === 'step') {
     handleStepEvent(event.data as StepEventData);
   } else if (event.event === 'phase') {
@@ -2807,9 +2835,6 @@ const chat = async (
     attachmentCount: files.length,
     hasFollowUp: Boolean(followUp),
   })
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:chat:sending',message:'chat() sending to backend',data:{sessionId:sessionId.value,messageLength:normalizedMessage.length,messagePreview:normalizedMessage.slice(0,80)||'(empty)',lastEventId:lastEventId.value||null,sessionStatus:sessionStatus.value,isSessionComplete:isSessionComplete.value},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
-  // #endregion
 
   try {
     const effectiveSkillIds = getEffectiveSkillIds();
@@ -2879,9 +2904,6 @@ const restoreSession = async () => {
     console.log('[RESTORE] Loaded lastEventId from sessionStorage:', savedEventId);
   }
 
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:restoreSession:start',message:'restoreSession called',data:{sessionId:sessionId.value,savedEventId:savedEventId||null},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
-  // #endregion
 
   const session = await agentApi.getSession(sessionId.value);
   sessionStatus.value = session.status as SessionStatus;
@@ -2911,9 +2933,6 @@ const restoreSession = async () => {
     transitionTo('connecting') // Will transition to 'streaming' on first event
     receivedDoneEvent.value = false;
 
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:restoreSession:auto_resume_path',message:'session is RUNNING/PENDING, will try auto-resume',data:{sessionId:sessionId.value,sessionStatus:sessionStatus.value,lastEventId:lastEventId.value||null,eventCount:session.events?.length||0},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
-    // #endregion
 
     // Defense-in-depth: if event replay already set status to COMPLETED (via DoneEvent
     // handler), the condition above will be false and we skip auto-resume. But if the
@@ -2922,9 +2941,6 @@ const restoreSession = async () => {
     const freshStatus = await agentApi.getSessionStatus(sessionId.value);
     if (freshStatus && ['completed', 'failed'].includes(freshStatus.status)) {
       console.log('[RESTORE] Status re-check shows session is', freshStatus.status, '- not resuming');
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:restoreSession:status_recheck_completed',message:'STATUS RE-CHECK shows completed/failed, NOT resuming',data:{sessionId:sessionId.value,freshStatus:freshStatus.status},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       sessionStatus.value = freshStatus.status === 'completed' ? SessionStatus.COMPLETED : SessionStatus.FAILED;
       replay.loadScreenshots();
       return;
@@ -2962,9 +2978,6 @@ const restoreSession = async () => {
 
     // No stop flag - safe to auto-resume
     console.log('[RESTORE] No stop flag, auto-resuming session');
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/1df5c82e-6b29-49c4-bf13-84d843ab6ab0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatPage.vue:restoreSession:calling_chat',message:'calling chat() for auto-resume (no message)',data:{sessionId:sessionId.value,lastEventId:lastEventId.value||null},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
-    // #endregion
     await chat();
   } else if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED) {
     // Load screenshots for replay mode
