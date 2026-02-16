@@ -112,7 +112,7 @@ services:
       - REDIS_PORT=6379
       - GRPC_ENABLE_FORK_SUPPORT=0
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python -m app.workers.job_worker' || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import os, signal; os.kill(1, 0)' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
