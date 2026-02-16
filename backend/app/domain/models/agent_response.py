@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class StepResponse(BaseModel):
     """A single step in a plan."""
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     id: str = Field(description="Unique identifier for the step")
     description: str = Field(description="What this step will accomplish")
@@ -30,7 +30,7 @@ class PlanResponse(BaseModel):
     Used by PlannerAgent when creating or updating execution plans.
     """
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     goal: str = Field(description="The overall objective being accomplished")
     title: str = Field(description="Short title for the plan (2-6 words)")
@@ -45,7 +45,7 @@ class PlanUpdateResponse(BaseModel):
     Contains remaining steps to execute after current step completes.
     """
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     steps: list[StepResponse] = Field(description="Remaining steps to execute (may be modified based on progress)")
 
