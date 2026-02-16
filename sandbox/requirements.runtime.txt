@@ -91,8 +91,6 @@ tzlocal==5.3.1
 uritools==5.0.0
 urllib3==2.5.0
 uvicorn==0.37.0
-websockify>=0.11.0
-websockets>=14.1  # Required by websockify for stable WebSocket connections
 weasyprint==66.0
 webencodings==0.5.1
 werkzeug==3.1.3

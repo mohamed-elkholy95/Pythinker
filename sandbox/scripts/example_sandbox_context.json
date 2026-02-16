@@ -204,6 +204,7 @@
       }
     },
     "capabilities": {
+      "streaming_mode": "cdp_only",
       "execution": {
         "python": true,
         "nodejs": true,
@@ -226,11 +227,6 @@
         "home": "/home/ubuntu"
       },
       "services": {
-        "vnc": {
-          "enabled": true,
-          "port": 5900,
-          "ws_port": 5901
-        },
         "chrome_devtools": {
           "enabled": true,
           "port": 9222

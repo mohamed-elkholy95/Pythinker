@@ -245,6 +245,7 @@ class EnvironmentScanner:
         return {
             "profile": "full" if addons_enabled else "minimal",
             "addons_enabled": addons_enabled,
+            "streaming_mode": "cdp_only",
             "execution": {
                 "python": True,
                 "nodejs": True,
@@ -262,11 +263,6 @@ class EnvironmentScanner:
                 "home": "/home/ubuntu",
             },
             "services": {
-                "vnc": {
-                    "enabled": True,
-                    "port": 5900,
-                    "ws_port": 5901,
-                },
                 "chrome_devtools": {
                     "enabled": True,
                     "port": 9222,
@@ -845,7 +841,7 @@ class EnvironmentScanner:
 - Browser automation (Playwright, Puppeteer)
 
 ### Services
-- **VNC Server:** Port 5900 (WebSocket: 5901)
+- **Live Preview:** CDP screencast/input via backend proxy (default)
 - **Chrome DevTools Protocol:** Port 9222
 - **Code Server:** Port 8081
 
