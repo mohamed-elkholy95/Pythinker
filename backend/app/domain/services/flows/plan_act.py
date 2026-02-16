@@ -2573,11 +2573,18 @@ class PlanActFlow(BaseFlow):
                         step_span.set_attribute("step.attempts", attempt + 1)
 
                         # Mark step status based on actual success/failure
+                        # Belt-and-suspenders: explicitly sync step.status with step.success
+                        # to guarantee the final PlanEvent carries correct statuses.
                         if step.success:
+                            step.status = ExecutionStatus.COMPLETED
                             await self._task_state_manager.update_step_status(str(step.id), "completed")
                         else:
+                            step.status = ExecutionStatus.FAILED
                             await self._task_state_manager.update_step_status(str(step.id), "failed")
                         step_span.set_attribute("step.success", step.success)
+
+                        # Emit PlanEvent so frontend progress bar reflects step completion immediately
+                        yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
 
                         # Session bridging: save progress after each step
                         await self._save_progress_artifact()
@@ -2888,6 +2895,11 @@ class PlanActFlow(BaseFlow):
                     )
                     self._transition_to(AgentStatus.COMPLETED)
                 elif self.status == AgentStatus.COMPLETED:
+                    # Reconcile: ensure every successful step carries COMPLETED status
+                    # before emitting the final PlanEvent (guards against any missed updates).
+                    for s in self.plan.steps:
+                        if s.success and s.status != ExecutionStatus.COMPLETED:
+                            s.status = ExecutionStatus.COMPLETED
                     self.plan.status = ExecutionStatus.COMPLETED
                     logger.info(f"Agent {self._agent_id} plan has been completed")
                     yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)

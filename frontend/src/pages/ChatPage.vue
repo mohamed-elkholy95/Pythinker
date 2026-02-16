@@ -1924,7 +1924,7 @@ const handleStepEvent = (stepData: StepEventData) => {
       type: 'step',
       content: stepContent,
     });
-  } else if (stepData.status === 'completed') {
+  } else if (stepData.status === 'completed' || stepData.status === 'failed') {
     // Find the matching step by ID and update its status
     const matchingStep = messages.value
       .filter(m => m.type === 'step')
@@ -1944,11 +1944,19 @@ const handleStepEvent = (stepData: StepEventData) => {
         if (phaseStep) phaseStep.status = stepData.status
       }
     }
-  } else if (stepData.status === 'failed') {
-    transitionTo('error')
-    // Notify sidebar that session is no longer running
-    if (sessionId.value) {
-      emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
+    // Sync step status into plan.value so TaskProgressBar updates immediately
+    // (plan.value.steps is the single source of truth for progress count)
+    if (plan.value?.steps) {
+      const planStep = plan.value.steps.find(s => s.id === stepData.id)
+      if (planStep) planStep.status = stepData.status
+    }
+
+    if (stepData.status === 'failed') {
+      transitionTo('error')
+      // Notify sidebar that session is no longer running
+      if (sessionId.value) {
+        emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
+      }
     }
   }
 }
