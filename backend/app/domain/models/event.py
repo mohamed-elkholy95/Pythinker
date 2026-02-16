@@ -274,9 +274,11 @@ class ChartToolContent(BaseModel):
     png_file_id: str | None = None  # MinIO file ID for static PNG
     html_filename: str | None = None
     png_filename: str | None = None
+    html_size: int | None = None  # HTML file size in bytes (for frontend display)
     data_points: int = 0
     series_count: int = 0
     execution_time_ms: int | None = None
+    error: str | None = None  # Sync/render error message for frontend display
 
 
 ToolContent = (

@@ -76,17 +76,38 @@
       <div v-if="viewMode === 'interactive' && canShowInteractive"
         class="chart-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-4">
         <div ref="plotlyDiv" class="plotly-chart" v-show="plotlyReady"></div>
-        <div v-if="!plotlyReady" class="p-8 flex items-center justify-center">
+        <div v-if="plotlyLoadError" class="p-8 flex flex-col items-center justify-center gap-2">
+          <div class="text-[var(--text-tertiary)] text-sm text-center">
+            Failed to load interactive chart —
+            <button @click="viewMode = 'static'" class="text-blue-500 hover:text-blue-600 underline">view static image</button>
+            or
+            <button @click="openInteractive" class="text-blue-500 hover:text-blue-600 underline">open in new tab</button>
+          </div>
+        </div>
+        <div v-else-if="!plotlyReady" class="p-8 flex items-center justify-center">
           <div class="text-[var(--text-tertiary)] text-sm">Loading interactive chart...</div>
         </div>
       </div>
 
       <!-- Static PNG preview -->
       <div v-else class="chart-preview-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-4">
-        <img v-if="pngUrl" :src="pngUrl" :alt="chartContent.content?.title || 'Chart'" class="w-full h-auto object-contain" />
+        <img v-if="pngUrl && !pngLoadError" :src="pngUrl" :alt="chartContent.content?.title || 'Chart'" class="w-full h-auto object-contain" @error="onPngError" />
         <div v-else class="p-8 flex flex-col items-center justify-center gap-2 bg-[var(--background-gray-light)]">
-          <div class="text-[var(--text-tertiary)] text-sm">
-            {{ chartContent.status === 'called' && !chartContent.content?.png_file_id ? 'Chart image unavailable — try opening interactive view or regenerating' : 'Chart preview loading...' }}
+          <div class="text-[var(--text-tertiary)] text-sm text-center">
+            <template v-if="chartError">
+              {{ chartError }}
+            </template>
+            <template v-else-if="pngLoadError">
+              Chart image failed to load — try
+              <button v-if="canShowInteractive" @click="viewMode = 'interactive'" class="text-blue-500 hover:text-blue-600 underline">interactive view</button>
+              <span v-else>regenerating the chart</span>
+            </template>
+            <template v-else-if="chartContent.status === 'called' && !chartContent.content?.png_file_id">
+              Chart image unavailable — try opening interactive view or regenerating
+            </template>
+            <template v-else>
+              Chart preview loading...
+            </template>
           </div>
         </div>
       </div>
@@ -141,10 +162,20 @@ const viewMode = ref<'interactive' | 'static'>('interactive');
 // Plotly element ref
 const plotlyDiv = ref<HTMLElement | null>(null);
 const plotlyReady = ref(false);
+const plotlyLoadError = ref(false);
+
+// PNG error state
+const pngLoadError = ref(false);
 
 // Plotly data and layout
 const plotlyData = ref<any[] | null>(null);
 const plotlyLayout = ref<any | null>(null);
+
+// AbortController for cancelling in-flight fetch requests
+let fetchAbortController: AbortController | null = null;
+
+// Fetch timeout (15 seconds — HTML files can be large with embedded data)
+const FETCH_TIMEOUT_MS = 15_000;
 
 // Detect if chart is being created
 const isCreating = computed(() => {
@@ -162,6 +193,16 @@ const pngUrl = computed(() => {
   if (!pngFileId) return null;
   return fileApi.getFileUrl(pngFileId);
 });
+
+// Backend sync error (propagated from ChartToolContent.error)
+const chartError = computed(() => {
+  return props.chartContent?.content?.error || null;
+});
+
+// PNG load error handler
+const onPngError = () => {
+  pngLoadError.value = true;
+};
 
 // Format HTML file size
 const htmlFileSize = computed(() => {
@@ -191,23 +232,59 @@ const loadPlotlyData = async () => {
   const htmlFileId = props.chartContent?.content?.html_file_id;
   if (!htmlFileId) return;
 
+  // Cancel any in-flight fetch to prevent race conditions
+  if (fetchAbortController) {
+    fetchAbortController.abort();
+  }
+  fetchAbortController = new AbortController();
+  const { signal } = fetchAbortController;
+
+  plotlyLoadError.value = false;
+
   try {
-    const response = await fetch(fileApi.getFileUrl(htmlFileId));
+    // Timeout wrapper: abort if fetch takes too long
+    const timeoutId = setTimeout(() => fetchAbortController?.abort(), FETCH_TIMEOUT_MS);
+
+    const response = await fetch(fileApi.getFileUrl(htmlFileId), { signal });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
     const html = await response.text();
 
+    // Guard: if this request was aborted while reading body, bail out
+    if (signal.aborted) return;
+
     // Extract Plotly data from HTML - try multiple patterns
+    // Pattern 1: Plotly.newPlot(..., data, layout, config)
     const dataMatch = html.match(/Plotly\.newPlot\([^,]+,\s*(\[[\s\S]*?\])\s*,\s*({[\s\S]*?})\s*,/);
     if (dataMatch) {
       plotlyData.value = JSON.parse(dataMatch[1]);
       plotlyLayout.value = JSON.parse(dataMatch[2]);
     } else {
-      // Fallback: try JSON script tag
-      const scriptMatch = html.match(/<script id="plotly-data" type="application\/json">([\s\S]*?)<\/script>/);
-      if (scriptMatch) {
-        const jsonData = JSON.parse(scriptMatch[1]);
-        plotlyData.value = jsonData.data;
-        plotlyLayout.value = jsonData.layout;
+      // Pattern 2: Plotly.newPlot(..., data, layout) without config
+      const altMatch = html.match(/Plotly\.newPlot\([^,]+,\s*(\[[\s\S]*?\])\s*,\s*({[\s\S]*?})\s*\)/);
+      if (altMatch) {
+        plotlyData.value = JSON.parse(altMatch[1]);
+        plotlyLayout.value = JSON.parse(altMatch[2]);
+      } else {
+        // Pattern 3: JSON script tag (some Plotly HTML exports use this)
+        const scriptMatch = html.match(/<script id="plotly-data" type="application\/json">([\s\S]*?)<\/script>/);
+        if (scriptMatch) {
+          const jsonData = JSON.parse(scriptMatch[1]);
+          plotlyData.value = jsonData.data;
+          plotlyLayout.value = jsonData.layout;
+        }
       }
+    }
+
+    // If no pattern matched, fall back to static view
+    if (!plotlyData.value || !plotlyLayout.value) {
+      console.warn('Could not extract Plotly data from HTML — falling back to static view');
+      plotlyLoadError.value = true;
+      return;
     }
 
     // Apply dark mode theming if needed
@@ -215,14 +292,16 @@ const loadPlotlyData = async () => {
       applyDarkModeTheme();
     }
 
-    // Render chart
-    if (plotlyData.value && plotlyLayout.value) {
+    // Render chart (only if not aborted during extraction)
+    if (!signal.aborted) {
       await nextTick();
       await renderPlotlyChart();
     }
-  } catch (error) {
+  } catch (error: unknown) {
+    // Don't treat intentional aborts as errors
+    if (error instanceof DOMException && error.name === 'AbortError') return;
     console.error('Failed to load Plotly data:', error);
-    viewMode.value = 'static';
+    plotlyLoadError.value = true;
   }
 };
 
@@ -277,7 +356,7 @@ const renderPlotlyChart = async () => {
     plotlyReady.value = true;
   } catch (error) {
     console.error('Failed to render Plotly chart:', error);
-    viewMode.value = 'static';
+    plotlyLoadError.value = true;
   }
 };
 
@@ -309,21 +388,38 @@ onMounted(() => {
 watch(() => props.chartContent?.content?.html_file_id, () => {
   if (canShowInteractive.value && viewMode.value === 'interactive') {
     plotlyReady.value = false;
+    plotlyLoadError.value = false;
     loadPlotlyData();
   }
 });
 
+// Reset PNG error when png_file_id changes (e.g., chart regenerated)
+watch(() => props.chartContent?.content?.png_file_id, () => {
+  pngLoadError.value = false;
+});
+
 // Re-render when switching to interactive mode
 watch(viewMode, async (newMode) => {
-  if (newMode === 'interactive' && canShowInteractive.value && plotlyData.value) {
-    plotlyReady.value = false;
-    await nextTick();
-    await renderPlotlyChart();
+  if (newMode === 'interactive' && canShowInteractive.value) {
+    plotlyLoadError.value = false;
+    if (plotlyData.value) {
+      plotlyReady.value = false;
+      await nextTick();
+      await renderPlotlyChart();
+    } else {
+      // Data not loaded yet — trigger full load
+      plotlyReady.value = false;
+      loadPlotlyData();
+    }
   }
 });
 
-// Cleanup Plotly instance
+// Cleanup Plotly instance and abort in-flight fetches
 onBeforeUnmount(() => {
+  if (fetchAbortController) {
+    fetchAbortController.abort();
+    fetchAbortController = null;
+  }
   if (plotlyDiv.value) {
     Plotly.purge(plotlyDiv.value);
   }
