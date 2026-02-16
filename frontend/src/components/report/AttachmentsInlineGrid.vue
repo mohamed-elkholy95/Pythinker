@@ -1,22 +1,27 @@
 <template>
-  <div class="attachments-inline-grid w-full max-w-[520px] min-w-0 mt-3">
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+  <div class="attachments-inline-grid w-full max-w-[280px] min-w-0 mt-3">
+    <div class="grid grid-cols-1 gap-2">
       <template v-for="file in displayedAttachments" :key="file.file_id">
         <!-- Chart PNG files: render inline image preview -->
         <div
           v-if="isChartPng(file)"
-          class="col-span-1 sm:col-span-2 chart-preview-card relative rounded-xl overflow-hidden border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-brand)] hover:shadow-md transition-all group"
+          class="col-span-1 chart-preview-card relative rounded-md overflow-hidden border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-brand)] hover:shadow-sm transition-all group"
+          role="button"
+          tabindex="0"
+          :aria-label="`Open interactive chart: ${file.filename}`"
           @click="openChartInteractive(file)"
+          @keydown.enter="openChartInteractive(file)"
+          @keydown.space.prevent="openChartInteractive(file)"
         >
           <img
             :src="getFileUrl(file)"
             :alt="file.filename"
-            class="w-full h-auto object-contain bg-white dark:bg-[var(--code-block-bg)]"
+            class="w-full h-auto max-h-[220px] object-contain bg-white dark:bg-[var(--code-block-bg)]"
           />
-          <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-            <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 dark:bg-blue-500 text-white shadow-lg">
-              <BarChart3 :size="16" />
-              <span class="text-sm font-medium">Open Interactive Chart</span>
+          <div class="absolute inset-0 bg-black/0 group-hover:bg-black/5 group-focus:bg-black/5 transition-colors flex items-center justify-center">
+            <div class="opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 dark:bg-blue-500 text-white shadow-md">
+              <BarChart3 :size="13" />
+              <span class="text-xs font-medium">View Interactive</span>
             </div>
           </div>
         </div>

@@ -30,33 +30,43 @@
     </div>
 
     <!-- Chart Results -->
-    <div v-else class="flex-1 min-h-0 max-w-[640px] mx-auto px-4 py-4">
+    <div v-else class="flex-1 min-h-0 max-w-[280px] mx-auto px-3 py-3">
       <!-- Chart header -->
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <BarChart3 :size="16" class="text-[var(--text-brand)]" />
-          <span class="text-sm font-medium text-[var(--text-primary)]">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-1.5">
+          <BarChart3 :size="13" class="text-[var(--text-brand)]" />
+          <span class="text-xs font-medium text-[var(--text-primary)] truncate">
             {{ chartContent.content?.title }}
           </span>
         </div>
-        <span class="text-xs px-2 py-0.5 rounded bg-[var(--background-gray-light)] text-[var(--text-tertiary)]">
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--background-gray-light)] text-[var(--text-tertiary)] whitespace-nowrap">
           {{ formatChartType(chartContent.content?.chart_type) }}
         </span>
       </div>
 
       <!-- PNG preview image -->
-      <div v-if="pngUrl" class="chart-preview-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-4">
+      <div
+        v-if="pngUrl"
+        class="chart-preview-container rounded-md overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-2 hover:border-[var(--border-brand)] transition-colors cursor-pointer"
+        :class="{ 'cursor-not-allowed opacity-70': !chartContent.content?.html_file_id }"
+        role="button"
+        :tabindex="chartContent.content?.html_file_id ? 0 : -1"
+        :aria-label="chartContent.content?.html_file_id ? `Open interactive chart: ${chartContent.content?.title}` : 'Chart preview'"
+        @click="openInteractive"
+        @keydown.enter="openInteractive"
+        @keydown.space.prevent="openInteractive"
+      >
         <img :src="pngUrl" :alt="chartContent.content?.title || 'Chart'" class="w-full h-auto object-contain" />
       </div>
-      <div v-else class="chart-preview-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-[var(--background-gray-light)] p-8 flex items-center justify-center mb-4">
-        <div class="text-[var(--text-tertiary)] text-sm">Chart preview loading...</div>
+      <div v-else class="chart-preview-container rounded-md overflow-hidden border border-[var(--border-main)] bg-[var(--background-gray-light)] p-6 flex items-center justify-center mb-2">
+        <div class="text-[var(--text-tertiary)] text-xs">Loading...</div>
       </div>
 
       <!-- Chart metadata -->
       <div v-if="chartContent.content?.data_points || chartContent.content?.series_count"
-        class="flex gap-4 text-xs text-[var(--text-tertiary)] mb-4">
+        class="flex gap-3 text-[10px] text-[var(--text-tertiary)] mb-2">
         <div v-if="chartContent.content?.data_points">
-          <span class="font-medium">Data points:</span> {{ chartContent.content.data_points }}
+          <span class="font-medium">Data:</span> {{ chartContent.content.data_points }}
         </div>
         <div v-if="chartContent.content?.series_count">
           <span class="font-medium">Series:</span> {{ chartContent.content.series_count }}
@@ -64,15 +74,15 @@
       </div>
 
       <!-- Actions -->
-      <div class="flex gap-2">
+      <div class="flex flex-col gap-1.5">
         <button v-if="chartContent.content?.html_file_id" @click="openInteractive"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors">
-          <ExternalLink :size="14" />
-          <span>Open Interactive Chart</span>
+          class="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors">
+          <ExternalLink :size="12" />
+          <span>Open Interactive</span>
         </button>
         <button v-if="chartContent.content?.png_file_id" @click="downloadPng"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-          <Download :size="14" />
+          class="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+          <Download :size="12" />
           <span>Download PNG</span>
         </button>
       </div>
@@ -116,10 +126,12 @@ const formatChartType = (type: string | undefined) => {
 // Open interactive HTML chart in new tab
 const openInteractive = () => {
   const htmlFileId = props.chartContent?.content?.html_file_id;
-  if (htmlFileId) {
-    const url = fileApi.getFileUrl(htmlFileId);
-    window.open(url, '_blank');
+  if (!htmlFileId) {
+    console.warn('No interactive chart available');
+    return;
   }
+  const url = fileApi.getFileUrl(htmlFileId);
+  window.open(url, '_blank');
 };
 
 // Download PNG file
@@ -182,7 +194,7 @@ const downloadPng = () => {
 }
 
 .chart-preview-container {
-  max-height: 500px;
+  max-height: 220px;
 }
 
 @keyframes bar-grow {
