@@ -193,41 +193,47 @@ const handleBrowseUrl = (url: string) => {
   border: 1px solid var(--border-main);
 }
 
-/* Text-only shimmer effect (matches ThinkingIndicator design) */
+/* Text-only shimmer effect (ChatGPT-style silver shimmer) */
 .tool-shimmer .tool-chip-text {
   background: linear-gradient(
-    120deg,
-    #3a3a3a 0%,
-    #3a3a3a 38%,
-    #c6894b 48%,
-    #d8a26f 52%,
-    #3a3a3a 62%,
-    #3a3a3a 100%
+    110deg,
+    #6b7280 0%,
+    #6b7280 35%,
+    #9ca3af 45%,
+    #d1d5db 50%,
+    #f3f4f6 52%,
+    #d1d5db 55%,
+    #9ca3af 60%,
+    #6b7280 70%,
+    #6b7280 100%
   );
-  background-size: 300% 300%;
+  background-size: 350% 350%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: text-shimmer 2.5s ease-in-out infinite;
+  animation: text-shimmer 2.8s ease-in-out infinite;
 }
 
-/* Dark mode text shimmer */
+/* Dark mode text shimmer (brighter silver for contrast) */
 :deep(.dark) .tool-shimmer .tool-chip-text,
 .dark .tool-shimmer .tool-chip-text {
   background: linear-gradient(
-    120deg,
-    #fff6dd 0%,
-    #fff2cc 38%,
-    #ffd969 48%,
-    #ffe9aa 54%,
-    #fff3cf 62%,
-    #fff6dd 100%
+    110deg,
+    #9ca3af 0%,
+    #9ca3af 35%,
+    #d1d5db 45%,
+    #e5e7eb 50%,
+    #ffffff 52%,
+    #e5e7eb 55%,
+    #d1d5db 60%,
+    #9ca3af 70%,
+    #9ca3af 100%
   );
-  background-size: 300% 300%;
+  background-size: 350% 350%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: text-shimmer 2.2s linear infinite;
+  animation: text-shimmer 2.8s ease-in-out infinite;
 }
 
 @keyframes text-shimmer {

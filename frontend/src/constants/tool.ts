@@ -432,7 +432,10 @@ import ShellIcon from '../components/icons/ShellIcon.vue';
 import GlobeIcon from '../components/icons/GlobeIcon.vue';
 import IdleIcon from '../components/icons/IdleIcon.vue';
 import AgentModeIcon from '../components/icons/AgentModeIcon.vue';
-import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Terminal, Palette, MousePointerClick, Eye } from 'lucide-vue-next';
+import MousePointerClickIcon from '../components/icons/MousePointerClickIcon.vue';
+import MonitorIcon from '../components/icons/MonitorIcon.vue';
+import TerminalIcon from '../components/icons/TerminalIcon.vue';
+import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Palette } from 'lucide-vue-next';
 
 /**
  * Tool icon mapping - Consistent visual identity for each tool
@@ -462,8 +465,8 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
   "git": GitBranch,
 
   // === CODE TOOLS ===
-  "code_executor": Terminal,
-  "code_execute": Terminal,  // Alias
+  "code_executor": TerminalIcon,
+  "code_execute": TerminalIcon,  // Alias
   "code_dev": FileCode,
 
   // === TESTING ===
@@ -505,13 +508,13 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
  * Used when a specific function needs a different icon than its parent tool.
  */
 export const FUNCTION_ICON_MAP: Record<string, Component> = {
-  // Clicking actions → mouse pointer
-  "browser_click": MousePointerClick,
-  "click_element": MousePointerClick,
-  "playwright_click": MousePointerClick,
-  // Viewing actions → eye
-  "browser_view": Eye,
-  "browser_console_view": Eye,
+  // Clicking actions → animated mouse pointer
+  "browser_click": MousePointerClickIcon,
+  "click_element": MousePointerClickIcon,
+  "playwright_click": MousePointerClickIcon,
+  // Viewing actions → animated monitor
+  "browser_view": MonitorIcon,
+  "browser_console_view": MonitorIcon,
 };
 
 /**
@@ -807,8 +810,8 @@ export const FUNCTION_VIEW_OVERRIDES: Record<string, ViewMode> = {
 };
 
 /**
- * Functions that show a text placeholder instead of VNC.
- * Empty — all browser operations now show live VNC since navigate_for_display()
+ * Functions that show a text placeholder instead of live preview.
+ * Empty — all browser operations now show live preview since navigate_for_display()
  * runs concurrently with HTTP fetch, giving the user visual feedback.
  */
 export const TEXT_ONLY_FUNCTIONS = new Set<string>([]);
