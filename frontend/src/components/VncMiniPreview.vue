@@ -71,7 +71,6 @@
         :session-id="sessionId"
         :enabled="enabled"
         :view-only="true"
-        prefer="vnc"
         :compact-loading="true"
       />
     </div>
@@ -142,7 +141,6 @@
         :session-id="sessionId"
         :enabled="enabled"
         :view-only="true"
-        prefer="vnc"
         :compact-loading="true"
       />
     </div>
@@ -295,6 +293,16 @@ const streamingPresentation = useStreamingPresentationState({
 
 const isSummaryPhase = computed(() => streamingPresentation.isSummaryPhase.value);
 
+// Track whether VNC has been shown at least once this session to prevent
+// flicker when tool context briefly becomes empty between tool calls.
+const vncHasBeenShown = ref(false);
+
+// Reset sticky flag when session changes or completes
+watch(() => props.sessionId, () => { vncHasBeenShown.value = false; });
+watch(() => props.isSessionComplete, (complete) => {
+  if (complete) vncHasBeenShown.value = false;
+});
+
 const shouldShowLiveVnc = computed(() => {
   if (!props.sessionId || !props.enabled || props.isInitializing || isSummaryPhase.value) {
     return false;
@@ -305,12 +313,23 @@ const shouldShowLiveVnc = computed(() => {
     return false;
   }
 
+  // Once VNC has been shown, keep it visible while the session is active
+  // to prevent flicker during brief gaps between tool calls.
+  if (vncHasBeenShown.value && props.isActive) {
+    return true;
+  }
+
   // Avoid opening a live VNC feed before the agent emits any concrete tool context.
   if (!effectiveToolContent.value) {
     return false;
   }
 
   return props.isActive || currentViewType.value === 'vnc';
+});
+
+// Mark VNC as shown once it becomes visible (watcher avoids side effects in computed)
+watch(shouldShowLiveVnc, (show) => {
+  if (show) vncHasBeenShown.value = true;
 });
 
 const finalScreenshotLoadError = ref(false);
@@ -579,7 +598,7 @@ const sizeClass = computed(() => {
 
 .file-accent {
   width: 2px;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--bolt-elements-item-contentAccent);
   flex-shrink: 0;
 }
 
@@ -620,7 +639,7 @@ const sizeClass = computed(() => {
 }
 
 .search-header-icon {
-  color: #262626;
+  color: var(--bolt-elements-textPrimary);
   flex-shrink: 0;
 }
 
@@ -729,7 +748,7 @@ const sizeClass = computed(() => {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #262626;
+  background: var(--bolt-elements-textPrimary);
   animation: bounce 1.4s infinite ease-in-out both;
 }
 
@@ -857,7 +876,7 @@ const sizeClass = computed(() => {
   right: 4px;
   width: 6px;
   height: 6px;
-  background: #000000;
+  background: var(--bolt-elements-item-contentAccent);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
 }
@@ -953,7 +972,7 @@ const sizeClass = computed(() => {
   right: 6px;
   width: 8px;
   height: 8px;
-  background: #000000;
+  background: var(--bolt-elements-item-contentAccent);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
@@ -1041,7 +1060,7 @@ const sizeClass = computed(() => {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: #000000;
+  background: var(--bolt-elements-item-contentAccent);
   animation: boot-pulse 1.2s ease-in-out infinite;
 }
 

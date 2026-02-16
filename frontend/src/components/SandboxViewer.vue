@@ -319,44 +319,69 @@ function setupCanvas(): void {
 }
 
 // Display a frame from binary data on canvas
+// Reusable image element to avoid GC churn from creating new Image() per frame
+let _frameImg: HTMLImageElement | null = null
+let _pendingFrameUrl: string | null = null
+
 function displayFrame(data: ArrayBuffer): void {
   if (!canvasRef.value || !ctx) return
 
-  // Create image from blob
+  // Revoke any pending frame that hasn't loaded yet (drop stale frames)
+  if (_pendingFrameUrl) {
+    URL.revokeObjectURL(_pendingFrameUrl)
+    _pendingFrameUrl = null
+  }
+
   const blob = new Blob([data], { type: 'image/jpeg' })
   const url = URL.createObjectURL(blob)
-  const img = new Image()
+  _pendingFrameUrl = url
 
-  img.onload = () => {
-    if (!canvasRef.value || !ctx) {
-      URL.revokeObjectURL(url)
-      return
+  if (!_frameImg) {
+    _frameImg = new Image()
+
+    _frameImg.onload = () => {
+      if (!canvasRef.value || !ctx || !_frameImg) {
+        if (_pendingFrameUrl) {
+          URL.revokeObjectURL(_pendingFrameUrl)
+          _pendingFrameUrl = null
+        }
+        return
+      }
+
+      const canvas = canvasRef.value
+
+      // Resize canvas only when dimensions actually change.
+      // Setting canvas.width/height clears the canvas, causing a visible
+      // flash — avoid it unless the source resolution changed.
+      if (canvas.width !== _frameImg.width || canvas.height !== _frameImg.height) {
+        canvas.width = _frameImg.width
+        canvas.height = _frameImg.height
+        // Re-acquire context after resize (some browsers invalidate it)
+        ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })
+        if (!ctx) return
+      }
+
+      ctx.drawImage(_frameImg, 0, 0)
+
+      if (_pendingFrameUrl) {
+        URL.revokeObjectURL(_pendingFrameUrl)
+        _pendingFrameUrl = null
+      }
+
+      stats.value.frameCount++
+      stats.value.bytesReceived += data.byteLength
+      stats.value.lastFrameTime = Date.now()
     }
 
-    // Resize canvas to match image dimensions
-    if (canvasRef.value.width !== img.width || canvasRef.value.height !== img.height) {
-      canvasRef.value.width = img.width
-      canvasRef.value.height = img.height
+    _frameImg.onerror = () => {
+      if (_pendingFrameUrl) {
+        URL.revokeObjectURL(_pendingFrameUrl)
+        _pendingFrameUrl = null
+      }
     }
-
-    // Draw frame
-    ctx.drawImage(img, 0, 0)
-
-    // Cleanup
-    URL.revokeObjectURL(url)
-
-    // Update stats
-    stats.value.frameCount++
-    stats.value.bytesReceived += data.byteLength
-    stats.value.lastFrameTime = Date.now()
   }
 
-  img.onerror = () => {
-    URL.revokeObjectURL(url)
-    // Frame decode error - skip frame
-  }
-
-  img.src = url
+  _frameImg.src = url
 }
 
 function handleError(msg: string): void {

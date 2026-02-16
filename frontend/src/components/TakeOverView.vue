@@ -39,8 +39,8 @@
         <!-- Exit button -->
         <div class="absolute bottom-4 left-1/2 -translate-x-1/2">
             <button @click="handleExitClick"
-                class="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:opacity-90 active:opacity-80 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] h-[36px] px-[12px] gap-[6px] text-sm rounded-full border-2 border-[var(--border-dark)] shadow-[0px_8px_32px_0px_rgba(0,0,0,0.32)]">
-                <span class="text-sm font-medium text-[var(--text-onblack)]">{{ t('Exit Takeover') }}</span>
+                class="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:opacity-90 active:opacity-80 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] h-[36px] px-[12px] gap-[6px] text-sm rounded-full border-2 border-[var(--border-dark)] shadow-[0px_8px_32px_0px_rgba(0,0,0,0.32)] exit-takeover-btn">
+                <span class="text-sm font-medium">{{ t('Exit Takeover') }}</span>
             </button>
         </div>
 
@@ -98,13 +98,13 @@
                 <DialogFooter class="px-6 pb-5">
                     <button
                         @click="showExitDialog = false"
-                        class="rounded-[10px] px-4 py-2 text-sm border border-[var(--border-btn-main)] bg-[var(--button-secondary)] text-[var(--text-secondary)] hover:bg-[var(--fill-tsp-white-dark)] cursor-pointer transition-colors"
+                        class="rounded-[10px] px-4 py-2 text-sm border border-[var(--border-btn-main)] bg-[var(--button-secondary)] text-[var(--text-primary)] hover:bg-[var(--fill-tsp-white-dark)] cursor-pointer transition-colors"
                     >
                         {{ t('Cancel') }}
                     </button>
                     <button
                         @click="handleExitWithContext"
-                        class="rounded-[10px] px-4 py-2 text-sm border border-[var(--border-btn-primary)] bg-[var(--button-primary)] text-[var(--text-white)] hover:bg-[var(--button-primary-hover)] cursor-pointer transition-colors"
+                        class="rounded-[10px] px-4 py-2 text-sm border border-[var(--border-btn-primary)] bg-[var(--button-primary)] text-[var(--text-onblack)] hover:bg-[var(--button-primary-hover)] cursor-pointer transition-colors"
                     >
                         {{ t('Send and continue') }}
                     </button>
