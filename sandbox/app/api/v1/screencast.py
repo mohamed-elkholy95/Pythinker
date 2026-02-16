@@ -42,7 +42,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _active_stop_event: asyncio.Event | None = None
 _active_done_event: asyncio.Event | None = None
-_PREEMPT_WAIT_TIMEOUT = 3.0  # max seconds to wait for old stream cleanup
+# Must exceed _CAPTURE_COMMAND_TIMEOUT (6s) in cdp_screencast.py, because
+# stop_screencast() sends a CDP command that may block for the full command
+# timeout when Chrome is hung. 8s gives enough margin for the stop command
+# to timeout and the finally block to run done_event.set().
+_PREEMPT_WAIT_TIMEOUT = 8.0
 
 
 @router.get("/frame")
@@ -145,7 +149,16 @@ async def stream_frames_ws(
                     _active_done_event.wait(), timeout=_PREEMPT_WAIT_TIMEOUT
                 )
             except TimeoutError:
-                logger.warning("[CDP Stream] Previous stream cleanup timed out")
+                logger.warning(
+                    "[CDP Stream] Previous stream cleanup timed out after "
+                    f"{_PREEMPT_WAIT_TIMEOUT}s — force-clearing slot. "
+                    "Old stream may have a hung CDP command."
+                )
+                # Force-clear the slot so the new stream can proceed.
+                # The old stream's finally block will still run eventually
+                # and call done_event.set(), but we don't wait for it.
+                _active_stop_event = None
+                _active_done_event = None
 
     # ── Register this stream ─────────────────────────────────────────
     stop_event = asyncio.Event()
@@ -160,17 +173,18 @@ async def stream_frames_ws(
     frame_count = 0
     _MAX_START_RETRIES = 3
     _RETRY_DELAY = 0.5  # seconds between retries
+    _MAX_STREAM_RECOVERIES = 2  # Max times to restart stream after Chrome hang
+    _PING_INTERVAL = 5.0  # Server-side ping interval (seconds)
 
-    try:
-        # Retry connection + screencast start to recover from page navigation/crash.
-        # When Chrome navigates, the old page target becomes detached. Retrying
-        # gives Chrome time to register the new page target.
-        started = False
+    async def _start_screencast_with_retries() -> bool:
+        """Attempt to connect and start screencast with retries.
+
+        Returns True if screencast is running, False if all attempts failed.
+        Handles page navigation/crash by invalidating cache between retries.
+        """
         for attempt in range(_MAX_START_RETRIES):
             if stop_event.is_set():
-                # We were preempted before we even started
-                await websocket.close(code=1001, reason="Preempted by newer connection")
-                return
+                return False
 
             if not await service.connect():
                 if attempt < _MAX_START_RETRIES - 1:
@@ -181,13 +195,10 @@ async def stream_frames_ws(
                     service.invalidate_cache()
                     await asyncio.sleep(_RETRY_DELAY)
                     continue
-                await websocket.send_json({"error": "Failed to connect to Chrome CDP"})
-                await websocket.close()
-                return
+                return False
 
             if await service.start_screencast():
-                started = True
-                break
+                return True
 
             # start_screencast failed - page may be detached
             logger.warning(
@@ -198,15 +209,26 @@ async def stream_frames_ws(
                 service.invalidate_cache()
                 await asyncio.sleep(_RETRY_DELAY)
 
-        if not started:
-            await websocket.send_json({"error": "Failed to start screencast after retries"})
-            await websocket.close()
+        return False
+
+    try:
+        # Initial screencast start
+        if not await _start_screencast_with_retries():
+            if stop_event.is_set():
+                await websocket.close(code=1001, reason="Preempted by newer connection")
+            else:
+                await websocket.send_json({"error": "Failed to start screencast after retries"})
+                await websocket.close()
             return
 
         last_frame_time = 0
 
         # Shared event to signal the frame loop when the client disconnects
         disconnected = asyncio.Event()
+
+        # Combined cancel event propagated into stream_frames() for fast exit.
+        # Set when either the client disconnects OR preemption is signalled.
+        stream_cancel = asyncio.Event()
 
         # Create tasks for sending frames and receiving control messages
         async def receive_control():
@@ -224,41 +246,133 @@ async def stream_frames_ws(
                         pass  # Keep-alive response
             except WebSocketDisconnect:
                 disconnected.set()
+                stream_cancel.set()  # Propagate to stream_frames() immediately
+
+        async def send_pings():
+            """Server-side ping to detect dead client connections.
+
+            Sends a JSON "ping" message every _PING_INTERVAL seconds. The client
+            should respond with "pong" (handled by receive_control). If the send
+            fails, the client has disconnected.
+            """
+            try:
+                while not disconnected.is_set() and not stop_event.is_set():
+                    await asyncio.sleep(_PING_INTERVAL)
+                    if disconnected.is_set() or stop_event.is_set():
+                        break
+                    try:
+                        await websocket.send_text("ping")
+                    except (RuntimeError, WebSocketDisconnect):
+                        disconnected.set()
+                        stream_cancel.set()
+                        break
+            except asyncio.CancelledError:
+                pass
 
         receive_task = asyncio.create_task(receive_control())
+        ping_task = asyncio.create_task(send_pings())
+
+        # Monitor preemption and propagate to stream_cancel for fast exit
+        async def monitor_stop():
+            """Watch stop_event and propagate to stream_cancel."""
+            try:
+                await stop_event.wait()
+                stream_cancel.set()
+            except asyncio.CancelledError:
+                pass
+
+        stop_monitor_task = asyncio.create_task(monitor_stop())
 
         try:
-            async for frame in service.stream_frames():
+            # Stream loop with auto-recovery
+            # When Chrome hangs, stream_frames() breaks out (via frame timeout
+            # watchdog in CDPScreencastService). We attempt recovery by
+            # reconnecting to CDP and restarting the screencast.
+            recovery_count = 0
+
+            while not disconnected.is_set() and not stop_event.is_set():
+                stream_yielded_frames = False
+
+                async for frame in service.stream_frames(cancel_event=stream_cancel):
+                    if disconnected.is_set() or stop_event.is_set():
+                        break
+
+                    if paused:
+                        await asyncio.sleep(0.1)
+                        continue
+
+                    # Rate limiting
+                    now = time.time()
+                    if now - last_frame_time < min_frame_interval:
+                        continue
+                    last_frame_time = now
+
+                    # Send frame as binary
+                    try:
+                        await websocket.send_bytes(frame.data)
+                    except (RuntimeError, WebSocketDisconnect):
+                        disconnected.set()
+                        stream_cancel.set()
+                        break
+                    frame_count += 1
+                    stream_yielded_frames = True
+
+                    if frame_count % 100 == 0:
+                        logger.debug(f"[CDP Stream] Sent {frame_count} frames")
+
+                # stream_frames() exited — check if we should recover or exit
                 if disconnected.is_set() or stop_event.is_set():
                     break
 
-                if paused:
-                    await asyncio.sleep(0.1)
-                    continue
-
-                # Rate limiting
-                now = time.time()
-                if now - last_frame_time < min_frame_interval:
-                    continue
-                last_frame_time = now
-
-                # Send frame as binary
-                try:
-                    await websocket.send_bytes(frame.data)
-                except (RuntimeError, WebSocketDisconnect):
-                    # Client already disconnected
+                # Stream exited without client disconnect — Chrome may be hung
+                recovery_count += 1
+                if recovery_count > _MAX_STREAM_RECOVERIES:
+                    logger.error(
+                        f"[CDP Stream] Exhausted {_MAX_STREAM_RECOVERIES} recovery attempts. "
+                        "Closing stream."
+                    )
+                    try:
+                        await websocket.send_json({
+                            "error": "Chrome became unresponsive after multiple recovery attempts"
+                        })
+                    except (RuntimeError, WebSocketDisconnect):
+                        pass
                     break
-                frame_count += 1
 
-                if frame_count % 100 == 0:
-                    logger.debug(f"[CDP Stream] Sent {frame_count} frames")
+                logger.warning(
+                    f"[CDP Stream] Frame stream exited (recovery {recovery_count}/{_MAX_STREAM_RECOVERIES}). "
+                    f"Frames so far: {frame_count}. Attempting CDP reconnect..."
+                )
+
+                # Recovery: disconnect, invalidate cache, reconnect
+                await service.stop_screencast()
+                await service.disconnect()
+                service.invalidate_cache()
+                await asyncio.sleep(_RETRY_DELAY)
+
+                if not await _start_screencast_with_retries():
+                    logger.error("[CDP Stream] Recovery failed — cannot restart screencast")
+                    try:
+                        await websocket.send_json({
+                            "error": "Failed to recover screencast after Chrome hang"
+                        })
+                    except (RuntimeError, WebSocketDisconnect):
+                        pass
+                    break
+
+                logger.info(
+                    f"[CDP Stream] Recovery {recovery_count} successful — resuming frame stream"
+                )
 
         finally:
             receive_task.cancel()
-            try:
-                await receive_task
-            except asyncio.CancelledError:
-                pass
+            ping_task.cancel()
+            stop_monitor_task.cancel()
+            for task in (receive_task, ping_task, stop_monitor_task):
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     except WebSocketDisconnect:
         logger.info("[CDP Stream] Client disconnected")
