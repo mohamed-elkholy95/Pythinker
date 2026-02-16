@@ -1695,6 +1695,7 @@ class PlanActFlow(BaseFlow):
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         tracer = get_tracer()
+        settings = get_settings()
 
         # Create trace context for this run
         with tracer.trace(
@@ -1705,19 +1706,54 @@ class PlanActFlow(BaseFlow):
         ) as trace_ctx:
             try:
                 await self._check_cancelled()
-                async with asyncio.timeout(900):  # 15-minute workflow timeout
-                    async for event in self._run_with_trace(message, trace_ctx):
+                # Wall-clock ceiling (default 1 hour) prevents runaway agents
+                async with asyncio.timeout(settings.max_execution_time_seconds):
+                    inner = self._run_with_trace(message, trace_ctx).__aiter__()
+                    while True:
                         await self._check_cancelled()
+                        try:
+                            # Idle timeout (default 5 min) resets on every yielded event
+                            async with asyncio.timeout(settings.workflow_idle_timeout_seconds):
+                                event = await inner.__anext__()
+                        except StopAsyncIteration:
+                            break
+                        except TimeoutError:
+                            idle_mins = settings.workflow_idle_timeout_seconds // 60
+                            logger.warning(
+                                "Agent %s idle timeout after %ds for session %s",
+                                self._agent_id,
+                                settings.workflow_idle_timeout_seconds,
+                                self._session_id,
+                            )
+                            yield ErrorEvent(
+                                error=f"The agent hasn't produced output for {idle_mins} minutes and may be stuck.",
+                                error_type="timeout",
+                                recoverable=True,
+                                can_resume=True,
+                                error_code="workflow_idle_timeout",
+                                retry_hint='Click "Continue" to resume the task from where it left off.',
+                            )
+                            yield DoneEvent()
+                            return
                         yield event
             except asyncio.CancelledError:
                 logger.info("Agent %s workflow cancelled for session %s", self._agent_id, self._session_id)
                 raise
             except TimeoutError:
-                logger.error(f"Agent {self._agent_id} workflow timed out after 900 seconds")
+                wall_mins = settings.max_execution_time_seconds // 60
+                logger.error(
+                    "Agent %s wall-clock timeout after %ds for session %s",
+                    self._agent_id,
+                    settings.max_execution_time_seconds,
+                    self._session_id,
+                )
                 yield ErrorEvent(
-                    error="Workflow timed out after 15 minutes. The task may be too complex or the agent got stuck.",
+                    error=f"The task reached the {wall_mins}-minute time limit.",
                     error_type="timeout",
-                    recoverable=False,
+                    recoverable=True,
+                    can_resume=True,
+                    error_code="workflow_wall_clock_timeout",
+                    retry_hint='Click "Continue" to pick up where the agent left off.',
                 )
                 yield DoneEvent()
 
