@@ -13,7 +13,7 @@
       :animation="placeholderAnimation || 'globe'"
     />
 
-    <!-- CDP Screencast View -->
+    <!-- CDP Screencast View (Konva-powered) -->
     <div v-else-if="enabled" class="sandbox-content-inner">
       <!-- Loading overlay -->
       <div v-if="isLoading" class="sandbox-loading">
@@ -32,20 +32,44 @@
         <button @click="reconnect" class="sandbox-retry-btn">Retry</button>
       </div>
 
-      <!-- Canvas for frame rendering -->
-      <canvas
-        ref="canvasRef"
-        class="sandbox-canvas"
-        :class="{ 'view-only': viewOnly }"
-        @click="handleCanvasClick"
-      ></canvas>
+      <!-- Konva Live Stage (replaces raw <canvas>) -->
+      <KonvaLiveStage
+        ref="liveStageRef"
+        :enabled="enabled"
+        :show-stats="showStats"
+        :show-agent-actions="showAgentActions"
+        @frame-received="onFrameReceived"
+      />
 
-      <!-- Stats overlay (debug mode) -->
-      <div v-if="showStats && stats.frameCount > 0" class="sandbox-stats">
-        <span>{{ stats.fps.toFixed(1) }} FPS</span>
-        <span>{{ formatBytes(stats.bytesPerSec) }}/s</span>
-        <span>{{ stats.frameCount }} frames</span>
-      </div>
+      <!-- Live Viewer Controls (floating zoom, annotations, stats) -->
+      <LiveViewerControls
+        v-if="stageReady"
+        :zoom-percent="lsZoomPercent"
+        :can-zoom-in="lsCanZoomIn"
+        :can-zoom-out="lsCanZoomOut"
+        :annotation-mode="lsAnnotationMode"
+        :active-tool="lsActiveTool"
+        :annotation-color="lsAnnotationColor"
+        :can-undo="lsCanUndo"
+        :can-redo="lsCanRedo"
+        :annotation-count="lsAnnotationCount"
+        :show-agent-actions="showAgentActions"
+        :show-stats="showStats"
+        :has-frame="lsHasFrame"
+        :fps="lsFps"
+        :bytes-per-sec="lsBytesPerSec"
+        @zoom-in="liveStageRef?.zoomCtrl?.zoomIn()"
+        @zoom-out="liveStageRef?.zoomCtrl?.zoomOut()"
+        @fit="liveStageRef?.fitToScreen()"
+        @reset="liveStageRef?.zoomCtrl?.resetZoom()"
+        @toggle-annotations="liveStageRef?.annotationLayer?.toggleActive()"
+        @toggle-agent-actions="showAgentActions = !showAgentActions"
+        @set-tool="liveStageRef?.annotationLayer?.setTool($event)"
+        @set-color="liveStageRef?.annotationLayer?.setStyle({ color: $event })"
+        @undo="liveStageRef?.annotationLayer?.undo()"
+        @redo="liveStageRef?.annotationLayer?.redo()"
+        @clear-annotations="liveStageRef?.annotationLayer?.clearAll()"
+      />
 
       <!-- Interactive mode indicator -->
       <div v-if="isInteractive" class="sandbox-interactive-indicator">
@@ -76,10 +100,13 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue'
 import InactiveState from '@/components/toolViews/shared/InactiveState.vue'
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue'
+import KonvaLiveStage from '@/components/KonvaLiveStage.vue'
+import LiveViewerControls from '@/components/LiveViewerControls.vue'
 import { useSandboxInput } from '@/composables/useSandboxInput'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import { getScreencastUrl, getInputStreamUrl } from '@/api/agent'
 import { calculateReconnectDelay } from '@/utils/reconnectBackoff'
+import type { ToolEventData } from '@/types/event'
 
 const props = withDefaults(
   defineProps<{
@@ -113,13 +140,50 @@ const emit = defineEmits<{
 
 // DOM Refs
 const containerRef = ref<HTMLDivElement | null>(null)
-const canvasRef = ref<HTMLCanvasElement | null>(null)
+const liveStageRef = ref<InstanceType<typeof KonvaLiveStage> | null>(null)
 
 // State
 const isLoading = ref(false)
 const statusText = ref('Connecting...')
 const error = ref<string | null>(null)
 const screencastWsUrl = ref<string | null>(null)
+const showAgentActions = ref(true)
+
+// Safe computed accessors for KonvaLiveStage exposed properties.
+// Template refs can be truthy but have incomplete exposed properties
+// during setup failures or timing races. Optional chaining + defaults
+// prevent "Cannot read properties of undefined" cascading errors.
+const stageReady = computed(() => {
+  const s = liveStageRef.value
+  return !!(s?.zoomCtrl && s?.annotationLayer)
+})
+const lsZoomPercent = computed(() => liveStageRef.value?.zoomCtrl?.zoomPercent?.value ?? 100)
+const lsCanZoomIn = computed(() => liveStageRef.value?.zoomCtrl?.canZoomIn?.value ?? true)
+const lsCanZoomOut = computed(() => liveStageRef.value?.zoomCtrl?.canZoomOut?.value ?? true)
+const lsAnnotationMode = computed(() => liveStageRef.value?.annotationLayer?.isActive?.value ?? false)
+const lsActiveTool = computed(() => liveStageRef.value?.annotationLayer?.activeTool?.value ?? 'pen')
+const lsAnnotationColor = computed(() => liveStageRef.value?.annotationLayer?.style?.value?.color ?? '#ef4444')
+const lsCanUndo = computed(() => liveStageRef.value?.annotationLayer?.canUndo?.value ?? false)
+const lsCanRedo = computed(() => liveStageRef.value?.annotationLayer?.canRedo?.value ?? false)
+const lsAnnotationCount = computed(() => liveStageRef.value?.annotationLayer?.annotationCount?.value ?? 0)
+const lsHasFrame = computed(() => {
+  const v = liveStageRef.value?.hasFrame
+  // Handle both auto-unwrapped (boolean) and Ref<boolean> cases
+  return typeof v === 'boolean' ? v : v?.value ?? false
+})
+const lsFps = computed(() => {
+  const s = liveStageRef.value?.stats
+  if (!s) return 0
+  // Handle both auto-unwrapped (plain object) and Ref cases
+  const obj = (s as { value?: unknown }).value ?? s
+  return (obj as { fps?: number }).fps ?? 0
+})
+const lsBytesPerSec = computed(() => {
+  const s = liveStageRef.value?.stats
+  if (!s) return 0
+  const obj = (s as { value?: unknown }).value ?? s
+  return (obj as { bytesPerSec?: number }).bytesPerSec ?? 0
+})
 
 // Input forwarding
 const { isForwarding, startForwarding, stopForwarding, attachInputListeners } = useSandboxInput()
@@ -140,22 +204,16 @@ const MAX_RECONNECT_ATTEMPTS = 5
 const NON_RETRYABLE_WS_CODES = new Set([1002, 1003, 1007, 1008])
 let intentionalClose = false
 
-// Canvas context for rendering
-let ctx: CanvasRenderingContext2D | null = null
+// Frame heartbeat watchdog — detects connected-but-dead streams
+// (e.g., Chrome hung, proxy connected but no frames flowing)
+const FRAME_STALL_TIMEOUT_MS = 15_000 // 15s with no frames → stale
+const FIRST_FRAME_GRACE_MS = 30_000 // 30s grace for initial page load
+let lastFrameReceivedAt = 0
+let hasReceivedFirstFrame = false
+let frameWatchdogInterval: number | null = null
 
-// Stats tracking
-const stats = ref({
-  frameCount: 0,
-  bytesReceived: 0,
-  fps: 0,
-  bytesPerSec: 0,
-  lastFrameTime: 0
-})
-
-let statsInterval: number | null = null
-let lastStatsTime = Date.now()
-let lastStatsFrameCount = 0
-let lastStatsBytesReceived = 0
+// Page Visibility API — pause reconnects when tab is hidden
+let isTabVisible = true
 
 // Fetch screencast URL (proxied through backend) and connect
 async function initConnection(): Promise<void> {
@@ -203,9 +261,14 @@ async function connect(): Promise<void> {
     ws.onopen = () => {
       isLoading.value = false
       connectionAttempts = 0
+      lastFrameReceivedAt = Date.now()
       emit('connected')
-      startStatsTracking()
-      setupCanvas()
+      startFrameWatchdog()
+
+      // Start Konva stats tracking
+      liveStageRef.value?.startStats()
+      // Reset screencast on reconnect
+      liveStageRef.value?.resetScreencast()
 
       // Setup input forwarding if not view-only
       if (!props.viewOnly && props.sessionId) {
@@ -220,10 +283,22 @@ async function connect(): Promise<void> {
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
-        // Binary frame data
-        displayFrame(event.data)
-      } else {
-        // JSON message (error or control)
+        // Binary frame data — update heartbeat timestamp
+        lastFrameReceivedAt = Date.now()
+        hasReceivedFirstFrame = true
+        // Push frame to Konva renderer
+        liveStageRef.value?.pushFrame(event.data)
+      } else if (typeof event.data === 'string') {
+        // Text message: JSON control or server ping
+        if (event.data === 'ping') {
+          // Respond to server-side ping with pong
+          try {
+            ws?.send('pong')
+          } catch {
+            // WebSocket may be closing
+          }
+          return
+        }
         try {
           const msg = JSON.parse(event.data)
           if (msg.error) {
@@ -241,8 +316,11 @@ async function connect(): Promise<void> {
 
     ws.onclose = (e) => {
       ws = null
-      stopStatsTracking()
+      stopFrameWatchdog()
       cleanupInput()
+
+      // Stop Konva stats tracking
+      liveStageRef.value?.stopStats()
 
       if (intentionalClose) {
         return
@@ -262,6 +340,15 @@ async function connect(): Promise<void> {
       const shouldRetry = !nonRetryableByCode && !nonRetryableByReason
 
       if (props.enabled && shouldRetry && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
+        // Don't attempt reconnect while tab is hidden — save resources
+        // and avoid thundering herd on tab refocus. The visibility handler
+        // will trigger a fresh reconnect when the tab becomes visible.
+        if (!isTabVisible) {
+          statusText.value = 'Paused (tab hidden)'
+          isLoading.value = true
+          return
+        }
+
         const delay = calculateReconnectDelay(connectionAttempts)
         connectionAttempts++
         statusText.value = `Reconnecting in ${(delay / 1000).toFixed(1)}s...`
@@ -287,6 +374,8 @@ function disconnect(): void {
     reconnectTimeout = null
   }
 
+  stopFrameWatchdog()
+
   if (ws) {
     try {
       intentionalClose = true
@@ -297,7 +386,7 @@ function disconnect(): void {
     ws = null
   }
 
-  stopStatsTracking()
+  liveStageRef.value?.stopStats()
   cleanupInput()
   isLoading.value = false
 }
@@ -306,82 +395,6 @@ function reconnect(): void {
   connectionAttempts = 0
   error.value = null
   initConnection()
-}
-
-// Setup canvas for rendering
-function setupCanvas(): void {
-  if (!canvasRef.value) return
-
-  ctx = canvasRef.value.getContext('2d', {
-    alpha: false,
-    desynchronized: true // Better performance
-  })
-}
-
-// Display a frame from binary data on canvas
-// Reusable image element to avoid GC churn from creating new Image() per frame
-let _frameImg: HTMLImageElement | null = null
-let _pendingFrameUrl: string | null = null
-
-function displayFrame(data: ArrayBuffer): void {
-  if (!canvasRef.value || !ctx) return
-
-  // Revoke any pending frame that hasn't loaded yet (drop stale frames)
-  if (_pendingFrameUrl) {
-    URL.revokeObjectURL(_pendingFrameUrl)
-    _pendingFrameUrl = null
-  }
-
-  const blob = new Blob([data], { type: 'image/jpeg' })
-  const url = URL.createObjectURL(blob)
-  _pendingFrameUrl = url
-
-  if (!_frameImg) {
-    _frameImg = new Image()
-
-    _frameImg.onload = () => {
-      if (!canvasRef.value || !ctx || !_frameImg) {
-        if (_pendingFrameUrl) {
-          URL.revokeObjectURL(_pendingFrameUrl)
-          _pendingFrameUrl = null
-        }
-        return
-      }
-
-      const canvas = canvasRef.value
-
-      // Resize canvas only when dimensions actually change.
-      // Setting canvas.width/height clears the canvas, causing a visible
-      // flash — avoid it unless the source resolution changed.
-      if (canvas.width !== _frameImg.width || canvas.height !== _frameImg.height) {
-        canvas.width = _frameImg.width
-        canvas.height = _frameImg.height
-        // Re-acquire context after resize (some browsers invalidate it)
-        ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })
-        if (!ctx) return
-      }
-
-      ctx.drawImage(_frameImg, 0, 0)
-
-      if (_pendingFrameUrl) {
-        URL.revokeObjectURL(_pendingFrameUrl)
-        _pendingFrameUrl = null
-      }
-
-      stats.value.frameCount++
-      stats.value.bytesReceived += data.byteLength
-      stats.value.lastFrameTime = Date.now()
-    }
-
-    _frameImg.onerror = () => {
-      if (_pendingFrameUrl) {
-        URL.revokeObjectURL(_pendingFrameUrl)
-        _pendingFrameUrl = null
-      }
-    }
-  }
-
-  _frameImg.src = url
 }
 
 function handleError(msg: string): void {
@@ -409,43 +422,9 @@ function formatError(err: unknown): string {
   return 'Unknown error'
 }
 
-// Stats tracking
-function startStatsTracking(): void {
-  if (statsInterval) return
-
-  lastStatsTime = Date.now()
-  lastStatsFrameCount = 0
-  lastStatsBytesReceived = 0
-
-  statsInterval = window.setInterval(() => {
-    const now = Date.now()
-    const elapsed = (now - lastStatsTime) / 1000
-
-    if (elapsed > 0) {
-      const frames = stats.value.frameCount - lastStatsFrameCount
-      const bytes = stats.value.bytesReceived - lastStatsBytesReceived
-
-      stats.value.fps = frames / elapsed
-      stats.value.bytesPerSec = bytes / elapsed
-
-      lastStatsTime = now
-      lastStatsFrameCount = stats.value.frameCount
-      lastStatsBytesReceived = stats.value.bytesReceived
-    }
-  }, 1000)
-}
-
-function stopStatsTracking(): void {
-  if (statsInterval) {
-    clearInterval(statsInterval)
-    statsInterval = null
-  }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes.toFixed(0)} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+// Frame received callback (from KonvaLiveStage)
+function onFrameReceived(): void {
+  // Can be used for external hooks or tracking
 }
 
 // Input forwarding setup
@@ -463,10 +442,74 @@ function cleanupInput(): void {
   }
 }
 
-// Handle canvas click for focus
-function handleCanvasClick(): void {
-  if (!props.viewOnly && containerRef.value) {
-    containerRef.value.focus()
+// ---------------------------------------------------------------------------
+// Frame heartbeat watchdog
+// Detects connected-but-dead streams: WebSocket is OPEN but no binary frames
+// arrive within FRAME_STALL_TIMEOUT_MS. Triggers proactive reconnect.
+// ---------------------------------------------------------------------------
+
+function startFrameWatchdog(): void {
+  stopFrameWatchdog()
+  hasReceivedFirstFrame = false
+  frameWatchdogInterval = window.setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    if (!isTabVisible) return // Don't trigger while tab is hidden
+
+    const elapsed = Date.now() - lastFrameReceivedAt
+    // Use longer grace period before the first frame arrives (slow page loads)
+    const threshold = hasReceivedFirstFrame ? FRAME_STALL_TIMEOUT_MS : FIRST_FRAME_GRACE_MS
+
+    if (elapsed >= threshold) {
+      console.warn(
+        `[SandboxViewer] No frame received in ${(elapsed / 1000).toFixed(1)}s ` +
+        `(threshold: ${(threshold / 1000).toFixed(0)}s) — stream appears stale, triggering reconnect`
+      )
+      // Close the zombie connection — onclose handler will trigger reconnect
+      stopFrameWatchdog()
+      if (ws) {
+        try {
+          ws.close(4000, 'Frame stall timeout')
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  }, 3000) // Check every 3s
+}
+
+function stopFrameWatchdog(): void {
+  if (frameWatchdogInterval) {
+    clearInterval(frameWatchdogInterval)
+    frameWatchdogInterval = null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Page Visibility API
+// Pauses reconnection attempts when the tab is hidden to prevent wasted
+// cycles and thundering herd on tab refocus. On visibility restore, triggers
+// a fresh reconnect if the connection was lost while hidden.
+// ---------------------------------------------------------------------------
+
+function handleVisibilityChange(): void {
+  isTabVisible = !document.hidden
+
+  if (isTabVisible) {
+    // Tab became visible — check if we need to reconnect
+    if (props.enabled && !ws && !reconnectTimeout) {
+      // Connection was lost while tab was hidden, reconnect now
+      connectionAttempts = 0
+      initConnection()
+    } else if (ws && ws.readyState === WebSocket.OPEN) {
+      // Connection still alive — reset watchdog baseline
+      lastFrameReceivedAt = Date.now()
+    }
+  } else {
+    // Tab is hidden — cancel pending reconnect timers to save resources
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout)
+      reconnectTimeout = null
+    }
   }
 }
 
@@ -514,20 +557,38 @@ watch(
 
 // Lifecycle
 onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  isTabVisible = !document.hidden
+
   if (props.enabled) {
     initConnection()
   }
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   disconnect()
 })
+
+/**
+ * Forward an agent tool event to the overlay layer.
+ * Called by parent components (e.g., ChatPage) when tool events arrive via SSE.
+ */
+function processToolEvent(event: ToolEventData): void {
+  try {
+    liveStageRef.value?.processToolEvent(event)
+  } catch (e) {
+    console.warn('[SandboxViewer] Failed to process tool event:', e)
+  }
+}
 
 // Expose methods
 defineExpose({
   connect: initConnection,
   disconnect,
-  reconnect
+  reconnect,
+  processToolEvent,
+  liveStage: liveStageRef,
 })
 </script>
 
@@ -552,19 +613,6 @@ defineExpose({
   left: 0;
   right: 0;
   bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.sandbox-canvas {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
-
-.sandbox-canvas.view-only {
-  pointer-events: none;
 }
 
 .sandbox-loading {
@@ -627,20 +675,6 @@ defineExpose({
   border-color: var(--border-hover);
 }
 
-.sandbox-stats {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  display: flex;
-  gap: 12px;
-  padding: 4px 8px;
-  background: var(--background-mask);
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--function-success);
-  font-family: monospace;
-}
-
 .sandbox-interactive-indicator {
   position: absolute;
   top: 8px;
@@ -654,6 +688,7 @@ defineExpose({
   border-radius: 4px;
   font-size: 11px;
   color: var(--function-success);
+  z-index: 20;
 }
 
 .indicator-dot {
@@ -662,12 +697,6 @@ defineExpose({
   background: var(--function-success);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @keyframes pulse {
