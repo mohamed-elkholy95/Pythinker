@@ -122,6 +122,12 @@ const animationComponent = computed(() => {
   white-space: nowrap;
 }
 
+/* Dark mode enhancements */
+:global(.dark) .loading-detail {
+  /* Use secondary instead of muted for better visibility in dark mode */
+  color: var(--text-secondary);
+}
+
 /* Accessibility */
 @media (prefers-reduced-motion: reduce) {
   .loading-animation {
