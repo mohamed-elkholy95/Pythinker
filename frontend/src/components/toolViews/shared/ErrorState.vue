@@ -56,7 +56,7 @@ const emit = defineEmits<{
   width: 48px;
   height: 48px;
   margin-bottom: var(--space-4);
-  color: var(--error-red);
+  color: var(--function-error);
   opacity: 0.9;
 }
 
@@ -105,10 +105,6 @@ const emit = defineEmits<{
 }
 
 /* Dark mode enhancements */
-:global(.dark) .error-icon {
-  color: #f85149; /* Softer red for dark backgrounds */
-}
-
 :global(.dark) .error-message {
   color: var(--text-primary);
 }

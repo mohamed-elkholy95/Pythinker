@@ -54,7 +54,10 @@ def main() -> int:
         if should_suppress(line, SUPPRESSED_PATTERNS):
             suppressed += 1
             now = time.monotonic()
-            if suppressed % 50 == 0 and (now - last_summary_ts) >= summary_interval_seconds:
+            if (
+                suppressed % 50 == 0
+                and (now - last_summary_ts) >= summary_interval_seconds
+            ):
                 _write_stderr(
                     "[chrome-stderr-filter] Suppressed "
                     f"{suppressed} known benign Chromium noise lines\n"

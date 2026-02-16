@@ -85,7 +85,10 @@ class BrowserUseService:
             import aiohttp
 
             # Get all targets from CDP (single session for all requests)
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as http_session, http_session.get(f"{self.cdp_url}/json") as resp:
+            async with (
+                aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as http_session,
+                http_session.get(f"{self.cdp_url}/json") as resp,
+            ):
                 if resp.status != 200:
                     return False
                 targets = await resp.json()
@@ -100,9 +103,7 @@ class BrowserUseService:
                     continue
 
                 try:
-                    async with aiohttp.ClientSession() as ws_session, ws_session.ws_connect(
-                        ws_url, timeout=5.0
-                    ) as ws:
+                    async with aiohttp.ClientSession() as ws_session, ws_session.ws_connect(ws_url, timeout=5.0) as ws:
                         # Get window ID (with timeout to prevent hangs on unresponsive Chrome)
                         await ws.send_json({"id": 1, "method": "Browser.getWindowForTarget"})
 

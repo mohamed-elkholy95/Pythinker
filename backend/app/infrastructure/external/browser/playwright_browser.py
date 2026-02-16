@@ -386,7 +386,7 @@ class PlaywrightBrowser:
 
             # P1.1: Check page complexity and clear if too heavy
             complexity = await self._get_page_complexity()
-            if complexity and complexity.get("isHeavy"):
+            if isinstance(complexity, dict) and complexity.get("isHeavy"):
                 iframe_count = complexity.get("iframeCount", 0)
                 element_count = complexity.get("elementCount", 0)
                 logger.warning(
@@ -1808,7 +1808,7 @@ class PlaywrightBrowser:
 
             # Check page complexity before full extraction
             complexity = await self._get_page_complexity()
-            if complexity and complexity.get("isHeavy"):
+            if isinstance(complexity, dict) and complexity.get("isHeavy"):
                 logger.warning(
                     f"Heavy page detected: {complexity.get('elementCount', 'unknown')} elements, "
                     f"{complexity.get('interactiveCount', 'unknown')} interactive"
@@ -2133,7 +2133,7 @@ class PlaywrightBrowser:
             is_heavy_page = False
             if auto_extract and not is_wikipedia:
                 page_size = await self._quick_page_size_check()
-                if page_size and page_size.get("isHeavy"):
+                if isinstance(page_size, dict) and page_size.get("isHeavy"):
                     is_heavy_page = True
                     logger.warning(
                         f"Heavy page detected early: {page_size.get('htmlSize', 0) // 1024}KB HTML, "

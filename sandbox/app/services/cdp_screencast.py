@@ -32,7 +32,9 @@ CDP_ENDPOINT = f"http://{CDP_HOST}:{CDP_PORT}"
 # Connection management
 _WS_URL_CACHE_TTL = 60.0  # Cache the WebSocket URL for 60 seconds
 _HEALTH_CHECK_TIMEOUT = 2.0  # Quick health check timeout
-_CAPTURE_COMMAND_TIMEOUT = 6.0  # P1.2: Increased from 4.0s to allow more time for heavy pages
+_CAPTURE_COMMAND_TIMEOUT = (
+    6.0  # P1.2: Increased from 4.0s to allow more time for heavy pages
+)
 _CONNECT_TIMEOUT = 3.0  # Timeout for WebSocket connection establishment
 
 
@@ -215,7 +217,10 @@ class CDPScreencastService:
             return False
 
     async def _send_command(
-        self, method: str, params: dict | None = None, timeout: float = _CAPTURE_COMMAND_TIMEOUT
+        self,
+        method: str,
+        params: dict | None = None,
+        timeout: float = _CAPTURE_COMMAND_TIMEOUT,
     ) -> dict | None:
         """Send a CDP command and wait for response with timeout.
 
@@ -250,7 +255,9 @@ class CDPScreencastService:
                         return None
 
                     try:
-                        msg = await asyncio.wait_for(self._ws.receive(), timeout=remaining)
+                        msg = await asyncio.wait_for(
+                            self._ws.receive(), timeout=remaining
+                        )
                     except asyncio.TimeoutError:
                         logger.warning(
                             f"CDP command timed out waiting for response: {method}"
@@ -267,7 +274,10 @@ class CDPScreencastService:
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         logger.warning(f"CDP WebSocket error: {msg.data}")
                         return None
-                    elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
+                    elif msg.type in (
+                        aiohttp.WSMsgType.CLOSE,
+                        aiohttp.WSMsgType.CLOSED,
+                    ):
                         logger.warning("CDP WebSocket closed unexpectedly")
                         return None
 

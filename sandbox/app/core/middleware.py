@@ -60,6 +60,7 @@ class SandboxAuthMiddleware:
             # Fallback: check query string for WebSocket clients that can't set headers
             if not token and scope_type == "websocket":
                 from urllib.parse import parse_qs
+
                 qs = parse_qs(scope.get("query_string", b"").decode())
                 token = qs.get("secret", [""])[0]
 

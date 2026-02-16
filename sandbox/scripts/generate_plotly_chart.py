@@ -431,7 +431,9 @@ def generate_bar_chart(
     # Detect if we need log scale (extreme outliers)
     all_values = []
     for dataset in datasets:
-        all_values.extend([v for v in dataset["values"] if v > 0])  # Log requires positive
+        all_values.extend(
+            [v for v in dataset["values"] if v > 0]
+        )  # Log requires positive
     use_log_scale = _detect_extreme_outliers(all_values)
 
     if is_single_series:
@@ -440,7 +442,8 @@ def generate_bar_chart(
 
         # Per-bar coloring using qualitative palette
         colors = [
-            PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(clean_labels))
+            PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)]
+            for i in range(len(clean_labels))
         ]
         text_format = _smart_text_format(values)
 
@@ -646,7 +649,8 @@ def generate_pie_chart(
 
     # Use qualitative palette, cycling if more labels than colors
     colors = [
-        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(clean_labels))
+        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)]
+        for i in range(len(clean_labels))
     ]
 
     fig = go.Figure(

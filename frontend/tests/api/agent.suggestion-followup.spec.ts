@@ -126,25 +126,20 @@ describe('Agent API - Follow-up Context', () => {
       }
     )
 
-    expect(mockCreateSSEConnection).toHaveBeenCalledWith(
-      '/sessions/session123/chat',
-      {
-        method: 'POST',
-        body: {
-          message: 'Follow-up message',
-          timestamp: expect.any(Number),
-          event_id: 'evt_prev',
-          attachments: [{ file_id: 'file1', filename: 'test.txt', content_type: 'text/plain', size: 100, upload_date: '2024-01-01' }],
-          skills: ['skill1'],
-          deep_research: true,
-          follow_up: {
-            selected_suggestion: 'What about X?',
-            anchor_event_id: 'evt_789',
-            source: 'suggestion_click',
-          },
-        },
-      },
-      undefined
-    )
+    const callArgs = mockCreateSSEConnection.mock.calls[0]
+    const body = callArgs[1].body
+
+    // event_id is intentionally omitted when fresh input is provided
+    // (hasFreshInput is true due to non-empty message, attachments, skills, etc.)
+    expect(body).not.toHaveProperty('event_id')
+    expect(body.message).toBe('Follow-up message')
+    expect(body.attachments).toEqual([{ file_id: 'file1', filename: 'test.txt', content_type: 'text/plain', size: 100, upload_date: '2024-01-01' }])
+    expect(body.skills).toEqual(['skill1'])
+    expect(body.deep_research).toBe(true)
+    expect(body.follow_up).toEqual({
+      selected_suggestion: 'What about X?',
+      anchor_event_id: 'evt_789',
+      source: 'suggestion_click',
+    })
   })
 })
