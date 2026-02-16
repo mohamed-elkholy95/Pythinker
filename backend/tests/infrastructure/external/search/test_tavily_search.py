@@ -1,5 +1,6 @@
 """Integration tests for TavilySearchEngine with APIKeyPool."""
 
+import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -11,12 +12,16 @@ from app.infrastructure.storage.redis import get_redis
 
 @pytest.fixture
 async def redis_client():
-    """Get Redis client for testing."""
+    """Get Redis client for testing. Skips if Redis is unavailable."""
+    get_redis.cache_clear()
     client = get_redis()
-    await client.initialize()
+    try:
+        await client.initialize()
+    except Exception as exc:
+        pytest.skip(f"Redis unavailable: {exc}")
     yield client
-    # Cleanup
-    await client.shutdown()
+    with contextlib.suppress(Exception):
+        await client.shutdown()
 
 
 async def test_tavily_uses_key_pool_rotation(redis_client):

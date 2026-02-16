@@ -158,8 +158,8 @@ class AgentService:
 
         # Phase 4 P0: Intent classification for simple queries
         if initial_message and mode == AgentMode.AGENT:
+            from app.core.prometheus_metrics import intent_classification_total
             from app.domain.services.agents.intent_classifier import get_intent_classifier
-            from app.infrastructure.observability.prometheus_metrics import intent_classification_total
 
             classifier = get_intent_classifier()
             intent, recommended_mode, confidence = classifier.classify(initial_message)

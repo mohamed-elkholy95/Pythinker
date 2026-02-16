@@ -33,7 +33,7 @@ export interface GetSessionResponse {
     session_id: string;
     title: string | null;
     status: SessionStatus;
-    streaming_mode: string | null;
+    streaming_mode: StreamingMode | null;
     events: AgentSSEEvent[];
     is_shared: boolean;
 }

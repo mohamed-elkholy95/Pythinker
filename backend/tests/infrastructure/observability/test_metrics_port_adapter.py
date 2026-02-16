@@ -1,3 +1,12 @@
+from app.core.prometheus_metrics import (
+    delivery_integrity_gate_result_total,
+    fast_ack_refiner_latency_seconds,
+    fast_ack_refiner_total,
+    final_response_tokens,
+    reset_all_metrics,
+    token_budget_used,
+    token_budget_warnings,
+)
 from app.domain.external.observability import get_metrics, get_null_metrics
 from app.domain.external.observability import set_metrics as set_global_metrics
 from app.domain.services.agents.critic import set_metrics as set_critic_metrics
@@ -10,15 +19,6 @@ from app.infrastructure.observability.context import request_context_scope
 from app.infrastructure.observability.metrics_port_adapter import (
     PrometheusMetricsAdapter,
     configure_domain_metrics_adapter,
-)
-from app.infrastructure.observability.prometheus_metrics import (
-    delivery_integrity_gate_result_total,
-    fast_ack_refiner_latency_seconds,
-    fast_ack_refiner_total,
-    final_response_tokens,
-    reset_all_metrics,
-    token_budget_used,
-    token_budget_warnings,
 )
 
 

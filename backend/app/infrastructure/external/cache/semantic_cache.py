@@ -403,7 +403,7 @@ class SemanticCache:
 
             # Record Prometheus metrics for successful store
             try:
-                from app.infrastructure.observability.prometheus_metrics import (
+                from app.core.prometheus_metrics import (
                     semantic_cache_store_total,
                 )
 
@@ -419,7 +419,7 @@ class SemanticCache:
 
             # Record Prometheus metrics for failed store
             try:
-                from app.infrastructure.observability.prometheus_metrics import (
+                from app.core.prometheus_metrics import (
                     semantic_cache_store_total,
                 )
 
@@ -506,7 +506,7 @@ class SemanticCache:
             result: Query result ("hit", "miss", "error", "bypassed")
         """
         try:
-            from app.infrastructure.observability.prometheus_metrics import (
+            from app.core.prometheus_metrics import (
                 semantic_cache_circuit_breaker_state,
                 semantic_cache_hit_rate,
                 semantic_cache_hit_total,

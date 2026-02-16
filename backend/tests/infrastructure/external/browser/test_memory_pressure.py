@@ -103,7 +103,7 @@ async def test_critical_memory_pressure_triggers_restart():
 @pytest.mark.asyncio
 async def test_memory_pressure_metric_incremented():
     """Test that memory pressure metrics are incremented."""
-    from app.infrastructure.observability.prometheus_metrics import browser_memory_pressure_total
+    from app.core.prometheus_metrics import browser_memory_pressure_total
 
     browser = PlaywrightBrowser()
     await browser.start()
@@ -130,7 +130,7 @@ async def test_memory_pressure_metric_incremented():
 async def test_memory_restart_metric_incremented_on_restart():
     """Test that browser restart metric increments when restarting due to memory."""
 
-    from app.infrastructure.observability.prometheus_metrics import browser_memory_restarts_total
+    from app.core.prometheus_metrics import browser_memory_restarts_total
 
     browser = PlaywrightBrowser()
     await browser.start()

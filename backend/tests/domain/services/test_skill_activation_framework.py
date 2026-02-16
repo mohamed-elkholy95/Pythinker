@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.domain.services.command_registry import CommandRegistry
 from app.domain.services.skill_activation_framework import (
     SkillActivationFramework,
     SkillActivationSource,
@@ -30,12 +31,15 @@ async def test_chat_selection_only_activation():
 @pytest.mark.asyncio
 async def test_command_activation():
     framework = SkillActivationFramework()
+    registry = CommandRegistry()
+    registry.register_command("brainstorm", "brainstorming", "Brainstorm ideas")
 
-    result = await framework.resolve(
-        message="/brainstorm shape this feature",
-        selected_skills=[],
-        auto_trigger_enabled=False,
-    )
+    with patch("app.domain.services.skill_activation_framework.get_command_registry", return_value=registry):
+        result = await framework.resolve(
+            message="/brainstorm shape this feature",
+            selected_skills=[],
+            auto_trigger_enabled=False,
+        )
 
     assert result.command_skill_id == "brainstorming"
     assert result.skill_ids == ["brainstorming"]
@@ -45,12 +49,15 @@ async def test_command_activation():
 @pytest.mark.asyncio
 async def test_command_and_chat_selection_merge_sources():
     framework = SkillActivationFramework()
+    registry = CommandRegistry()
+    registry.register_command("brainstorm", "brainstorming", "Brainstorm ideas")
 
-    result = await framework.resolve(
-        message="/brainstorm shape this feature",
-        selected_skills=["brainstorming"],
-        auto_trigger_enabled=False,
-    )
+    with patch("app.domain.services.skill_activation_framework.get_command_registry", return_value=registry):
+        result = await framework.resolve(
+            message="/brainstorm shape this feature",
+            selected_skills=["brainstorming"],
+            auto_trigger_enabled=False,
+        )
 
     assert result.command_skill_id == "brainstorming"
     assert result.skill_ids == ["brainstorming"]

@@ -232,7 +232,7 @@ def get_session_repository() -> MongoSessionRepository:
 
 def increment_rating_unauthorized_attempts() -> None:
     """Record unauthorized rating attempts via observability adapter."""
-    from app.infrastructure.observability.prometheus_metrics import rating_unauthorized_attempts_total
+    from app.core.prometheus_metrics import rating_unauthorized_attempts_total
 
     rating_unauthorized_attempts_total.inc({})
 

@@ -9,6 +9,19 @@ from app.application.services.screenshot_service import ScreenshotCaptureService
 from app.domain.models.screenshot import ScreenshotTrigger
 
 
+@pytest.fixture(autouse=True)
+def clear_caches():
+    """Clear all caches before each test to prevent state contamination."""
+    from app.core.circuit_breaker_registry import CircuitBreakerRegistry
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    CircuitBreakerRegistry.reset_all()
+    yield
+    get_settings.cache_clear()
+    CircuitBreakerRegistry.reset_all()
+
+
 @pytest.mark.asyncio
 async def test_retry_succeeds_on_second_attempt():
     """Test that retry succeeds after one failure."""

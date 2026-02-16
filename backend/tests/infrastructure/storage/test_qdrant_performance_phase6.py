@@ -142,7 +142,7 @@ class TestQdrantCapacityMetrics:
     async def test_collection_size_metric_updated(self):
         """Test Qdrant collection size is tracked."""
 
-        from app.infrastructure.observability.prometheus_metrics import qdrant_collection_size
+        from app.core.prometheus_metrics import qdrant_collection_size
 
         # Mock collection info
         collection_name = "user_knowledge"
@@ -157,7 +157,7 @@ class TestQdrantCapacityMetrics:
 
     def test_memory_budget_capacity_metrics(self):
         """Test memory budget capacity metrics."""
-        from app.infrastructure.observability.prometheus_metrics import (
+        from app.core.prometheus_metrics import (
             memory_budget_tokens_total,
             memory_budget_tokens_used,
         )

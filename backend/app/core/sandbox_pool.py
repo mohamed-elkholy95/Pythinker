@@ -25,7 +25,7 @@ import docker
 from docker.errors import NotFound as DockerNotFound
 
 from app.core import config as core_config
-from app.infrastructure.observability.prometheus_metrics import (
+from app.core.prometheus_metrics import (
     record_sandbox_health_check,
     record_sandbox_oom_kill,
     record_sandbox_runtime_crash,

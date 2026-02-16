@@ -12,14 +12,14 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.core.config import get_settings
-from app.domain.models.tool_result import ToolResult
-from app.infrastructure.external.browser.url_filters import is_ssrf_target, is_video_url
-from app.infrastructure.external.llm import get_llm
-from app.infrastructure.observability.prometheus_metrics import (
+from app.core.prometheus_metrics import (
     browser_element_extraction_latency,
     browser_element_extraction_timeout_total,
     browser_element_extraction_total,
 )
+from app.domain.models.tool_result import ToolResult
+from app.domain.utils.url_filters import is_ssrf_target, is_video_url
+from app.infrastructure.external.llm import get_llm
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -1781,7 +1781,7 @@ class PlaywrightBrowser:
                 and self._extraction_cache["elements"] is not None
             ):
                 logger.debug(f"Returning cached extraction for {current_url}")
-                from app.infrastructure.observability.prometheus_metrics import (
+                from app.core.prometheus_metrics import (
                     element_extraction_cache_hits_total,
                 )
 
@@ -1798,7 +1798,7 @@ class PlaywrightBrowser:
                 )
 
             # Cache miss
-            from app.infrastructure.observability.prometheus_metrics import (
+            from app.core.prometheus_metrics import (
                 element_extraction_cache_misses_total,
             )
 
@@ -2141,7 +2141,7 @@ class PlaywrightBrowser:
                         f"Heavy page detected early: {page_size.get('htmlSize', 0) // 1024}KB HTML, "
                         f"{page_size.get('domCount', 0)} DOM elements - switching to lightweight mode"
                     )
-                    from app.infrastructure.observability.prometheus_metrics import (
+                    from app.core.prometheus_metrics import (
                         browser_heavy_page_detections_total,
                     )
 
@@ -2180,7 +2180,7 @@ class PlaywrightBrowser:
                         result_data["content"] = wiki_summary.get("summary", "")
                         result_data["title"] = wiki_summary.get("title", await self.page.title())
                         result_data["extraction_mode"] = "wikipedia_summary"
-                        from app.infrastructure.observability.prometheus_metrics import (
+                        from app.core.prometheus_metrics import (
                             browser_wikipedia_summary_mode_total,
                         )
 
@@ -2209,7 +2209,7 @@ class PlaywrightBrowser:
                             f"Memory pressure {pressure_level}: {memory_pressure.get('used_mb')}MB used, "
                             f"{memory_pressure.get('nodes')} DOM nodes"
                         )
-                        from app.infrastructure.observability.prometheus_metrics import (
+                        from app.core.prometheus_metrics import (
                             browser_memory_pressure_total,
                         )
 

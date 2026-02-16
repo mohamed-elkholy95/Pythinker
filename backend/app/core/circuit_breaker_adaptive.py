@@ -6,13 +6,13 @@ import logging
 from dataclasses import dataclass
 
 from app.core.failure_tracker import FailureTracker
-from app.core.recovery_monitor import RecoveryMonitor
-from app.infrastructure.observability.prometheus_metrics import (
+from app.core.prometheus_metrics import (
     record_circuit_breaker_failure_rate,
     record_circuit_breaker_mttr,
     record_circuit_breaker_recovery,
     record_circuit_breaker_threshold,
 )
+from app.core.recovery_monitor import RecoveryMonitor
 
 from .circuit_breaker_registry import CircuitBreaker, CircuitBreakerConfig, CircuitState
 

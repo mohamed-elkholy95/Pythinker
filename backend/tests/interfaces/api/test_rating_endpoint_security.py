@@ -153,7 +153,7 @@ async def test_rating_nonexistent_session_returns_404():
 @pytest.mark.asyncio
 async def test_unauthorized_rating_increments_metric():
     """Test that unauthorized rating attempts increment the metric."""
-    from app.infrastructure.observability.prometheus_metrics import rating_unauthorized_attempts_total
+    from app.core.prometheus_metrics import rating_unauthorized_attempts_total
 
     # Setup
     request = RatingRequest(

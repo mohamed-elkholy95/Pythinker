@@ -152,7 +152,7 @@ async def test_rating_nonexistent_session_blocked_e2e():
 @pytest.mark.asyncio
 async def test_multiple_unauthorized_attempts_tracked():
     """Test that multiple unauthorized attempts are tracked in metrics."""
-    from app.infrastructure.observability.prometheus_metrics import (
+    from app.core.prometheus_metrics import (
         rating_unauthorized_attempts_total,
     )
     from app.infrastructure.repositories.mongo_session_repository import (

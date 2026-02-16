@@ -14,17 +14,17 @@ from typing import Any
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
+from app.core.prometheus_metrics import (
+    active_sessions,
+    collect_all_metrics,
+    format_prometheus,
+)
 from app.domain.models.user import User
 from app.domain.services.agents.metrics import get_metrics_collector
 from app.domain.services.tools.cache_layer import get_cache_stats, get_combined_cache_stats
 from app.domain.services.tools.dynamic_toolset import get_toolset_manager
 from app.infrastructure.observability.llm_tracer import NoOpLLMTracer, get_llm_tracer
 from app.infrastructure.observability.otel_exporter import get_otel_config
-from app.infrastructure.observability.prometheus_metrics import (
-    active_sessions,
-    collect_all_metrics,
-    format_prometheus,
-)
 from app.infrastructure.observability.tracer import get_tracer
 from app.interfaces.dependencies import get_current_user, get_optional_current_user
 

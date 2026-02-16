@@ -93,7 +93,7 @@ async def test_wikipedia_summary_excludes_tables_and_references():
 @pytest.mark.asyncio
 async def test_wikipedia_mode_increments_metric():
     """Test that Wikipedia summary mode increments the appropriate metric."""
-    from app.infrastructure.observability.prometheus_metrics import browser_wikipedia_summary_mode_total
+    from app.core.prometheus_metrics import browser_wikipedia_summary_mode_total
 
     browser = PlaywrightBrowser()
     await browser.start()

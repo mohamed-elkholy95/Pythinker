@@ -124,7 +124,7 @@ class ManagedHTTPClient:
 
             # Record Prometheus metrics
             try:
-                from app.infrastructure.observability.prometheus_metrics import record_http_pool_request
+                from app.core.prometheus_metrics import record_http_pool_request
 
                 record_http_pool_request(
                     client_name=self.name,
@@ -142,7 +142,7 @@ class ManagedHTTPClient:
                 self.stats.requests_failed += 1
             # Record pool exhaustion metric
             try:
-                from app.infrastructure.observability.prometheus_metrics import record_http_pool_error
+                from app.core.prometheus_metrics import record_http_pool_error
 
                 record_http_pool_error(self.name, "pool_exhaustion")
             except Exception as e:
@@ -160,7 +160,7 @@ class ManagedHTTPClient:
 
             # Record metrics
             try:
-                from app.infrastructure.observability.prometheus_metrics import (
+                from app.core.prometheus_metrics import (
                     record_http_pool_error,
                     record_http_pool_request,
                 )

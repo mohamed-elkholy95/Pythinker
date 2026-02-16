@@ -52,7 +52,7 @@ def _import_metrics() -> None:
     global _record_circuit_breaker_call, _record_circuit_breaker_state_change
     if not _metrics_imported:
         try:
-            from app.infrastructure.observability.prometheus_metrics import (
+            from app.core.prometheus_metrics import (
                 record_circuit_breaker_call,
                 record_circuit_breaker_state,
                 record_circuit_breaker_state_change,

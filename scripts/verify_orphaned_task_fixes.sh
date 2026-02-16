@@ -148,7 +148,7 @@ fi
 section "3. Verifying Prometheus Metrics"
 
 # Check metrics added
-if grep -q "orphaned_task_cleanup_runs_total" backend/app/infrastructure/observability/prometheus_metrics.py; then
+if grep -q "orphaned_task_cleanup_runs_total" backend/app/core/prometheus_metrics.py; then
     pass "Cleanup metrics defined"
 
     # Check all 4 metrics
@@ -160,7 +160,7 @@ if grep -q "orphaned_task_cleanup_runs_total" backend/app/infrastructure/observa
     )
 
     for metric in "${METRICS[@]}"; do
-        if grep -q "$metric" backend/app/infrastructure/observability/prometheus_metrics.py; then
+        if grep -q "$metric" backend/app/core/prometheus_metrics.py; then
             pass "  - $metric: PRESENT"
         else
             fail "  - $metric: MISSING"
@@ -168,14 +168,14 @@ if grep -q "orphaned_task_cleanup_runs_total" backend/app/infrastructure/observa
     done
 
     # Check helper function
-    if grep -q "def record_orphaned_task_cleanup(" backend/app/infrastructure/observability/prometheus_metrics.py; then
+    if grep -q "def record_orphaned_task_cleanup(" backend/app/core/prometheus_metrics.py; then
         pass "record_orphaned_task_cleanup() function defined"
     else
         fail "record_orphaned_task_cleanup() function missing"
     fi
 
     # Check metrics registered
-    if grep -q "orphaned_task_cleanup_runs_total," backend/app/infrastructure/observability/prometheus_metrics.py; then
+    if grep -q "orphaned_task_cleanup_runs_total," backend/app/core/prometheus_metrics.py; then
         pass "Metrics registered in _metrics_registry"
     else
         warn "Metrics may not be registered (check manually)"

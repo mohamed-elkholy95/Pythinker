@@ -309,7 +309,7 @@ class RedisClient:
                 last_error = e
                 await self._circuit_breaker.record_failure()
                 try:
-                    from app.infrastructure.observability.prometheus_metrics import redis_operation_retries_total
+                    from app.core.prometheus_metrics import redis_operation_retries_total
 
                     redis_operation_retries_total.inc({"role": self._role, "operation": operation_name})
                 except Exception:
@@ -337,7 +337,7 @@ class RedisClient:
                 else:
                     logger.error("Redis operation '%s' failed after %s attempts: %s", operation_name, max_retries, e)
                     try:
-                        from app.infrastructure.observability.prometheus_metrics import redis_operation_failures_total
+                        from app.core.prometheus_metrics import redis_operation_failures_total
 
                         redis_operation_failures_total.inc({"role": self._role, "error_type": type(e).__name__})
                     except Exception:

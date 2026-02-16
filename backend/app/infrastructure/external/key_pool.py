@@ -21,12 +21,12 @@ from enum import Enum
 
 from redis.asyncio import Redis
 
-from app.core.retry import RetryConfig, calculate_delay
-from app.infrastructure.observability.prometheus_metrics import (
+from app.core.prometheus_metrics import (
     api_key_exhaustions_total,
     api_key_health_score,
     api_key_selections_total,
 )
+from app.core.retry import RetryConfig, calculate_delay
 
 logger = logging.getLogger(__name__)
 

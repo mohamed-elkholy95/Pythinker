@@ -280,7 +280,7 @@ class TestMultiKeyMetrics:
         if not settings.serper_api_key:
             pytest.skip("SERPER_API_KEY not configured")
 
-        from app.infrastructure.observability.prometheus_metrics import (
+        from app.core.prometheus_metrics import (
             api_key_exhaustions_total,
             api_key_health_score,
             api_key_selections_total,
