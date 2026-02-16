@@ -1,6 +1,6 @@
 # Sandbox Environment Context
 
-**Generated:** 2026-02-16T06:48:42.958477
+**Generated:** 2026-02-16T17:44:28.127799
 **Version:** 1.0.0
 **Checksum:** b138ae99a84cb8b0
 
@@ -17,7 +17,7 @@
 - **Version:** Python 3.11.14
 - **Path:** /opt/base-python-venv/bin/python3
 - **Pip:** pip 26.0.1 from /opt/base-python-venv/lib/python3.11/site-packages/pip (python 3.11)
-- **Total Packages:** 119
+- **Total Packages:** 123
 
 ### Key Python Packages
 
@@ -175,7 +175,7 @@ Key variables available:
 
 ## Resource Limits
 
-- **Disk Space:** 32G available (58% used)
+- **Disk Space:** 24G available (70% used)
 - **Shared Memory:** 2gb
 
 ---
