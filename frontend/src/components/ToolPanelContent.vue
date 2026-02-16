@@ -107,9 +107,11 @@
             :is-final="!isSummaryStreaming"
           />
 
-          <!-- Replay mode: static screenshots (second highest priority) -->
+          <!-- Replay mode: static screenshots — only when no richer native view exists.
+               Terminal/editor/search views have their own content that is more informative
+               than a CDP browser screenshot, so they fall through to their dedicated components. -->
           <div
-            v-else-if="isReplayMode && !!replayScreenshotUrl"
+            v-else-if="isReplayMode && !!replayScreenshotUrl && !hasRichNativeView"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <ScreenshotReplayViewer
@@ -118,9 +120,9 @@
             />
           </div>
 
-          <!-- Replay mode loading: screenshots not yet fetched -->
+          <!-- Replay mode loading: screenshots not yet fetched (only for browser views) -->
           <div
-            v-else-if="isReplayMode && !replayScreenshotUrl"
+            v-else-if="isReplayMode && !replayScreenshotUrl && !hasRichNativeView"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <LoadingState
@@ -152,6 +154,13 @@
               :enabled="livePreviewEnabled"
               :view-only="true"
               :is-canvas-mode="currentViewType === 'chart'"
+              :tool-content="toolContent"
+              :is-active="isActiveOperation"
+              :terminal-content="terminalContent"
+              :editor-content="editorContent"
+              :editor-file-path="resolvedFilePath"
+              :search-results="searchResults"
+              :search-query="searchQuery"
               @connected="onLivePreviewConnected"
               @disconnected="onLivePreviewDisconnected"
             />
@@ -250,6 +259,13 @@
               :enabled="true"
               :view-only="true"
               :is-canvas-mode="currentViewType === 'chart'"
+              :tool-content="toolContent"
+              :is-active="isActiveOperation"
+              :terminal-content="terminalContent"
+              :editor-content="editorContent"
+              :editor-file-path="resolvedFilePath"
+              :search-results="searchResults"
+              :search-query="searchQuery"
               @connected="onLivePreviewConnected"
               @disconnected="onLivePreviewDisconnected"
             />
@@ -571,8 +587,18 @@ const livePreviewEnabled = computed(() => {
   return !!props.sessionId && !showLivePreviewPlaceholder.value;
 });
 
-// Whether the current tool has a rich native view (editor, terminal, search, chart)
-// that is more informative than a screenshot replay
+// Whether the current tool has a rich native view (editor, terminal, search)
+// that is more informative than a browser screenshot replay.
+// When true, replay mode should fall through to the tool-specific component
+// instead of showing the ScreenshotReplayViewer (which always captures the browser viewport).
+const hasRichNativeView = computed(() => {
+  const vt = currentViewType.value;
+  if (vt === 'terminal' && terminalContent.value) return true;
+  if (vt === 'editor' && (editorContent.value || resolvedFilePath.value)) return true;
+  if (vt === 'search' && searchResults.value?.length) return true;
+  return false;
+});
+
 // ============ URL Bar Overlay ============
 const BROWSER_TOOL_PREFIXES = ['browser', 'playwright', 'browsing'];
 const isBrowserTool = (name: string) =>
