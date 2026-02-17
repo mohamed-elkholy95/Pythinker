@@ -17,6 +17,8 @@ export interface ToolInfo {
   url: string | null;
   /** Favicon URL for the tool's target domain */
   faviconUrl: string | null;
+  /** Category key for the tool (e.g. "search", "file", "browser") */
+  toolKey: string;
 }
 
 export function useToolInfo(tool?: Ref<ToolContent | undefined>) {
@@ -44,6 +46,7 @@ export function useToolInfo(tool?: Ref<ToolContent | undefined>) {
       functionArg: display.resourceLabel,
       url: toolUrl,
       faviconUrl: toolUrl ? getFaviconUrl(toolUrl) : null,
+      toolKey: display.toolKey,
     };
   });
 

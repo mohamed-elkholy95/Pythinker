@@ -219,13 +219,14 @@
         >
           <div class="step-tools-inner pt-2 flex flex-col gap-2">
             <ToolUse
-              v-for="(tool, index) in stepContent.tools"
-              :key="tool.tool_call_id"
-              :tool="tool"
-              :is-active="index === stepContent.tools.length - 1"
-              :is-task-running="index === stepContent.tools.length - 1 && stepContent.status === 'running'"
+              v-for="group in groupedTools"
+              :key="group.groupKey"
+              :tool="group.tool"
+              :group-count="group.count"
+              :is-active="group.containsActive"
+              :is-task-running="group.containsActive && stepContent.status === 'running'"
               :show-fast-search-inline="false"
-              @click="handleToolClick(tool)"
+              @click="handleToolClick(group.tool)"
             />
             <div v-if="showStepThinking" class="step-thinking-nested">
               <ThinkingIndicator :showText="true" />
@@ -298,6 +299,7 @@ import ThinkingIndicator from './ui/ThinkingIndicator.vue';
 import FinalizationStepCard from './FinalizationStepCard.vue';
 import { copyToClipboard } from '../utils/dom';
 import { isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLayout';
+import { groupConsecutiveTools } from '../composables/useToolGrouping';
 
 
 const props = defineProps<{
@@ -376,6 +378,12 @@ const reportContent = computed(() => props.message.content as ReportContent);
 const deepResearchContent = computed(() => props.message.content as DeepResearchContent);
 const skillDeliveryContent = computed(() => props.message.content as SkillDeliveryContent);
 
+// Collapse consecutive identical tool operations into groups with count badges
+const groupedTools = computed(() => {
+  if (props.message.type !== 'step') return [];
+  return groupConsecutiveTools(stepContent.value.tools ?? []);
+});
+
 // Show thinking indicator inside this step when it's the active thinking step
 const showStepThinking = computed(() => {
   if (props.message.type !== 'step') return false;
@@ -437,7 +445,15 @@ const showMessageExpandControl = computed(() => props.message.type === 'user' &&
 const { relativeTime } = useRelativeTime();
 
 const formatTimestampTooltip = (timestamp: number): string => {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return '';
+  }
+
   const date = new Date(timestamp * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
   return date.toLocaleString('en-US', {
     month: '2-digit',
     day: '2-digit',

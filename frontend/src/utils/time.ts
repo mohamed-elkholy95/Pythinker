@@ -1,9 +1,6 @@
-import { useI18n } from 'vue-i18n';
-
 /**
  * Time related utility functions
  */
-
 
 /**
  * Convert ISO 8601 datetime string to timestamp number
@@ -13,11 +10,11 @@ import { useI18n } from 'vue-i18n';
 export const parseISODateTime = (isoString: string): number => {
   try {
     const date = new Date(isoString);
-    
+
     if (isNaN(date.getTime())) {
       throw new Error('Invalid ISO datetime string');
     }
-    
+
     return Math.floor(date.getTime() / 1000);
   } catch {
     throw new Error(`Failed to parse ISO datetime string: ${isoString}`);
@@ -25,33 +22,34 @@ export const parseISODateTime = (isoString: string): number => {
 };
 
 /**
- * Convert timestamp to relative time (e.g., minutes ago, hours ago, days ago)
- * @param timestamp Timestamp (seconds)
- * @returns Formatted relative time string
+ * Pure function: convert a Unix-seconds timestamp to a compact relative time label.
+ * No Vue composable dependencies — safe to call anywhere.
+ *
+ * @param timestamp Unix timestamp in **seconds**
  */
 export const formatRelativeTime = (timestamp: number): string => {
-  const { t } = useI18n();
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 'Just now';
+
   const now = Math.floor(Date.now() / 1000);
   const diffSec = now - timestamp;
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHour / 24);
-  const diffMonth = Math.floor(diffDay / 30);
-  const diffYear = Math.floor(diffMonth / 12);
 
-  if (diffSec < 60) {
-    return t('Just now');
-  } else if (diffMin < 60) {
-    return `${diffMin} ${t('minutes ago')}`;
-  } else if (diffHour < 24) {
-    return `${diffHour} ${t('hours ago')}`;
-  } else if (diffDay < 30) {
-    return `${diffDay} ${t('days ago')}`;
-  } else if (diffMonth < 12) {
-    return `${diffMonth} ${t('months ago')}`;
-  } else {
-    return `${diffYear} ${t('years ago')}`;
-  }
+  if (!Number.isFinite(diffSec) || diffSec < 0) return 'Just now';
+  if (diffSec < 60) return 'Just now';
+
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return diffMin === 1 ? '1m ago' : `${diffMin}m ago`;
+
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return diffHour === 1 ? '1h ago' : `${diffHour}h ago`;
+
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 30) return diffDay === 1 ? '1d ago' : `${diffDay}d ago`;
+
+  const diffMonth = Math.floor(diffDay / 30);
+  if (diffMonth < 12) return diffMonth === 1 ? '1mo ago' : `${diffMonth}mo ago`;
+
+  const diffYear = Math.floor(diffMonth / 12);
+  return diffYear === 1 ? '1y ago' : `${diffYear}y ago`;
 };
 
 /**
@@ -66,7 +64,15 @@ export const formatRelativeTime = (timestamp: number): string => {
  * @returns Formatted time string
  */
 export const formatCustomTime = (timestamp: number, t?: (key: string) => string, locale?: string): string => {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return t ? t('Just now') : 'Just now';
+  }
+
   const date = new Date(timestamp * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return t ? t('Just now') : 'Just now';
+  }
+
   const now = new Date();
   
   // Check if it's today
