@@ -3,9 +3,9 @@ File operation API interfaces
 """
 
 import os
-import tempfile
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import FileResponse
+
 from app.schemas.file import (
     FileReadRequest,
     FileWriteRequest,
@@ -14,7 +14,7 @@ from app.schemas.file import (
     FileFindRequest,
 )
 from app.schemas.response import Response
-from app.services.file import file_service
+from app.services.file import SANDBOX_BASE_DIR, file_service
 
 router = APIRouter()
 
@@ -118,12 +118,11 @@ async def upload_file(file: UploadFile = File(...), path: str = Form(None)):
     Upload file using streaming
     """
     if not path:
-        # Use secure temp directory with sanitized filename
-        # Prevent path traversal by using only the basename
+        # Default upload location within the sandbox base directory.
+        # Use only the basename of the original filename to prevent traversal.
         safe_filename = os.path.basename(file.filename) if file.filename else "upload"
-        # Use tempfile.gettempdir() for platform-independent temp directory
-        temp_dir = tempfile.gettempdir()
-        path = os.path.join(temp_dir, safe_filename)
+        upload_dir = str(SANDBOX_BASE_DIR / "uploads")
+        path = os.path.join(upload_dir, safe_filename)
 
     result = await file_service.upload_file(path=path, file_stream=file)
 
@@ -137,12 +136,14 @@ async def download_file(path: str):
     """
     Download file using FileResponse
     """
-    # Check if file exists (this will raise appropriate exception if not found)
-    file_service.ensure_file(path)
+    # ensure_file validates the path against SANDBOX_BASE_DIR and checks existence.
+    # Use _normalize_path to obtain the validated, resolved path for FileResponse.
+    validated_path = file_service._normalize_path(path)
+    file_service.ensure_file(validated_path)
 
-    # Determine filename from path
-    filename = path.split("/")[-1]
+    # Determine filename from the validated path
+    filename = os.path.basename(validated_path)
 
     return FileResponse(
-        path=path, filename=filename, media_type="application/octet-stream"
+        path=validated_path, filename=filename, media_type="application/octet-stream"
     )

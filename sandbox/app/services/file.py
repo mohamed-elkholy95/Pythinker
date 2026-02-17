@@ -2,13 +2,17 @@
 File Operation Service Implementation - Async Version
 """
 
+import logging
 import os
 import re
 import glob
 import asyncio
 import tempfile
+from pathlib import Path
 from typing import Optional
+
 from fastapi import UploadFile
+
 from app.models.file import (
     FileReadResult,
     FileWriteResult,
@@ -23,6 +27,47 @@ from app.core.exceptions import (
     BadRequestException,
 )
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+# The only directory tree that file operations are allowed to touch.
+# Path.resolve() is used so symlinks cannot bypass this boundary.
+SANDBOX_BASE_DIR = Path("/home/ubuntu")
+
+
+def safe_resolve(path: str, base_dir: Optional[Path] = None) -> str:
+    """Resolve *path* to an absolute, canonical path and verify it lives under *base_dir*.
+
+    Security guarantees:
+      - Collapses ``..`` sequences and resolves symlinks via ``Path.resolve()``.
+      - Rejects any result that is not equal to, or a child of, *base_dir*.
+      - Logs every rejected attempt at WARNING level for audit.
+
+    Args:
+        path: The file path to validate.
+        base_dir: The allowed base directory.  Defaults to the module-level
+            ``SANDBOX_BASE_DIR`` when ``None``.  The default is resolved at
+            call time (not import time) so that monkeypatching works in tests.
+
+    Returns the resolved path as a ``str`` on success.
+    Raises ``BadRequestException`` on path-traversal attempts.
+    """
+    if base_dir is None:
+        base_dir = SANDBOX_BASE_DIR
+    resolved = Path(path).resolve()
+    base_resolved = base_dir.resolve()
+
+    if resolved != base_resolved and not resolved.is_relative_to(base_resolved):
+        logger.warning(
+            "Path traversal blocked: input=%r resolved=%s base=%s",
+            path,
+            resolved,
+            base_resolved,
+        )
+        raise BadRequestException(
+            f"Path traversal denied: path must be within {base_resolved}"
+        )
+    return str(resolved)
 
 
 class FileService:
@@ -41,11 +86,20 @@ class FileService:
         return path
 
     def _normalize_path(self, path: str) -> str:
-        """Normalize paths to absolute paths for validation."""
+        """Normalize and validate that *path* resolves within SANDBOX_BASE_DIR.
+
+        Steps:
+          1. Translate legacy ``/home/user`` alias to ``/home/ubuntu``.
+          2. Convert relative paths to absolute (relative to cwd).
+          3. Resolve symlinks and ``..`` via ``Path.resolve()``.
+          4. Reject any path outside ``SANDBOX_BASE_DIR``.
+
+        Raises ``BadRequestException`` on path-traversal attempts.
+        """
         resolved = self._resolve_home_alias(path)
         if not os.path.isabs(resolved):
-            return os.path.abspath(resolved)
-        return resolved
+            resolved = os.path.abspath(resolved)
+        return safe_resolve(resolved)
 
     async def read_file(
         self,
@@ -67,8 +121,6 @@ class FileService:
         file = self._normalize_path(file)
         if sudo and not settings.ALLOW_SUDO:
             raise BadRequestException("sudo is not allowed in this sandbox")
-        if False:  # Security check removed
-            raise BadRequestException(f"Invalid file path: {file}")
         # Check if file exists
         if not os.path.exists(file) and not sudo:
             raise ResourceNotFoundException(f"File does not exist: {file}")
@@ -144,8 +196,6 @@ class FileService:
             file = self._normalize_path(file)
             if sudo and not settings.ALLOW_SUDO:
                 raise BadRequestException("sudo is not allowed in this sandbox")
-            if False:  # Security check removed
-                raise BadRequestException(f"Invalid file path: {file}")
             # Prepare content
             if leading_newline:
                 content = "\n" + content
@@ -233,8 +283,6 @@ class FileService:
         file = self._normalize_path(file)
         if sudo and not settings.ALLOW_SUDO:
             raise BadRequestException("sudo is not allowed in this sandbox")
-        if False:  # Security check removed
-            raise BadRequestException(f"Invalid file path: {file}")
         # First read file content
         file_result = await self.read_file(file, sudo=sudo)
         content = file_result.content
@@ -266,8 +314,6 @@ class FileService:
         file = self._normalize_path(file)
         if sudo and not settings.ALLOW_SUDO:
             raise BadRequestException("sudo is not allowed in this sandbox")
-        if False:  # Security check removed
-            raise BadRequestException(f"Invalid file path: {file}")
         # Read file
         file_result = await self.read_file(file, sudo=sudo)
         content = file_result.content
@@ -304,8 +350,6 @@ class FileService:
             glob_pattern: File name pattern (glob syntax)
         """
         path = self._normalize_path(path)
-        if False:  # Security check removed
-            raise BadRequestException(f"Invalid directory path: {path}")
         # Check if path exists
         if not os.path.exists(path):
             raise ResourceNotFoundException(f"Directory does not exist: {path}")
@@ -329,8 +373,6 @@ class FileService:
         """
         try:
             path = self._normalize_path(path)
-            if False:  # Security check removed
-                raise BadRequestException(f"Invalid file path: {path}")
             chunk_size = 8192  # 8KB chunks
             total_size = 0
 
@@ -352,6 +394,8 @@ class FileService:
 
             return FileUploadResult(file_path=path, file_size=total_size, success=True)
         except Exception as e:
+            if isinstance(e, (BadRequestException, ResourceNotFoundException)):
+                raise e
             raise AppException(message=f"Failed to upload file: {str(e)}")
 
     def ensure_file(self, path: str) -> None:
@@ -363,8 +407,6 @@ class FileService:
         """
         try:
             path = self._normalize_path(path)
-            if False:  # Security check removed
-                raise BadRequestException(f"Invalid file path: {path}")
             # Check if file exists
             if not os.path.exists(path):
                 raise ResourceNotFoundException(f"File does not exist: {path}")
