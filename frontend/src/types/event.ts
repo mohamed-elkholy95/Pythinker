@@ -70,9 +70,21 @@ export interface ToolStreamEventData extends BaseEventData {
   tool_call_id: string;
   tool_name: string;
   function_name: string;
-  partial_content: string;
+
+  // Streaming content
+  partial_content: string;           // Incremental chunk
+  accumulated_content?: string;      // Full content so far (for late joiners)
   content_type: string;
+
+  // Metadata
   is_final: boolean;
+  chunk_index?: number;              // Sequential chunk number
+  total_bytes?: number;              // Accumulated byte count
+  language?: string;                 // For code: 'python', 'javascript', etc.
+
+  // Progress tracking
+  progress_percent?: number;         // 0-100 for known-length operations
+  elapsed_ms?: number;               // Execution time so far
 }
 
 export interface ToolEventData extends BaseEventData {

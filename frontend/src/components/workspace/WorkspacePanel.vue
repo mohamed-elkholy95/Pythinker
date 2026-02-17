@@ -67,6 +67,7 @@ import type { ToolContent } from '@/types/message'
 import type { PlanEventData } from '@/types/event'
 import type { ScreenshotMetadata } from '@/types/screenshot'
 import type { ContentViewType } from '@/constants/tool'
+import { isCanvasDomainTool, isChartDomainTool, isLiveDomainTool } from '@/utils/viewRouting'
 
 // ---------------------------------------------------------------------------
 // Props & Emits (same interface as ToolPanelContent for drop-in replacement)
@@ -112,25 +113,13 @@ const isFullscreen = ref(false)
 const userOverride = ref(false)
 
 /**
- * Automatically map the active tool to the correct workspace tab.
- * Browser/search → Preview, shell → Console, file → Code, chart → Canvas.
+ * Automatically map the active tool to the workspace:
+ * - Live tab for browser/terminal/editor flows
+ * - Canvas tab for canvas/design/image/chart flows
  */
 const autoTab = computed<WorkspaceTab>(() => {
-  const name = props.toolContent?.name || ''
-  const fn = props.toolContent?.function || ''
-
-  // Browser / navigation / search → Preview
-  if (name.startsWith('browser') || name === 'playwright') return 'preview'
-  if (name === 'search' || name === 'web_search' || fn.includes('search')) return 'preview'
-
-  // Shell / code execution → Console
-  if (name === 'shell' || name === 'code_executor' || name === 'code_execute') return 'console'
-
-  // File operations → Code
-  if (name === 'file') return 'code'
-
-  // Chart generation → Canvas
-  if (fn === 'code_generate_chart') return 'canvas'
+  if (isCanvasDomainTool(props.toolContent)) return 'canvas'
+  if (isLiveDomainTool(props.toolContent)) return 'preview'
 
   return 'preview'
 })
@@ -156,24 +145,22 @@ function onTabChange(tab: WorkspaceTab) {
 }
 
 // ---------------------------------------------------------------------------
-// View Type Override (for manual tab switching)
+// View Type Mapping (active tab controls rendered view)
 // ---------------------------------------------------------------------------
 
-const TAB_VIEW_MAP: Partial<Record<WorkspaceTab, ContentViewType>> = {
-  preview: 'live_preview',
-  code: 'editor',
-  console: 'terminal',
-  canvas: 'chart',
-}
-
-/**
- * When the user has manually selected a tab, force ToolPanelContent
- * to show the corresponding view type. Otherwise let tool-driven
- * logic determine the view.
- */
 const forceViewType = computed<ContentViewType | undefined>(() => {
-  if (!userOverride.value) return undefined
-  return TAB_VIEW_MAP[activeTab.value]
+  switch (activeTab.value) {
+    case 'preview':
+      return 'live_preview'
+    case 'editor':
+      return 'editor'
+    case 'console':
+      return 'terminal'
+    case 'canvas':
+      return isChartDomainTool(props.toolContent) ? 'chart' : 'live_preview'
+    default:
+      return undefined
+  }
 })
 
 // ---------------------------------------------------------------------------

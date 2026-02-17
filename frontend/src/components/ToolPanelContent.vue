@@ -107,6 +107,16 @@
             :is-final="!isSummaryStreaming"
           />
 
+          <!-- Unified Streaming View (tool execution streaming — second highest priority) -->
+          <UnifiedStreamingView
+            v-else-if="shouldShowUnifiedStreaming"
+            :text="toolContent.streaming_content || ''"
+            :content-type="streamingContentType"
+            :is-final="toolStatus === 'called'"
+            :language="streamingLanguage"
+            :tool-content="toolContent"
+          />
+
           <!-- Replay mode: static screenshots — only when no richer native view exists.
                Terminal/editor/search views have their own content that is more informative
                than a CDP browser screenshot, so they fall through to their dedicated components. -->
@@ -153,7 +163,7 @@
               :session-id="sessionId || ''"
               :enabled="livePreviewEnabled"
               :view-only="true"
-              :is-canvas-mode="currentViewType === 'chart'"
+              :is-canvas-mode="isCanvasMode"
               :tool-content="toolContent"
               :is-active="isActiveOperation"
               :terminal-content="terminalContent"
@@ -258,7 +268,7 @@
               :session-id="sessionId"
               :enabled="true"
               :view-only="true"
-              :is-canvas-mode="currentViewType === 'chart'"
+              :is-canvas-mode="isCanvasMode"
               :tool-content="toolContent"
               :is-active="isActiveOperation"
               :terminal-content="terminalContent"
@@ -346,12 +356,15 @@ import SearchContentView from '@/components/toolViews/SearchContentView.vue';
 import ChartToolView from '@/components/toolViews/ChartToolViewEnhanced.vue';
 import GenericContentView from '@/components/toolViews/GenericContentView.vue';
 import StreamingReportView from '@/components/toolViews/StreamingReportView.vue';
+import UnifiedStreamingView from '@/components/toolViews/UnifiedStreamingView.vue';
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
 import ScreenshotReplayViewer from '@/components/ScreenshotReplayViewer.vue';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { normalizeSearchResults } from '@/utils/searchResults';
+import { isCanvasDomainTool } from '@/utils/viewRouting';
 import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
 import type { ScreenshotMetadata } from '@/types/screenshot';
+import { detectContentType, detectLanguage, type StreamingContentType } from '@/types/streaming';
 
 import type { ContentViewType } from '@/constants/tool';
 
@@ -431,6 +444,36 @@ const currentViewType = computed(() => {
 const toolName = computed(() => props.toolContent?.name || '');
 const toolFunction = computed(() => props.toolContent?.function || '');
 const toolStatus = computed(() => props.toolContent?.status || '');
+const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
+
+// Unified streaming detection
+const shouldShowUnifiedStreaming = computed(() => {
+  // Only show streaming for live sessions with streaming content
+  if (!props.live || !props.toolContent?.streaming_content) return false;
+  // Don't interfere with summary streaming
+  if (isSummaryPhase.value || props.summaryStreamText) return false;
+  return true;
+});
+
+const streamingContentType = computed((): StreamingContentType => {
+  if (!props.toolContent) return 'text';
+  return detectContentType(props.toolContent.function);
+});
+
+const streamingLanguage = computed(() => {
+  if (!props.toolContent) return 'text';
+  // Detect from file path if available
+  const filePath = props.toolContent.args?.file || props.toolContent.args?.path || props.toolContent.file_path;
+  if (typeof filePath === 'string') {
+    return detectLanguage(filePath);
+  }
+  // Detect from function name
+  const fn = props.toolContent.function;
+  if (fn.includes('python')) return 'python';
+  if (fn.includes('javascript')) return 'javascript';
+  if (fn.includes('bash') || fn.includes('shell')) return 'bash';
+  return 'text';
+});
 
 // Artifact tools (report outputs saved via code executor)
 const isArtifactTool = computed(() => {
@@ -750,10 +793,14 @@ const loadShellContent = async () => {
   }
 };
 
-// Start auto-refresh timer for shell
+// Start auto-refresh timer for shell (only when streaming not available)
 const startAutoRefresh = () => {
   if (refreshTimer.value) {
     clearInterval(refreshTimer.value);
+  }
+  // Skip polling if unified streaming is active
+  if (shouldShowUnifiedStreaming.value) {
+    return;
   }
   if (props.live && (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute')) {
     refreshTimer.value = setInterval(loadShellContent, 5000);
@@ -770,7 +817,21 @@ const stopAutoRefresh = () => {
 // Watch for tool changes
 watch(() => props.toolContent, () => {
   if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
-    loadShellContent();
+    // Skip loading if streaming is active
+    if (!shouldShowUnifiedStreaming.value) {
+      loadShellContent();
+    }
+  }
+});
+
+// Watch for streaming state changes to toggle polling
+watch(shouldShowUnifiedStreaming, (isStreaming) => {
+  if (isStreaming) {
+    // Stop polling when streaming becomes active
+    stopAutoRefresh();
+  } else {
+    // Resume polling when streaming stops
+    startAutoRefresh();
   }
 });
 

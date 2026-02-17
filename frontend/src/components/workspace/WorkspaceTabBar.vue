@@ -50,7 +50,7 @@
 import { computed } from 'vue'
 import {
   Monitor,
-  Code2,
+  FileText,
   TerminalSquare,
   Palette,
   FolderOpen,
@@ -61,7 +61,7 @@ import {
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
-export type WorkspaceTab = 'preview' | 'code' | 'console' | 'canvas' | 'files' | 'settings'
+export type WorkspaceTab = 'preview' | 'editor' | 'console' | 'canvas' | 'files' | 'settings'
 
 interface TabDefinition {
   id: WorkspaceTab
@@ -93,8 +93,8 @@ defineEmits<{
 }>()
 
 const tabs = computed<TabDefinition[]>(() => [
-  { id: 'preview', label: 'Preview', icon: Monitor, hasNotification: props.notifications.includes('preview') },
-  { id: 'code', label: 'Code', icon: Code2, hasNotification: props.notifications.includes('code') },
+  { id: 'preview', label: 'Live', icon: Monitor, hasNotification: props.notifications.includes('preview') },
+  { id: 'editor', label: 'Editor', icon: FileText, hasNotification: props.notifications.includes('editor') },
   { id: 'console', label: 'Console', icon: TerminalSquare, hasNotification: props.notifications.includes('console') },
   { id: 'canvas', label: 'Canvas', icon: Palette, hasNotification: props.notifications.includes('canvas') },
   { id: 'files', label: 'Files', icon: FolderOpen, hasNotification: props.notifications.includes('files') },
