@@ -1141,11 +1141,16 @@ async def screencast_websocket(
 
         user_id = extract_user_id_from_signed_url(websocket=websocket)
 
-        # Get session with user validation if user_id is present
-        if user_id:
-            session = await agent_service.get_session(session_id, user_id)
-        else:
-            session = await agent_service.get_session(session_id)
+        # IDOR protection: user_id is required for session ownership verification
+        if not user_id:
+            logger.warning(
+                f"[SECURITY] Screencast WebSocket rejected: missing user_id in signed URL for session {session_id}"
+            )
+            await websocket.close(code=1008, reason="Unauthorized")
+            return
+
+        # Get session with ownership check (user_id is always passed)
+        session = await agent_service.get_session(session_id, user_id)
 
         if not session or not session.sandbox_id:
             await websocket.close(code=1008, reason="Session or sandbox not found")
@@ -1252,7 +1257,21 @@ async def input_websocket(
     await websocket.accept()
 
     try:
-        session = await agent_service.get_session(session_id)
+        # Extract user_id from signed URL (uid parameter) for authorization
+        from app.interfaces.dependencies import extract_user_id_from_signed_url
+
+        user_id = extract_user_id_from_signed_url(websocket=websocket)
+
+        # IDOR protection: user_id is required for session ownership verification
+        if not user_id:
+            logger.warning(
+                f"[SECURITY] Input WebSocket rejected: missing user_id in signed URL for session {session_id}"
+            )
+            await websocket.close(code=1008, reason="Unauthorized")
+            return
+
+        # Get session with ownership check
+        session = await agent_service.get_session(session_id, user_id)
         if not session or not session.sandbox_id:
             await websocket.close(code=1008, reason="Session or sandbox not found")
             return

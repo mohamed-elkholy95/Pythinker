@@ -188,9 +188,17 @@ async def search_marketplace_skills(
         Paginated list of matching skills
     """
     from app.infrastructure.repositories.mongo_skill_repository import (
+        ALLOWED_SORT_FIELDS,
         MongoSkillRepository,
         SkillSearchFilters,
     )
+
+    # Validate sort_by against allowlist to prevent NoSQL injection
+    if sort_by not in ALLOWED_SORT_FIELDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sort field: '{sort_by}'. Allowed: {', '.join(sorted(ALLOWED_SORT_FIELDS))}",
+        )
 
     # Parse inputs
     skill_category = None

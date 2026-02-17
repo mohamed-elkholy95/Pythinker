@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import hmac
 import logging
@@ -28,11 +29,40 @@ class AuthService:
     return current
     """
 
+    # Pre-computed dummy hash used when no real user exists.
+    # This ensures password verification always runs in constant time,
+    # preventing timing-based user enumeration attacks.
+    _DUMMY_PASSWORD_HASH: str | None = None
+
     def __init__(self, user_repository: UserRepository, token_service: TokenService):
         self.user_repository = user_repository
         self.settings = get_settings()
         self.token_service = token_service
         self._counter_with_expiry_script: Any | None = None
+
+        # Eagerly compute the dummy hash once at init time so that
+        # authenticate_user can use it without extra latency on the first call.
+        # suppress() handles cases where the service is instantiated with
+        # minimal settings stubs that lack password_salt/password_hash_rounds
+        # (e.g., tests that only exercise Redis counters).
+        # _get_dummy_hash() will lazily initialize on first real use if needed.
+        if AuthService._DUMMY_PASSWORD_HASH is None:
+            with contextlib.suppress(AttributeError, TypeError):
+                AuthService._DUMMY_PASSWORD_HASH = self._hash_password("dummy-timing-attack-prevention-password")
+
+    def _get_dummy_hash(self) -> str:
+        """Return a pre-computed password hash for timing-attack prevention.
+
+        When a login attempt targets a non-existent user (or a user without a
+        stored hash), we still need to run the full PBKDF2 computation so that
+        the response time is indistinguishable from a real password check.
+        This method returns a valid hash that was computed once at init time.
+        """
+        # Lazy initialization if __init__ could not compute it (e.g., minimal
+        # settings stub during unrelated tests).
+        if AuthService._DUMMY_PASSWORD_HASH is None:
+            AuthService._DUMMY_PASSWORD_HASH = self._hash_password("dummy-timing-attack-prevention-password")
+        return AuthService._DUMMY_PASSWORD_HASH
 
     async def _increment_counter_with_expiry(self, key: str, window_seconds: int) -> int:
         """Atomically increment counter and set expiry on first write."""
@@ -92,12 +122,15 @@ class AuthService:
         return salt + hash_bytes.hex()
 
     def _verify_password(self, password: str, password_hash: str) -> bool:
-        """Verify password against hash using constant-time comparison"""
-        if not password_hash:
-            return False
+        """Verify password against hash using constant-time comparison.
 
+        SECURITY NOTE: The caller MUST always supply a valid hash (use
+        ``_get_dummy_hash()`` when the real hash is unavailable).  This
+        ensures the full PBKDF2 computation always executes, preventing
+        timing-based user enumeration.
+        """
         try:
-            # Generate hash with configured salt
+            # Generate hash with configured salt - always runs full PBKDF2
             generated_hash = self._hash_password(password)
 
             # Use constant-time comparison to prevent timing attacks
@@ -303,7 +336,27 @@ class AuthService:
             return None
 
         if self.settings.auth_provider == "password":
-            # Check account lockout
+            # -----------------------------------------------------------------
+            # TIMING-ATTACK PREVENTION
+            #
+            # Every code path through this block MUST execute a full PBKDF2
+            # password hash so that an attacker cannot distinguish between:
+            #   - non-existent user
+            #   - inactive user
+            #   - user without a password hash
+            #   - wrong password
+            # by measuring response latency.
+            #
+            # We achieve this by:
+            #   1. Always querying the database (constant DB path)
+            #   2. Always running _verify_password with a real or dummy hash
+            #   3. Only checking user-state flags AFTER the password hash runs
+            #   4. Using a single failure path for all denial reasons
+            # -----------------------------------------------------------------
+
+            # Check account lockout BEFORE any expensive work.
+            # Lockout applies identically regardless of user existence, so
+            # this does not leak user-existence information.
             is_locked, remaining = await self._is_account_locked(email)
             if is_locked:
                 logger.warning(f"[SECURITY] Blocked login attempt for locked account: {email}")
@@ -311,36 +364,32 @@ class AuthService:
                     f"Account is temporarily locked. Please try again in {remaining // 60 + 1} minutes."
                 )
 
-            # Database password authentication
+            # Step 1: Database lookup (always happens)
             user = await self.user_repository.get_user_by_email(email)
-            if not user:
-                # Still increment failed attempts to prevent user enumeration
+
+            # Step 2: Always run the full PBKDF2 computation.
+            # If the user doesn't exist or has no stored hash, use the
+            # pre-computed dummy hash so the timing is identical.
+            stored_hash = user.password_hash if user and user.password_hash else self._get_dummy_hash()
+            password_is_valid = self._verify_password(password, stored_hash)
+
+            # Step 3: Determine authentication outcome AFTER password hashing.
+            # All denial reasons funnel into the same failure block.
+            authentication_succeeded = (
+                user is not None and user.is_active and user.password_hash is not None and password_is_valid
+            )
+
+            if not authentication_succeeded:
+                # Unified failure path -- no information leakage about *why*
+                # authentication failed.
                 attempts = await self._increment_failed_attempts(email)
                 if attempts >= self.settings.account_lockout_threshold:
                     await self._lock_account(email)
-                logger.warning(f"User not found: {email} (attempt {attempts})")
+                logger.warning(f"Authentication failed for: {email} (attempt {attempts})")
                 return None
 
-            if not user.is_active:
-                logger.warning(f"User account is inactive: {email}")
-                return None
-
-            if not user.password_hash:
-                logger.warning(f"User has no password hash: {email}")
-                return None
-
-            # Verify password
-            if not self._verify_password(password, user.password_hash):
-                attempts = await self._increment_failed_attempts(email)
-                if attempts >= self.settings.account_lockout_threshold:
-                    await self._lock_account(email)
-                logger.warning(f"Invalid password for user: {email} (attempt {attempts})")
-                return None
-
-            # Clear failed attempts on successful login
+            # Step 4: Success path
             await self._clear_failed_attempts(email)
-
-            # Update last login
             user.update_last_login()
             await self.user_repository.update_user(user)
 
