@@ -416,6 +416,10 @@ class Settings(BaseSettings):
     # MCP configuration
     mcp_config_path: str = "/etc/mcp.json"
 
+    # Metrics endpoint authentication (HTTP Basic Auth for Prometheus scraping)
+    metrics_username: str = "prometheus"
+    metrics_password: str = ""  # REQUIRED in production - set METRICS_PASSWORD in .env
+
     # Logging configuration
     log_level: str = "INFO"
     log_redaction_enabled: bool = True
@@ -818,6 +822,15 @@ class Settings(BaseSettings):
         # Debug mode warning
         if self.debug and self.is_production:
             security_warnings.append("DEBUG mode is enabled in production - this may expose sensitive information")
+
+        # Metrics auth validation
+        if not self.metrics_password and self.is_production:
+            security_warnings.append(
+                "METRICS_PASSWORD not set - metrics endpoint is unprotected. "
+                "Set a strong password for Prometheus scraping."
+            )
+        elif self.metrics_password in ["changeme", "password", "admin"]:
+            security_warnings.append("METRICS_PASSWORD is using an insecure default value")
 
         # Rate limiting warning
         if not self.rate_limit_enabled and self.is_production:

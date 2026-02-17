@@ -23,9 +23,11 @@ from app.interfaces.schemas.skill import (
     EnableSkillsRequest,
     InstallSkillFromPackageRequest,
     PublishSkillRequest,
+    SkillDeleteResponse,
     SkillListResponse,
     SkillPackageFileResponse,
     SkillPackageResponse,
+    SkillRateResponse,
     SkillResponse,
     SkillToolsResponse,
     UpdateCustomSkillRequest,
@@ -297,12 +299,12 @@ async def get_recent_skills(
     )
 
 
-@router.post("/marketplace/{skill_id}/rate", response_model=APIResponse[dict])
+@router.post("/marketplace/{skill_id}/rate", response_model=APIResponse[SkillRateResponse])
 async def rate_skill(
     skill_id: str,
     rating: float,
     current_user: User = Depends(get_current_user),
-) -> APIResponse[dict]:
+) -> APIResponse[SkillRateResponse]:
     """Rate a skill in the marketplace.
 
     Args:
@@ -323,7 +325,7 @@ async def rate_skill(
     if not success:
         raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
 
-    return APIResponse.success({"rated": True, "skill_id": skill_id, "rating": rating})
+    return APIResponse.success(SkillRateResponse(rated=True, skill_id=skill_id, rating=rating))
 
 
 @router.post("/marketplace/{skill_id}/fork", response_model=APIResponse[SkillResponse])
@@ -762,11 +764,11 @@ async def update_custom_skill(
     return APIResponse.success(_skill_to_response(updated_skill, include_prompt=True))
 
 
-@router.delete("/custom/{skill_id}", response_model=APIResponse[dict])
+@router.delete("/custom/{skill_id}", response_model=APIResponse[SkillDeleteResponse])
 async def delete_custom_skill(
     skill_id: str,
     current_user: User = Depends(get_current_user),
-) -> APIResponse[dict]:
+) -> APIResponse[SkillDeleteResponse]:
     """Delete a custom skill owned by the current user."""
     skill_service = get_skill_service()
     skill = await skill_service.get_skill_by_id(skill_id)
@@ -790,7 +792,7 @@ async def delete_custom_skill(
 
     await invalidate_skill_caches(skill_id)
 
-    return APIResponse.success({"deleted": True, "skill_id": skill_id})
+    return APIResponse.success(SkillDeleteResponse(deleted=True, skill_id=skill_id))
 
 
 @router.post("/custom/{skill_id}/publish", response_model=APIResponse[SkillResponse])
@@ -945,7 +947,7 @@ async def download_skill_package(
     )
 
 
-@router.get("/packages/{package_id}/file")
+@router.get("/packages/{package_id}/file", response_model=APIResponse[SkillPackageFileResponse])
 async def get_skill_package_file(
     package_id: str,
     path: str,

@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from app.application.services.maintenance_service import MaintenanceService, get_maintenance_service
 from app.domain.models.user import User
-from app.interfaces.dependencies import get_current_user
+from app.interfaces.dependencies import require_admin_user
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class SessionHealthResponse(BaseModel):
 @router.get("/health/session/{session_id}", response_model=SessionHealthResponse)
 async def get_session_health(
     session_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
     service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
@@ -92,7 +92,7 @@ async def get_session_health(
 async def cleanup_invalid_attachments(
     session_id: str | None = Query(None, description="Specific session to clean up"),
     dry_run: bool = Query(True, description="If true, only reports what would be cleaned"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
     service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
@@ -122,7 +122,7 @@ async def cleanup_invalid_attachments(
 @router.get("/cleanup/attachments/preview", response_model=CleanupResponse)
 async def preview_attachment_cleanup(
     session_id: str | None = Query(None, description="Specific session to check"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
     service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
@@ -145,7 +145,7 @@ async def cleanup_stale_running_sessions(
         description="Sessions with leaked runtime state older than this are considered stale",
     ),
     dry_run: bool = Query(True, description="If true, only reports what would be cleaned"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
     service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
@@ -182,7 +182,7 @@ async def preview_stale_session_cleanup(
         30,
         description="Sessions with leaked runtime state older than this are considered stale",
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
     service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """

@@ -508,6 +508,13 @@ security_gate_overrides_total = Counter(
     labels=["override_reason"],
 )
 
+# Token Authentication Security Metrics (fail-closed on Redis failure)
+token_auth_fail_closed_total = Counter(
+    name="pythinker_token_auth_fail_closed_total",
+    help_text="Token authentication fail-closed events (access denied due to Redis unavailability)",
+    labels=["check_type"],  # "blacklist" or "user_revocation"
+)
+
 # Token Management Metrics (Priority 4)
 token_pressure_level = Gauge(
     name="pythinker_token_pressure_level",
@@ -519,6 +526,19 @@ token_pressure_level = Gauge(
 rating_unauthorized_attempts_total = Counter(
     name="pythinker_rating_unauthorized_attempts_total",
     help_text="Total unauthorized rating attempts",
+    labels=[],
+)
+
+# Admin Authorization Security Metrics
+admin_unauthorized_access_total = Counter(
+    name="pythinker_admin_unauthorized_access_total",
+    help_text="Total unauthorized admin endpoint access attempts",
+    labels=["endpoint"],
+)
+
+metrics_auth_failure_total = Counter(
+    name="pythinker_metrics_auth_failure_total",
+    help_text="Total failed metrics endpoint authentication attempts",
     labels=[],
 )
 
@@ -1195,6 +1215,8 @@ _metrics_registry.extend(
         # Security Gate (Task 7)
         security_gate_blocks_total,
         security_gate_overrides_total,
+        # Token Authentication Security (fail-closed)
+        token_auth_fail_closed_total,
         # Agent Robustness (2026-02-13 plan)
         entity_drift_detected_total,
         output_relevance_failures_total,
@@ -1203,6 +1225,9 @@ _metrics_registry.extend(
         delivery_fidelity_blocks_total,
         guardrail_latency_seconds,
         output_relevance_score,
+        # Admin Authorization Security
+        admin_unauthorized_access_total,
+        metrics_auth_failure_total,
     ]
 )
 

@@ -8,6 +8,7 @@ from typing import Any
 import jwt
 
 from app.core.config import get_settings
+from app.core.prometheus_metrics import token_auth_fail_closed_total
 from app.domain.models.user import User
 from app.infrastructure.storage.redis import get_redis
 
@@ -115,16 +116,28 @@ class TokenService:
         return payload
 
     async def _is_token_blacklisted(self, token: str) -> bool:
-        """Check if token is in the blacklist"""
+        """Check if token is in the blacklist.
+
+        Security: Fails CLOSED on Redis errors. If the blacklist cannot be
+        checked (e.g. Redis unavailable), the token is treated as blacklisted
+        and access is denied. This prevents revoked or compromised tokens from
+        being accepted during infrastructure outages.
+        """
         try:
             redis = get_redis()
             token_hash = self._hash_token(token)
             key = f"{self.BLACKLIST_PREFIX}{token_hash}"
             return await redis.call("exists", key) > 0
         except Exception as e:
-            logger.warning(f"Failed to check token blacklist: {e}")
-            # Fail open - allow token if Redis is unavailable
-            return False
+            token_hash = self._hash_token(token)
+            logger.error(
+                "Token blacklist check failed - FAILING CLOSED (denying access)",
+                exc_info=e,
+                extra={"token_hash_prefix": token_hash[:8]},
+            )
+            token_auth_fail_closed_total.inc({"check_type": "blacklist"})
+            # Fail closed: deny access when blacklist cannot be verified
+            return True
 
     def _hash_token(self, token: str) -> str:
         """Hash token for storage (don't store raw tokens)"""
@@ -272,7 +285,14 @@ class TokenService:
             return False
 
     async def is_user_token_revoked(self, user_id: str, issued_at: int) -> bool:
-        """Check if a user's token was issued before the revocation timestamp"""
+        """Check if a user's token was issued before the revocation timestamp.
+
+        Security: Fails CLOSED on Redis errors. If the revocation status cannot
+        be checked (e.g. Redis unavailable), the token is treated as revoked and
+        access is denied. This prevents tokens that should have been invalidated
+        (e.g. after password change or logout-all) from being accepted during
+        infrastructure outages.
+        """
         if not self.settings.jwt_token_blacklist_enabled:
             return False
 
@@ -286,8 +306,14 @@ class TokenService:
             return False
 
         except Exception as e:
-            logger.warning(f"Failed to check user token revocation: {e}")
-            return False
+            logger.error(
+                "User token revocation check failed - FAILING CLOSED (denying access)",
+                exc_info=e,
+                extra={"user_id": user_id},
+            )
+            token_auth_fail_closed_total.inc({"check_type": "user_revocation"})
+            # Fail closed: deny access when revocation status cannot be verified
+            return True
 
     def create_signed_url(self, base_url: str, expire_minutes: int = 60, user_id: str | None = None) -> str:
         """Create URL with signature for resource access

@@ -139,3 +139,9 @@ class TestConnectionResponse(BaseModel):
     ok: bool
     message: str
     latency_ms: float | None = None
+
+
+class DeleteConnectorResponse(BaseModel):
+    """Response schema for deleting a user connector."""
+
+    deleted: bool = Field(..., description="Whether the connector was successfully deleted")

@@ -210,3 +210,18 @@ class CommandMapResponse(BaseModel):
         default_factory=dict,
         description="Mapping of command/alias -> skill_id for slash command detection",
     )
+
+
+class SkillRateResponse(BaseModel):
+    """Response schema for rating a skill."""
+
+    rated: bool = Field(..., description="Whether the rating was successfully recorded")
+    skill_id: str = Field(..., description="ID of the rated skill")
+    rating: float = Field(..., description="The rating value that was applied")
+
+
+class SkillDeleteResponse(BaseModel):
+    """Response schema for deleting a custom skill."""
+
+    deleted: bool = Field(..., description="Whether the skill was successfully deleted")
+    skill_id: str = Field(..., description="ID of the deleted skill")

@@ -57,9 +57,11 @@ from app.interfaces.schemas.session import (
     CreateSessionResponse,
     DeepResearchSkipRequest,
     DeepResearchStatusResponse,
+    DeleteSessionResponse,
     GetSessionResponse,
     ListSessionItem,
     ListSessionResponse,
+    RenameSessionRequest,
     ResumeSessionRequest,
     SandboxInfo,
     SessionStatusResponse,
@@ -295,13 +297,13 @@ async def get_active_session(
     )
 
 
-@router.delete("/{session_id}", response_model=APIResponse[None])
+@router.delete("/{session_id}", response_model=APIResponse[DeleteSessionResponse | None])
 async def delete_session(
     session_id: str,
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
     screenshot_query_service: ScreenshotQueryService = Depends(get_screenshot_query_service),
-) -> APIResponse[None]:
+) -> APIResponse[DeleteSessionResponse | None]:
     await agent_service.delete_session(session_id, current_user.id)
     cleanup_warnings: list[str] = []
     try:
@@ -313,7 +315,9 @@ async def delete_session(
         cleanup_warnings.append(warning_msg)
         logger.warning("Failed to cleanup screenshots for session %s: %s", session_id, e)
 
-    return APIResponse.success(data={"warnings": cleanup_warnings} if cleanup_warnings else None)
+    if cleanup_warnings:
+        return APIResponse.success(data=DeleteSessionResponse(warnings=cleanup_warnings))
+    return APIResponse.success()
 
 
 @router.post("/{session_id}/stop", response_model=APIResponse[None])
@@ -363,14 +367,11 @@ async def resume_session(
 @router.patch("/{session_id}/rename", response_model=APIResponse[None])
 async def rename_session(
     session_id: str,
-    request: dict,
+    request: RenameSessionRequest,
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> APIResponse[None]:
-    title = request.get("title", "").strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="Title is required")
-    await agent_service.rename_session(session_id, current_user.id, title)
+    await agent_service.rename_session(session_id, current_user.id, request.title.strip())
     return APIResponse.success()
 
 
@@ -879,7 +880,7 @@ async def chat_eventsource(
     )
 
 
-@router.post("/{session_id}/shell")
+@router.post("/{session_id}/shell", response_model=APIResponse[ShellViewResponse])
 async def view_shell(
     session_id: str,
     request: ShellViewRequest,
@@ -901,7 +902,7 @@ async def view_shell(
     return APIResponse.success(result)
 
 
-@router.post("/{session_id}/file")
+@router.post("/{session_id}/file", response_model=APIResponse[FileViewResponse])
 async def view_file(
     session_id: str,
     request: FileViewRequest,
@@ -1013,7 +1014,7 @@ async def confirm_action(
     return APIResponse.success()
 
 
-@router.get("/{session_id}/files")
+@router.get("/{session_id}/files", response_model=APIResponse[list[FileInfo]])
 async def get_session_files(
     session_id: str,
     current_user: User | None = Depends(get_optional_current_user),
@@ -1538,7 +1539,7 @@ async def share_session(
     return APIResponse.success(ShareSessionResponse(session_id=session_id, is_shared=True))
 
 
-@router.get("/{session_id}/share/files")
+@router.get("/{session_id}/share/files", response_model=APIResponse[list[FileInfo]])
 async def get_shared_session_files(
     session_id: str, agent_service: AgentService = Depends(get_agent_service)
 ) -> APIResponse[list[FileInfo]]:

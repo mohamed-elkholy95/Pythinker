@@ -12,7 +12,7 @@ from app.core.health_monitor import get_health_monitor
 from app.core.sandbox_manager import get_sandbox_manager
 from app.core.system_integrator import get_system_integrator
 from app.domain.models.user import User
-from app.interfaces.dependencies import get_current_user
+from app.interfaces.dependencies import require_admin_user
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +20,14 @@ router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 
 
 @router.get("/health")
-async def get_system_health(current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+async def get_system_health(current_user: User = Depends(require_admin_user)) -> dict[str, Any]:
     """Get comprehensive system health status"""
     health_monitor = get_health_monitor()
     return health_monitor.get_system_health()
 
 
 @router.get("/health/{component}")
-async def get_component_health(component: str, current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+async def get_component_health(component: str, current_user: User = Depends(require_admin_user)) -> dict[str, Any]:
     """Get health status for a specific component"""
     health_monitor = get_health_monitor()
     health = health_monitor.get_component_health(component)
@@ -39,14 +39,14 @@ async def get_component_health(component: str, current_user: User = Depends(get_
 
 
 @router.get("/errors")
-async def get_error_stats(hours: int = 24, current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+async def get_error_stats(hours: int = 24, current_user: User = Depends(require_admin_user)) -> dict[str, Any]:
     """Get error statistics for the specified time period"""
     error_manager = get_error_manager()
     return error_manager.get_error_stats(hours=hours)
 
 
 @router.get("/sandboxes")
-async def get_sandbox_stats(current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+async def get_sandbox_stats(current_user: User = Depends(require_admin_user)) -> dict[str, Any]:
     """Get sandbox statistics including pool status"""
     sandbox_manager = get_sandbox_manager()
     stats = sandbox_manager.get_sandbox_stats()
@@ -65,7 +65,7 @@ async def get_sandbox_stats(current_user: User = Depends(get_current_user)) -> d
 
 
 @router.get("/pressure")
-async def get_system_pressure(current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+async def get_system_pressure(current_user: User = Depends(require_admin_user)) -> dict[str, Any]:
     """Get current system pressure for load balancing decisions.
 
     Returns CPU/memory pressure, pool utilization, and whether
@@ -125,14 +125,14 @@ async def get_system_pressure(current_user: User = Depends(get_current_user)) ->
 
 
 @router.get("/status")
-async def get_system_status(current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+async def get_system_status(current_user: User = Depends(require_admin_user)) -> dict[str, Any]:
     """Get comprehensive system status"""
     integrator = get_system_integrator()
     return integrator.get_system_status()
 
 
 @router.post("/health/start")
-async def start_health_monitoring(current_user: User = Depends(get_current_user)) -> dict[str, str]:
+async def start_health_monitoring(current_user: User = Depends(require_admin_user)) -> dict[str, str]:
     """Start health monitoring"""
     health_monitor = get_health_monitor()
     await health_monitor.start_monitoring()
@@ -140,7 +140,7 @@ async def start_health_monitoring(current_user: User = Depends(get_current_user)
 
 
 @router.post("/health/stop")
-async def stop_health_monitoring(current_user: User = Depends(get_current_user)) -> dict[str, str]:
+async def stop_health_monitoring(current_user: User = Depends(require_admin_user)) -> dict[str, str]:
     """Stop health monitoring"""
     health_monitor = get_health_monitor()
     await health_monitor.stop_monitoring()
