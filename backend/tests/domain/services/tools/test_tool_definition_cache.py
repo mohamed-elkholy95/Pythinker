@@ -8,16 +8,68 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from app.domain.metrics.agent_metrics import AgentMetrics, set_agent_metrics
 from app.domain.services.tools.tool_definition_cache import ToolDefinitionCache
-from app.infrastructure.observability.agent_metrics import (
-    agent_tool_cache_invalidations,
-    agent_tool_definition_cache_hits,
-    agent_tool_definition_cache_misses,
-)
+
+
+class _TrackingCounter:
+    """Simple counter that tracks .inc() calls for test assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str] | None] = []
+
+    def inc(self, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
+        self.calls.append(labels)
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
+
+
+class _TrackingGauge:
+    """Simple gauge that tracks .set() calls for test assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[dict[str, str] | None, float]] = []
+
+    def set(self, labels: dict[str, str] | None = None, value: float = 0.0) -> None:
+        self.calls.append((labels, value))
+
+
+class _TrackingHistogram:
+    """Simple histogram that tracks .observe() calls for test assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[dict[str, str] | None, float]] = []
+
+    def observe(self, labels: dict[str, str] | None = None, value: float = 0.0) -> None:
+        self.calls.append((labels, value))
 
 
 class TestToolDefinitionCache:
     """Test suite for tool definition cache."""
+
+    @pytest.fixture(autouse=True)
+    def _inject_tracking_metrics(self):
+        """Inject tracking metrics into the domain AgentMetrics singleton."""
+        self._metrics = AgentMetrics()
+        self._hits_counter = _TrackingCounter()
+        self._misses_counter = _TrackingCounter()
+        self._invalidations_counter = _TrackingCounter()
+        self._cache_size_gauge = _TrackingGauge()
+        self._hit_rate_gauge = _TrackingGauge()
+        self._memory_gauge = _TrackingGauge()
+        self._lookup_histogram = _TrackingHistogram()
+        self._metrics.tool_definition_cache_hits = self._hits_counter
+        self._metrics.tool_definition_cache_misses = self._misses_counter
+        self._metrics.tool_cache_invalidations = self._invalidations_counter
+        self._metrics.tool_cache_size = self._cache_size_gauge
+        self._metrics.tool_cache_hit_rate = self._hit_rate_gauge
+        self._metrics.tool_cache_memory_bytes = self._memory_gauge
+        self._metrics.tool_cache_lookup_duration = self._lookup_histogram
+        set_agent_metrics(self._metrics)
+        yield
+        set_agent_metrics(AgentMetrics())
 
     @pytest.fixture
     def cache(self):
@@ -151,9 +203,9 @@ class TestToolDefinitionCache:
 
     @pytest.mark.asyncio
     async def test_cache_hit_miss_metrics(self, cache):
-        """Test cache hit/miss counters are incremented."""
-        initial_misses = agent_tool_definition_cache_misses.get({"cache_scope": "session"})
-        initial_hits = agent_tool_definition_cache_hits.get({"cache_scope": "session"})
+        """Test cache hit/miss counters are incremented via domain AgentMetrics."""
+        initial_misses = self._misses_counter.call_count
+        initial_hits = self._hits_counter.call_count
 
         # Miss
         await cache.get("nonexistent")
@@ -162,11 +214,8 @@ class TestToolDefinitionCache:
         await cache.set("tool1", {"name": "tool1"})
         await cache.get("tool1")
 
-        final_misses = agent_tool_definition_cache_misses.get({"cache_scope": "session"})
-        final_hits = agent_tool_definition_cache_hits.get({"cache_scope": "session"})
-
-        assert final_misses > initial_misses
-        assert final_hits > initial_hits
+        assert self._misses_counter.call_count > initial_misses
+        assert self._hits_counter.call_count > initial_hits
 
     @pytest.mark.asyncio
     async def test_cleanup_expired_entries(self, cache):
@@ -302,8 +351,8 @@ class TestToolDefinitionCache:
 
     @pytest.mark.asyncio
     async def test_invalidation_metrics_tracked(self, cache):
-        """Test invalidation metrics are incremented."""
-        initial_count = agent_tool_cache_invalidations.get({"invalidation_reason": "config_change"})
+        """Test invalidation metrics are incremented via domain AgentMetrics."""
+        initial_count = self._invalidations_counter.call_count
 
         # Set initial config
         config1 = {"server": "mcp1"}
@@ -313,9 +362,9 @@ class TestToolDefinitionCache:
         config2 = {"server": "mcp2"}
         cache.invalidate_if_config_changed(config2)
 
-        final_count = agent_tool_cache_invalidations.get({"invalidation_reason": "config_change"})
-
-        assert final_count > initial_count
+        assert self._invalidations_counter.call_count > initial_count
+        last_call = self._invalidations_counter.calls[-1]
+        assert last_call["invalidation_reason"] == "config_change"
 
     @pytest.mark.asyncio
     async def test_no_invalidation_same_config(self, cache):
