@@ -7,15 +7,39 @@ import time
 
 import pytest
 
+from app.domain.metrics.agent_metrics import AgentMetrics, set_agent_metrics
 from app.domain.services.agents.duplicate_query_policy import DuplicateQueryPolicy
-from app.infrastructure.observability.agent_metrics import (
-    agent_duplicate_query_blocked,
-    agent_duplicate_query_override,
-)
+
+
+class _TrackingCounter:
+    """Simple counter that tracks .inc() calls for test assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str] | None] = []
+
+    def inc(self, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
+        self.calls.append(labels)
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
 
 
 class TestDuplicateQueryPolicy:
     """Test suite for duplicate query suppression policy."""
+
+    @pytest.fixture(autouse=True)
+    def _inject_tracking_metrics(self):
+        """Inject tracking metrics into the domain AgentMetrics singleton."""
+        self._metrics = AgentMetrics()
+        self._blocked_counter = _TrackingCounter()
+        self._override_counter = _TrackingCounter()
+        self._metrics.duplicate_query_blocked = self._blocked_counter
+        self._metrics.duplicate_query_override = self._override_counter
+        set_agent_metrics(self._metrics)
+        yield
+        # Reset to default no-op metrics after test
+        set_agent_metrics(AgentMetrics())
 
     @pytest.fixture
     def policy(self):
@@ -181,32 +205,31 @@ class TestDuplicateQueryPolicy:
         assert len(short_policy._cache._cache) == 0
 
     def test_suppression_metrics_incremented(self, policy):
-        """Test suppression metrics are tracked."""
-        initial_count = agent_duplicate_query_blocked.get(
-            {"tool_name": "search", "suppression_reason": "duplicate_within_window"}
-        )
+        """Test suppression metrics are tracked via domain AgentMetrics."""
+        initial_count = self._blocked_counter.call_count
 
         # Record and suppress
         policy.record_execution("search", {"query": "test"}, True, 0.9)
         policy.should_suppress("search", {"query": "test"}, False)
 
-        final_count = agent_duplicate_query_blocked.get(
-            {"tool_name": "search", "suppression_reason": "duplicate_within_window"}
-        )
-
-        assert final_count > initial_count
+        assert self._blocked_counter.call_count > initial_count
+        # Verify correct labels were passed
+        last_call = self._blocked_counter.calls[-1]
+        assert last_call["tool_name"] == "search"
+        assert last_call["suppression_reason"] == "duplicate_within_window"
 
     def test_override_metrics_incremented(self, policy):
-        """Test override metrics track reason labels."""
-        initial_count = agent_duplicate_query_override.get({"override_reason": "low_quality_result"})
+        """Test override metrics track reason labels via domain AgentMetrics."""
+        initial_count = self._override_counter.call_count
 
         # Record low quality and check override
         policy.record_execution("search", {"query": "test"}, True, 0.2)
         policy.should_suppress("search", {"query": "test"}, False)
 
-        final_count = agent_duplicate_query_override.get({"override_reason": "low_quality_result"})
-
-        assert final_count > initial_count
+        assert self._override_counter.call_count > initial_count
+        # Verify correct labels were passed
+        last_call = self._override_counter.calls[-1]
+        assert last_call["override_reason"] == "low_quality_result"
 
     def test_different_tools_different_signatures(self, policy):
         """Test same args for different tools generate different signatures."""
