@@ -7,7 +7,7 @@ Expected Results:
 - Enhanced: 60-70% duplicates suppressed (within window, high quality)
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -39,17 +39,17 @@ class TestDuplicateSuppressionEvaluation:
             {
                 "tool": "search",
                 "args": {"query": "machine learning tutorials", "limit": 10},
-                "timestamp": datetime.utcnow(),
+                "timestamp": datetime.now(UTC),
             },
             {
                 "tool": "search",
                 "args": {"query": "machine learning tutorials", "limit": 10},
-                "timestamp": datetime.utcnow() + timedelta(seconds=60),
+                "timestamp": datetime.now(UTC) + timedelta(seconds=60),
             },
             {
                 "tool": "search",
                 "args": {"query": "machine learning tutorials", "limit": 10},
-                "timestamp": datetime.utcnow() + timedelta(seconds=120),
+                "timestamp": datetime.now(UTC) + timedelta(seconds=120),
             },
         ]
 
@@ -107,17 +107,17 @@ class TestDuplicateSuppressionEvaluation:
             {
                 "tool": "browser",
                 "args": {"url": "https://example.com", "timeout": 30},
-                "timestamp": datetime.utcnow(),
+                "timestamp": datetime.now(UTC),
             },
             {
                 "tool": "browser",
                 "args": {"url": "https://example.com", "timeout": 30},
-                "timestamp": datetime.utcnow() + timedelta(seconds=30),
+                "timestamp": datetime.now(UTC) + timedelta(seconds=30),
             },
             {
                 "tool": "browser",
                 "args": {"url": "https://example.com", "timeout": 30},
-                "timestamp": datetime.utcnow() + timedelta(seconds=90),
+                "timestamp": datetime.now(UTC) + timedelta(seconds=90),
             },
         ]
 
@@ -164,17 +164,17 @@ class TestDuplicateSuppressionEvaluation:
             {
                 "tool": "file",
                 "args": {"operation": "read", "path": "/config/settings.json"},
-                "timestamp": datetime.utcnow(),
+                "timestamp": datetime.now(UTC),
             },
             {
                 "tool": "file",
                 "args": {"operation": "read", "path": "/config/settings.json"},
-                "timestamp": datetime.utcnow() + timedelta(seconds=45),
+                "timestamp": datetime.now(UTC) + timedelta(seconds=45),
             },
             {
                 "tool": "file",
                 "args": {"operation": "read", "path": "/config/settings.json"},
-                "timestamp": datetime.utcnow() + timedelta(seconds=150),
+                "timestamp": datetime.now(UTC) + timedelta(seconds=150),
             },
         ]
 

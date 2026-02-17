@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.retry import RetryConfig, calculate_delay
+from app.domain.exceptions.base import ConfigurationException, LLMException
 from app.domain.external.llm import LLM
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.prompt_cache_manager import get_prompt_cache_manager
@@ -20,6 +21,7 @@ from app.domain.services.agents.usage_context import get_usage_context
 from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
+    APIKeysExhaustedError,
     RotationStrategy,
 )
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
@@ -81,13 +83,13 @@ class OpenAILLM(LLM):
             primary_key = settings.api_key
         elif api_key is None or (isinstance(api_key, str) and not api_key.strip()):
             # Explicitly None or empty string - error
-            raise ValueError("OpenAI/OpenRouter API key is required")
+            raise ConfigurationException("OpenAI/OpenRouter API key is required")
         else:
             # Provided with value
             primary_key = api_key
 
         if not primary_key:
-            raise ValueError("OpenAI/OpenRouter API key is required")
+            raise ConfigurationException("OpenAI/OpenRouter API key is required")
 
         all_keys = [primary_key]
         if fallback_api_keys:
@@ -97,7 +99,9 @@ class OpenAILLM(LLM):
 
         # Validate that at least one valid key exists after filtering
         if not key_configs:
-            raise ValueError("At least one valid API key is required (all provided keys were empty/whitespace)")
+            raise ConfigurationException(
+                "At least one valid API key is required (all provided keys were empty/whitespace)"
+            )
 
         # FAILOVER strategy for priority-based rotation
         # Keeps using primary key until exhausted, then rotates to fallbacks
@@ -149,7 +153,7 @@ class OpenAILLM(LLM):
         key = await self.get_api_key()
         if not key:
             key_count = len(self._key_pool.keys) if hasattr(self, "_key_pool") else 1
-            raise RuntimeError(f"All {key_count} OpenAI/OpenRouter API keys exhausted")
+            raise APIKeysExhaustedError("OpenAI/OpenRouter", key_count)
 
         # Detect if using Kimi Code API and add required headers
         default_headers = None
@@ -1045,7 +1049,7 @@ To extract data from a webpage:
                     error_msg = f"API returned invalid response (no choices) on attempt {attempt + 1}"
                     logger.error(error_msg)
                     if attempt == max_retries:
-                        raise ValueError(f"Failed after {max_retries + 1} attempts: {error_msg}")
+                        raise LLMException(f"Failed after {max_retries + 1} attempts: {error_msg}")
                     continue
 
                 # Track usage if context is set
@@ -1164,7 +1168,7 @@ To extract data from a webpage:
                     raise e
                 continue
         # This should never be reached - all paths should either return or raise
-        raise ValueError(f"LLM request failed after {max_retries + 1} attempts with no response")
+        raise LLMException(f"LLM request failed after {max_retries + 1} attempts with no response")
 
     @staticmethod
     def _extract_json_from_text(text: str) -> str | None:
@@ -1352,7 +1356,7 @@ To extract data from a webpage:
 
                 if not response or not response.choices:
                     if attempt == max_retries:
-                        raise ValueError("API returned invalid response")
+                        raise LLMException("API returned invalid response")
                     continue
 
                 message = response.choices[0].message
@@ -1368,7 +1372,7 @@ To extract data from a webpage:
                 if finish_reason == "length":
                     logger.warning("Structured output truncated (finish_reason=length), retrying")
                     if attempt == max_retries:
-                        raise ValueError("Structured output truncated after all retries")
+                        raise LLMException("Structured output truncated after all retries")
                     continue
 
                 if not content:
@@ -1383,7 +1387,7 @@ To extract data from a webpage:
                         disable_thinking = False
                         continue
                     if attempt == max_retries:
-                        raise ValueError("Empty response content")
+                        raise LLMException("Empty response content")
                     continue
 
                 # Parse and validate with Pydantic
@@ -1402,7 +1406,7 @@ To extract data from a webpage:
             except json.JSONDecodeError as e:
                 logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
-                    raise ValueError(f"Failed to parse JSON response: {e}") from e
+                    raise LLMException(f"Failed to parse JSON response: {e}") from e
             except RateLimitError as e:
                 retry_after = None
                 if hasattr(e, "response") and e.response is not None:
@@ -1460,7 +1464,7 @@ To extract data from a webpage:
                     raise
                 logger.warning(f"Structured request failed on attempt {attempt + 1}: {e}")
 
-        raise ValueError("Failed to get structured response after all retries")
+        raise LLMException("Failed to get structured response after all retries")
 
     def _supports_structured_output(self) -> bool:
         """Check if the model supports native structured output with strict schemas."""

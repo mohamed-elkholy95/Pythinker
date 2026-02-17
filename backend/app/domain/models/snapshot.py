@@ -33,7 +33,7 @@ class FileSnapshot(BaseModel):
 class FileSystemSnapshot(BaseModel):
     """Snapshot of file system state."""
 
-    files: list[FileSnapshot] = []
+    files: list[FileSnapshot] = Field(default_factory=list)
     working_directory: str
     total_files: int = 0
 

@@ -5,7 +5,7 @@ Defines the core data structures used throughout the evaluation system.
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -114,7 +114,7 @@ class EvalResult:
     passed: bool = False
 
     # Timing
-    start_time: datetime = field(default_factory=datetime.utcnow)
+    start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
     end_time: datetime | None = None
     duration_seconds: float = 0.0
 
@@ -135,7 +135,7 @@ class EvalResult:
     def complete(self, output: str, end_time: datetime | None = None) -> None:
         """Mark the evaluation as complete."""
         self.actual_output = output
-        self.end_time = end_time or datetime.utcnow()
+        self.end_time = end_time or datetime.now(UTC)
         self.duration_seconds = (self.end_time - self.start_time).total_seconds()
 
         # Calculate overall score (average of all metric scores)
@@ -153,7 +153,7 @@ class EvalResult:
         self.error_type = error_type
         self.traceback = traceback
         self.passed = False
-        self.end_time = datetime.utcnow()
+        self.end_time = datetime.now(UTC)
         self.duration_seconds = (self.end_time - self.start_time).total_seconds()
 
     def to_dict(self) -> dict[str, Any]:
@@ -194,7 +194,7 @@ class EvalDataset(BaseModel):
     max_parallel: int = Field(default=5)
 
     # Metadata
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
@@ -271,7 +271,7 @@ class EvalReport:
     # Identification
     run_id: str
     dataset_name: str
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
 
     # Configuration used
@@ -336,7 +336,7 @@ class EvalReport:
 
     def finalize(self) -> None:
         """Finalize the report and calculate final statistics."""
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(UTC)
         self.total_duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
         # Calculate pass rate

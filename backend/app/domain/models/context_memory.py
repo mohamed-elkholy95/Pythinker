@@ -10,7 +10,7 @@ This pattern enables:
 - Clear separation of different context types (goals, todos, state, knowledge)
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -54,8 +54,8 @@ class ContextMemory(BaseModel):
     content: str = Field(..., description="The actual context content")
     priority: int = Field(default=0, description="Priority for attention (higher = more important)")
     file_path: str | None = Field(default=None, description="Path in sandbox if persisted")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for storage.

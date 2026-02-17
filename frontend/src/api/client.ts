@@ -163,7 +163,8 @@ const refreshAuthToken = async (): Promise<string | null> => {
 };
 
 // Response interceptor, unified error handling and token refresh
-apiClient.interceptors.response.use(
+// Exported for plugins that need to re-order interceptor execution (e.g. apiResilience)
+export const _responseInterceptorId = apiClient.interceptors.response.use(
   (response) => {
     // Check backend response format
     if (response.data && typeof response.data.code === 'number') {

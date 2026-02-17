@@ -588,7 +588,7 @@ class TestVerifyTokenAsyncFailClosed:
         service = _build_service()
 
         # Create a real valid token
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         from app.domain.models.user import User, UserRole
 
@@ -598,8 +598,8 @@ class TestVerifyTokenAsyncFailClosed:
             email="test@example.com",
             role=UserRole.USER,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         token = service.create_access_token(user)
 
@@ -615,7 +615,7 @@ class TestVerifyTokenAsyncFailClosed:
         monkeypatch.setattr(token_service_module, "get_redis", lambda: redis_wrapper)
         service = _build_service()
 
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         from app.domain.models.user import User, UserRole
 
@@ -625,8 +625,8 @@ class TestVerifyTokenAsyncFailClosed:
             email="test@example.com",
             role=UserRole.USER,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         token = service.create_access_token(user)
 
@@ -658,7 +658,7 @@ class TestVerifyTokenAsyncFailClosed:
         monkeypatch.setattr(token_service_module, "get_redis", lambda: _PartialFailRedisWrapper())
         service = _build_service()
 
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         from app.domain.models.user import User, UserRole
 
@@ -668,8 +668,8 @@ class TestVerifyTokenAsyncFailClosed:
             email="test@example.com",
             role=UserRole.USER,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         token = service.create_access_token(user)
 
@@ -700,7 +700,7 @@ class TestAttackScenarioSimulation:
         monkeypatch.setattr(token_service_module, "get_redis", lambda: redis_wrapper)
         service = _build_service()
 
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         from app.domain.models.user import User, UserRole
 
@@ -710,8 +710,8 @@ class TestAttackScenarioSimulation:
             email="victim@example.com",
             role=UserRole.USER,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         stolen_token = service.create_access_token(victim)
 
@@ -728,7 +728,7 @@ class TestAttackScenarioSimulation:
         """
         service = _build_service()
 
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         from app.domain.models.user import User, UserRole
 
@@ -738,8 +738,8 @@ class TestAttackScenarioSimulation:
             email="flap@example.com",
             role=UserRole.USER,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         token = service.create_access_token(user)
 

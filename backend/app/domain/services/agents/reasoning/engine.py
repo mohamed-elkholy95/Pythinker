@@ -9,6 +9,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from app.domain.exceptions.base import ConfigurationException
 from app.domain.external.llm import LLM
 from app.domain.models.thought import (
     Decision,
@@ -459,7 +460,7 @@ def get_reasoning_engine(llm: LLM | None = None) -> ReasoningEngine:
     global _reasoning_engine
     if _reasoning_engine is None:
         if llm is None:
-            raise ValueError("LLM required to initialize reasoning engine")
+            raise ConfigurationException("LLM required to initialize reasoning engine")
         _reasoning_engine = ReasoningEngine(llm)
     return _reasoning_engine
 

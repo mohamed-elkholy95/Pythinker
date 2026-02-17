@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
 
+from app.domain.exceptions.base import SessionNotFoundException
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.logging import get_agent_logger
@@ -942,7 +943,7 @@ class PlanActFlow(BaseFlow):
                     "total_steps": len(self.plan.steps),
                     "is_final": is_final,
                     "plan_title": self.plan.title or "Untitled",
-                    "checkpoint_timestamp": datetime.utcnow().isoformat(),
+                    "checkpoint_timestamp": datetime.now(UTC).isoformat(),
                 },
                 generate_embedding=True,
             )
@@ -959,10 +960,22 @@ class PlanActFlow(BaseFlow):
         """
         if not self._sandbox:
             return None
+
+        progress_path = "/home/ubuntu/.agent_progress.json"
+
         try:
+            # Check existence first to avoid 404 log noise in the sandbox container
+            exists_result = await self._sandbox.file_exists(progress_path)
+            if not exists_result or not exists_result.success:
+                return None
+            # data can be dict or raw — handle both
+            exists_data = exists_result.data
+            if isinstance(exists_data, dict) and not exists_data.get("exists"):
+                return None
+
             import json
 
-            result = await self._sandbox.file_read(file="/home/ubuntu/.agent_progress.json")
+            result = await self._sandbox.file_read(file=progress_path)
             if result and result.success and result.data:
                 return json.loads(str(result.data))
         except Exception:
@@ -1791,7 +1804,7 @@ class PlanActFlow(BaseFlow):
         # TODO: move to task runner
         session = await self._session_repository.find_by_id(self._session_id)
         if not session:
-            raise ValueError(f"Session {self._session_id} not found")
+            raise SessionNotFoundException(self._session_id)
         await self._check_cancelled()
 
         # Phase 3.5: Initialize skill_invoke tool with available skills (lazy load)
@@ -2919,7 +2932,13 @@ class PlanActFlow(BaseFlow):
                 self._error_context = self._error_handler.classify_error(e)
                 self._previous_status = self.status
                 self._transition_to(AgentStatus.ERROR, force=True, reason="exception handler")
-                logger.error(f"Agent {self._agent_id} encountered error: {e}")
+
+                from app.infrastructure.external.key_pool import APIKeysExhaustedError
+
+                if isinstance(e, APIKeysExhaustedError):
+                    logger.debug("Agent %s: API keys exhausted — failing fast", self._agent_id)
+                else:
+                    logger.error(f"Agent {self._agent_id} encountered error: {e}")
 
                 # Add error span with health assessment
                 with trace_ctx.span("error", "error_recovery") as error_span:

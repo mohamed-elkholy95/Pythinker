@@ -26,7 +26,7 @@ import re
 from enum import Enum
 from typing import Any, ClassVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +53,9 @@ class SecurityResult(BaseModel):
 
     safe: bool
     risk_level: RiskLevel
-    issues: list[str] = []
-    recommendations: list[str] = []
-    patterns_detected: list[str] = []
+    issues: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    patterns_detected: list[str] = Field(default_factory=list)
 
 
 class SecurityCritic:

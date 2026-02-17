@@ -4,7 +4,7 @@ Phase 2: Tests MongoDB ↔ Qdrant consistency checking and repair.
 """
 
 import contextlib
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from bson import ObjectId
@@ -125,10 +125,10 @@ class TestFailedSyncRetry:
             "tags": [],
             "sync_state": "failed",
             "sync_attempts": 2,
-            "last_sync_attempt": datetime.utcnow() - timedelta(hours=2),
+            "last_sync_attempt": datetime.now(UTC) - timedelta(hours=2),
             "sync_error": "Connection timeout",
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
         }
 
         # Insert into MongoDB
@@ -166,10 +166,10 @@ class TestFailedSyncRetry:
             "embedding": [0.1] * 1536,
             "sync_state": "failed",
             "sync_attempts": 1,
-            "last_sync_attempt": datetime.utcnow() - timedelta(minutes=30),  # Only 30 min ago
+            "last_sync_attempt": datetime.now(UTC) - timedelta(minutes=30),  # Only 30 min ago
             "sync_error": "Recent failure",
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
         }
 
         memory_doc["_id"] = ObjectId(memory_id)
@@ -198,10 +198,10 @@ class TestFailedSyncRetry:
             "embedding": [0.1] * 1536,
             "sync_state": "failed",
             "sync_attempts": 10,  # Already at max
-            "last_sync_attempt": datetime.utcnow() - timedelta(hours=2),
+            "last_sync_attempt": datetime.now(UTC) - timedelta(hours=2),
             "sync_error": "Max attempts",
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
         }
 
         memory_doc["_id"] = ObjectId(memory_id)
@@ -236,8 +236,8 @@ class TestMissingVectorDetection:
             "sparse_vector": {"0": 0.6},
             "tags": [],
             "sync_state": "synced",  # Marked as synced but vector missing
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
         }
 
         memory_doc["_id"] = ObjectId(memory_id)

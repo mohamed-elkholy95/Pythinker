@@ -14,6 +14,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.exceptions.base import ConfigurationException
+
 
 class StepResponse(BaseModel):
     """A single step in a plan."""
@@ -255,7 +257,7 @@ def get_json_schema(schema_name: str) -> dict:
         JSON schema dict compatible with OpenAI's response_format parameter
     """
     if schema_name not in RESPONSE_SCHEMAS:
-        raise ValueError(f"Unknown schema: {schema_name}. Available: {list(RESPONSE_SCHEMAS.keys())}")
+        raise ConfigurationException(f"Unknown schema: {schema_name}. Available: {list(RESPONSE_SCHEMAS.keys())}")
 
     model = RESPONSE_SCHEMAS[schema_name]
     return {

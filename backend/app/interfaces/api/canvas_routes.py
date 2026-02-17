@@ -254,14 +254,11 @@ async def generate_image(
 ) -> APIResponse[ImageResponse]:
     """Generate an image from a text prompt using FLUX 2 Pro."""
     service = get_canvas_service()
-    try:
-        urls = await service.generate_image(
-            prompt=request.prompt,
-            width=request.width,
-            height=request.height,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    urls = await service.generate_image(
+        prompt=request.prompt,
+        width=request.width,
+        height=request.height,
+    )
     return APIResponse(data=ImageResponse(urls=urls))
 
 
@@ -272,10 +269,7 @@ async def edit_image(
 ) -> APIResponse[ImageResponse]:
     """Edit an image using natural language instruction."""
     service = get_canvas_service()
-    try:
-        urls = await service.edit_image(request.image_url, request.instruction)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    urls = await service.edit_image(request.image_url, request.instruction)
     return APIResponse(data=ImageResponse(urls=urls))
 
 
@@ -286,10 +280,7 @@ async def remove_background(
 ) -> APIResponse[ImageResponse]:
     """Remove background from an image."""
     service = get_canvas_service()
-    try:
-        urls = await service.remove_background(request.image_url)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    urls = await service.remove_background(request.image_url)
     return APIResponse(data=ImageResponse(urls=urls))
 
 

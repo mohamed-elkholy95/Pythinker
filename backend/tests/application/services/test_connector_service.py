@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.application.services.connector_service import ConnectorService
+from app.domain.exceptions.base import ConnectorNotFoundException
 from app.domain.models.connector import (
     Connector,
     ConnectorAuthType,
@@ -290,7 +291,7 @@ class TestConnectApp:
         user_connector_repo.get_by_user_and_connector.return_value = None
         connector_repo.get_by_id.return_value = None
 
-        with pytest.raises(ValueError, match="not found in catalog"):
+        with pytest.raises(ConnectorNotFoundException, match="not found in catalog"):
             await service.connect_app("user-1", "missing-id")
 
     @pytest.mark.asyncio

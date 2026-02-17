@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
+from app.domain.exceptions.base import AgentNotFoundException
 from app.domain.models.agent import Agent
 from app.domain.models.memory import Memory
 from app.domain.repositories.agent_repository import AgentRepository
@@ -98,13 +99,13 @@ class MongoAgentRepository(AgentRepository):
             {"$set": {f"memories.{name}": memory, "updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Agent {agent_id} not found")
+            raise AgentNotFoundException(agent_id)
 
     async def get_memory(self, agent_id: str, name: str) -> Memory:
         """Get memory by name from agent, create if not exists"""
         mongo_agent = await AgentDocument.find_one(AgentDocument.agent_id == agent_id)
         if not mongo_agent:
-            raise ValueError(f"Agent {agent_id} not found")
+            raise AgentNotFoundException(agent_id)
         return mongo_agent.memories.get(name, Memory(messages=[]))
 
     async def save_memory(self, agent_id: str, name: str, memory: Memory) -> None:
@@ -118,4 +119,4 @@ class MongoAgentRepository(AgentRepository):
                 {"$set": {f"memories.{name}": memory, "updated_at": datetime.now(UTC)}}
             )
             if not result:
-                raise ValueError(f"Agent {agent_id} not found")
+                raise AgentNotFoundException(agent_id)

@@ -17,6 +17,7 @@ import re
 import time
 from pathlib import Path
 
+from app.domain.exceptions.base import ResourceNotFoundException
 from app.domain.models.repo_map import (
     EntryType,
     RepoMap,
@@ -85,7 +86,11 @@ class RepoMapGenerator:
         root = Path(root_path)
 
         if not root.exists():
-            raise ValueError(f"Repository path does not exist: {root_path}")
+            raise ResourceNotFoundException(
+                f"Repository path does not exist: {root_path}",
+                resource_type="repository",
+                resource_id=root_path,
+            )
 
         repo_map = RepoMap(
             root_path=str(root),

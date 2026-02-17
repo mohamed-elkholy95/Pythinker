@@ -1485,7 +1485,7 @@ class DockerSandbox(Sandbox):
                     logger.debug(f"Released pooled browser for {cdp_url}" + (" (with error)" if had_error else ""))
                     return True
 
-        logger.warning("Could not find browser in pool to release")
+        logger.debug("Could not find browser in pool to release")
         return False
 
     # Round-robin counter for multi-sandbox dev mode

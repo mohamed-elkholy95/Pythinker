@@ -16,12 +16,13 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
+from app.domain.exceptions.base import AgentNotFoundException, ResourceLimitExceeded
 from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent
 from app.domain.services.orchestration.agent_types import (
     AgentCapability,
@@ -63,7 +64,7 @@ class SwarmTask:
     preferred_agent: AgentType | None = None
     priority: int = 0
     timeout_seconds: int = 300
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Results
     status: AgentStatus = AgentStatus.IDLE
@@ -150,7 +151,7 @@ class AgentInstance:
     status: AgentStatus = AgentStatus.IDLE
     current_task: SwarmTask | None = None
     agent: Any = None  # The actual agent object
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     tasks_completed: int = 0
 
 
@@ -212,7 +213,7 @@ class Swarm:
         logger.info(f"Swarm executing task {task.id[:8]}: {task.description[:50]}...")
 
         task.status = AgentStatus.WORKING
-        task.started_at = datetime.utcnow()
+        task.started_at = datetime.now(UTC)
         self._active_tasks[task.id] = task
 
         try:
@@ -223,7 +224,7 @@ class Swarm:
                 # No specialized agent found, use coordinator
                 selected_agents = [self._registry.get(coordinator_type)]
                 if not selected_agents[0]:
-                    raise ValueError("No agent found for task and coordinator not available")
+                    raise AgentNotFoundException("coordinator")
 
             primary_agent_spec = selected_agents[0]
             logger.info(f"Selected primary agent: {primary_agent_spec.agent_type.value}")
@@ -237,7 +238,7 @@ class Swarm:
                 yield event
 
             task.status = AgentStatus.COMPLETED
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(UTC)
             self._total_tasks_completed += 1
 
             logger.info(f"Swarm completed task {task.id[:8]}")
@@ -397,7 +398,7 @@ class Swarm:
             Results dict containing all task outputs
         """
         if len(tasks) > self._config.max_parallel_tasks:
-            raise ValueError(f"Too many parallel tasks: {len(tasks)} > {self._config.max_parallel_tasks}")
+            raise ResourceLimitExceeded(f"Too many parallel tasks: {len(tasks)} > {self._config.max_parallel_tasks}")
 
         logger.info(f"Executing {len(tasks)} tasks in parallel")
 

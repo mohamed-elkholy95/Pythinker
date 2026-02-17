@@ -9,7 +9,7 @@ import logging
 import traceback
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from tests.evals.metrics.base import get_metric
@@ -284,9 +284,9 @@ class EvalRunner:
         if case.input_context.get("system_prompt"):
             messages.insert(0, {"role": "system", "content": case.input_context["system_prompt"]})
 
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
         response = await self._llm.ask(messages)
-        end_time = datetime.utcnow()
+        end_time = datetime.now(UTC)
 
         output = response.get("content", "")
         context = {
@@ -307,7 +307,7 @@ class EvalRunner:
         output_parts = []
         tool_calls = []
 
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
 
         async for event in self._agent.execute(case.input):
             if isinstance(event, MessageEvent):
@@ -323,7 +323,7 @@ class EvalRunner:
             elif isinstance(event, ErrorEvent):
                 raise RuntimeError(event.error)
 
-        end_time = datetime.utcnow()
+        end_time = datetime.now(UTC)
 
         output = "\n".join(output_parts)
         context = {

@@ -6,7 +6,7 @@ with content hashing for verification.
 
 import hashlib
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -53,7 +53,7 @@ class VisitedSource(BaseModel):
     url: str
     final_url: str | None = None  # After redirects
     access_method: ContentAccessMethod
-    access_time: datetime = Field(default_factory=datetime.utcnow)
+    access_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Content fingerprint
     content_hash: str  # SHA-256 of extracted text content
@@ -70,7 +70,7 @@ class VisitedSource(BaseModel):
     paywall_confidence: float = 0.0
 
     # Extraction metadata
-    extracted_at: datetime = Field(default_factory=datetime.utcnow)
+    extracted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     extraction_method: str = "html_to_text"  # or "browser_dom", "pdf", etc.
 
     # Full content (stored separately for large content)

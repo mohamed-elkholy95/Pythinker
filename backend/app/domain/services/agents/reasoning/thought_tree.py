@@ -13,6 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from app.domain.exceptions.base import ConfigurationException
 from app.domain.external.llm import LLM
 from app.domain.models.thought import ThoughtType
 
@@ -594,7 +595,7 @@ def get_tree_explorer(llm: LLM | None = None) -> ThoughtTreeExplorer:
     global _explorer
     if _explorer is None:
         if llm is None:
-            raise ValueError("LLM required to initialize tree explorer")
+            raise ConfigurationException("LLM required to initialize tree explorer")
         _explorer = ThoughtTreeExplorer(llm)
     return _explorer
 

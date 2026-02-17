@@ -10,7 +10,7 @@ Provides high-level operations for:
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI
@@ -259,7 +259,7 @@ class MemoryService:
                         MemoryUpdate(
                             sync_state="failed",
                             sync_attempts=1,
-                            last_sync_attempt=datetime.utcnow(),
+                            last_sync_attempt=datetime.now(UTC),
                             sync_error=str(e)[:500],
                         ),
                     )
@@ -332,7 +332,7 @@ class MemoryService:
                     MemoryUpdate(
                         sync_state="failed",
                         sync_attempts=1,
-                        last_sync_attempt=datetime.utcnow(),
+                        last_sync_attempt=datetime.now(UTC),
                         sync_error=str(e)[:500],
                     ),
                 )
@@ -1190,7 +1190,7 @@ class MemoryService:
                 "outcome": outcome,
                 "success": success,
                 "message_count": len(conversation),
-                "summary_timestamp": datetime.utcnow().isoformat(),
+                "summary_timestamp": datetime.now(UTC).isoformat(),
             },
             generate_embedding=True,
         )
@@ -1461,7 +1461,12 @@ Only extract genuinely useful information. Return empty array if nothing notable
             return extracted
 
         except Exception as e:
-            logger.warning(f"LLM extraction failed: {e}")
+            from app.infrastructure.external.key_pool import APIKeysExhaustedError
+
+            if isinstance(e, APIKeysExhaustedError):
+                logger.debug("LLM extraction skipped: %s", e)
+            else:
+                logger.warning(f"LLM extraction failed: {e}")
             return []
 
     def _text_similarity(self, text1: str, text2: str) -> float:

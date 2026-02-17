@@ -1,7 +1,7 @@
 """MongoDB repository for sync outbox pattern."""
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection
@@ -72,7 +72,7 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
         - Ordered by created_at (FIFO)
         """
         collection, _ = await self._ensure_collections()
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         cursor = (
             collection.find(
                 {
@@ -98,7 +98,7 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
         """Update an outbox entry."""
         collection, _ = await self._ensure_collections()
         update_data = self._normalize_for_mongodb(dict(update.model_dump(exclude_none=True)))
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = datetime.now(UTC)
 
         result = await collection.update_one(
             {"_id": self._to_object_id(entry_id)},
@@ -117,7 +117,7 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
             entry_id,
             OutboxUpdate(
                 status=OutboxStatus.COMPLETED,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(UTC),
             ),
         )
 
@@ -128,7 +128,7 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
             OutboxUpdate(
                 status=OutboxStatus.PENDING if next_retry_at else OutboxStatus.FAILED,
                 error_message=error,
-                last_error_at=datetime.utcnow(),
+                last_error_at=datetime.now(UTC),
                 retry_count=retry_count,
                 next_retry_at=next_retry_at,
             ),
@@ -210,9 +210,9 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
             Number of deleted entries
         """
         collection, _ = await self._ensure_collections()
-        from datetime import timedelta
+        from datetime import UTC, timedelta
 
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         result = await collection.delete_many(
             {
                 "status": OutboxStatus.COMPLETED.value,

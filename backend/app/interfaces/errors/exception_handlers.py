@@ -7,6 +7,18 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.application.errors.exceptions import AppError
 from app.core.prometheus_metrics import record_error
+from app.domain.exceptions.base import (
+    AuthenticationException,
+    AuthorizationException,
+    ConfigurationException,
+    DomainException,
+    IntegrationException,
+    InvalidStateException,
+    ResourceLimitExceeded,
+    ResourceNotFoundException,
+    SecurityViolation,
+    ToolNotFoundException,
+)
 from app.domain.exceptions.browser import (
     BrowserError,
     ConnectionPoolExhaustedError,
@@ -22,6 +34,113 @@ logger = logging.getLogger(__name__)
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register all exception handlers"""
+
+    # ── Domain Exception Handlers ─────────────────────────────────
+
+    @app.exception_handler(ResourceNotFoundException)
+    async def resource_not_found_handler(request: Request, exc: ResourceNotFoundException) -> JSONResponse:
+        """Handle domain resource-not-found errors. Returns 404."""
+        record_error("resource_not_found", exc.resource_type)
+        logger.info(f"Resource not found: {exc.message}")
+        return JSONResponse(
+            status_code=404,
+            content=APIResponse(code=404, msg=exc.message, data=None).model_dump(),
+        )
+
+    @app.exception_handler(InvalidStateException)
+    async def invalid_state_handler(request: Request, exc: InvalidStateException) -> JSONResponse:
+        """Handle invalid state errors. Returns 409 Conflict."""
+        record_error("invalid_state", "domain")
+        logger.warning(f"Invalid state: {exc.message}")
+        return JSONResponse(
+            status_code=409,
+            content=APIResponse(code=409, msg=exc.message, data=None).model_dump(),
+        )
+
+    @app.exception_handler(ResourceLimitExceeded)
+    async def resource_limit_handler(request: Request, exc: ResourceLimitExceeded) -> JSONResponse:
+        """Handle resource limit exceeded errors. Returns 429."""
+        record_error("resource_limit_exceeded", "domain")
+        logger.warning(f"Resource limit exceeded: {exc.message}")
+        return JSONResponse(
+            status_code=429,
+            content=APIResponse(code=429, msg=exc.message, data=None).model_dump(),
+        )
+
+    @app.exception_handler(AuthenticationException)
+    async def authentication_handler(request: Request, exc: AuthenticationException) -> JSONResponse:
+        """Handle authentication failures. Returns 401."""
+        record_error("authentication_failed", "auth")
+        logger.warning(f"Authentication failed: {exc.message}")
+        return JSONResponse(
+            status_code=401,
+            content=APIResponse(code=401, msg=exc.message, data=None).model_dump(),
+        )
+
+    @app.exception_handler(AuthorizationException)
+    async def authorization_handler(request: Request, exc: AuthorizationException) -> JSONResponse:
+        """Handle authorization failures. Returns 403."""
+        record_error("authorization_failed", "auth")
+        logger.warning(f"Authorization failed: {exc.message}")
+        return JSONResponse(
+            status_code=403,
+            content=APIResponse(code=403, msg=exc.message, data=None).model_dump(),
+        )
+
+    @app.exception_handler(SecurityViolation)
+    async def security_violation_handler(request: Request, exc: SecurityViolation) -> JSONResponse:
+        """Handle security violations (path traversal, injection, etc.). Returns 403."""
+        record_error("security_violation", "security")
+        logger.error(f"Security violation: {exc.message}")
+        return JSONResponse(
+            status_code=403,
+            content=APIResponse(code=403, msg="Access denied", data=None).model_dump(),
+        )
+
+    @app.exception_handler(ConfigurationException)
+    async def configuration_handler(request: Request, exc: ConfigurationException) -> JSONResponse:
+        """Handle configuration errors. Returns 503."""
+        record_error("configuration_error", "config")
+        logger.error(f"Configuration error: {exc.message}")
+        return JSONResponse(
+            status_code=503,
+            content=APIResponse(code=503, msg=exc.message, data=None).model_dump(),
+        )
+
+    @app.exception_handler(ToolNotFoundException)
+    async def tool_not_found_handler(request: Request, exc: ToolNotFoundException) -> JSONResponse:
+        """Handle tool-not-found errors. Returns 400."""
+        record_error("tool_not_found", "tools")
+        logger.warning(f"Tool not found: {exc.message}")
+        return JSONResponse(
+            status_code=400,
+            content=APIResponse(code=400, msg=exc.message, data=None).model_dump(),
+        )
+
+    @app.exception_handler(IntegrationException)
+    async def integration_handler(request: Request, exc: IntegrationException) -> JSONResponse:
+        """Handle external integration failures. Returns 502."""
+        record_error("integration_error", exc.service)
+        logger.error(f"Integration error ({exc.service}): {exc.message}")
+        return JSONResponse(
+            status_code=502,
+            content=APIResponse(code=502, msg=exc.message, data=None).model_dump(),
+        )
+
+    @app.exception_handler(DomainException)
+    async def domain_exception_handler(request: Request, exc: DomainException) -> JSONResponse:
+        """Catch-all handler for domain exceptions not caught by more specific handlers.
+
+        Returns 400 Bad Request as a safe default.
+        """
+        record_error("domain_error", "domain")
+        logger.warning(f"Domain error [{exc.error_code}]: {exc.message}")
+        return JSONResponse(
+            status_code=400,
+            content=APIResponse(code=400, msg=exc.message, data=None).model_dump(),
+        )
+
+    # ── Browser Exception Handlers ────────────────────────────────
 
     @app.exception_handler(ConnectionPoolExhaustedError)
     async def connection_pool_exhausted_handler(request: Request, exc: ConnectionPoolExhaustedError) -> JSONResponse:

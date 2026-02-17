@@ -2,9 +2,10 @@
 
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
+from app.domain.exceptions.base import ResearchFlowException
 from app.domain.external.llm import LLM
 from app.domain.external.search import SearchEngine
 from app.domain.models.benchmark import BenchmarkExtractionResult
@@ -59,7 +60,7 @@ class EnhancedResearchFlow:
         Yields:
             Progress events and final StructuredReportOutput
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
 
         # Step 1: Search and gather sources
         if emit_events:
@@ -88,7 +89,7 @@ class EnhancedResearchFlow:
             )
 
         if not sources:
-            raise ValueError("No sources passed quality filtering. Try broadening your query.")
+            raise ResearchFlowException("No sources passed quality filtering. Try broadening your query.")
 
         # Step 3: Extract benchmarks
         if emit_events:
@@ -165,7 +166,7 @@ class EnhancedResearchFlow:
             )
 
         # Calculate generation time
-        generation_time = (datetime.utcnow() - start_time).total_seconds()
+        generation_time = (datetime.now(UTC) - start_time).total_seconds()
         report_output.metadata.generation_time_seconds = generation_time
 
         if emit_events:
@@ -200,7 +201,7 @@ class EnhancedResearchFlow:
                 result = item
 
         if result is None:
-            raise ValueError("Research flow completed without producing a report")
+            raise ResearchFlowException("Research flow completed without producing a report")
 
         return result
 
@@ -277,7 +278,7 @@ class EnhancedResearchFlow:
                 id=cid,
                 url=source.url,
                 title=raw.get("title", "Unknown"),
-                accessed_at=datetime.utcnow(),
+                accessed_at=datetime.now(UTC),
                 source_type="web",
                 reliability_score=source.reliability_score,
                 excerpt=raw.get("snippet"),

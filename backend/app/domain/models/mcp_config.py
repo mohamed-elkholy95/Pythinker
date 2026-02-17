@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
 class MCPTransport(str, Enum):
@@ -50,8 +50,7 @@ class MCPServerConfig(BaseModel):
                 raise ValueError("Command is required for stdio transport")
         return v
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 class MCPConfig(BaseModel):
@@ -59,9 +58,10 @@ class MCPConfig(BaseModel):
     MCP configuration model containing all server configurations
     """
 
-    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict, alias="mcpServers")
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="allow",
+        populate_by_name=True,
+    )
 
-    class Config:
-        arbitrary_types_allowed = True
-        extra = "allow"
-        populate_by_name = True
+    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict, alias="mcpServers")

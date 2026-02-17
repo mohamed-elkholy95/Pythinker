@@ -15,7 +15,7 @@ import logging
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 try:
@@ -89,7 +89,7 @@ class StructuredFormatter(logging.Formatter):
 
         # Build base log entry
         log_entry: dict[str, Any] = {
-            "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.domain.exceptions.base import ConnectorNotFoundException
 from app.domain.models.connector import (
     Connector,
     ConnectorAuthType,
@@ -389,7 +390,7 @@ async def test_connect_app_success():
 async def test_connect_app_not_found():
     """Should return 404 when catalog connector does not exist."""
     svc = _mock_service()
-    svc.connect_app = AsyncMock(side_effect=ValueError("Connector 'bad-id' not found in catalog"))
+    svc.connect_app = AsyncMock(side_effect=ConnectorNotFoundException("bad-id"))
 
     with patch("app.interfaces.api.connectors_routes.get_connector_service", return_value=svc):
         async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:

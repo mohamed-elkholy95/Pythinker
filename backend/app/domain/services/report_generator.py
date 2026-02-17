@@ -1,11 +1,12 @@
 """Report generation service with structured output validation."""
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
 
+from app.domain.exceptions.base import ConfigurationException, LLMException
 from app.domain.external.llm import LLM
 from app.domain.models.report import (
     AnalysisReport,
@@ -47,7 +48,7 @@ class ReportGenerator:
         Returns:
             Validated StructuredReportOutput
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
 
         # Get the appropriate model class
         model_class = self._get_model_class(report_type)
@@ -71,7 +72,7 @@ class ReportGenerator:
                     sources_used=attribution_summary.verified_claims,
                     sources_filtered=attribution_summary.unavailable_claims,
                     average_source_quality=attribution_summary.average_confidence,
-                    generation_time_seconds=(datetime.utcnow() - start_time).total_seconds(),
+                    generation_time_seconds=(datetime.now(UTC) - start_time).total_seconds(),
                     token_usage=0,  # Token tracking handled elsewhere
                 )
 
@@ -95,7 +96,7 @@ class ReportGenerator:
                 last_error = e
                 logger.warning(f"Report generation failed (attempt {attempt + 1}): {e}")
 
-        raise ValueError(f"Failed to generate valid report after {self.MAX_RETRIES} attempts: {last_error}")
+        raise LLMException(f"Failed to generate valid report after {self.MAX_RETRIES} attempts: {last_error}")
 
     def _get_model_class(
         self, report_type: str
@@ -109,7 +110,7 @@ class ReportGenerator:
 
         model_class = type_map.get(report_type)
         if not model_class:
-            raise ValueError(f"Unknown report type: {report_type}")
+            raise ConfigurationException(f"Unknown report type: {report_type}")
 
         return model_class
 

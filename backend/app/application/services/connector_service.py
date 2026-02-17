@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime
 
 from app.core.retry import http_retry
+from app.domain.exceptions.base import ConnectorNotFoundException
 from app.domain.models.connector import (
     Connector,
     ConnectorStatus,
@@ -80,7 +81,7 @@ class ConnectorService:
         # Look up catalog entry
         connector = await self._connector_repo.get_by_id(connector_id)
         if not connector:
-            raise ValueError(f"Connector '{connector_id}' not found in catalog")
+            raise ConnectorNotFoundException(connector_id)
 
         user_connector = UserConnector(
             id=str(uuid.uuid4()),

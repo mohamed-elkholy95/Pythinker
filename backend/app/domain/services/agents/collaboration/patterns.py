@@ -16,6 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from app.domain.exceptions.base import ConfigurationException
 from app.domain.models.agent_capability import CapabilityCategory
 from app.domain.models.agent_message import MessageType
 from app.domain.services.agents.communication.protocol import (
@@ -535,7 +536,7 @@ class PatternExecutor:
     def get_pattern(self, pattern_type: PatternType) -> CollaborationPattern:
         """Get a pattern by type."""
         if pattern_type not in self._patterns:
-            raise ValueError(f"Unknown pattern type: {pattern_type}")
+            raise ConfigurationException(f"Unknown pattern type: {pattern_type}")
         return self._patterns[pattern_type]
 
     async def execute_pattern(

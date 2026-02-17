@@ -56,7 +56,7 @@ class MaintenanceService:
             "attachments_removed": 0,
             "affected_sessions": [],
             "errors": [],
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         try:

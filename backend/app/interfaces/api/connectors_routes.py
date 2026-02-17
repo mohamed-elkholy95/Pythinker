@@ -170,10 +170,7 @@ async def connect_app(
 ) -> APIResponse[UserConnectorResponse]:
     """Connect a pre-built app connector."""
     service = get_connector_service()
-    try:
-        uc = await service.connect_app(current_user.id, connector_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    uc = await service.connect_app(current_user.id, connector_id)
     return APIResponse(data=_user_connector_to_response(uc))
 
 

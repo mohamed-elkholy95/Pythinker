@@ -22,7 +22,7 @@ Security Properties Verified:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -184,8 +184,8 @@ def _make_user(
         password_hash=password_hash,
         role=UserRole.USER,
         is_active=is_active,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
 
     return user, service

@@ -15,6 +15,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.domain.exceptions.base import ConfigurationException, LLMException
 from app.domain.external.llm import LLM
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.token_manager import TokenManager
@@ -22,6 +23,7 @@ from app.domain.services.agents.usage_context import get_usage_context
 from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
+    APIKeysExhaustedError,
     RotationStrategy,
 )
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
@@ -75,7 +77,7 @@ class AnthropicLLM(LLM):
         # Build key configs (primary + fallbacks)
         primary_key = api_key or settings.anthropic_api_key
         if not primary_key:
-            raise ValueError("Anthropic API key is required")
+            raise ConfigurationException("Anthropic API key is required")
 
         all_keys = [primary_key]
         if fallback_api_keys:
@@ -115,7 +117,7 @@ class AnthropicLLM(LLM):
         """Get Anthropic client with current active key."""
         key = await self.get_api_key()
         if not key:
-            raise RuntimeError(f"All {len(self._key_pool.keys)} Anthropic API keys exhausted")
+            raise APIKeysExhaustedError("Anthropic", len(self._key_pool.keys))
 
         # Create new client with active key
         return anthropic.AsyncAnthropic(api_key=key)
@@ -426,14 +428,13 @@ class AnthropicLLM(LLM):
         """
         # Check retry limit to prevent infinite recursion
         if _attempt >= self._max_retries:
-            raise RuntimeError(f"All {len(self._key_pool.keys)} Anthropic API keys exhausted after {_attempt} attempts")
+            raise APIKeysExhaustedError("Anthropic", len(self._key_pool.keys))
 
         # Get healthy key and create client
         try:
             client = await self._get_client()
-        except RuntimeError as e:
-            # All keys exhausted
-            raise RuntimeError(str(e)) from e
+        except APIKeysExhaustedError:
+            raise
 
         try:
             # Convert messages to Anthropic format
@@ -608,7 +609,7 @@ class AnthropicLLM(LLM):
             finally:
                 self._temperature = original_temp
 
-        raise ValueError(f"Failed to get structured response after {max_attempts} attempts: {last_error}")
+        raise LLMException(f"Failed to get structured response after {max_attempts} attempts: {last_error}")
 
     async def ask_stream(
         self,
@@ -640,22 +641,21 @@ class AnthropicLLM(LLM):
                 "provider": "anthropic",
                 "error": "all_keys_exhausted",
             }
-            raise RuntimeError(f"All {len(self._key_pool.keys)} Anthropic API keys exhausted after {_attempt} attempts")
+            raise APIKeysExhaustedError("Anthropic", len(self._key_pool.keys))
 
         self._last_stream_metadata = None
 
         # Get healthy key and create client
         try:
             client = await self._get_client()
-        except RuntimeError as e:
-            # All keys exhausted
+        except APIKeysExhaustedError:
             self._last_stream_metadata = {
                 "finish_reason": "error",
                 "truncated": False,
                 "provider": "anthropic",
                 "error": "all_keys_exhausted",
             }
-            raise RuntimeError(str(e)) from e
+            raise
 
         # Convert messages to Anthropic format
         system_prompt, anthropic_messages = self._convert_openai_messages_to_anthropic(messages)

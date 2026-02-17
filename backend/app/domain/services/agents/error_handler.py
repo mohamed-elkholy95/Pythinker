@@ -195,7 +195,14 @@ class ErrorHandler:
         )
 
         self._record_error(error_context)
-        logger.warning(f"Classified error as {error_type.value}: {error_message[:100]}")
+
+        # Key exhaustion is already warned once by the pool — don't re-warn per call
+        from app.infrastructure.external.key_pool import APIKeysExhaustedError
+
+        if isinstance(exception, APIKeysExhaustedError):
+            logger.debug("Classified error as %s: %s", error_type.value, error_message[:100])
+        else:
+            logger.warning(f"Classified error as {error_type.value}: {error_message[:100]}")
         if "unsupported operand" in error_message:
             import traceback
 
@@ -205,6 +212,12 @@ class ErrorHandler:
 
     def _determine_error_type(self, exception: Exception, message: str) -> ErrorType:
         """Determine the error type based on exception and message"""
+        # Fast path: APIKeysExhaustedError is always LLM_API
+        from app.infrastructure.external.key_pool import APIKeysExhaustedError
+
+        if isinstance(exception, APIKeysExhaustedError):
+            return ErrorType.LLM_API
+
         message_lower = message.lower()
         exception_type = type(exception).__name__.lower()
 
@@ -318,6 +331,8 @@ class ErrorHandler:
             return ("Check API key configuration", False)
         if "insufficient_quota" in message_lower:
             return ("API quota exceeded, notify user", False)
+        if "exhausted" in message_lower:
+            return ("All API keys exhausted — wait for quota reset", False)
         return ("Retry LLM request", True)
 
     def _record_error(self, error_context: ErrorContext) -> None:

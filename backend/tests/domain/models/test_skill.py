@@ -6,6 +6,7 @@ including SkillMetadata parsing, SkillResource bundling, and disclosure levels.
 
 import pytest
 
+from app.domain.exceptions.base import BusinessRuleViolation
 from app.domain.models.skill import (
     ResourceType,
     Skill,
@@ -50,12 +51,12 @@ description: |
         assert "synthesizing" in metadata.description
 
     def test_skill_metadata_missing_frontmatter_raises(self):
-        """Test that missing frontmatter raises ValueError."""
+        """Test that missing frontmatter raises BusinessRuleViolation."""
         content = """# No Frontmatter
 
 Just some content without YAML.
 """
-        with pytest.raises(ValueError, match="No YAML frontmatter found"):
+        with pytest.raises(BusinessRuleViolation, match="No YAML frontmatter found"):
             SkillMetadata.from_yaml(content)
 
     def test_skill_metadata_empty_frontmatter(self):

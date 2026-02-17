@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.domain.exceptions.base import BusinessRuleViolation, SecurityViolation
 from app.infrastructure.repositories.mongo_connector_repository import (
     MongoConnectorRepository,
 )
@@ -234,11 +235,11 @@ class TestSkillSortFieldValidation:
         ],
     )
     async def test_search_rejects_invalid_sort_fields(self, malicious_field: str) -> None:
-        """Verify invalid/malicious sort fields are rejected with ValueError."""
+        """Verify invalid/malicious sort fields are rejected with SecurityViolation."""
         repo = MongoSkillRepository()
         filters = SkillSearchFilters(is_public=True)
 
-        with pytest.raises(ValueError, match="Invalid sort field"):
+        with pytest.raises(SecurityViolation, match="Invalid sort field"):
             await repo.search(filters, sort_by=malicious_field, sort_order=-1)
 
     @pytest.mark.asyncio
@@ -247,7 +248,7 @@ class TestSkillSortFieldValidation:
         repo = MongoSkillRepository()
         filters = SkillSearchFilters(is_public=True)
 
-        with pytest.raises(ValueError, match="community_rating") as exc_info:
+        with pytest.raises(SecurityViolation, match="community_rating") as exc_info:
             await repo.search(filters, sort_by="$evil", sort_order=-1)
 
         error_msg = str(exc_info.value)
@@ -330,10 +331,10 @@ class TestSessionUpdateByIdFieldAllowlist:
         ],
     )
     async def test_update_by_id_rejects_disallowed_fields(self, malicious_field: str) -> None:
-        """Verify disallowed fields raise ValueError before reaching MongoDB."""
+        """Verify disallowed fields raise BusinessRuleViolation before reaching MongoDB."""
         repo = MongoSessionRepository()
 
-        with pytest.raises(ValueError, match="Disallowed update fields"):
+        with pytest.raises(BusinessRuleViolation, match="Disallowed update fields"):
             await repo.update_by_id(
                 "session-123",
                 {malicious_field: "injected_value"},
@@ -344,7 +345,7 @@ class TestSessionUpdateByIdFieldAllowlist:
         """Verify that even one disallowed field causes rejection of entire update."""
         repo = MongoSessionRepository()
 
-        with pytest.raises(ValueError, match="Disallowed update fields"):
+        with pytest.raises(BusinessRuleViolation, match="Disallowed update fields"):
             await repo.update_by_id(
                 "session-123",
                 {
@@ -369,7 +370,7 @@ class TestSessionUpdateByIdFieldAllowlist:
         """Verify the error message identifies which specific fields are disallowed."""
         repo = MongoSessionRepository()
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(BusinessRuleViolation) as exc_info:
             await repo.update_by_id(
                 "session-123",
                 {"events": [], "user_id": "attacker"},

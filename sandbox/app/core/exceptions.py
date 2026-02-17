@@ -23,7 +23,11 @@ class AppException(Exception):
         self.message = message
         self.status_code = status_code
         self.data = data
-        logger.error("AppException: %s (code: %d)", message, status_code)
+        # Log at appropriate level: 4xx = expected client errors, 5xx = real problems
+        if status_code >= 500:
+            logger.error("AppException: %s (code: %d)", message, status_code)
+        else:
+            logger.debug("AppException: %s (code: %d)", message, status_code)
         super().__init__(self.message)
 
 
@@ -51,16 +55,20 @@ class UnauthorizedException(AppException):
 # Exception handlers
 async def app_exception_handler(request: Request, exc: AppException):
     """Handle application custom exceptions"""
-    logger.error("Processing application exception: %s", exc.message)
+    if exc.status_code >= 500:
+        logger.error("Application exception: %s", exc.message)
+    else:
+        logger.debug("Application exception: %s (code: %d)", exc.message, exc.status_code)
     response = Response.error(message=exc.message, data=exc.data)
     return JSONResponse(status_code=exc.status_code, content=response.model_dump())
 
 
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """Handle HTTP exceptions"""
-    logger.error(
-        "Processing HTTP exception: %s (code: %d)", exc.detail, exc.status_code
-    )
+    if exc.status_code >= 500:
+        logger.error("HTTP exception: %s (code: %d)", exc.detail, exc.status_code)
+    elif exc.status_code >= 400:
+        logger.warning("HTTP exception: %s (code: %d)", exc.detail, exc.status_code)
     response = Response.error(message=str(exc.detail))
     return JSONResponse(status_code=exc.status_code, content=response.model_dump())
 

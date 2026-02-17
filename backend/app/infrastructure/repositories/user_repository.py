@@ -1,5 +1,6 @@
 import logging
 
+from app.domain.exceptions.base import UserNotFoundException
 from app.domain.models.user import User
 from app.domain.repositories.user_repository import UserRepository
 from app.infrastructure.models.documents import UserDocument
@@ -65,7 +66,7 @@ class MongoUserRepository(UserRepository):
         # Find existing document
         user_doc = await UserDocument.find_one(UserDocument.user_id == user.id)
         if not user_doc:
-            raise ValueError(f"User not found: {user.id}")
+            raise UserNotFoundException(user.id)
 
         # Update document from domain model
         user_doc.update_from_domain(user)

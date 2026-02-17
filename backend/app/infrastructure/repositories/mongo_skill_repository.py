@@ -7,6 +7,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from app.domain.exceptions.base import SecurityViolation
 from app.domain.models.skill import Skill, SkillCategory, SkillSource
 from app.domain.repositories.skill_repository import SkillRepository
 from app.infrastructure.models.documents import SkillDocument
@@ -189,7 +190,7 @@ class MongoSkillRepository(SkillRepository):
         """
         # Validate sort_by against allowlist to prevent NoSQL injection
         if sort_by not in ALLOWED_SORT_FIELDS:
-            raise ValueError(
+            raise SecurityViolation(
                 f"Invalid sort field: '{sort_by}'. Allowed fields: {', '.join(sorted(ALLOWED_SORT_FIELDS))}"
             )
 

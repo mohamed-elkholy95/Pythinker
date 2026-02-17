@@ -1185,7 +1185,12 @@ Respond with a JSON plan containing:
                     return plan
 
         except Exception as e:
-            logger.error(f"Plan creation failed after {max_attempts} attempts: {e}")
+            from app.infrastructure.external.key_pool import APIKeysExhaustedError
+
+            if isinstance(e, APIKeysExhaustedError):
+                logger.debug("Plan creation skipped: %s", e)
+            else:
+                logger.error(f"Plan creation failed after {max_attempts} attempts: {e}")
             return None
 
         return None

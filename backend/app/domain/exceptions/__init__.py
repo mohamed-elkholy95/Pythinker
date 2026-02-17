@@ -1,5 +1,47 @@
-"""Domain exceptions package."""
+"""Domain exceptions package.
 
+This package provides the domain exception hierarchy for business rule
+violations and expected error conditions. All domain exceptions inherit
+from DomainException.
+
+Browser-specific exceptions are in the browser submodule.
+General domain exceptions are in the base submodule.
+"""
+
+from app.domain.exceptions.base import (
+    AgentConfigurationException,
+    AgentNotFoundException,
+    AuthenticationException,
+    AuthorizationException,
+    BusinessRuleViolation,
+    ConfigurationException,
+    ConnectorNotFoundException,
+    DomainException,
+    DuplicateResourceException,
+    EventNotFoundException,
+    FlowException,
+    HandoffNotFoundException,
+    ImageGenerationException,
+    IntegrationException,
+    InvalidSessionStateException,
+    InvalidStateException,
+    InvalidUserStateException,
+    LLMException,
+    MergeException,
+    MessageNotFoundException,
+    ResearchFlowException,
+    ResourceLimitExceeded,
+    ResourceNotFoundException,
+    SecurityViolation,
+    SessionNotFoundException,
+    SkillNotFoundException,
+    ToolConfigurationException,
+    ToolException,
+    ToolExecutionException,
+    ToolNotFoundException,
+    UserNotFoundException,
+    WorkflowConfigurationException,
+)
 from app.domain.exceptions.browser import (
     BrowserCrashedError,
     BrowserError,
@@ -13,13 +55,45 @@ from app.domain.exceptions.browser import (
 )
 
 __all__ = [
+    "AgentConfigurationException",
+    "AgentNotFoundException",
+    "AuthenticationException",
+    "AuthorizationException",
     "BrowserCrashedError",
     "BrowserError",
     "BrowserErrorCode",
     "BrowserErrorContext",
+    "BusinessRuleViolation",
     "CDPProtocolError",
+    "ConfigurationException",
     "ConnectionPoolExhaustedError",
     "ConnectionRefusedError",
     "ConnectionTimeoutError",
+    "ConnectorNotFoundException",
+    "DomainException",
+    "DuplicateResourceException",
+    "EventNotFoundException",
+    "FlowException",
+    "HandoffNotFoundException",
+    "ImageGenerationException",
+    "IntegrationException",
+    "InvalidSessionStateException",
+    "InvalidStateException",
+    "InvalidUserStateException",
+    "LLMException",
+    "MergeException",
+    "MessageNotFoundException",
+    "ResearchFlowException",
+    "ResourceLimitExceeded",
+    "ResourceNotFoundException",
     "SandboxNotReadyError",
+    "SecurityViolation",
+    "SessionNotFoundException",
+    "SkillNotFoundException",
+    "ToolConfigurationException",
+    "ToolException",
+    "ToolExecutionException",
+    "ToolNotFoundException",
+    "UserNotFoundException",
+    "WorkflowConfigurationException",
 ]

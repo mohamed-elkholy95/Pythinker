@@ -4,12 +4,13 @@ import hmac
 import logging
 import re
 import secrets
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.application.errors.exceptions import BadRequestError, UnauthorizedError, ValidationError
 from app.application.services.token_service import TokenService
 from app.core.config import get_settings
+from app.domain.exceptions.base import ConfigurationException
 from app.domain.models.auth import AuthToken
 from app.domain.models.user import User, UserRole
 from app.domain.repositories.user_repository import UserRepository
@@ -289,8 +290,8 @@ class AuthService:
             password_hash=password_hash,
             role=role,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
 
         # Save to database
@@ -396,7 +397,7 @@ class AuthService:
             logger.info(f"User authenticated successfully: {email}")
             return user
 
-        raise ValueError(f"Unsupported auth provider: {self.settings.auth_provider}")
+        raise ConfigurationException(f"Unsupported auth provider: {self.settings.auth_provider}")
 
     async def login_with_tokens(self, email: str, password: str) -> AuthToken:
         """Authenticate user and return JWT tokens"""
@@ -497,7 +498,7 @@ class AuthService:
 
         # Update user password
         user.password_hash = new_password_hash
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(UTC)
 
         await self.user_repository.update_user(user)
 
@@ -525,7 +526,7 @@ class AuthService:
 
         # Update user fullname
         user.fullname = new_fullname.strip()
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(UTC)
 
         updated_user = await self.user_repository.update_user(user)
 
@@ -592,7 +593,7 @@ class AuthService:
 
         # Update user password
         user.password_hash = new_password_hash
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(UTC)
 
         await self.user_repository.update_user(user)
 

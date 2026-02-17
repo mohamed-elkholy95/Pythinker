@@ -22,6 +22,7 @@ from app.application.services.settings_service import get_settings_service
 from app.application.services.usage_service import get_usage_service
 from app.core.config import get_settings
 from app.core.sandbox_pool import get_sandbox_pool
+from app.domain.exceptions.base import SecurityViolation
 from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
@@ -1494,7 +1495,7 @@ class AgentService:
         joined = posixpath.normpath(posixpath.join(normalized_base, relative_path))
         if joined == normalized_base or joined.startswith(normalized_base + "/"):
             return joined
-        raise ValueError("Resolved path escapes workspace root")
+        raise SecurityViolation("Resolved path escapes workspace root")
 
     def _format_env_content(self, env_vars: dict[str, str], secrets: dict[str, str]) -> str:
         if not env_vars and not secrets:

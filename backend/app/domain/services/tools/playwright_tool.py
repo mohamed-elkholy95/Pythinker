@@ -1292,14 +1292,14 @@ try:
             submit_url += "&enterprise=1"
     else:
         result["error"] = f"Unsupported captcha type: {{captcha_type}}"
-        raise ValueError("Unsupported type")
+        raise IntegrationException(f"Unsupported captcha type: {captcha_type}", service="captcha")
 
     response = requests.get(submit_url)
     submit_result = response.json()
 
     if submit_result.get("status") != 1:
         result["error"] = submit_result.get("request", "Submit failed")
-        raise ValueError("Submit failed")
+        raise ToolExecutionException("Captcha submit failed")
 
     captcha_id = submit_result["request"]
 

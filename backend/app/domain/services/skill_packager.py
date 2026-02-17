@@ -22,6 +22,7 @@ from typing import Any
 
 import yaml
 
+from app.domain.exceptions.base import BusinessRuleViolation
 from app.domain.models.skill_package import (
     SkillExample,
     SkillFeatureCategory,
@@ -64,7 +65,7 @@ class SkillPackager:
         # Extract YAML frontmatter
         frontmatter_match = self.FRONTMATTER_PATTERN.match(content)
         if not frontmatter_match:
-            raise ValueError("SKILL.md must have YAML frontmatter")
+            raise BusinessRuleViolation("SKILL.md must have YAML frontmatter")
 
         frontmatter_yaml = frontmatter_match.group(1)
         frontmatter = yaml.safe_load(frontmatter_yaml) or {}
@@ -723,7 +724,7 @@ class SkillPackager:
         # Find and parse SKILL.md
         skill_md_file = next((f for f in files if f.path == "SKILL.md"), None)
         if not skill_md_file:
-            raise ValueError("Package must contain SKILL.md")
+            raise BusinessRuleViolation("Package must contain SKILL.md")
 
         metadata = self.parse_skill_md(skill_md_file.content)
 

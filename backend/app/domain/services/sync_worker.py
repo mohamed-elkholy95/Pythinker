@@ -12,6 +12,7 @@ import logging
 from contextlib import suppress
 from typing import Any
 
+from app.domain.exceptions.base import ConfigurationException
 from app.domain.models.sync_outbox import OutboxEntry, OutboxOperation, OutboxStatus
 from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
 from app.domain.repositories.vector_memory_repository import VectorMemoryRepository
@@ -131,7 +132,7 @@ class SyncWorker:
             await self._execute_batch_delete(payload)
 
         else:
-            raise ValueError(f"Unknown operation type: {entry.operation}")
+            raise ConfigurationException(f"Unknown operation type: {entry.operation}")
 
     async def _execute_upsert(self, payload: dict[str, Any]) -> None:
         """Execute single memory upsert to Qdrant."""

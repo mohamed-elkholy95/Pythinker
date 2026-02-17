@@ -11,12 +11,13 @@ import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.domain.exceptions.base import BusinessRuleViolation, HandoffNotFoundException
 from app.domain.services.orchestration.agent_types import AgentCapability, AgentType
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ class HandoffContext:
         self.step_history.append(
             {
                 "step_id": step_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "result_preview": str(result)[:200] if result else None,
             }
         )
@@ -236,7 +237,7 @@ class Handoff:
     """
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Source and target
     source_agent: AgentType = AgentType.EXECUTOR
@@ -346,7 +347,7 @@ class HandoffProtocol:
             The created Handoff object
         """
         if not target_agent and not target_capability:
-            raise ValueError("Either target_agent or target_capability must be specified")
+            raise BusinessRuleViolation("Either target_agent or target_capability must be specified")
 
         handoff = Handoff(
             source_agent=source_agent,
@@ -451,7 +452,7 @@ class HandoffProtocol:
         """
         handoff = self._pending.get(handoff_id)
         if not handoff:
-            raise ValueError(f"Handoff {handoff_id} not found or not pending")
+            raise HandoffNotFoundException(handoff_id)
 
         handoff.complete(output)
         del self._pending[handoff_id]
@@ -480,7 +481,7 @@ class HandoffProtocol:
         """
         handoff = self._pending.get(handoff_id)
         if not handoff:
-            raise ValueError(f"Handoff {handoff_id} not found or not pending")
+            raise HandoffNotFoundException(handoff_id)
 
         handoff.fail(error)
         del self._pending[handoff_id]
@@ -610,7 +611,7 @@ class HandoffProtocol:
                     logger.info(f"Rolled back {len(handoff.context.rollback_steps)} steps for handoff {handoff_id}")
                     # Update handoff status
                     handoff.metadata["rolled_back"] = True
-                    handoff.metadata["rollback_time"] = datetime.utcnow().isoformat()
+                    handoff.metadata["rollback_time"] = datetime.now(UTC).isoformat()
                     return True
                 logger.error(f"Rollback function failed for handoff {handoff_id}")
                 return False
