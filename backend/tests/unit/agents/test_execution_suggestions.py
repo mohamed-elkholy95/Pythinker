@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.external.observability import get_null_metrics
-from app.domain.models.event import ErrorEvent, ReportEvent, SuggestionEvent
+from app.domain.models.event import ErrorEvent, ReportEvent, StepEvent, SuggestionEvent
 from app.domain.models.memory import Memory
 from app.domain.services.agents import execution as execution_module
 from app.domain.services.agents.execution import ExecutionAgent
@@ -187,6 +187,27 @@ class TestExecutionAgentSuggestionGeneration:
 
         with pytest.raises(asyncio.CancelledError):
             [event async for event in executor.summarize()]
+
+    @pytest.mark.asyncio
+    async def test_summarize_skips_cove_for_simple_non_factual_requests(self, executor, mock_llm):
+        """Simple response directives should not trigger factual-claim verification step."""
+        executor._user_request = "Reply with a short sentence."
+
+        async def mock_stream(*args, **kwargs):
+            # Keep content >300 chars to prove gating is semantic, not length-only.
+            yield " ".join(["This is a plain stylistic response without factual claims."] * 8)
+
+        mock_llm.ask_stream = mock_stream
+        mock_llm.ask.return_value = {"content": '["Suggestion 1"]'}
+        executor._apply_cove_verification = AsyncMock(return_value=("unused", None))
+
+        events = [event async for event in executor.summarize()]
+
+        # Ensure CoVe path was never invoked for this prompt.
+        executor._apply_cove_verification.assert_not_awaited()
+        assert not any(
+            isinstance(event, StepEvent) and event.step and event.step.id == "cove_verification" for event in events
+        )
 
 
 class TestExecutionAgentSuggestionAnchorExcerpt:

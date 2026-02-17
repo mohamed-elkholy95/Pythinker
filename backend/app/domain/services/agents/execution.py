@@ -770,7 +770,13 @@ class ExecutionAgent(BaseAgent):
             message_title = self._extract_title(message_content)
 
             # Phase 2: Post-processing (CoVe + Critic on complete text)
-            if len(message_content) > 300 and self._user_request:
+            should_run_summary_cove = (
+                self._cove_enabled
+                and len(message_content) > 300
+                and bool(self._user_request)
+                and self._needs_cove_verification(message_content, self._user_request)
+            )
+            if should_run_summary_cove:
                 # Emit progress event before CoVe to prevent SSE timeout during verification
                 yield StepEvent(
                     status=StepStatus.RUNNING,

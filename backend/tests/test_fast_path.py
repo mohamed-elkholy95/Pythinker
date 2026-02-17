@@ -67,6 +67,9 @@ class TestQueryClassification:
             ("explain what Docker does", QueryIntent.KNOWLEDGE),
             ("how does Git work?", QueryIntent.KNOWLEDGE),
             ("define recursion", QueryIntent.KNOWLEDGE),
+            ("Reply with a short sentence.", QueryIntent.KNOWLEDGE),
+            ("respond in one sentence", QueryIntent.KNOWLEDGE),
+            ("write a concise response", QueryIntent.KNOWLEDGE),
         ],
     )
     def test_knowledge_classification(self, message: str, expected_intent: QueryIntent):
