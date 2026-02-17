@@ -6,13 +6,8 @@ Generates and manages failure snapshots for retry quality improvement.
 import logging
 from typing import Any
 
+from app.domain.metrics.agent_metrics import get_agent_metrics
 from app.domain.models.failure_snapshot import FailureSnapshot
-from app.infrastructure.observability.agent_metrics import (
-    failure_snapshot_budget_violations,
-    failure_snapshot_generated,
-    failure_snapshot_injected,
-    failure_snapshot_size,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +78,8 @@ class FailureSnapshotService:
             )
 
         # Track metrics
-        failure_snapshot_generated.inc(
+        metrics = get_agent_metrics()
+        metrics.failure_snapshot_generated.inc(
             labels={
                 "failure_type": error_type,
                 "step_name": failed_step,
@@ -92,7 +88,7 @@ class FailureSnapshotService:
 
         # Track snapshot size
         snapshot_tokens = snapshot.calculate_size_tokens()
-        failure_snapshot_size.observe(
+        metrics.failure_snapshot_size.observe(
             labels={},
             value=float(snapshot_tokens),
         )
@@ -100,7 +96,7 @@ class FailureSnapshotService:
         # Track budget violations
         if snapshot_tokens > self.token_budget:
             logger.warning(f"Snapshot exceeds token budget: {snapshot_tokens} > {self.token_budget}")
-            failure_snapshot_budget_violations.inc(labels={"violation_type": "token_budget_exceeded"})
+            metrics.failure_snapshot_budget_violations.inc(labels={"violation_type": "token_budget_exceeded"})
 
         logger.info(f"Generated failure snapshot: {error_type} ({snapshot_tokens} tokens, retry {retry_count})")
 
@@ -121,7 +117,8 @@ class FailureSnapshotService:
             str: Enhanced prompt with snapshot context
         """
         # Track injection
-        failure_snapshot_injected.inc(labels={"retry_count": str(snapshot.retry_count)})
+        metrics = get_agent_metrics()
+        metrics.failure_snapshot_injected.inc(labels={"retry_count": str(snapshot.retry_count)})
 
         # Build enhanced prompt
         snapshot_context = snapshot.to_retry_context()
