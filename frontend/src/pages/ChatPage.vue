@@ -5,7 +5,8 @@
     :autoFollowThreshold="24"
     @follow-change="handleFollowChange"
   >
-    <div id="pythinker-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
+    <div ref="chatSplitRef" class="chat-split-shell">
+      <div id="pythinker-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
       <ConnectionStatusBanner
         :sessionId="sessionId"
         :retryAttempt="connectionBannerRetryAttempt"
@@ -357,28 +358,59 @@
         :state="researchWorkflow.wideOverlayState.value"
         :phase="researchWorkflow.activePhase.value"
       />
+      </div>
+
+      <div v-if="isToolPanelOpen && !isMobileViewport" class="relative h-full w-[8px] flex-shrink-0">
+        <div
+          class="absolute top-0 bottom-0 start-[-6px] w-[20px] z-[70] py-[12px] chat-live-splitter"
+          :class="{ dragging: isSplitDragging, hovering: isSplitHovering, focused: isSplitFocused }"
+          :style="splitterTrackStyle"
+          tabindex="0"
+          role="separator"
+          aria-label="Resize chat and live view panels"
+          aria-orientation="vertical"
+          :aria-valuenow="toolPanelSize"
+          :aria-valuemin="SPLIT_MIN_PANEL_WIDTH_PX"
+          :aria-valuemax="Math.round(getPanelMaxWidth())"
+          @pointerenter="isSplitHovering = true"
+          @pointerleave="isSplitHovering = false"
+          @pointermove="isSplitHovering = true"
+          @focus="isSplitFocused = true"
+          @blur="isSplitFocused = false"
+          @pointerdown.prevent="handleSplitterPointerDown"
+          @wheel.prevent="handleSplitterWheel"
+          @keydown="handleSplitterKeydown"
+          @dblclick="resetToolPanelWidth"
+        >
+          <div
+            class="w-[4px] h-full mx-auto rounded-full chat-live-splitter-handle"
+            :style="splitterHandleStyle"
+          ></div>
+        </div>
+      </div>
+
+      <ToolPanel ref="toolPanel" :size="toolPanelSize" :sessionId="sessionId" :realTime="realTime"
+        :isShare="false"
+        :plan="plan"
+        :isLoading="isLoading"
+        :isThinking="isThinking"
+        :summaryStreamText="summaryStreamText"
+        :isSummaryStreaming="isSummaryStreaming"
+        @jumpToRealTime="jumpToRealTime"
+        :showTimeline="showTimelineControls"
+        :timelineProgress="effectiveTimelineProgress"
+        :timelineTimestamp="effectiveTimelineTimestamp"
+        :timelineCanStepForward="effectiveCanStepForward"
+        :timelineCanStepBackward="effectiveCanStepBackward"
+        :isReplayMode="isReplayMode"
+        :replayScreenshotUrl="replay.currentScreenshotUrl.value"
+        :replayMetadata="replay.currentScreenshot.value"
+        :replayScreenshots="replay.screenshots.value"
+        @timelineStepForward="handleTimelineStepForward"
+        @timelineStepBackward="handleTimelineStepBackward"
+        @timelineSeek="handleTimelineSeek"
+        @panelStateChange="handlePanelStateChange" />
     </div>
-    <ToolPanel ref="toolPanel" :size="toolPanelSize" :sessionId="sessionId" :realTime="realTime"
-      :isShare="false"
-      :plan="plan"
-      :isLoading="isLoading"
-      :isThinking="isThinking"
-      :summaryStreamText="summaryStreamText"
-      :isSummaryStreaming="isSummaryStreaming"
-      @jumpToRealTime="jumpToRealTime"
-      :showTimeline="showTimelineControls"
-      :timelineProgress="effectiveTimelineProgress"
-      :timelineTimestamp="effectiveTimelineTimestamp"
-      :timelineCanStepForward="effectiveCanStepForward"
-      :timelineCanStepBackward="effectiveCanStepBackward"
-      :isReplayMode="isReplayMode"
-      :replayScreenshotUrl="replay.currentScreenshotUrl.value"
-      :replayMetadata="replay.currentScreenshot.value"
-      :replayScreenshots="replay.screenshots.value"
-      @timelineStepForward="handleTimelineStepForward"
-      @timelineStepBackward="handleTimelineStepBackward"
-      @timelineSeek="handleTimelineSeek"
-      @panelStateChange="handlePanelStateChange" />
   </SimpleBar>
 
   <!-- Connectors Dialog -->
@@ -806,10 +838,45 @@ const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
 const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
 const observerRef = ref<HTMLDivElement>();
+const chatSplitRef = ref<HTMLDivElement>();
 const chatContainerRef = ref<HTMLDivElement>();
 const chatBottomDockRef = ref<HTMLDivElement>();
 const chatBottomDockStyle = ref<Record<string, string>>({});
 let chatContainerResizeObserver: ResizeObserver | null = null;
+const MOBILE_VIEWPORT_BREAKPOINT = 640;
+const isTouchLikeViewport = () =>
+  window.innerWidth < MOBILE_VIEWPORT_BREAKPOINT
+  && window.matchMedia('(hover: none), (pointer: coarse)').matches;
+const isMobileViewport = ref(isTouchLikeViewport());
+const isSplitDragging = ref(false);
+const isSplitHovering = ref(false);
+const isSplitFocused = ref(false);
+let splitPointerMoveHandler: ((event: PointerEvent) => void) | null = null;
+let splitPointerUpHandler: ((event: PointerEvent) => void) | null = null;
+
+const SPLIT_MIN_PANEL_WIDTH_PX = 340;
+const SPLIT_MIN_CHAT_WIDTH_PX = 420;
+const SPLIT_WHEEL_STEP_PX = 24;
+const splitIsActive = computed(() => isSplitHovering.value || isSplitDragging.value || isSplitFocused.value);
+
+const splitterTrackStyle = computed<Record<string, string>>(() => ({
+  cursor: 'ew-resize',
+  borderRadius: '9999px',
+  backgroundColor: splitIsActive.value ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
+  transition: 'background-color 0.12s ease',
+}));
+
+const splitterHandleStyle = computed<Record<string, string>>(() => ({
+  backgroundColor: splitIsActive.value
+    ? 'var(--status-running, #3b82f6)'
+    : 'var(--border-dark, rgba(17, 24, 39, 0.22))',
+  opacity: splitIsActive.value ? '1' : '0.9',
+  transform: splitIsActive.value ? 'scaleX(1.65)' : 'scaleX(1)',
+  boxShadow: splitIsActive.value
+    ? '0 0 0 1px rgba(59, 130, 246, 0.45), 0 0 10px rgba(59, 130, 246, 0.28)'
+    : 'none',
+  transition: 'background-color 0.12s ease, opacity 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease',
+}));
 
 // Track session status
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
@@ -894,6 +961,130 @@ const updateChatBottomDockStyle = () => {
     left: `${Math.max(dockLeft, horizontalPadding)}px`,
     width: `${dockWidth}px`,
   };
+};
+
+const getSplitContainerWidth = () => {
+  return chatSplitRef.value?.clientWidth || window.innerWidth;
+};
+
+const getPanelMaxWidth = () => {
+  const containerWidth = getSplitContainerWidth();
+  return Math.max(SPLIT_MIN_PANEL_WIDTH_PX, containerWidth - SPLIT_MIN_CHAT_WIDTH_PX);
+};
+
+const clampPanelWidth = (width: number) => {
+  const maxWidth = getPanelMaxWidth();
+  return Math.min(Math.max(width, SPLIT_MIN_PANEL_WIDTH_PX), maxWidth);
+};
+
+const getCurrentPanelWidth = () => {
+  const containerWidth = getSplitContainerWidth();
+  const defaultWidth = containerWidth / 2;
+  const requested = toolPanelSize.value > 0 ? toolPanelSize.value : defaultWidth;
+  return clampPanelWidth(requested);
+};
+
+const setPanelWidth = (width: number) => {
+  if (isMobileViewport.value) return;
+  toolPanelSize.value = Math.round(clampPanelWidth(width));
+};
+
+const adjustPanelWidth = (delta: number) => {
+  setPanelWidth(getCurrentPanelWidth() + delta);
+};
+
+const stopSplitterDrag = () => {
+  if (splitPointerMoveHandler) {
+    window.removeEventListener('pointermove', splitPointerMoveHandler);
+    splitPointerMoveHandler = null;
+  }
+  if (splitPointerUpHandler) {
+    window.removeEventListener('pointerup', splitPointerUpHandler);
+    window.removeEventListener('pointercancel', splitPointerUpHandler);
+    splitPointerUpHandler = null;
+  }
+  isSplitDragging.value = false;
+  isSplitHovering.value = false;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+};
+
+const handleSplitterPointerDown = (event: PointerEvent) => {
+  if (isMobileViewport.value || !isToolPanelOpen.value) return;
+
+  const startX = event.clientX;
+  const startWidth = getCurrentPanelWidth();
+
+  isSplitDragging.value = true;
+  document.body.style.cursor = 'ew-resize';
+  document.body.style.userSelect = 'none';
+
+  splitPointerMoveHandler = (moveEvent: PointerEvent) => {
+    const deltaX = moveEvent.clientX - startX;
+    setPanelWidth(startWidth - deltaX);
+  };
+
+  splitPointerUpHandler = () => {
+    stopSplitterDrag();
+  };
+
+  window.addEventListener('pointermove', splitPointerMoveHandler);
+  window.addEventListener('pointerup', splitPointerUpHandler);
+  window.addEventListener('pointercancel', splitPointerUpHandler);
+};
+
+const handleSplitterWheel = (event: WheelEvent) => {
+  if (isMobileViewport.value || !isToolPanelOpen.value) return;
+  const direction = event.deltaY < 0 ? 1 : -1;
+  adjustPanelWidth(direction * SPLIT_WHEEL_STEP_PX);
+};
+
+const handleSplitterKeydown = (event: KeyboardEvent) => {
+  if (isMobileViewport.value || !isToolPanelOpen.value) return;
+
+  const KEYBOARD_STEP_PX = 40; // Larger step for keyboard (feels more responsive)
+
+  switch (event.key) {
+    case 'ArrowLeft':
+      event.preventDefault();
+      adjustPanelWidth(KEYBOARD_STEP_PX); // Expand panel (decrease chat width)
+      break;
+    case 'ArrowRight':
+      event.preventDefault();
+      adjustPanelWidth(-KEYBOARD_STEP_PX); // Shrink panel (increase chat width)
+      break;
+    case 'Home':
+      event.preventDefault();
+      setPanelWidth(getPanelMaxWidth());
+      break;
+    case 'End':
+      event.preventDefault();
+      setPanelWidth(SPLIT_MIN_PANEL_WIDTH_PX);
+      break;
+    case 'Enter':
+    case ' ':
+      event.preventDefault();
+      resetToolPanelWidth();
+      break;
+  }
+};
+
+const resetToolPanelWidth = () => {
+  toolPanelSize.value = 0;
+};
+
+const handleViewportResize = () => {
+  isMobileViewport.value = isTouchLikeViewport();
+  updateChatBottomDockStyle();
+
+  if (isMobileViewport.value) {
+    stopSplitterDrag();
+    return;
+  }
+
+  if (isToolPanelOpen.value && toolPanelSize.value > 0) {
+    toolPanelSize.value = Math.round(clampPanelWidth(toolPanelSize.value));
+  }
 };
 
 const showSessionWarmupMessage = computed(() => {
@@ -3051,7 +3242,7 @@ onMounted(async () => {
   hideFilePanel();
   // Listen for message insert event from settings dialog
   window.addEventListener('pythinker:insert-chat-message', handleInsertMessage);
-  window.addEventListener('resize', updateChatBottomDockStyle);
+  window.addEventListener('resize', handleViewportResize);
 
   if (typeof ResizeObserver !== 'undefined' && chatContainerRef.value) {
     chatContainerResizeObserver = new ResizeObserver(() => {
@@ -3060,7 +3251,7 @@ onMounted(async () => {
     chatContainerResizeObserver.observe(chatContainerRef.value);
   }
   await nextTick();
-  updateChatBottomDockStyle();
+  handleViewportResize();
 
   if (await initializePendingSession()) {
     return;
@@ -3121,11 +3312,12 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 onUnmounted(() => {
   beginStreamAttempt();
   window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage);
-  window.removeEventListener('resize', updateChatBottomDockStyle);
+  window.removeEventListener('resize', handleViewportResize);
   if (chatContainerResizeObserver) {
     chatContainerResizeObserver.disconnect();
     chatContainerResizeObserver = null;
   }
+  stopSplitterDrag();
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
@@ -3398,6 +3590,54 @@ const handleCopyLink = async () => {
 </script>
 
 <style scoped>
+/* ===== CHAT + LIVE SPLIT LAYOUT ===== */
+.chat-split-shell {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.chat-live-splitter {
+  touch-action: none;
+  outline: none;
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+}
+
+/* Keyboard focus ring - more prominent than hover state */
+.chat-live-splitter:focus-visible::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: -2px;
+  right: -2px;
+  border: 2px solid var(--status-running, #3b82f6);
+  border-radius: 6px;
+  opacity: 0.5;
+  pointer-events: none;
+  animation: pulse-focus-ring 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-focus-ring {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.chat-live-splitter-handle {
+  transform-origin: center;
+}
+
 /* ===== CHAT HEADER ===== */
 .chat-header {
   background-color: var(--background-gray-main);
