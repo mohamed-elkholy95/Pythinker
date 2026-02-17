@@ -38,7 +38,12 @@ class SnapshotMetadata:
 
 
 class ObjectStorage(Protocol):
-    """Protocol for object storage backends (MinIO, S3, etc.)."""
+    """Protocol for object storage backends (MinIO, S3, etc.).
+
+    All methods are async to ensure non-blocking I/O on the event loop.
+    Implementations must delegate blocking SDK calls to a thread pool
+    (e.g., via ``asyncio.to_thread``).
+    """
 
     async def upload(self, key: str, data: bytes, metadata: dict[str, str] | None = None) -> None:
         """Upload object to storage."""
@@ -54,6 +59,10 @@ class ObjectStorage(Protocol):
 
     async def exists(self, key: str) -> bool:
         """Check if object exists."""
+        ...
+
+    async def list_objects(self, prefix: str = "") -> list[str]:
+        """List object keys matching the given prefix."""
         ...
 
 
