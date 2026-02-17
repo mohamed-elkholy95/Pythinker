@@ -43,7 +43,7 @@
 
       <!-- Live Viewer Controls (floating zoom, annotations, stats) -->
       <LiveViewerControls
-        v-if="stageReady"
+        v-if="stageReady && showControls"
         :zoom-percent="lsZoomPercent"
         :can-zoom-in="lsCanZoomIn"
         :can-zoom-out="lsCanZoomOut"
@@ -125,6 +125,8 @@ const props = withDefaults(
     showStats?: boolean
     /** True when viewing canvas/chart content (shows agent action overlay toggle) */
     isCanvasMode?: boolean
+    /** Whether to show floating controls (zoom, annotations). Hidden in workspace Live mode. */
+    showControls?: boolean
   }>(),
   {
     viewOnly: true,
@@ -132,7 +134,8 @@ const props = withDefaults(
     quality: 70,
     maxFps: 15,
     showStats: false,
-    isCanvasMode: false
+    isCanvasMode: false,
+    showControls: true
   }
 )
 

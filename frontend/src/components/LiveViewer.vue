@@ -36,6 +36,7 @@
     :max-fps="maxFps"
     :show-stats="showStats"
     :is-canvas-mode="isCanvasMode"
+    :show-controls="showControls"
     @connected="emit('connected')"
     @disconnected="(reason?: string) => emit('disconnected', reason)"
     @error="(error: string) => emit('error', error)"
@@ -69,6 +70,8 @@ const props = withDefaults(
     compactLoading?: boolean
     /** True when viewing canvas/chart content (shows agent action overlay toggle) */
     isCanvasMode?: boolean
+    /** Whether to show floating controls (zoom, annotations). Hidden in workspace Live mode. */
+    showControls?: boolean
     /** Current tool content for view type detection */
     toolContent?: ToolContent
     /** Whether tool is actively running */
@@ -93,6 +96,7 @@ const props = withDefaults(
     showStats: false,
     compactLoading: false,
     isCanvasMode: false,
+    showControls: true,
     toolContent: undefined,
     isActive: false,
     terminalContent: '',

@@ -90,6 +90,22 @@ function truncate(value: string, max = 60): string {
   return value.length > max ? `${value.slice(0, max)}...` : value;
 }
 
+function isPlaceholderValue(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'undefined' || normalized === 'null' || normalized === 'none' || normalized === 'nan';
+}
+
+function cleanDisplayText(value: string): string {
+  return value
+    .replace(/\s+\|\s*(?:undefined|null|none|nan)\s*$/i, '')
+    .replace(/\s+(?:undefined|null|none|nan)\s*$/i, '')
+    .replace(/^\s*(?:undefined|null|none|nan)\s*\|\s*/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+\|\s+/g, ' | ')
+    .replace(/\s+\|\s*$/g, '')
+    .trim();
+}
+
 function formatUrl(url: string, maxLength = 60): string {
   try {
     const u = new URL(url);
@@ -107,11 +123,18 @@ function formatResource(argKey: string, args?: Record<string, unknown>): string 
   const rawValue = args[argKey];
 
   if (Array.isArray(rawValue)) {
-    const joined = rawValue.map((item) => String(item)).join(', ');
+    const joined = rawValue
+      .map((item) => String(item).trim())
+      .filter((item) => item.length > 0 && !isPlaceholderValue(item))
+      .join(', ');
+    if (!joined) return '';
     return truncate(joined, 70);
   }
 
-  let value = String(rawValue);
+  let value = String(rawValue).trim();
+  if (!value || isPlaceholderValue(value)) return '';
+  value = cleanDisplayText(value);
+  if (!value) return '';
 
   if (argKey === 'file' || argKey === 'file_path' || argKey === 'path') {
     value = value.replace(/^\/home\/ubuntu\//, '');
@@ -143,7 +166,7 @@ function normalizeToolDescription(
   resourceLabel: string,
   rawDescription?: string
 ): string {
-  const trimmedRaw = rawDescription?.trim();
+  const trimmedRaw = cleanDisplayText(rawDescription?.trim() || '');
 
   // Browser click events often provide only an element index (e.g., "Clicking 16").
   // Keep the label user-friendly in chat chips by hiding bare indices.
