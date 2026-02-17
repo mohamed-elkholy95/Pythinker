@@ -14,7 +14,7 @@ from app.schemas.file import (
     FileFindRequest,
 )
 from app.schemas.response import Response
-from app.services.file import SANDBOX_BASE_DIR, file_service
+from app.services.file import SANDBOX_ALLOWED_DIRS, file_service
 
 router = APIRouter()
 
@@ -121,7 +121,7 @@ async def upload_file(file: UploadFile = File(...), path: str = Form(None)):
         # Default upload location within the sandbox base directory.
         # Use only the basename of the original filename to prevent traversal.
         safe_filename = os.path.basename(file.filename) if file.filename else "upload"
-        upload_dir = str(SANDBOX_BASE_DIR / "uploads")
+        upload_dir = str(SANDBOX_ALLOWED_DIRS[0] / "uploads")
         path = os.path.join(upload_dir, safe_filename)
 
     result = await file_service.upload_file(path=path, file_stream=file)
@@ -131,12 +131,30 @@ async def upload_file(file: UploadFile = File(...), path: str = Form(None)):
     )
 
 
+@router.post("/exists", response_model=Response)
+async def file_exists(request: FileReadRequest):
+    """
+    Check if a file exists (path-validated, no 404 noise).
+    """
+    try:
+        validated = file_service._normalize_path(request.file)
+        exists = os.path.exists(validated)
+    except Exception:
+        exists = False
+
+    return Response(
+        success=True,
+        message="File exists check completed",
+        data={"exists": exists, "path": request.file},
+    )
+
+
 @router.get("/download")
 async def download_file(path: str):
     """
     Download file using FileResponse
     """
-    # ensure_file validates the path against SANDBOX_BASE_DIR and checks existence.
+    # ensure_file validates the path against SANDBOX_ALLOWED_DIRS and checks existence.
     # Use _normalize_path to obtain the validated, resolved path for FileResponse.
     validated_path = file_service._normalize_path(path)
     file_service.ensure_file(validated_path)
