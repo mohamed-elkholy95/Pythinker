@@ -57,13 +57,29 @@ const { size: parentSize } = useResizeObserver(toolPanelRef, {
   property: 'width'
 })
 
-// On mobile (<640px) the panel overlaps the full screen
-const isMobile = ref(window.innerWidth < 640)
-const onResize = () => { isMobile.value = window.innerWidth < 640 }
+// On touch-like mobile viewports (<640px + coarse pointer), the panel overlaps full screen.
+const MOBILE_VIEWPORT_BREAKPOINT = 640
+const isTouchLikeViewport = () =>
+  window.innerWidth < MOBILE_VIEWPORT_BREAKPOINT
+  && window.matchMedia('(hover: none), (pointer: coarse)').matches
+const isMobile = ref(isTouchLikeViewport())
+const onResize = () => { isMobile.value = isTouchLikeViewport() }
 window.addEventListener('resize', onResize)
 onUnmounted(() => window.removeEventListener('resize', onResize))
 
-const panelWidth = computed(() => isMobile.value ? '100%' : `${parentSize.value / 2}px`)
+const MIN_PANEL_WIDTH_PX = 340
+const MIN_CHAT_WIDTH_PX = 420
+
+const panelWidth = computed(() => {
+  if (isMobile.value) return '100%'
+
+  const containerWidth = parentSize.value || window.innerWidth
+  const maxPanelWidth = Math.max(MIN_PANEL_WIDTH_PX, containerWidth - MIN_CHAT_WIDTH_PX)
+  const requestedWidth = panelProps.size && panelProps.size > 0 ? panelProps.size : containerWidth / 2
+  const clampedWidth = Math.min(Math.max(requestedWidth, MIN_PANEL_WIDTH_PX), maxPanelWidth)
+
+  return `${Math.round(clampedWidth)}px`
+})
 
 // Tool panel state
 const isShow = ref(false)
@@ -81,6 +97,7 @@ const emit = defineEmits<{
 }>()
 
 const panelProps = defineProps<{
+  size?: number
   sessionId?: string
   realTime: boolean
   isShare: boolean
