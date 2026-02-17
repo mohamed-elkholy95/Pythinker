@@ -980,13 +980,15 @@ class AgentService:
 
         Destroys the associated sandbox container before deleting the session
         record to prevent orphaned Docker containers.
+        Idempotent: returns silently if session no longer exists (e.g. already
+        deleted by a concurrent browser cleanup after a crash).
         """
         logger.info(f"Deleting session {session_id} for user {user_id}")
         # First verify the session belongs to the user
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
-            logger.error(f"Session {session_id} not found for user {user_id}")
-            raise NotFoundError("Session not found")
+            logger.info(f"Session {session_id} already gone — delete is a no-op")
+            return
 
         # Stop any running task first
         await self._cancel_sandbox_warmup_task(session_id)
@@ -999,13 +1001,17 @@ class AgentService:
         logger.info(f"Session {session_id} deleted successfully")
 
     async def stop_session(self, session_id: str, user_id: str) -> None:
-        """Stop a session, ensuring it belongs to the user"""
+        """Stop a session, ensuring it belongs to the user.
+
+        Idempotent: returns silently if session no longer exists (e.g. already
+        cleaned up after a browser crash or race with delete).
+        """
         logger.info(f"Stopping session {session_id} for user {user_id}")
         # First verify the session belongs to the user
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
-            logger.error(f"Session {session_id} not found for user {user_id}")
-            raise NotFoundError("Session not found")
+            logger.info(f"Session {session_id} already gone — stop is a no-op")
+            return
         if session.status in (SessionStatus.RUNNING, SessionStatus.INITIALIZING):
             try:
                 from app.domain.external.observability import get_metrics
@@ -1093,11 +1099,11 @@ class AgentService:
         # the actual shell session UUID. Fail fast with a clear message.
         try:
             uuid.UUID(shell_session_id)
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError) as exc:
             raise ValueError(
                 f"Invalid shell_session_id '{shell_session_id}' — expected a UUID. "
                 "The LLM may have passed a tool name instead of the session ID."
-            )
+            ) from exc
 
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:

@@ -1098,9 +1098,12 @@ class PlaywrightBrowser:
 
         Called when the page crashes, typically due to excessive memory allocation.
         Sets connection as unhealthy so the next operation triggers re-initialization.
+        Guard prevents duplicate log emissions when Playwright fires the event
+        multiple times (e.g. across pooled connection listeners).
         """
-        logger.error(f"Page crash detected (CDP: {self.cdp_url}) - marking connection unhealthy")
-        self._connection_healthy = False
+        if self._connection_healthy:
+            logger.error(f"Page crash detected (CDP: {self.cdp_url}) - marking connection unhealthy")
+            self._connection_healthy = False
 
     def _on_browser_disconnected(self) -> None:
         """Handle browser disconnection event (Playwright best practice).

@@ -1085,7 +1085,7 @@ To extract data from a webpage:
                     # instead of making another API call that will also fail with 429.
                     if not await self._key_pool.get_healthy_key():
                         key_count = len(self._key_pool.keys) if hasattr(self, "_key_pool") else 1
-                        raise APIKeysExhaustedError("OpenAI/OpenRouter", key_count)
+                        raise APIKeysExhaustedError("OpenAI/OpenRouter", key_count) from e
                     max_retries = getattr(self, "_max_retries", 3)
                     logger.warning(
                         f"OpenAI rate limit hit, rotating to next key (attempt {_attempt + 1}/{max_retries})"

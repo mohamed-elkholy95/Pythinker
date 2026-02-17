@@ -846,6 +846,13 @@ class DockerSandbox(Sandbox):
         Returns:
             Upload operation result
         """
+        # Validate required fields before making the API call to avoid an opaque
+        # HTTP 422 / Pydantic "Field required" error from the sandbox service.
+        if file_data is None:
+            return ToolResult(success=False, message="file_upload: file_data is required and must not be None")
+        if not path or not path.strip():
+            return ToolResult(success=False, message="file_upload: path is required and must not be empty")
+
         # Prepare form data for upload
         files = {"file": (filename or "upload", file_data, "application/octet-stream")}
         data = {"path": path}
