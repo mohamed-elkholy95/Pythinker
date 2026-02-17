@@ -1509,7 +1509,8 @@ class AgentTaskRunner(TaskRunner):
                             error=chart_error,
                         )
 
-                        logger.info(
+                        log_fn = logger.error if chart_error else logger.info
+                        log_fn(
                             "Chart created: type=%s title=%s data_points=%s series=%s html=%s png=%s error=%s",
                             data.get("chart_type"),
                             data.get("title"),
@@ -1528,7 +1529,7 @@ class AgentTaskRunner(TaskRunner):
                             event.exit_code = data.get("returncode")
                     if "id" in event.function_args:
                         shell_result = await self._sandbox.view_shell(event.function_args["id"], console=True)
-                        event.tool_content = ShellToolContent(console=shell_result.data.get("console", []))
+                        event.tool_content = ShellToolContent(console=(shell_result.data or {}).get("console", []))
                     else:
                         event.tool_content = ShellToolContent(console="(No Console)")
                 elif event.tool_name == "file":

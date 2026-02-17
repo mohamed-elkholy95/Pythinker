@@ -109,6 +109,10 @@ class PlotlyChartOrchestrator:
         simple_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in report_title[:50].lower())
         simple_name = simple_name.strip("_") or "chart"
 
+        # Use /workspace as the chart output directory — it is always within the allowed
+        # sandbox path policy (/home/ubuntu, /workspace) and avoids transient
+        # /home/ubuntu path-traversal rejections seen in production (HTTP 400).
+        chart_dir = "/workspace"
         script_input = {
             "title": numeric_spec.title,
             "metric_name": numeric_spec.metric_name,
@@ -116,14 +120,14 @@ class PlotlyChartOrchestrator:
             "points": [
                 {"label": p.label, "value": p.value, "display_value": p.display_value} for p in numeric_spec.points
             ],
-            "output_html": f"/home/ubuntu/{simple_name}.html",
-            "output_png": f"/home/ubuntu/{simple_name}.png",
+            "output_html": f"{chart_dir}/{simple_name}.html",
+            "output_png": f"{chart_dir}/{simple_name}.png",
         }
 
         # Run Plotly chart generator script in sandbox
         try:
             # Write chart input JSON to a temp file in the sandbox
-            tmp_input = f"/home/ubuntu/plotly_input_{uuid.uuid4().hex[:8]}.json"
+            tmp_input = f"{chart_dir}/plotly_input_{uuid.uuid4().hex[:8]}.json"
             write_result = await self._sandbox.file_write(
                 file=tmp_input,
                 content=json.dumps(script_input),

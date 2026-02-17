@@ -678,6 +678,21 @@ async def chat(
                             heartbeat_count=heartbeat_count,
                         )
                         break
+                    except RuntimeError as _rte:
+                        # PEP 479: StopAsyncIteration raised inside an async generator
+                        # is re-wrapped as RuntimeError("async generator raised
+                        # StopAsyncIteration"). Treat it as normal stream exhaustion so
+                        # it does not surface as an unhandled ExceptionGroup in sse-starlette.
+                        if "StopAsyncIteration" in str(_rte):
+                            stream_exhausted = True
+                            close_reason = "stream_exhausted"
+                            log_sse_diag(
+                                "stream_exhausted",
+                                event_count=stream_event_count,
+                                heartbeat_count=heartbeat_count,
+                            )
+                            break
+                        raise
 
                     logger.debug(f"Received event from chat: {event}")
                     sse_event = await EventMapper.event_to_sse_event(event)
