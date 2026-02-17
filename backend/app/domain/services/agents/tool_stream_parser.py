@@ -33,11 +33,19 @@ STREAMABLE_CONTENT_KEYS: Final[dict[str, str]] = {
     # File operations
     "file_write": "content",
     "file_str_replace": "new_str",
+    "file_read": "file",  # Show file path being read
     # Code executor
     "code_save_artifact": "content",
     "code_execute_python": "code",
     "code_execute_javascript": "code",
     "code_execute": "code",
+    # Shell/Terminal operations (show command being executed)
+    "shell_exec": "command",
+    "shell_write_to_process": "input",
+    # Search operations (show query)
+    "info_search_web": "query",
+    "web_search": "query",
+    "search": "query",
 }
 
 # Pre-compiled regexes keyed by field name.
@@ -83,12 +91,30 @@ def is_streamable_function(function_name: str) -> bool:
 
 def content_type_for_function(function_name: str) -> str:
     """Return the content type hint for the frontend viewer."""
+    # Code content
     if function_name in (
         "code_execute_python",
         "code_execute_javascript",
         "code_execute",
+        "code_save_artifact",
     ):
         return "code"
+    # Terminal/shell content
+    if function_name in (
+        "shell_exec",
+        "shell_write_to_process",
+    ):
+        return "terminal"
+    # Search content
+    if function_name in (
+        "info_search_web",
+        "web_search",
+        "search",
+    ):
+        return "search"
+    # File operations - detect by content
+    if function_name in ("file_write", "file_str_replace"):
+        return "code"  # Will be syntax highlighted
     return "text"
 
 

@@ -22,10 +22,10 @@
       </div>
 
       <!-- Progressive results as they stream in -->
-      <div v-if="results && results.length > 0" class="search-results-list">
+      <div v-if="displayResults && displayResults.length > 0" class="search-results-list">
         <TransitionGroup name="result-slide">
           <div
-            v-for="(result, index) in results"
+            v-for="(result, index) in displayResults"
             :key="result.link || index"
             class="search-result-item"
             @click="handleResultClick(result)"
@@ -69,7 +69,7 @@
       <div class="search-activity-bar">
         <div class="activity-pulse"></div>
         <span class="activity-text">
-          {{ results?.length || 0 }} {{ t('sources found') }}
+          {{ displayResults?.length || 0 }} {{ t('sources found') }}
         </span>
       </div>
     </div>
@@ -90,7 +90,7 @@
       </div>
       <div class="search-results-list">
         <div
-          v-for="(result, index) in results"
+          v-for="(result, index) in displayResults"
           :key="result.link || index"
           class="search-result-item"
           @click="handleResultClick(result)"
@@ -132,12 +132,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive } from 'vue';
+import { computed, reactive, toRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Search, Loader2, Check } from 'lucide-vue-next';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import { getFaviconUrl } from '@/utils/toolDisplay';
+import { useStaggeredResults } from '@/composables/useStaggeredResults';
 
 export interface SearchResult {
   title: string;
@@ -158,6 +159,21 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const showEmptyState = computed(() => !!props.explicitResults && (!props.results || props.results.length === 0));
+
+// Progressive result reveal (staggered animation effect)
+// Only enabled during active search for perceived streaming UX
+const { visibleResults } = useStaggeredResults(toRef(props, 'results'), {
+  delayMs: 150,
+  enabled: props.isSearching ?? false,
+});
+
+// Use staggered results when searching, otherwise show all results immediately
+const displayResults = computed(() => {
+  if (props.isSearching) {
+    return visibleResults.value;
+  }
+  return props.results || [];
+});
 
 // Track favicon load errors
 const faviconErrors = reactive<Record<string, boolean>>({});
