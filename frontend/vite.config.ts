@@ -61,6 +61,20 @@ export default defineConfig({
           target: process.env.BACKEND_URL,
           changeOrigin: true,
           ws: true,
+          configure: (proxy) => {
+            proxy.on('error', (err, _req, res) => {
+              // Intentional: ECONNREFUSED during backend restart windows returns 504.
+              // docker-compose depends_on service_healthy already gates startup order;
+              // these errors only appear transiently during container restarts.
+              // The frontend client handles 504 as "backend unavailable" — no retry here.
+              if (res && 'writeHead' in res && !res.headersSent) {
+                (res as import('http').ServerResponse).writeHead(504, { 'Content-Type': 'application/json' });
+                (res as import('http').ServerResponse).end(
+                  JSON.stringify({ code: 504, message: `Backend unavailable: ${err.message}` }),
+                );
+              }
+            });
+          },
         },
       },
     }),

@@ -1,5 +1,14 @@
+"""Agent Domain Service - Orchestrator.
+
+Coordinates agent task execution by composing:
+- AgentSessionLifecycle: session stop/pause/resume/teardown
+- AgentTaskFactory: task creation, intent classification, attachment resolution
+
+This class preserves the original public interface while delegating
+to focused sub-services internally.
+"""
+
 import asyncio
-import contextlib
 import logging
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from datetime import UTC, datetime
@@ -18,11 +27,11 @@ from app.domain.models.session import AgentMode, Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
-from app.domain.services.agent_task_runner import AgentTaskRunner
+from app.domain.services.agents.agent_session_lifecycle import AgentSessionLifecycle
+from app.domain.services.agents.agent_task_factory import AgentTaskFactory
 from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.workspace import get_session_workspace_initializer
 from app.domain.utils.cancellation import CancellationToken
-from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -32,8 +41,10 @@ logger = logging.getLogger(__name__)
 
 
 class AgentDomainService:
-    """
-    Agent domain service, responsible for coordinating the work of planning agent and execution agent
+    """Agent domain service orchestrator.
+
+    Coordinates the work of planning agent and execution agent by composing
+    AgentSessionLifecycle and AgentTaskFactory sub-services.
     """
 
     def __init__(
@@ -43,7 +54,7 @@ class AgentDomainService:
         llm: LLM,
         sandbox_cls: type[Sandbox],
         task_cls: type[Task],
-        json_parser: JsonParser,
+        json_parser: "Any",
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
         search_engine: SearchEngine | None = None,
@@ -51,526 +62,78 @@ class AgentDomainService:
         mongodb_db: Any | None = None,  # MongoDB database for workflow checkpointing
         usage_recorder: Callable[..., Coroutine[Any, Any, None]] | None = None,
     ):
-        self._repository = agent_repository
         self._session_repository = session_repository
-        self._llm = llm
         self._sandbox_cls = sandbox_cls
+        self._llm = llm
         self._search_engine = search_engine
         self._task_cls = task_cls
-        self._json_parser = json_parser
         self._file_storage = file_storage
-        self._mcp_repository = mcp_repository
         self._memory_service = memory_service
-        self._usage_recorder = usage_recorder
-        self._mongodb_db = mongodb_db  # For workflow checkpointing
-        # Session-level locks to prevent concurrent task creation for the same session
-        # This prevents race conditions when fast prompts arrive in quick succession
-        self._task_creation_locks: dict[str, asyncio.Lock] = {}
-        # Background tasks (prevents garbage collection of fire-and-forget tasks)
-        self._background_tasks: set[asyncio.Task[None]] = set()
+
+        # Compose sub-services
+        self._lifecycle = AgentSessionLifecycle(
+            session_repository=session_repository,
+            sandbox_cls=sandbox_cls,
+            task_cls=task_cls,
+        )
+
+        self._task_factory = AgentTaskFactory(
+            agent_repository=agent_repository,
+            session_repository=session_repository,
+            llm=llm,
+            sandbox_cls=sandbox_cls,
+            task_cls=task_cls,
+            json_parser=json_parser,
+            file_storage=file_storage,
+            mcp_repository=mcp_repository,
+            search_engine=search_engine,
+            memory_service=memory_service,
+            mongodb_db=mongodb_db,
+            usage_recorder=usage_recorder,
+        )
+
         # Global concurrency guard: limits active agent tasks to available sandbox slots.
-        # When saturated, new chat() calls wait (not reject) — matching queue semantics
+        # When saturated, new chat() calls wait (not reject) -- matching queue semantics
         # without the overhead of a separate worker process.
         from app.core.config import get_settings as _init_settings
 
         self._agent_concurrency = asyncio.Semaphore(_init_settings().max_concurrent_agents)
         logger.info("AgentDomainService initialization completed")
 
+    # ------------------------------------------------------------------
+    # Delegation properties for backward compatibility
+    # Tests and internal code access these directly on the service instance.
+    # ------------------------------------------------------------------
+
+    @property
+    def _task_creation_locks(self) -> dict[str, asyncio.Lock]:
+        """Expose lifecycle's task creation locks for backward compatibility."""
+        return self._lifecycle._task_creation_locks
+
+    @property
+    def _background_tasks(self) -> set[asyncio.Task[None]]:
+        """Expose lifecycle's background tasks for backward compatibility."""
+        return self._lifecycle._background_tasks
+
+    # ------------------------------------------------------------------
+    # Delegation methods for backward compatibility (used by tests)
+    # ------------------------------------------------------------------
+
     def _get_task_creation_lock(self, session_id: str) -> asyncio.Lock:
-        """Get or create a lock for task creation for a specific session."""
-        if session_id not in self._task_creation_locks:
-            self._task_creation_locks[session_id] = asyncio.Lock()
-        return self._task_creation_locks[session_id]
+        """Delegate to lifecycle manager."""
+        return self._lifecycle._get_task_creation_lock(session_id)
 
     def _register_background_task(self, task: asyncio.Task[None]) -> None:
-        """Track background tasks and consume failures for observability."""
-        self._background_tasks.add(task)
-        task.add_done_callback(self._on_background_task_done)
+        """Delegate to lifecycle manager."""
+        self._lifecycle._register_background_task(task)
 
     def _on_background_task_done(self, task: asyncio.Task[None]) -> None:
-        """Consume background task results to avoid silent failures."""
-        self._background_tasks.discard(task)
-        with contextlib.suppress(asyncio.CancelledError):
-            exc = task.exception()
-            if exc is not None:
-                logger.warning("Background task failed in AgentDomainService: %s", exc)
+        """Delegate to lifecycle manager."""
+        self._lifecycle._on_background_task_done(task)
 
     async def _force_destroy_sandbox(self, sandbox: Sandbox, sandbox_id: str, session_id: str) -> bool:
-        """Best-effort force destroy fallback when graceful destroy times out."""
-        force_destroy = getattr(sandbox, "force_destroy", None)
-        if not callable(force_destroy):
-            logger.warning(
-                "Sandbox %s for session %s does not expose force_destroy(); deferred cleanup only",
-                sandbox_id,
-                session_id,
-            )
-            return False
-        try:
-            destroyed = await force_destroy()
-            if destroyed:
-                logger.info("Force-destroyed sandbox %s for session %s", sandbox_id, session_id)
-            else:
-                logger.warning("force_destroy returned False for sandbox %s (session %s)", sandbox_id, session_id)
-            return bool(destroyed)
-        except Exception as e:
-            logger.warning("Force-destroy fallback failed for sandbox %s (session %s): %s", sandbox_id, session_id, e)
-            return False
-
-    async def shutdown(self) -> None:
-        """Clean up all Agent's resources"""
-        logger.info("Starting to close all Agents")
-        await self._task_cls.destroy()
-        logger.info("All agents closed successfully")
-
-    async def _create_task(self, session: Session, extra_mcp_configs: dict[str, Any] | None = None) -> Task:
-        """Create a new agent task
-
-        Optimized for fast initialization by running independent operations in parallel:
-        - Workspace initialization (if enabled and not lazy)
-        - Framework bootstrap (if enabled)
-        - Browser health check
-
-        Phase 1 optimization: Parallel initialization reduces startup time by 5-10 seconds.
-        Phase 3 optimization: Sandbox pool provides instant sandbox allocation.
-        """
-        sandbox = None
-        sandbox_id = session.sandbox_id
-        is_new_sandbox = False
-
-        if sandbox_id:
-            sandbox = await self._sandbox_cls.get(sandbox_id)
-        from app.core.config import get_settings
-
-        settings = get_settings()
-        sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
-        ephemeral_lifecycle = sandbox_lifecycle_mode == "ephemeral"
-        uses_static_sandboxes = bool(
-            getattr(
-                settings,
-                "uses_static_sandbox_addresses",
-                bool(getattr(settings, "sandbox_address", None)),
-            )
-        )
-        sandbox_pool_enabled = (
-            bool(getattr(settings, "sandbox_pool_enabled", False))
-            and not uses_static_sandboxes
-            and not ephemeral_lifecycle
-        )
-        owns_session_sandbox = sandbox_lifecycle_mode == "ephemeral"
-
-        def bind_sandbox_metadata(target_sandbox: Sandbox) -> None:
-            session.sandbox_id = target_sandbox.id
-            session.sandbox_owned = owns_session_sandbox
-            session.sandbox_lifecycle_mode = sandbox_lifecycle_mode
-            session.sandbox_created_at = datetime.now(UTC) if owns_session_sandbox else None
-
-        async def acquire_sandbox_from_pool() -> Sandbox:
-            if sandbox_pool_enabled:
-                try:
-                    from app.core.sandbox_pool import get_sandbox_pool
-
-                    pool = await get_sandbox_pool(self._sandbox_cls)
-                    acquired = await pool.acquire(timeout=5.0)
-                    logger.info(f"Acquired sandbox {acquired.id} from pool for session {session.id}")
-                    return acquired
-                except Exception as e:
-                    logger.warning(f"Failed to acquire from pool, creating on-demand: {e}")
-            elif uses_static_sandboxes and bool(getattr(settings, "sandbox_pool_enabled", False)):
-                logger.debug(
-                    "Skipping sandbox pool for session %s because SANDBOX_ADDRESS is configured",
-                    session.id,
-                )
-            return await self._sandbox_cls.create()
-
-        async def recycle_sandbox(current_sandbox: Sandbox, reason: str) -> Sandbox:
-            logger.warning(f"Recycling sandbox {current_sandbox.id} for session {session.id}: {reason}")
-            if hasattr(current_sandbox, "destroy"):
-                try:
-                    await current_sandbox.destroy()
-                except Exception as e:
-                    logger.debug(f"Sandbox destroy failed during recycle (non-critical): {e}")
-
-            replacement = await acquire_sandbox_from_pool()
-            bind_sandbox_metadata(replacement)
-            await self._session_repository.save(session)
-            return replacement
-
-        async def run_parallel_init(target_sandbox: Sandbox) -> None:
-            # Prepare parallel initialization tasks
-            parallel_tasks = []
-
-            # Workspace initialization (skip if lazy init is enabled - Phase 5)
-            async def init_workspace():
-                if settings.workspace_auto_init and not settings.workspace_lazy_init:
-                    try:
-                        exists_result = await target_sandbox.workspace_exists(session.id)
-                        if not exists_result.success or not exists_result.data.get("exists", False):
-                            logger.info(f"Auto-initializing workspace for session {session.id}")
-                            await target_sandbox.workspace_init(
-                                session_id=session.id,
-                                project_name=settings.workspace_default_project_name,
-                                template=settings.workspace_default_template,
-                            )
-                    except Exception as e:
-                        logger.warning(f"Workspace auto-init error (non-fatal): {e}")
-
-            # Framework bootstrap
-            async def init_framework():
-                if settings.sandbox_framework_enabled:
-                    try:
-                        await target_sandbox.ensure_framework(session.id)
-                    except Exception as e:
-                        if settings.sandbox_framework_required:
-                            raise
-                        logger.warning(f"Sandbox framework init error (non-fatal): {e}")
-
-            # Browser health check (verifies CDP connection)
-            async def verify_browser():
-                if hasattr(target_sandbox, "verify_browser_ready"):
-                    browser_ready = await target_sandbox.verify_browser_ready()
-                    if not browser_ready:
-                        raise RuntimeError(f"Sandbox browser is not ready: {target_sandbox.id}")
-
-            parallel_tasks.append(init_workspace())
-            parallel_tasks.append(init_framework())
-            parallel_tasks.append(verify_browser())
-
-            # Run all initialization tasks in parallel — log failures for diagnostics
-            init_results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
-            init_names = ["workspace", "framework", "browser"]
-            browser_init_error: Exception | None = None
-            for name, result in zip(init_names, init_results, strict=True):
-                if isinstance(result, Exception):
-                    logger.error(f"Session {session.id} {name} init failed: {result}")
-                    if name == "browser":
-                        browser_init_error = result
-
-            if browser_init_error is not None:
-                raise RuntimeError(f"Browser init failed for sandbox {target_sandbox.id}") from browser_init_error
-
-        if not sandbox:
-            sandbox = await acquire_sandbox_from_pool()
-            bind_sandbox_metadata(sandbox)
-            sandbox_id = sandbox.id
-            is_new_sandbox = True
-            await self._session_repository.save(session)
-        else:
-            metadata_changed = False
-            if session.sandbox_owned != owns_session_sandbox:
-                session.sandbox_owned = owns_session_sandbox
-                metadata_changed = True
-            if session.sandbox_lifecycle_mode != sandbox_lifecycle_mode:
-                session.sandbox_lifecycle_mode = sandbox_lifecycle_mode
-                metadata_changed = True
-            if owns_session_sandbox and session.sandbox_created_at is None:
-                session.sandbox_created_at = datetime.now(UTC)
-                metadata_changed = True
-            elif not owns_session_sandbox and session.sandbox_created_at is not None:
-                session.sandbox_created_at = None
-                metadata_changed = True
-            if metadata_changed:
-                await self._session_repository.save(session)
-
-        try:
-            await run_parallel_init(sandbox)
-        except Exception as e:
-            sandbox = await recycle_sandbox(sandbox, str(e))
-            sandbox_id = sandbox.id
-            is_new_sandbox = True
-            await run_parallel_init(sandbox)
-
-        # BROWSER SESSION PROTOCOL: Only clear browser for brand new sandboxes
-        # Previously, this also triggered when session.task_id was None, but that caused
-        # browser restarts on every new task (fast prompts issue). Now we only clear for:
-        # 1. New sandbox created (is_new_sandbox=True) - browser has no user state
-        # For existing sandboxes with running tasks, preserve browser state to:
-        # - Avoid live preview positioning issues (new windows shift right)
-        # - Preserve ongoing browser work and navigation
-        # - Allow smooth handling of fast/consecutive prompts
-        should_clear_browser = is_new_sandbox
-        browser_init_timeout = min(settings.browser_init_timeout, 20.0)
-        if browser_init_timeout != settings.browser_init_timeout:
-            logger.info(
-                "Clamped browser init timeout from %.1fs to %.1fs to avoid first-event stalls",
-                settings.browser_init_timeout,
-                browser_init_timeout,
-            )
-
-        # Browser connection is faster after parallel health check
-        try:
-            browser = await asyncio.wait_for(
-                sandbox.get_browser(
-                    clear_session=should_clear_browser,
-                    verify_connection=False,
-                    block_resources=True,
-                ),
-                timeout=browser_init_timeout,
-            )
-            # P1.5: Clear any leftover heavy content from previous sessions
-            if should_clear_browser and browser.page:
-                try:
-                    await browser.page.goto("about:blank", timeout=5000)
-                    logger.info("Cleared browser page to about:blank for new session")
-                except Exception as clear_error:
-                    logger.debug(f"Best-effort page clear failed: {clear_error}")
-                    # Non-fatal - continue with session start
-        except TimeoutError:
-            logger.error(f"Browser init timed out for sandbox {sandbox.id}; recycling sandbox for session {session.id}")
-            sandbox = await recycle_sandbox(sandbox, "browser initialization timeout")
-            sandbox_id = sandbox.id
-            is_new_sandbox = True
-            should_clear_browser = True
-            await run_parallel_init(sandbox)
-            browser = await asyncio.wait_for(
-                sandbox.get_browser(
-                    clear_session=should_clear_browser,
-                    verify_connection=False,
-                    block_resources=True,
-                ),
-                timeout=browser_init_timeout,
-            )
-        except Exception as e:
-            logger.error(
-                "Browser init failed for sandbox %s; recycling sandbox for session %s: %s",
-                sandbox.id,
-                session.id,
-                e,
-            )
-            sandbox = await recycle_sandbox(sandbox, f"browser initialization error: {e}")
-            sandbox_id = sandbox.id
-            is_new_sandbox = True
-            should_clear_browser = True
-            await run_parallel_init(sandbox)
-            browser = await asyncio.wait_for(
-                sandbox.get_browser(
-                    clear_session=should_clear_browser,
-                    verify_connection=False,
-                    block_resources=True,
-                ),
-                timeout=browser_init_timeout,
-            )
-        if not browser:
-            logger.error(f"Failed to get browser for Sandbox {sandbox_id}")
-            raise RuntimeError(f"Failed to get browser for Sandbox {sandbox_id}")
-
-        await self._session_repository.save(session)
-
-        # Get multi-agent configuration from settings
-        from app.core.config import get_settings
-
-        settings = get_settings()
-
-        task_runner = AgentTaskRunner(
-            session_id=session.id,
-            agent_id=session.agent_id,
-            user_id=session.user_id,
-            llm=self._llm,
-            sandbox=sandbox,
-            browser=browser,
-            file_storage=self._file_storage,
-            search_engine=self._search_engine,
-            session_repository=self._session_repository,
-            json_parser=self._json_parser,
-            agent_repository=self._repository,
-            mcp_repository=self._mcp_repository,
-            mode=session.mode,  # Pass session mode to task runner
-            # Multi-agent orchestration configuration
-            enable_multi_agent=settings.enable_multi_agent,
-            # Unified flow engine selection
-            flow_mode=settings.resolved_flow_mode,
-            # Long-term memory service (Phase 6: Qdrant integration)
-            memory_service=self._memory_service,
-            # MongoDB database for workflow checkpointing
-            mongodb_db=self._mongodb_db,
-            usage_recorder=self._usage_recorder,
-            extra_mcp_configs=extra_mcp_configs,
-        )
-
-        task = self._task_cls.create(task_runner)
-        session.task_id = task.id
-        await self._session_repository.save(session)
-
-        return task
-
-    async def _classify_intent_with_context(
-        self,
-        message: str,
-        session: Session,
-        attachments: list[dict] | None = None,
-        skills: list[str] | None = None,
-    ) -> AgentMode | None:
-        """Classify intent with context and return recommended mode if different from current.
-
-        Uses the IntentClassifier's context-aware classification to consider:
-        - Attachments (images force AGENT mode, documents force AGENT mode)
-        - URLs in the message
-        - Available skills
-        - Conversation context (follow-up detection)
-
-        Args:
-            message: User message to classify
-            session: Current session for mode and context
-            attachments: Optional attachments from the message
-            skills: Optional skills to consider
-
-        Returns:
-            AgentMode if mode should change, None if current mode is appropriate
-        """
-        try:
-            from app.domain.services.agents.intent_classifier import (
-                ClassificationContext,
-                get_intent_classifier,
-            )
-
-            classifier = get_intent_classifier()
-
-            # Build classification context from message and session
-            context = ClassificationContext(
-                attachments=[
-                    {
-                        "mime_type": att.get("content_type", ""),
-                        "filename": att.get("filename", ""),
-                        "type": att.get("type", ""),
-                    }
-                    for att in (attachments or [])
-                ],
-                available_skills=skills or [],
-                conversation_length=len(session.events) if session.events else 0,
-                is_follow_up=bool(session.events),
-                urls=classifier.extract_urls(message),
-                mcp_tools=[],  # MCP tools could be added here if needed
-            )
-
-            # Classify with context
-            result = classifier.classify_with_context(message, context)
-
-            logger.debug(
-                "Context-aware intent classification",
-                extra={
-                    "message_preview": message[:50],
-                    "current_mode": session.mode.value,
-                    "recommended_mode": result.mode.value,
-                    "intent": result.intent,
-                    "confidence": result.confidence,
-                    "reasons": result.reasons,
-                    "context_signals": result.context_signals,
-                },
-            )
-
-            # Return recommended mode if different from current and confidence is high
-            if result.mode != session.mode and result.confidence >= 0.75:
-                logger.info(
-                    f"Intent classification suggests mode change: {session.mode.value} -> {result.mode.value} "
-                    f"(intent={result.intent}, confidence={result.confidence:.2f})"
-                )
-                return result.mode
-
-            return None
-
-        except Exception as e:
-            logger.warning(f"Context-aware intent classification failed: {e}")
-            return None
-
-    async def _resolve_user_attachments(self, attachments: list[dict] | None, user_id: str) -> list[FileInfo] | None:
-        """Resolve attachment metadata so UI can display accurate info (size/type)."""
-        if not attachments:
-            return None
-
-        async def resolve_attachment(attachment: dict) -> FileInfo | None:
-            file_id = attachment.get("file_id")
-            filename = attachment.get("filename")
-            content_type = attachment.get("content_type")
-            size = attachment.get("size")
-            upload_date = attachment.get("upload_date")
-
-            if file_id:
-                try:
-                    file_info = await self._file_storage.get_file_info(file_id, user_id)
-                    if file_info:
-                        if not file_info.filename and filename:
-                            file_info.filename = filename
-                        if (file_info.size is None or file_info.size == 0) and size:
-                            file_info.size = size
-                        if not file_info.content_type and content_type:
-                            file_info.content_type = content_type
-                        if not file_info.upload_date and upload_date:
-                            file_info.upload_date = upload_date
-                        return file_info
-                except Exception as exc:
-                    logger.warning(f"Failed to fetch file info for attachment {file_id}: {exc}")
-
-            if not file_id and not filename:
-                return None
-
-            return FileInfo(
-                file_id=file_id,
-                filename=filename,
-                content_type=content_type,
-                size=size,
-                upload_date=upload_date,
-                user_id=user_id,
-            )
-
-        results = await asyncio.gather(
-            *[resolve_attachment(attachment) for attachment in attachments], return_exceptions=True
-        )
-
-        resolved: list[FileInfo] = []
-        for result in results:
-            if isinstance(result, Exception):
-                logger.warning(f"Failed to resolve attachment: {result}")
-                continue
-            if result and (result.file_id or result.filename):
-                resolved.append(result)
-
-        return resolved or None
-
-    async def _build_reactivation_context(self, session_id: str) -> str | None:
-        """Build a summary of recent session history for reactivation context."""
-        try:
-            event_count = await self._session_repository.get_event_count(session_id)
-            if event_count == 0:
-                return None
-            # Fetch last 10 events
-            offset = max(0, event_count - 10)
-            events = await self._session_repository.get_events_paginated(session_id, offset=offset, limit=10)
-            if not events:
-                return None
-
-            lines: list[str] = []
-            for evt in events:
-                if isinstance(evt, dict):
-                    etype = evt.get("type", "")
-                    if etype == "message":
-                        role = evt.get("role", "unknown")
-                        text = (evt.get("message", ""))[:200]
-                        lines.append(f"[{role}] {text}")
-                    elif etype == "report":
-                        title = evt.get("title", "Report")
-                        lines.append(f"[report] {title}")
-                else:
-                    if hasattr(evt, "type"):
-                        if evt.type == "message" and hasattr(evt, "message"):
-                            role = getattr(evt, "role", "unknown")
-                            lines.append(f"[{role}] {evt.message[:200]}")
-                        elif evt.type == "report" and hasattr(evt, "title"):
-                            lines.append(f"[report] {evt.title}")
-
-            if not lines:
-                return None
-            return "[Session history for context]\n" + "\n".join(lines)
-        except Exception as e:
-            logger.warning(f"Failed to build reactivation context: {e}")
-            return None
-
-    async def _get_task(self, session: Session) -> Task | None:
-        """Get a task for the given session"""
-
-        task_id = session.task_id
-        if not task_id:
-            return None
-
-        return self._task_cls.get(task_id)
+        """Delegate to lifecycle manager."""
+        return await self._lifecycle._force_destroy_sandbox(sandbox, sandbox_id, session_id)
 
     async def _teardown_session_runtime(
         self,
@@ -580,189 +143,64 @@ class AgentDomainService:
         status: SessionStatus | None = None,
         destroy_sandbox: bool = True,
     ) -> None:
-        """Release runtime resources for a session in an idempotent way."""
-        target_session = session or await self._session_repository.find_by_id(session_id)
-        if not target_session:
-            return
-
-        # Idempotent early-exit: already stopped (no sandbox, terminal status)
-        terminal_statuses = (SessionStatus.COMPLETED, SessionStatus.FAILED)
-        if not target_session.sandbox_id and target_session.status in terminal_statuses:
-            self._task_creation_locks.pop(session_id, None)
-            return
-
-        task = await self._get_task(target_session)
-        if task:
-            task.cancel()
-
-        # Update status BEFORE sandbox destruction so frontend sees terminal state
-        # immediately and does not observe stale in-flight status during teardown.
-        target_session.task_id = None
-        if status is not None:
-            target_session.status = status
-        await self._session_repository.save(target_session)
-
-        if destroy_sandbox and target_session.sandbox_id:
-            owns_sandbox = target_session.sandbox_owned or target_session.sandbox_lifecycle_mode == "ephemeral"
-            if target_session.sandbox_lifecycle_mode is None and not target_session.sandbox_owned:
-                from app.core.config import get_settings as _get_settings
-
-                configured_lifecycle_mode = getattr(_get_settings(), "sandbox_lifecycle_mode", "static")
-                if configured_lifecycle_mode == "ephemeral":
-                    owns_sandbox = True
-
-            if owns_sandbox:
-                sandbox = None
-                try:
-                    sandbox = await self._sandbox_cls.get(target_session.sandbox_id)
-                    if sandbox:
-                        await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
-                        logger.info(f"Destroyed owned sandbox {target_session.sandbox_id} for session {session_id}")
-                except TimeoutError:
-                    logger.warning(f"Sandbox {target_session.sandbox_id} destroy timed out during teardown")
-                    force_destroyed = False
-                    if sandbox is not None:
-                        try:
-                            force_destroyed = await asyncio.wait_for(
-                                self._force_destroy_sandbox(
-                                    sandbox=sandbox,
-                                    sandbox_id=target_session.sandbox_id,
-                                    session_id=session_id,
-                                ),
-                                timeout=10.0,
-                            )
-                        except TimeoutError:
-                            logger.warning(
-                                "Force-destroy fallback timed out for sandbox %s (session %s)",
-                                target_session.sandbox_id,
-                                session_id,
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "Force-destroy fallback raised for sandbox %s (session %s): %s",
-                                target_session.sandbox_id,
-                                session_id,
-                                e,
-                            )
-                    if not force_destroyed and sandbox is not None:
-
-                        async def _delayed_destroy() -> None:
-                            with contextlib.suppress(Exception):
-                                await sandbox.destroy()
-
-                        self._register_background_task(asyncio.create_task(_delayed_destroy()))
-                except Exception as e:
-                    error_text = str(e)
-                    if "No such container" in error_text:
-                        logger.info(
-                            "Sandbox %s already removed during teardown, continuing",
-                            target_session.sandbox_id,
-                        )
-                    else:
-                        logger.warning(f"Failed to destroy sandbox {target_session.sandbox_id} during teardown: {e}")
-            else:
-                logger.info(
-                    "Skipping sandbox destroy for session %s (sandbox %s not owned by session)",
-                    session_id,
-                    target_session.sandbox_id,
-                )
-
-            # Clear sandbox references after destruction
-            target_session.sandbox_id = None
-            target_session.sandbox_owned = False
-            target_session.sandbox_created_at = None
-            await self._session_repository.save(target_session)
-
-        # Clean up session lock to prevent unbounded growth
-        self._task_creation_locks.pop(session_id, None)
-
-    async def stop_session(self, session_id: str) -> None:
-        """Stop a session and destroy its sandbox.
-
-        Cancels any running task and destroys the associated sandbox container
-        to prevent orphaned Docker containers.
-        """
-        session = await self._session_repository.find_by_id(session_id)
-        if not session:
-            logger.info(f"Stop requested for non-existent Session {session_id}; treating as already stopped")
-            return
-        await self._teardown_session_runtime(
-            session_id,
-            session=session,
-            status=SessionStatus.COMPLETED,
-            destroy_sandbox=True,
+        """Delegate to lifecycle manager."""
+        await self._lifecycle._teardown_session_runtime(
+            session_id, session=session, status=status, destroy_sandbox=destroy_sandbox
         )
 
-    async def pause_session(self, session_id: str) -> bool:
-        """Pause a session (for user takeover)
+    async def _get_task(self, session: Session) -> Task | None:
+        """Delegate to task factory."""
+        return await self._task_factory.get_task(session)
 
-        Returns:
-            bool: True if the session was paused, False otherwise
-        """
-        session = await self._session_repository.find_by_id(session_id)
-        if not session:
-            logger.error(f"Attempted to pause non-existent Session {session_id}")
-            raise RuntimeError("Session not found")
-        task = await self._get_task(session)
-        if task:
-            result = task.pause()
-            if result:
-                logger.info(f"Session {session_id} paused for user takeover")
-            return result
-        return False
+    async def _create_task(self, session: Session, extra_mcp_configs: dict[str, Any] | None = None) -> Task:
+        """Delegate to task factory."""
+        return await self._task_factory.create_task(session, extra_mcp_configs=extra_mcp_configs)
+
+    async def _classify_intent_with_context(
+        self,
+        message: str,
+        session: Session,
+        attachments: list[dict] | None = None,
+        skills: list[str] | None = None,
+    ) -> AgentMode | None:
+        """Delegate to task factory."""
+        return await self._task_factory.classify_intent_with_context(
+            message=message, session=session, attachments=attachments, skills=skills
+        )
+
+    async def _resolve_user_attachments(self, attachments: list[dict] | None, user_id: str) -> list[FileInfo] | None:
+        """Delegate to task factory."""
+        return await self._task_factory.resolve_user_attachments(attachments, user_id)
+
+    async def _build_reactivation_context(self, session_id: str) -> str | None:
+        """Delegate to task factory."""
+        return await self._task_factory.build_reactivation_context(session_id)
+
+    # ------------------------------------------------------------------
+    # Public interface (unchanged)
+    # ------------------------------------------------------------------
+
+    async def shutdown(self) -> None:
+        """Clean up all Agent's resources."""
+        logger.info("Starting to close all Agents")
+        await self._task_cls.destroy()
+        logger.info("All agents closed successfully")
+
+    async def stop_session(self, session_id: str) -> None:
+        """Stop a session and destroy its sandbox."""
+        await self._lifecycle.stop_session(session_id)
+
+    async def pause_session(self, session_id: str) -> bool:
+        """Pause a session (for user takeover)."""
+        return await self._lifecycle.pause_session(session_id)
 
     async def resume_session(
         self, session_id: str, context: str | None = None, persist_login_state: bool | None = None
     ) -> bool:
-        """Resume a paused session (after user takeover)
-
-        Args:
-            session_id: Session ID to resume
-            context: Optional context about changes made during takeover
-            persist_login_state: Optional flag to persist browser login state
-
-        Returns:
-            bool: True if the session was resumed, False otherwise
-        """
-        session = await self._session_repository.find_by_id(session_id)
-        if not session:
-            logger.error(f"Attempted to resume non-existent Session {session_id}")
-            raise RuntimeError("Session not found")
-
-        # If context is provided, inject it as a message event to inform the agent
-        if context is not None:
-            context_text = context.strip() if context else ""
-            context_message = MessageEvent(
-                message=f"""[User Browser Interaction]
-The user interacted with the browser directly.
-User's summary: {context_text or "No details provided."}
-
-NOTE: The browser state may have changed. When you next use the browser:
-1. Take a fresh screenshot to see the current state
-2. Adapt your actions based on any changes the user made""",
-                role="user",
-            )
-            await self._session_repository.add_event(session_id, context_message)
-            logger.info(f"Injected user takeover context for session {session_id}")
-
-            # Also put it in the task's input stream if task exists
-            task = await self._get_task(session)
-            if task:
-                await task.input_stream.put(context_message.model_dump_json())
-
-        # Handle persist_login_state if provided (store in session metadata for future reference)
-        if persist_login_state is not None:
-            session.persist_login_state = persist_login_state
-            await self._session_repository.save(session)
-            logger.info(f"Session {session_id} persist_login_state set to {persist_login_state}")
-
-        task = await self._get_task(session)
-        if task:
-            result = task.resume()
-            if result:
-                logger.info(f"Session {session_id} resumed after user takeover")
-            return result
-        return False
+        """Resume a paused session (after user takeover)."""
+        return await self._lifecycle.resume_session(
+            session_id, context=context, persist_login_state=persist_login_state
+        )
 
     async def enqueue_user_message(
         self,
@@ -815,15 +253,14 @@ NOTE: The browser state may have changed. When you next use the browser:
         follow_up_source: str | None = None,
         cancel_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
-        """
-        Chat with an agent
+        """Chat with an agent.
 
         Args:
             cancel_event: Event that signals cancellation (e.g., SSE disconnect).
                 Domain service checks this periodically and cancels active task execution.
         """
 
-        # Acquire concurrency slot — blocks when all sandbox slots are busy.
+        # Acquire concurrency slot -- blocks when all sandbox slots are busy.
         await self._agent_concurrency.acquire()
 
         try:
@@ -847,9 +284,6 @@ NOTE: The browser state may have changed. When you next use the browser:
 
             if message:
                 # Deduplication check: Skip if same message was recently sent to this session
-                # This prevents duplicate messages when:
-                # - Page reloads or SSE reconnects during active task
-                # - Backend restarts and frontend retries the request
                 is_duplicate = False
                 last_user_event = None
                 if session.events:
@@ -959,7 +393,6 @@ NOTE: The browser state may have changed. When you next use the browser:
                                 return
 
                     # Context-aware intent classification to determine if mode should change
-                    # This considers attachments, URLs, skills, and conversation context
                     recommended_mode = await self._classify_intent_with_context(
                         message=message,
                         session=session,
@@ -977,8 +410,6 @@ NOTE: The browser state may have changed. When you next use the browser:
                         await self._session_repository.update_mode(session_id, recommended_mode)
 
                     # Use session-level lock to prevent concurrent task creation
-                    # This prevents race conditions when fast prompts arrive before
-                    # the first task is fully initialized
                     task_lock = self._get_task_creation_lock(session_id)
                     async with task_lock:
                         # Re-check task status inside the lock - another request may have
@@ -1018,7 +449,6 @@ NOTE: The browser state may have changed. When you next use the browser:
                                     logger.warning(f"Reactivation context injection failed (non-fatal): {e}")
 
                             # Initialize workspace with template selection on first message
-                            # (Phase 1: Multi-task workspace integration)
                             try:
                                 if not session.workspace_structure and session.sandbox_id:
                                     sandbox = await self._sandbox_cls.get(session.sandbox_id)
@@ -1041,9 +471,6 @@ NOTE: The browser state may have changed. When you next use the browser:
                     )
 
                     # Resolve skill activation through a single framework.
-                    # Policy: auto-trigger is OFF by default; skills activate only via:
-                    # 1) explicit chat-box selection
-                    # 2) slash command (e.g. /brainstorm)
                     from app.domain.services.skill_activation_framework import get_skill_activation_framework
 
                     if auto_trigger_enabled is None:
@@ -1160,8 +587,6 @@ NOTE: The browser state may have changed. When you next use the browser:
                 await self._session_repository.update_unread_message_count(session_id, 0)
 
                 # Detect terminal events and persist status BEFORE yielding to SSE.
-                # This prevents a race condition where a page refresh between the
-                # SSE send and _teardown_session_runtime sees "running" in the DB.
                 if isinstance(event, DoneEvent):
                     terminal_status = SessionStatus.COMPLETED
                     await self._session_repository.update_status(session_id, SessionStatus.COMPLETED)
@@ -1178,9 +603,6 @@ NOTE: The browser state may have changed. When you next use the browser:
                     break
 
             # If the task completed without producing any events, emit a DoneEvent
-            # so the SSE client knows the stream completed normally and doesn't retry.
-            # For no-op reconnects (no message/input and no active task), end silently
-            # without forcing session completion.
             if not received_events:
                 has_message_content = bool(message and message.strip())
                 has_new_input = bool(
@@ -1230,7 +652,7 @@ NOTE: The browser state may have changed. When you next use the browser:
         """Extract and store memories from a completed session.
 
         Called asynchronously after session completion. Failures are logged
-        but never propagate — memory extraction is non-critical.
+        but never propagate -- memory extraction is non-critical.
         """
         if not self._memory_service:
             return
@@ -1264,7 +686,7 @@ NOTE: The browser state may have changed. When you next use the browser:
                 if isinstance(event, MessageEvent) and event.role == "user" and not task_description:
                     task_description = event.message
                 elif isinstance(event, MessageEvent) and event.role == "assistant":
-                    # Keep updating — last assistant message is the final result
+                    # Keep updating -- last assistant message is the final result
                     final_result = event.message
 
             if task_description and final_result:
@@ -1287,7 +709,6 @@ NOTE: The browser state may have changed. When you next use the browser:
                 logger.info(f"Extracted {len(extracted)} memories from session {session_id}")
 
             # Store visited URLs and search queries as cross-session memory
-            # This allows Qdrant to surface relevant prior research in future sessions
             try:
                 from app.domain.services.agents.task_state_manager import get_task_state_manager
 

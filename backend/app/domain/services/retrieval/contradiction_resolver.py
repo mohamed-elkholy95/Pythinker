@@ -8,6 +8,8 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from app.domain.exceptions.base import LLMKeysExhaustedError
+
 if TYPE_CHECKING:
     from app.domain.external.llm import LLM
     from app.domain.models.memory_evidence import MemoryEvidence
@@ -209,9 +211,7 @@ For example, "User prefers Python" and "User also uses JavaScript" are NOT contr
                         ev2.contradiction_reasons.append(reason)
 
         except Exception as e:
-            from app.infrastructure.external.key_pool import APIKeysExhaustedError
-
-            if isinstance(e, APIKeysExhaustedError):
+            if isinstance(e, LLMKeysExhaustedError):
                 logger.debug("LLM contradiction detection skipped: %s", e)
             else:
                 logger.warning(f"LLM contradiction detection failed: {e}")

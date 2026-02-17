@@ -92,7 +92,7 @@ async def test_create_task_recycles_sandbox_on_browser_timeout():
     with (
         patch("app.core.config.get_settings", return_value=settings),
         patch("app.core.config.get_feature_flags", return_value=_SAFE_FEATURE_FLAGS),
-        patch("app.domain.services.agent_domain_service.asyncio.wait_for", side_effect=fake_wait_for),
+        patch("app.domain.services.agents.agent_task_factory.asyncio.wait_for", side_effect=fake_wait_for),
     ):
         result = await service._create_task(session)
 
@@ -167,7 +167,9 @@ async def test_create_task_recycles_sandbox_on_browser_readiness_failure():
     with (
         patch("app.core.config.get_settings", return_value=settings),
         patch("app.core.config.get_feature_flags", return_value=_SAFE_FEATURE_FLAGS),
-        patch("app.domain.services.agent_domain_service.asyncio.wait_for", return_value=MagicMock()) as wait_for_mock,
+        patch(
+            "app.domain.services.agents.agent_task_factory.asyncio.wait_for", return_value=MagicMock()
+        ) as wait_for_mock,
     ):
         result = await service._create_task(session)
 

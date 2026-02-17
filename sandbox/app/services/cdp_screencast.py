@@ -36,7 +36,7 @@ CDP_PORT = 9222
 CDP_ENDPOINT = f"http://{CDP_HOST}:{CDP_PORT}"
 
 # Connection management
-_WS_URL_CACHE_TTL = 60.0  # Cache the WebSocket URL for 60 seconds
+_WS_URL_CACHE_TTL = 15.0  # Cache the WebSocket URL for 15s (Chrome can restart in <10s)
 _HEALTH_CHECK_TIMEOUT = 2.0  # Quick health check timeout
 _CAPTURE_COMMAND_TIMEOUT = (
     6.0  # P1.2: Increased from 4.0s to allow more time for heavy pages
@@ -101,9 +101,10 @@ class CDPScreencastService:
     # CDP error messages that indicate the page target is stale/detached.
     # When any of these appear in an error response, we invalidate the cached
     # WebSocket URL and re-discover the active page target.
+    # NOTE: "Internal error" removed — CDP -32603 is too broad (transient Chrome
+    # hiccups). Use _is_internal_error() for code-based detection instead.
     _PAGE_DETACHED_INDICATORS = frozenset({
         "Not attached to an active page",
-        "Internal error",
         "Target closed",
         "Session with given id not found",
     })
@@ -157,10 +158,33 @@ class CDPScreencastService:
         These errors occur when Chrome navigates to a new page, the tab is closed,
         or the renderer process crashes. The old page UUID becomes invalid but may
         still be returned by /json briefly.
+
+        CDP -32603 ("Internal error") is treated as a page-detach only when
+        the cached WS URL is stale (> TTL). Transient -32603 errors during
+        heavy page loads should NOT trigger full page recovery.
         """
         error = result.get("error", {})
-        message = error.get("message", "") if isinstance(error, dict) else str(error)
-        return any(indicator in message for indicator in self._PAGE_DETACHED_INDICATORS)
+        if not isinstance(error, dict):
+            return False
+        message = error.get("message", "")
+        # Direct indicator match (high-confidence page detachment)
+        if any(indicator in message for indicator in self._PAGE_DETACHED_INDICATORS):
+            return True
+        # CDP -32603: only treat as detachment if the WS URL cache is already stale
+        error_code = error.get("code")
+        if error_code == -32603:
+            cache_age = time.monotonic() - self._ws_url_cached_at
+            if cache_age > _WS_URL_CACHE_TTL:
+                logger.info(
+                    "CDP -32603 with stale WS URL (age=%.1fs > TTL=%.1fs) — treating as page detach",
+                    cache_age, _WS_URL_CACHE_TTL,
+                )
+                return True
+            logger.debug(
+                "CDP -32603 with fresh WS URL (age=%.1fs) — treating as transient error",
+                cache_age,
+            )
+        return False
 
     def invalidate_cache(self) -> None:
         """Invalidate the cached WebSocket URL to force fresh page discovery.
@@ -708,9 +732,10 @@ class CDPScreencastService:
                         break
 
                     consecutive_timeouts += 1
-                    logger.warning(
+                    logger.info(
                         f"No CDP frame received in {_STREAM_FRAME_TIMEOUT}s "
-                        f"(timeout {consecutive_timeouts}/{_MAX_CONSECUTIVE_TIMEOUTS})"
+                        f"(timeout {consecutive_timeouts}/{_MAX_CONSECUTIVE_TIMEOUTS}) — "
+                        "static page or idle browser (health check will verify)"
                     )
 
                     if consecutive_timeouts >= _MAX_CONSECUTIVE_TIMEOUTS:

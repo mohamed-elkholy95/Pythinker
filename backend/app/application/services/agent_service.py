@@ -4,6 +4,7 @@ import logging
 import posixpath
 import shlex
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
@@ -1087,6 +1088,17 @@ class AgentService:
     async def shell_view(self, session_id: str, shell_session_id: str, user_id: str) -> ShellViewResponse:
         """View shell session output, ensuring session belongs to the user"""
         logger.info(f"Getting shell view for session {session_id} for user {user_id}")
+
+        # Guard: LLM sometimes passes tool names (e.g. "list_files") instead of
+        # the actual shell session UUID. Fail fast with a clear message.
+        try:
+            uuid.UUID(shell_session_id)
+        except (ValueError, AttributeError):
+            raise ValueError(
+                f"Invalid shell_session_id '{shell_session_id}' — expected a UUID. "
+                "The LLM may have passed a tool name instead of the session ID."
+            )
+
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")

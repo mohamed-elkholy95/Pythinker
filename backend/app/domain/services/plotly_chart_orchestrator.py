@@ -123,7 +123,7 @@ class PlotlyChartOrchestrator:
         # Run Plotly chart generator script in sandbox
         try:
             # Write chart input JSON to a temp file in the sandbox
-            tmp_input = f"/tmp/plotly_input_{uuid.uuid4().hex[:8]}.json"
+            tmp_input = f"/home/ubuntu/plotly_input_{uuid.uuid4().hex[:8]}.json"
             write_result = await self._sandbox.file_write(
                 file=tmp_input,
                 content=json.dumps(script_input),

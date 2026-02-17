@@ -211,6 +211,15 @@ export const _responseInterceptorId = apiClient.interceptors.response.use(
       }
     }
 
+    // Detect stale session references — emit event so composables can clean up.
+    // Matches: /api/v1/sessions/<id>/... returning 404 (session deleted or server restarted).
+    if (error.response?.status === 404) {
+      const url = error.config?.url ?? '';
+      if (/\/api\/v1\/sessions\/[^/]+/.test(url)) {
+        window.dispatchEvent(new CustomEvent('session:invalidated', { detail: { url } }));
+      }
+    }
+
     const apiError: ApiError = {
       code: 500,
       message: 'Request failed',
@@ -219,7 +228,7 @@ export const _responseInterceptorId = apiClient.interceptors.response.use(
     if (error.response) {
       const status = error.response.status;
       apiError.code = status;
-      
+
       // Try to extract detailed error information from response content
       if (error.response.data && typeof error.response.data === 'object') {
         const data = error.response.data as Record<string, unknown>;

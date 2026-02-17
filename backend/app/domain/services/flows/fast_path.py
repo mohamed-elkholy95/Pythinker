@@ -17,6 +17,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import quote
 
+from app.domain.exceptions.base import LLMKeysExhaustedError
 from app.domain.models.event import (
     BaseEvent,
     DoneEvent,
@@ -703,9 +704,7 @@ class FastPathRouter:
                 yield MessageEvent(message=content)
 
         except Exception as e:
-            from app.infrastructure.external.key_pool import APIKeysExhaustedError
-
-            if isinstance(e, APIKeysExhaustedError):
+            if isinstance(e, LLMKeysExhaustedError):
                 logger.debug("Fast knowledge skipped: %s", e)
                 yield ErrorEvent(error="API quota temporarily exceeded. Please try again in a moment.")
             else:

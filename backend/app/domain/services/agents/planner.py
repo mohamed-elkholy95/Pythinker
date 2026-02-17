@@ -13,6 +13,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from app.domain.exceptions.base import LLMKeysExhaustedError
 from app.domain.external.llm import LLM
 from app.domain.models.long_term_memory import MemoryType
 from app.domain.models.message import Message
@@ -1185,9 +1186,7 @@ Respond with a JSON plan containing:
                     return plan
 
         except Exception as e:
-            from app.infrastructure.external.key_pool import APIKeysExhaustedError
-
-            if isinstance(e, APIKeysExhaustedError):
+            if isinstance(e, LLMKeysExhaustedError):
                 logger.debug("Plan creation skipped: %s", e)
             else:
                 logger.error(f"Plan creation failed after {max_attempts} attempts: {e}")

@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, TypeVar
 
+from app.domain.exceptions.base import LLMKeysExhaustedError
 from app.domain.external.observability import MetricsPort, get_null_metrics
 
 logger = logging.getLogger(__name__)
@@ -197,9 +198,7 @@ class ErrorHandler:
         self._record_error(error_context)
 
         # Key exhaustion is already warned once by the pool — don't re-warn per call
-        from app.infrastructure.external.key_pool import APIKeysExhaustedError
-
-        if isinstance(exception, APIKeysExhaustedError):
+        if isinstance(exception, LLMKeysExhaustedError):
             logger.debug("Classified error as %s: %s", error_type.value, error_message[:100])
         else:
             logger.warning(f"Classified error as {error_type.value}: {error_message[:100]}")
@@ -212,10 +211,8 @@ class ErrorHandler:
 
     def _determine_error_type(self, exception: Exception, message: str) -> ErrorType:
         """Determine the error type based on exception and message"""
-        # Fast path: APIKeysExhaustedError is always LLM_API
-        from app.infrastructure.external.key_pool import APIKeysExhaustedError
-
-        if isinstance(exception, APIKeysExhaustedError):
+        # Fast path: LLMKeysExhaustedError is always LLM_API
+        if isinstance(exception, LLMKeysExhaustedError):
             return ErrorType.LLM_API
 
         message_lower = message.lower()
