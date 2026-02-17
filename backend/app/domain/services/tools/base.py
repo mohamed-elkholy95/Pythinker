@@ -381,8 +381,12 @@ def log_tool_end(
     """
     duration_ms = (time.time() - start_time) * 1000
     log_method = logger.info if success else logger.warning
+    # Include failure reason in the main log line so it surfaces in log queries
+    suffix = ""
+    if not success and message:
+        suffix = f" — {message[:200]}"
     log_method(
-        f"[{tool_name}] {function_name} completed",
+        f"[{tool_name}] {function_name} completed{suffix}",
         extra={
             "success": success,
             "duration_ms": round(duration_ms, 2),

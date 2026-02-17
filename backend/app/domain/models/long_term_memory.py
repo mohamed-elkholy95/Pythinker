@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MemoryType(str, Enum):
@@ -61,7 +61,16 @@ class MemoryEntry(BaseModel):
     # Core content
     content: str = Field(description="The memory content (text)")
     memory_type: MemoryType = Field(description="Type of memory")
-    importance: MemoryImportance = Field(default=MemoryImportance.MEDIUM)
+    importance: MemoryImportance = Field(default=MemoryImportance.MEDIUM, validate_default=True)
+
+    @field_validator("importance", mode="before")
+    @classmethod
+    def _coerce_none_importance(cls, v: Any) -> Any:
+        """Coerce None importance to MEDIUM — LLM extraction may omit this field."""
+        if v is None:
+            return MemoryImportance.MEDIUM
+        return v
+
     source: MemorySource = Field(default=MemorySource.SYSTEM)
 
     # Semantic search

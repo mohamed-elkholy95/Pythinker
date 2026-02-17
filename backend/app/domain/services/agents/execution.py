@@ -1012,7 +1012,10 @@ class ExecutionAgent(BaseAgent):
             missing = getattr(coverage_result, "missing_requirements", [])
             if missing:
                 missing_text = ", ".join(missing)
-                if strict_mode:
+                # When the stream finished normally (not truncated), coverage misses
+                # are likely false positives (e.g., "next step" missing on a completed task).
+                # Only block on coverage when the stream was actually truncated.
+                if strict_mode and is_stream_truncated:
                     issues.append(f"coverage_missing:{missing_text}")
                 else:
                     warnings.append(f"coverage_missing:{missing_text}")
