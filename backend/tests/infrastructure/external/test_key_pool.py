@@ -8,8 +8,12 @@ Tests cover:
 - Health tracking (mark exhausted with TTL, mark invalid permanent)
 - TTL recovery (key becomes healthy after TTL expires)
 - Exponential backoff (with jitter, capped at max)
+- Concurrency safety (asyncio.Lock atomicity for round-robin index)
 """
 
+import asyncio
+import time
+from collections import Counter
 from unittest.mock import AsyncMock
 
 import pytest
@@ -358,3 +362,176 @@ class TestEdgeCases:
         # Should only cycle between key1 and key3
         assert results == ["key1", "key3"] * 3
         assert "key2" not in results
+
+
+@pytest.mark.asyncio
+class TestRoundRobinConcurrency:
+    """Test round-robin atomicity under concurrent access.
+
+    These tests verify that the asyncio.Lock on the round-robin index
+    prevents race conditions where multiple coroutines read the same
+    index before any of them increments it.
+    """
+
+    async def test_concurrent_round_robin_no_key_skipping(self, mock_redis):
+        """Concurrent get_healthy_key calls must not skip keys.
+
+        Without the lock, two coroutines could both read index=0,
+        both get key[0], and key[1] would be skipped entirely.
+        With the lock, each coroutine gets a unique index.
+        """
+        keys = [APIKeyConfig(key=f"key{i}", weight=1.0, priority=i) for i in range(5)]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=mock_redis,
+        )
+
+        # Fire 100 concurrent requests
+        tasks = [pool.get_healthy_key() for _ in range(100)]
+        results = await asyncio.gather(*tasks)
+
+        # Count selections per key
+        counts = Counter(results)
+
+        # With 5 keys and 100 requests, perfect round-robin gives 20 each.
+        # With the lock, distribution must be exactly even.
+        assert len(counts) == 5, f"Expected all 5 keys used, got {len(counts)}: {counts}"
+        for key_name, count in counts.items():
+            assert count == 20, f"Key {key_name} selected {count} times, expected 20. Distribution: {dict(counts)}"
+
+    async def test_concurrent_round_robin_preserves_order(self, mock_redis):
+        """Under concurrency, the total set of indices assigned must be
+        a contiguous sequence with no duplicates and no gaps.
+
+        We verify this by checking that the round-robin index after N
+        concurrent calls equals N % len(keys).
+        """
+        keys = [APIKeyConfig(key=f"key{i}", weight=1.0, priority=i) for i in range(3)]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=mock_redis,
+        )
+
+        num_requests = 99  # Exactly 33 full rotations of 3 keys
+        tasks = [pool.get_healthy_key() for _ in range(num_requests)]
+        results = await asyncio.gather(*tasks)
+
+        # After 99 requests with 3 keys, index should wrap back to 0
+        assert pool._round_robin_index == 0, (
+            f"Expected index 0 after {num_requests} requests, got {pool._round_robin_index}"
+        )
+
+        # Each key should appear exactly 33 times
+        counts = Counter(results)
+        for i in range(3):
+            assert counts[f"key{i}"] == 33, (
+                f"key{i} appeared {counts.get(f'key{i}', 0)} times, expected 33. Distribution: {dict(counts)}"
+            )
+
+    async def test_concurrent_round_robin_high_load(self, mock_redis):
+        """Load test with 500 concurrent tasks on 10 keys.
+
+        Verifies even distribution under high concurrency.
+        """
+        num_keys = 10
+        num_requests = 500
+
+        keys = [APIKeyConfig(key=f"key{i}", weight=1.0, priority=i) for i in range(num_keys)]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=mock_redis,
+        )
+
+        tasks = [pool.get_healthy_key() for _ in range(num_requests)]
+        results = await asyncio.gather(*tasks)
+
+        counts = Counter(results)
+        expected_per_key = num_requests // num_keys  # 50
+
+        # Every key must be selected exactly 50 times
+        assert len(counts) == num_keys, f"Expected all {num_keys} keys used, got {len(counts)}: {counts}"
+        for key_name, count in counts.items():
+            assert count == expected_per_key, (
+                f"Key {key_name}: {count} selections, expected {expected_per_key}. Full distribution: {dict(counts)}"
+            )
+
+    async def test_concurrent_round_robin_with_exhausted_keys(self, mock_redis):
+        """Concurrent access with some keys exhausted still distributes evenly."""
+        keys = [APIKeyConfig(key=f"key{i}", weight=1.0, priority=i) for i in range(6)]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=mock_redis,
+        )
+
+        # Exhaust keys 1, 3, 5 (leaving 0, 2, 4 healthy)
+        await pool.mark_exhausted("key1", ttl_seconds=3600)
+        await pool.mark_exhausted("key3", ttl_seconds=3600)
+        await pool.mark_exhausted("key5", ttl_seconds=3600)
+
+        num_requests = 150
+        tasks = [pool.get_healthy_key() for _ in range(num_requests)]
+        results = await asyncio.gather(*tasks)
+
+        counts = Counter(results)
+
+        # Only healthy keys should appear
+        assert "key1" not in counts, "Exhausted key1 should not be selected"
+        assert "key3" not in counts, "Exhausted key3 should not be selected"
+        assert "key5" not in counts, "Exhausted key5 should not be selected"
+
+        # Healthy keys should all be used
+        healthy_keys = {"key0", "key2", "key4"}
+        assert set(counts.keys()) == healthy_keys, f"Expected only {healthy_keys}, got {set(counts.keys())}"
+
+        # Each healthy key should get exactly 50 selections
+        for key_name in healthy_keys:
+            assert counts[key_name] == 50, (
+                f"{key_name}: {counts[key_name]} selections, expected 50. Distribution: {dict(counts)}"
+            )
+
+    async def test_lock_contention_performance(self, mock_redis):
+        """Lock acquisition should add negligible overhead (<5ms per call).
+
+        Measures wall-clock time for 1000 concurrent key selections
+        to ensure the lock does not introduce meaningful latency.
+        """
+        keys = [APIKeyConfig(key=f"key{i}", weight=1.0, priority=i) for i in range(5)]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=mock_redis,
+        )
+
+        num_requests = 1000
+        start = time.perf_counter()
+        tasks = [pool.get_healthy_key() for _ in range(num_requests)]
+        await asyncio.gather(*tasks)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        # Average time per call should be well under 1ms
+        avg_ms = elapsed_ms / num_requests
+        assert avg_ms < 1.0, (
+            f"Average lock acquisition time {avg_ms:.3f}ms exceeds 1ms threshold. "
+            f"Total: {elapsed_ms:.1f}ms for {num_requests} requests"
+        )
+
+    async def test_round_robin_lock_exists(self):
+        """Verify the lock attribute is created during __init__."""
+        pool = APIKeyPool(
+            provider="test",
+            keys=[APIKeyConfig(key="key1")],
+            strategy=RotationStrategy.ROUND_ROBIN,
+        )
+        assert hasattr(pool, "_round_robin_lock"), "Pool must have _round_robin_lock attribute"
+        assert isinstance(pool._round_robin_lock, asyncio.Lock), (
+            f"Expected asyncio.Lock, got {type(pool._round_robin_lock)}"
+        )
