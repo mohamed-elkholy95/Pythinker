@@ -91,12 +91,11 @@ def is_streamable_function(function_name: str) -> bool:
 
 def content_type_for_function(function_name: str) -> str:
     """Return the content type hint for the frontend viewer."""
-    # Code content
+    # Code content (execution only — save artifacts are plain text)
     if function_name in (
         "code_execute_python",
         "code_execute_javascript",
         "code_execute",
-        "code_save_artifact",
     ):
         return "code"
     # Terminal/shell content
@@ -112,9 +111,9 @@ def content_type_for_function(function_name: str) -> str:
         "search",
     ):
         return "search"
-    # File operations - detect by content
-    if function_name in ("file_write", "file_str_replace"):
-        return "code"  # Will be syntax highlighted
+    # File operations — show as plain text (may contain any file content, not just code)
+    if function_name in ("file_write", "file_str_replace", "code_save_artifact"):
+        return "text"
     return "text"
 
 

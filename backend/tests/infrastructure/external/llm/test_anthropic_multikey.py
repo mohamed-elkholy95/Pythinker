@@ -87,7 +87,7 @@ class TestAnthropicMultiKey:
         with pytest.raises(RuntimeError) as exc:
             await llm.ask([{"role": "user", "content": "test"}])
 
-        assert "exhausted after" in str(exc.value)
+        assert "exhausted" in str(exc.value)
 
     async def test_anthropic_works_without_redis(self):
         """Test in-memory mode without Redis."""

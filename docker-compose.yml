@@ -78,7 +78,7 @@ services:
         platforms:
           - linux/amd64
     hostname: sandbox
-    init: true  # Prevent zombie Chrome processes (Playwright best practice)
+    # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT (zombie Chrome reaping handled there)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
@@ -87,10 +87,11 @@ services:
       start_period: 60s
       retries: 3
     environment:
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
+      - LIBGL_ALWAYS_SOFTWARE=1  # Suppress Vulkan/GPU driver warnings in headless containers
     # Sandbox ports bound to localhost only — backend proxies API/live-preview to users.
     # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file access).
     ports:
@@ -115,21 +116,20 @@ services:
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
       - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome temp files and user data
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-    # File descriptor limits for browser and node processes
+    # File descriptor limits for browser processes
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
-      nproc:
-        soft: 4096
-        hard: 8192
+      # nproc removed: redundant with cgroup pids limit and scoped per-UID
+      # (moby/moby#31424) — causes confusing pthread_create EAGAIN failures
     # Resource limits: 2G per sandbox (Chromium uses less than Chrome for Testing)
     deploy:
       resources:
         limits:
           memory: 2G
           cpus: '1'
-          pids: 300
+          pids: 1024  # Raised from 300 — Chrome+Playwright+supervisord need ~400-600 PIDs under load
         reservations:
           memory: 512M
     networks:
@@ -148,13 +148,14 @@ services:
         platforms:
           - linux/amd64
     hostname: sandbox2
-    init: true  # Prevent zombie Chrome processes (Playwright best practice)
+    # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT (zombie Chrome reaping handled there)
     restart: unless-stopped
     environment:
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
+      - LIBGL_ALWAYS_SOFTWARE=1  # Suppress Vulkan/GPU driver warnings in headless containers
     ports:
       - "127.0.0.1:8084:8080"  # Sandbox API (localhost only)
       - "127.0.0.1:8085:8082"  # Sandbox framework API (localhost only)
@@ -179,15 +180,12 @@ services:
       nofile:
         soft: 65536
         hard: 65536
-      nproc:
-        soft: 4096
-        hard: 8192
     deploy:
       resources:
         limits:
           memory: 2G
           cpus: '1'
-          pids: 300
+          pids: 1024
         reservations:
           memory: 512M
     networks:

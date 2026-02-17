@@ -41,37 +41,6 @@
         @frame-received="onFrameReceived"
       />
 
-      <!-- Live Viewer Controls (floating zoom, annotations, stats) -->
-      <LiveViewerControls
-        v-if="stageReady && showControls"
-        :zoom-percent="lsZoomPercent"
-        :can-zoom-in="lsCanZoomIn"
-        :can-zoom-out="lsCanZoomOut"
-        :annotation-mode="lsAnnotationMode"
-        :active-tool="lsActiveTool"
-        :annotation-color="lsAnnotationColor"
-        :can-undo="lsCanUndo"
-        :can-redo="lsCanRedo"
-        :annotation-count="lsAnnotationCount"
-        :show-agent-actions="showAgentActions"
-        :show-agent-actions-toggle="isCanvasMode"
-        :show-stats="showStats"
-        :has-frame="lsHasFrame"
-        :fps="lsFps"
-        :bytes-per-sec="lsBytesPerSec"
-        @zoom-in="liveStageRef?.zoomCtrl?.zoomIn()"
-        @zoom-out="liveStageRef?.zoomCtrl?.zoomOut()"
-        @fit="liveStageRef?.fitToScreen()"
-        @reset="liveStageRef?.zoomCtrl?.resetZoom()"
-        @toggle-annotations="liveStageRef?.annotationLayer?.toggleActive()"
-        @toggle-agent-actions="showAgentActions = !showAgentActions"
-        @set-tool="liveStageRef?.annotationLayer?.setTool($event)"
-        @set-color="liveStageRef?.annotationLayer?.setStyle({ color: $event })"
-        @undo="liveStageRef?.annotationLayer?.undo()"
-        @redo="liveStageRef?.annotationLayer?.redo()"
-        @clear-annotations="liveStageRef?.annotationLayer?.clearAll()"
-      />
-
       <!-- Interactive mode indicator -->
       <div v-if="isInteractive" class="sandbox-interactive-indicator">
         <span class="indicator-dot"></span>
@@ -102,7 +71,6 @@ import LoadingState from '@/components/toolViews/shared/LoadingState.vue'
 import InactiveState from '@/components/toolViews/shared/InactiveState.vue'
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue'
 import KonvaLiveStage from '@/components/KonvaLiveStage.vue'
-import LiveViewerControls from '@/components/LiveViewerControls.vue'
 import { useSandboxInput } from '@/composables/useSandboxInput'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import { getScreencastUrl, getInputStreamUrl } from '@/api/agent'
@@ -123,10 +91,6 @@ const props = withDefaults(
     quality?: number
     maxFps?: number
     showStats?: boolean
-    /** True when viewing canvas/chart content (shows agent action overlay toggle) */
-    isCanvasMode?: boolean
-    /** Whether to show floating controls (zoom, annotations). Hidden in workspace Live mode. */
-    showControls?: boolean
   }>(),
   {
     viewOnly: true,
@@ -134,8 +98,6 @@ const props = withDefaults(
     quality: 70,
     maxFps: 15,
     showStats: false,
-    isCanvasMode: false,
-    showControls: true
   }
 )
 
@@ -155,42 +117,6 @@ const statusText = ref('Connecting...')
 const error = ref<string | null>(null)
 const screencastWsUrl = ref<string | null>(null)
 const showAgentActions = ref(true)
-
-// Safe computed accessors for KonvaLiveStage exposed properties.
-// Template refs can be truthy but have incomplete exposed properties
-// during setup failures or timing races. Optional chaining + defaults
-// prevent "Cannot read properties of undefined" cascading errors.
-const stageReady = computed(() => {
-  const s = liveStageRef.value
-  return !!(s?.zoomCtrl && s?.annotationLayer)
-})
-const lsZoomPercent = computed(() => liveStageRef.value?.zoomCtrl?.zoomPercent?.value ?? 100)
-const lsCanZoomIn = computed(() => liveStageRef.value?.zoomCtrl?.canZoomIn?.value ?? true)
-const lsCanZoomOut = computed(() => liveStageRef.value?.zoomCtrl?.canZoomOut?.value ?? true)
-const lsAnnotationMode = computed(() => liveStageRef.value?.annotationLayer?.isActive?.value ?? false)
-const lsActiveTool = computed(() => liveStageRef.value?.annotationLayer?.activeTool?.value ?? 'pen')
-const lsAnnotationColor = computed(() => liveStageRef.value?.annotationLayer?.style?.value?.color ?? '#ef4444')
-const lsCanUndo = computed(() => liveStageRef.value?.annotationLayer?.canUndo?.value ?? false)
-const lsCanRedo = computed(() => liveStageRef.value?.annotationLayer?.canRedo?.value ?? false)
-const lsAnnotationCount = computed(() => liveStageRef.value?.annotationLayer?.annotationCount?.value ?? 0)
-const lsHasFrame = computed(() => {
-  const v = liveStageRef.value?.hasFrame
-  // Handle both auto-unwrapped (boolean) and Ref<boolean> cases
-  return typeof v === 'boolean' ? v : v?.value ?? false
-})
-const lsFps = computed(() => {
-  const s = liveStageRef.value?.stats
-  if (!s) return 0
-  // Handle both auto-unwrapped (plain object) and Ref cases
-  const obj = (s as { value?: unknown }).value ?? s
-  return (obj as { fps?: number }).fps ?? 0
-})
-const lsBytesPerSec = computed(() => {
-  const s = liveStageRef.value?.stats
-  if (!s) return 0
-  const obj = (s as { value?: unknown }).value ?? s
-  return (obj as { bytesPerSec?: number }).bytesPerSec ?? 0
-})
 
 // Input forwarding
 const { isForwarding, startForwarding, stopForwarding, attachInputListeners } = useSandboxInput()

@@ -38,6 +38,7 @@ _SCREENSHOT_TIMEOUT_SECONDS = 5.0
 _DISPLAY_NAME = ":1"
 _CACHE_TTL_SECONDS = 30.0  # Return stale cache up to 30s old
 _CACHE_MAX_ENTRIES = 3  # Keep last few frames (different quality/scale combos)
+_HARD_MAX_STALE_SECONDS = 120.0  # Absolute ceiling — never serve screenshots older than this
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +124,21 @@ class _ScreenshotCache:
             return None
 
     async def get_any(self) -> _CachedScreenshot | None:
-        """Get any cached screenshot, even if expired (last resort)."""
+        """Get any cached screenshot, even if expired (last resort).
+
+        Returns None if the most recent entry exceeds _HARD_MAX_STALE_SECONDS
+        to avoid serving extremely stale frames that mislead users.
+        """
         async with self._lock:
             if self._entries:
-                return self._entries[-1]
+                newest = self._entries[-1]
+                if newest.age_seconds <= _HARD_MAX_STALE_SECONDS:
+                    return newest
+                logger.debug(
+                    "Stale cache rejected: age %.1fs exceeds hard ceiling %.1fs",
+                    newest.age_seconds,
+                    _HARD_MAX_STALE_SECONDS,
+                )
             return None
 
     @property

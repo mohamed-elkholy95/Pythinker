@@ -27,6 +27,7 @@ from app.domain.exceptions.base import (
     InvalidStateException,
     InvalidUserStateException,
     LLMException,
+    LLMKeysExhaustedError,
     MergeException,
     MessageNotFoundException,
     ResearchFlowException,

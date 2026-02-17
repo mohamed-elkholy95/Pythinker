@@ -273,8 +273,8 @@ Returns both interactive HTML and static PNG files.""",
             "output_png": output_png,
         }
 
-        # Write JSON spec to sandbox temp file
-        temp_input_path = f"/tmp/plotly_input_{chart_id}.json"
+        # Write JSON spec to sandbox temp file (must be within /home/ubuntu or /workspace)
+        temp_input_path = f"/home/ubuntu/plotly_input_{chart_id}.json"
         try:
             write_result = await self.sandbox.file_write(
                 file=temp_input_path,

@@ -7,6 +7,7 @@ import logging
 import re
 import time
 
+from app.domain.exceptions.base import LLMKeysExhaustedError
 from app.domain.external.llm import LLM
 from app.domain.external.observability import get_metrics
 from app.domain.services.flows.acknowledgment import AcknowledgmentGenerator
@@ -63,9 +64,7 @@ class FastAcknowledgmentRefiner:
             reason_code = type(exc).__name__
 
             # API key exhaustion: expected degradation — log at debug to avoid spam
-            from app.infrastructure.external.key_pool import APIKeysExhaustedError
-
-            if isinstance(exc, APIKeysExhaustedError):
+            if isinstance(exc, LLMKeysExhaustedError):
                 logger.debug("Fast ack refiner fallback: keys exhausted (%s)", exc)
             else:
                 self._error_count += 1

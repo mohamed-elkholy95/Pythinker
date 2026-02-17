@@ -28,22 +28,19 @@ from app.core.prometheus_metrics import (
     api_key_selections_total,
 )
 from app.core.retry import RetryConfig, calculate_delay
+from app.domain.exceptions.base import LLMKeysExhaustedError
 
 logger = logging.getLogger(__name__)
 
 
-class APIKeysExhaustedError(RuntimeError):
+class APIKeysExhaustedError(LLMKeysExhaustedError, RuntimeError):
     """Raised when all API keys in a pool are exhausted or invalid.
 
-    Subclasses ``RuntimeError`` for backward compatibility with existing
-    ``except RuntimeError`` handlers while allowing callers to distinguish
-    key-exhaustion from other runtime errors.
+    Inherits from ``LLMKeysExhaustedError`` (domain) so domain services can
+    catch it without importing from infrastructure. Also inherits from
+    ``RuntimeError`` for backward compatibility with existing ``except
+    RuntimeError`` handlers.
     """
-
-    def __init__(self, provider: str, key_count: int) -> None:
-        self.provider = provider
-        self.key_count = key_count
-        super().__init__(f"All {key_count} {provider} API keys exhausted")
 
 
 class RotationStrategy(str, Enum):

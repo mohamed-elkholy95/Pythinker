@@ -23,11 +23,6 @@ KNOWN_DOMAIN_EXCEPTIONS = {
     "memory_service.py",  # Uses infra outbox repository for Phase 2 Mongo->Qdrant sync
     "sync_worker.py",  # Domain sync orchestration still constructs infra repositories directly
     "reconciliation_job.py",  # Reconciliation job currently depends on infra db/repo implementations
-    "argument_canonicalizer.py",  # Domain tool service records infra observability metrics directly
-    "tool_definition_cache.py",  # Domain tool cache records infra observability metrics directly
-    "duplicate_query_policy.py",  # Domain dedupe policy records infra observability metrics directly
-    "failure_snapshot_service.py",  # Domain agent service records infra observability metrics directly
-    "response_recovery.py",  # Domain recovery service records infra observability metrics directly
 }
 
 

@@ -273,6 +273,20 @@ class LLMException(IntegrationException):
         super().__init__(message, service="llm")
 
 
+class LLMKeysExhaustedError(LLMException):
+    """Raised when all LLM API keys in a pool are exhausted or invalid.
+
+    Defined in the domain so that domain services can catch this error without
+    importing from the infrastructure layer (key_pool.APIKeysExhaustedError).
+    The infrastructure APIKeysExhaustedError inherits from this class.
+    """
+
+    def __init__(self, provider: str, key_count: int) -> None:
+        self.provider = provider
+        self.key_count = key_count
+        super().__init__(f"All {key_count} {provider} API keys exhausted")
+
+
 class ImageGenerationException(IntegrationException):
     """Raised when image generation service fails or is not configured."""
 

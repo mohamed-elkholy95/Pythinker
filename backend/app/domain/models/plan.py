@@ -26,35 +26,6 @@ class StepType(str, Enum):
     DELIVERY = "delivery"  # Final delivery with confidence
 
 
-class Phase(BaseModel):
-    """A phase grouping multiple steps in the agent workflow."""
-
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    phase_type: PhaseType
-    label: str
-    description: str = ""
-    status: "ExecutionStatus" = Field(default="pending")
-    order: int = 0
-    icon: str = ""  # Lucide icon name for frontend
-    color: str = ""  # Tailwind color class
-    step_ids: list[str] = Field(default_factory=list)
-    skipped: bool = False
-    skip_reason: str | None = None
-
-    @field_validator("status", mode="before")
-    @classmethod
-    def _coerce_status(cls, v: Any) -> "ExecutionStatus":
-        if isinstance(v, str):
-            return ExecutionStatus(v)
-        return v
-
-    def is_active(self) -> bool:
-        return self.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING)
-
-    def is_done(self) -> bool:
-        return self.status.is_terminal() or self.skipped
-
-
 class ExecutionStatus(str, Enum):
     """Execution status for plan steps with enhanced state tracking."""
 
@@ -112,6 +83,35 @@ class ExecutionStatus(str, Enum):
     def is_failure(self) -> bool:
         """Check if this status indicates failure."""
         return self.value in self.get_failure_statuses()
+
+
+class Phase(BaseModel):
+    """A phase grouping multiple steps in the agent workflow."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    phase_type: PhaseType
+    label: str
+    description: str = ""
+    status: ExecutionStatus = Field(default=ExecutionStatus.PENDING)
+    order: int = 0
+    icon: str = ""  # Lucide icon name for frontend
+    color: str = ""  # Tailwind color class
+    step_ids: list[str] = Field(default_factory=list)
+    skipped: bool = False
+    skip_reason: str | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _coerce_status(cls, v: Any) -> ExecutionStatus:
+        if isinstance(v, str):
+            return ExecutionStatus(v)
+        return v
+
+    def is_active(self) -> bool:
+        return self.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING)
+
+    def is_done(self) -> bool:
+        return self.status.is_terminal() or self.skipped
 
 
 class RetryPolicy(BaseModel):

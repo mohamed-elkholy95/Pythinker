@@ -1430,10 +1430,29 @@ class BaseAgent:
         }
 
     async def _ensure_within_token_limit(self) -> None:
-        """Ensure memory is within token limits, trim if necessary"""
+        """Ensure memory is within token limits, trim if necessary.
+
+        Uses a two-stage strategy:
+        1. Proactive compaction at 60% utilization (collapses verbose tool outputs in-place,
+           preserving conversation history without discarding any turns).
+        2. Hard-limit trim only if still over after compaction (discards oldest turns).
+        """
         await self._ensure_memory()
         current_messages = self.memory.get_messages()
 
+        # Stage 1: Proactive compaction before hitting the hard limit.
+        # PRESSURE_THRESHOLDS["early_warning"] = 0.60 (defined in TokenManager).
+        token_count = self._token_manager.count_messages_tokens(current_messages)
+        early_threshold = self._token_manager.PRESSURE_THRESHOLDS["early_warning"]
+        if token_count > self._token_manager._effective_limit * early_threshold:
+            self.memory.smart_compact()
+            current_messages = self.memory.get_messages()
+            logger.debug(
+                f"Proactive context compaction at {token_count} tokens "
+                f"({token_count / self._token_manager._effective_limit:.0%} utilization)"
+            )
+
+        # Stage 2: Hard-limit trim if still over after compaction.
         if not self._token_manager.is_within_limit(current_messages):
             logger.warning("Memory exceeds token limit, trimming...")
             trimmed_messages, tokens_removed = self._token_manager.trim_messages(

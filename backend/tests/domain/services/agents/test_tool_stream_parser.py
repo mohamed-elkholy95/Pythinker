@@ -21,7 +21,7 @@ class TestIsStreamableFunction:
 
     def test_unknown_function_not_streamable(self) -> None:
         assert not is_streamable_function("browser_navigate")
-        assert not is_streamable_function("shell_exec")
+        assert not is_streamable_function("browser_click")
         assert not is_streamable_function("")
 
 
