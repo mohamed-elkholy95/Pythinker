@@ -599,11 +599,27 @@ async def lifespan(app: FastAPI):
         _health_state["ready"] = True
         logger.info("Application startup complete - all services initialized")
 
+        # Wire domain-layer agent metrics to Prometheus infrastructure
+        try:
+            from app.infrastructure.observability.agent_metrics_adapter import configure_agent_metrics
+
+            configure_agent_metrics()
+        except Exception as e:
+            logger.warning(f"Agent metrics adapter configuration failed (non-critical): {e}")
+
         # Phase 2: Start sync worker for MongoDB → Qdrant outbox processing
         if _health_state["qdrant"]:
             try:
-                from app.domain.services.sync_worker import start_sync_worker
+                from app.domain.services.sync_worker import SyncWorker, set_sync_worker, start_sync_worker
+                from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
+                from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
 
+                set_sync_worker(
+                    SyncWorker(
+                        outbox_repo=SyncOutboxRepository(),
+                        qdrant_repo=QdrantMemoryRepository(),
+                    )
+                )
                 await start_sync_worker()
                 logger.info("Sync worker started for MongoDB → Qdrant synchronization")
             except Exception as e:
@@ -612,6 +628,21 @@ async def lifespan(app: FastAPI):
         # Phase 2: Start reconciliation job background task
         reconciliation_task = None
         if _health_state["qdrant"]:
+            try:
+                from app.domain.services.reconciliation_job import ReconciliationJob, set_reconciliation_job
+                from app.infrastructure.repositories.mongo_memories_collection import MongoMemoriesCollection
+                from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
+                from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
+
+                set_reconciliation_job(
+                    ReconciliationJob(
+                        outbox_repo=SyncOutboxRepository(),
+                        qdrant_repo=QdrantMemoryRepository(),
+                        memories_collection=MongoMemoriesCollection(),
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Reconciliation job initialization failed (non-critical): {e}")
 
             async def _reconciliation_loop():
                 """Periodic reconciliation -- runs every 5 minutes."""
