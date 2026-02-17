@@ -20,6 +20,9 @@ class MinIOFileStorage(FileStorage):
 
     Object key format: {user_id}/{uuid}_{filename}
     User access control via S3 object metadata (x-amz-meta-user-id).
+
+    All I/O methods delegate blocking MinIO SDK calls to a thread pool
+    via ``asyncio.to_thread`` so the event loop is never blocked.
     """
 
     _RESERVED_S3_HEADERS: ClassVar[set[str]] = {
@@ -62,6 +65,61 @@ class MinIOFileStorage(FileStorage):
 
         return normalized
 
+    # ------------------------------------------------------------------
+    # Synchronous helpers (run inside thread pool via asyncio.to_thread)
+    # ------------------------------------------------------------------
+
+    def _download_file_sync(
+        self, bucket: str, file_id: str
+    ) -> tuple[io.BytesIO, dict[str, str], str | None, int | None, datetime | None]:
+        """Synchronous download -- returns raw data + stat info for building FileInfo."""
+        client = self._minio.client
+
+        stat = client.stat_object(bucket, file_id)
+        obj_metadata = stat.metadata or {}
+
+        response = client.get_object(bucket, file_id)
+        try:
+            data = io.BytesIO(response.read())
+        finally:
+            response.close()
+            response.release_conn()
+
+        return data, dict(obj_metadata), stat.content_type, stat.size, stat.last_modified
+
+    def _delete_file_sync(self, bucket: str, file_id: str) -> dict[str, str]:
+        """Synchronous delete -- returns object metadata for ownership check."""
+        client = self._minio.client
+
+        stat = client.stat_object(bucket, file_id)
+        obj_metadata = stat.metadata or {}
+        return dict(obj_metadata)
+
+    def _remove_object_sync(self, bucket: str, file_id: str) -> None:
+        """Synchronous object removal -- runs in thread pool."""
+        self._minio.client.remove_object(bucket, file_id)
+
+    def _stat_object_sync(
+        self, bucket: str, file_id: str
+    ) -> tuple[dict[str, str], str | None, int | None, datetime | None]:
+        """Synchronous stat -- returns metadata, content_type, size, last_modified."""
+        client = self._minio.client
+        stat = client.stat_object(bucket, file_id)
+        obj_metadata = stat.metadata or {}
+        return dict(obj_metadata), stat.content_type, stat.size, stat.last_modified
+
+    def _presigned_put_sync(self, bucket: str, object_key: str, expiry: timedelta) -> str:
+        """Synchronous presigned PUT URL generation -- runs in thread pool."""
+        return self._minio.client.presigned_put_object(bucket, object_key, expires=expiry)
+
+    def _presigned_get_sync(self, bucket: str, file_id: str, expiry: timedelta) -> str:
+        """Synchronous presigned GET URL generation -- runs in thread pool."""
+        return self._minio.client.presigned_get_object(bucket, file_id, expires=expiry)
+
+    # ------------------------------------------------------------------
+    # Async public API (FileStorage protocol)
+    # ------------------------------------------------------------------
+
     async def upload_file(
         self,
         file_data: BinaryIO,
@@ -70,7 +128,7 @@ class MinIOFileStorage(FileStorage):
         content_type: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> FileInfo:
-        """Upload file to MinIO."""
+        """Upload file to MinIO (non-blocking)."""
         try:
             client = self._minio.client
             object_key = self._make_object_key(user_id, filename)
@@ -124,34 +182,25 @@ class MinIOFileStorage(FileStorage):
             raise
 
     async def download_file(self, file_id: str, user_id: str | None = None) -> tuple[BinaryIO, FileInfo]:
-        """Download file from MinIO by object key."""
+        """Download file from MinIO by object key (non-blocking)."""
         try:
-            client = self._minio.client
+            # Run all blocking I/O in thread pool
+            data, obj_metadata, content_type, size, last_modified = await asyncio.to_thread(
+                self._download_file_sync, self._bucket, file_id
+            )
 
-            # Get object stat to check metadata/ownership
-            stat = client.stat_object(self._bucket, file_id)
-            obj_metadata = stat.metadata or {}
-
-            # Check user ownership
+            # Check user ownership (non-blocking, pure logic)
             file_user_id = obj_metadata.get("x-amz-meta-user-id", "")
             if user_id is not None and file_user_id and file_user_id != user_id:
                 raise PermissionError(f"Access denied: file {file_id} does not belong to user {user_id}")
 
-            # Download object into BytesIO
-            response = client.get_object(self._bucket, file_id)
-            try:
-                data = io.BytesIO(response.read())
-            finally:
-                response.close()
-                response.release_conn()
-
             file_info = FileInfo(
                 file_id=file_id,
                 filename=obj_metadata.get("x-amz-meta-original-filename", file_id.split("/")[-1]),
-                content_type=stat.content_type,
-                size=stat.size,
-                upload_date=stat.last_modified,
-                metadata=dict(obj_metadata),
+                content_type=content_type,
+                size=size,
+                upload_date=last_modified,
+                metadata=obj_metadata,
                 user_id=file_user_id,
             )
 
@@ -169,19 +218,17 @@ class MinIOFileStorage(FileStorage):
             raise
 
     async def delete_file(self, file_id: str, user_id: str) -> bool:
-        """Delete file from MinIO."""
+        """Delete file from MinIO (non-blocking)."""
         try:
-            client = self._minio.client
-
-            # Check ownership before deletion
-            stat = client.stat_object(self._bucket, file_id)
-            obj_metadata = stat.metadata or {}
+            # Stat object in thread pool to check ownership
+            obj_metadata = await asyncio.to_thread(self._delete_file_sync, self._bucket, file_id)
             file_user_id = obj_metadata.get("x-amz-meta-user-id", "")
             if file_user_id and file_user_id != user_id:
                 logger.warning("Delete access denied: file %s does not belong to user %s", file_id, user_id)
                 return False
 
-            client.remove_object(self._bucket, file_id)
+            # Remove object in thread pool
+            await asyncio.to_thread(self._remove_object_sync, self._bucket, file_id)
             logger.info("File deleted from MinIO: %s by user %s", file_id, user_id)
             return True
 
@@ -195,13 +242,14 @@ class MinIOFileStorage(FileStorage):
             return False
 
     async def get_file_info(self, file_id: str, user_id: str | None = None) -> FileInfo | None:
-        """Get file metadata from MinIO."""
+        """Get file metadata from MinIO (non-blocking)."""
         try:
-            client = self._minio.client
-            stat = client.stat_object(self._bucket, file_id)
-            obj_metadata = stat.metadata or {}
+            # Stat object in thread pool
+            obj_metadata, content_type, size, last_modified = await asyncio.to_thread(
+                self._stat_object_sync, self._bucket, file_id
+            )
 
-            # Check ownership
+            # Check ownership (non-blocking, pure logic)
             file_user_id = obj_metadata.get("x-amz-meta-user-id", "")
             if user_id is not None and file_user_id and file_user_id != user_id:
                 logger.warning("Access denied: file %s does not belong to user %s", file_id, user_id)
@@ -210,10 +258,10 @@ class MinIOFileStorage(FileStorage):
             return FileInfo(
                 file_id=file_id,
                 filename=obj_metadata.get("x-amz-meta-original-filename", file_id.split("/")[-1]),
-                content_type=stat.content_type,
-                size=stat.size,
-                upload_date=stat.last_modified,
-                metadata=dict(obj_metadata),
+                content_type=content_type,
+                size=size,
+                upload_date=last_modified,
+                metadata=obj_metadata,
                 user_id=file_user_id,
             )
 
@@ -229,17 +277,12 @@ class MinIOFileStorage(FileStorage):
     async def generate_upload_url(
         self, filename: str, user_id: str, content_type: str | None = None
     ) -> tuple[str, str]:
-        """Generate a presigned PUT URL for direct upload to MinIO."""
+        """Generate a presigned PUT URL for direct upload to MinIO (non-blocking)."""
         try:
-            client = self._minio.client
             object_key = self._make_object_key(user_id, filename)
             expiry = timedelta(seconds=self._settings.minio_presigned_expiry_seconds)
 
-            url = client.presigned_put_object(
-                self._bucket,
-                object_key,
-                expires=expiry,
-            )
+            url = await asyncio.to_thread(self._presigned_put_sync, self._bucket, object_key, expiry)
 
             logger.info("Generated presigned upload URL for %s (key: %s)", filename, object_key)
             return url, object_key
@@ -249,25 +292,18 @@ class MinIOFileStorage(FileStorage):
             raise
 
     async def generate_download_url(self, file_id: str, user_id: str | None = None) -> str:
-        """Generate a presigned GET URL for direct download from MinIO."""
+        """Generate a presigned GET URL for direct download from MinIO (non-blocking)."""
         try:
-            client = self._minio.client
-
-            # Verify ownership if user_id provided
+            # Verify ownership if user_id provided (blocking I/O in thread pool)
             if user_id is not None:
-                stat = client.stat_object(self._bucket, file_id)
-                obj_metadata = stat.metadata or {}
+                obj_metadata, _, _, _ = await asyncio.to_thread(self._stat_object_sync, self._bucket, file_id)
                 file_user_id = obj_metadata.get("x-amz-meta-user-id", "")
                 if file_user_id and file_user_id != user_id:
                     raise PermissionError(f"Access denied: file {file_id} does not belong to user {user_id}")
 
             expiry = timedelta(seconds=self._settings.minio_presigned_expiry_seconds)
 
-            url = client.presigned_get_object(
-                self._bucket,
-                file_id,
-                expires=expiry,
-            )
+            url = await asyncio.to_thread(self._presigned_get_sync, self._bucket, file_id, expiry)
 
             logger.info("Generated presigned download URL for %s", file_id)
             return url
