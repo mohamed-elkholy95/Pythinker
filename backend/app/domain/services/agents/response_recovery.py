@@ -10,18 +10,13 @@ import time
 from datetime import UTC
 from typing import Any, ClassVar
 
+from app.domain.metrics.agent_metrics import get_agent_metrics
 from app.domain.models.recovery import (
     RecoveryAttempt,
     RecoveryBudgetExhaustedError,
     RecoveryDecision,
     RecoveryReason,
     RecoveryStrategy,
-)
-from app.infrastructure.observability.agent_metrics import (
-    agent_response_recovery_failure,
-    agent_response_recovery_success,
-    agent_response_recovery_trigger,
-    recovery_duration,
 )
 
 logger = logging.getLogger(__name__)
@@ -215,7 +210,8 @@ class ResponseRecoveryPolicy:
         # Check budget
         if attempt_number > self.max_retries:
             # Track failure
-            agent_response_recovery_failure.inc(
+            metrics = get_agent_metrics()
+            metrics.response_recovery_failure.inc(
                 labels={
                     "recovery_reason": recovery_reason.value,
                     "agent_type": self.agent_type,
@@ -229,7 +225,8 @@ class ResponseRecoveryPolicy:
             )
 
         # Track recovery trigger
-        agent_response_recovery_trigger.inc(
+        metrics = get_agent_metrics()
+        metrics.response_recovery_trigger.inc(
             labels={
                 "recovery_reason": recovery_reason.value,
                 "agent_type": self.agent_type,
@@ -250,13 +247,13 @@ class ResponseRecoveryPolicy:
 
             # Track duration
             duration = time.time() - start_time
-            recovery_duration.observe(
+            metrics.recovery_duration.observe(
                 labels={"recovery_reason": recovery_reason.value},
                 value=duration,
             )
 
             # Track success
-            agent_response_recovery_success.inc(
+            metrics.response_recovery_success.inc(
                 labels={
                     "recovery_strategy": strategy.value,
                     "retry_count": str(attempt_number),
@@ -282,7 +279,7 @@ class ResponseRecoveryPolicy:
         except Exception as e:
             # Track duration even on failure
             duration = time.time() - start_time
-            recovery_duration.observe(
+            metrics.recovery_duration.observe(
                 labels={"recovery_reason": recovery_reason.value},
                 value=duration,
             )
