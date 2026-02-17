@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 class PhaseType(str, Enum):
@@ -24,6 +24,7 @@ class StepType(str, Enum):
     SELF_REVIEW = "self_review"  # LLM-only QA review (no tools)
     ALIGNMENT = "alignment"  # Goal clarification
     DELIVERY = "delivery"  # Final delivery with confidence
+    FINALIZATION = "finalization"  # Report composition + verification
 
 
 class ExecutionStatus(str, Enum):
@@ -88,6 +89,8 @@ class ExecutionStatus(str, Enum):
 class Phase(BaseModel):
     """A phase grouping multiple steps in the agent workflow."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     phase_type: PhaseType
     label: str
@@ -126,6 +129,8 @@ class RetryPolicy(BaseModel):
 
 class Step(BaseModel):
     """Step in a plan with enhanced status tracking."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
@@ -208,6 +213,8 @@ class Step(BaseModel):
 
 class Plan(BaseModel):
     """Plan with steps and enhanced progress tracking."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str = ""

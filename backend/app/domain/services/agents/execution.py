@@ -27,7 +27,7 @@ from app.domain.models.event import (
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
-from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.models.plan import ExecutionStatus, Plan, Step, StepType
 from app.domain.models.source_citation import SourceCitation
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.base import BaseAgent
@@ -137,15 +137,18 @@ class ExecutionAgent(BaseAgent):
         # Context manager for execution continuity (Phase 1)
         self._context_manager = ContextManager(max_context_tokens=8000)
 
-        # Chain-of-Verification for hallucination reduction (Phase 2)
+        # Chain-of-Verification for hallucination reduction (Phase 2 — deprecated)
         self._cove = ChainOfVerification(
             llm=llm,
             json_parser=json_parser,
             max_questions=5,
             parallel_verification=True,
-            min_response_length=200,  # Lowered to catch more hallucinations
+            min_response_length=200,
         )
-        self._cove_enabled = True  # Can be configured via feature flags
+        self._cove_enabled = False  # Deprecated: use LettuceDetect instead
+
+        # LettuceDetect encoder-based hallucination verification (replaces CoVe)
+        self._lettuce_enabled = True  # Configured via feature flags
 
         # Source citation tracking for reports (capped to prevent unbounded growth)
         self._max_collected_sources: int = 200
@@ -473,18 +476,16 @@ class ExecutionAgent(BaseAgent):
                     ):
                         logger.warning("Step response payload missing/invalid schema; marking step as unsuccessful")
 
-                    # Apply CoVe on step results for factual content (step-level verification)
-                    if step.result and self._cove_enabled and self._user_request:
+                    # Apply hallucination verification on step results
+                    if step.result and self._user_request:
                         result_str = str(step.result)
-                        if self._needs_cove_verification(result_str, self._user_request):
-                            verified_result, cove_result = await self._apply_cove_verification(
+                        if self._needs_verification(result_str, self._user_request):
+                            verified_result = await self._apply_hallucination_verification(
                                 result_str, self._user_request
                             )
-                            if cove_result and cove_result.has_contradictions:
+                            if verified_result != result_str:
                                 step.result = verified_result
-                                logger.info(
-                                    f"CoVe refined step result: {cove_result.claims_contradicted} claims corrected"
-                                )
+                                logger.info("Hallucination verification refined step result")
 
                     yield StepEvent(status=StepStatus.COMPLETED, step=step)
                     if step.result:
@@ -589,7 +590,12 @@ class ExecutionAgent(BaseAgent):
 
         yield StepEvent(
             status=StepStatus.RUNNING,
-            step=Step(id="summarize", description="Composing final report...", status=ExecutionStatus.RUNNING),
+            step=Step(
+                id="finalization",
+                description="Composing report...",
+                status=ExecutionStatus.RUNNING,
+                step_type=StepType.FINALIZATION,
+            ),
         )
 
         # Use streaming prompt (plain markdown, no JSON wrapper)
@@ -687,9 +693,10 @@ class ExecutionAgent(BaseAgent):
                 yield StepEvent(
                     status=StepStatus.FAILED,
                     step=Step(
-                        id="summarize",
+                        id="finalization",
                         description="Summary contained no usable content",
                         status=ExecutionStatus.FAILED,
+                        step_type=StepType.FINALIZATION,
                     ),
                 )
                 yield ErrorEvent(error="Summary generation failed: LLM produced no report content")
@@ -769,35 +776,24 @@ class ExecutionAgent(BaseAgent):
             # Extract title from first # heading
             message_title = self._extract_title(message_content)
 
-            # Phase 2: Post-processing (CoVe + Critic on complete text)
-            should_run_summary_cove = (
-                self._cove_enabled
+            # Phase 2: Post-processing — hallucination verification
+            should_run_verification = (
+                bool(self._user_request)
                 and len(message_content) > 300
-                and bool(self._user_request)
-                and self._needs_cove_verification(message_content, self._user_request)
+                and self._needs_verification(message_content, self._user_request)
             )
-            if should_run_summary_cove:
-                # Emit progress event before CoVe to prevent SSE timeout during verification
+            if should_run_verification:
+                # Emit progress event — frontend will update the existing card's sub-stage
                 yield StepEvent(
                     status=StepStatus.RUNNING,
                     step=Step(
-                        id="cove_verification",
+                        id="finalization",
                         description="Verifying factual claims...",
                         status=ExecutionStatus.RUNNING,
+                        step_type=StepType.FINALIZATION,
                     ),
                 )
-                message_content, cove_result = await self._apply_cove_verification(message_content, self._user_request)
-                if cove_result and cove_result.has_contradictions:
-                    logger.info(
-                        f"CoVe refined output: {cove_result.claims_contradicted} claims corrected, "
-                        f"new confidence: {cove_result.confidence_score:.2f}"
-                    )
-                yield StepEvent(
-                    status=StepStatus.COMPLETED,
-                    step=Step(
-                        id="cove_verification", description="Factual claims verified", status=ExecutionStatus.COMPLETED
-                    ),
-                )
+                message_content = await self._apply_hallucination_verification(message_content, self._user_request)
 
             # Critic revision loop disabled — the 5-check framework produces
             # unreliable results with the current LLM (unknown check names, excessive
@@ -872,9 +868,10 @@ class ExecutionAgent(BaseAgent):
                 yield StepEvent(
                     status=StepStatus.FAILED,
                     step=Step(
-                        id="summarize",
+                        id="finalization",
                         description="Summary failed delivery integrity checks",
                         status=ExecutionStatus.FAILED,
+                        step_type=StepType.FINALIZATION,
                     ),
                 )
                 yield ErrorEvent(error=f"Delivery integrity gate blocked output: {issue_text}")
@@ -914,7 +911,12 @@ class ExecutionAgent(BaseAgent):
 
             yield StepEvent(
                 status=StepStatus.COMPLETED,
-                step=Step(id="summarize", description="Summary complete", status=ExecutionStatus.COMPLETED),
+                step=Step(
+                    id="finalization",
+                    description="Report finalized",
+                    status=ExecutionStatus.COMPLETED,
+                    step_type=StepType.FINALIZATION,
+                ),
             )
 
             # Emit final report/message event
@@ -1011,14 +1013,23 @@ class ExecutionAgent(BaseAgent):
         if not getattr(coverage_result, "is_valid", True):
             missing = getattr(coverage_result, "missing_requirements", [])
             if missing:
-                missing_text = ", ".join(missing)
+                # "next step" is forward-looking boilerplate, not a completeness indicator.
+                # It should never block delivery — finalization steps have no next step.
+                non_blocking = {"next step"}
+                blocking_missing = [r for r in missing if r.lower() not in non_blocking]
+                warning_only = [r for r in missing if r.lower() in non_blocking]
+
+                if warning_only:
+                    warnings.append(f"coverage_missing:{', '.join(warning_only)}")
+
                 # When the stream finished normally (not truncated), coverage misses
-                # are likely false positives (e.g., "next step" missing on a completed task).
-                # Only block on coverage when the stream was actually truncated.
-                if strict_mode and is_stream_truncated:
-                    issues.append(f"coverage_missing:{missing_text}")
-                else:
-                    warnings.append(f"coverage_missing:{missing_text}")
+                # are likely false positives. Only block on coverage when truncated.
+                if blocking_missing:
+                    missing_text = ", ".join(blocking_missing)
+                    if strict_mode and is_stream_truncated:
+                        issues.append(f"coverage_missing:{missing_text}")
+                    else:
+                        warnings.append(f"coverage_missing:{missing_text}")
             else:
                 # is_valid=False with no missing requirements means addresses_user_request
                 # failed.  Term-overlap heuristic has high false-positive rate — always warn.
@@ -1566,6 +1577,122 @@ class ExecutionAgent(BaseAgent):
             logger.info(f"Max revisions ({max_revisions}) reached, delivering best version")
 
         return current_content
+
+    async def _apply_hallucination_verification(self, content: str, query: str) -> str:
+        """Apply hallucination verification using LettuceDetect (or CoVe fallback).
+
+        LettuceDetect uses a ModernBERT encoder to classify each token in the
+        answer as supported or hallucinated, grounded against collected source
+        context. This runs in ~100ms with zero LLM calls.
+
+        Falls back to CoVe if LettuceDetect is disabled or unavailable.
+
+        Args:
+            content: The content to verify.
+            query: Original user query for context.
+
+        Returns:
+            Verified content (hallucinated spans redacted if detected).
+        """
+        flags = self._resolve_feature_flags()
+
+        # Try LettuceDetect first (preferred: fast, no LLM cost)
+        if self._lettuce_enabled and flags.get("lettuce_verification", True):
+            try:
+                from app.domain.services.agents.lettuce_verifier import get_lettuce_verifier
+
+                verifier = get_lettuce_verifier()
+
+                # Build grounding context from collected sources
+                source_context = self._build_source_context()
+
+                result = verifier.verify(
+                    context=source_context,
+                    question=query,
+                    answer=content,
+                )
+
+                if not result.skipped and result.has_hallucinations:
+                    logger.warning(
+                        "LettuceDetect: %d hallucinated span(s), confidence: %.2f, ratio: %.1f%%",
+                        len(result.hallucinated_spans),
+                        result.confidence_score,
+                        result.hallucination_ratio * 100,
+                    )
+                    self._context_manager.add_insight(
+                        insight_type=InsightType.ERROR_LEARNING,
+                        content=(
+                            f"LettuceDetect found {len(result.hallucinated_spans)} hallucinated span(s) "
+                            f"({result.hallucination_ratio:.1%} of text)"
+                        ),
+                        confidence=0.9,
+                        tags=["hallucination", "lettuce", "verification"],
+                    )
+
+                    # Record Prometheus metric
+                    _metrics.increment(
+                        "pythinker_hallucination_detections_total",
+                        labels={
+                            "method": "lettuce",
+                            "span_count": str(len(result.hallucinated_spans)),
+                        },
+                    )
+
+                    return verifier.redact_hallucinations(content, result.hallucinated_spans)
+
+                if not result.skipped:
+                    logger.info("LettuceDetect: %s", result.get_summary())
+
+                return content
+
+            except Exception as e:
+                logger.warning("LettuceDetect failed, falling back to CoVe: %s", e)
+
+        # Fallback: CoVe (deprecated, disabled by default)
+        if self._cove_enabled and flags.get("chain_of_verification", False):
+            verified, _ = await self._apply_cove_verification(content, query)
+            return verified
+
+        return content
+
+    def _build_source_context(self) -> str:
+        """Build grounding context from collected sources for hallucination verification.
+
+        Concatenates snippets from _collected_sources (search results, page
+        content) into a single context string for LettuceDetect. Truncated
+        to 4000 chars to fit ModernBERT's context window.
+
+        Returns:
+            Concatenated source context string.
+        """
+        if not self._collected_sources:
+            return ""
+
+        parts: list[str] = []
+        total_len = 0
+        max_len = 4000
+
+        for source in self._collected_sources:
+            snippet = source.snippet or ""
+            if not snippet:
+                continue
+            if total_len + len(snippet) > max_len:
+                remaining = max_len - total_len
+                if remaining > 50:
+                    parts.append(snippet[:remaining])
+                break
+            parts.append(snippet)
+            total_len += len(snippet)
+
+        return " ".join(parts)
+
+    def _needs_verification(self, content: str, query: str) -> bool:
+        """Determine if content needs hallucination verification.
+
+        Delegates to _needs_cove_verification which contains the heuristic
+        for detecting research/factual/comparative content.
+        """
+        return self._needs_cove_verification(content, query)
 
     async def _apply_cove_verification(self, content: str, query: str) -> tuple[str, CoVeResult | None]:
         """Apply Chain-of-Verification to reduce hallucinations in factual content.
