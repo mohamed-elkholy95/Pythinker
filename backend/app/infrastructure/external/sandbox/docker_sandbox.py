@@ -3,6 +3,7 @@ import contextlib
 import io
 import logging
 import socket
+import threading
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, BinaryIO, ClassVar
@@ -1489,33 +1490,54 @@ class DockerSandbox(Sandbox):
 
     # Round-robin counter for multi-sandbox dev mode
     _sandbox_rr_index: int = 0
+    # threading.Lock for atomic read+increment of round-robin index.
+    # Use threading.Lock (not asyncio.Lock) because the critical section
+    # is synchronous (no await) and must be safe across concurrent coroutines.
+    _sandbox_rr_lock: ClassVar[threading.Lock] = threading.Lock()
     # Sandbox → session ownership map (sandbox_address → session_id)
     _active_sessions: ClassVar[dict[str, str]] = {}
+    # asyncio.Lock for session dict mutations. Callers are async methods,
+    # so asyncio.Lock correctly serialises within a single event loop.
+    _active_sessions_lock: ClassVar[asyncio.Lock] = asyncio.Lock()
 
     @classmethod
-    def register_session(cls, sandbox_address: str, session_id: str) -> str | None:
+    async def register_session(cls, sandbox_address: str, session_id: str) -> str | None:
         """Register a session as owning a sandbox address.
+
+        Thread-safe: uses asyncio.Lock to serialise concurrent access
+        to the shared ``_active_sessions`` dict.
 
         Returns the previous session_id if one was registered (caller should stop it).
         """
-        previous = cls._active_sessions.get(sandbox_address)
-        cls._active_sessions[sandbox_address] = session_id
-        if previous and previous != session_id:
-            logger.info(f"Sandbox {sandbox_address} reassigned: {previous} -> {session_id}")
-        return previous if previous and previous != session_id else None
+        async with cls._active_sessions_lock:
+            previous = cls._active_sessions.get(sandbox_address)
+            cls._active_sessions[sandbox_address] = session_id
+            if previous and previous != session_id:
+                logger.info(f"Sandbox {sandbox_address} reassigned: {previous} -> {session_id}")
+            return previous if previous and previous != session_id else None
 
     @classmethod
-    def unregister_session(cls, sandbox_address: str, session_id: str | None = None) -> None:
-        """Unregister a session from a sandbox address."""
-        current = cls._active_sessions.get(sandbox_address)
-        if session_id is None or current == session_id:
-            cls._active_sessions.pop(sandbox_address, None)
-            logger.debug(f"Unregistered session from sandbox {sandbox_address}")
+    async def unregister_session(cls, sandbox_address: str, session_id: str | None = None) -> None:
+        """Unregister a session from a sandbox address.
+
+        Thread-safe: uses asyncio.Lock to serialise concurrent access
+        to the shared ``_active_sessions`` dict.
+        """
+        async with cls._active_sessions_lock:
+            current = cls._active_sessions.get(sandbox_address)
+            if session_id is None or current == session_id:
+                cls._active_sessions.pop(sandbox_address, None)
+                logger.debug(f"Unregistered session from sandbox {sandbox_address}")
 
     @classmethod
-    def get_session_for_sandbox(cls, sandbox_address: str) -> str | None:
-        """Get the session currently assigned to a sandbox address."""
-        return cls._active_sessions.get(sandbox_address)
+    async def get_session_for_sandbox(cls, sandbox_address: str) -> str | None:
+        """Get the session currently assigned to a sandbox address.
+
+        Thread-safe: uses asyncio.Lock to serialise concurrent access
+        to the shared ``_active_sessions`` dict.
+        """
+        async with cls._active_sessions_lock:
+            return cls._active_sessions.get(sandbox_address)
 
     @classmethod
     async def create(cls) -> Sandbox:
@@ -1539,9 +1561,11 @@ class DockerSandbox(Sandbox):
 
         if uses_static_sandboxes and settings.sandbox_address:
             addresses = [a.strip() for a in settings.sandbox_address.split(",") if a.strip()]
-            # Round-robin across available addresses
-            address = addresses[cls._sandbox_rr_index % len(addresses)]
-            cls._sandbox_rr_index += 1
+            # Atomic read+increment with threading.Lock to prevent concurrent
+            # create() calls from receiving the same sandbox address.
+            with cls._sandbox_rr_lock:
+                address = addresses[cls._sandbox_rr_index % len(addresses)]
+                cls._sandbox_rr_index += 1
             ip = await cls._resolve_hostname_to_ip(address)
             container_name = f"dev-sandbox-{address}"
             logger.info(f"Assigned dev sandbox '{address}' (IP: {ip}) via round-robin")
