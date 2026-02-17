@@ -163,6 +163,15 @@ KNOWLEDGE_PATTERNS = [
     r"\?$",  # Ends with question mark (likely a question)
 ]
 
+# Patterns for explicit short-response directives.
+# These are simple conversational formatting requests that should not trigger
+# full planning/report workflows (e.g. "Reply with a short sentence.").
+SIMPLE_RESPONSE_PATTERNS = [
+    r"^(?:please\s+)?(?:reply|respond|answer|say)\s+(?:with\s+)?(?:a\s+)?(?:short|brief|concise|single|one)\s+(?:sentence|reply|response)\b",
+    r"^(?:please\s+)?(?:reply|respond|answer)\s+(?:in\s+)?(?:one|1|a\s+single)\s+sentence\b",
+    r"^(?:please\s+)?write\s+(?:a\s+)?(?:short|brief|concise|single|one)\s+(?:sentence|reply|response)\b",
+]
+
 # Patterns that indicate a complex task requiring planning
 TASK_PATTERNS = [
     # "create/build full/complete X" - strong task indicator (handles typos in target word)
@@ -265,6 +274,14 @@ class FastPathRouter:
             if re.match(pattern, message_lower):
                 logger.info(f"Query classified as GREETING (acknowledgment): {message_clean[:50]}")
                 return QueryIntent.GREETING, {"original_message": message_clean}
+
+        # Check for explicit short-response directives before TASK matching.
+        # This avoids over-routing simple conversational requests into the full
+        # planning/report pipeline.
+        for pattern in SIMPLE_RESPONSE_PATTERNS:
+            if re.search(pattern, message_lower):
+                logger.info("Query classified as KNOWLEDGE (simple response directive)")
+                return QueryIntent.KNOWLEDGE, {"question": message_clean}
 
         # Check for explicit task indicators
         for pattern in TASK_PATTERNS:
