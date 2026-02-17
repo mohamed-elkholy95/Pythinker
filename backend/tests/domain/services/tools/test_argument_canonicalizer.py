@@ -5,15 +5,38 @@ Test coverage for argument alias mapping and canonicalization.
 
 import pytest
 
+from app.domain.metrics.agent_metrics import AgentMetrics, set_agent_metrics
 from app.domain.services.tools.argument_canonicalizer import ArgumentCanonicalizer
-from app.infrastructure.observability.agent_metrics import (
-    agent_tool_args_canonicalized,
-    agent_tool_args_rejected,
-)
+
+
+class _TrackingCounter:
+    """Simple counter that tracks .inc() calls for test assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str] | None] = []
+
+    def inc(self, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
+        self.calls.append(labels)
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
 
 
 class TestArgumentCanonicalizer:
     """Test suite for argument canonicalization."""
+
+    @pytest.fixture(autouse=True)
+    def _inject_tracking_metrics(self):
+        """Inject tracking metrics into the domain AgentMetrics singleton."""
+        self._metrics = AgentMetrics()
+        self._canonicalized_counter = _TrackingCounter()
+        self._rejected_counter = _TrackingCounter()
+        self._metrics.tool_args_canonicalized = self._canonicalized_counter
+        self._metrics.tool_args_rejected = self._rejected_counter
+        set_agent_metrics(self._metrics)
+        yield
+        set_agent_metrics(AgentMetrics())
 
     @pytest.fixture
     def canonicalizer(self):
@@ -160,28 +183,30 @@ class TestArgumentCanonicalizer:
         assert "url" not in canonical
 
     def test_canonicalization_metrics_incremented(self, canonicalizer):
-        """Test canonicalization metrics are tracked."""
-        initial_count = agent_tool_args_canonicalized.get({"tool_name": "browser", "alias_type": "uri"})
+        """Test canonicalization metrics are tracked via domain AgentMetrics."""
+        initial_count = self._canonicalized_counter.call_count
 
         args = {"uri": "https://example.com"}
         canonicalizer.canonicalize("browser", args)
 
-        final_count = agent_tool_args_canonicalized.get({"tool_name": "browser", "alias_type": "uri"})
-
-        assert final_count > initial_count
+        assert self._canonicalized_counter.call_count > initial_count
+        last_call = self._canonicalized_counter.calls[-1]
+        assert last_call["tool_name"] == "browser"
+        assert last_call["alias_type"] == "uri"
 
     def test_rejection_metrics_incremented(self, canonicalizer):
-        """Test rejection metrics tracked for unknown fields."""
-        initial_count = agent_tool_args_rejected.get({"tool_name": "browser", "rejection_reason": "unknown_field"})
+        """Test rejection metrics tracked for unknown fields via domain AgentMetrics."""
+        initial_count = self._rejected_counter.call_count
 
         args = {"url": "https://example.com", "bad_field": "value"}
         known_fields = {"url", "timeout"}
 
         canonicalizer.validate_no_unknown_fields("browser", args, known_fields)
 
-        final_count = agent_tool_args_rejected.get({"tool_name": "browser", "rejection_reason": "unknown_field"})
-
-        assert final_count > initial_count
+        assert self._rejected_counter.call_count > initial_count
+        last_call = self._rejected_counter.calls[-1]
+        assert last_call["tool_name"] == "browser"
+        assert last_call["rejection_reason"] == "unknown_field"
 
     def test_security_no_broad_coercion(self, canonicalizer):
         """Test that unknown fields are NOT silently coerced (security)."""
