@@ -9,11 +9,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.infrastructure.observability.agent_metrics import (
-    agent_duplicate_query_blocked,
-    agent_duplicate_query_override,
-    duplicate_query_window_size,
-)
+from app.domain.metrics.agent_metrics import get_agent_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +91,8 @@ class DuplicateQueryPolicy:
         self._cache = QueryCache(window_minutes=window_minutes)
 
         # Update window size gauge
-        duplicate_query_window_size.set(
+        metrics = get_agent_metrics()
+        metrics.duplicate_query_window_size.set(
             labels={"policy_type": "time_windowed"},
             value=float(window_minutes),
         )
@@ -136,7 +133,7 @@ class DuplicateQueryPolicy:
         # Check force retry flag
         if force_retry:
             logger.info(f"Query {signature} allowed: explicit retry")
-            agent_duplicate_query_override.inc(labels={"override_reason": "explicit_retry"})
+            get_agent_metrics().duplicate_query_override.inc(labels={"override_reason": "explicit_retry"})
             return False, "explicit_retry"
 
         # Check if duplicate exists in cache
@@ -149,18 +146,18 @@ class DuplicateQueryPolicy:
         # Duplicate found - check if previous execution failed
         if not cached_result.success:
             logger.info(f"Query {signature} allowed: previous execution failed")
-            agent_duplicate_query_override.inc(labels={"override_reason": "previous_failure"})
+            get_agent_metrics().duplicate_query_override.inc(labels={"override_reason": "previous_failure"})
             return False, "previous_failure"
 
         # Duplicate found - check quality
         if cached_result.quality_score < self.quality_threshold:
             logger.info(f"Query {signature} allowed: low quality result ({cached_result.quality_score:.2f})")
-            agent_duplicate_query_override.inc(labels={"override_reason": "low_quality_result"})
+            get_agent_metrics().duplicate_query_override.inc(labels={"override_reason": "low_quality_result"})
             return False, "low_quality_result"
 
         # Suppress duplicate
         logger.info(f"Query {signature} suppressed: duplicate within {self.window_minutes}m window")
-        agent_duplicate_query_blocked.inc(
+        get_agent_metrics().duplicate_query_blocked.inc(
             labels={
                 "tool_name": tool_name,
                 "suppression_reason": "duplicate_within_window",
