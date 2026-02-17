@@ -6,10 +6,7 @@ Maps argument aliases to canonical names before Pydantic validation.
 import logging
 from typing import Any, ClassVar
 
-from app.infrastructure.observability.agent_metrics import (
-    agent_tool_args_canonicalized,
-    agent_tool_args_rejected,
-)
+from app.domain.metrics.agent_metrics import get_agent_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +79,7 @@ class ArgumentCanonicalizer:
                 logger.info(f"Canonicalized argument: {tool_name}.{arg_name} → {canonical_name}")
 
                 # Track metric
-                agent_tool_args_canonicalized.inc(
+                get_agent_metrics().tool_args_canonicalized.inc(
                     labels={
                         "tool_name": tool_name,
                         "alias_type": arg_name,
@@ -118,8 +115,9 @@ class ArgumentCanonicalizer:
             logger.warning(f"Unknown fields for {tool_name}: {unknown_fields}")
 
             # Track rejection metric
+            metrics = get_agent_metrics()
             for _field in unknown_fields:
-                agent_tool_args_rejected.inc(
+                metrics.tool_args_rejected.inc(
                     labels={
                         "tool_name": tool_name,
                         "rejection_reason": "unknown_field",
