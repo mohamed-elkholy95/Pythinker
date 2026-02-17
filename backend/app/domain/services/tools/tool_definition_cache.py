@@ -10,14 +10,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from app.infrastructure.observability.agent_metrics import (
-    agent_tool_cache_invalidations,
-    agent_tool_cache_memory_bytes,
-    agent_tool_cache_size,
-    agent_tool_definition_cache_hits,
-    agent_tool_definition_cache_misses,
-    tool_cache_lookup_duration,
-)
+from app.domain.metrics.agent_metrics import get_agent_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -118,12 +111,12 @@ class ToolDefinitionCache:
                 del self._cache[key]
 
                 # Track miss
-                agent_tool_definition_cache_misses.inc(labels={"cache_scope": "session"})
+                get_agent_metrics().tool_definition_cache_misses.inc(labels={"cache_scope": "session"})
                 self._track_miss()
 
                 # Track lookup duration
                 duration = time.time() - start_time
-                tool_cache_lookup_duration.observe(
+                get_agent_metrics().tool_cache_lookup_duration.observe(
                     labels={"cache_hit": "false"},
                     value=duration,
                 )
@@ -132,12 +125,12 @@ class ToolDefinitionCache:
 
             # Cache hit
             logger.debug(f"Cache hit: {tool_name}")
-            agent_tool_definition_cache_hits.inc(labels={"cache_scope": "session"})
+            get_agent_metrics().tool_definition_cache_hits.inc(labels={"cache_scope": "session"})
             self._track_hit()
 
             # Track lookup duration
             duration = time.time() - start_time
-            tool_cache_lookup_duration.observe(
+            get_agent_metrics().tool_cache_lookup_duration.observe(
                 labels={"cache_hit": "true"},
                 value=duration,
             )
@@ -146,12 +139,12 @@ class ToolDefinitionCache:
 
         # Cache miss
         logger.debug(f"Cache miss: {tool_name}")
-        agent_tool_definition_cache_misses.inc(labels={"cache_scope": "session"})
+        get_agent_metrics().tool_definition_cache_misses.inc(labels={"cache_scope": "session"})
         self._track_miss()
 
         # Track lookup duration
         duration = time.time() - start_time
-        tool_cache_lookup_duration.observe(
+        get_agent_metrics().tool_cache_lookup_duration.observe(
             labels={"cache_hit": "false"},
             value=duration,
         )
@@ -239,7 +232,7 @@ class ToolDefinitionCache:
             self._mcp_config_hash = new_hash
 
             # Track invalidation
-            agent_tool_cache_invalidations.inc(labels={"invalidation_reason": "config_change"})
+            get_agent_metrics().tool_cache_invalidations.inc(labels={"invalidation_reason": "config_change"})
 
             return True
 
@@ -314,15 +307,16 @@ class ToolDefinitionCache:
 
     def _update_size_metrics(self) -> None:
         """Update cache size gauge metrics."""
+        metrics = get_agent_metrics()
         # Update size gauge
-        agent_tool_cache_size.set(
+        metrics.tool_cache_size.set(
             labels={"cache_type": "definitions"},
             value=float(len(self._cache)),
         )
 
         # Estimate memory usage (rough)
         memory_bytes = sum(len(json.dumps(cached.definition)) for cached in self._cache.values())
-        agent_tool_cache_memory_bytes.set(
+        metrics.tool_cache_memory_bytes.set(
             labels={"cache_type": "definitions"},
             value=float(memory_bytes),
         )
@@ -332,18 +326,16 @@ class ToolDefinitionCache:
         self._update_size_metrics()
 
         # Update hit rate gauges
-        from app.infrastructure.observability.agent_metrics import (
-            agent_tool_cache_hit_rate,
-        )
+        metrics = get_agent_metrics()
 
         hit_rate_1m = self._calculate_hit_rate(60)
         hit_rate_5m = self._calculate_hit_rate(300)
 
-        agent_tool_cache_hit_rate.set(
+        metrics.tool_cache_hit_rate.set(
             labels={"window": "1m"},
             value=hit_rate_1m,
         )
-        agent_tool_cache_hit_rate.set(
+        metrics.tool_cache_hit_rate.set(
             labels={"window": "5m"},
             value=hit_rate_5m,
         )
