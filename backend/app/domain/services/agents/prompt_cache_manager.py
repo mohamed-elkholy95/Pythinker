@@ -87,14 +87,40 @@ class PromptCacheManager:
         logger.info(f"PromptCacheManager initialized for provider: {self._provider.value}")
 
     def _detect_provider(self, provider_name: str) -> LLMProvider:
-        """Detect LLM provider from model/API name"""
+        """Detect LLM provider from model/API name.
+
+        OpenAI-compatible providers (ZhipuAI GLM, DeepSeek, Moonshot, etc.)
+        use the same caching semantics as OpenAI, so they map to OPENAI.
+        """
         provider_lower = provider_name.lower()
 
         if any(term in provider_lower for term in ["openai", "gpt", "o1", "o3"]):
             return LLMProvider.OPENAI
         if any(term in provider_lower for term in ["anthropic", "claude"]):
             return LLMProvider.ANTHROPIC
-        return LLMProvider.UNKNOWN
+        # OpenAI-compatible providers that use the same API format
+        if any(
+            term in provider_lower
+            for term in [
+                "glm",
+                "zhipu",
+                "chatglm",  # ZhipuAI
+                "deepseek",  # DeepSeek
+                "moonshot",
+                "kimi",  # Moonshot/Kimi
+                "qwen",
+                "tongyi",  # Alibaba Qwen
+                "yi",  # 01.AI Yi
+                "openrouter",  # OpenRouter proxy
+                "together",  # Together AI
+                "groq",  # Groq
+            ]
+        ):
+            return LLMProvider.OPENAI
+        # Default: assume OpenAI-compatible for unknown providers
+        # since most modern LLM APIs follow the OpenAI chat format
+        logger.debug("Unknown provider '%s' defaulting to OpenAI-compatible caching", provider_name)
+        return LLMProvider.OPENAI
 
     def prepare_messages_for_caching(
         self, messages: list[dict[str, Any]], dynamic_content: str | None = None

@@ -785,7 +785,12 @@ class PlaywrightBrowser:
             # SSRF protection: block subrequests/redirects to internal addresses
             ssrf_reason = is_ssrf_target(request.url)
             if ssrf_reason:
-                logger.warning("SSRF blocked (subrequest): %s → %s", request.url, ssrf_reason)
+                # Chrome internal URLs (chrome://, chrome-extension://) are expected noise
+                # from the browser engine — log at debug to avoid spamming warnings
+                if request.url.startswith(("chrome://", "chrome-extension://")):
+                    logger.debug("SSRF blocked (chrome internal): %s → %s", request.url, ssrf_reason)
+                else:
+                    logger.warning("SSRF blocked (subrequest): %s → %s", request.url, ssrf_reason)
                 await route.abort()
                 return
 

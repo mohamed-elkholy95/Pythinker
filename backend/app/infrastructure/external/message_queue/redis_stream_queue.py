@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -147,11 +148,16 @@ class RedisStreamQueue(MessageQueue):
     # Maximum block time to stay below Redis socket timeout (30s default)
     MAX_BLOCK_MS = 25000  # 25 seconds - safe margin below socket timeout
 
-    @staticmethod
-    def _normalize_start_id(start_id: str | None) -> str:
+    # Pattern: Redis stream IDs are "<millisecond_timestamp>-<sequence>" e.g. "1771357247706-0"
+    _REDIS_STREAM_ID_RE = re.compile(r"^\d+-\d+$")
+
+    @classmethod
+    def _normalize_start_id(cls, start_id: str | None) -> str:
         """Normalize stream cursor to Redis-compatible IDs.
 
-        Redis stream IDs must include `-` (e.g. `0-0`) unless using special `$`.
+        Redis stream IDs must be "<timestamp>-<seq>" (e.g. `1771357247706-0`),
+        the special `$` for latest, or `0-0` for earliest.
+        UUIDs and other non-numeric strings with dashes are rejected.
         """
         if start_id is None:
             return "0-0"
@@ -163,8 +169,10 @@ class RedisStreamQueue(MessageQueue):
             return "$"
         if normalized == "0":
             return "0-0"
-        if "-" in normalized:
+        if cls._REDIS_STREAM_ID_RE.match(normalized):
             return normalized
+        # Non-Redis-format ID (e.g. UUID) — fall back to reading from beginning
+        logger.debug("Non-Redis stream ID '%s' normalized to '0-0'", normalized)
         return "0-0"
 
     async def get(self, start_id: str = "0", block_ms: int | None = None) -> tuple[str, Any]:

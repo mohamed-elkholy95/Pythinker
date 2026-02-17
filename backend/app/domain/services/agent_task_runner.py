@@ -1541,6 +1541,12 @@ class AgentTaskRunner(TaskRunner):
                         file_read_result, _ = await asyncio.gather(file_read_task, sync_task, return_exceptions=True)
                         if isinstance(file_read_result, Exception):
                             file_content = f"(Error: {file_read_result})"
+                        elif (
+                            file_read_result is None
+                            or not hasattr(file_read_result, "data")
+                            or file_read_result.data is None
+                        ):
+                            file_content = "(Error: file not found or empty response)"
                         else:
                             file_content = file_read_result.data.get("content", "")
                         event.tool_content = FileToolContent(content=file_content)
