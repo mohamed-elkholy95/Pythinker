@@ -12,7 +12,7 @@
 
     <!-- Browser Chrome (Canvas mode only) -->
     <BrowserChrome
-      v-if="activeTab === 'canvas'"
+      v-if="activeTab === 'canvas' && !isChartDomainTool(toolContent)"
       :url="browserUrl"
       :device="deviceMode"
       :is-fullscreen="isFullscreen"

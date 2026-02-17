@@ -22,23 +22,24 @@
     </div>
 
     <!-- Chart Results -->
-    <div v-else class="flex-1 min-h-0 overflow-y-auto max-w-[900px] mx-auto px-4 py-4">
+    <div v-else :class="resultContainerClass">
       <!-- Chart header -->
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <BarChart3 :size="16" class="text-[var(--text-brand)]" />
-          <span class="text-sm font-medium text-[var(--text-primary)]">
-            {{ chartContent.content?.title }}
-          </span>
-        </div>
+      <div
+        v-if="!showHeaderControls"
+        class="flex items-center mb-3"
+        :class="displayTitle ? 'justify-between' : 'justify-end'"
+      >
+        <span v-if="displayTitle" class="text-sm font-medium text-[var(--text-primary)]">
+          {{ displayTitle }}
+        </span>
         <div class="flex items-center gap-2">
           <!-- View mode toggle -->
           <div class="flex items-center gap-1 p-0.5 rounded-md bg-[var(--background-gray-light)]">
             <button
-              @click="viewMode = 'interactive'"
+              @click="activeViewMode = 'interactive'"
               :class="[
                 'px-2 py-1 text-xs rounded-md transition-colors',
-                viewMode === 'interactive'
+                activeViewMode === 'interactive'
                   ? 'bg-white dark:bg-[var(--code-block-bg)] text-[var(--text-primary)] shadow-sm'
                   : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
               ]"
@@ -47,10 +48,10 @@
               Interactive
             </button>
             <button
-              @click="viewMode = 'static'"
+              @click="activeViewMode = 'static'"
               :class="[
                 'px-2 py-1 text-xs rounded-md transition-colors',
-                viewMode === 'static'
+                activeViewMode === 'static'
                   ? 'bg-white dark:bg-[var(--code-block-bg)] text-[var(--text-primary)] shadow-sm'
                   : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
               ]"
@@ -65,13 +66,13 @@
       </div>
 
       <!-- Interactive Plotly Chart (embedded) -->
-      <div v-if="viewMode === 'interactive' && canShowInteractive"
+      <div v-if="activeViewMode === 'interactive' && canShowInteractive"
         class="chart-container rounded-lg overflow-hidden border border-[var(--border-main)] bg-white dark:bg-[var(--code-block-bg)] mb-4">
         <div ref="plotlyDiv" class="plotly-chart" v-show="plotlyReady"></div>
         <div v-if="plotlyLoadError" class="p-8 flex flex-col items-center justify-center gap-2">
           <div class="text-[var(--text-tertiary)] text-sm text-center">
             Failed to load interactive chart —
-            <button @click="viewMode = 'static'" class="text-blue-500 hover:text-blue-600 underline">view static image</button>
+            <button @click="activeViewMode = 'static'" class="text-blue-500 hover:text-blue-600 underline">view static image</button>
             or
             <button @click="openInteractive" class="text-blue-500 hover:text-blue-600 underline">open in new tab</button>
           </div>
@@ -91,11 +92,11 @@
             </template>
             <template v-else-if="pngLoadError">
               Chart image failed to load — try
-              <button v-if="canShowInteractive" @click="viewMode = 'interactive'" class="text-blue-500 hover:text-blue-600 underline">interactive view</button>
+              <button v-if="canShowInteractive" @click="activeViewMode = 'interactive'" class="text-blue-500 hover:text-blue-600 underline">interactive view</button>
               <span v-else>regenerating the chart</span>
             </template>
             <template v-else-if="chartContent.status === 'called' && !chartContent.content?.png_file_id">
-              Chart image unavailable — try opening interactive view or regenerating
+              Chart output missing — please regenerate the chart
             </template>
             <template v-else>
               Chart preview loading...
@@ -138,7 +139,7 @@
 <script setup lang="ts">
 import { ToolContent } from '@/types/message';
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
-import { BarChart3, ExternalLink, Download } from 'lucide-vue-next';
+import { ExternalLink, Download } from 'lucide-vue-next';
 import { fileApi } from '@/api/file';
 import Plotly from 'plotly.js-dist-min';
 
@@ -146,10 +147,33 @@ const props = defineProps<{
   sessionId: string;
   chartContent: ToolContent;
   live: boolean;
+  viewMode?: 'interactive' | 'static';
+  showHeaderControls?: boolean;
 }>();
 
-// View mode state (interactive or static)
-const viewMode = ref<'interactive' | 'static'>('interactive');
+const emit = defineEmits<{
+  (e: 'update:viewMode', value: 'interactive' | 'static'): void;
+}>();
+
+const showHeaderControls = computed(() => props.showHeaderControls === true);
+
+const displayTitle = computed(() => {
+  const rawTitle = props.chartContent?.content?.title;
+  if (typeof rawTitle !== 'string') return '';
+  const trimmed = rawTitle.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'chart') return '';
+  return trimmed;
+});
+
+// View mode state (controlled or uncontrolled)
+const internalViewMode = ref<'interactive' | 'static'>(props.viewMode ?? 'interactive');
+const activeViewMode = computed<'interactive' | 'static'>({
+  get: () => props.viewMode ?? internalViewMode.value,
+  set: (value) => {
+    internalViewMode.value = value;
+    emit('update:viewMode', value);
+  },
+});
 
 // Plotly element ref
 const plotlyDiv = ref<HTMLElement | null>(null);
@@ -203,6 +227,13 @@ const htmlFileSize = computed(() => {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+});
+
+const resultContainerClass = computed(() => {
+  if (showHeaderControls.value) {
+    return 'flex-1 min-h-0 overflow-y-auto w-full px-2 py-2 sm:px-3 sm:py-3';
+  }
+  return 'flex-1 min-h-0 overflow-y-auto max-w-[980px] mx-auto px-4 py-4';
 });
 
 // Format chart type for display
@@ -372,13 +403,13 @@ const downloadPng = () => {
 
 // Load Plotly data when component mounts or chart content changes
 onMounted(() => {
-  if (canShowInteractive.value && viewMode.value === 'interactive') {
+  if (canShowInteractive.value && activeViewMode.value === 'interactive') {
     loadPlotlyData();
   }
 });
 
 watch(() => props.chartContent?.content?.html_file_id, () => {
-  if (canShowInteractive.value && viewMode.value === 'interactive') {
+  if (canShowInteractive.value && activeViewMode.value === 'interactive') {
     plotlyReady.value = false;
     plotlyLoadError.value = false;
     loadPlotlyData();
@@ -390,8 +421,18 @@ watch(() => props.chartContent?.content?.png_file_id, () => {
   pngLoadError.value = false;
 });
 
+watch(
+  canShowInteractive,
+  (canShow) => {
+    if (!canShow && activeViewMode.value === 'interactive') {
+      activeViewMode.value = 'static';
+    }
+  },
+  { immediate: true }
+);
+
 // Re-render when switching to interactive mode
-watch(viewMode, async (newMode) => {
+watch(activeViewMode, async (newMode) => {
   if (newMode === 'interactive' && canShowInteractive.value) {
     plotlyLoadError.value = false;
     if (plotlyData.value) {
@@ -405,6 +446,15 @@ watch(viewMode, async (newMode) => {
     }
   }
 });
+
+watch(
+  () => props.viewMode,
+  (newMode) => {
+    if (newMode) {
+      internalViewMode.value = newMode;
+    }
+  }
+);
 
 // Cleanup Plotly instance and abort in-flight fetches
 onBeforeUnmount(() => {

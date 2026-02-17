@@ -79,8 +79,13 @@
           </div>
 
           <!-- Center: Operation label or resource -->
-          <div class="text-[var(--text-tertiary)] text-sm font-medium truncate max-w-[300px]">
-            {{ contentHeaderLabel }}
+          <div class="text-[var(--text-tertiary)] text-sm font-medium max-w-[300px] flex items-center justify-center gap-1.5 min-w-0">
+            <BarChart3
+              v-if="currentViewType === 'chart'"
+              :size="14"
+              class="flex-shrink-0 text-[var(--text-tertiary)]"
+            />
+            <span class="truncate">{{ contentHeaderLabel }}</span>
           </div>
 
           <!-- Right: View mode tabs (absolute positioned) -->
@@ -95,6 +100,37 @@
               {{ label }}
               <span v-if="hasNewOutput && idx === 1 && viewModeIndex !== 1" class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-500 rounded-full"></span>
             </button>
+          </div>
+
+          <!-- Right: Chart mode controls (inline in panel header) -->
+          <div v-else-if="currentViewType === 'chart'" class="absolute right-3 flex items-center gap-2">
+            <div class="flex items-center gap-1 p-0.5 rounded-md bg-[var(--background-gray-light)]">
+              <button
+                @click="chartViewMode = 'interactive'"
+                class="px-2 py-1 text-xs rounded-md transition-colors"
+                :class="chartViewMode === 'interactive'
+                  ? 'bg-white dark:bg-[var(--code-block-bg)] text-[var(--text-primary)] shadow-sm'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'"
+                :disabled="!chartCanShowInteractive"
+              >
+                Interactive
+              </button>
+              <button
+                @click="chartViewMode = 'static'"
+                class="px-2 py-1 text-xs rounded-md transition-colors"
+                :class="chartViewMode === 'static'
+                  ? 'bg-white dark:bg-[var(--code-block-bg)] text-[var(--text-primary)] shadow-sm'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'"
+              >
+                Static
+              </button>
+            </div>
+            <span
+              class="text-xs px-2 py-0.5 rounded bg-[var(--background-gray-light)] text-[var(--text-tertiary)]"
+              title="Chart type"
+            >
+              {{ chartTypeBadge }}
+            </span>
           </div>
         </div>
 
@@ -238,6 +274,9 @@
             :session-id="sessionId || ''"
             :chart-content="toolContent"
             :live="isActiveOperation"
+            :view-mode="chartViewMode"
+            :show-header-controls="true"
+            @update:viewMode="chartViewMode = $event"
           />
 
           <!-- Generic/MCP View -->
@@ -335,7 +374,7 @@
 
 <script setup lang="ts">
 import { toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { Minimize2, MonitorUp, X, Loader2, Check } from 'lucide-vue-next';
+import { Minimize2, MonitorUp, X, Loader2, Check, BarChart3 } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -445,6 +484,26 @@ const toolName = computed(() => props.toolContent?.name || '');
 const toolFunction = computed(() => props.toolContent?.function || '');
 const toolStatus = computed(() => props.toolContent?.status || '');
 const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
+const chartViewMode = ref<'interactive' | 'static'>('interactive');
+
+const chartPayload = computed(() => {
+  return (props.toolContent?.content || {}) as Record<string, unknown>;
+});
+
+const chartCanShowInteractive = computed(() => {
+  if (currentViewType.value !== 'chart') return false;
+  const htmlFileId = chartPayload.value.html_file_id;
+  return typeof htmlFileId === 'string' && htmlFileId.length > 0;
+});
+
+const chartTypeBadge = computed(() => {
+  const chartType = chartPayload.value.chart_type;
+  if (typeof chartType !== 'string' || !chartType) return 'Chart';
+  return chartType
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+});
 
 // Unified streaming detection
 const shouldShowUnifiedStreaming = computed(() => {
@@ -543,6 +602,24 @@ const isSearching = computed(() => {
   const isSearchTool = toolDisplay.value?.toolKey === 'search' || toolDisplay.value?.toolKey === 'wide_research';
   return isSearchTool && toolStatus.value === 'calling';
 });
+
+watch(
+  () => props.toolContent?.tool_call_id,
+  () => {
+    chartViewMode.value = 'interactive';
+  },
+  { immediate: true }
+);
+
+watch(
+  chartCanShowInteractive,
+  (canShowInteractive) => {
+    if (!canShowInteractive && chartViewMode.value === 'interactive') {
+      chartViewMode.value = 'static';
+    }
+  },
+  { immediate: true }
+);
 
 /**
  * Tool subtitle - Pythinker-style standardized format: "Verb Resource"

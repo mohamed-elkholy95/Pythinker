@@ -618,6 +618,37 @@ class AgentTaskRunner(TaskRunner):
             logger.exception(f"Agent {self._agent_id}: Failed to sync file '{file_path}': {e}")
             return None
 
+    async def _sync_file_to_storage_with_retry(
+        self,
+        file_path: str,
+        content_type: str | None = None,
+        max_attempts: int = 3,
+        initial_delay_seconds: float = 0.2,
+    ) -> FileInfo | None:
+        """Sync file to storage with short retries for sandbox-write race windows."""
+        if max_attempts < 1:
+            max_attempts = 1
+
+        delay = initial_delay_seconds
+        for attempt in range(1, max_attempts + 1):
+            file_info = await self._sync_file_to_storage(file_path, content_type=content_type)
+            if file_info is not None:
+                return file_info
+
+            if attempt < max_attempts:
+                logger.debug(
+                    "Agent %s: Retrying file sync for '%s' (attempt %s/%s after %.2fs)",
+                    self._agent_id,
+                    file_path,
+                    attempt + 1,
+                    max_attempts,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
+
+        return None
+
     async def _sync_file_to_sandbox(self, file_id: str) -> FileInfo | None:
         """Download file from storage to sandbox"""
         try:
@@ -1399,6 +1430,8 @@ class AgentTaskRunner(TaskRunner):
                         # Safely coerce data to dict (handles non-dict or None values)
                         raw_data = getattr(event.function_result, "data", None)
                         data = dict(raw_data) if isinstance(raw_data, dict) else {}
+                        tool_success = bool(getattr(event.function_result, "success", False))
+                        tool_message = str(getattr(event.function_result, "message", "") or "")
 
                         html_path = data.get("html_path")
                         png_path = data.get("png_path")
@@ -1407,12 +1440,31 @@ class AgentTaskRunner(TaskRunner):
                         html_info = None
                         png_info = None
                         sync_errors: list[str] = []
+                        if not tool_success and tool_message:
+                            # Preserve tool-level failures (e.g., script/runtime errors) so
+                            # frontend shows a concrete cause instead of generic "unavailable".
+                            sync_errors.append(tool_message)
+                        elif tool_success and not html_path and not png_path:
+                            # Successful result with missing paths is still an error condition.
+                            sync_errors.append("Chart generation returned no output files")
                         sync_tasks = []
 
                         if html_path:
-                            sync_tasks.append(self._sync_file_to_storage(html_path, content_type="text/html"))
+                            sync_tasks.append(
+                                self._sync_file_to_storage_with_retry(
+                                    html_path,
+                                    content_type="text/html",
+                                    max_attempts=3,
+                                )
+                            )
                         if png_path:
-                            sync_tasks.append(self._sync_file_to_storage(png_path, content_type="image/png"))
+                            sync_tasks.append(
+                                self._sync_file_to_storage_with_retry(
+                                    png_path,
+                                    content_type="image/png",
+                                    max_attempts=3,
+                                )
+                            )
 
                         # Execute syncs concurrently if any exist
                         if sync_tasks:

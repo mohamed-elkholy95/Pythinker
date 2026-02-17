@@ -417,6 +417,7 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
 
   // === CANVAS ===
   "canvas": "Canvas",
+  "chart": "Chart",
 
   // === SYSTEM ===
   "agent_mode": "Mode Switch",
@@ -435,7 +436,7 @@ import AgentModeIcon from '../components/icons/AgentModeIcon.vue';
 import MousePointerClickIcon from '../components/icons/MousePointerClickIcon.vue';
 import MonitorIcon from '../components/icons/MonitorIcon.vue';
 import TerminalIcon from '../components/icons/TerminalIcon.vue';
-import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Palette } from 'lucide-vue-next';
+import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Palette, BarChart3 } from 'lucide-vue-next';
 
 /**
  * Tool icon mapping - Consistent visual identity for each tool
@@ -494,6 +495,7 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
 
   // === CANVAS ===
   "canvas": Palette,
+  "chart": BarChart3,
 
   // === SYSTEM ===
   "agent_mode": AgentModeIcon,
@@ -515,6 +517,10 @@ export const FUNCTION_ICON_MAP: Record<string, Component> = {
   // Viewing actions → animated monitor
   "browser_view": MonitorIcon,
   "browser_console_view": MonitorIcon,
+  // Search-like actions should always show search icon even when tool family is "file"
+  "file_find_in_content": SearchIcon,
+  // Chart action should not fall back to idle icon
+  "chart_create": BarChart3,
 };
 
 /**
