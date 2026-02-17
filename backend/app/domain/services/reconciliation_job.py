@@ -12,9 +12,9 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from app.domain.models.sync_outbox import OutboxCreate, OutboxOperation
-from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
-from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
-from app.infrastructure.storage.mongodb import get_mongodb
+from app.domain.repositories.memories_collection import MemoriesCollectionProtocol
+from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
+from app.domain.repositories.vector_memory_repository import VectorMemoryRepository
 
 logger = logging.getLogger(__name__)
 
@@ -30,32 +30,17 @@ class ReconciliationJob:
 
     def __init__(
         self,
-        outbox_repo: SyncOutboxRepository | None = None,
-        qdrant_repo: QdrantMemoryRepository | None = None,
+        outbox_repo: SyncOutboxRepositoryProtocol,
+        qdrant_repo: VectorMemoryRepository,
+        memories_collection: MemoriesCollectionProtocol,
         retry_failed_after_hours: int = 1,  # Retry failed syncs after 1 hour
         max_retries_per_run: int = 100,
     ):
-        self.outbox_repo = outbox_repo or SyncOutboxRepository()
-        self.qdrant_repo = qdrant_repo or QdrantMemoryRepository()
+        self.outbox_repo = outbox_repo
+        self.qdrant_repo = qdrant_repo
+        self.memories_collection = memories_collection
         self.retry_failed_after_hours = retry_failed_after_hours
         self.max_retries_per_run = max_retries_per_run
-
-        # Lazily resolve MongoDB handles so construction is safe before startup init.
-        self._mongodb = get_mongodb()
-        self._memories_collection = None
-
-    async def _get_memories_collection(self):
-        """Return initialized memories collection."""
-        if self._memories_collection is not None:
-            return self._memories_collection
-
-        try:
-            _ = self._mongodb.client
-        except RuntimeError:
-            await self._mongodb.initialize()
-
-        self._memories_collection = self._mongodb.database.memories
-        return self._memories_collection
 
     async def run_reconciliation(self) -> dict[str, Any]:
         """Run full reconciliation cycle.
@@ -115,18 +100,15 @@ class ReconciliationJob:
         cutoff = datetime.utcnow() - timedelta(hours=self.retry_failed_after_hours)
 
         # Find failed memories eligible for retry
-        memories_collection = await self._get_memories_collection()
-        cursor = memories_collection.find(
-            {
-                "sync_state": "failed",
-                "last_sync_attempt": {"$lt": cutoff},
-                "sync_attempts": {"$lt": 10},  # Stop after 10 total attempts
-            }
-        ).limit(self.max_retries_per_run)
+        failed_memories = await self.memories_collection.find_failed_memories(
+            cutoff=cutoff,
+            max_sync_attempts=10,
+            limit=self.max_retries_per_run,
+        )
 
         retried_count = 0
 
-        async for memory_doc in cursor:
+        for memory_doc in failed_memories:
             memory_id = str(memory_doc["_id"])
 
             try:
@@ -153,15 +135,11 @@ class ReconciliationJob:
                 )
 
                 # Update memory to indicate retry
-                await memories_collection.update_one(
-                    {"_id": memory_doc["_id"]},
-                    {
-                        "$set": {
-                            "sync_state": "pending",
-                            "last_sync_attempt": datetime.utcnow(),
-                        },
-                        "$inc": {"sync_attempts": 1},
-                    },
+                await self.memories_collection.update_sync_state(
+                    memory_id=memory_id,
+                    sync_state="pending",
+                    sync_attempts_increment=1,
+                    last_sync_attempt=datetime.utcnow(),
                 )
 
                 retried_count += 1
@@ -187,18 +165,14 @@ class ReconciliationJob:
         # Sample recently synced memories to verify
         recent_cutoff = datetime.utcnow() - timedelta(hours=24)
 
-        memories_collection = await self._get_memories_collection()
-        cursor = memories_collection.find(
-            {
-                "sync_state": "synced",
-                "updated_at": {"$gte": recent_cutoff},
-                "embedding": {"$exists": True, "$ne": None},
-            }
-        ).limit(100)  # Check up to 100 recent memories per run
+        synced_memories = await self.memories_collection.find_synced_memories_needing_verification(
+            since=recent_cutoff,
+            limit=100,
+        )
 
         missing_count = 0
 
-        async for memory_doc in cursor:
+        for memory_doc in synced_memories:
             memory_id = str(memory_doc["_id"])
 
             try:
@@ -230,9 +204,9 @@ class ReconciliationJob:
                     )
 
                     # Update sync state
-                    await memories_collection.update_one(
-                        {"_id": memory_doc["_id"]},
-                        {"$set": {"sync_state": "pending"}},
+                    await self.memories_collection.update_sync_state(
+                        memory_id=memory_id,
+                        sync_state="pending",
                     )
 
                     missing_count += 1
@@ -267,19 +241,7 @@ class ReconciliationJob:
             Current state of sync operations
         """
         # Count memories by sync state
-        pipeline = [
-            {"$group": {"_id": "$sync_state", "count": {"$sum": 1}}},
-        ]
-
-        sync_states = {}
-        memories_collection = await self._get_memories_collection()
-        try:
-            async for doc in memories_collection.aggregate(pipeline):
-                state = doc["_id"] or "unknown"
-                count = doc["count"]
-                sync_states[state] = count
-        except Exception as exc:
-            logger.warning("Failed to aggregate memory sync states: %s", exc)
+        sync_states = await self.memories_collection.aggregate_sync_states()
 
         # Get outbox stats
         outbox_stats = await self.outbox_repo.get_stats()
@@ -294,11 +256,32 @@ class ReconciliationJob:
 _reconciliation_job: ReconciliationJob | None = None
 
 
-async def get_reconciliation_job() -> ReconciliationJob:
-    """Get or create the global reconciliation job instance."""
+def set_reconciliation_job(job: ReconciliationJob) -> None:
+    """Set the global reconciliation job instance.
+
+    Called from the composition root (main.py) to inject
+    the job with concrete infrastructure dependencies.
+
+    Args:
+        job: Fully configured ReconciliationJob instance
+    """
     global _reconciliation_job
+    _reconciliation_job = job
+
+
+async def get_reconciliation_job() -> ReconciliationJob:
+    """Get the global reconciliation job instance.
+
+    Returns:
+        The configured ReconciliationJob
+
+    Raises:
+        RuntimeError: If job has not been initialized via set_reconciliation_job
+    """
     if _reconciliation_job is None:
-        _reconciliation_job = ReconciliationJob()
+        raise RuntimeError(
+            "ReconciliationJob not initialized. Call set_reconciliation_job() from the composition root."
+        )
     return _reconciliation_job
 
 
