@@ -142,8 +142,15 @@
     v-else-if="message.type === 'step'"
     class="chat-message-entry step-message flex flex-col empty:pb-0"
   >
+    <!-- Finalization step: professional card with sub-stage progression -->
+    <FinalizationStepCard
+      v-if="stepContent.step_type === 'finalization'"
+      :step="stepContent"
+      :show-top-connector="showStepTopConnector"
+      :show-bottom-connector="showStepBottomConnector"
+    />
     <!-- Unified step layout with left rail for timeline -->
-    <div class="step-inner flex">
+    <div v-else class="step-inner flex">
       <!-- Left rail: Status indicator + Timeline line -->
       <div class="step-left-rail w-[24px] relative flex-shrink-0">
         <!-- Status indicator at top -->
@@ -288,6 +295,7 @@ import type { FileInfo } from '../api/file';
 import DeepResearchCard from './DeepResearchCard.vue';
 import SkillDeliveryCard from './SkillDeliveryCard.vue';
 import ThinkingIndicator from './ui/ThinkingIndicator.vue';
+import FinalizationStepCard from './FinalizationStepCard.vue';
 import { copyToClipboard } from '../utils/dom';
 import { isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLayout';
 

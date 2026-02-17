@@ -88,6 +88,7 @@ export interface StepContent extends BaseContent {
   phase_id?: string | null;  // When set, step is in plan-act flow (hide fast-search inline UI)
   step_type?: string | null;
   items?: StepItem[];  // Interleaved tools + thoughts for Pythinker-style rendering
+  sub_stage_history?: string[];  // Previous descriptions for progressive finalization steps
 }
 
 export interface AttachmentsContent extends BaseContent {
