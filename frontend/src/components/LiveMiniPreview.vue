@@ -561,7 +561,8 @@ const sizeClass = computed(() => {
 .final-screenshot-image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  background: var(--bolt-elements-bg-depth-2);
 }
 
 .final-screenshot-placeholder {
