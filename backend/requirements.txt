@@ -58,6 +58,9 @@ sentence-transformers>=3.0.0  # Phase 3: Self-hosted reranking
 torch>=2.2.0  # Required for sentence-transformers
 numpy>=1.24.0  # Required for MMR diversification
 
+# Hallucination detection (replaces CoVe LLM-based verification)
+lettucedetect>=0.3.0  # ModernBERT token-level hallucination detector
+
 # Web scraping
 beautifulsoup4>=4.12.0
 

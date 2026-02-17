@@ -149,7 +149,11 @@ class FeatureFlagsSettingsMixin:
     feature_url_verification: bool = True  # Verify cited URLs exist and were visited
     feature_claim_provenance: bool = True  # Track claim-to-source linkage
     feature_enhanced_grounding: bool = True  # Numeric/entity verification in sources
-    feature_cove_verification: bool = True  # Chain-of-Verification for reports
+    feature_cove_verification: bool = False  # Chain-of-Verification for reports (deprecated — use lettuce)
+    feature_lettuce_verification: bool = True  # LettuceDetect encoder-based hallucination detection
+    lettuce_model_path: str = "KRLabsOrg/tinylettuce-ettin-17m-en-v1"  # HF model path (CPU-friendly)
+    lettuce_confidence_threshold: float = 0.5  # Min hallucination score to flag a span
+    lettuce_min_response_length: int = 200  # Skip verification for short responses
     feature_semantic_citation_validation: bool = True  # Semantic matching for citations
     feature_strict_numeric_verification: bool = True  # Reject unverified numeric claims
     feature_reject_ungrounded_reports: bool = False  # Start permissive, can enable later
