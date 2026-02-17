@@ -5,12 +5,37 @@ Test coverage for failure snapshot model, generation, and injection.
 
 import pytest
 
+from app.domain.metrics.agent_metrics import AgentMetrics, set_agent_metrics
 from app.domain.models.failure_snapshot import FailureSnapshot
 from app.domain.services.agents.failure_snapshot_service import FailureSnapshotService
-from app.infrastructure.observability.agent_metrics import (
-    failure_snapshot_generated,
-    failure_snapshot_injected,
-)
+
+
+class _TrackingCounter:
+    """Simple counter that tracks .inc() calls for test assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str] | None] = []
+
+    def inc(self, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
+        self.calls.append(labels)
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
+
+
+class _TrackingHistogram:
+    """Simple histogram that tracks .observe() calls for test assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[dict[str, str] | None, float]] = []
+
+    def observe(self, labels: dict[str, str] | None = None, value: float = 0.0) -> None:
+        self.calls.append((labels, value))
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
 
 
 class TestFailureSnapshotModel:
@@ -130,6 +155,22 @@ class TestFailureSnapshotModel:
 class TestFailureSnapshotService:
     """Test suite for FailureSnapshotService."""
 
+    @pytest.fixture(autouse=True)
+    def _inject_tracking_metrics(self):
+        """Inject tracking metrics into the domain AgentMetrics singleton."""
+        self._metrics = AgentMetrics()
+        self._generated_counter = _TrackingCounter()
+        self._injected_counter = _TrackingCounter()
+        self._size_histogram = _TrackingHistogram()
+        self._budget_violations_counter = _TrackingCounter()
+        self._metrics.failure_snapshot_generated = self._generated_counter
+        self._metrics.failure_snapshot_injected = self._injected_counter
+        self._metrics.failure_snapshot_size = self._size_histogram
+        self._metrics.failure_snapshot_budget_violations = self._budget_violations_counter
+        set_agent_metrics(self._metrics)
+        yield
+        set_agent_metrics(AgentMetrics())
+
     @pytest.fixture
     def snapshot_service(self):
         """Create snapshot service instance."""
@@ -230,8 +271,8 @@ class TestFailureSnapshotService:
 
     @pytest.mark.asyncio
     async def test_snapshot_metrics_tracked(self, snapshot_service):
-        """Test snapshot generation metrics."""
-        initial_count = failure_snapshot_generated.get({"failure_type": "ValueError", "step_name": "test_step"})
+        """Test snapshot generation metrics via domain AgentMetrics."""
+        initial_count = self._generated_counter.call_count
 
         error = ValueError("test")
         await snapshot_service.generate_snapshot(
@@ -240,13 +281,15 @@ class TestFailureSnapshotService:
             retry_count=0,
         )
 
-        final_count = failure_snapshot_generated.get({"failure_type": "ValueError", "step_name": "test_step"})
-        assert final_count > initial_count
+        assert self._generated_counter.call_count > initial_count
+        last_call = self._generated_counter.calls[-1]
+        assert last_call["failure_type"] == "ValueError"
+        assert last_call["step_name"] == "test_step"
 
     @pytest.mark.asyncio
     async def test_injection_metrics_tracked(self, snapshot_service):
-        """Test injection metrics."""
-        initial_count = failure_snapshot_injected.get({"retry_count": "1"})
+        """Test injection metrics via domain AgentMetrics."""
+        initial_count = self._injected_counter.call_count
 
         snapshot = FailureSnapshot(
             failed_step="test",
@@ -257,5 +300,6 @@ class TestFailureSnapshotService:
 
         await snapshot_service.inject_into_retry(snapshot, "Test prompt")
 
-        final_count = failure_snapshot_injected.get({"retry_count": "1"})
-        assert final_count > initial_count
+        assert self._injected_counter.call_count > initial_count
+        last_call = self._injected_counter.calls[-1]
+        assert last_call["retry_count"] == "1"
