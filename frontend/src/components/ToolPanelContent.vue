@@ -62,7 +62,7 @@
           'relative flex flex-col overflow-hidden bg-[var(--background-white-main)] flex-1 min-h-0',
           embedded
             ? 'rounded-[10px] border border-[var(--border-light)] mt-2'
-            : 'rounded-[14px] border border-[var(--border-light)] shadow-[0px_6px_24px_rgba(15,23,42,0.06)] mt-[16px]'
+            : 'rounded-[14px] border border-[var(--border-light)] shadow-[0px_6px_24px_var(--shadow-XS)] mt-[16px]'
         ]">
 
         <!-- Content Header: Centered operation label + View mode tabs -->
