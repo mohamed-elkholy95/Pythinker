@@ -13,8 +13,8 @@ from contextlib import suppress
 from typing import Any
 
 from app.domain.models.sync_outbox import OutboxEntry, OutboxOperation, OutboxStatus
-from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
-from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
+from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
+from app.domain.repositories.vector_memory_repository import VectorMemoryRepository
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +24,13 @@ class SyncWorker:
 
     def __init__(
         self,
-        outbox_repo: SyncOutboxRepository | None = None,
-        qdrant_repo: QdrantMemoryRepository | None = None,
+        outbox_repo: SyncOutboxRepositoryProtocol,
+        qdrant_repo: VectorMemoryRepository,
         poll_interval: float = 1.0,  # Poll every 1 second
         batch_size: int = 100,
     ):
-        self.outbox_repo = outbox_repo or SyncOutboxRepository()
-        self.qdrant_repo = qdrant_repo or QdrantMemoryRepository()
+        self.outbox_repo = outbox_repo
+        self.qdrant_repo = qdrant_repo
         self.poll_interval = poll_interval
         self.batch_size = batch_size
         self._running = False
@@ -210,11 +210,30 @@ class SyncWorker:
 _worker: SyncWorker | None = None
 
 
-async def get_sync_worker() -> SyncWorker:
-    """Get or create the global sync worker instance."""
+def set_sync_worker(worker: SyncWorker) -> None:
+    """Set the global sync worker instance.
+
+    Called from the composition root (main.py) to inject
+    the worker with concrete infrastructure dependencies.
+
+    Args:
+        worker: Fully configured SyncWorker instance
+    """
     global _worker
+    _worker = worker
+
+
+async def get_sync_worker() -> SyncWorker:
+    """Get the global sync worker instance.
+
+    Returns:
+        The configured SyncWorker
+
+    Raises:
+        RuntimeError: If worker has not been initialized via set_sync_worker
+    """
     if _worker is None:
-        _worker = SyncWorker()
+        raise RuntimeError("SyncWorker not initialized. Call set_sync_worker() from the composition root.")
     return _worker
 
 
