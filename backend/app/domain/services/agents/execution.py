@@ -1638,7 +1638,17 @@ class ExecutionAgent(BaseAgent):
                         },
                     )
 
-                    return verifier.redact_hallucinations(content, result.hallucinated_spans)
+                    # Do NOT inline-replace with [unverified] markers — that
+                    # breaks markdown tables, sentences, and structured output.
+                    # Instead, append a brief disclaimer when the hallucination
+                    # ratio is significant enough to warrant user notice.
+                    if result.hallucination_ratio > 0.2:
+                        disclaimer = (
+                            "\n\n> **Note:** Some information in this response "
+                            "could not be fully verified against available sources."
+                        )
+                        return content + disclaimer
+                    return content
 
                 if not result.skipped:
                     logger.info("LettuceDetect: %s", result.get_summary())
@@ -1655,36 +1665,26 @@ class ExecutionAgent(BaseAgent):
 
         return content
 
-    def _build_source_context(self) -> str:
+    def _build_source_context(self) -> list[str]:
         """Build grounding context from collected sources for hallucination verification.
 
-        Concatenates snippets from _collected_sources (search results, page
-        content) into a single context string for LettuceDetect. Truncated
-        to 4000 chars to fit ModernBERT's context window.
+        Returns each source snippet as a separate list element — LettuceDetect's
+        predict() API expects list[str] where each item is an independent
+        context chunk. Truncation to 4K total chars is handled by LettuceVerifier.
 
         Returns:
-            Concatenated source context string.
+            List of source context strings.
         """
         if not self._collected_sources:
-            return ""
+            return []
 
-        parts: list[str] = []
-        total_len = 0
-        max_len = 4000
-
+        chunks: list[str] = []
         for source in self._collected_sources:
             snippet = source.snippet or ""
-            if not snippet:
-                continue
-            if total_len + len(snippet) > max_len:
-                remaining = max_len - total_len
-                if remaining > 50:
-                    parts.append(snippet[:remaining])
-                break
-            parts.append(snippet)
-            total_len += len(snippet)
+            if snippet.strip():
+                chunks.append(snippet)
 
-        return " ".join(parts)
+        return chunks
 
     def _needs_verification(self, content: str, query: str) -> bool:
         """Determine if content needs hallucination verification.
