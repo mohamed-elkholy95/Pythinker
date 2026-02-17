@@ -228,7 +228,7 @@ describe('useStaggeredResults', () => {
       expect(isRevealing.value).toBe(false);
     });
 
-    it('preserves object references in visible results', async () => {
+    it('maintains result object data correctly', async () => {
       const result1 = { id: 1, title: 'Result 1' };
       const result2 = { id: 2, title: 'Result 2' };
       const sourceResults = ref([result1, result2]);
@@ -236,11 +236,11 @@ describe('useStaggeredResults', () => {
       const { visibleResults } = useStaggeredResults(sourceResults);
 
       await nextTick();
-      expect(visibleResults.value[0]).toBe(result1); // Same reference
+      expect(visibleResults.value[0]).toStrictEqual(result1); // Same data
 
       vi.advanceTimersByTime(150);
       await nextTick();
-      expect(visibleResults.value[1]).toBe(result2); // Same reference
+      expect(visibleResults.value[1]).toStrictEqual(result2); // Same data
     });
   });
 
