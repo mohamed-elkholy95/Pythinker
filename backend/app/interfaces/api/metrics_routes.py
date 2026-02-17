@@ -3,21 +3,26 @@
 Provides endpoints for Prometheus scraping and metrics inspection.
 
 Endpoints:
-    GET /metrics - Prometheus text exposition format
-    GET /metrics/json - JSON format metrics
-    GET /metrics/health - Health check for monitoring
+    GET /metrics - Prometheus text exposition format (HTTP Basic Auth)
+    GET /metrics/json - JSON format metrics (Admin auth)
+    GET /metrics/health - Health check for monitoring (Admin auth)
 """
 
+import logging
+import secrets
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Security, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
+from app.core.config import get_settings
 from app.core.prometheus_metrics import (
     active_sessions,
     collect_all_metrics,
     format_prometheus,
+    metrics_auth_failure_total,
 )
 from app.domain.models.user import User
 from app.domain.services.agents.metrics import get_metrics_collector
@@ -26,9 +31,67 @@ from app.domain.services.tools.dynamic_toolset import get_toolset_manager
 from app.infrastructure.observability.llm_tracer import NoOpLLMTracer, get_llm_tracer
 from app.infrastructure.observability.otel_exporter import get_otel_config
 from app.infrastructure.observability.tracer import get_tracer
-from app.interfaces.dependencies import get_current_user, get_optional_current_user
+from app.interfaces.dependencies import require_admin_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
+
+# HTTP Basic Auth for Prometheus scraping endpoint
+_http_basic = HTTPBasic(auto_error=False)
+
+
+async def _verify_metrics_basic_auth(
+    credentials: HTTPBasicCredentials | None = Security(_http_basic),
+) -> None:
+    """Verify HTTP Basic Auth credentials for the Prometheus metrics endpoint.
+
+    When METRICS_PASSWORD is empty (development default), authentication is
+    bypassed to maintain backward compatibility. In production, set
+    METRICS_PASSWORD in .env to enforce authentication.
+
+    Uses constant-time comparison to prevent timing attacks.
+
+    Raises:
+        HTTPException: 401 Unauthorized if credentials are invalid.
+    """
+    settings = get_settings()
+
+    # If no password configured, allow unauthenticated access (development mode)
+    if not settings.metrics_password:
+        return
+
+    # Password is configured -- credentials are now required
+    if not credentials:
+        metrics_auth_failure_total.inc()
+        logger.warning("[SECURITY] Metrics endpoint accessed without credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    # Constant-time comparison to prevent timing attacks
+    correct_username = secrets.compare_digest(
+        credentials.username.encode("utf-8"),
+        settings.metrics_username.encode("utf-8"),
+    )
+    correct_password = secrets.compare_digest(
+        credentials.password.encode("utf-8"),
+        settings.metrics_password.encode("utf-8"),
+    )
+
+    if not (correct_username and correct_password):
+        metrics_auth_failure_total.inc()
+        logger.warning(
+            "[SECURITY] Failed metrics authentication attempt from user: %s",
+            credentials.username,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
 
 class TypoCorrectionFeedbackRequest(BaseModel):
@@ -41,12 +104,14 @@ class TypoCorrectionFeedbackRequest(BaseModel):
 
 @router.get("", response_class=Response)
 async def get_prometheus_metrics(
-    current_user: User | None = Depends(get_optional_current_user),
+    _auth: None = Depends(_verify_metrics_basic_auth),
 ):
     """Get metrics in Prometheus text exposition format.
 
     This endpoint is designed to be scraped by Prometheus.
     Returns metrics in the standard Prometheus text format.
+
+    Authentication: HTTP Basic Auth when METRICS_PASSWORD is configured.
     """
     # Update dynamic metrics before collection
     await _update_dynamic_metrics()
@@ -62,7 +127,7 @@ async def get_prometheus_metrics(
 
 @router.get("/json")
 async def get_json_metrics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get metrics in JSON format.
 
@@ -99,7 +164,7 @@ async def get_json_metrics(
 
 @router.get("/health")
 async def health_check(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Health check endpoint for monitoring systems.
 
@@ -114,7 +179,7 @@ async def health_check(
 
 @router.get("/tracer")
 async def get_tracer_metrics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get detailed tracer metrics.
 
@@ -130,7 +195,7 @@ async def get_tracer_metrics(
 
 @router.get("/cache")
 async def get_cache_metrics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get tool cache statistics.
 
@@ -143,7 +208,7 @@ async def get_cache_metrics(
 
 @router.get("/agent")
 async def get_agent_optimization_metrics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get agent optimization metrics.
 
@@ -161,7 +226,7 @@ async def get_agent_optimization_metrics(
 
 @router.get("/agent/prometheus")
 async def get_agent_prometheus_metrics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """Get agent metrics in Prometheus format.
 
@@ -179,7 +244,7 @@ async def get_agent_prometheus_metrics(
 @router.get("/agent/timeseries")
 async def get_agent_timeseries(
     minutes: int = 60,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get time-series metrics for the last N minutes.
 
@@ -196,7 +261,7 @@ async def get_agent_timeseries(
 
 @router.get("/agent/cache")
 async def get_agent_cache_details(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get detailed cache metrics including L1 and L2.
 
@@ -220,7 +285,7 @@ async def get_agent_cache_details(
 
 @router.get("/agent/toolset")
 async def get_toolset_metrics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get dynamic toolset filtering metrics.
 
@@ -238,7 +303,7 @@ async def get_toolset_metrics(
 
 @router.post("/agent/reset")
 async def reset_agent_metrics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Reset all agent optimization metrics.
 
@@ -252,7 +317,7 @@ async def reset_agent_metrics(
 
 @router.get("/tokens/summary")
 async def get_token_usage_summary(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get token usage summary across all LLM calls.
 
@@ -287,7 +352,7 @@ async def get_token_usage_summary(
 async def get_token_timeline(
     minutes: int = 60,
     model: str | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get time-series token usage data.
 
@@ -361,7 +426,7 @@ async def get_token_timeline(
 
 @router.get("/costs")
 async def get_cost_tracking(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get cost tracking data for LLM usage.
 
@@ -403,7 +468,7 @@ async def get_cost_tracking(
 
 @router.get("/typo-correction")
 async def get_typo_correction_metrics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, Any]:
     """Get typo correction analytics and learned feedback summary."""
     from app.application.services.typo_correction_service import get_typo_correction_service
@@ -418,7 +483,7 @@ async def get_typo_correction_metrics(
 @router.post("/typo-correction/feedback")
 async def submit_typo_correction_feedback(
     request: TypoCorrectionFeedbackRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> dict[str, str]:
     """Record user override feedback for typo correction decisions."""
     from app.application.services.typo_correction_service import get_typo_correction_service
@@ -448,7 +513,7 @@ async def _update_dynamic_metrics() -> None:
 
 @router.get("/stream")
 async def stream_metrics(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """Stream real-time metrics via SSE (Phase 6).
 
@@ -484,7 +549,7 @@ async def stream_metrics(
 
 @router.get("/dashboard")
 async def get_dashboard_summary(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """Get comprehensive dashboard metrics (Phase 6).
 
@@ -504,7 +569,7 @@ async def get_dashboard_summary(
 
 @router.get("/workflow-efficiency")
 async def get_workflow_efficiency(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """Get workflow efficiency metrics (Phase 6).
 
@@ -524,7 +589,7 @@ async def get_workflow_efficiency(
 
 @router.get("/tool-performance")
 async def get_tool_performance(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """Get tool performance breakdown (Phase 6).
 

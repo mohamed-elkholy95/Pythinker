@@ -181,6 +181,18 @@ class BrowseUrlRequest(BaseModel):
     url: str
 
 
+class RenameSessionRequest(BaseModel):
+    """Rename session request schema"""
+
+    title: str = Field(..., min_length=1, max_length=500, description="New title for the session")
+
+
+class DeleteSessionResponse(BaseModel):
+    """Delete session response schema"""
+
+    warnings: list[str] = Field(default_factory=list, description="Non-fatal cleanup warnings")
+
+
 class SandboxUrlResponse(BaseModel):
     """Sandbox URL response for CDP screencast access"""
 

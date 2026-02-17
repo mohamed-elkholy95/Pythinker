@@ -23,6 +23,7 @@ from app.interfaces.schemas.connector import (
     CreateCustomMcpRequest,
     CustomApiConfigResponse,
     CustomMcpConfigResponse,
+    DeleteConnectorResponse,
     TestConnectionResponse,
     UpdateUserConnectorRequest,
     UserConnectorListResponse,
@@ -251,17 +252,17 @@ async def update_user_connector(
     return APIResponse(data=_user_connector_to_response(uc))
 
 
-@router.delete("/user/{user_connector_id}", response_model=APIResponse[dict[str, bool]])
+@router.delete("/user/{user_connector_id}", response_model=APIResponse[DeleteConnectorResponse])
 async def delete_user_connector(
     user_connector_id: str,
     current_user: User = Depends(get_current_user),
-) -> APIResponse[dict[str, bool]]:
+) -> APIResponse[DeleteConnectorResponse]:
     """Delete a user connector."""
     service = get_connector_service()
     deleted = await service.delete_custom_connector(current_user.id, user_connector_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Connector not found")
-    return APIResponse(data={"deleted": True})
+    return APIResponse(data=DeleteConnectorResponse(deleted=True))
 
 
 @router.post("/user/{user_connector_id}/test", response_model=APIResponse[TestConnectionResponse])

@@ -247,6 +247,71 @@ def increment_rating_unauthorized_attempts() -> None:
     rating_unauthorized_attempts_total.inc({})
 
 
+async def require_admin_user(
+    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> User:
+    """Require authenticated user with admin role.
+
+    This dependency enforces that the current user has admin privileges.
+    Used for maintenance, monitoring, and other administrative endpoints.
+
+    Raises:
+        UnauthorizedError: If authentication fails.
+        HTTPException: 403 Forbidden if user is not admin.
+    """
+    from app.core.prometheus_metrics import admin_unauthorized_access_total
+
+    settings = get_settings()
+
+    # If auth_provider is 'none', return anonymous admin user (development only)
+    if settings.auth_provider == "none":
+        return User(
+            id="anonymous",
+            fullname="anonymous",
+            email="anonymous@localhost",
+            role=UserRole.ADMIN,
+            is_active=True,
+        )
+
+    # Check if bearer token is provided
+    if not bearer_credentials:
+        raise UnauthorizedError("Authentication required")
+
+    try:
+        # Verify bearer token
+        user = await auth_service.verify_token(bearer_credentials.credentials)
+
+        if not user:
+            raise UnauthorizedError("Invalid token")
+
+        if not user.is_active:
+            raise UnauthorizedError("User account is inactive")
+
+        # Check admin role
+        if user.role != UserRole.ADMIN:
+            admin_unauthorized_access_total.inc({"endpoint": "admin"})
+            logger.warning(
+                "[SECURITY] Non-admin user %s (%s) attempted to access admin endpoint",
+                user.id,
+                user.email,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges required",
+            )
+
+        return user
+
+    except HTTPException:
+        raise
+    except UnauthorizedError:
+        raise
+    except Exception as e:
+        logger.warning(f"Admin authentication failed: {e}")
+        raise UnauthorizedError("Authentication failed") from e
+
+
 async def get_current_user(
     bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
     auth_service: AuthService = Depends(get_auth_service),

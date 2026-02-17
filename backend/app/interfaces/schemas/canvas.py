@@ -156,3 +156,9 @@ class VersionListResponse(BaseModel):
 
 class ImageResponse(BaseModel):
     urls: list[str]
+
+
+class DeleteProjectResponse(BaseModel):
+    """Response schema for deleting a canvas project."""
+
+    deleted: bool = Field(..., description="Whether the project was successfully deleted")
