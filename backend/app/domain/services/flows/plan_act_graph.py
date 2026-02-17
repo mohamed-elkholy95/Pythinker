@@ -22,6 +22,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Optional
 
+from app.domain.exceptions.base import SessionNotFoundException
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.observability import get_metrics, get_tracer
@@ -608,7 +609,7 @@ class PlanActGraphFlow(BaseFlow):
         # Handle session state
         session = await self._session_repository.find_by_id(self._session_id)
         if not session:
-            raise ValueError(f"Session {self._session_id} not found")
+            raise SessionNotFoundException(self._session_id)
 
         await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
 

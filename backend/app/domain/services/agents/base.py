@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from app.domain.exceptions.base import AgentConfigurationException, ToolNotFoundException
 from app.domain.external.llm import LLM
 from app.domain.external.logging import get_agent_logger
 from app.domain.models.agent import Agent
@@ -288,9 +289,9 @@ class BaseAgent:
         # earlier in the execution flow when tools are looked up by name.
         correction = self._hallucination_detector.detect(function_name)
         if correction:
-            raise ValueError(correction)
+            raise ToolNotFoundException(function_name, correction=correction)
 
-        raise ValueError(f"Unknown tool: {function_name}")
+        raise ToolNotFoundException(function_name)
 
     def refresh_hallucination_detector(self) -> None:
         """Refresh the hallucination detector with current available tools.
@@ -344,7 +345,7 @@ class BaseAgent:
             ValueError: If no state manifest is configured
         """
         if self.state_manifest is None:
-            raise ValueError("No state manifest configured for this agent")
+            raise AgentConfigurationException("No state manifest configured for this agent")
 
         entry = StateEntry(
             key=key,

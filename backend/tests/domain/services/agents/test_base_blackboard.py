@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.domain.exceptions.base import AgentConfigurationException
 from app.domain.models.state_manifest import StateEntry, StateManifest
 from app.domain.services.agents.base import BaseAgent
 
@@ -146,7 +147,7 @@ async def test_agent_post_without_manifest_raises(
         # No state_manifest provided
     )
 
-    with pytest.raises(ValueError, match="No state manifest configured"):
+    with pytest.raises(AgentConfigurationException, match="No state manifest configured"):
         await agent.post_state("key", "value")
 
 

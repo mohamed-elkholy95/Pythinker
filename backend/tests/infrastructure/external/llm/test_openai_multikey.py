@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from openai import RateLimitError
 
+from app.domain.exceptions.base import ConfigurationException
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
 
 
@@ -58,7 +59,7 @@ class TestOpenAILLMMultiKeyInit:
 
     def test_init_requires_api_key(self, mock_redis):
         """Should raise error if no primary key provided."""
-        with pytest.raises(ValueError, match="API key is required"):
+        with pytest.raises(ConfigurationException, match="API key is required"):
             OpenAILLM(
                 api_key=None,
                 redis_client=mock_redis,

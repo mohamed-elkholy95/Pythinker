@@ -61,18 +61,25 @@ class FastAcknowledgmentRefiner:
             metrics.record_counter("fast_ack_refiner_total", labels={"status": "fallback", "reason": "error"})
             metrics.record_histogram("fast_ack_refiner_latency_seconds", elapsed, labels={"status": "fallback"})
             reason_code = type(exc).__name__
-            self._error_count += 1
-            if self._should_sample_traceback():
-                logger.warning(
-                    "Fast ack refiner fallback: reason=error reason_code=%s sampled_traceback=true",
-                    reason_code,
-                    exc_info=True,
-                )
+
+            # API key exhaustion: expected degradation — log at debug to avoid spam
+            from app.infrastructure.external.key_pool import APIKeysExhaustedError
+
+            if isinstance(exc, APIKeysExhaustedError):
+                logger.debug("Fast ack refiner fallback: keys exhausted (%s)", exc)
             else:
-                logger.warning(
-                    "Fast ack refiner fallback: reason=error reason_code=%s sampled_traceback=false",
-                    reason_code,
-                )
+                self._error_count += 1
+                if self._should_sample_traceback():
+                    logger.warning(
+                        "Fast ack refiner fallback: reason=error reason_code=%s sampled_traceback=true",
+                        reason_code,
+                        exc_info=True,
+                    )
+                else:
+                    logger.warning(
+                        "Fast ack refiner fallback: reason=error reason_code=%s sampled_traceback=false",
+                        reason_code,
+                    )
             return fallback
 
     async def _generate_with_llm(self, user_message: str) -> str:

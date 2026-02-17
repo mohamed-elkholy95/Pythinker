@@ -45,11 +45,11 @@ class TaskDefinition(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     title: str
     description: str
-    deliverables: list[Deliverable] = []
+    deliverables: list[Deliverable] = Field(default_factory=list)
     workspace_folder: str | None = None  # e.g., "task_1_research"
     validation_criteria: str | None = None
     estimated_complexity: float = 0.5  # 0.0-1.0
-    depends_on: list[str] = []  # Task IDs this depends on
+    depends_on: list[str] = Field(default_factory=list)  # Task IDs this depends on
     status: TaskStatus = TaskStatus.PENDING
 
     # Execution tracking
@@ -64,7 +64,7 @@ class TaskResult(BaseModel):
 
     task_id: str
     status: TaskStatus
-    deliverables_created: list[str] = []  # File paths
+    deliverables_created: list[str] = Field(default_factory=list)  # File paths
     validation_passed: bool = False
     validation_report: str | None = None
     error_message: str | None = None
@@ -78,7 +78,7 @@ class MultiTaskChallenge(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     title: str
     description: str
-    tasks: list[TaskDefinition] = []
+    tasks: list[TaskDefinition] = Field(default_factory=list)
 
     # Workspace configuration
     workspace_root: str = "/workspace"
@@ -86,8 +86,8 @@ class MultiTaskChallenge(BaseModel):
 
     # Progress tracking
     current_task_index: int = 0
-    completed_tasks: list[str] = []  # Task IDs
-    failed_tasks: list[str] = []  # Task IDs
+    completed_tasks: list[str] = Field(default_factory=list)  # Task IDs
+    failed_tasks: list[str] = Field(default_factory=list)  # Task IDs
 
     # Execution metadata
     started_at: datetime | None = None
@@ -95,7 +95,7 @@ class MultiTaskChallenge(BaseModel):
     total_duration_seconds: float | None = None
 
     # Results
-    task_results: list[TaskResult] = []
+    task_results: list[TaskResult] = Field(default_factory=list)
     overall_success: bool = False
 
     def get_current_task(self) -> TaskDefinition | None:

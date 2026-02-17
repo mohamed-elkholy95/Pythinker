@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 from typing import Any
 
+from app.domain.exceptions.base import InvalidStateException
 from app.domain.models.thought import (
     Decision,
     ReasoningStep,
@@ -132,7 +133,7 @@ class ThoughtChainBuilder:
             The initialized reasoning step
         """
         if not self._current_chain:
-            raise ValueError("Must start a chain before starting a step")
+            raise InvalidStateException("Must start a chain before starting a step")
 
         self._current_step = ReasoningStep(name=name)
         return self._current_step
@@ -159,7 +160,7 @@ class ThoughtChainBuilder:
             The created thought
         """
         if not self._current_step:
-            raise ValueError("Must start a step before adding thoughts")
+            raise InvalidStateException("Must start a step before adding thoughts")
 
         # Infer type if not provided
         if thought_type is None:
@@ -193,9 +194,9 @@ class ThoughtChainBuilder:
             The completed reasoning step
         """
         if not self._current_step:
-            raise ValueError("No current step to complete")
+            raise InvalidStateException("No current step to complete")
         if not self._current_chain:
-            raise ValueError("No current chain")
+            raise InvalidStateException("No current chain")
 
         self._current_step.conclusion = conclusion
         self._current_step.confidence = self._current_step.get_average_confidence()
@@ -217,7 +218,7 @@ class ThoughtChainBuilder:
             The completed thought chain
         """
         if not self._current_chain:
-            raise ValueError("No current chain to complete")
+            raise InvalidStateException("No current chain to complete")
 
         # Complete any pending step
         if self._current_step:

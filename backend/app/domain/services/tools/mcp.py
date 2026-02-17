@@ -14,6 +14,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import Tool as MCPToolType
 
+from app.domain.exceptions.base import ToolConfigurationException, ToolNotFoundException
 from app.domain.models.mcp_config import MCPConfig, MCPServerConfig
 from app.domain.models.mcp_resource import (
     MCPResource,
@@ -481,7 +482,7 @@ class MCPClientManager:
         env = server_config.env or {}
 
         if not command:
-            raise ValueError(f"Server {server_name} missing command configuration")
+            raise ToolConfigurationException(f"Server {server_name} missing command configuration")
 
         # Create server parameters (path handling done in config provider)
         server_params = StdioServerParameters(command=command, args=args, env={**os.environ, **env})
@@ -518,7 +519,7 @@ class MCPClientManager:
         """Connect to HTTP MCP server"""
         url = server_config.url
         if not url:
-            raise ValueError(f"Server {server_name} missing url configuration")
+            raise ToolConfigurationException(f"Server {server_name} missing url configuration")
 
         stack = self._server_exit_stacks[server_name]
 
@@ -555,7 +556,7 @@ class MCPClientManager:
         """
         url = server_config.url
         if not url:
-            raise ValueError(f"Server {server_name} missing url configuration")
+            raise ToolConfigurationException(f"Server {server_name} missing url configuration")
 
         # Get optional configuration
         headers = server_config.headers or {}
@@ -973,7 +974,7 @@ class MCPClientManager:
                     break
 
             if not server_name or not original_tool_name:
-                raise ValueError(f"Unable to parse MCP tool name: {tool_name}")
+                raise ToolNotFoundException(tool_name)
 
             # Check server health before calling
             health = self._server_health.get(server_name)

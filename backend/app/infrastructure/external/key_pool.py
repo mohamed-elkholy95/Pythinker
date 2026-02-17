@@ -32,6 +32,20 @@ from app.core.retry import RetryConfig, calculate_delay
 logger = logging.getLogger(__name__)
 
 
+class APIKeysExhaustedError(RuntimeError):
+    """Raised when all API keys in a pool are exhausted or invalid.
+
+    Subclasses ``RuntimeError`` for backward compatibility with existing
+    ``except RuntimeError`` handlers while allowing callers to distinguish
+    key-exhaustion from other runtime errors.
+    """
+
+    def __init__(self, provider: str, key_count: int) -> None:
+        self.provider = provider
+        self.key_count = key_count
+        super().__init__(f"All {key_count} {provider} API keys exhausted")
+
+
 class RotationStrategy(str, Enum):
     """API key rotation strategies."""
 
@@ -116,11 +130,30 @@ class APIKeyPool:
         self._memory_exhausted: dict[str, float] = {}  # key_hash -> expiry_timestamp
         self._memory_invalid: set[str] = set()  # set of invalid key_hashes
 
+        # Cooldown: suppress repeated "all keys exhausted" warnings
+        self._last_exhaustion_warning: float = 0.0
+        self._exhaustion_warning_cooldown: float = 60.0  # seconds
+
         # Warn if running without Redis
         if redis_client is None:
             logger.warning(
                 f"[{provider}] APIKeyPool running in-memory mode (no Redis). Multi-instance coordination disabled."
             )
+
+    def _log_all_keys_exhausted(self) -> None:
+        """Log key exhaustion with cooldown to prevent log spam.
+
+        Logs at WARNING level once per cooldown period, then DEBUG for
+        subsequent calls within the cooldown window.
+        """
+        now = time.time()
+        if now - self._last_exhaustion_warning >= self._exhaustion_warning_cooldown:
+            logger.warning(f"[{self.provider}] All {len(self.keys)} keys exhausted")
+            self._last_exhaustion_warning = now
+        else:
+            logger.debug(f"[{self.provider}] All {len(self.keys)} keys exhausted (suppressed)")
+
+        api_key_selections_total.inc({"provider": self.provider, "key_id": "all", "status": "exhausted"})
 
     async def get_healthy_key(self) -> str | None:
         """
@@ -172,11 +205,7 @@ class APIKeyPool:
                 return key_config.key
 
         # All keys unhealthy
-        logger.warning(f"[{self.provider}] All {len(self.keys)} keys exhausted")
-
-        # Record exhaustion
-        api_key_selections_total.inc({"provider": self.provider, "key_id": "all", "status": "exhausted"})
-
+        self._log_all_keys_exhausted()
         return None
 
     async def _failover(self) -> str | None:
@@ -203,11 +232,7 @@ class APIKeyPool:
                 return key_config.key
 
         # All keys unhealthy
-        logger.warning(f"[{self.provider}] All {len(self.keys)} keys exhausted")
-
-        # Record exhaustion
-        api_key_selections_total.inc({"provider": self.provider, "key_id": "all", "status": "exhausted"})
-
+        self._log_all_keys_exhausted()
         return None
 
     async def _weighted_selection(self) -> str | None:

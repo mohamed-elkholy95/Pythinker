@@ -45,8 +45,8 @@ class Session(BaseModel):
     latest_message_at: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    events: list[AgentEvent] = []
-    files: list[FileInfo] = []
+    events: list[AgentEvent] = Field(default_factory=list)
+    files: list[FileInfo] = Field(default_factory=list)
     status: SessionStatus = SessionStatus.PENDING
     is_shared: bool = False  # Whether this session is shared publicly
     mode: AgentMode = AgentMode.AGENT  # Agent mode: agent (full PlanAct) or discuss (simple Q&A)

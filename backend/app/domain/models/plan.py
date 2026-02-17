@@ -133,7 +133,7 @@ class Step(BaseModel):
     result: str | None = None
     error: str | None = None
     success: bool = False
-    attachments: list[str] = []
+    attachments: list[str] = Field(default_factory=list)
     # Enhanced fields
     notes: str = ""  # Additional context (e.g., why blocked)
     agent_type: str | None = None  # Which agent should handle this
@@ -147,6 +147,21 @@ class Step(BaseModel):
     # Execution control
     expected_output: str | None = None  # Description of what this step should produce
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)  # Per-step retry config
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _coerce_status(cls, v: Any) -> ExecutionStatus:
+        """Coerce string values to ExecutionStatus enum.
+
+        When Steps are deserialized from MongoDB or constructed from dicts,
+        the status field arrives as a plain string. Without this validator,
+        Pydantic v2 emits PydanticSerializationUnexpectedValue warnings
+        during JSON serialization.
+        """
+        if isinstance(v, str):
+            return ExecutionStatus(v)
+        return v
+
     budget_tokens: int | None = None  # Max tokens allocated for this step
     # Structured naming fields (Phase 2: 2026-02-13 plan)
     action_verb: str | None = None  # e.g., "Search", "Browse", "Analyze", "Write"
@@ -198,12 +213,19 @@ class Plan(BaseModel):
     title: str = ""
     goal: str = ""
     language: str | None = "en"
-    steps: list[Step] = []
+    steps: list[Step] = Field(default_factory=list)
     phases: list[Phase] = Field(default_factory=list)
     message: str | None = None
     status: ExecutionStatus = ExecutionStatus.PENDING
     result: dict[str, Any] | None = None
     error: str | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _coerce_status(cls, v: Any) -> ExecutionStatus:
+        if isinstance(v, str):
+            return ExecutionStatus(v)
+        return v
 
     @field_validator("result", mode="before")
     @classmethod

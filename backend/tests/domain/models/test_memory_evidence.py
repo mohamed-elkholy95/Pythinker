@@ -3,7 +3,7 @@
 Phase 4: Tests evidence-based memory with confidence scoring and caveat detection.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.domain.models.memory_evidence import EvidenceConfidence, MemoryEvidence
 
@@ -19,7 +19,7 @@ class TestEvidenceConfidence:
             source_type="user_knowledge",
             retrieval_score=0.9,
             embedding_quality=0.9,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             session_id="session-1",
             memory_type="fact",
             importance="high",
@@ -37,7 +37,7 @@ class TestEvidenceConfidence:
             source_type="user_knowledge",
             retrieval_score=0.75,
             embedding_quality=0.70,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             session_id="session-2",
             memory_type="fact",
             importance="medium",
@@ -55,7 +55,7 @@ class TestEvidenceConfidence:
             source_type="user_knowledge",
             retrieval_score=0.6,
             embedding_quality=0.5,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             session_id="session-3",
             memory_type="fact",
             importance="low",
@@ -73,7 +73,7 @@ class TestEvidenceConfidence:
             source_type="user_knowledge",
             retrieval_score=0.3,
             embedding_quality=0.4,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             session_id="session-4",
             memory_type="fact",
             importance="low",
@@ -95,7 +95,7 @@ class TestContradictionDetection:
             source_type="user_knowledge",
             retrieval_score=0.9,
             embedding_quality=0.9,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             session_id="session-5",
             memory_type="fact",
             importance="high",
@@ -115,7 +115,7 @@ class TestContradictionDetection:
             source_type="user_knowledge",
             retrieval_score=0.9,
             embedding_quality=0.9,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             session_id="session-7",
             memory_type="fact",
             importance="high",
@@ -203,7 +203,7 @@ class TestPromptBlockFormatting:
             source_type="user_knowledge",
             retrieval_score=0.3,
             embedding_quality=0.3,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             session_id="session-14",
             memory_type="fact",
             importance="low",
@@ -221,7 +221,7 @@ class TestPromptBlockFormatting:
             source_type="user_knowledge",
             retrieval_score=0.9,
             embedding_quality=0.9,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             session_id="session-15",
             memory_type="fact",
             importance="high",

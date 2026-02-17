@@ -8,6 +8,7 @@ for collaboration and coordination between agents.
 import logging
 from typing import Any
 
+from app.domain.exceptions.base import MessageNotFoundException
 from app.domain.models.agent_message import (
     AgentMessage,
     ErrorReportPayload,
@@ -474,7 +475,7 @@ class CommunicationProtocol:
         """
         original = self.get_message(original_message_id)
         if not original:
-            raise ValueError(f"Message not found: {original_message_id}")
+            raise MessageNotFoundException(original_message_id)
 
         return self.send_message(
             sender_id=sender_id,

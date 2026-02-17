@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AgentEventType(StrEnum):
@@ -75,8 +75,7 @@ class AgentEvent(BaseModel):
     # Metadata
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    class Config:
-        frozen = True  # Immutable
+    model_config = ConfigDict(frozen=True)
 
 
 # Specific event types with typed payloads

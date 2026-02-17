@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from app.domain.exceptions.base import ToolNotFoundException
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.cache_layer import (
     _generate_cache_key,
@@ -664,7 +665,7 @@ class BaseTool:
                 log_tool_end(self.name, function_name, start_time, result.success, result.message)
                 return result
 
-        raise ValueError(f"Tool '{function_name}' not found")
+        raise ToolNotFoundException(function_name)
 
     def set_max_observe(self, limit: int | None) -> None:
         """Set custom observation limit for this tool instance.

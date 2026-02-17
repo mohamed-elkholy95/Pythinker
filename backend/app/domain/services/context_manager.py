@@ -11,7 +11,7 @@ Key benefits:
 """
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from app.domain.models.context_memory import ContextMemory, ContextType
@@ -168,7 +168,7 @@ class SandboxContextManager:
             topic: The research topic.
             findings: The research findings/content.
         """
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         safe_topic = topic.replace(" ", "_").replace("/", "_")
         path = f"{self.CONTEXT_DIR}/research/{timestamp}_{safe_topic}.md"
         await self.sandbox.write_file(path, findings)

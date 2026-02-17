@@ -1,6 +1,6 @@
 """Structured Report Models with discriminated unions for flexible output types."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Annotated, Literal
 
@@ -79,7 +79,7 @@ class ResearchReport(BaseModel):
     benchmarks: list[Benchmark] = Field(default_factory=list)
     methodology: str | None = Field(default=None)
     limitations: list[str] = Field(default_factory=list)
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ComparisonReport(BaseModel):
@@ -92,7 +92,7 @@ class ComparisonReport(BaseModel):
     winner: str | None = Field(default=None)
     recommendation: str | None = Field(default=None)
     sections: list[ReportSection] = Field(default_factory=list)
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class AnalysisReport(BaseModel):
@@ -106,7 +106,7 @@ class AnalysisReport(BaseModel):
     risk_score: float | None = Field(default=None, ge=0.0, le=1.0)
     recommendations: list[str] = Field(default_factory=list)
     sections: list[ReportSection] = Field(default_factory=list)
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 # Union type with discriminator

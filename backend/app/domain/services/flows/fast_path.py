@@ -703,8 +703,14 @@ class FastPathRouter:
                 yield MessageEvent(message=content)
 
         except Exception as e:
-            logger.exception(f"Fast knowledge error: {e}")
-            yield ErrorEvent(error=f"Failed to answer question: {e!s}")
+            from app.infrastructure.external.key_pool import APIKeysExhaustedError
+
+            if isinstance(e, APIKeysExhaustedError):
+                logger.debug("Fast knowledge skipped: %s", e)
+                yield ErrorEvent(error="API quota temporarily exceeded. Please try again in a moment.")
+            else:
+                logger.exception(f"Fast knowledge error: {e}")
+                yield ErrorEvent(error=f"Failed to answer question: {e!s}")
 
         yield DoneEvent()
 

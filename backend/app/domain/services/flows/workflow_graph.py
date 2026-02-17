@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.domain.exceptions.base import WorkflowConfigurationException
 from app.domain.models.event import BaseEvent
 
 logger = logging.getLogger(__name__)
@@ -160,7 +161,7 @@ class WorkflowGraph:
             Self for chaining
         """
         if name in (START, END):
-            raise ValueError(f"Cannot use reserved node name: {name}")
+            raise WorkflowConfigurationException(f"Cannot use reserved node name: {name}")
 
         self._nodes[name] = Node(name=name, handler=handler, description=description)
 
@@ -183,9 +184,9 @@ class WorkflowGraph:
         """
         # Validate nodes exist (except START/END)
         if from_node not in (START, END) and from_node not in self._nodes:
-            raise ValueError(f"Source node not found: {from_node}")
+            raise WorkflowConfigurationException(f"Source node not found: {from_node}")
         if to_node not in (START, END) and to_node not in self._nodes:
-            raise ValueError(f"Target node not found: {to_node}")
+            raise WorkflowConfigurationException(f"Target node not found: {to_node}")
 
         edge = Edge(from_node=from_node, to_node=to_node, condition=condition)
 
@@ -209,7 +210,7 @@ class WorkflowGraph:
             Self for chaining
         """
         if from_node not in self._nodes:
-            raise ValueError(f"Source node not found: {from_node}")
+            raise WorkflowConfigurationException(f"Source node not found: {from_node}")
 
         self._conditional_edges[from_node] = ConditionalEdge(
             from_node=from_node, router=router, possible_targets=possible_targets or []
@@ -227,7 +228,7 @@ class WorkflowGraph:
             Self for chaining
         """
         if node_name not in self._nodes:
-            raise ValueError(f"Entry point node not found: {node_name}")
+            raise WorkflowConfigurationException(f"Entry point node not found: {node_name}")
         self._entry_point = node_name
         self.add_edge(START, node_name)
         return self
@@ -259,7 +260,7 @@ class WorkflowGraph:
             if asyncio.iscoroutine(result):
                 result = await result
             if conditional.possible_targets and result not in conditional.possible_targets and result != END:
-                raise ValueError(
+                raise WorkflowConfigurationException(
                     f"Conditional router returned invalid target '{result}' for node '{current}'. "
                     f"Allowed: {conditional.possible_targets}"
                 )
@@ -300,7 +301,7 @@ class WorkflowGraph:
         elif self._edges.get(START):
             state.transition_to(self._edges[START][0].to_node)
         else:
-            raise ValueError("No entry point defined for workflow")
+            raise WorkflowConfigurationException("No entry point defined for workflow")
 
         while state.should_continue():
             current_node = state.current_node
@@ -434,14 +435,14 @@ class WorkflowBuilder:
     def edge(self, to_node: str) -> "WorkflowBuilder":
         """Add edge from current node."""
         if not self._current_node:
-            raise ValueError("No current node - add a node first")
+            raise WorkflowConfigurationException("No current node - add a node first")
         self._graph.add_edge(self._current_node, to_node)
         return self
 
     def conditional(self, router: ConditionalRouter, targets: list[str]) -> "WorkflowBuilder":
         """Add conditional edge from current node."""
         if not self._current_node:
-            raise ValueError("No current node - add a node first")
+            raise WorkflowConfigurationException("No current node - add a node first")
         self._graph.add_conditional_edge(self._current_node, router, targets)
         return self
 

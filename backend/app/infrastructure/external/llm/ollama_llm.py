@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.retry import RetryConfig, calculate_delay, llm_retry
+from app.domain.exceptions.base import LLMException
 from app.domain.external.llm import LLM
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.token_manager import TokenManager
@@ -382,14 +383,14 @@ Respond ONLY with the JSON object, no other text.""",
                     parsed = json.loads(json_match.group())
                     return response_model.model_validate(parsed)
 
-                raise ValueError(f"No valid JSON found in response: {content[:100]}")
+                raise LLMException(f"No valid JSON found in response: {content[:100]}")
 
             except json.JSONDecodeError as e:
                 logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
-                    raise ValueError(f"Failed to parse JSON response: {e}") from e
+                    raise LLMException(f"Failed to parse JSON response: {e}") from e
 
-        raise ValueError("Failed to get structured response after all retries")
+        raise LLMException("Failed to get structured response after all retries")
 
     async def _stream_ollama_response(
         self,

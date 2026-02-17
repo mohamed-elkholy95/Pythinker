@@ -6,7 +6,7 @@ Enables resumption of agent flows after crashes or interruptions.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -111,6 +111,3 @@ class FlowStateSnapshot(BaseModel):
     def is_error(self) -> bool:
         """Check if flow is in error state"""
         return self.status == FlowStatus.ERROR
-
-    class Config:
-        json_encoders: ClassVar[dict[type, Any]] = {datetime: lambda v: v.isoformat()}

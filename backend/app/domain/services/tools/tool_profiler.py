@@ -13,6 +13,7 @@ from datetime import datetime
 from functools import wraps
 from typing import Any, TypeVar
 
+from app.domain.exceptions.base import ToolConfigurationException
 from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -171,7 +172,7 @@ class ToolExecutionProfiler:
             elif hasattr(tool, "execute"):
                 result = await tool.execute(**kwargs)
             else:
-                raise ValueError(f"Tool {tool_name} has no execute or invoke_function method")
+                raise ToolConfigurationException(f"Tool {tool_name} has no execute or invoke_function method")
 
             duration_ms = (time.perf_counter() - start_time) * 1000
             success = result.success if hasattr(result, "success") else True

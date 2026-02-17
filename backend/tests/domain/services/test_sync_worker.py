@@ -6,7 +6,7 @@ Phase 2: Tests outbox pattern, retry logic, and dead-letter queue.
 import asyncio
 import uuid
 from contextlib import suppress
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pymongo import MongoClient
@@ -99,7 +99,7 @@ class TestSyncWorkerBasics:
                     "tags": ["test"],
                     "sparse_vector": {0: 0.5},
                     "session_id": "session-1",
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                 },
             )
         )
@@ -146,7 +146,7 @@ class TestRetryLogic:
             entry.id,
             error="Collection not found",
             retry_count=1,
-            next_retry_at=datetime.utcnow() + timedelta(seconds=1),
+            next_retry_at=datetime.now(UTC) + timedelta(seconds=1),
         )
 
         # Verify retry scheduled
@@ -173,7 +173,7 @@ class TestRetryLogic:
         # Simulate failures up to max retries
         for i in range(1, 3):
             await outbox_repo.mark_failed(
-                entry.id, error=f"Failure {i}", retry_count=i, next_retry_at=datetime.utcnow() + timedelta(seconds=1)
+                entry.id, error=f"Failure {i}", retry_count=i, next_retry_at=datetime.now(UTC) + timedelta(seconds=1)
             )
 
         # Final failure should trigger DLQ move
@@ -213,7 +213,7 @@ class TestBatchOperations:
                 "tags": ["batch"],
                 "sparse_vector": {0: 0.5 + i * 0.1},
                 "session_id": "session-batch",
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
             }
             for i in range(3)
         ]

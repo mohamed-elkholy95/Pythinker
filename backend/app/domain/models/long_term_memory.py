@@ -9,7 +9,7 @@ memories across agent sessions, enabling:
 """
 
 import hashlib
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -79,8 +79,8 @@ class MemoryEntry(BaseModel):
     context: str | None = Field(default=None, description="Context in which memory was created")
 
     # Timestamps and lifecycle
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_accessed: datetime | None = Field(default=None)
     access_count: int = Field(default=0, description="Times this memory was retrieved")
 
@@ -118,11 +118,11 @@ class MemoryEntry(BaseModel):
         """Check if memory has expired."""
         if not self.expires_at:
             return False
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
     def record_access(self) -> None:
         """Record that this memory was accessed."""
-        self.last_accessed = datetime.utcnow()
+        self.last_accessed = datetime.now(UTC)
         self.access_count += 1
 
 

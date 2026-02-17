@@ -6,7 +6,7 @@ verification that claims are grounded in actual visited content.
 
 import hashlib
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -84,7 +84,7 @@ class ClaimProvenance(BaseModel):
     verifier_confidence: float = 0.0
 
     # Audit trail
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     created_by: str = "system"  # "execution_agent", "critic", "manual"
 
     # Flags
@@ -145,7 +145,7 @@ class ClaimProvenance(BaseModel):
             self.verification_status = ClaimVerificationStatus.INFERRED
 
         self.verification_method = method
-        self.verified_at = datetime.utcnow()
+        self.verified_at = datetime.now(UTC)
         self.verifier_confidence = similarity
         self.is_fabricated = False
 
@@ -158,7 +158,7 @@ class ClaimProvenance(BaseModel):
         self.verification_status = ClaimVerificationStatus.FABRICATED
         self.is_fabricated = True
         self.requires_manual_review = True
-        self.verified_at = datetime.utcnow()
+        self.verified_at = datetime.now(UTC)
         if reason:
             self.verification_method = f"fabricated: {reason}"
 
@@ -173,7 +173,7 @@ class ClaimProvenance(BaseModel):
         self.supporting_excerpt = excerpt
         self.verification_status = ClaimVerificationStatus.CONTRADICTED
         self.requires_manual_review = True
-        self.verified_at = datetime.utcnow()
+        self.verified_at = datetime.now(UTC)
 
     @property
     def is_grounded(self) -> bool:

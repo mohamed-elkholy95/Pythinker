@@ -12,7 +12,7 @@ import contextlib
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class SandboxContextManager:
         """
         # Return cached context if available and fresh
         if not force_reload and cls._cache and cls._cache_timestamp:
-            age = datetime.utcnow() - cls._cache_timestamp
+            age = datetime.now(UTC) - cls._cache_timestamp
             if age < cls._cache_ttl:
                 return cls._cache
 
@@ -65,7 +65,7 @@ class SandboxContextManager:
 
                 # Update cache
                 cls._cache = context
-                cls._cache_timestamp = datetime.utcnow()
+                cls._cache_timestamp = datetime.now(UTC)
 
                 logger.info(f"Loaded sandbox context from {path}")
                 return context
@@ -451,7 +451,7 @@ print(json.dumps({"os": platform.system(), "arch": platform.machine()}, indent=2
         if generated_at:
             with contextlib.suppress(Exception):
                 gen_time = datetime.fromisoformat(generated_at)
-                age = datetime.utcnow() - gen_time
+                age = datetime.now(UTC) - gen_time
 
         return {
             "available": True,

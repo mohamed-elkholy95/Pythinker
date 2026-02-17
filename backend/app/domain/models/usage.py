@@ -68,8 +68,8 @@ class SessionUsage(BaseModel):
     tool_call_count: int = 0
 
     # Model breakdown (model -> token count)
-    tokens_by_model: dict[str, int] = {}
-    cost_by_model: dict[str, float] = {}
+    tokens_by_model: dict[str, int] = Field(default_factory=dict)
+    cost_by_model: dict[str, float] = Field(default_factory=dict)
 
     # Time range
     first_activity: datetime | None = None
@@ -96,7 +96,7 @@ class SessionMetrics(BaseModel):
     steps_executed: int = 0
 
     # Tool usage
-    tool_usage_stats: dict[str, int] = {}  # tool_name -> count
+    tool_usage_stats: dict[str, int] = Field(default_factory=dict)  # tool_name -> count
     avg_step_duration_seconds: float = 0.0
 
     # Performance metrics
@@ -148,11 +148,11 @@ class DailyUsageAggregate(BaseModel):
     session_count: int = 0  # Unique sessions active this day
 
     # Model breakdown
-    tokens_by_model: dict[str, int] = {}
-    cost_by_model: dict[str, float] = {}
+    tokens_by_model: dict[str, int] = Field(default_factory=dict)
+    cost_by_model: dict[str, float] = Field(default_factory=dict)
 
     # Sessions active this day
-    active_sessions: list[str] = []
+    active_sessions: list[str] = Field(default_factory=list)
 
     # Timestamps
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -181,4 +181,4 @@ class MonthlyUsageSummary(BaseModel):
     active_days: int = 0
 
     # Model breakdown
-    cost_by_model: dict[str, float] = {}
+    cost_by_model: dict[str, float] = Field(default_factory=dict)

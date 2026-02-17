@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import ClassVar
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ValidationResult(BaseModel):
@@ -35,7 +35,7 @@ class ValidationResult(BaseModel):
 
     valid: bool
     error: str | None = None
-    warnings: list[str] = []
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SkillFileValidator:

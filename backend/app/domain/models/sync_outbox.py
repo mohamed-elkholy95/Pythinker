@@ -6,11 +6,11 @@ The outbox pattern ensures reliable MongoDB → Qdrant synchronization by:
 3. Moving failed entries to dead-letter queue after max retries
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.retry import RetryConfig, calculate_delay
 
@@ -52,12 +52,11 @@ class OutboxEntry(BaseModel):
     error_message: str | None = None
     last_error_at: datetime | None = None
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
     def can_retry(self) -> bool:
         """Check if this entry can be retried."""
@@ -65,7 +64,7 @@ class OutboxEntry(BaseModel):
             return False
         if self.retry_count >= self.max_retries:
             return False
-        return not (self.next_retry_at and self.next_retry_at > datetime.utcnow())
+        return not (self.next_retry_at and self.next_retry_at > datetime.now(UTC))
 
     def calculate_next_retry(self) -> datetime:
         """Calculate next retry time with exponential backoff using centralized retry logic.
@@ -80,26 +79,26 @@ class OutboxEntry(BaseModel):
             jitter=True,
         )
         delay_seconds = calculate_delay(self.retry_count + 1, retry_config)
-        return datetime.utcnow() + timedelta(seconds=delay_seconds)
+        return datetime.now(UTC) + timedelta(seconds=delay_seconds)
 
     def mark_processing(self) -> None:
         """Mark entry as currently being processed."""
         self.status = OutboxStatus.PROCESSING
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(UTC)
 
     def mark_completed(self) -> None:
         """Mark entry as successfully completed."""
         self.status = OutboxStatus.COMPLETED
-        self.completed_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.completed_at = datetime.now(UTC)
+        self.updated_at = datetime.now(UTC)
         self.error_message = None
 
     def mark_failed(self, error: str) -> None:
         """Mark entry as failed and calculate next retry or move to DLQ."""
         self.retry_count += 1
         self.error_message = error
-        self.last_error_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.last_error_at = datetime.now(UTC)
+        self.updated_at = datetime.now(UTC)
 
         if self.retry_count >= self.max_retries:
             self.status = OutboxStatus.FAILED
@@ -125,11 +124,10 @@ class DeadLetterEntry(BaseModel):
     final_error: str  # Last error message
     error_history: list[dict[str, Any]] = Field(default_factory=list)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     original_created_at: datetime  # When original outbox entry was created
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class OutboxCreate(BaseModel):
@@ -151,5 +149,4 @@ class OutboxUpdate(BaseModel):
     last_error_at: datetime | None = None
     completed_at: datetime | None = None
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)

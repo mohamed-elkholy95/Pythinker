@@ -1,6 +1,6 @@
 """RequestContract domain model (2026-02-13 agent robustness plan)."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RequestContract(BaseModel):
@@ -15,9 +15,9 @@ class RequestContract(BaseModel):
     action_type: str = "general"  # "research", "browse", "code", "general"
 
     # Locked terms — must appear in final output
-    locked_entities: list[str] = []  # e.g., ["Claude Sonnet 4.5", "Python 3.12"]
-    locked_versions: list[str] = []  # e.g., ["4.5", "3.12"]
-    numeric_constraints: list[str] = []  # e.g., ["top 5", "under $100"]
+    locked_entities: list[str] = Field(default_factory=list)  # e.g., ["Claude Sonnet 4.5", "Python 3.12"]
+    locked_versions: list[str] = Field(default_factory=list)  # e.g., ["4.5", "3.12"]
+    numeric_constraints: list[str] = Field(default_factory=list)  # e.g., ["top 5", "under $100"]
 
     # Extraction metadata
     extraction_method: str = "hybrid"  # "regex", "llm", "hybrid"

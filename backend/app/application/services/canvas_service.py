@@ -9,6 +9,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
+from app.domain.exceptions.base import ConfigurationException, ResourceLimitExceeded
 from app.domain.models.canvas import (
     CanvasElement,
     CanvasPage,
@@ -201,7 +202,7 @@ class CanvasService:
 
         settings = get_settings()
         if len(project.pages[page_index].elements) >= settings.canvas_max_elements:
-            raise ValueError(f"Maximum {settings.canvas_max_elements} elements per page")
+            raise ResourceLimitExceeded(f"Maximum {settings.canvas_max_elements} elements per page")
 
         project.pages[page_index].elements.append(element)
         project.updated_at = datetime.now(UTC)
@@ -255,7 +256,7 @@ class CanvasService:
 
         service = get_image_generation_service()
         if not service.is_configured:
-            raise ValueError("Image generation not configured (FAL_API_KEY missing)")
+            raise ConfigurationException("Image generation not configured (FAL_API_KEY missing)")
         return await service.generate_image(prompt, width, height)
 
     async def edit_image(self, image_url: str, instruction: str) -> list[str]:
@@ -264,7 +265,7 @@ class CanvasService:
 
         service = get_image_generation_service()
         if not service.is_configured:
-            raise ValueError("Image generation not configured (FAL_API_KEY missing)")
+            raise ConfigurationException("Image generation not configured (FAL_API_KEY missing)")
         return await service.edit_image(image_url, instruction)
 
     async def remove_background(self, image_url: str) -> list[str]:
@@ -273,7 +274,7 @@ class CanvasService:
 
         service = get_image_generation_service()
         if not service.is_configured:
-            raise ValueError("Image generation not configured (FAL_API_KEY missing)")
+            raise ConfigurationException("Image generation not configured (FAL_API_KEY missing)")
         return await service.remove_background(image_url)
 
     async def apply_ai_edit(

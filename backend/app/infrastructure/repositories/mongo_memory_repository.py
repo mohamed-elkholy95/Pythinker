@@ -8,12 +8,13 @@ Provides persistent storage for long-term memories with support for:
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, TEXT
 
+from app.domain.exceptions.base import MergeException
 from app.domain.models.long_term_memory import (
     MemoryEntry,
     MemoryQuery,
@@ -185,7 +186,7 @@ class MongoMemoryRepository(MemoryRepository):
         if not update_data:
             return await self.get_by_id(memory_id)
 
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = datetime.now(UTC)
 
         # Recompute content hash if content changed
         if "content" in update_data:
@@ -470,7 +471,7 @@ class MongoMemoryRepository(MemoryRepository):
 
     async def cleanup_expired(self, user_id: str | None = None) -> int:
         """Remove expired memories."""
-        query: dict[str, Any] = {"expires_at": {"$lt": datetime.utcnow()}}
+        query: dict[str, Any] = {"expires_at": {"$lt": datetime.now(UTC)}}
 
         if user_id:
             query["user_id"] = user_id
@@ -482,7 +483,7 @@ class MongoMemoryRepository(MemoryRepository):
     async def record_access(self, memory_id: str) -> None:
         """Record memory access."""
         await self._collection.update_one(
-            {"_id": memory_id}, {"$set": {"last_accessed": datetime.utcnow()}, "$inc": {"access_count": 1}}
+            {"_id": memory_id}, {"$set": {"last_accessed": datetime.now(UTC)}, "$inc": {"access_count": 1}}
         )
 
     async def merge_memories(
@@ -497,7 +498,7 @@ class MongoMemoryRepository(MemoryRepository):
                 originals.append(mem)
 
         if not originals:
-            raise ValueError("No valid memories to merge")
+            raise MergeException("No valid memories to merge")
 
         # Create merged memory
         first = originals[0]

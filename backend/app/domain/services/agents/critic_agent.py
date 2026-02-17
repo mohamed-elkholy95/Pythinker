@@ -27,7 +27,7 @@ import logging
 import re
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +45,8 @@ class CriticResult(BaseModel):
 
     approved: bool
     feedback: str
-    issues: list[str] = []
-    suggestions: list[str] = []
+    issues: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
     score: float | None = None
 
 

@@ -47,6 +47,11 @@ _MAX_RETRY_ATTEMPTS = 2  # Initial attempt + 1 retry after page re-discovery
 _STREAM_FRAME_TIMEOUT = 10.0  # Max seconds to wait for next frame before declaring stream dead
 _STREAM_HEALTH_CHECK_INTERVAL = 30.0  # Periodic health check during streaming
 
+# Page recovery thresholds
+_PAGE_RECOVERY_FAILURE_THRESHOLD = 3  # Consecutive same-page failures before recovery
+_CHROME_RESTART_FAILURE_THRESHOLD = 6  # Total failures before Chrome restart
+_CHROME_RESTART_COOLDOWN = 30.0  # Minimum seconds between Chrome restarts
+
 
 @dataclass
 class ScreencastConfig:
@@ -120,6 +125,13 @@ class CDPScreencastService:
         self._cached_ws_url: str | None = None
         self._ws_url_cached_at: float = 0.0
         self._last_successful_capture: float = 0.0
+
+        # Page recovery tracking — detects when the same broken page keeps
+        # being re-discovered and escalates from tab replacement to Chrome restart.
+        self._failing_page_url: str | None = None
+        self._same_page_failure_count: int = 0
+        self._total_consecutive_failures: int = 0
+        self._last_chrome_restart: float = 0.0
 
     # ------------------------------------------------------------------
     # Connection state
@@ -292,6 +304,184 @@ class CDPScreencastService:
         )
         # Brief delay for Chrome to register the new page target
         await asyncio.sleep(_PAGE_REDISCOVERY_DELAY)
+
+    # ------------------------------------------------------------------
+    # Page & Chrome recovery
+    # ------------------------------------------------------------------
+
+    def _record_page_failure(self, ws_url: str | None) -> None:
+        """Track consecutive failures on the same page target.
+
+        When the same page URL fails repeatedly, the failure counters
+        escalate recovery from cache-invalidation → tab replacement →
+        Chrome restart.
+        """
+        self._total_consecutive_failures += 1
+        if ws_url and ws_url == self._failing_page_url:
+            self._same_page_failure_count += 1
+        else:
+            self._failing_page_url = ws_url
+            self._same_page_failure_count = 1
+
+    def _record_page_success(self) -> None:
+        """Reset all failure tracking on a successful CDP operation."""
+        self._failing_page_url = None
+        self._same_page_failure_count = 0
+        self._total_consecutive_failures = 0
+
+    async def _try_replace_broken_tab(self) -> bool:
+        """Attempt to replace a broken browser tab without restarting Chrome.
+
+        Uses the Chrome DevTools HTTP API:
+        1. PUT /json/new — opens a fresh tab (new page target)
+        2. GET /json/close/{id} — closes the broken tab
+
+        Returns True if a new healthy page target is now available.
+        """
+        logger.info("Attempting tab replacement for broken CDP page")
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Extract broken target ID from the cached URL
+                old_target_id: str | None = None
+                if self._failing_page_url:
+                    # URL format: ws://host:port/devtools/page/{TARGET_ID}
+                    old_target_id = self._failing_page_url.rsplit("/", 1)[-1]
+
+                # Open a fresh tab
+                async with session.put(
+                    f"{CDP_ENDPOINT}/json/new",
+                    timeout=aiohttp.ClientTimeout(total=_CONNECT_TIMEOUT),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            f"Failed to create new tab: HTTP {resp.status}"
+                        )
+                        return False
+                    new_target = await resp.json()
+                    logger.info(
+                        f"Created new tab: {new_target.get('id', 'unknown')}"
+                    )
+
+                # Close the broken tab (best-effort)
+                if old_target_id:
+                    try:
+                        async with session.get(
+                            f"{CDP_ENDPOINT}/json/close/{old_target_id}",
+                            timeout=aiohttp.ClientTimeout(total=_CONNECT_TIMEOUT),
+                        ) as close_resp:
+                            if close_resp.status == 200:
+                                logger.info(
+                                    f"Closed broken tab: {old_target_id}"
+                                )
+                            else:
+                                logger.debug(
+                                    f"Could not close broken tab {old_target_id}: "
+                                    f"HTTP {close_resp.status}"
+                                )
+                    except Exception:
+                        pass  # Non-critical — new tab is what matters
+
+                # Invalidate everything so next connect picks up the new tab
+                self.invalidate_cache()
+                async with self._command_lock:
+                    await self._cleanup_stale_connection()
+                self._same_page_failure_count = 0
+                await asyncio.sleep(_PAGE_REDISCOVERY_DELAY)
+                return True
+
+        except Exception as e:
+            logger.warning(f"Tab replacement failed: {e}")
+            return False
+
+    async def _try_restart_chrome(self) -> bool:
+        """Restart Chrome via supervisord when tab replacement is insufficient.
+
+        Uses supervisord's Unix-socket XML-RPC interface (via supervisorctl)
+        to restart the chrome_cdp_only process. Includes a cooldown to
+        prevent restart storms.
+
+        Note: supervisorctl arguments are static strings — no user input is
+        involved, so there is no command injection risk.
+
+        Returns True if Chrome was successfully restarted.
+        """
+        now = time.monotonic()
+        if (now - self._last_chrome_restart) < _CHROME_RESTART_COOLDOWN:
+            remaining = _CHROME_RESTART_COOLDOWN - (now - self._last_chrome_restart)
+            logger.info(
+                f"Chrome restart cooldown active ({remaining:.0f}s remaining)"
+            )
+            return False
+
+        logger.warning("Restarting Chrome via supervisord for CDP recovery")
+        self._last_chrome_restart = now
+
+        try:
+            # All arguments are hardcoded constants — safe from injection.
+            proc = await asyncio.create_subprocess_exec(
+                "supervisorctl",
+                "-s",
+                "unix:///tmp/supervisor.sock",
+                "restart",
+                "chrome_cdp_only",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=15.0
+            )
+            success = proc.returncode == 0
+            if success:
+                logger.info(
+                    f"Chrome restarted successfully: "
+                    f"{stdout.decode().strip()}"
+                )
+                # Full reset — give Chrome time to start and register targets
+                self.invalidate_cache()
+                async with self._command_lock:
+                    await self._cleanup_stale_connection()
+                self._record_page_success()  # Reset all failure counters
+                await asyncio.sleep(3.0)  # Chrome needs ~2-3s to be ready
+                return True
+            else:
+                logger.error(
+                    f"Chrome restart failed (rc={proc.returncode}): "
+                    f"{stderr.decode().strip()}"
+                )
+                return False
+        except asyncio.TimeoutError:
+            logger.error("Chrome restart timed out after 15s")
+            return False
+        except Exception as e:
+            logger.error(f"Chrome restart error: {e}")
+            return False
+
+    async def _escalate_recovery(self) -> bool:
+        """Decide and execute the appropriate recovery action based on
+        the current failure state.
+
+        Escalation ladder:
+        1. Cache invalidation + page rediscovery (handled by caller)
+        2. Tab replacement (same page fails >= _PAGE_RECOVERY_FAILURE_THRESHOLD)
+        3. Chrome restart (total failures >= _CHROME_RESTART_FAILURE_THRESHOLD)
+
+        Returns True if recovery was attempted (caller should retry).
+        """
+        if self._total_consecutive_failures >= _CHROME_RESTART_FAILURE_THRESHOLD:
+            logger.warning(
+                f"Escalating to Chrome restart after "
+                f"{self._total_consecutive_failures} consecutive failures"
+            )
+            return await self._try_restart_chrome()
+
+        if self._same_page_failure_count >= _PAGE_RECOVERY_FAILURE_THRESHOLD:
+            logger.info(
+                f"Escalating to tab replacement after "
+                f"{self._same_page_failure_count} failures on same page"
+            )
+            return await self._try_replace_broken_tab()
+
+        return False
 
     async def connect(self) -> bool:
         """Connect to Chrome via CDP WebSocket."""
@@ -622,15 +812,26 @@ class CDPScreencastService:
         On page-detached errors, invalidates the cached URL and retries once
         with fresh page discovery so navigation/crashes recover automatically.
 
+        Recovery escalation (tracked across calls):
+        1. Cache invalidation + page rediscovery (default)
+        2. Tab replacement via /json/new (same page fails 3+ times)
+        3. Chrome restart via supervisord (total failures 6+)
+
         Args:
             quality: Override quality setting for this capture (default: use config)
             image_format: Override format for this capture (default: use config)
-
-        P1.2: Enhanced with timeout detection and automatic reconnect.
-        P2.8: Added per-request config parameters to fix singleton race condition.
         """
         capture_quality = quality if quality is not None else self.config.quality
         capture_format = image_format if image_format is not None else self.config.format
+
+        # Check if escalated recovery is needed before attempting
+        if (
+            self._same_page_failure_count >= _PAGE_RECOVERY_FAILURE_THRESHOLD
+            or self._total_consecutive_failures >= _CHROME_RESTART_FAILURE_THRESHOLD
+        ):
+            recovered = await self._escalate_recovery()
+            if not recovered:
+                return None
 
         # Try up to 2 times: initial attempt + 1 retry after page re-discovery
         for attempt in range(_MAX_RETRY_ATTEMPTS):
@@ -639,6 +840,9 @@ class CDPScreencastService:
                     self.invalidate_cache()
                     continue
                 return None
+
+            # Capture the current WS URL for failure tracking
+            current_ws_url = self._cached_ws_url
 
             try:
                 result = await self._send_command(
@@ -649,6 +853,7 @@ class CDPScreencastService:
                 # Detect timeout (result is None) and force reconnect
                 if result is None:
                     logger.warning("CDP capture timed out, forcing reconnect")
+                    self._record_page_failure(current_ws_url)
                     await self._handle_page_detached("capture_screenshot_timeout")
                     if attempt == 0:
                         continue
@@ -658,11 +863,13 @@ class CDPScreencastService:
                     data = result["result"].get("data")
                     if data:
                         self._last_successful_capture = time.monotonic()
+                        self._record_page_success()
                         return base64.b64decode(data)
 
                 # Command returned error - check if page is detached
                 if "error" in result:
                     logger.warning(f"CDP capture error response: {result['error']}")
+                    self._record_page_failure(current_ws_url)
 
                     if self._is_page_detached_error(result) and attempt == 0:
                         await self._handle_page_detached("capture_screenshot")
@@ -674,6 +881,7 @@ class CDPScreencastService:
 
             except Exception as e:
                 logger.warning(f"Failed to capture single frame: {e}")
+                self._record_page_failure(current_ws_url)
                 if attempt == 0:
                     await self._handle_page_detached("capture_screenshot_exception")
                     continue

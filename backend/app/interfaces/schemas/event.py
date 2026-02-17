@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, ClassVar, Literal, Self
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.models.event import (
     AgentEvent,
@@ -32,9 +32,6 @@ class BaseEventData(BaseModel):
     event_id: str | None
     timestamp: datetime = Field(default_factory=lambda: datetime.now())
 
-    class Config:
-        json_encoders: ClassVar[dict[type, Any]] = {datetime: lambda v: int(v.timestamp())}
-
     @classmethod
     def base_event_data(cls, event: AgentEvent) -> dict:
         return {"event_id": event.id, "timestamp": int(event.timestamp.timestamp())}
@@ -45,9 +42,7 @@ class BaseEventData(BaseModel):
 
 
 class CommonEventData(BaseEventData):
-    class Config:
-        json_encoders: ClassVar[dict[type, Any]] = {datetime: lambda v: int(v.timestamp())}
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 class BaseSSEEvent(BaseModel):
@@ -120,6 +115,13 @@ class ToolEventData(BaseEventData):
     security_reason: str | None = None
     security_suggestions: list[str] | None = None
     confirmation_state: str | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _coerce_status(cls, v: Any) -> ToolStatus:
+        if isinstance(v, str):
+            return ToolStatus(v)
+        return v
 
 
 def _derive_search_content(event: ToolEvent) -> SearchToolContent | None:
@@ -281,6 +283,13 @@ class StepEventData(BaseEventData):
     description: str
     phase_id: str | None = None  # Parent phase ID; when set, step is in plan-act flow (hide fast-search UI)
     step_type: str | None = None  # StepType value for routing
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _coerce_status(cls, v: Any) -> ExecutionStatus:
+        if isinstance(v, str):
+            return ExecutionStatus(v)
+        return v
 
 
 class StepSSEEvent(BaseSSEEvent):
@@ -491,8 +500,8 @@ class SkillDeliveryEventData(BaseEventData):
     icon: str = "puzzle"
     category: str = "custom"
     author: str | None = None
-    file_tree: dict[str, Any] = {}
-    files: list[SkillPackageFileEventData] = []
+    file_tree: dict[str, Any] = Field(default_factory=dict)
+    files: list[SkillPackageFileEventData] = Field(default_factory=list)
     file_id: str | None = None
     skill_id: str | None = None
 
@@ -563,9 +572,9 @@ class WideResearchEventData(BaseEventData):
     total_queries: int
     completed_queries: int = 0
     sources_found: int = 0
-    search_types: list[str] = []
+    search_types: list[str] = Field(default_factory=list)
     current_query: str | None = None
-    errors: list[str] = []
+    errors: list[str] = Field(default_factory=list)
 
 
 class WideResearchSSEEvent(BaseSSEEvent):
@@ -593,11 +602,11 @@ class WideResearchSSEEvent(BaseSSEEvent):
 class SkillActivationEventData(BaseEventData):
     """Skill activation event data"""
 
-    skill_ids: list[str] = []
-    skill_names: list[str] = []
+    skill_ids: list[str] = Field(default_factory=list)
+    skill_names: list[str] = Field(default_factory=list)
     tool_restrictions: list[str] | None = None
     prompt_chars: int = 0
-    activation_sources: dict[str, list[str]] = {}
+    activation_sources: dict[str, list[str]] = Field(default_factory=dict)
     command_skill_id: str | None = None
     auto_trigger_enabled: bool = False
 

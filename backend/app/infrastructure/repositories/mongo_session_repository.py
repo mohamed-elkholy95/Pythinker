@@ -2,6 +2,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from app.domain.exceptions.base import BusinessRuleViolation, SessionNotFoundException
 from app.domain.models.event import BaseEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, Session, SessionStatus
@@ -97,7 +98,7 @@ class MongoSessionRepository(SessionRepository):
             {"$set": {"title": title, "updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def update_latest_message(self, session_id: str, message: str, timestamp: datetime) -> None:
         """Update the latest message of a session"""
@@ -105,7 +106,7 @@ class MongoSessionRepository(SessionRepository):
             {"$set": {"latest_message": message, "latest_message_at": timestamp, "updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def add_event(self, session_id: str, event: BaseEvent) -> None:
         """Add an event to a session"""
@@ -113,14 +114,14 @@ class MongoSessionRepository(SessionRepository):
             {"$push": {"events": event.model_dump()}, "$set": {"updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def add_file(self, session_id: str, file_info: FileInfo) -> None:
         """Add a file to a session, avoiding duplicates by file_id or file_path"""
         # First check if file already exists to avoid duplicates
         session = await SessionDocument.find_one(SessionDocument.session_id == session_id)
         if not session:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
         # Check for existing file by file_id or file_path
         for existing_file in session.files or []:
@@ -134,7 +135,7 @@ class MongoSessionRepository(SessionRepository):
             {"$push": {"files": file_info.model_dump()}, "$set": {"updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def remove_file(self, session_id: str, file_id: str) -> None:
         """Remove a file from a session"""
@@ -142,13 +143,13 @@ class MongoSessionRepository(SessionRepository):
             {"$pull": {"files": {"file_id": file_id}}, "$set": {"updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def get_file_by_path(self, session_id: str, file_path: str) -> FileInfo | None:
         """Get file by path from a session"""
         mongo_session = await SessionDocument.find_one(SessionDocument.session_id == session_id)
         if not mongo_session:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
         # Search for file with matching path
         for file_info in mongo_session.files:
@@ -173,7 +174,7 @@ class MongoSessionRepository(SessionRepository):
             {"$set": {"status": status, "updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def update_unread_message_count(self, session_id: str, count: int) -> None:
         """Update the unread message count of a session"""
@@ -181,7 +182,7 @@ class MongoSessionRepository(SessionRepository):
             {"$set": {"unread_message_count": count, "updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def increment_unread_message_count(self, session_id: str) -> None:
         """Atomically increment the unread message count of a session"""
@@ -189,7 +190,7 @@ class MongoSessionRepository(SessionRepository):
             {"$inc": {"unread_message_count": 1}, "$set": {"updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def decrement_unread_message_count(self, session_id: str) -> None:
         """Atomically decrement the unread message count of a session"""
@@ -197,7 +198,7 @@ class MongoSessionRepository(SessionRepository):
             {"$inc": {"unread_message_count": -1}, "$set": {"updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def update_shared_status(self, session_id: str, is_shared: bool) -> None:
         """Update the shared status of a session"""
@@ -205,7 +206,7 @@ class MongoSessionRepository(SessionRepository):
             {"$set": {"is_shared": is_shared, "updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def update_mode(self, session_id: str, mode: AgentMode) -> None:
         """Update the agent mode of a session (discuss/agent)"""
@@ -213,7 +214,7 @@ class MongoSessionRepository(SessionRepository):
             {"$set": {"mode": mode.value, "updated_at": datetime.now(UTC)}}
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def update_pending_action(
         self,
@@ -232,7 +233,7 @@ class MongoSessionRepository(SessionRepository):
             }
         )
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     async def update_by_id(self, session_id: str, updates: dict[str, Any]) -> None:
         """Update session fields by ID with a dictionary of updates.
@@ -246,7 +247,7 @@ class MongoSessionRepository(SessionRepository):
         # Validate all field names against allowlist to prevent NoSQL injection
         disallowed_fields = set(updates.keys()) - ALLOWED_SESSION_UPDATE_FIELDS
         if disallowed_fields:
-            raise ValueError(
+            raise BusinessRuleViolation(
                 f"Disallowed update fields: {', '.join(sorted(disallowed_fields))}. "
                 f"Only these fields may be updated via update_by_id: "
                 f"{', '.join(sorted(ALLOWED_SESSION_UPDATE_FIELDS))}"
@@ -258,7 +259,7 @@ class MongoSessionRepository(SessionRepository):
 
         result = await SessionDocument.find_one(SessionDocument.session_id == session_id).update({"$set": safe_updates})
         if not result:
-            raise ValueError(f"Session {session_id} not found")
+            raise SessionNotFoundException(session_id)
 
     # Timeline query methods
     # Use find_one instead of aggregate to avoid AsyncIOMotorLatentCommandCursor await issues

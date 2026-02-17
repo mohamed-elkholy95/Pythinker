@@ -5,6 +5,7 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.core.retry import http_retry
+from app.domain.exceptions.base import ConfigurationException, ImageGenerationException
 from app.infrastructure.external.http_pool import HTTPClientPool, ManagedHTTPClient
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class ImageGenerationService:
     async def _submit_and_poll(self, model_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Submit a job to fal.ai queue and poll for result."""
         if not self._api_key:
-            raise ValueError("fal.ai API key not configured (FAL_API_KEY)")
+            raise ConfigurationException("fal.ai API key not configured (FAL_API_KEY)")
 
         client = await self._get_client()
 
@@ -60,7 +61,7 @@ class ImageGenerationService:
 
         request_id = submit_data.get("request_id")
         if not request_id:
-            raise ValueError("No request_id in fal.ai response")
+            raise ImageGenerationException("No request_id in fal.ai response")
 
         # Poll for status
         status_url = f"{FAL_RESULT_URL}/{model_id}/requests/{request_id}/status"

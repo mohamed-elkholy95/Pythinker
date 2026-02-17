@@ -2,7 +2,7 @@
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 from app.domain.models.source_quality import (
@@ -134,7 +134,7 @@ class SourceFilterService:
         if not pub_date:
             return ContentFreshness.UNKNOWN, 0.5
 
-        age = datetime.utcnow() - pub_date
+        age = datetime.now(UTC) - pub_date
 
         if age < timedelta(days=180):
             return ContentFreshness.CURRENT, 1.0

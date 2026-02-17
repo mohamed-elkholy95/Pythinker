@@ -17,6 +17,7 @@ from beanie import Document
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import Field
 
+from app.domain.exceptions.base import DuplicateResourceException
 from app.domain.models.agent_event import AgentEvent, AgentEventType
 
 logger = logging.getLogger(__name__)
@@ -90,7 +91,7 @@ class EventStoreRepository:
 
         except Exception as e:
             if "duplicate key" in str(e).lower():
-                raise ValueError(f"Event {event.event_id} already exists") from e
+                raise DuplicateResourceException(f"Event {event.event_id} already exists") from e
             logger.error(f"Failed to append event {event.event_id}: {e}", exc_info=True)
             raise
 

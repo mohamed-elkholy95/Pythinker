@@ -5,7 +5,7 @@ Phase 1: Tests dense+sparse hybrid retrieval with RRF fusion.
 
 import uuid
 from contextlib import suppress
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -68,7 +68,7 @@ class TestQdrantNamedVectors:
             tags=["test"],
             sparse_vector=sparse,
             session_id="session-123",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
         )
 
         # Verify memory exists
@@ -106,7 +106,7 @@ class TestQdrantNamedVectors:
                 "tags": ["batch"],
                 "sparse_vector": {0: 0.9, i: 0.5},
                 "session_id": "session-batch",
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(UTC),
             }
             for i in range(3)
         ]

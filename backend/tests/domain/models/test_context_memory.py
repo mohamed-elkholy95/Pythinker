@@ -4,7 +4,7 @@
 Tests the file-system-as-context pattern from Pythinker AI architecture.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.domain.models.context_memory import ContextMemory, ContextType
 
@@ -67,13 +67,13 @@ class TestContextMemoryCreation:
 
     def test_context_memory_timestamps(self):
         """Test timestamps are auto-generated."""
-        before = datetime.utcnow()
+        before = datetime.now(UTC)
         memory = ContextMemory(
             session_id="sess_123",
             context_type=ContextType.RESEARCH,
             content="Research findings",
         )
-        after = datetime.utcnow()
+        after = datetime.now(UTC)
 
         assert before <= memory.created_at <= after
         assert before <= memory.updated_at <= after
@@ -116,7 +116,7 @@ class TestContextMemorySerialization:
 
     def test_context_memory_deserialization(self):
         """Test deserialization from dict."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         data = {
             "session_id": "sess_789",
             "context_type": "knowledge",

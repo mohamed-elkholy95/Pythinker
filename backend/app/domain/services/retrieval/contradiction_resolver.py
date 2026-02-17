@@ -209,7 +209,12 @@ For example, "User prefers Python" and "User also uses JavaScript" are NOT contr
                         ev2.contradiction_reasons.append(reason)
 
         except Exception as e:
-            logger.warning(f"LLM contradiction detection failed: {e}")
+            from app.infrastructure.external.key_pool import APIKeysExhaustedError
+
+            if isinstance(e, APIKeysExhaustedError):
+                logger.debug("LLM contradiction detection skipped: %s", e)
+            else:
+                logger.warning(f"LLM contradiction detection failed: {e}")
 
         return evidence_list
 

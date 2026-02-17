@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.models.tool_result import ToolResult
 
@@ -43,12 +43,11 @@ class Memory(BaseModel):
     Memory class, defining the basic behavior of memory
     """
 
-    messages: list[dict[str, Any]] = []
+    messages: list[dict[str, Any]] = Field(default_factory=list)
     # Exclude config from serialization - it's runtime-only configuration
     config: MemoryConfig = Field(default_factory=MemoryConfig, exclude=True)
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context) -> None:
         """Ensure config is always initialized after deserialization"""

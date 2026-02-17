@@ -21,6 +21,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from app.domain.exceptions.base import BusinessRuleViolation
+
 
 class ResourceType(str, Enum):
     """Types of skill resources for progressive disclosure."""
@@ -107,7 +109,7 @@ class SkillMetadata(BaseModel):
         # Match frontmatter including empty case (---\n---)
         match = re.match(r"^---\n(.*?)\n?---", content, re.DOTALL)
         if not match:
-            raise ValueError("No YAML frontmatter found")
+            raise BusinessRuleViolation("No YAML frontmatter found")
 
         yaml_content = match.group(1)
         data = yaml.safe_load(yaml_content) or {}

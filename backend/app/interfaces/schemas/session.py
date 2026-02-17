@@ -99,7 +99,7 @@ class GetSessionResponse(BaseModel):
     title: str | None = None
     status: SessionStatus
     streaming_mode: StreamingMode | None = None
-    events: list[AgentSSEEvent] = []
+    events: list[AgentSSEEvent] = Field(default_factory=list)
     is_shared: bool = False
 
 
@@ -150,7 +150,7 @@ class SharedSessionResponse(BaseModel):
     session_id: str
     title: str | None = None
     status: SessionStatus
-    events: list[AgentSSEEvent] = []
+    events: list[AgentSSEEvent] = Field(default_factory=list)
     is_shared: bool
 
 

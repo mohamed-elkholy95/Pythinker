@@ -5,7 +5,7 @@ reference real URLs that were actually visited during the session.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 
@@ -32,7 +32,7 @@ class URLVerificationResult:
     redirect_url: str | None = None
     verification_time_ms: float = 0.0
     error: str | None = None
-    verified_at: datetime = field(default_factory=datetime.utcnow)
+    verified_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def is_valid_citation(self) -> bool:
@@ -72,7 +72,7 @@ class BatchURLVerificationResult:
     placeholder_count: int = 0
     error_count: int = 0
     verification_time_ms: float = 0.0
-    verified_at: datetime = field(default_factory=datetime.utcnow)
+    verified_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def all_valid(self) -> bool:

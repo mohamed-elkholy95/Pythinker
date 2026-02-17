@@ -9,6 +9,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from app.domain.exceptions.base import BusinessRuleViolation
 from app.domain.models.agent_event import AgentEvent, AgentEventType
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ class EventProjectionService:
             Current session state
         """
         if not events:
-            raise ValueError("No events provided")
+            raise BusinessRuleViolation("No events provided")
 
         session_id = events[0].session_id
         task_id = None

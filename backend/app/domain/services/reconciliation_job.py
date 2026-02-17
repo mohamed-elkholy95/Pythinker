@@ -8,7 +8,7 @@ Ensures data consistency by:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.domain.models.sync_outbox import OutboxCreate, OutboxOperation
@@ -49,7 +49,7 @@ class ReconciliationJob:
             Statistics about the reconciliation run
         """
         logger.info("Starting reconciliation job")
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
 
         stats = {
             "started_at": start_time.isoformat(),
@@ -75,7 +75,7 @@ class ReconciliationJob:
             logger.error(f"Reconciliation job failed: {e}", exc_info=True)
             stats["errors"].append(str(e))
 
-        end_time = datetime.utcnow()
+        end_time = datetime.now(UTC)
         duration = (end_time - start_time).total_seconds()
         stats["completed_at"] = end_time.isoformat()
         stats["duration_seconds"] = duration
@@ -97,7 +97,7 @@ class ReconciliationJob:
         Returns:
             Number of failed syncs retried
         """
-        cutoff = datetime.utcnow() - timedelta(hours=self.retry_failed_after_hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=self.retry_failed_after_hours)
 
         # Find failed memories eligible for retry
         failed_memories = await self.memories_collection.find_failed_memories(
@@ -139,7 +139,7 @@ class ReconciliationJob:
                     memory_id=memory_id,
                     sync_state="pending",
                     sync_attempts_increment=1,
-                    last_sync_attempt=datetime.utcnow(),
+                    last_sync_attempt=datetime.now(UTC),
                 )
 
                 retried_count += 1
@@ -163,7 +163,7 @@ class ReconciliationJob:
             Number of missing vectors detected
         """
         # Sample recently synced memories to verify
-        recent_cutoff = datetime.utcnow() - timedelta(hours=24)
+        recent_cutoff = datetime.now(UTC) - timedelta(hours=24)
 
         synced_memories = await self.memories_collection.find_synced_memories_needing_verification(
             since=recent_cutoff,

@@ -10,6 +10,7 @@ import logging
 from collections import Counter
 from typing import Any
 
+from app.domain.exceptions.base import ConfigurationException
 from app.domain.external.llm import LLM
 from app.domain.models.thought import Decision, ThoughtChain
 from app.domain.services.agents.reasoning.thought_chain import ThoughtChainBuilder
@@ -498,7 +499,7 @@ def get_consistency_checker(llm: LLM | None = None) -> SelfConsistencyChecker:
     global _consistency_checker
     if _consistency_checker is None:
         if llm is None:
-            raise ValueError("LLM required to initialize consistency checker")
+            raise ConfigurationException("LLM required to initialize consistency checker")
         _consistency_checker = SelfConsistencyChecker(llm)
     return _consistency_checker
 

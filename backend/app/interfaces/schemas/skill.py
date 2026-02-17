@@ -14,8 +14,8 @@ class SkillResponse(BaseModel):
     category: str
     source: str
     icon: str
-    required_tools: list[str] = []
-    optional_tools: list[str] = []
+    required_tools: list[str] = Field(default_factory=list)
+    optional_tools: list[str] = Field(default_factory=list)
     is_premium: bool = False
     default_enabled: bool = False
     version: str = "1.0.0"
@@ -30,13 +30,13 @@ class SkillResponse(BaseModel):
     invocation_type: str = "both"  # user, ai, or both
     allowed_tools: list[str] | None = None  # Tool restrictions
     supports_dynamic_context: bool = False  # !command syntax support
-    trigger_patterns: list[str] = []  # Auto-activation patterns
+    trigger_patterns: list[str] = Field(default_factory=list)  # Auto-activation patterns
     # Marketplace fields (Phase 2)
     community_rating: float = 0.0  # Average rating (1-5)
     rating_count: int = 0  # Number of ratings
     install_count: int = 0  # Number of installations
     is_featured: bool = False  # Featured in marketplace
-    tags: list[str] = []  # Searchable tags
+    tags: list[str] = Field(default_factory=list)  # Searchable tags
 
 
 class UserSkillResponse(BaseModel):
