@@ -613,17 +613,17 @@ class TestAPIEndpoints:
             _delete_session(session_id)
 
     def test_rate_on_session(self):
-        """Session rating endpoint works."""
+        """Rating endpoint works via /ratings."""
         session_id = _create_session()
         try:
             r = requests.post(
-                f"{BASE_URL}/sessions/{session_id}/rate",
-                json={"rating": 5, "feedback": "test"},
+                f"{BASE_URL}/ratings",
+                json={"session_id": session_id, "report_id": "test-report", "rating": 5, "feedback": "test"},
                 headers=HEADERS,
                 timeout=SHORT_TIMEOUT,
             )
-            # Should succeed or return error for unfinished session
-            assert r.status_code in (200, 400, 404)
+            # Should succeed (201) or return auth error (401) when auth is disabled
+            assert r.status_code in (201, 401)
         finally:
             _delete_session(session_id)
 
