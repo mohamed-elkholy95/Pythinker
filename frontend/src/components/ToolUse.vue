@@ -11,6 +11,7 @@
           @click="handleClick"
           class="tool-chip rounded-full items-center gap-[6px] px-[10px] py-[5px] inline-flex max-w-full clickable"
           :class="shouldShimmer ? 'tool-shimmer' : 'tool-idle'"
+          :data-tool-category="toolInfo?.toolKey"
         >
           <span class="tool-icon-shell">
             <img
@@ -25,6 +26,7 @@
           <div class="tool-chip-text max-w-[100%] min-w-0">
             {{ toolInfo?.description ?? t('Search') }}
           </div>
+          <span v-if="(groupCount ?? 1) > 1" class="tool-group-badge">×{{ groupCount }}</span>
           <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
         </div>
       </div>
@@ -47,6 +49,7 @@
         @click="handleClick"
         class="tool-chip rounded-full items-center gap-[6px] px-[10px] py-[5px] inline-flex max-w-full clickable"
         :class="shouldShimmer ? 'tool-shimmer' : 'tool-idle'"
+        :data-tool-category="toolInfo.toolKey"
       >
         <span class="tool-icon-shell">
           <img
@@ -61,6 +64,7 @@
         <div class="tool-chip-text max-w-[100%] min-w-0">
           {{ toolInfo.description }}
         </div>
+        <span v-if="(groupCount ?? 1) > 1" class="tool-group-badge">×{{ groupCount }}</span>
         <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
       </div>
     </div>
@@ -115,6 +119,8 @@ const props = defineProps<{
   isTaskRunning?: boolean;
   /** Show fast search inline UI (header, tabs). False when tool is inside agent research phase. */
   showFastSearchInline?: boolean;
+  /** Number of consecutive identical tools collapsed into this chip. Shows a badge when > 1. */
+  groupCount?: number;
 }>();
 
 const emit = defineEmits<{
@@ -276,7 +282,7 @@ const handleBrowseUrl = (url: string) => {
 }
 
 .tool-idle {
-  background: var(--fill-tsp-gray-main);
+  background: var(--tool-category-bg, var(--fill-tsp-gray-main));
 }
 
 .tool-favicon {
@@ -295,7 +301,7 @@ const handleBrowseUrl = (url: string) => {
 }
 
 .tool-icon-glyph {
-  color: var(--icon-secondary);
+  color: var(--tool-icon-accent, var(--icon-secondary));
   flex-shrink: 0;
   display: block;
 }
@@ -308,6 +314,77 @@ const handleBrowseUrl = (url: string) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ── Category tint variables (light mode) ── */
+[data-tool-category="search"],
+[data-tool-category="wide_research"] {
+  --tool-category-bg: rgba(59, 130, 246, 0.08);
+  --tool-icon-accent: #3b82f6;
+}
+
+[data-tool-category="browser"],
+[data-tool-category="browser_agent"],
+[data-tool-category="playwright"] {
+  --tool-category-bg: rgba(139, 92, 246, 0.07);
+  --tool-icon-accent: #8b5cf6;
+}
+
+[data-tool-category="file"] {
+  --tool-category-bg: rgba(217, 119, 6, 0.07);
+  --tool-icon-accent: #d97706;
+}
+
+[data-tool-category="shell"],
+[data-tool-category="code_executor"] {
+  --tool-category-bg: rgba(22, 163, 74, 0.07);
+  --tool-icon-accent: #16a34a;
+}
+
+[data-tool-category="git"] {
+  --tool-category-bg: rgba(225, 29, 72, 0.07);
+  --tool-icon-accent: #e11d48;
+}
+
+/* ── Category tint variables (dark mode) ── */
+.dark [data-tool-category="search"],
+.dark [data-tool-category="wide_research"] {
+  --tool-category-bg: rgba(59, 130, 246, 0.12);
+  --tool-icon-accent: #60a5fa;
+}
+
+.dark [data-tool-category="browser"],
+.dark [data-tool-category="browser_agent"],
+.dark [data-tool-category="playwright"] {
+  --tool-category-bg: rgba(139, 92, 246, 0.10);
+  --tool-icon-accent: #a78bfa;
+}
+
+.dark [data-tool-category="file"] {
+  --tool-category-bg: rgba(217, 119, 6, 0.10);
+  --tool-icon-accent: #fbbf24;
+}
+
+.dark [data-tool-category="shell"],
+.dark [data-tool-category="code_executor"] {
+  --tool-category-bg: rgba(22, 163, 74, 0.10);
+  --tool-icon-accent: #4ade80;
+}
+
+.dark [data-tool-category="git"] {
+  --tool-category-bg: rgba(225, 29, 72, 0.10);
+  --tool-icon-accent: #fb7185;
+}
+
+/* ── Group count badge ── */
+.tool-group-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  line-height: 1;
+  opacity: 0.75;
+  letter-spacing: 0.01em;
 }
 
 </style>

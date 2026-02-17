@@ -1,67 +1,69 @@
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, onUnmounted } from 'vue';
 import { formatRelativeTime, formatCustomTime } from '../utils/time';
 import { useI18n } from 'vue-i18n';
 
-export function useRelativeTime() {
-  // Create a reactive current time variable to trigger re-rendering
-  const currentTime = ref(Date.now());
+/**
+ * Module-level shared clock — one interval for the entire app.
+ * All components that call useRelativeTime() share this single reactive ref.
+ * Updating every 30 seconds keeps relative labels fresh without per-component timers.
+ */
+const _sharedClock = ref(Date.now());
+let _clockTimer: ReturnType<typeof setInterval> | null = null;
+let _clockSubscribers = 0;
 
-  // Set a timer to update the time every minute
-  let timer: number | null = null;
-
-  onMounted(() => {
-    timer = window.setInterval(() => {
-      currentTime.value = Date.now();
-    }, 60000); // Update every minute
-  });
-
-  onUnmounted(() => {
-    if (timer !== null) {
-      clearInterval(timer);
-      timer = null;
-    }
-  });
-
-  // Calculate relative time, depends on currentTime for automatic updates
-  const relativeTime = computed(() => {
-    void currentTime.value; // Depends on currentTime, recalculate when currentTime updates
-    return (timestamp: number) => formatRelativeTime(timestamp);
-  });
-
-  return {
-    relativeTime
-  };
+function _startClock() {
+  _clockSubscribers++;
+  if (_clockTimer !== null) return;
+  _clockTimer = setInterval(() => {
+    _sharedClock.value = Date.now();
+  }, 30_000);
 }
 
+function _stopClock() {
+  _clockSubscribers = Math.max(0, _clockSubscribers - 1);
+  if (_clockSubscribers === 0 && _clockTimer !== null) {
+    clearInterval(_clockTimer);
+    _clockTimer = null;
+  }
+}
+
+/**
+ * Returns a `relativeTime(timestamp)` function that reactively updates every 30 s.
+ * `timestamp` must be a Unix timestamp in **seconds**.
+ *
+ * Usage in template: {{ relativeTime(message.content.timestamp) }}
+ */
+export function useRelativeTime() {
+  _startClock();
+  onUnmounted(_stopClock);
+
+  /**
+   * Plain function — Vue tracks `_sharedClock.value` as a reactive dependency
+   * during template rendering, so the component re-renders automatically every 30 s.
+   */
+  const relativeTime = (timestamp: number): string => {
+    void _sharedClock.value; // reactive read — establishes render-effect dependency
+    return formatRelativeTime(timestamp);
+  };
+
+  return { relativeTime };
+}
+
+/**
+ * Returns a `customTime(timestamp)` function for sidebar/header timestamps.
+ * Shows HH:MM for today, day-of-week for this week, MM/DD for this year, etc.
+ * `timestamp` must be a Unix timestamp in **seconds**.
+ */
 export function useCustomTime() {
   const { t, locale } = useI18n();
-  
-  // Create a reactive current time variable to trigger re-rendering
-  const currentTime = ref(Date.now());
 
-  // Set a timer to update the time every minute
-  let timer: number | null = null;
+  _startClock();
+  onUnmounted(_stopClock);
 
-  onMounted(() => {
-    timer = window.setInterval(() => {
-      currentTime.value = Date.now();
-    }, 60000); // Update every minute
-  });
-
-  onUnmounted(() => {
-    if (timer !== null) {
-      clearInterval(timer);
-      timer = null;
-    }
-  });
-
-  // Calculate custom formatted time, depends on currentTime for automatic updates
-  const customTime = computed(() => {
-    void currentTime.value; // Depends on currentTime, recalculate when currentTime updates
-    return (timestamp: number) => formatCustomTime(timestamp, t, locale.value);
-  });
-
-  return {
-    customTime
+  const customTime = (timestamp: number): string => {
+    void _sharedClock.value; // reactive read
+    return formatCustomTime(timestamp, t, locale.value);
   };
-} 
+
+  return { customTime };
+}

@@ -318,28 +318,43 @@ Returns both interactive HTML and static PNG files.""",
                     message=f"Chart generation failed: {exec_result.message}",
                 )
 
-            # Parse JSON output from script
-            # Output is in exec_result.data['output'], not exec_result.message
+            # If the chart script is still running (took >5s), wait for it then fetch output
+            exec_status = exec_result.data.get("status") if exec_result.data else None
+            if exec_status == "running":
+                logger.debug("Chart script still running, waiting up to 120s for completion")
+                wait_result = await self.sandbox.wait_for_process(
+                    session_id=self.session_id, seconds=120
+                )
+                if not wait_result.success:
+                    logger.warning(f"Chart script timed out: {wait_result.message}")
+                    return ToolResult(
+                        success=False,
+                        message="Chart generation timed out after 120 seconds",
+                    )
+                view_result = await self.sandbox.view_shell(session_id=self.session_id)
+                raw_output = view_result.data.get("output") if view_result.data else None
+            else:
+                raw_output = exec_result.data.get("output") if exec_result.data else None
+
+            # Parse JSON output from script — find the JSON line in potentially mixed output
             try:
-                output_str = exec_result.data.get("output") if exec_result.data else exec_result.message
-                if not output_str:
-                    # Fallback to message if output is empty/None
-                    output_str = exec_result.message
+                output_str = raw_output or exec_result.message or ""
                 if not output_str:
                     return ToolResult(
                         success=False,
                         message="Chart script produced no output",
                     )
-                output_data = json.loads(output_str)
+                # Script outputs JSON on a single line; search for it in case stderr is mixed in
+                json_line = next(
+                    (line for line in output_str.splitlines() if line.strip().startswith("{")),
+                    None,
+                )
+                if json_line is None:
+                    raise json.JSONDecodeError("No JSON line found", output_str, 0)
+                output_data = json.loads(json_line)
             except (json.JSONDecodeError, TypeError, AttributeError) as e:
                 logger.warning(f"Failed to parse chart script output: {e}")
-                # Include stderr if available for better diagnostics
-                stderr = (
-                    exec_result.data.get("stderr", "")
-                    if exec_result.data and isinstance(exec_result.data, dict)
-                    else ""
-                )
-                detail = stderr or (str(output_str)[:500] if output_str else exec_result.message)
+                detail = str(output_str)[:500] if output_str else exec_result.message
                 return ToolResult(
                     success=False,
                     message=f"Failed to parse chart output: {detail}",
