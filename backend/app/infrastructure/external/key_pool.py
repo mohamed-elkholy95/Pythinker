@@ -12,6 +12,7 @@ Supports:
 Industry patterns from AWS, Google Cloud, Apache APISIX.
 """
 
+import asyncio
 import hashlib
 import logging
 import random
@@ -107,8 +108,9 @@ class APIKeyPool:
         self.base_backoff_seconds = base_backoff_seconds
         self.max_backoff_seconds = max_backoff_seconds
 
-        # Round-robin state
+        # Round-robin state (lock protects index read+increment atomicity)
         self._round_robin_index = 0
+        self._round_robin_lock = asyncio.Lock()
 
         # In-memory fallback state (used when Redis unavailable or fails)
         self._memory_exhausted: dict[str, float] = {}  # key_hash -> expiry_timestamp
@@ -140,6 +142,8 @@ class APIKeyPool:
         Round-robin rotation with health checks.
 
         Cycles through keys evenly, skipping exhausted/invalid keys.
+        Uses asyncio.Lock to ensure atomic index read+increment under
+        concurrent access (prevents key skipping and duplicate selection).
 
         Returns:
             API key string, or None if no healthy keys are available
@@ -148,10 +152,15 @@ class APIKeyPool:
         max_attempts = len(self.keys) * 2  # Allow 2 full rotations
 
         while attempts < max_attempts:
-            key_config = self.keys[self._round_robin_index]
-            self._round_robin_index = (self._round_robin_index + 1) % len(self.keys)
+            # Atomic read+increment: lock ensures no two coroutines
+            # read the same index before either increments it
+            async with self._round_robin_lock:
+                key_config = self.keys[self._round_robin_index]
+                self._round_robin_index = (self._round_robin_index + 1) % len(self.keys)
             attempts += 1
 
+            # Health check is outside the lock: it involves async I/O
+            # (Redis calls) and should not hold the lock during network ops
             if await self._is_healthy(key_config.key):
                 # Record successful selection
                 key_hash = self._hash_key(key_config.key)
