@@ -13,12 +13,13 @@ from app.domain.models.sync_outbox import (
     OutboxStatus,
     OutboxUpdate,
 )
+from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
 from app.infrastructure.storage.mongodb import get_mongodb
 
 logger = logging.getLogger(__name__)
 
 
-class SyncOutboxRepository:
+class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
     """Repository for managing sync outbox entries."""
 
     def __init__(self):
