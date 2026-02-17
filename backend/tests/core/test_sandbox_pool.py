@@ -7,10 +7,13 @@ Tests cover:
 - Circuit breaker: opens after consecutive failures, exponential backoff, resets on success
 - _warm_pool: fills to min_size, handles creation failures gracefully
 - Pool size: respects max_pool_size boundary
+- _monitor_docker_events: non-blocking iteration, graceful shutdown, error recovery
+- _process_docker_event: OOM kill detection, pool removal, replenishment
 - Global singleton helpers: get_sandbox_pool, start_sandbox_pool, stop_sandbox_pool
 """
 
 import asyncio
+import contextlib
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -839,6 +842,435 @@ class TestWarmPoolLoop:
         await loop_task
         assert loop_task.done()
         assert loop_task.exception() is None
+
+
+# ---------------------------------------------------------------------------
+# _monitor_docker_events / _process_docker_event
+# ---------------------------------------------------------------------------
+
+
+class TestMonitorDockerEvents:
+    """Tests for _monitor_docker_events non-blocking Docker event monitoring."""
+
+    @pytest.mark.asyncio
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_event_loop_not_blocked_during_monitoring(
+        self, mock_settings: MagicMock, mock_prewarm: AsyncMock
+    ) -> None:
+        """Event loop remains responsive while _monitor_docker_events waits for events.
+
+        Uses a ticker pattern: a concurrent coroutine increments a counter
+        every 10ms. If the event loop were blocked, the ticker would stall
+        and the count would be near zero.
+        """
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        ticker_count = 0
+        ticker_running = True
+
+        async def _ticker():
+            nonlocal ticker_count
+            while ticker_running:
+                await asyncio.sleep(0.01)
+                ticker_count += 1
+
+        # Mock docker.from_env().events() to block for 200ms then raise StopIteration
+        def _slow_event_stream():
+            """Generator that blocks briefly per next() call, simulating Docker daemon."""
+            import time as _time
+
+            _time.sleep(0.05)  # Block 50ms on first next()
+            yield {
+                "Actor": {"ID": "abc123456789", "Attributes": {"exitCode": "0"}},
+            }
+            _time.sleep(0.05)  # Block 50ms on second next()
+            yield {
+                "Actor": {"ID": "def456789012", "Attributes": {"exitCode": "1"}},
+            }
+            # Stream ends (StopIteration), monitor will try to reconnect
+
+        mock_docker_client = MagicMock()
+        mock_docker_client.events.return_value = _slow_event_stream()
+
+        with patch("app.core.sandbox_pool.docker") as mock_docker_mod:
+            mock_docker_mod.from_env.return_value = mock_docker_client
+
+            # After first stream ends, stop the monitor on reconnect
+            call_count = 0
+            original_from_env = mock_docker_mod.from_env
+
+            def _from_env_then_stop():
+                nonlocal call_count
+                call_count += 1
+                if call_count > 1:
+                    # Signal stop before second stream creation
+                    pool._stopping = True
+                    raise RuntimeError("stopping")
+                return original_from_env.return_value
+
+            mock_docker_mod.from_env.side_effect = _from_env_then_stop
+
+            ticker_task = asyncio.create_task(_ticker())
+            monitor_task = asyncio.create_task(pool._monitor_docker_events())
+
+            # Wait for the monitor to finish processing both events
+            await asyncio.sleep(0.3)
+
+            pool._stopping = True
+            ticker_running = False
+
+            # Clean up tasks
+            monitor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await monitor_task
+            await ticker_task
+
+        # The ticker should have incremented many times while the blocking
+        # reads happened in threads. If iteration were blocking the event
+        # loop, ticker_count would be near 0.
+        assert ticker_count >= 5, (
+            f"Event loop was blocked: ticker only incremented {ticker_count} times "
+            f"(expected >= 5 in 300ms with 10ms ticks)"
+        )
+
+    @pytest.mark.asyncio
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_processes_events_correctly(self, mock_settings: MagicMock, mock_prewarm: AsyncMock) -> None:
+        """Events from Docker are dispatched to _process_docker_event."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        processed_events: list[dict] = []
+
+        async def _capture_event(event):
+            processed_events.append(event)
+
+        pool._process_docker_event = _capture_event  # type: ignore[assignment]
+
+        events = [
+            {"Actor": {"ID": "aaa111222333", "Attributes": {"exitCode": "137", "oomKilled": "true"}}},
+            {"Actor": {"ID": "bbb444555666", "Attributes": {"exitCode": "0"}}},
+        ]
+
+        def _event_gen():
+            yield from events
+
+        mock_client = MagicMock()
+        mock_client.events.return_value = _event_gen()
+
+        with patch("app.core.sandbox_pool.docker") as mock_docker_mod:
+            mock_docker_mod.from_env.return_value = mock_client
+
+            # Stop after first stream exhaustion
+            call_count = 0
+
+            def _from_env_stop():
+                nonlocal call_count
+                call_count += 1
+                if call_count > 1:
+                    pool._stopping = True
+                    raise RuntimeError("done")
+                return mock_client
+
+            mock_docker_mod.from_env.side_effect = _from_env_stop
+
+            monitor_task = asyncio.create_task(pool._monitor_docker_events())
+            await asyncio.sleep(0.1)
+
+            pool._stopping = True
+            monitor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await monitor_task
+
+        assert len(processed_events) == 2
+        assert processed_events[0]["Actor"]["ID"] == "aaa111222333"
+        assert processed_events[1]["Actor"]["ID"] == "bbb444555666"
+
+    @pytest.mark.asyncio
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_graceful_shutdown_stops_monitoring(self, mock_settings: MagicMock, mock_prewarm: AsyncMock) -> None:
+        """Setting _stopping=True causes _monitor_docker_events to exit."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        def _blocking_event_gen():
+            """Generator that blocks indefinitely -- simulates a quiet Docker daemon."""
+            import time as _time
+
+            # Spin until stopping flag is set, then let generator end
+            while not pool._stopping:
+                _time.sleep(0.02)
+            # Generator ends here -- StopIteration raised on next call
+            yield from ()
+
+        mock_client = MagicMock()
+        mock_client.events.return_value = _blocking_event_gen()
+
+        with patch("app.core.sandbox_pool.docker") as mock_docker_mod:
+            mock_docker_mod.from_env.return_value = mock_client
+
+            monitor_task = asyncio.create_task(pool._monitor_docker_events())
+            await asyncio.sleep(0.1)
+
+            # Signal shutdown
+            pool._stopping = True
+
+            # Should exit within a reasonable time (the thread will unblock)
+            try:
+                await asyncio.wait_for(monitor_task, timeout=2.0)
+            except TimeoutError:
+                monitor_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await monitor_task
+                pytest.fail("_monitor_docker_events did not exit within 2s after _stopping=True")
+
+    @pytest.mark.asyncio
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_reconnects_after_docker_api_error(self, mock_settings: MagicMock, mock_prewarm: AsyncMock) -> None:
+        """Monitor reconnects after a Docker API error with backoff."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        connect_attempts = 0
+
+        def _failing_from_env():
+            nonlocal connect_attempts
+            connect_attempts += 1
+            if connect_attempts >= 3:
+                pool._stopping = True
+            raise ConnectionError("Docker daemon unavailable")
+
+        with (
+            patch("app.core.sandbox_pool.docker") as mock_docker_mod,
+            patch("app.core.sandbox_pool.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            mock_docker_mod.from_env.side_effect = _failing_from_env
+
+            monitor_task = asyncio.create_task(pool._monitor_docker_events())
+
+            try:
+                await asyncio.wait_for(monitor_task, timeout=2.0)
+            except TimeoutError:
+                monitor_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await monitor_task
+
+        # Should have retried at least twice before stopping
+        assert connect_attempts >= 2
+        # Should have called sleep(5) between retries
+        assert mock_sleep.await_count >= 1
+        mock_sleep.assert_awaited_with(5)
+
+    @pytest.mark.asyncio
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_stream_end_triggers_reconnect(self, mock_settings: MagicMock, mock_prewarm: AsyncMock) -> None:
+        """When the event stream ends (StopIteration), monitor reconnects."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        events_call_count = 0
+
+        def _empty_then_stop(**kwargs):
+            """Return an empty generator, then stop on third call."""
+            nonlocal events_call_count
+            events_call_count += 1
+            if events_call_count >= 3:
+                pool._stopping = True
+                raise RuntimeError("stopping")
+            return iter([])  # Empty stream -- immediate StopIteration
+
+        mock_client = MagicMock()
+        mock_client.events.side_effect = _empty_then_stop
+
+        with patch("app.core.sandbox_pool.docker") as mock_docker_mod:
+            mock_docker_mod.from_env.return_value = mock_client
+
+            monitor_task = asyncio.create_task(pool._monitor_docker_events())
+
+            try:
+                await asyncio.wait_for(monitor_task, timeout=2.0)
+            except TimeoutError:
+                pool._stopping = True
+                monitor_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await monitor_task
+
+        # events() was called multiple times due to reconnection
+        assert events_call_count >= 2
+
+
+class TestProcessDockerEvent:
+    """Tests for _process_docker_event OOM kill detection and pool management."""
+
+    @pytest.mark.asyncio
+    @patch("app.core.sandbox_pool.record_sandbox_oom_kill")
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_oom_kill_detected_by_exit_code_137(
+        self,
+        mock_settings: MagicMock,
+        mock_prewarm: AsyncMock,
+        mock_record_oom: MagicMock,
+    ) -> None:
+        """Exit code 137 triggers OOM kill detection."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        event = {
+            "Actor": {
+                "ID": "abc123456789extra",
+                "Attributes": {"exitCode": "137", "oomKilled": "false"},
+            }
+        }
+
+        await pool._process_docker_event(event)
+
+        mock_record_oom.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("app.core.sandbox_pool.record_sandbox_oom_kill")
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_oom_kill_detected_by_oom_flag(
+        self,
+        mock_settings: MagicMock,
+        mock_prewarm: AsyncMock,
+        mock_record_oom: MagicMock,
+    ) -> None:
+        """oomKilled=true attribute triggers OOM kill detection."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        event = {
+            "Actor": {
+                "ID": "def456789012extra",
+                "Attributes": {"exitCode": "1", "oomKilled": "true"},
+            }
+        }
+
+        await pool._process_docker_event(event)
+
+        mock_record_oom.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("app.core.sandbox_pool.record_sandbox_oom_kill")
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_non_oom_event_ignored(
+        self,
+        mock_settings: MagicMock,
+        mock_prewarm: AsyncMock,
+        mock_record_oom: MagicMock,
+    ) -> None:
+        """Normal exit (non-137, non-OOM) does not trigger OOM detection."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        event = {
+            "Actor": {
+                "ID": "ghi789012345extra",
+                "Attributes": {"exitCode": "0", "oomKilled": "false"},
+            }
+        }
+
+        await pool._process_docker_event(event)
+
+        mock_record_oom.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("app.core.sandbox_pool.record_sandbox_oom_kill")
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_oom_removes_sandbox_from_pool(
+        self,
+        mock_settings: MagicMock,
+        mock_prewarm: AsyncMock,
+        mock_record_oom: MagicMock,
+    ) -> None:
+        """OOM kill removes the matching sandbox from the pool and triggers replenishment."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=1, max_pool_size=4, warmup_interval=300)
+
+        # Add sandboxes to pool
+        sb_target = _make_mock_sandbox("sb-target")
+        sb_target.container_id = "abc123456789"
+        sb_other = _make_mock_sandbox("sb-other")
+        sb_other.container_id = "zzz999888777"
+
+        pool._pool.put_nowait(sb_target)
+        pool._pool.put_nowait(sb_other)
+        assert pool.size == 2
+
+        event = {
+            "Actor": {
+                "ID": "abc123456789extra",  # First 12 chars match sb_target
+                "Attributes": {"exitCode": "137", "oomKilled": "false"},
+            }
+        }
+
+        with patch.object(pool, "_replenish_one", new_callable=AsyncMock) as mock_replenish:
+            await pool._process_docker_event(event)
+            mock_replenish.assert_awaited_once()
+
+        # Only the non-matching sandbox should remain
+        assert pool.size == 1
+        remaining = pool._pool.get_nowait()
+        assert remaining.container_id == "zzz999888777"
+
+    @pytest.mark.asyncio
+    @patch("app.core.sandbox_pool.record_sandbox_oom_kill")
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_oom_no_replenish_when_not_in_pool(
+        self,
+        mock_settings: MagicMock,
+        mock_prewarm: AsyncMock,
+        mock_record_oom: MagicMock,
+    ) -> None:
+        """OOM kill for an unknown container does not trigger replenishment."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        event = {
+            "Actor": {
+                "ID": "unknown123456extra",
+                "Attributes": {"exitCode": "137", "oomKilled": "false"},
+            }
+        }
+
+        with patch.object(pool, "_replenish_one", new_callable=AsyncMock) as mock_replenish:
+            await pool._process_docker_event(event)
+            mock_replenish.assert_not_awaited()
+
+        # OOM was still recorded even though container wasn't in pool
+        mock_record_oom.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch(PREWARM_PATH, new_callable=AsyncMock)
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_malformed_event_handled_gracefully(
+        self,
+        mock_settings: MagicMock,
+        mock_prewarm: AsyncMock,
+    ) -> None:
+        """Malformed events do not crash the processing method."""
+        sandbox_cls = _make_mock_sandbox_cls()
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+
+        # Event with missing Actor
+        await pool._process_docker_event({})
+
+        # Event with None Actor
+        await pool._process_docker_event({"Actor": None})
+
+        # Empty event — should not raise
+        assert pool.size == 0  # Pool unchanged
 
 
 # ---------------------------------------------------------------------------
