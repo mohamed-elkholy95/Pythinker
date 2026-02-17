@@ -5,20 +5,61 @@ Test coverage for malformed output detection and recovery strategies.
 
 import pytest
 
+from app.domain.metrics.agent_metrics import AgentMetrics, set_agent_metrics
 from app.domain.models.recovery import (
     RecoveryBudgetExhaustedError,
     RecoveryReason,
     RecoveryStrategy,
 )
 from app.domain.services.agents.response_recovery import ResponseRecoveryPolicy
-from app.infrastructure.observability.agent_metrics import (
-    agent_response_recovery_success,
-    agent_response_recovery_trigger,
-)
+
+
+class _TrackingCounter:
+    """Simple counter that tracks .inc() calls for test assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str] | None] = []
+
+    def inc(self, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
+        self.calls.append(labels)
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
+
+
+class _TrackingHistogram:
+    """Simple histogram that tracks .observe() calls for test assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[dict[str, str] | None, float]] = []
+
+    def observe(self, labels: dict[str, str] | None = None, value: float = 0.0) -> None:
+        self.calls.append((labels, value))
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
 
 
 class TestResponseRecoveryPolicy:
     """Test suite for response recovery policy."""
+
+    @pytest.fixture(autouse=True)
+    def _inject_tracking_metrics(self):
+        """Inject tracking metrics into the domain AgentMetrics singleton."""
+        self._metrics = AgentMetrics()
+        self._trigger_counter = _TrackingCounter()
+        self._success_counter = _TrackingCounter()
+        self._failure_counter = _TrackingCounter()
+        self._duration_histogram = _TrackingHistogram()
+        self._metrics.response_recovery_trigger = self._trigger_counter
+        self._metrics.response_recovery_success = self._success_counter
+        self._metrics.response_recovery_failure = self._failure_counter
+        self._metrics.recovery_duration = self._duration_histogram
+        set_agent_metrics(self._metrics)
+        yield
+        set_agent_metrics(AgentMetrics())
 
     @pytest.fixture
     async def recovery_policy(self):
@@ -111,9 +152,8 @@ class TestResponseRecoveryPolicy:
 
     @pytest.mark.asyncio
     async def test_recovery_success_metrics(self, recovery_policy):
-        """Test recovery success metrics are incremented."""
-        # Get initial count
-        initial_count = agent_response_recovery_success.get({"recovery_strategy": "rollback_retry", "retry_count": "1"})
+        """Test recovery success metrics are incremented via domain AgentMetrics."""
+        initial_count = self._success_counter.call_count
 
         # Execute recovery
         await recovery_policy.execute_recovery(
@@ -123,16 +163,15 @@ class TestResponseRecoveryPolicy:
         )
 
         # Verify metric incremented
-        final_count = agent_response_recovery_success.get({"recovery_strategy": "rollback_retry", "retry_count": "1"})
-        assert final_count > initial_count
+        assert self._success_counter.call_count > initial_count
+        last_call = self._success_counter.calls[-1]
+        assert last_call["recovery_strategy"] == "rollback_retry"
+        assert last_call["retry_count"] == "1"
 
     @pytest.mark.asyncio
     async def test_recovery_trigger_metrics(self, recovery_policy):
-        """Test recovery trigger metrics are incremented."""
-        # Get initial count
-        initial_count = agent_response_recovery_trigger.get(
-            {"recovery_reason": "json_parsing_failed", "agent_type": "plan_act"}
-        )
+        """Test recovery trigger metrics are incremented via domain AgentMetrics."""
+        initial_count = self._trigger_counter.call_count
 
         # Execute recovery
         await recovery_policy.execute_recovery(
@@ -142,10 +181,10 @@ class TestResponseRecoveryPolicy:
         )
 
         # Verify metric incremented
-        final_count = agent_response_recovery_trigger.get(
-            {"recovery_reason": "json_parsing_failed", "agent_type": "plan_act"}
-        )
-        assert final_count > initial_count
+        assert self._trigger_counter.call_count > initial_count
+        last_call = self._trigger_counter.calls[-1]
+        assert last_call["recovery_reason"] == "json_parsing_failed"
+        assert last_call["agent_type"] == "plan_act"
 
     @pytest.mark.asyncio
     async def test_strategy_selection_progression(self, recovery_policy):
