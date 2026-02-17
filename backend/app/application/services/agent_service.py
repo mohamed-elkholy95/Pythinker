@@ -325,7 +325,7 @@ class AgentService:
                 # Extract address from sandbox_id (format: dev-sandbox-{address})
                 if sandbox_id.startswith("dev-sandbox-"):
                     address = sandbox_id[len("dev-sandbox-") :]
-                    DockerSandbox.unregister_session(address)
+                    await DockerSandbox.unregister_session(address)
         except Exception as e:
             logger.debug(f"Browser cleanup for sandbox {sandbox_id} failed (non-critical): {e}")
 
@@ -448,7 +448,7 @@ class AgentService:
                         from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 
                         address = sandbox.id[len("dev-sandbox-") :]
-                        previous_session = DockerSandbox.register_session(address, session_id)
+                        previous_session = await DockerSandbox.register_session(address, session_id)
                         if previous_session:
                             logger.info(
                                 f"Sandbox {address} was owned by session {previous_session}, "
