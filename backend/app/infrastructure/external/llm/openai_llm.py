@@ -3,10 +3,12 @@ import contextlib
 import json
 import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar
 
+import httpx
 from openai import AsyncOpenAI, RateLimitError
 from pydantic import BaseModel
 
@@ -165,10 +167,16 @@ class OpenAILLM(LLM):
             }
             logger.debug("Using Kimi Code API headers")
 
+        settings = get_settings()
+        llm_timeout = getattr(settings, "llm_request_timeout", 300)
         return AsyncOpenAI(
             api_key=key,
             base_url=self._api_base,
             default_headers=default_headers,
+            timeout=httpx.Timeout(
+                timeout=float(llm_timeout),  # total request timeout
+                connect=10.0,  # fail fast on unreachable servers
+            ),
         )
 
     def _parse_openai_rate_limit(self, error: Exception) -> int:
@@ -671,10 +679,13 @@ To extract data from a webpage:
                 tool_name = str(msg_copy.get("name") or "unknown_tool")
                 tool_call_id = str(msg_copy.get("tool_call_id") or "unknown_call")
                 tool_result = content_text or "{}"
+                # Use "user" role so tool results don't land adjacent to the
+                # converted assistant message above — GLM error 1214 rejects
+                # two consecutive "assistant" messages.
                 recovered.append(
                     {
-                        "role": "assistant",
-                        "content": f"[Tool response {tool_name} ({tool_call_id})] {tool_result}",
+                        "role": "user",
+                        "content": f"[Tool result: {tool_name}]\n{tool_result}",
                     }
                 )
                 continue
@@ -796,7 +807,27 @@ To extract data from a webpage:
 
             sanitized.append(msg_copy)
 
-        return sanitized
+        # 6. Merge consecutive same-role messages (Zhipu GLM error 1214).
+        # GLM requires strict user↔assistant alternation. After trimming or
+        # role normalisation, adjacent messages of the same role can appear.
+        # Merging their content is the safest recovery that preserves context.
+        deduped: list[dict[str, Any]] = []
+        for msg_copy in sanitized:
+            role = msg_copy.get("role")
+            if (
+                deduped
+                and deduped[-1].get("role") == role
+                and role in ("user", "assistant")
+                and not msg_copy.get("tool_calls")
+                and not deduped[-1].get("tool_calls")
+            ):
+                prev_content = deduped[-1].get("content") or ""
+                curr_content = msg_copy.get("content") or ""
+                deduped[-1]["content"] = f"{prev_content}\n{curr_content}".strip()
+            else:
+                deduped.append(msg_copy)
+
+        return deduped
 
     @staticmethod
     def _tool_calls_to_text(tool_calls: list[dict[str, Any]]) -> str:
@@ -1020,6 +1051,8 @@ To extract data from a webpage:
                 if self._is_thinking_api:
                     params["extra_body"] = {"thinking": {"type": "disabled"}}
 
+                llm_call_start = time.monotonic()
+
                 if request_tools:
                     # OpenAI API mode with native tool support
                     logger.debug(f"Sending request with tools, model: {effective_model}, attempt: {attempt + 1}")
@@ -1042,6 +1075,14 @@ To extract data from a webpage:
                         **params,
                         response_format=response_format if not self._is_mlx_mode else None,
                     )
+
+                llm_call_duration = time.monotonic() - llm_call_start
+                log_fn = logger.warning if llm_call_duration > 30 else logger.info
+                log_fn(
+                    f"LLM ask() completed in {llm_call_duration:.1f}s "
+                    f"(model={effective_model}, tools={'yes' if request_tools else 'no'}, "
+                    f"attempt={attempt + 1})"
+                )
 
                 logger.debug(f"Response from API: {response.model_dump()}")
 
@@ -1354,7 +1395,15 @@ To extract data from a webpage:
                     params["tool_choice"] = tool_choice
                     params["parallel_tool_calls"] = False
 
+                llm_call_start = time.monotonic()
                 response = await client.chat.completions.create(**params)
+                llm_call_duration = time.monotonic() - llm_call_start
+                log_fn = logger.warning if llm_call_duration > 30 else logger.info
+                log_fn(
+                    f"LLM ask_structured() completed in {llm_call_duration:.1f}s "
+                    f"(model={effective_model}, schema={response_model.__name__}, "
+                    f"attempt={attempt + 1})"
+                )
 
                 # Record usage for structured requests
                 await self._record_usage(response)
@@ -1659,6 +1708,8 @@ To extract data from a webpage:
             finish_reason: str | None = None
 
             try:
+                stream_start = time.monotonic()
+                ttft_logged = False
                 stream = await client.chat.completions.create(**params)
 
                 async for chunk in stream:
@@ -1678,6 +1729,11 @@ To extract data from a webpage:
                         if chunk.choices[0].finish_reason:
                             finish_reason = chunk.choices[0].finish_reason
                         if delta.content:
+                            if not ttft_logged:
+                                ttft = time.monotonic() - stream_start
+                                log_fn = logger.warning if ttft > 10 else logger.info
+                                log_fn(f"LLM ask_stream() TTFT={ttft:.1f}s (model={effective_model})")
+                                ttft_logged = True
                             completion_parts.append(delta.content)
                             yield delta.content
                         if delta.tool_calls:
@@ -1685,6 +1741,13 @@ To extract data from a webpage:
                                 "ask_stream received tool_call chunks - tool calls are not "
                                 "supported in streaming mode. Use ask() for tool-calling requests."
                             )
+
+                stream_duration = time.monotonic() - stream_start
+                log_fn = logger.warning if stream_duration > 30 else logger.info
+                log_fn(
+                    f"LLM ask_stream() completed in {stream_duration:.1f}s "
+                    f"(model={effective_model}, chars={len(''.join(completion_parts))})"
+                )
 
                 if usage_counts:
                     await self._record_usage_counts(
