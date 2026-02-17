@@ -851,67 +851,92 @@ class SandboxPool:
 
         Priority 3: Instant OOM detection via Docker events API.
         Subscribes to 'die' events and checks for OOM kill exit codes.
+
+        Uses per-event ``asyncio.to_thread(next, ...)`` so that each blocking
+        read from the Docker daemon socket runs in a worker thread, keeping
+        the event loop free for health checks and other coroutines.
         """
+        sentinel = object()  # marker for StopIteration / stream end
+
         while not self._stopping:
             try:
 
-                def _events_generator():
-                    import docker
-
+                def _create_event_stream():
                     dc = docker.from_env()
-                    # Subscribe to container die events
                     return dc.events(
                         decode=True,
                         filters={"type": "container", "event": "die"},
                     )
 
-                # Run in thread to avoid blocking
-                events_gen = await asyncio.to_thread(_events_generator)
+                # Create the generator in a thread (connects to Docker daemon)
+                events_gen = await asyncio.to_thread(_create_event_stream)
 
-                for event in events_gen:
-                    if self._stopping:
-                        break
+                def _read_next_event(gen=events_gen):
+                    """Read one event from the generator (blocking).
 
+                    Returns the event dict, or ``sentinel`` when the
+                    stream is exhausted.
+                    """
                     try:
-                        container_id = event.get("Actor", {}).get("ID", "")[:12]
-                        attributes = event.get("Actor", {}).get("Attributes", {})
-                        exit_code = attributes.get("exitCode", "")
-                        oom_killed = attributes.get("oomKilled", "false") == "true"
+                        return next(gen)
+                    except StopIteration:
+                        return sentinel
 
-                        # Detect OOM kills (exit code 137 or oomKilled flag)
-                        if oom_killed or exit_code == "137":
-                            record_sandbox_oom_kill()
-                            logger.warning(
-                                f"OOM kill detected for container {container_id} "
-                                f"(exit_code={exit_code}, oomKilled={oom_killed})"
-                            )
+                # Non-blocking iteration: each next() runs in a worker thread
+                while not self._stopping:
+                    event = await asyncio.to_thread(_read_next_event)
 
-                            # Remove from pool if present
-                            temp_queue: asyncio.Queue[Sandbox] = asyncio.Queue()
-                            found = False
-                            while not self._pool.empty():
-                                sandbox = await self._pool.get()
-                                if sandbox.container_id == container_id:
-                                    found = True
-                                    logger.warning(f"Removed OOM-killed sandbox from pool: {container_id}")
-                                else:
-                                    await temp_queue.put(sandbox)
-                            # Restore remaining
-                            while not temp_queue.empty():
-                                await self._pool.put(await temp_queue.get())
+                    if event is sentinel:
+                        break  # Stream ended — reconnect via outer loop
 
-                            if found:
-                                # Trigger replenishment
-                                await self._replenish_one()
-
-                    except Exception as event_error:
-                        logger.debug(f"Error processing Docker event: {event_error}")
+                    await self._process_docker_event(event)
 
             except CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in Docker events monitor: {e}")
                 await sleep(5)
+
+    async def _process_docker_event(self, event: dict[str, Any]) -> None:
+        """Process a single Docker 'die' event.
+
+        Detects OOM kills (exit code 137 or ``oomKilled`` attribute),
+        removes the affected sandbox from the pool, and triggers
+        replenishment.
+        """
+        try:
+            container_id = event.get("Actor", {}).get("ID", "")[:12]
+            attributes = event.get("Actor", {}).get("Attributes", {})
+            exit_code = attributes.get("exitCode", "")
+            oom_killed = attributes.get("oomKilled", "false") == "true"
+
+            # Detect OOM kills (exit code 137 or oomKilled flag)
+            if oom_killed or exit_code == "137":
+                record_sandbox_oom_kill()
+                logger.warning(
+                    f"OOM kill detected for container {container_id} (exit_code={exit_code}, oomKilled={oom_killed})"
+                )
+
+                # Remove from pool if present
+                temp_queue: asyncio.Queue[Sandbox] = asyncio.Queue()
+                found = False
+                while not self._pool.empty():
+                    sandbox = await self._pool.get()
+                    if sandbox.container_id == container_id:
+                        found = True
+                        logger.warning(f"Removed OOM-killed sandbox from pool: {container_id}")
+                    else:
+                        await temp_queue.put(sandbox)
+                # Restore remaining
+                while not temp_queue.empty():
+                    await self._pool.put(await temp_queue.get())
+
+                if found:
+                    # Trigger replenishment
+                    await self._replenish_one()
+
+        except Exception as event_error:
+            logger.debug(f"Error processing Docker event: {event_error}")
 
     # --- Background Loops ---
 
