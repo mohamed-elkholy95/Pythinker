@@ -65,9 +65,10 @@
             : 'rounded-[14px] border border-[var(--border-light)] shadow-[0px_6px_24px_var(--shadow-XS)] mt-[16px]'
         ]">
 
-        <!-- Content Header: Centered operation label + View mode tabs -->
+        <!-- Content Header: Centered operation label + View mode tabs.
+             Hidden only when this component is embedded without a forced view mode. -->
         <div
-          v-if="contentConfig"
+          v-if="contentConfig && (!embedded || forceViewType)"
           class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[14px] relative">
 
           <!-- Left: Activity indicator (absolute positioned) -->
@@ -200,6 +201,7 @@
               :enabled="livePreviewEnabled"
               :view-only="true"
               :is-canvas-mode="isCanvasMode"
+              :show-controls="showBrowserControls"
               :tool-content="toolContent"
               :is-active="isActiveOperation"
               :terminal-content="terminalContent"
@@ -308,6 +310,7 @@
               :enabled="true"
               :view-only="true"
               :is-canvas-mode="isCanvasMode"
+              :show-controls="showBrowserControls"
               :tool-content="toolContent"
               :is-active="isActiveOperation"
               :terminal-content="terminalContent"
@@ -484,6 +487,12 @@ const toolName = computed(() => props.toolContent?.name || '');
 const toolFunction = computed(() => props.toolContent?.function || '');
 const toolStatus = computed(() => props.toolContent?.status || '');
 const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
+/** Show floating browser controls only in Canvas mode or standalone (non-embedded) */
+const showBrowserControls = computed(() => {
+  if (!props.embedded) return true;
+  // In workspace embedded mode, only show controls when Canvas tab is active
+  return !!props.forceViewType;
+});
 const chartViewMode = ref<'interactive' | 'static'>('interactive');
 
 const chartPayload = computed(() => {
@@ -627,6 +636,16 @@ watch(
  */
 const toolSubtitle = computed(() => toolDisplay.value?.description || '');
 
+const cleanActivitySubtitle = (value: string): string => {
+  return value
+    .replace(/\s+\|\s*(?:undefined|null|none|nan)\s*$/i, '')
+    .replace(/\s+(?:undefined|null|none|nan)\s*$/i, '')
+    .replace(/^\s*(?:undefined|null|none|nan)\s*\|\s*/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+\|\s*$/, '')
+    .trim();
+};
+
 const streamingPresentation = useStreamingPresentationState({
   isInitializing: computed(() => false),
   isSummaryStreaming: computed(() => !!props.isSummaryStreaming),
@@ -660,7 +679,7 @@ const activityHeadline = computed(() => {
 
 const activitySubtitle = computed(() => {
   if (isSummaryPhase.value) return '';
-  return toolSubtitle.value;
+  return cleanActivitySubtitle(toolSubtitle.value);
 });
 
 const showActivitySpinner = computed(() => isSummaryPhase.value || (!!props.isThinking && !toolDisplay.value));

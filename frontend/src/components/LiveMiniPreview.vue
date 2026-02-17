@@ -72,6 +72,7 @@
         :enabled="enabled"
         :view-only="true"
         :compact-loading="true"
+        :show-controls="false"
       />
     </div>
 
@@ -172,6 +173,7 @@
         :enabled="enabled"
         :view-only="true"
         :compact-loading="true"
+        :show-controls="false"
       />
     </div>
 
