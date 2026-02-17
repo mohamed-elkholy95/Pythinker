@@ -30,44 +30,50 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# The only directory tree that file operations are allowed to touch.
-# Path.resolve() is used so symlinks cannot bypass this boundary.
-SANDBOX_BASE_DIR = Path("/home/ubuntu")
+# Directory trees that file operations are allowed to touch.
+# Path.resolve() is used so symlinks cannot bypass these boundaries.
+SANDBOX_ALLOWED_DIRS: list[Path] = [
+    Path("/home/ubuntu"),
+    Path("/workspace"),
+]
 
 
-def safe_resolve(path: str, base_dir: Optional[Path] = None) -> str:
-    """Resolve *path* to an absolute, canonical path and verify it lives under *base_dir*.
+def safe_resolve(path: str, allowed_dirs: Optional[list[Path]] = None) -> str:
+    """Resolve *path* to an absolute, canonical path and verify it lives under an allowed directory.
 
     Security guarantees:
       - Collapses ``..`` sequences and resolves symlinks via ``Path.resolve()``.
-      - Rejects any result that is not equal to, or a child of, *base_dir*.
+      - Rejects any result that is not equal to, or a child of, any allowed dir.
       - Logs every rejected attempt at WARNING level for audit.
 
     Args:
         path: The file path to validate.
-        base_dir: The allowed base directory.  Defaults to the module-level
-            ``SANDBOX_BASE_DIR`` when ``None``.  The default is resolved at
+        allowed_dirs: The allowed base directories.  Defaults to the module-level
+            ``SANDBOX_ALLOWED_DIRS`` when ``None``.  The default is resolved at
             call time (not import time) so that monkeypatching works in tests.
 
     Returns the resolved path as a ``str`` on success.
     Raises ``BadRequestException`` on path-traversal attempts.
     """
-    if base_dir is None:
-        base_dir = SANDBOX_BASE_DIR
+    if allowed_dirs is None:
+        allowed_dirs = SANDBOX_ALLOWED_DIRS
     resolved = Path(path).resolve()
-    base_resolved = base_dir.resolve()
 
-    if resolved != base_resolved and not resolved.is_relative_to(base_resolved):
-        logger.warning(
-            "Path traversal blocked: input=%r resolved=%s base=%s",
-            path,
-            resolved,
-            base_resolved,
-        )
-        raise BadRequestException(
-            f"Path traversal denied: path must be within {base_resolved}"
-        )
-    return str(resolved)
+    for base_dir in allowed_dirs:
+        base_resolved = base_dir.resolve()
+        if resolved == base_resolved or resolved.is_relative_to(base_resolved):
+            return str(resolved)
+
+    allowed_str = ", ".join(str(d) for d in allowed_dirs)
+    logger.warning(
+        "Path traversal blocked: input=%r resolved=%s allowed=%s",
+        path,
+        resolved,
+        allowed_str,
+    )
+    raise BadRequestException(
+        f"Path traversal denied: path must be within one of: {allowed_str}"
+    )
 
 
 class FileService:
@@ -86,13 +92,13 @@ class FileService:
         return path
 
     def _normalize_path(self, path: str) -> str:
-        """Normalize and validate that *path* resolves within SANDBOX_BASE_DIR.
+        """Normalize and validate that *path* resolves within an allowed directory.
 
         Steps:
           1. Translate legacy ``/home/user`` alias to ``/home/ubuntu``.
           2. Convert relative paths to absolute (relative to cwd).
           3. Resolve symlinks and ``..`` via ``Path.resolve()``.
-          4. Reject any path outside ``SANDBOX_BASE_DIR``.
+          4. Reject any path outside ``SANDBOX_ALLOWED_DIRS``.
 
         Raises ``BadRequestException`` on path-traversal attempts.
         """

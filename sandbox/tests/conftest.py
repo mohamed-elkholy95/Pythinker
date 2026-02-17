@@ -37,20 +37,20 @@ def create_file_test_app() -> FastAPI:
 
 @pytest.fixture(autouse=True)
 def _sandbox_base_dir_for_tests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Override SANDBOX_BASE_DIR so file-API tests can use pytest ``tmp_path``.
+    """Override SANDBOX_ALLOWED_DIRS so file-API tests can use pytest ``tmp_path``.
 
-    In production the sandbox restricts all paths to ``/home/ubuntu``.
+    In production the sandbox restricts all paths to ``/home/ubuntu`` and ``/workspace``.
     During local testing ``tmp_path`` lives under ``/tmp`` (or the OS equivalent),
     which would be rejected.  This fixture monkeypatches the module-level constant
     in both ``app.services.file`` and ``app.api.v1.file`` so that the path
-    traversal guard accepts ``tmp_path`` as the base directory.
+    traversal guard accepts ``tmp_path`` as an allowed directory.
     """
     import app.services.file as file_mod
     import app.api.v1.file as file_api_mod
 
     resolved_tmp = tmp_path.resolve()
-    monkeypatch.setattr(file_mod, "SANDBOX_BASE_DIR", resolved_tmp)
-    monkeypatch.setattr(file_api_mod, "SANDBOX_BASE_DIR", resolved_tmp)
+    monkeypatch.setattr(file_mod, "SANDBOX_ALLOWED_DIRS", [resolved_tmp])
+    monkeypatch.setattr(file_api_mod, "SANDBOX_ALLOWED_DIRS", [resolved_tmp])
 
 
 @pytest.fixture

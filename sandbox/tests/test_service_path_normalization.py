@@ -18,84 +18,94 @@ from app.services.shell import ShellService
 class TestSafeResolve:
     """Verify the standalone safe_resolve function blocks traversals."""
 
-    _BASE = Path("/home/ubuntu")
+    _ALLOWED = [Path("/home/ubuntu")]
 
     def _resolved_base(self) -> str:
-        return str(self._BASE.resolve())
+        return str(self._ALLOWED[0].resolve())
 
     def test_path_within_base_is_allowed(self) -> None:
-        result = safe_resolve("/home/ubuntu/project/file.py", base_dir=self._BASE)
+        result = safe_resolve("/home/ubuntu/project/file.py", allowed_dirs=self._ALLOWED)
         assert result.startswith(self._resolved_base())
 
     def test_base_dir_itself_is_allowed(self) -> None:
-        result = safe_resolve("/home/ubuntu", base_dir=self._BASE)
+        result = safe_resolve("/home/ubuntu", allowed_dirs=self._ALLOWED)
         assert result == self._resolved_base()
 
     def test_dot_dot_traversal_is_blocked(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            safe_resolve("/home/ubuntu/../../etc/passwd", base_dir=self._BASE)
+            safe_resolve("/home/ubuntu/../../etc/passwd", allowed_dirs=self._ALLOWED)
 
     def test_absolute_path_outside_base_is_blocked(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            safe_resolve("/etc/passwd", base_dir=self._BASE)
+            safe_resolve("/etc/passwd", allowed_dirs=self._ALLOWED)
 
     def test_root_path_is_blocked(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            safe_resolve("/", base_dir=self._BASE)
+            safe_resolve("/", allowed_dirs=self._ALLOWED)
 
     def test_tmp_path_is_blocked(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            safe_resolve("/tmp/evil.sh", base_dir=self._BASE)
+            safe_resolve("/tmp/evil.sh", allowed_dirs=self._ALLOWED)
 
     def test_var_path_is_blocked(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            safe_resolve("/var/log/syslog", base_dir=self._BASE)
+            safe_resolve("/var/log/syslog", allowed_dirs=self._ALLOWED)
 
     def test_proc_path_is_blocked(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            safe_resolve("/proc/self/environ", base_dir=self._BASE)
+            safe_resolve("/proc/self/environ", allowed_dirs=self._ALLOWED)
 
     def test_deeply_nested_traversal_is_blocked(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
             safe_resolve(
-                "/home/ubuntu/a/b/c/../../../../etc/shadow", base_dir=self._BASE
+                "/home/ubuntu/a/b/c/../../../../etc/shadow", allowed_dirs=self._ALLOWED
             )
 
     def test_dot_dot_at_start_is_blocked(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            safe_resolve("/../../../etc/passwd", base_dir=self._BASE)
+            safe_resolve("/../../../etc/passwd", allowed_dirs=self._ALLOWED)
 
     def test_home_other_user_is_blocked(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            safe_resolve("/home/root/.ssh/authorized_keys", base_dir=self._BASE)
+            safe_resolve("/home/root/.ssh/authorized_keys", allowed_dirs=self._ALLOWED)
 
     def test_subdirectory_is_allowed(self) -> None:
         result = safe_resolve(
-            "/home/ubuntu/workspace/project/src/main.py", base_dir=self._BASE
+            "/home/ubuntu/workspace/project/src/main.py", allowed_dirs=self._ALLOWED
         )
         assert result.startswith(self._resolved_base())
 
-    def test_custom_base_dir(self) -> None:
-        custom_base = Path("/opt/sandbox")
-        result = safe_resolve("/opt/sandbox/data/file.txt", base_dir=custom_base)
-        assert result.startswith(str(custom_base.resolve()))
+    def test_multiple_allowed_dirs(self) -> None:
+        dirs = [Path("/home/ubuntu"), Path("/workspace")]
+        result = safe_resolve("/workspace/session/file.txt", allowed_dirs=dirs)
+        assert result.startswith(str(Path("/workspace").resolve()))
 
-    def test_custom_base_dir_traversal_blocked(self) -> None:
-        custom_base = Path("/opt/sandbox")
+    def test_multiple_allowed_dirs_traversal_blocked(self) -> None:
+        dirs = [Path("/home/ubuntu"), Path("/workspace")]
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            safe_resolve("/opt/other/data.txt", base_dir=custom_base)
+            safe_resolve("/etc/passwd", allowed_dirs=dirs)
+
+    def test_custom_allowed_dir(self) -> None:
+        custom = [Path("/opt/sandbox")]
+        result = safe_resolve("/opt/sandbox/data/file.txt", allowed_dirs=custom)
+        assert result.startswith(str(Path("/opt/sandbox").resolve()))
+
+    def test_custom_allowed_dir_traversal_blocked(self) -> None:
+        custom = [Path("/opt/sandbox")]
+        with pytest.raises(BadRequestException, match="Path traversal denied"):
+            safe_resolve("/opt/other/data.txt", allowed_dirs=custom)
 
 
 # ---------------------------------------------------------------------------
-# FileService._normalize_path – uses the monkeypatched SANDBOX_BASE_DIR
-# from conftest, so we test with tmp_path as the base.
+# FileService._normalize_path – uses the monkeypatched SANDBOX_ALLOWED_DIRS
+# from conftest, so we test with tmp_path as the allowed base.
 # ---------------------------------------------------------------------------
 
 
 class TestFileServiceNormalizePath:
     """Verify _normalize_path chains alias resolution with traversal checks.
 
-    NOTE: The conftest autouse fixture sets SANDBOX_BASE_DIR to tmp_path.
+    NOTE: The conftest autouse fixture sets SANDBOX_ALLOWED_DIRS to [tmp_path].
     These tests therefore validate that paths outside tmp_path are rejected.
     """
 
@@ -120,8 +130,8 @@ class TestFileServiceNormalizePath:
 class TestFileServiceMethodTraversal:
     """Verify every public method rejects paths outside the sandbox.
 
-    The conftest monkeypatches SANDBOX_BASE_DIR to tmp_path, so /etc, /tmp
-    etc. are all outside the allowed base and must be rejected.
+    The conftest monkeypatches SANDBOX_ALLOWED_DIRS to [tmp_path], so /etc, /tmp
+    etc. are all outside the allowed directories and must be rejected.
     """
 
     def setup_method(self) -> None:
