@@ -151,8 +151,8 @@ class FeatureFlagsSettingsMixin:
     feature_enhanced_grounding: bool = True  # Numeric/entity verification in sources
     feature_cove_verification: bool = False  # Chain-of-Verification for reports (deprecated — use lettuce)
     feature_lettuce_verification: bool = True  # LettuceDetect encoder-based hallucination detection
-    lettuce_model_path: str = "KRLabsOrg/tinylettuce-ettin-17m-en-v1"  # HF model path (CPU-friendly)
-    lettuce_confidence_threshold: float = 0.5  # Min hallucination score to flag a span
+    lettuce_model_path: str = "KRLabsOrg/tinylettuce-ettin-17m-en"  # HF model path (CPU-friendly, 17M params)
+    lettuce_confidence_threshold: float = 0.8  # Min hallucination score to flag a span (raised from 0.5 to reduce false positives on LLM-synthesized content)
     lettuce_min_response_length: int = 200  # Skip verification for short responses
     feature_semantic_citation_validation: bool = True  # Semantic matching for citations
     feature_strict_numeric_verification: bool = True  # Reject unverified numeric claims
