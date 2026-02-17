@@ -94,7 +94,17 @@ def get_memory_service() -> MemoryService | None:
         db = get_mongodb().client[settings.mongodb_database]
         memory_repository = MongoMemoryRepository(db)
         llm = _get_llm_instance()
-        return MemoryService(repository=memory_repository, llm=llm)
+
+        # Inject outbox repository for reliable sync (Phase 2)
+        outbox_repo = None
+        try:
+            from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
+
+            outbox_repo = SyncOutboxRepository()
+        except Exception as outbox_err:
+            logger.warning(f"SyncOutboxRepository unavailable (sync disabled): {outbox_err}")
+
+        return MemoryService(repository=memory_repository, llm=llm, outbox_repo=outbox_repo)
     except Exception as e:
         logger.warning(f"Failed to create MemoryService (graceful degradation): {e}")
         return None
