@@ -30,8 +30,8 @@ from app.domain.models.long_term_memory import (
 )
 from app.domain.models.sync_outbox import OutboxCreate, OutboxOperation
 from app.domain.repositories.memory_repository import MemoryRepository
+from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
 from app.domain.repositories.vector_memory_repository import get_vector_memory_repository
-from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
 
 if TYPE_CHECKING:
     from app.domain.models.memory import Memory
@@ -68,19 +68,26 @@ class MemoryService:
     - Automatic consolidation and cleanup
     """
 
-    def __init__(self, repository: MemoryRepository, llm: LLM | None = None, embedding_model: str | None = None):
+    def __init__(
+        self,
+        repository: MemoryRepository,
+        llm: LLM | None = None,
+        embedding_model: str | None = None,
+        outbox_repo: SyncOutboxRepositoryProtocol | None = None,
+    ):
         """Initialize memory service.
 
         Args:
             repository: Memory storage backend
             llm: Optional LLM for memory extraction and embedding
             embedding_model: Optional model name for embeddings
+            outbox_repo: Optional outbox repository for reliable sync (injected from composition root)
         """
         self._repository = repository
         self._llm = llm
 
-        # Phase 2: Initialize outbox repository for reliable sync
-        self._outbox_repo = SyncOutboxRepository()
+        # Phase 2: Outbox repository for reliable sync (injected via DI)
+        self._outbox_repo = outbox_repo
 
         # Initialize embedding client (separate from chat model)
         # This allows using OpenAI embeddings while using any chat provider
@@ -220,7 +227,7 @@ class MemoryService:
             created_memory = await self._repository.create(memory)
 
             # Phase 2: Write to outbox instead of direct Qdrant sync
-            if embedding:
+            if embedding and self._outbox_repo:
                 try:
                     await self._outbox_repo.create(
                         OutboxCreate(
@@ -293,41 +300,42 @@ class MemoryService:
             raise
 
         # Phase 2: Write to outbox for async sync
-        try:
-            await self._outbox_repo.create(
-                OutboxCreate(
-                    operation=OutboxOperation.UPSERT,
-                    collection_name="user_knowledge",
-                    payload={
-                        "memory_id": mongo_result.id,
-                        "user_id": mongo_result.user_id,
-                        "embedding": embedding,
-                        "memory_type": memory_type.value,
-                        "importance": importance.value,
-                        "tags": tags or [],
-                        "sparse_vector": sparse_vector,
-                        "session_id": memory.session_id,
-                        "created_at": mongo_result.created_at.isoformat(),
-                    },
+        if self._outbox_repo:
+            try:
+                await self._outbox_repo.create(
+                    OutboxCreate(
+                        operation=OutboxOperation.UPSERT,
+                        collection_name="user_knowledge",
+                        payload={
+                            "memory_id": mongo_result.id,
+                            "user_id": mongo_result.user_id,
+                            "embedding": embedding,
+                            "memory_type": memory_type.value,
+                            "importance": importance.value,
+                            "tags": tags or [],
+                            "sparse_vector": sparse_vector,
+                            "session_id": memory.session_id,
+                            "created_at": mongo_result.created_at.isoformat(),
+                        },
+                    )
                 )
-            )
-            # Mark as pending sync
-            await self._repository.update(
-                mongo_result.id,
-                MemoryUpdate(sync_state="pending"),
-            )
-        except Exception as e:
-            logger.error(f"Memory created in MongoDB but outbox write failed: {e}")
-            # Mark as failed
-            await self._repository.update(
-                mongo_result.id,
-                MemoryUpdate(
-                    sync_state="failed",
-                    sync_attempts=1,
-                    last_sync_attempt=datetime.utcnow(),
-                    sync_error=str(e)[:500],
-                ),
-            )
+                # Mark as pending sync
+                await self._repository.update(
+                    mongo_result.id,
+                    MemoryUpdate(sync_state="pending"),
+                )
+            except Exception as e:
+                logger.error(f"Memory created in MongoDB but outbox write failed: {e}")
+                # Mark as failed
+                await self._repository.update(
+                    mongo_result.id,
+                    MemoryUpdate(
+                        sync_state="failed",
+                        sync_attempts=1,
+                        last_sync_attempt=datetime.utcnow(),
+                        sync_error=str(e)[:500],
+                    ),
+                )
 
         return mongo_result
 
@@ -882,16 +890,17 @@ class MemoryService:
             True if deleted successfully
         """
         # Phase 2: Write delete to outbox instead of direct Qdrant call
-        try:
-            await self._outbox_repo.create(
-                OutboxCreate(
-                    operation=OutboxOperation.DELETE,
-                    collection_name="user_knowledge",
-                    payload={"memory_id": memory_id},
+        if self._outbox_repo:
+            try:
+                await self._outbox_repo.create(
+                    OutboxCreate(
+                        operation=OutboxOperation.DELETE,
+                        collection_name="user_knowledge",
+                        payload={"memory_id": memory_id},
+                    )
                 )
-            )
-        except Exception as e:
-            logger.warning(f"Failed to create outbox delete entry for memory {memory_id}: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to create outbox delete entry for memory {memory_id}: {e}")
 
         # Delete from MongoDB
         return await self._repository.delete(memory_id)
@@ -913,7 +922,7 @@ class MemoryService:
         memory_ids = [r.memory.id for r in results]
 
         # Phase 2: Write batch delete to outbox
-        if memory_ids:
+        if memory_ids and self._outbox_repo:
             try:
                 await self._outbox_repo.create(
                     OutboxCreate(
