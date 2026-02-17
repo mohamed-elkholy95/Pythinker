@@ -1,5 +1,6 @@
 """MongoDB implementations of connector repositories."""
 
+import re
 from datetime import UTC, datetime
 
 from app.domain.models.connector import (
@@ -61,9 +62,11 @@ class MongoConnectorRepository:
         if connector_type:
             filters["connector_type"] = connector_type.value
         if query:
+            # Escape special regex characters to prevent regex injection
+            escaped_query = re.escape(query)
             filters["$or"] = [
-                {"name": {"$regex": query, "$options": "i"}},
-                {"description": {"$regex": query, "$options": "i"}},
+                {"name": {"$regex": escaped_query, "$options": "i"}},
+                {"description": {"$regex": escaped_query, "$options": "i"}},
             ]
         documents = await ConnectorDocument.find(filters).to_list()
         return [doc.to_domain() for doc in documents]

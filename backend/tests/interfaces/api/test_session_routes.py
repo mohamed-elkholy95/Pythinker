@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,6 +16,8 @@ from app.interfaces.api.session_routes import (
     chat,
     get_screenshot_image,
     get_shared_screenshot_image,
+    input_websocket,
+    screencast_websocket,
     stop_session,
 )
 from app.interfaces.schemas.session import ChatRequest, FollowUpContext
@@ -369,3 +372,222 @@ async def test_reconnect_cancels_pending_disconnect_cancellation(monkeypatch: py
     await asyncio.sleep(0.08)
 
     service.request_cancellation.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# WebSocket IDOR Protection Tests
+# ---------------------------------------------------------------------------
+
+
+def _make_websocket(url: str = "ws://localhost/sessions/sess-1/input?signature=abc&uid=user-1") -> MagicMock:
+    """Create a mock WebSocket with a configurable URL."""
+    ws = MagicMock()
+    ws.url = url
+    ws.accept = AsyncMock()
+    ws.close = AsyncMock()
+    ws.receive = AsyncMock(side_effect=Exception("should not be called"))
+    return ws
+
+
+def _make_session(
+    session_id: str = "sess-1",
+    user_id: str = "user-1",
+    sandbox_id: str = "sandbox-1",
+) -> SimpleNamespace:
+    """Create a minimal session object."""
+    return SimpleNamespace(id=session_id, user_id=user_id, sandbox_id=sandbox_id)
+
+
+class TestInputWebSocketIDOR:
+    """Tests for IDOR protection on the input_websocket endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_missing_user_id_in_signed_url(self):
+        """Input WebSocket must reject connections without uid in signed URL."""
+        ws = _make_websocket(url="ws://localhost/sessions/sess-1/input?signature=abc")
+        agent_service = SimpleNamespace(get_session=AsyncMock())
+        sandbox_cls = MagicMock()
+
+        await input_websocket(
+            websocket=ws,
+            session_id="sess-1",
+            signature="abc",
+            agent_service=agent_service,
+            sandbox_cls=sandbox_cls,
+        )
+
+        ws.close.assert_awaited_once_with(code=1008, reason="Unauthorized")
+        agent_service.get_session.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rejects_session_belonging_to_different_user(self):
+        """Input WebSocket must reject when session belongs to a different user."""
+        # Attacker (user-attacker) tries to access session owned by user-1
+        ws = _make_websocket(url="ws://localhost/sessions/sess-1/input?signature=abc&uid=user-attacker")
+        # get_session with (session_id, user_id) returns None when user doesn't own it
+        agent_service = SimpleNamespace(get_session=AsyncMock(return_value=None))
+        sandbox_cls = MagicMock()
+
+        await input_websocket(
+            websocket=ws,
+            session_id="sess-1",
+            signature="abc",
+            agent_service=agent_service,
+            sandbox_cls=sandbox_cls,
+        )
+
+        agent_service.get_session.assert_awaited_once_with("sess-1", "user-attacker")
+        ws.close.assert_awaited_once_with(code=1008, reason="Session or sandbox not found")
+
+    @pytest.mark.asyncio
+    async def test_rejects_session_without_sandbox_id(self):
+        """Input WebSocket must reject when session has no sandbox assigned."""
+        ws = _make_websocket(url="ws://localhost/sessions/sess-1/input?signature=abc&uid=user-1")
+        session = _make_session(sandbox_id=None)
+        agent_service = SimpleNamespace(get_session=AsyncMock(return_value=session))
+        sandbox_cls = MagicMock()
+
+        await input_websocket(
+            websocket=ws,
+            session_id="sess-1",
+            signature="abc",
+            agent_service=agent_service,
+            sandbox_cls=sandbox_cls,
+        )
+
+        ws.close.assert_awaited_once_with(code=1008, reason="Session or sandbox not found")
+
+    @pytest.mark.asyncio
+    async def test_passes_user_id_to_get_session(self):
+        """Input WebSocket must always pass user_id for ownership verification."""
+        ws = _make_websocket(url="ws://localhost/sessions/sess-1/input?signature=abc&uid=user-1")
+        session = _make_session()
+        agent_service = SimpleNamespace(get_session=AsyncMock(return_value=session))
+        sandbox = SimpleNamespace(base_url="http://sandbox:8083")
+        sandbox_cls = MagicMock()
+        sandbox_cls.get = AsyncMock(return_value=sandbox)
+
+        # Patch websockets.connect to avoid actual connection
+        with patch("app.interfaces.api.session_routes.websockets") as mock_ws_lib:
+            mock_ws_lib.connect.side_effect = ConnectionError("test abort")
+            mock_ws_lib.exceptions = SimpleNamespace(WebSocketException=Exception)
+
+            await input_websocket(
+                websocket=ws,
+                session_id="sess-1",
+                signature="abc",
+                agent_service=agent_service,
+                sandbox_cls=sandbox_cls,
+            )
+
+        agent_service.get_session.assert_awaited_once_with("sess-1", "user-1")
+
+    @pytest.mark.asyncio
+    async def test_logs_security_warning_for_missing_uid(self, caplog: pytest.LogCaptureFixture):
+        """Input WebSocket must log a security warning when uid is missing."""
+        ws = _make_websocket(url="ws://localhost/sessions/sess-target/input?signature=abc")
+        agent_service = SimpleNamespace(get_session=AsyncMock())
+        sandbox_cls = MagicMock()
+
+        with caplog.at_level(logging.WARNING):
+            await input_websocket(
+                websocket=ws,
+                session_id="sess-target",
+                signature="abc",
+                agent_service=agent_service,
+                sandbox_cls=sandbox_cls,
+            )
+
+        assert any("[SECURITY]" in record.message for record in caplog.records)
+        assert any("sess-target" in record.message for record in caplog.records)
+
+
+class TestScreencastWebSocketIDOR:
+    """Tests for IDOR protection on the screencast_websocket endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_missing_user_id_in_signed_url(self):
+        """Screencast WebSocket must reject connections without uid in signed URL."""
+        ws = _make_websocket(url="ws://localhost/sessions/sess-1/screencast?signature=abc")
+        agent_service = SimpleNamespace(get_session=AsyncMock())
+        sandbox_cls = MagicMock()
+
+        await screencast_websocket(
+            websocket=ws,
+            session_id="sess-1",
+            quality=70,
+            max_fps=15,
+            signature="abc",
+            agent_service=agent_service,
+            sandbox_cls=sandbox_cls,
+        )
+
+        ws.close.assert_awaited_once_with(code=1008, reason="Unauthorized")
+        agent_service.get_session.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rejects_session_belonging_to_different_user(self):
+        """Screencast WebSocket must reject when session belongs to a different user."""
+        ws = _make_websocket(url="ws://localhost/sessions/sess-1/screencast?signature=abc&uid=user-attacker")
+        agent_service = SimpleNamespace(get_session=AsyncMock(return_value=None))
+        sandbox_cls = MagicMock()
+
+        await screencast_websocket(
+            websocket=ws,
+            session_id="sess-1",
+            quality=70,
+            max_fps=15,
+            signature="abc",
+            agent_service=agent_service,
+            sandbox_cls=sandbox_cls,
+        )
+
+        agent_service.get_session.assert_awaited_once_with("sess-1", "user-attacker")
+        ws.close.assert_awaited_once_with(code=1008, reason="Session or sandbox not found")
+
+    @pytest.mark.asyncio
+    async def test_passes_user_id_to_get_session(self):
+        """Screencast WebSocket must always pass user_id for ownership verification."""
+        ws = _make_websocket(url="ws://localhost/sessions/sess-1/screencast?signature=abc&uid=user-1")
+        session = _make_session()
+        agent_service = SimpleNamespace(get_session=AsyncMock(return_value=session))
+        sandbox = SimpleNamespace(base_url="http://sandbox:8083")
+        sandbox_cls = MagicMock()
+        sandbox_cls.get = AsyncMock(return_value=sandbox)
+
+        with patch("app.interfaces.api.session_routes.websockets") as mock_ws_lib:
+            mock_ws_lib.connect.side_effect = ConnectionError("test abort")
+            mock_ws_lib.exceptions = SimpleNamespace(WebSocketException=Exception)
+
+            await screencast_websocket(
+                websocket=ws,
+                session_id="sess-1",
+                quality=70,
+                max_fps=15,
+                signature="abc",
+                agent_service=agent_service,
+                sandbox_cls=sandbox_cls,
+            )
+
+        agent_service.get_session.assert_awaited_once_with("sess-1", "user-1")
+
+    @pytest.mark.asyncio
+    async def test_logs_security_warning_for_missing_uid(self, caplog: pytest.LogCaptureFixture):
+        """Screencast WebSocket must log a security warning when uid is missing."""
+        ws = _make_websocket(url="ws://localhost/sessions/sess-target/screencast?signature=abc")
+        agent_service = SimpleNamespace(get_session=AsyncMock())
+        sandbox_cls = MagicMock()
+
+        with caplog.at_level(logging.WARNING):
+            await screencast_websocket(
+                websocket=ws,
+                session_id="sess-target",
+                quality=70,
+                max_fps=15,
+                signature="abc",
+                agent_service=agent_service,
+                sandbox_cls=sandbox_cls,
+            )
+
+        assert any("[SECURITY]" in record.message for record in caplog.records)
+        assert any("sess-target" in record.message for record in caplog.records)

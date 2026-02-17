@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.domain.models.event import BaseEvent
 from app.domain.models.file import FileInfo
@@ -82,8 +82,12 @@ class SessionRepository(Protocol):
         """Update pending action details for confirmation flow."""
         ...
 
-    async def update_by_id(self, session_id: str, updates: dict) -> None:
-        """Update session fields by ID with a dictionary of updates"""
+    async def update_by_id(self, session_id: str, updates: dict[str, Any]) -> None:
+        """Update session fields by ID with a dictionary of updates.
+
+        Only fields in the ALLOWED_UPDATE_FIELDS allowlist are accepted.
+        Raises ValueError for disallowed field names.
+        """
         ...
 
     async def delete(self, session_id: str) -> None:

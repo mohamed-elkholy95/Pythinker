@@ -3,12 +3,25 @@
 Enhanced with marketplace features for skill discovery and sharing.
 """
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 from app.domain.models.skill import Skill, SkillCategory, SkillSource
 from app.domain.repositories.skill_repository import SkillRepository
 from app.infrastructure.models.documents import SkillDocument
+
+# Allowlist of fields that may be used for sorting in marketplace queries.
+# Prevents NoSQL injection via arbitrary field names passed to MongoDB .sort().
+ALLOWED_SORT_FIELDS: frozenset[str] = frozenset(
+    {
+        "community_rating",
+        "install_count",
+        "created_at",
+        "updated_at",
+        "name",
+    }
+)
 
 
 class SkillSearchFilters:
@@ -56,10 +69,11 @@ class SkillSearchFilters:
             query["is_featured"] = self.is_featured
 
         if self.query:
-            # Text search on name and description
+            # Escape special regex characters to prevent regex injection
+            escaped_query = re.escape(self.query)
             query["$or"] = [
-                {"name": {"$regex": self.query, "$options": "i"}},
-                {"description": {"$regex": self.query, "$options": "i"}},
+                {"name": {"$regex": escaped_query, "$options": "i"}},
+                {"description": {"$regex": escaped_query, "$options": "i"}},
             ]
 
         return query
@@ -173,6 +187,12 @@ class MongoSkillRepository(SkillRepository):
         Returns:
             Tuple of (skills list, total count)
         """
+        # Validate sort_by against allowlist to prevent NoSQL injection
+        if sort_by not in ALLOWED_SORT_FIELDS:
+            raise ValueError(
+                f"Invalid sort field: '{sort_by}'. Allowed fields: {', '.join(sorted(ALLOWED_SORT_FIELDS))}"
+            )
+
         query = filters.to_mongo_query()
 
         # Get total count

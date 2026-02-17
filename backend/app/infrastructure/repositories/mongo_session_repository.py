@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from app.domain.models.event import BaseEvent
 from app.domain.models.file import FileInfo
@@ -8,6 +9,47 @@ from app.domain.repositories.session_repository import SessionRepository
 from app.infrastructure.models.documents import SessionDocument
 
 logger = logging.getLogger(__name__)
+
+
+# Allowlist of fields that may be updated via the generic update_by_id method.
+# Prevents NoSQL injection through arbitrary field names in $set operations.
+# Fields correspond to SessionDocument attributes that domain services need
+# to update dynamically (workspace init, complexity assessment, etc.).
+ALLOWED_SESSION_UPDATE_FIELDS: frozenset[str] = frozenset(
+    {
+        # Workspace metadata
+        "workspace_structure",
+        "project_name",
+        "project_path",
+        "template_id",
+        "template_used",
+        "workspace_capabilities",
+        "dev_command",
+        "build_command",
+        "test_command",
+        "port",
+        "env_var_keys",
+        "secret_keys",
+        "git_remote",
+        # Execution metadata
+        "complexity_score",
+        "iteration_limit_override",
+        # Budget tracking
+        "budget_limit",
+        "budget_warning_threshold",
+        "budget_paused",
+        # Multi-task
+        "multi_task_challenge",
+        # Session state
+        "title",
+        "status",
+        "mode",
+        "sandbox_id",
+        "sandbox_owned",
+        "sandbox_lifecycle_mode",
+        "sandbox_created_at",
+    }
+)
 
 
 class MongoSessionRepository(SessionRepository):
@@ -192,15 +234,29 @@ class MongoSessionRepository(SessionRepository):
         if not result:
             raise ValueError(f"Session {session_id} not found")
 
-    async def update_by_id(self, session_id: str, updates: dict) -> None:
-        """Update session fields by ID with a dictionary of updates"""
+    async def update_by_id(self, session_id: str, updates: dict[str, Any]) -> None:
+        """Update session fields by ID with a dictionary of updates.
+
+        Only fields listed in ALLOWED_SESSION_UPDATE_FIELDS are accepted.
+        Raises ValueError if any disallowed field names are provided.
+        """
         if not updates:
             return
 
-        # Add updated_at timestamp
-        updates["updated_at"] = datetime.now(UTC)
+        # Validate all field names against allowlist to prevent NoSQL injection
+        disallowed_fields = set(updates.keys()) - ALLOWED_SESSION_UPDATE_FIELDS
+        if disallowed_fields:
+            raise ValueError(
+                f"Disallowed update fields: {', '.join(sorted(disallowed_fields))}. "
+                f"Only these fields may be updated via update_by_id: "
+                f"{', '.join(sorted(ALLOWED_SESSION_UPDATE_FIELDS))}"
+            )
 
-        result = await SessionDocument.find_one(SessionDocument.session_id == session_id).update({"$set": updates})
+        # Build safe update payload with timestamp
+        safe_updates = dict(updates)
+        safe_updates["updated_at"] = datetime.now(UTC)
+
+        result = await SessionDocument.find_one(SessionDocument.session_id == session_id).update({"$set": safe_updates})
         if not result:
             raise ValueError(f"Session {session_id} not found")
 
