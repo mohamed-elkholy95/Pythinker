@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -42,6 +43,9 @@ class VectorMemoryRepository(ABC):
         memory_type: str,
         importance: str,
         tags: list[str] | None = None,
+        sparse_vector: dict[int, float] | dict[str, float] | None = None,
+        session_id: str | None = None,
+        created_at: datetime | None = None,
     ) -> None:
         """Store memory embedding in vector store.
 
@@ -52,6 +56,9 @@ class VectorMemoryRepository(ABC):
             memory_type: Type of memory (fact, preference, etc.)
             importance: Importance level (critical, high, medium, low)
             tags: Optional tags for filtering
+            sparse_vector: Optional BM25 sparse vector {index: score}
+            session_id: Optional session ID for filtering
+            created_at: Optional creation timestamp for temporal filtering
         """
         ...
 
@@ -97,6 +104,38 @@ class VectorMemoryRepository(ABC):
 
         Args:
             user_id: User whose memories to delete
+        """
+        ...
+
+    @abstractmethod
+    async def upsert_memories_batch(self, memories: list[dict]) -> None:
+        """Batch upsert multiple memories to the vector store.
+
+        Args:
+            memories: List of dicts with keys: memory_id, user_id, embedding,
+                     memory_type, importance, tags, sparse_vector (optional),
+                     session_id (optional), created_at (optional)
+        """
+        ...
+
+    @abstractmethod
+    async def delete_memories_batch(self, memory_ids: list[str]) -> None:
+        """Delete multiple memories from the vector store.
+
+        Args:
+            memory_ids: List of memory IDs to delete
+        """
+        ...
+
+    @abstractmethod
+    async def memory_exists(self, memory_id: str) -> bool:
+        """Check if a memory exists in the vector store.
+
+        Args:
+            memory_id: ID to check
+
+        Returns:
+            True if memory exists
         """
         ...
 
