@@ -101,6 +101,12 @@ def redact_event_dict(logger: Any, method_name: str, event_dict: EventDict) -> E
     # which re-triggers this processor and causes infinite recursion.
     if _in_redact.get(False):
         return event_dict
+    # Guard against deadlock: if get_settings() has not been cached yet, it means
+    # we are being called from within get_settings() initialization (validate() → logger).
+    # Calling get_settings() here would deadlock on its non-reentrant init lock.
+    # Fail-open: skip redaction during settings bootstrap.
+    if get_settings.cache_info().currsize == 0:
+        return event_dict
     token = _in_redact.set(True)
     try:
         settings = get_settings()
