@@ -317,7 +317,7 @@
               @click="handleFollow"
               v-if="!follow"
               class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute end-0 z-30"
-              style="top: calc(-48px + 1.5in - 1cm)"
+              style="top: calc(-48px + 1.5in - 4.2cm)"
             >
               <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
             </button>
