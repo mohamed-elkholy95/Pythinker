@@ -13,7 +13,7 @@ const emit = defineEmits<{
 const modes: { value: ThinkingMode; label: string; icon: typeof Sparkles; title: string }[] = [
   { value: 'auto', label: 'Auto', icon: Sparkles, title: 'Auto — complexity-based model routing' },
   { value: 'fast', label: 'Fast', icon: Zap, title: 'Fast — speed-optimized model' },
-  { value: 'deep_think', label: 'Deep', icon: Brain, title: 'DeepThink — maximum reasoning' },
+  { value: 'deep_think', label: 'Think', icon: Brain, title: 'DeepThink — maximum reasoning' },
 ];
 </script>
 
