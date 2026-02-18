@@ -2,6 +2,15 @@ const H1_HEADING_RE = /^#\s+(.+)$/gm;
 const UNVERIFIED_MARKER_RE = /\[(?:unverified(?:\s+[^\]\n]*?)?|not verified)\]?/gi;
 const VERIFIED_MARKER_RE = /\[(?:verified(?:\s+[^\]\n]*?)?)\]?/gi;
 const VERIFICATION_TAG_RE = /\[(?:unverified|verified|not verified)[^\]]*\]?/gi;
+
+// Matches [N] where N is 1–3 digits, not preceded by ^ (footnote) and not followed by (, :, or [
+const INLINE_CITATION_RE = /(?<!\^)\[(\d{1,3})\](?![(:[])/g;
+// Detects a "references/sources/bibliography" section heading
+const REFERENCES_HEADING_RE = /^#{1,4}\s*(references?|sources?|bibliography|citations?)\s*$/i;
+// Ordered list item at the start of a line: "3. text"
+const ORDERED_LIST_RE = /^(\s*)(\d+)\.\s+/;
+// Bracket-style reference at the start of a line: "[3] text"
+const BRACKET_REF_LINE_RE = /^(\s*)\[(\d+)\]\s+/;
 const EXCESS_BLANK_LINES_RE = /\n{3,}/g;
 
 const normalizeTitle = (title: string): string => title.trim().toLowerCase();
@@ -87,6 +96,73 @@ export const normalizeVerificationMarkers = (markdown: string): string => {
 };
 
 const normalizeLineEndings = (content: string): string => content.replace(/\r\n?/g, '\n');
+
+/**
+ * Transforms inline citation numbers [N] into clickable anchor links and adds
+ * id anchors to reference list items in the References/Sources section.
+ *
+ * Outside the references section: [5] becomes a superscript anchor link.
+ * Inside an ordered references section: prepends list items with an id anchor span.
+ * Skips code blocks entirely.
+ */
+export const linkifyInlineCitations = (markdown: string): string => {
+  if (!markdown) return markdown;
+
+  const lines = markdown.split('\n');
+  let inCodeFence = false;
+  let inReferencesSection = false;
+
+  return lines
+    .map((line) => {
+      const trimmed = line.trimStart();
+
+      if (trimmed.startsWith('```')) {
+        inCodeFence = !inCodeFence;
+        return line;
+      }
+      if (inCodeFence) return line;
+
+      // Detect references/sources/bibliography heading
+      if (REFERENCES_HEADING_RE.test(trimmed)) {
+        inReferencesSection = true;
+        return line;
+      }
+
+      // Any other heading exits the references section
+      if (trimmed.startsWith('#')) {
+        inReferencesSection = false;
+        return line;
+      }
+
+      if (inReferencesSection) {
+        // Ordered list item "1. text" — inject id anchor before the content
+        const olMatch = ORDERED_LIST_RE.exec(line);
+        if (olMatch) {
+          const indent = olMatch[1];
+          const num = olMatch[2];
+          const rest = line.slice(olMatch[0].length);
+          return `${indent}${num}. <span id="ref-${num}"></span>${rest}`;
+        }
+
+        // Bracket-style "[1] text" — replace with id anchor
+        const bracketMatch = BRACKET_REF_LINE_RE.exec(line);
+        if (bracketMatch) {
+          const indent = bracketMatch[1];
+          const num = bracketMatch[2];
+          const rest = line.slice(bracketMatch[0].length);
+          return `${indent}<span id="ref-${num}">[${num}]</span> ${rest}`;
+        }
+
+        return line;
+      }
+
+      // Outside references section: linkify inline [N] patterns
+      return line.replace(INLINE_CITATION_RE, (_, num) => {
+        return `<sup><a href="#ref-${num}" class="inline-citation">[${num}]</a></sup>`;
+      });
+    })
+    .join('\n');
+};
 
 export const stripLeadingMainTitle = (markdown: string): string => {
   if (!markdown) return markdown;
