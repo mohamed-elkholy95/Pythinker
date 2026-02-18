@@ -165,13 +165,28 @@ defineExpose({ contentRef });
 
 :deep(.tiptap ul),
 :deep(.tiptap ol) {
-  margin: 0.5em 0;
-  padding-left: 1.5em;
+  margin: 0.6em 0;
+  padding-left: 1.65em;
   text-align: inherit;
 }
 
 :deep(.tiptap li) {
+  margin: 0.4em 0;
+  padding-left: 0.25em;
+  line-height: 1.65;
+}
+
+:deep(.tiptap li::marker) {
+  color: var(--text-tertiary);
+}
+
+:deep(.tiptap li > ul),
+:deep(.tiptap li > ol) {
   margin: 0.25em 0;
+}
+
+:deep(.tiptap li > p) {
+  margin: 0;
 }
 
 :deep(.tiptap blockquote) {
