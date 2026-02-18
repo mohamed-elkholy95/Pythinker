@@ -83,7 +83,7 @@ export interface ToolContent extends BaseContent {
 export interface StepContent extends BaseContent {
   id: string;
   description: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'started' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped';
   tools: ToolContent[];
   phase_id?: string | null;  // When set, step is in plan-act flow (hide fast-search inline UI)
   step_type?: string | null;
