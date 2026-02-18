@@ -12,7 +12,7 @@ Tests cover:
 
 import asyncio
 import contextlib
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -518,7 +518,7 @@ class TestConcurrencyBehavior:
     @pytest.mark.asyncio
     async def test_true_parallelism(self):
         """Test that tasks run in parallel, not sequentially."""
-        start = datetime.now()
+        start = datetime.now(UTC)
 
         async def sleep_task():
             await asyncio.sleep(0.1)
@@ -527,7 +527,7 @@ class TestConcurrencyBehavior:
         # 5 tasks of 100ms should complete in ~100ms if parallel
         results = await gather_with_taskgroup(*[sleep_task() for _ in range(5)])
 
-        elapsed = (datetime.now() - start).total_seconds()
+        elapsed = (datetime.now(UTC) - start).total_seconds()
 
         assert len(results) == 5
         # Should be around 100ms, not 500ms

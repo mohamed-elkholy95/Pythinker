@@ -12,7 +12,7 @@ Usage:
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -239,7 +239,7 @@ def generate_report(baseline_dir: Path, enhanced_dir: Path, output_file: Path) -
     # Generate report
     report = f"""# Phase 0-5 Enhancement Evaluation Results
 
-**Generated**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Generated**: {datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")}
 **Baseline Directory**: `{baseline_dir}`
 **Enhanced Directory**: `{enhanced_dir}`
 

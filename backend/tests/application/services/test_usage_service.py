@@ -13,7 +13,7 @@ from app.infrastructure.models.documents import DailyUsageDocument
 async def test_update_daily_aggregate_upserts_by_usage_id_and_sets_date_type() -> None:
     service = UsageService()
     fake_collection = AsyncMock()
-    today = date.today()
+    today = datetime.now(tz=UTC).date()
     usage_id = f"user-1_{today.isoformat()}"
     record = UsageRecord(
         user_id="user-1",
@@ -46,7 +46,7 @@ async def test_update_daily_aggregate_upserts_by_usage_id_and_sets_date_type() -
 async def test_record_tool_call_uses_atomic_upsert_with_date_object() -> None:
     service = UsageService()
     fake_collection = AsyncMock()
-    today = date.today()
+    today = datetime.now(tz=UTC).date()
     usage_id = f"user-1_{today.isoformat()}"
 
     with patch.object(DailyUsageDocument, "get_pymongo_collection", return_value=fake_collection):
@@ -68,7 +68,7 @@ async def test_record_tool_call_uses_atomic_upsert_with_date_object() -> None:
 @pytest.mark.asyncio
 async def test_get_usage_summary_queries_legacy_and_date_storage() -> None:
     service = UsageService()
-    today = date.today()
+    today = datetime.now(tz=UTC).date()
     month_start = date(today.year, today.month, 1)
     today_doc = SimpleNamespace(
         total_prompt_tokens=10,
