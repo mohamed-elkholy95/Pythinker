@@ -4,6 +4,7 @@ Structured Logging with structlog
 Provides JSON-formatted logging with correlation ID propagation through async operations.
 """
 
+import io
 import logging
 import re
 import sys
@@ -200,6 +201,25 @@ def add_log_level(logger: logging.Logger, method_name: str, event_dict: EventDic
     return event_dict
 
 
+def _rich_traceback_no_locals(sio: io.StringIO, exc_info: tuple) -> None:
+    """Rich-formatted traceback without local variables to prevent secret leakage.
+
+    Using show_locals=False prevents API keys and other sensitive values stored in
+    local variables (e.g. the Settings object) from appearing in log output.
+    """
+    try:
+        from rich.console import Console
+        from rich.traceback import Traceback
+
+        buf = io.StringIO()
+        console = Console(file=buf, color_system="truecolor")
+        console.print(Traceback.from_exception(*exc_info, show_locals=False))
+        sio.write(buf.getvalue())
+    except Exception:
+        # Fallback to plain traceback if Rich is unavailable
+        structlog.dev.plain_traceback(sio, exc_info)
+
+
 def setup_structured_logging() -> None:
     """
     Configure the application logging system with structlog.
@@ -236,7 +256,10 @@ def setup_structured_logging() -> None:
             foreign_pre_chain=shared_processors,
             processors=[
                 structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                structlog.dev.ConsoleRenderer(colors=True),
+                structlog.dev.ConsoleRenderer(
+                    colors=True,
+                    exception_formatter=_rich_traceback_no_locals,
+                ),
             ],
         )
     else:
