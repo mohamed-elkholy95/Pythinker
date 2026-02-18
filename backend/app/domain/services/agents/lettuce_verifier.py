@@ -17,7 +17,7 @@ Architecture:
 Usage:
     verifier = get_lettuce_verifier()
     result = verifier.verify(
-        context="France has 67 million people...",
+        context=["France has 67 million people...", "Paris is the capital."],
         question="What is the population of France?",
         answer="The population of France is 69 million.",
     )
@@ -109,7 +109,7 @@ class LettuceVerifier:
 
     def __init__(
         self,
-        model_path: str = "KRLabsOrg/tinylettuce-ettin-17m-en-v1",
+        model_path: str = "KRLabsOrg/tinylettuce-ettin-17m-en",
         confidence_threshold: float = 0.5,
         min_response_length: int = 200,
     ):
@@ -144,15 +144,16 @@ class LettuceVerifier:
 
     def verify(
         self,
-        context: str,
+        context: list[str],
         question: str,
         answer: str,
     ) -> LettuceVerificationResult:
         """Verify an answer against provided context for hallucinations.
 
         Args:
-            context: Source material the answer should be grounded on.
-                     Can be concatenated search results, page content, etc.
+            context: List of source text chunks the answer should be grounded on.
+                     Each chunk is a separate search result or page excerpt.
+                     LettuceDetect's predict() API expects list[str].
             question: The original user question/query.
             answer: The generated answer to verify.
 
@@ -172,7 +173,8 @@ class LettuceVerifier:
             )
 
         # Skip if no context to ground against
-        if not context or len(context.strip()) < 50:
+        total_context_len = sum(len(c.strip()) for c in context)
+        if not context or total_context_len < 50:
             return LettuceVerificationResult(
                 original_response=answer,
                 confidence_score=0.7,
@@ -192,12 +194,21 @@ class LettuceVerifier:
             )
 
         try:
-            # LettuceDetect expects context as a string (or list of strings)
-            # Truncate context to 4K chars to fit ModernBERT's context window
-            truncated_context = context[:4000]
+            # Truncate each context chunk to keep total under 4K chars
+            # for ModernBERT's context window
+            truncated_chunks: list[str] = []
+            total_len = 0
+            for chunk in context:
+                if total_len + len(chunk) > 4000:
+                    remaining = 4000 - total_len
+                    if remaining > 50:
+                        truncated_chunks.append(chunk[:remaining])
+                    break
+                truncated_chunks.append(chunk)
+                total_len += len(chunk)
 
             predictions = self._detector.predict(
-                context=truncated_context,
+                context=truncated_chunks,
                 question=question,
                 answer=answer,
                 output_format="spans",
