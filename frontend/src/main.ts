@@ -9,31 +9,17 @@ import i18n from './composables/useI18n'
 import { getStoredToken, getCachedAuthProvider } from './api/auth'
 import autoFollowScrollPlugin from './plugins/autoFollowScroll'
 import apiResiliencePlugin from './plugins/apiResilience'
-
-// Configure Monaco Editor Web Workers
-// This prevents UI freezes by offloading syntax highlighting to web workers
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-
-self.MonacoEnvironment = {
-  getWorker(_: string, label: string) {
-    if (label === 'json') {
-      return new jsonWorker()
-    }
-    return new editorWorker()
-  }
-}
-
-// Import page components
-import HomePage from './pages/HomePage.vue'
-import ChatPage from './pages/ChatPage.vue'
-import LoginPage from './pages/LoginPage.vue'
-import MainLayout from './pages/MainLayout.vue'
 import { configure } from "vue-gtag";
-import SharePage from './pages/SharePage.vue';
-import ShareLayout from './pages/ShareLayout.vue';
-import SessionHistoryPage from './pages/SessionHistoryPage.vue';
-import CanvasPage from './pages/CanvasPage.vue'
+
+// Route-level lazy loading keeps the bootstrap bundle small.
+const MainLayout = () => import('./pages/MainLayout.vue')
+const HomePage = () => import('./pages/HomePage.vue')
+const ChatPage = () => import('./pages/ChatPage.vue')
+const LoginPage = () => import('./pages/LoginPage.vue')
+const ShareLayout = () => import('./pages/ShareLayout.vue')
+const SharePage = () => import('./pages/SharePage.vue')
+const SessionHistoryPage = () => import('./pages/SessionHistoryPage.vue')
+const CanvasPage = () => import('./pages/CanvasPage.vue')
 
 const canReadStorage = typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function'
 const storedTheme = canReadStorage ? localStorage.getItem('bolt_theme') : null

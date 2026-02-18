@@ -141,7 +141,31 @@ import { ToolContent } from '@/types/message';
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { ExternalLink, Download } from 'lucide-vue-next';
 import { fileApi } from '@/api/file';
-import Plotly from 'plotly.js-dist-min';
+
+type PlotlyApi = {
+  react: (...args: unknown[]) => Promise<unknown> | unknown;
+  purge: (target: HTMLElement) => void;
+};
+let plotlyModule: PlotlyApi | null = null;
+let plotlyLoadPromise: Promise<PlotlyApi> | null = null;
+
+const loadPlotly = async (): Promise<PlotlyApi> => {
+  if (plotlyModule) {
+    return plotlyModule;
+  }
+
+  if (plotlyLoadPromise) {
+    return plotlyLoadPromise;
+  }
+
+  plotlyLoadPromise = import('plotly.js-dist-min').then((module) => {
+    const resolved = (module as { default?: PlotlyApi } & PlotlyApi).default ?? (module as PlotlyApi);
+    plotlyModule = resolved;
+    return resolved;
+  });
+
+  return plotlyLoadPromise;
+};
 
 const props = defineProps<{
   sessionId: string;
@@ -359,6 +383,7 @@ const renderPlotlyChart = async () => {
   if (!plotlyDiv.value || !plotlyData.value || !plotlyLayout.value) return;
 
   try {
+    const plotly = await loadPlotly();
     const config = {
       responsive: true,
       displayModeBar: true,
@@ -375,7 +400,7 @@ const renderPlotlyChart = async () => {
 
     // Use Plotly.react for declarative updates (intelligently diffs state)
     // Falls back to newPlot if chart doesn't exist yet
-    await Plotly.react(plotlyDiv.value, plotlyData.value, plotlyLayout.value, config);
+    await plotly.react(plotlyDiv.value, plotlyData.value, plotlyLayout.value, config);
     plotlyReady.value = true;
   } catch (error) {
     console.error('Failed to render Plotly chart:', error);
@@ -462,8 +487,8 @@ onBeforeUnmount(() => {
     fetchAbortController.abort();
     fetchAbortController = null;
   }
-  if (plotlyDiv.value) {
-    Plotly.purge(plotlyDiv.value);
+  if (plotlyDiv.value && plotlyModule) {
+    plotlyModule.purge(plotlyDiv.value);
   }
 });
 </script>

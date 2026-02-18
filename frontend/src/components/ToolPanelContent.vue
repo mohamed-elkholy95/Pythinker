@@ -390,7 +390,7 @@
 </template>
 
 <script setup lang="ts">
-import { toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
+import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
 import { Minimize2, MonitorUp, X, Loader2, Check, BarChart3 } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
@@ -402,19 +402,19 @@ import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
 
-// Content views
-import LiveViewer from '@/components/LiveViewer.vue';
-import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
-import InactiveState from '@/components/toolViews/shared/InactiveState.vue';
-import TerminalContentView from '@/components/toolViews/TerminalContentView.vue';
-import EditorContentView from '@/components/toolViews/EditorContentView.vue';
-import SearchContentView from '@/components/toolViews/SearchContentView.vue';
-import ChartToolView from '@/components/toolViews/ChartToolViewEnhanced.vue';
-import GenericContentView from '@/components/toolViews/GenericContentView.vue';
-import StreamingReportView from '@/components/toolViews/StreamingReportView.vue';
-import UnifiedStreamingView from '@/components/toolViews/UnifiedStreamingView.vue';
-import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
-import ScreenshotReplayViewer from '@/components/ScreenshotReplayViewer.vue';
+// Content views are async to avoid loading heavy dependencies until needed.
+const LiveViewer = defineAsyncComponent(() => import('@/components/LiveViewer.vue'));
+const LoadingState = defineAsyncComponent(() => import('@/components/toolViews/shared/LoadingState.vue'));
+const InactiveState = defineAsyncComponent(() => import('@/components/toolViews/shared/InactiveState.vue'));
+const TerminalContentView = defineAsyncComponent(() => import('@/components/toolViews/TerminalContentView.vue'));
+const EditorContentView = defineAsyncComponent(() => import('@/components/toolViews/EditorContentView.vue'));
+const SearchContentView = defineAsyncComponent(() => import('@/components/toolViews/SearchContentView.vue'));
+const ChartToolView = defineAsyncComponent(() => import('@/components/toolViews/ChartToolViewEnhanced.vue'));
+const GenericContentView = defineAsyncComponent(() => import('@/components/toolViews/GenericContentView.vue'));
+const StreamingReportView = defineAsyncComponent(() => import('@/components/toolViews/StreamingReportView.vue'));
+const UnifiedStreamingView = defineAsyncComponent(() => import('@/components/toolViews/UnifiedStreamingView.vue'));
+const WideResearchOverlay = defineAsyncComponent(() => import('@/components/WideResearchOverlay.vue'));
+const ScreenshotReplayViewer = defineAsyncComponent(() => import('@/components/ScreenshotReplayViewer.vue'));
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { normalizeSearchResults } from '@/utils/searchResults';
 import { isCanvasDomainTool } from '@/utils/viewRouting';
