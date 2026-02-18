@@ -5,6 +5,7 @@ and SemanticCache. Wraps OpenAI's embedding API with fallback support.
 """
 
 import logging
+import threading
 import time
 from functools import lru_cache
 
@@ -201,6 +202,9 @@ class EmbeddingClient:
         return self._dimension
 
 
+_get_embedding_client_init_lock = threading.Lock()
+
+
 @lru_cache
 def get_embedding_client() -> EmbeddingClient:
     """Get the singleton embedding client.
@@ -214,28 +218,29 @@ def get_embedding_client() -> EmbeddingClient:
     Raises:
         RuntimeError: If no embedding API key is configured
     """
-    from app.infrastructure.storage.redis import get_redis
+    with _get_embedding_client_init_lock:
+        from app.infrastructure.storage.redis import get_redis
 
-    settings = get_settings()
-    api_key = settings.embedding_api_key or settings.api_key
+        settings = get_settings()
+        api_key = settings.embedding_api_key or settings.api_key
 
-    if not api_key:
-        raise RuntimeError("No embedding API key configured. Set EMBEDDING_API_KEY or API_KEY.")
+        if not api_key:
+            raise RuntimeError("No embedding API key configured. Set EMBEDDING_API_KEY or API_KEY.")
 
-    # Collect fallback keys
-    fallback_keys = []
-    if settings.embedding_api_key_2:
-        fallback_keys.append(settings.embedding_api_key_2)
-    if settings.embedding_api_key_3:
-        fallback_keys.append(settings.embedding_api_key_3)
+        # Collect fallback keys
+        fallback_keys = []
+        if settings.embedding_api_key_2:
+            fallback_keys.append(settings.embedding_api_key_2)
+        if settings.embedding_api_key_3:
+            fallback_keys.append(settings.embedding_api_key_3)
 
-    # Get Redis client for distributed coordination
-    redis_client = get_redis()
+        # Get Redis client for distributed coordination
+        redis_client = get_redis()
 
-    return EmbeddingClient(
-        api_key=api_key,
-        fallback_api_keys=fallback_keys if fallback_keys else None,
-        redis_client=redis_client,
-        base_url=settings.embedding_api_base,
-        model=settings.embedding_model,
-    )
+        return EmbeddingClient(
+            api_key=api_key,
+            fallback_api_keys=fallback_keys if fallback_keys else None,
+            redis_client=redis_client,
+            base_url=settings.embedding_api_base,
+            model=settings.embedding_model,
+        )

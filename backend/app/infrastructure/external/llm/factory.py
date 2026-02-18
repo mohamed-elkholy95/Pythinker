@@ -14,6 +14,7 @@ Switching providers requires only one change:
 
 import importlib
 import logging
+import threading
 from typing import ClassVar
 
 from app.core.config import get_settings
@@ -181,33 +182,38 @@ def _register_providers() -> None:
 
 _cached_llm: LLM | None = None
 _llm_init_attempted: bool = False
+_llm_init_lock = threading.Lock()
 
 
 def get_llm() -> LLM | None:
-    """Get the cached LLM instance (creates on first call).
+    """Get the cached LLM instance (creates on first call, thread-safe).
 
     Returns:
         LLM instance or None if configuration is invalid
     """
     global _cached_llm, _llm_init_attempted
 
+    # Fast path: already initialized (no lock needed for reads of non-None value)
     if _cached_llm is not None:
         return _cached_llm
 
-    if _llm_init_attempted:
-        # Re-try once per call to handle deferred config (e.g. env var set after import)
-        pass
+    # Slow path: acquire lock to prevent concurrent initialization
+    with _llm_init_lock:
+        # Double-checked locking: re-check after acquiring the lock
+        if _cached_llm is not None:
+            return _cached_llm
 
-    _llm_init_attempted = True
-    result = get_llm_from_factory()
-    if result is not None:
-        _cached_llm = result
-    return result
+        _llm_init_attempted = True
+        result = get_llm_from_factory()
+        if result is not None:
+            _cached_llm = result
+        return result
 
 
 def reset_llm_cache() -> None:
     """Reset the cached LLM instance (useful for testing or live config changes)."""
     global _cached_llm, _llm_init_attempted
-    _cached_llm = None
-    _llm_init_attempted = False
+    with _llm_init_lock:
+        _cached_llm = None
+        _llm_init_attempted = False
     logger.debug("LLM cache cleared")

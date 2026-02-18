@@ -1,6 +1,7 @@
 import asyncio
 import io
 import logging
+import threading
 from functools import lru_cache
 
 from minio import Minio
@@ -166,7 +167,11 @@ class MinIOStorage:
         return count
 
 
+_minio_init_lock = threading.Lock()
+
+
 @lru_cache
 def get_minio_storage() -> MinIOStorage:
-    """Get the MinIO storage instance."""
-    return MinIOStorage()
+    """Get the MinIO storage instance (thread-safe singleton)."""
+    with _minio_init_lock:
+        return MinIOStorage()

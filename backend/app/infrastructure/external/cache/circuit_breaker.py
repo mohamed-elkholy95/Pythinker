@@ -16,11 +16,11 @@ SLO Thresholds:
 """
 
 import logging
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
-from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,10 @@ class SemanticCacheCircuitBreaker:
         self._half_open_started_at: float | None = None
         self._consecutive_failures = 0
         self._consecutive_successes = 0
-        self._lock = Lock()  # Thread safety
+        # Use threading.Lock with non-blocking acquire to avoid stalling asyncio
+        # event loop. If we can't get the lock immediately, we skip the update —
+        # acceptable for a statistics/SLO monitoring component.
+        self._lock = threading.Lock()
 
         logger.info(
             f"Circuit breaker initialized: "
@@ -107,7 +110,11 @@ class SemanticCacheCircuitBreaker:
         Args:
             hit: True if cache hit, False if cache miss
         """
-        with self._lock:  # Thread safety for concurrent requests
+        # Non-blocking acquire: skip update if lock is contended to avoid
+        # stalling the asyncio event loop (this is a stats-only operation).
+        if not self._lock.acquire(blocking=False):
+            return
+        try:
             now = time.time()
 
             # Add or update current sample (aggregate by second)
@@ -138,6 +145,8 @@ class SemanticCacheCircuitBreaker:
 
             # Check state transitions
             self._update_state()
+        finally:
+            self._lock.release()
 
     def _normalized_state(self) -> CircuitState:
         """Return a valid CircuitState even if internals were mutated."""
@@ -336,13 +345,17 @@ class SemanticCacheCircuitBreaker:
         }
 
 
-# Global circuit breaker instance
+# Global circuit breaker instance (thread-safe singleton)
 _circuit_breaker: SemanticCacheCircuitBreaker | None = None
+_circuit_breaker_init_lock = threading.Lock()
 
 
 def get_circuit_breaker() -> SemanticCacheCircuitBreaker:
-    """Get or create the global circuit breaker instance."""
+    """Get or create the global circuit breaker instance (thread-safe)."""
     global _circuit_breaker
     if _circuit_breaker is None:
-        _circuit_breaker = SemanticCacheCircuitBreaker()
+        with _circuit_breaker_init_lock:
+            # Double-checked locking: re-check after acquiring the lock
+            if _circuit_breaker is None:
+                _circuit_breaker = SemanticCacheCircuitBreaker()
     return _circuit_breaker

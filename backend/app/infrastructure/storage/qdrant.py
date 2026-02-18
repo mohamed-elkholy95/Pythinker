@@ -1,5 +1,6 @@
 import contextlib
 import logging
+import threading
 from functools import lru_cache
 
 from qdrant_client import AsyncQdrantClient, models
@@ -181,7 +182,11 @@ class QdrantStorage:
         return self._client
 
 
+_qdrant_init_lock = threading.Lock()
+
+
 @lru_cache
 def get_qdrant() -> QdrantStorage:
-    """Get the Qdrant storage instance."""
-    return QdrantStorage()
+    """Get the Qdrant storage instance (thread-safe singleton)."""
+    with _qdrant_init_lock:
+        return QdrantStorage()

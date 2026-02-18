@@ -1,8 +1,9 @@
 import asyncio
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from functools import lru_cache
 from typing import Any, TypeVar
@@ -66,7 +67,7 @@ class CircuitBreaker:
         """Check if enough time has passed to attempt recovery."""
         if not self.last_failure_time:
             return True
-        return datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout)
+        return datetime.now(UTC) - self.last_failure_time > timedelta(seconds=self.recovery_timeout)
 
     async def record_success(self) -> None:
         """Record a successful operation."""
@@ -86,7 +87,7 @@ class CircuitBreaker:
         """Record a failed operation."""
         async with self._lock:
             self.failure_count += 1
-            self.last_failure_time = datetime.now()
+            self.last_failure_time = datetime.now(UTC)
 
             if self.state == CircuitState.HALF_OPEN:
                 # Failed during recovery - back to OPEN
@@ -185,7 +186,7 @@ class RedisClient:
             )
             await self._client.ping()
             await self._circuit_breaker.record_success()
-            self._last_health_check = datetime.now()
+            self._last_health_check = datetime.now(UTC)
             logger.info(
                 "Successfully connected to Redis (%s) at %s:%s/%s",
                 self._role,
@@ -204,7 +205,7 @@ class RedisClient:
             return False
 
         # Throttle health checks to avoid overhead
-        now = datetime.now()
+        now = datetime.now(UTC)
         if self._last_health_check and (now - self._last_health_check).total_seconds() < self._health_check_interval:
             return True
 
@@ -355,16 +356,22 @@ class RedisClient:
         return self._circuit_breaker.get_state_info()
 
 
+_redis_init_lock = threading.Lock()
+_cache_redis_init_lock = threading.Lock()
+
+
 @lru_cache
 def get_redis() -> RedisClient:
-    """Get the Redis client singleton instance."""
-    return RedisClient(role="runtime")
+    """Get the Redis client singleton instance (thread-safe)."""
+    with _redis_init_lock:
+        return RedisClient(role="runtime")
 
 
 @lru_cache
 def get_cache_redis() -> RedisClient | None:
-    """Get the cache Redis client singleton, or None if cache Redis is disabled."""
-    settings = get_settings()
-    if not settings.redis_cache_enabled:
-        return None
-    return RedisClient(role="cache")
+    """Get the cache Redis client singleton, or None if cache Redis is disabled (thread-safe)."""
+    with _cache_redis_init_lock:
+        settings = get_settings()
+        if not settings.redis_cache_enabled:
+            return None
+        return RedisClient(role="cache")
