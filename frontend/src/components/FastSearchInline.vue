@@ -30,6 +30,7 @@
       <div v-for="i in 4" :key="i" class="fsi-card fsi-card--skeleton">
         <div class="fsi-card-body">
           <div class="fsi-skel fsi-skel--title" />
+          <div class="fsi-skel fsi-skel--title-mid" />
           <div class="fsi-skel fsi-skel--title-short" />
           <div class="fsi-skel fsi-skel--source" />
         </div>
@@ -338,7 +339,7 @@ function handleOpen(result: SearchResultItem) {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 14px;
+  padding: 16px 14px;
   background: var(--background-white-main);
   border: none;
   text-align: left;
@@ -362,56 +363,58 @@ function handleOpen(result: SearchResultItem) {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .fsi-card-title {
-  font-size: 13px;
+  font-size: 14.5px;
   font-weight: 500;
   color: var(--text-primary);
-  line-height: 1.42;
+  line-height: 1.45;
   margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  letter-spacing: -0.01em;
 }
 
 /* ── Source row ────────────────────────────────── */
 .fsi-card-source {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  margin-top: auto;
 }
 
 .fsi-source-icon {
-  width: 14px;
-  height: 14px;
-  min-width: 14px;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: 50%;
   overflow: hidden;
   background: var(--fill-tsp-gray-dark, #e5e7eb);
 }
 
 .fsi-source-favicon {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   object-fit: contain;
 }
 
 .fsi-source-letter {
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
   color: var(--text-tertiary);
   line-height: 1;
 }
 
 .fsi-source-name {
-  font-size: 11px;
-  color: var(--text-tertiary);
+  font-size: 12px;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -419,9 +422,9 @@ function handleOpen(result: SearchResultItem) {
 
 /* ── Thumbnail ─────────────────────────────────── */
 .fsi-card-thumb {
-  width: 64px;
-  height: 64px;
-  min-width: 64px;
+  width: 96px;
+  height: 80px;
+  min-width: 96px;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -431,38 +434,35 @@ function handleOpen(result: SearchResultItem) {
 }
 
 .fsi-thumb-img {
-  width: 38px;
-  height: 38px;
+  width: 46px;
+  height: 46px;
   object-fit: contain;
   border-radius: 6px;
 }
 
 .fsi-thumb-letter {
-  font-size: 22px;
+  font-size: 28px;
   font-weight: 800;
-  opacity: 0.55;
+  opacity: 0.45;
   line-height: 1;
   font-family: var(--font-sans);
 }
 
 /* ── Skeleton bones ────────────────────────────── */
-.fsi-grid--skeleton {
-  /* same grid but skeleton cards are not interactive */
-}
-
 .fsi-skel {
   border-radius: 4px;
   background: var(--fill-tsp-white-dark);
   animation: fsi-pulse 1.6s ease-in-out infinite;
 }
 
-.fsi-skel--title        { height: 13px; width: 88%; }
-.fsi-skel--title-short  { height: 13px; width: 62%; animation-delay: 0.1s; }
-.fsi-skel--source       { height: 10px; width: 44%; margin-top: 4px; animation-delay: 0.15s; }
-.fsi-skel--thumb        {
-  width: 64px;
-  height: 64px;
-  min-width: 64px;
+.fsi-skel--title        { height: 14px; width: 90%; }
+.fsi-skel--title-mid    { height: 14px; width: 78%; animation-delay: 0.07s; }
+.fsi-skel--title-short  { height: 14px; width: 55%; animation-delay: 0.12s; }
+.fsi-skel--source       { height: 11px; width: 42%; margin-top: 2px; animation-delay: 0.17s; }
+.fsi-skel--thumb {
+  width: 96px;
+  height: 80px;
+  min-width: 96px;
   border-radius: 8px;
   flex-shrink: 0;
   animation-delay: 0.05s;
@@ -474,7 +474,7 @@ function handleOpen(result: SearchResultItem) {
   align-items: center;
   gap: 4px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 11px 14px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
@@ -492,6 +492,7 @@ function handleOpen(result: SearchResultItem) {
 .fsi-see-more-icon {
   color: var(--icon-secondary);
   transition: transform 0.2s ease;
+  margin-left: auto;
 }
 
 .fsi-see-more-icon--open {
