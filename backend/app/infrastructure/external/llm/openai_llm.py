@@ -1532,8 +1532,7 @@ To extract data from a webpage:
                                     partial_parsed = json.loads(extracted)
                                     result = response_model.model_validate(partial_parsed)
                                     logger.info(
-                                        "Recovered truncated structured output via JSON repair "
-                                        "(model=%s, schema=%s)",
+                                        "Recovered truncated structured output via JSON repair (model=%s, schema=%s)",
                                         self._model,
                                         response_model.__name__,
                                     )
