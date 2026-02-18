@@ -210,7 +210,7 @@
               :editor-file-path="resolvedFilePath"
               :search-results="searchResults"
               :search-query="searchQuery"
-              :is-session-complete="streamingPresentation.isSessionComplete.value"
+              :is-session-complete="isSessionComplete"
               :replay-screenshot-url="props.replayScreenshotUrl || ''"
               @connected="onLivePreviewConnected"
               @disconnected="onLivePreviewDisconnected"
@@ -334,7 +334,7 @@
               :editor-file-path="resolvedFilePath"
               :search-results="searchResults"
               :search-query="searchQuery"
-              :is-session-complete="streamingPresentation.isSessionComplete.value"
+              :is-session-complete="isSessionComplete"
               :replay-screenshot-url="props.replayScreenshotUrl || ''"
               @connected="onLivePreviewConnected"
               @disconnected="onLivePreviewDisconnected"
@@ -689,6 +689,7 @@ const streamingPresentation = useStreamingPresentationState({
 });
 
 const isSummaryPhase = computed(() => streamingPresentation.isSummaryPhase.value);
+const isSessionComplete = computed(() => !props.isLoading && !!props.replayScreenshotUrl);
 
 const activityHeadline = computed(() => {
   if (isSummaryPhase.value) return streamingPresentation.headline.value;
