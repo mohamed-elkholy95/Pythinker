@@ -1,193 +1,206 @@
 <template>
-  <div class="attachments-inline-grid w-full max-w-[280px] min-w-0 mt-3">
-    <div class="grid grid-cols-1 gap-2">
-      <template v-for="file in displayedAttachments" :key="file.file_id">
-        <!-- Chart PNG files: render inline image preview -->
+  <div class="attachments-inline-grid w-full max-w-[520px] min-w-0 mt-3 flex flex-col gap-2">
+
+    <!-- Section 1: Charts / images — up to 2, side-by-side -->
+    <div
+      v-if="displayedChartFiles.length > 0"
+      class="grid gap-2"
+      :class="displayedChartFiles.length === 1 ? 'grid-cols-1' : 'grid-cols-2'"
+    >
+      <div
+        v-for="file in displayedChartFiles"
+        :key="file.file_id"
+        class="chart-preview-card relative rounded-xl overflow-hidden border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-brand)] hover:shadow-sm transition-all group"
+        role="button"
+        tabindex="0"
+        :aria-label="isChartPng(file) ? `Open interactive chart: ${file.filename}` : file.filename"
+        @click="isChartPng(file) ? openChartInteractive(file) : openFile(file)"
+        @keydown.enter="isChartPng(file) ? openChartInteractive(file) : openFile(file)"
+        @keydown.space.prevent="isChartPng(file) ? openChartInteractive(file) : openFile(file)"
+      >
+        <img
+          :src="getFileUrl(file)"
+          :alt="file.filename"
+          class="w-full h-auto max-h-[220px] object-contain bg-white dark:bg-[var(--code-block-bg)]"
+        />
+        <!-- "View Interactive" badge — only for chart PNGs that have a paired HTML -->
         <div
           v-if="isChartPng(file)"
-          class="col-span-1 chart-preview-card relative rounded-md overflow-hidden border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-brand)] hover:shadow-sm transition-all group"
-          role="button"
-          tabindex="0"
-          :aria-label="`Open interactive chart: ${file.filename}`"
-          @click="openChartInteractive(file)"
-          @keydown.enter="openChartInteractive(file)"
-          @keydown.space.prevent="openChartInteractive(file)"
+          class="absolute inset-0 bg-black/0 group-hover:bg-black/5 group-focus:bg-black/5 transition-colors flex items-center justify-center"
         >
-          <img
-            :src="getFileUrl(file)"
-            :alt="file.filename"
-            class="w-full h-auto max-h-[220px] object-contain bg-white dark:bg-[var(--code-block-bg)]"
-          />
-          <div class="absolute inset-0 bg-black/0 group-hover:bg-black/5 group-focus:bg-black/5 transition-colors flex items-center justify-center">
-            <div class="opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 dark:bg-blue-500 text-white shadow-md">
-              <BarChart3 :size="13" />
-              <span class="text-xs font-medium">View Interactive</span>
-            </div>
+          <div class="opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 dark:bg-blue-500 text-white shadow-md">
+            <BarChart3 :size="13" />
+            <span class="text-xs font-medium">View Interactive</span>
           </div>
         </div>
-
-        <!-- Regular files: standard file card -->
-        <div
-          v-else
-          class="file-card flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--background-card)] border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-main)] hover:shadow-sm transition-all"
-          @click="openFile(file)"
-        >
-          <div
-            class="flex-shrink-0 w-9 h-9 flex items-center justify-center"
-            :style="{ color: getFileIconColor(file.filename) }"
-          >
-            <component :is="getFileIcon(file.filename)" :size="36" />
-          </div>
-          <div class="flex flex-col min-w-0 flex-1">
-            <span class="text-sm text-[var(--text-primary)] truncate font-medium leading-tight">
-              {{ file.filename }}
-            </span>
-            <span class="text-xs text-[var(--text-tertiary)]">
-              {{ getFileTypeLabel(file.filename) }} · {{ formatFileSize(file.size) }}
-            </span>
-          </div>
-        </div>
-      </template>
-
-      <!-- View all files button - inline in grid -->
-      <button
-        v-if="uniqueAttachments.length > maxDisplayedFiles"
-        class="file-card flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--background-card)] border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-main)] hover:shadow-sm transition-all"
-        @click="showAllFiles"
-      >
-        <FolderOpen class="w-4 h-4 text-[var(--icon-secondary)]" />
-        <span class="text-sm text-[var(--text-secondary)]">
-          View all files in this task
-        </span>
-      </button>
+      </div>
     </div>
+
+    <!-- Section 2: Regular files — up to 2, side-by-side -->
+    <div
+      v-if="displayedRegularFiles.length > 0"
+      class="grid gap-2"
+      :class="displayedRegularFiles.length === 1 ? 'grid-cols-1' : 'grid-cols-2'"
+    >
+      <div
+        v-for="file in displayedRegularFiles"
+        :key="file.file_id"
+        class="file-card flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--background-card)] border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-main)] hover:shadow-sm transition-all min-w-0"
+        @click="openFile(file)"
+      >
+        <div class="flex-shrink-0 w-9 h-9 flex items-center justify-center">
+          <FileTypeIcon :filename="file.filename" :size="36" />
+        </div>
+        <div class="flex flex-col min-w-0 flex-1">
+          <span class="text-sm text-[var(--text-primary)] truncate font-medium leading-tight">
+            {{ file.filename }}
+          </span>
+          <span class="text-xs text-[var(--text-tertiary)]">
+            {{ getFileTypeLabel(file.filename) }} · {{ formatFileSize(file.size) }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 3: View all files — shown when there are more files than displayed -->
+    <button
+      v-if="hasMoreFiles"
+      class="file-card w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--background-card)] border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-main)] hover:shadow-sm transition-all"
+      @click="showAllFiles"
+    >
+      <FolderOpen class="w-4 h-4 text-[var(--icon-secondary)]" />
+      <span class="text-sm text-[var(--text-secondary)]">{{ $t('View all files in this task') }}</span>
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import {
-  FolderOpen,
-  BarChart3,
-} from 'lucide-vue-next';
-import type { FileInfo } from '@/api/file';
-import { fileApi } from '@/api/file';
-import { isChartPngFile, getChartHtmlFile, getFileIconComponent, getFileIconColor } from '@/utils/fileType';
+import { computed } from 'vue'
+import { FolderOpen, BarChart3 } from 'lucide-vue-next'
+import type { FileInfo } from '@/api/file'
+import { fileApi } from '@/api/file'
+import { isChartPngFile, isInteractiveChartFile, getChartHtmlFile } from '@/utils/fileType'
+import FileTypeIcon from '@/components/FileTypeIcon.vue'
+
+const MAX_REGULAR_FILES = 2
 
 const props = defineProps<{
-  attachments: FileInfo[];
-  maxDisplayedFiles?: number;
-}>();
+  attachments: FileInfo[]
+  maxDisplayedFiles?: number
+}>()
 
 const emit = defineEmits<{
-  (e: 'openFile', file: FileInfo): void;
-  (e: 'showAllFiles'): void;
-}>();
+  (e: 'openFile', file: FileInfo): void
+  (e: 'showAllFiles'): void
+}>()
 
-const maxDisplayedFiles = props.maxDisplayedFiles ?? 4;
-
-// Deduplicate attachments by filename (preferred) or file_id to prevent showing duplicates
-// Prefer filename because the same file synced multiple times may have different file_ids
+// Deduplicate by filename first, file_id as fallback
 const uniqueAttachments = computed(() => {
-  const seenFilenames = new Set<string>();
-  const seenFileIds = new Set<string>();
+  const seenFilenames = new Set<string>()
+  const seenFileIds = new Set<string>()
   return props.attachments.filter(file => {
-    // Primary dedup by filename
     if (file.filename) {
-      if (seenFilenames.has(file.filename)) return false;
-      seenFilenames.add(file.filename);
-      return true;
+      if (seenFilenames.has(file.filename)) return false
+      seenFilenames.add(file.filename)
+      return true
     }
-    // Fallback to file_id if no filename
     if (file.file_id) {
-      if (seenFileIds.has(file.file_id)) return false;
-      seenFileIds.add(file.file_id);
-      return true;
+      if (seenFileIds.has(file.file_id)) return false
+      seenFileIds.add(file.file_id)
+      return true
     }
-    return true; // Keep if neither exists
-  });
-});
+    return true
+  })
+})
 
-const displayedAttachments = computed(() => {
-  if (uniqueAttachments.value.length > maxDisplayedFiles) {
-    return uniqueAttachments.value.slice(0, maxDisplayedFiles - 1);
-  }
-  return uniqueAttachments.value.slice(0, maxDisplayedFiles);
-});
+const IMAGE_EXTS = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico', 'tiff', 'tif', 'heic', 'heif',
+])
+
+const isImageFile = (f: FileInfo) => {
+  const ext = f.filename.split('.').pop()?.toLowerCase() ?? ''
+  return IMAGE_EXTS.has(ext)
+}
+
+// Visual files (charts + images) — shown as inline previews
+const chartFiles = computed(() =>
+  uniqueAttachments.value.filter(f => isChartPngFile(f.filename, f.metadata) || isImageFile(f))
+)
+
+// Regular files — exclude visuals and their paired interactive HTML counterparts
+const regularFiles = computed(() => {
+  const chartHtmlFilenames = new Set(
+    uniqueAttachments.value
+      .filter(f => isChartPngFile(f.filename, f.metadata))
+      .map(png => getChartHtmlFile(png, uniqueAttachments.value))
+      .filter(Boolean)
+      .map(f => f!.filename)
+  )
+  return uniqueAttachments.value.filter(
+    f => !isChartPngFile(f.filename, f.metadata) &&
+         !isImageFile(f) &&
+         !isInteractiveChartFile(f.metadata) &&
+         !chartHtmlFilenames.has(f.filename)
+  )
+})
+
+const MAX_VISUAL_FILES = 2
+
+// Only show first 2 visual files inline
+const displayedChartFiles = computed(() =>
+  chartFiles.value.slice(0, MAX_VISUAL_FILES)
+)
+
+// Only show first 2 regular files inline
+const displayedRegularFiles = computed(() =>
+  regularFiles.value.slice(0, MAX_REGULAR_FILES)
+)
+
+// Show "View all files" when any section is truncated
+const hasMoreFiles = computed(() =>
+  regularFiles.value.length > MAX_REGULAR_FILES ||
+  chartFiles.value.length > MAX_VISUAL_FILES
+)
 
 const formatFileSize = (bytes: number) => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-const getFileIcon = (filename: string) => getFileIconComponent(filename);
-
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
 
 const getFileTypeLabel = (filename: string) => {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const ext = filename.split('.').pop()?.toLowerCase() || ''
   const typeMap: Record<string, string> = {
-    md: 'Markdown',
-    txt: 'Text',
-    pdf: 'PDF',
-    doc: 'Document',
-    docx: 'Document',
-    js: 'Code',
-    ts: 'Code',
-    jsx: 'Code',
-    tsx: 'Code',
-    vue: 'Code',
-    py: 'Code',
-    java: 'Code',
-    go: 'Code',
-    rs: 'Code',
-    json: 'JSON',
-    html: 'HTML',
-    css: 'CSS',
-    zip: 'Archive',
-    tar: 'Archive',
-    gz: 'Archive',
-    png: 'Image',
-    jpg: 'Image',
-    jpeg: 'Image',
-    gif: 'Image',
-    svg: 'Image',
-    webp: 'Image',
-  };
-  return typeMap[ext] || ext.toUpperCase();
-};
+    md: 'Markdown', txt: 'Text', pdf: 'PDF',
+    doc: 'Document', docx: 'Document',
+    js: 'Code', ts: 'Code', jsx: 'Code', tsx: 'Code', vue: 'Code',
+    py: 'Code', java: 'Code', go: 'Code', rs: 'Code',
+    json: 'JSON', html: 'HTML', css: 'CSS',
+    zip: 'Archive', tar: 'Archive', gz: 'Archive',
+    png: 'Image', jpg: 'Image', jpeg: 'Image',
+    gif: 'Image', svg: 'Image', webp: 'Image',
+    xls: 'Spreadsheet', xlsx: 'Spreadsheet', csv: 'Spreadsheet',
+  }
+  return typeMap[ext] || ext.toUpperCase()
+}
 
-const openFile = (file: FileInfo) => {
-  emit('openFile', file);
-};
+const openFile = (file: FileInfo) => emit('openFile', file)
+const showAllFiles = () => emit('showAllFiles')
 
-const showAllFiles = () => {
-  emit('showAllFiles');
-};
+const isChartPng = (file: FileInfo) => isChartPngFile(file.filename, file.metadata)
 
-// Chart detection and handling
-const isChartPng = (file: FileInfo) => {
-  return isChartPngFile(file.filename, file.metadata);
-};
-
-const getFileUrl = (file: FileInfo) => {
-  return fileApi.getFileUrl(file.file_id);
-};
+const getFileUrl = (file: FileInfo) => fileApi.getFileUrl(file.file_id)
 
 const openChartInteractive = (pngFile: FileInfo) => {
-  // Find corresponding HTML file
-  const htmlFile = getChartHtmlFile(pngFile, props.attachments);
+  const htmlFile = getChartHtmlFile(pngFile, props.attachments)
   if (htmlFile) {
-    // Open HTML file in new tab
-    const url = fileApi.getFileUrl(htmlFile.file_id);
-    window.open(url, '_blank');
+    window.open(fileApi.getFileUrl(htmlFile.file_id), '_blank')
   } else {
-    // Fallback: open PNG file normally
-    emit('openFile', pngFile);
+    emit('openFile', pngFile)
   }
-};
+}
 </script>
 
 <style scoped>
