@@ -1381,6 +1381,8 @@ To extract data from a webpage:
         tool_choice: str | None = None,
         enable_caching: bool = True,
         model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> T:
         """Send chat request with structured output validation.
 
@@ -1397,6 +1399,8 @@ To extract data from a webpage:
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
             model: Optional model override for adaptive model selection (DeepCode Phase 1)
+            temperature: Optional temperature override (uses self._temperature if None)
+            max_tokens: Optional max_tokens override (uses self._max_tokens if None)
 
         Returns:
             Validated Pydantic model instance
@@ -1442,11 +1446,13 @@ To extract data from a webpage:
                     "messages": attempt_messages,
                 }
 
+                effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
+                effective_temperature = temperature if temperature is not None else self._temperature
                 if is_new_model:
-                    params["max_completion_tokens"] = self._max_tokens
+                    params["max_completion_tokens"] = effective_max_tokens
                 else:
-                    params["max_tokens"] = self._max_tokens
-                    params["temperature"] = self._temperature
+                    params["max_tokens"] = effective_max_tokens
+                    params["temperature"] = effective_temperature
 
                 # For thinking APIs (Kimi, etc.), disable extended thinking unless
                 # a previous empty response indicated thinking is needed for output
