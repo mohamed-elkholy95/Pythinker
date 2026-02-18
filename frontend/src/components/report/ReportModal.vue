@@ -415,10 +415,22 @@ const handleScroll = () => {
   }
 };
 
+// Safely resolve a timestamp (number or ISO string) to milliseconds
+const resolveTimestampMs = (timestamp: number | string | undefined): number => {
+  if (timestamp == null) return Date.now();
+  if (typeof timestamp === 'string') {
+    const parsed = new Date(timestamp).getTime();
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return Date.now();
+  return timestamp;
+};
+
 // Format relative time (e.g., "19 minutes ago")
-const formatRelativeTime = (timestamp: number) => {
+const formatRelativeTime = (timestamp: number | string | undefined) => {
+  const ms = resolveTimestampMs(timestamp);
   const now = Date.now();
-  const diff = now - timestamp;
+  const diff = now - ms;
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
@@ -428,12 +440,14 @@ const formatRelativeTime = (timestamp: number) => {
   if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
   if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
 
-  return formatDate(timestamp);
+  return formatDate(ms);
 };
 
 // Format full date
-const formatDate = (timestamp: number) => {
-  const date = new Date(timestamp);
+const formatDate = (timestamp: number | string | undefined) => {
+  const ms = resolveTimestampMs(timestamp);
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
   return date.toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',

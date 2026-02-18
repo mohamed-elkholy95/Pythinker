@@ -510,6 +510,7 @@ import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 import { useErrorBoundary } from '@/composables/useErrorBoundary';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
+import { toEpochSeconds } from '@/utils/time';
 import {
   isStructuredSummaryAssistantMessage,
   shouldNestAssistantMessageInStep,
@@ -2500,17 +2501,18 @@ const handleReportEvent = (reportData: ReportEventData) => {
   followUpAnchorEventId.value = reportData.event_id;
 
   const sections = extractSectionsFromMarkdown(reportData.content);
+  const epochSec = toEpochSeconds(reportData.timestamp) ?? Math.floor(Date.now() / 1000);
   const nextReportContent: ReportContent = {
     id: reportData.id,
     event_id: reportData.event_id,
     title: reportData.title,
     content: reportData.content,
-    lastModified: reportData.timestamp * 1000,
+    lastModified: epochSec * 1000,
     fileCount: reportAttachments.length,
     sections,
     sources: reportData.sources,
     attachments: reportAttachments,
-    timestamp: reportData.timestamp,
+    timestamp: epochSec,
   };
 
   // Resume/replay may surface the same report more than once; update in place.

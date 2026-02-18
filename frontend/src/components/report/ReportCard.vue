@@ -231,8 +231,13 @@ const processedContent = computed(() => {
   return normalized.slice(0, 1900);
 });
 
-const formatDateLong = (timestamp: number) => {
-  const date = new Date(timestamp);
+const formatDateLong = (timestamp: number | string | undefined) => {
+  if (timestamp == null) return 'Unknown';
+  // Handle ISO string timestamps from backend
+  const ms = typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp;
+  if (!Number.isFinite(ms) || ms <= 0) return 'Unknown';
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
   return date.toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',

@@ -41,7 +41,7 @@ export function useRelativeTime() {
    * Plain function — Vue tracks `_sharedClock.value` as a reactive dependency
    * during template rendering, so the component re-renders automatically every 30 s.
    */
-  const relativeTime = (timestamp: number): string => {
+  const relativeTime = (timestamp: number | string): string => {
     void _sharedClock.value; // reactive read — establishes render-effect dependency
     return formatRelativeTime(timestamp);
   };
@@ -60,7 +60,7 @@ export function useCustomTime() {
   _startClock();
   onUnmounted(_stopClock);
 
-  const customTime = (timestamp: number): string => {
+  const customTime = (timestamp: number | string): string => {
     void _sharedClock.value; // reactive read
     return formatCustomTime(timestamp, t, locale.value);
   };

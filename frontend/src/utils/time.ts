@@ -6,9 +6,15 @@ const MS_TIMESTAMP_THRESHOLD = 1e11;
 
 /**
  * Normalize epoch timestamp to Unix seconds.
- * Accepts either seconds or milliseconds input.
+ * Accepts seconds, milliseconds, or ISO 8601 string input.
  */
-export const normalizeTimestampSeconds = (timestamp: number): number | null => {
+export const normalizeTimestampSeconds = (timestamp: number | string): number | null => {
+  // Handle ISO 8601 strings (e.g. from Pydantic datetime serialisation)
+  if (typeof timestamp === 'string') {
+    const ms = new Date(timestamp).getTime();
+    if (!Number.isFinite(ms)) return null;
+    return Math.floor(ms / 1000);
+  }
   if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
   if (timestamp > MS_TIMESTAMP_THRESHOLD) return Math.floor(timestamp / 1000);
   return Math.floor(timestamp);
@@ -34,12 +40,28 @@ export const parseISODateTime = (isoString: string): number => {
 };
 
 /**
+ * Coerce a timestamp value (number or ISO 8601 string) to Unix epoch seconds.
+ * Returns `null` when the input cannot be resolved to a valid timestamp.
+ *
+ * - number → normalised via `normalizeTimestampSeconds`
+ * - string → parsed as ISO 8601, then converted to seconds
+ */
+export const toEpochSeconds = (value: number | string | null | undefined): number | null => {
+  if (value == null) return null;
+  if (typeof value === 'number') return normalizeTimestampSeconds(value);
+  // ISO 8601 string from Pydantic datetime serialisation
+  const ms = new Date(value).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return Math.floor(ms / 1000);
+};
+
+/**
  * Pure function: convert a Unix-seconds timestamp to a compact relative time label.
  * No Vue composable dependencies — safe to call anywhere.
  *
  * @param timestamp Unix timestamp in **seconds**
  */
-export const formatRelativeTime = (timestamp: number): string => {
+export const formatRelativeTime = (timestamp: number | string): string => {
   const normalizedTimestamp = normalizeTimestampSeconds(timestamp);
   if (normalizedTimestamp === null) return 'Just now';
 
@@ -76,7 +98,7 @@ export const formatRelativeTime = (timestamp: number): string => {
  * @param locale Current locale (for date formatting)
  * @returns Formatted time string
  */
-export const formatCustomTime = (timestamp: number, t?: (key: string) => string, locale?: string): string => {
+export const formatCustomTime = (timestamp: number | string, t?: (key: string) => string, locale?: string): string => {
   const normalizedTimestamp = normalizeTimestampSeconds(timestamp);
   if (normalizedTimestamp === null) {
     return t ? t('Just now') : 'Just now';
