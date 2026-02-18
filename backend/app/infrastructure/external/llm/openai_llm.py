@@ -1521,6 +1521,25 @@ To extract data from a webpage:
                 if finish_reason == "length":
                     logger.warning("Structured output truncated (finish_reason=length), retrying")
                     if attempt == max_retries:
+                        # Last resort: attempt JSON repair on the partial response before failing.
+                        # Some models (e.g. glm-4.7) truncate mid-JSON but the partial output
+                        # may still be recoverable via balanced-brace extraction + Pydantic
+                        # partial validation.
+                        if content:
+                            try:
+                                extracted = self._extract_json_from_text(content)
+                                if extracted:
+                                    partial_parsed = json.loads(extracted)
+                                    result = response_model.model_validate(partial_parsed)
+                                    logger.info(
+                                        "Recovered truncated structured output via JSON repair "
+                                        "(model=%s, schema=%s)",
+                                        self._model,
+                                        response_model.__name__,
+                                    )
+                                    return result
+                            except Exception as repair_err:
+                                logger.debug("JSON repair on truncated output failed: %s", repair_err)
                         raise LLMException("Structured output truncated after all retries")
                     continue
 
