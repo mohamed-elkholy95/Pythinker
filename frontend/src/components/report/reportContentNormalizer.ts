@@ -2,6 +2,7 @@ const H1_HEADING_RE = /^#\s+(.+)$/gm;
 const UNVERIFIED_MARKER_RE = /\[(?:unverified(?:\s+[^\]\n]*?)?|not verified)\]?/gi;
 const VERIFIED_MARKER_RE = /\[(?:verified(?:\s+[^\]\n]*?)?)\]?/gi;
 const VERIFICATION_TAG_RE = /\[(?:unverified|verified|not verified)[^\]]*\]?/gi;
+const EXCESS_BLANK_LINES_RE = /\n{3,}/g;
 
 const normalizeTitle = (title: string): string => title.trim().toLowerCase();
 
@@ -83,4 +84,44 @@ export const normalizeVerificationMarkers = (markdown: string): string => {
       return normalizedLine;
     })
     .join('\n');
+};
+
+const normalizeLineEndings = (content: string): string => content.replace(/\r\n?/g, '\n');
+
+export const stripLeadingMainTitle = (markdown: string): string => {
+  if (!markdown) return markdown;
+  const lines = markdown.split('\n');
+  const filtered = lines.filter((line) => !line.match(/^#\s+/));
+  return filtered.join('\n');
+};
+
+export const normalizeMarkdownLayout = (markdown: string): string => {
+  if (!markdown) return markdown;
+  return normalizeLineEndings(markdown).replace(EXCESS_BLANK_LINES_RE, '\n\n').trim();
+};
+
+export const prepareMarkdownForViewer = (
+  markdown: string,
+  options?: { stripMainTitle?: boolean; collapseDuplicateBlocks?: boolean }
+): string => {
+  if (!markdown) return '';
+  const shouldCollapse = options?.collapseDuplicateBlocks ?? true;
+  const shouldStripMainTitle = options?.stripMainTitle ?? false;
+
+  let normalized = normalizeMarkdownLayout(markdown);
+  if (shouldCollapse) {
+    normalized = collapseDuplicateReportBlocks(normalized);
+  }
+  normalized = normalizeVerificationMarkers(normalized);
+  if (shouldStripMainTitle) {
+    normalized = stripLeadingMainTitle(normalized);
+  }
+  return normalizeMarkdownLayout(normalized);
+};
+
+export const preparePlainTextForViewer = (text: string): string => {
+  if (!text) return '';
+  const normalized = normalizeLineEndings(text).replace(/\t/g, '    ').trimEnd();
+  const escapedFenceContent = normalized.replace(/```/g, '``\\`');
+  return `\`\`\`text\n${escapedFenceContent}\n\`\`\``;
 };
