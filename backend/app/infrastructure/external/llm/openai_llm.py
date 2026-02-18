@@ -128,6 +128,10 @@ class OpenAILLM(LLM):
         # Detect if using Kimi Code API or similar with extended thinking enabled
         self._is_thinking_api = self._detect_thinking_api()
 
+        # Detect if using ZhipuAI GLM API (z.ai / bigmodel.cn) — has strict message schema
+        # GLM-5 requires: system as first message only, strict alternation, no json_object format
+        self._is_glm_api = self._detect_glm_api()
+
         # Initialize prompt cache manager for KV-cache optimization
         self._cache_manager = get_prompt_cache_manager(self._model_name)
 
@@ -137,6 +141,7 @@ class OpenAILLM(LLM):
         logger.info(
             f"Initialized OpenAI LLM with {len(key_configs)} API key(s) "
             f"using FAILOVER strategy, model: {self._model_name}"
+            + (" [GLM API mode]" if self._is_glm_api else "")
         )
 
     async def get_api_key(self) -> str | None:
@@ -255,6 +260,68 @@ class OpenAILLM(LLM):
         # through non-Anthropic endpoints
         model_lower = self._model_name.lower()
         return "claude" in model_lower and "anthropic.com" not in base
+
+    def _detect_glm_api(self) -> bool:
+        """Detect if using ZhipuAI GLM API (z.ai or bigmodel.cn).
+
+        GLM APIs (e.g. GLM-4, GLM-5) have additional constraints vs standard OpenAI:
+        - system role MUST be the very first message (error 1214 otherwise)
+        - Does NOT support json_object response format
+        - Streaming tool call arguments may have malformed/truncated JSON
+        - No parallel tool calls support
+
+        Base URLs: https://api.z.ai/api/paas/v4
+                   https://open.bigmodel.cn/api/paas/v4
+        """
+        if self._api_base:
+            base = self._api_base.lower()
+            if any(marker in base for marker in ("z.ai", "bigmodel.cn", "zhipuai")):
+                return True
+
+        # Also detect by model name (glm- prefix covers glm-4, glm-5, glm-z1, etc.)
+        model_lower = self._model_name.lower()
+        return model_lower.startswith("glm-") or "glm-z" in model_lower
+
+    @staticmethod
+    def _repair_tool_args_json(args_str: str) -> str:
+        """Attempt to repair malformed/truncated JSON in tool call arguments.
+
+        GLM-5 streaming has a known bug where tool call argument JSON is sometimes
+        emitted without closing braces (e.g. {"query": "foo" instead of {"query": "foo"}).
+        This tries a fast heuristic repair before falling back to the raw string.
+
+        Args:
+            args_str: Raw arguments string from tool call
+
+        Returns:
+            Valid JSON string (repaired if needed), or original on failure
+        """
+        if not args_str or not args_str.strip():
+            return "{}"
+
+        stripped = args_str.strip()
+
+        # Fast path — already valid JSON
+        try:
+            json.loads(stripped)
+            return stripped
+        except json.JSONDecodeError:
+            pass
+
+        # Heuristic repair: balance unclosed braces/brackets
+        try:
+            open_braces = stripped.count("{") - stripped.count("}")
+            open_brackets = stripped.count("[") - stripped.count("]")
+            repaired = stripped + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
+            json.loads(repaired)
+            logger.debug(f"Repaired malformed tool args JSON: added {open_braces} brace(s)")
+            return repaired
+        except (json.JSONDecodeError, Exception) as exc:
+            logger.debug(f"Heuristic JSON repair failed: {exc}")
+
+        # Last resort: return empty object to avoid breaking the tool call
+        logger.warning(f"Could not repair tool args JSON, using empty object. Original: {args_str[:100]!r}")
+        return "{}"
 
     async def _record_usage(self, response: Any) -> None:
         """Record usage from OpenAI response if usage context is set.
@@ -677,7 +744,6 @@ To extract data from a webpage:
 
             if role == "tool":
                 tool_name = str(msg_copy.get("name") or "unknown_tool")
-                tool_call_id = str(msg_copy.get("tool_call_id") or "unknown_call")
                 tool_result = content_text or "{}"
                 # Use "user" role so tool results don't land adjacent to the
                 # converted assistant message above — GLM error 1214 rejects
@@ -798,6 +864,10 @@ To extract data from a webpage:
                             func["arguments"] = "{}"
                         elif not isinstance(func["arguments"], str):
                             func["arguments"] = json.dumps(func["arguments"])
+                        elif getattr(self, "_is_glm_api", False):
+                            # GLM-5 streaming sometimes emits truncated JSON in tool args.
+                            # Attempt repair to avoid downstream JSON parse errors.
+                            func["arguments"] = self._repair_tool_args_json(func["arguments"])
                         valid_calls.append(tc)
                 if valid_calls:
                     msg_copy["tool_calls"] = valid_calls
@@ -826,6 +896,26 @@ To extract data from a webpage:
                 deduped[-1]["content"] = f"{prev_content}\n{curr_content}".strip()
             else:
                 deduped.append(msg_copy)
+
+        # 7. GLM-specific: ensure the system message is always first.
+        # GLM-5 / GLM-4 rejects any system message that is not in position 0
+        # (error code 1214). After merging/deduplication, a system message can
+        # appear at a non-zero index — move it to the front.
+        if getattr(self, "_is_glm_api", False):
+            system_msgs = [m for m in deduped if m.get("role") == "system"]
+            non_system_msgs = [m for m in deduped if m.get("role") != "system"]
+            if system_msgs:
+                # If multiple system messages were produced (edge case), merge them
+                if len(system_msgs) > 1:
+                    merged_content = "\n".join(m.get("content") or "" for m in system_msgs).strip()
+                    system_msgs = [{"role": "system", "content": merged_content}]
+                deduped = system_msgs + non_system_msgs
+            # Ensure the conversation starts with user (not assistant) after system
+            first_non_system = next((m for m in deduped if m.get("role") != "system"), None)
+            if first_non_system and first_non_system.get("role") == "assistant":
+                logger.debug("GLM API: prepending placeholder user message before leading assistant message")
+                insert_pos = len(system_msgs) if system_msgs else 0
+                deduped.insert(insert_pos, {"role": "user", "content": "Please continue."})
 
         return deduped
 
@@ -1553,7 +1643,13 @@ To extract data from a webpage:
         return "api.openai.com" in base or "openai.azure.com" in base
 
     def _supports_parallel_tool_calls(self) -> bool:
-        """Check if the provider supports parallel tool calls."""
+        """Check if the provider supports parallel tool calls.
+
+        GLM APIs do not support parallel tool calls — sending parallel_tool_calls=True
+        causes the request to fail. Only allow for verified OpenAI-family endpoints.
+        """
+        if getattr(self, "_is_glm_api", False):
+            return False
         if not self._api_base:
             return False
         base = self._api_base.lower()
@@ -1563,6 +1659,7 @@ To extract data from a webpage:
         """Check if provider supports json_object response format.
 
         Many OpenAI-compatible providers don't support json_object format:
+        - ZhipuAI GLM APIs (z.ai / bigmodel.cn) — not supported natively
         - DeepInfra with NVIDIA models
         - Most models on OpenRouter (except OpenAI/Anthropic/Google)
         - Local inference servers
@@ -1578,6 +1675,12 @@ To extract data from a webpage:
         # Official OpenAI API supports json_object
         if "api.openai.com" in base or "openai.azure.com" in base:
             return True
+
+        # GLM APIs (ZhipuAI / z.ai) do not support json_object response format.
+        # Passing it causes a 400 error. Use prompt-based JSON extraction instead.
+        if getattr(self, "_is_glm_api", False):
+            logger.debug(f"GLM API model {self._model_name} doesn't support json_object format")
+            return False
 
         # DeepInfra has limited json_object support
         # NVIDIA models on DeepInfra don't support it
