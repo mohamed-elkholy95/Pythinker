@@ -41,7 +41,7 @@ def mock_sandbox() -> AsyncMock:
     tmp_specs: dict[str, dict] = {}
 
     async def file_write_side_effect(*, file: str, content: str):
-        if file.startswith("/tmp/plotly_input_"):
+        if "plotly_input_" in file:
             tmp_specs[file] = json.loads(content)
         return MagicMock(success=True)
 
@@ -51,8 +51,8 @@ def mock_sandbox() -> AsyncMock:
         spec = tmp_specs.get(tmp_input, {})
         output = {
             "success": True,
-            "html_path": spec.get("output_html", "/home/ubuntu/comparison-chart-fallback.html"),
-            "png_path": spec.get("output_png", "/home/ubuntu/comparison-chart-fallback.png"),
+            "html_path": spec.get("output_html", "/workspace/test-session/comparison-chart-fallback.html"),
+            "png_path": spec.get("output_png", "/workspace/test-session/comparison-chart-fallback.png"),
             "html_size": 2048,
             "png_size": 1024,
             "data_points": len(spec.get("points", [])),
@@ -100,7 +100,7 @@ class TestReportFileAttachment:
         mock_sandbox.file_write.assert_called_once()
         assert event.attachments is not None
         assert len(event.attachments) == 1
-        assert event.attachments[0].file_path == "/home/ubuntu/report-report-1.md"
+        assert event.attachments[0].file_path == "/workspace/test-session/report-report-1.md"
 
     @pytest.mark.asyncio
     async def test_comparison_report_generates_chart_attachment(self, runner, mock_sandbox):
@@ -122,7 +122,7 @@ class TestReportFileAttachment:
 
         html_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.html")
         assert html_attachment.content_type == "text/html"
-        assert html_attachment.file_path == "/home/ubuntu/model_comparison.html"
+        assert html_attachment.file_path == "/workspace/model_comparison.html"
         assert html_attachment.metadata is not None
         assert html_attachment.metadata.get("is_comparison_chart") is True
         assert html_attachment.metadata.get("chart_format") == "plotly_html_png"
@@ -132,7 +132,7 @@ class TestReportFileAttachment:
 
         png_attachment = next(a for a in event.attachments if a.filename == "comparison-chart-report-chart-1.png")
         assert png_attachment.content_type == "image/png"
-        assert png_attachment.file_path == "/home/ubuntu/model_comparison.png"
+        assert png_attachment.file_path == "/workspace/model_comparison.png"
         assert png_attachment.metadata is not None
         assert png_attachment.metadata.get("is_comparison_chart") is True
         assert png_attachment.metadata.get("chart_format") == "plotly_html_png"
@@ -140,8 +140,8 @@ class TestReportFileAttachment:
         assert png_attachment.metadata.get("source_report_id") == "report-chart-1"
 
         chart_input_write_call = mock_sandbox.file_write.call_args_list[1]
-        assert chart_input_write_call.kwargs["file"].startswith("/tmp/plotly_input_")
-        assert '"output_html": "/home/ubuntu/model_comparison.html"' in chart_input_write_call.kwargs["content"]
+        assert "plotly_input_" in chart_input_write_call.kwargs["file"]
+        assert '"output_html": "/workspace/model_comparison.html"' in chart_input_write_call.kwargs["content"]
 
     @pytest.mark.asyncio
     async def test_chart_generation_can_be_skipped_with_user_flag(self, runner, mock_sandbox):
@@ -193,13 +193,13 @@ class TestReportFileAttachment:
             attachments=[
                 FileInfo(
                     filename="report-report-regen-1.md",
-                    file_path="/home/ubuntu/report-report-regen-1.md",
+                    file_path="/workspace/test-session/report-report-regen-1.md",
                     content_type="text/markdown",
                     size=20,
                 ),
                 FileInfo(
                     filename="comparison-chart-report-regen-1.html",
-                    file_path="/home/ubuntu/comparison-chart-report-regen-1.html",
+                    file_path="/workspace/test-session/comparison-chart-report-regen-1.html",
                     content_type="text/html",
                     size=10,
                     metadata={
@@ -210,7 +210,7 @@ class TestReportFileAttachment:
                 ),
                 FileInfo(
                     filename="comparison-chart-report-regen-1.png",
-                    file_path="/home/ubuntu/comparison-chart-report-regen-1.png",
+                    file_path="/workspace/test-session/comparison-chart-report-regen-1.png",
                     content_type="image/png",
                     size=10,
                     metadata={

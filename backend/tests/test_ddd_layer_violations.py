@@ -23,6 +23,7 @@ KNOWN_DOMAIN_EXCEPTIONS = {
     "memory_service.py",  # Uses infra outbox repository for Phase 2 Mongo->Qdrant sync
     "sync_worker.py",  # Domain sync orchestration still constructs infra repositories directly
     "reconciliation_job.py",  # Reconciliation job currently depends on infra db/repo implementations
+    "conversation_context_service.py",  # Uses embedding client + qdrant repo for vectorized context
 }
 
 

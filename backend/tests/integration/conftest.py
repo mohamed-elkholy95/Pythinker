@@ -23,7 +23,7 @@ def configure_domain_metrics():
         from app.infrastructure.observability.agent_metrics_adapter import configure_agent_metrics
 
         configure_agent_metrics()
-    except Exception:
+    except Exception:  # noqa: S110
         # Graceful degradation: if the adapter cannot be loaded (e.g. prometheus_client
         # not installed), let the tests run with no-ops and fail naturally on assertions.
         pass
@@ -35,5 +35,5 @@ def configure_domain_metrics():
         from app.domain.metrics.agent_metrics import AgentMetrics, set_agent_metrics
 
         set_agent_metrics(AgentMetrics())
-    except Exception:
+    except Exception:  # noqa: S110
         pass

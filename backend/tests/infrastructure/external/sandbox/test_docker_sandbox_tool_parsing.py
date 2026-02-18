@@ -18,11 +18,9 @@ import json
 from unittest.mock import MagicMock
 
 import httpx
-import pytest
 
 from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -231,7 +229,7 @@ class TestShellEventDataExtraction:
         assert exit_code is None
 
     def test_shell_data_non_zero_exit(self) -> None:
-        stdout, exit_code = self._extract_shell_data({"output": "error!", "returncode": 1})
+        _stdout, exit_code = self._extract_shell_data({"output": "error!", "returncode": 1})
         assert exit_code == 1
 
     def test_shell_data_output_only(self) -> None:

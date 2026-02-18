@@ -18,7 +18,7 @@
  *   watch(() => resilience.isReachable, (ok) => { ... })
  */
 import { type App, type InjectionKey, inject, reactive, readonly } from 'vue'
-import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
+import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { apiClient, _responseInterceptorId } from '@/api/client'
 
 // ────────────────────────────────────────────────────────────────────
@@ -174,8 +174,8 @@ const apiResiliencePlugin = {
     //   handlers[id] = { fulfilled, rejected } | null
     //   forEach skips null entries; processing is FIFO.
     type InterceptorHandler = {
-      fulfilled: (value: unknown) => unknown
-      rejected: (error: unknown) => unknown
+      fulfilled: ((value: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>) | null
+      rejected: ((error: unknown) => unknown) | null
     }
     const handlers = (apiClient.interceptors.response as unknown as { handlers: (InterceptorHandler | null)[] }).handlers
     const existingHandler = handlers[_responseInterceptorId]
@@ -248,8 +248,8 @@ const apiResiliencePlugin = {
     // ── 2. Re-register original auth/formatting interceptor ───────
     if (existingHandler) {
       apiClient.interceptors.response.use(
-        existingHandler.fulfilled,
-        existingHandler.rejected,
+        existingHandler.fulfilled ?? undefined,
+        existingHandler.rejected ?? undefined,
       )
     }
   },
