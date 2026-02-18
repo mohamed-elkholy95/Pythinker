@@ -52,7 +52,7 @@ class AgentService:
     CHAT_EVENT_TIMEOUT_SECONDS = 300.0  # Soft idle warning threshold between domain events.
     CHAT_EVENT_HARD_TIMEOUT_SECONDS = 1800.0  # Hard idle cutoff to prevent infinite hangs.
     CHAT_RESUME_MAX_SKIPPED_EVENTS = 200  # Disable skip mode if resume cursor appears stale.
-    CHAT_RESUME_MAX_SKIP_SECONDS = 10.0  # Upper bound to avoid infinite resume skipping.
+    CHAT_RESUME_MAX_SKIP_SECONDS = 60.0  # Upper bound to avoid infinite resume skipping (slow LLMs can take 120s+).
     CHAT_WARMUP_WAIT_SECONDS = 10.0
 
     def __init__(
@@ -688,7 +688,6 @@ class AgentService:
         skip_until_resume_point = bool(event_id)
         skipped_resume_events = 0
         resume_skip_started_at = time.monotonic() if skip_until_resume_point else None
-        gap_warning_emitted = False
         if event_id:
             logger.info(f"Event resumption enabled: skipping events until event_id={event_id}")
 
@@ -784,6 +783,9 @@ class AgentService:
                             skipped_resume_events >= self.CHAT_RESUME_MAX_SKIPPED_EVENTS
                             or skip_elapsed_seconds >= self.CHAT_RESUME_MAX_SKIP_SECONDS
                         ):
+                            # Stale/expired cursor is a normal reconnect scenario (e.g. slow LLM, page
+                            # refresh after a long operation). Log and resume streaming silently — no
+                            # user-visible error event, which would falsely signal a failure.
                             logger.warning(
                                 "Resume cursor %s not found for session %s after %d skipped events (%.2fs). "
                                 "Disabling skip mode to preserve forward progress.",
@@ -793,54 +795,18 @@ class AgentService:
                                 skip_elapsed_seconds,
                             )
                             skip_until_resume_point = False
-                            if not gap_warning_emitted:
-                                gap_warning_emitted = True
-                                yield ErrorEvent(
-                                    error="Stream resume cursor not found; replay continuity cannot be guaranteed.",
-                                    error_type="stream_gap",
-                                    recoverable=True,
-                                    retry_hint="The stream resumed from the closest available checkpoint.",
-                                    error_code="stream_gap_detected",
-                                    error_category="transport",
-                                    severity="warning",
-                                    can_resume=False,
-                                    checkpoint_event_id=current_event_id,
-                                    details={
-                                        "requested_event_id": event_id,
-                                        "first_available_event_id": current_event_id,
-                                        "skipped_resume_events": skipped_resume_events,
-                                        "skip_elapsed_seconds": round(skip_elapsed_seconds, 3),
-                                    },
-                                )
-                            # Resume immediately from the current event to avoid introducing
-                            # an extra synthetic gap once skip mode is disabled.
+                            # Fall through: emit the current event immediately to avoid a synthetic gap.
 
                         if skip_until_resume_point:
-                            continue  # Skip event until resume cursor is found
-
-                    # Event has no event_id. Resume skipping cannot safely continue here;
-                    # disable skip mode and emit this and subsequent events.
-                    logger.warning(
-                        "Event without event_id during resumption: %s; disabling skip mode",
-                        type(event).__name__,
-                    )
-                    skip_until_resume_point = False
-                    if not gap_warning_emitted:
-                        gap_warning_emitted = True
-                        yield ErrorEvent(
-                            error="Stream resume cursor could not be validated for this event payload.",
-                            error_type="stream_gap",
-                            recoverable=True,
-                            retry_hint="The stream resumed, but some previous events may be missing.",
-                            error_code="stream_gap_detected",
-                            error_category="transport",
-                            severity="warning",
-                            can_resume=False,
-                            details={
-                                "requested_event_id": event_id,
-                                "event_type": type(event).__name__,
-                            },
+                            continue  # Still searching — skip this event.
+                    else:
+                        # Event has no event_id. Cannot safely skip without risking an infinite
+                        # loop; disable skip mode so this and all subsequent events are emitted.
+                        logger.warning(
+                            "Event without event_id during resumption: %s; disabling skip mode",
+                            type(event).__name__,
                         )
+                        skip_until_resume_point = False
 
                 logger.debug(f"Received event: {event}")
                 emitted_events += 1
