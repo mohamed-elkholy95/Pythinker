@@ -70,6 +70,12 @@ class AgentDomainService:
         self._file_storage = file_storage
         self._memory_service = memory_service
 
+        # Conversation context: real-time vectorization during active sessions
+        from app.domain.services.conversation_context_service import get_conversation_context_service
+
+        self._conversation_context_service = get_conversation_context_service()
+        self._turn_counter = 0
+
         # Compose sub-services
         self._lifecycle = AgentSessionLifecycle(
             session_repository=session_repository,
@@ -595,8 +601,12 @@ class AgentDomainService:
                 if isinstance(event, ErrorEvent):
                     terminal_status = SessionStatus.FAILED
                     await self._session_repository.update_status(session_id, SessionStatus.FAILED)
+                    self._record_conversation_turn(event, session_id, user_id)
                     yield event
                     break
+
+                # Record conversation turn for real-time context vectorization
+                self._record_conversation_turn(event, session_id, user_id)
 
                 yield event
                 if isinstance(event, WaitEvent):
@@ -640,6 +650,14 @@ class AgentDomainService:
         finally:
             self._agent_concurrency.release()
             await self._session_repository.update_unread_message_count(session_id, 0)
+            # Flush remaining conversation context turns (non-blocking)
+            if self._conversation_context_service:
+                import contextlib
+
+                with contextlib.suppress(Exception):
+                    await self._conversation_context_service.flush_remaining()
+                    self._conversation_context_service.reset_session_state()
+                    self._turn_counter = 0
             # Extract and store memories from session (fire-and-forget)
             if self._memory_service:
                 import contextlib
@@ -647,6 +665,25 @@ class AgentDomainService:
                 with contextlib.suppress(Exception):
                     task = asyncio.ensure_future(self._extract_session_memories(session_id, user_id))
                     self._register_background_task(task)
+
+    def _record_conversation_turn(self, event: BaseEvent, session_id: str, user_id: str) -> None:
+        """Fire-and-forget: extract and buffer a conversation turn from an SSE event.
+
+        Non-blocking — errors are suppressed. The turn is buffered in the
+        ConversationContextService and batch-flushed to Qdrant periodically.
+        """
+        if not self._conversation_context_service:
+            return
+
+        try:
+            turn = self._conversation_context_service.extract_turn_from_event(
+                event, session_id, user_id, self._turn_counter
+            )
+            if turn:
+                self._turn_counter += 1
+                _task = asyncio.create_task(self._conversation_context_service.record_turn(turn))  # noqa: RUF006 — fire-and-forget by design
+        except Exception:
+            logger.debug("Failed to record conversation turn", exc_info=True)
 
     async def _extract_session_memories(self, session_id: str, user_id: str) -> None:
         """Extract and store memories from a completed session.

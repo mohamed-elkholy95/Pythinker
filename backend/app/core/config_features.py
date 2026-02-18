@@ -196,6 +196,17 @@ class FeatureFlagsSettingsMixin:
     # Phase 4: Parallel Memory Architecture
     feature_parallel_memory: bool = False  # Parallel MongoDB/Qdrant memory writes
 
+    # Continuous Conversational Context Storage (real-time Qdrant vectorization)
+    feature_conversation_context_enabled: bool = False  # Master toggle (start disabled)
+    conversation_context_buffer_size: int = 5  # Turns before batch flush to Qdrant
+    conversation_context_flush_interval_seconds: float = 10.0  # Max seconds between flushes
+    conversation_context_sliding_window: int = 5  # Recent turns always included (no embedding needed)
+    conversation_context_semantic_top_k: int = 5  # Semantic results from current session
+    conversation_context_cross_session_top_k: int = 3  # Cross-session results
+    conversation_context_min_content_length: int = 20  # Skip trivial turns
+    conversation_context_cross_session_min_score: float = 0.4  # Higher threshold for cross-session
+    conversation_context_retrieval_timeout_seconds: float = 2.0  # Retrieval timeout (returns empty)
+
     # Advanced reasoning features (disabled by default, enable per-use-case)
     feature_tree_of_thoughts: bool = False  # Use ToT exploration for complex planning
     feature_self_consistency: bool = False  # Use self-consistency checks during verification

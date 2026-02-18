@@ -1231,6 +1231,42 @@ _metrics_registry.extend(
     ]
 )
 
+# Conversation Context Metrics (real-time session vectorization)
+conversation_context_turns_stored = Counter(
+    name="pythinker_conversation_context_turns_stored_total",
+    help_text="Total conversation turns stored to Qdrant",
+    labels=["role", "event_type"],
+)
+
+conversation_context_flush_duration = Histogram(
+    name="pythinker_conversation_context_flush_duration_seconds",
+    help_text="Time to flush conversation context buffer to Qdrant",
+    labels=[],
+    buckets=[0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
+)
+
+conversation_context_retrieval_duration = Histogram(
+    name="pythinker_conversation_context_retrieval_duration_seconds",
+    help_text="Time to retrieve conversation context",
+    labels=["source"],  # sliding_window, intra_session, cross_session
+    buckets=[0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
+)
+
+conversation_context_embed_errors = Counter(
+    name="pythinker_conversation_context_embed_errors_total",
+    help_text="Embedding errors during conversation context storage",
+    labels=[],
+)
+
+_metrics_registry.extend(
+    [
+        conversation_context_turns_stored,
+        conversation_context_flush_duration,
+        conversation_context_retrieval_duration,
+        conversation_context_embed_errors,
+    ]
+)
+
 
 def record_llm_call(
     model: str,
