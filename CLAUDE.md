@@ -171,9 +171,9 @@ Pythinker has been enhanced with 8 major reliability and performance improvement
 ```bash
 # Adaptive Model Selection
 ADAPTIVE_MODEL_SELECTION_ENABLED=true
-FAST_MODEL=claude-haiku-4-5
-BALANCED_MODEL=  # Empty = use MODEL_NAME
-POWERFUL_MODEL=claude-sonnet-4-5
+FAST_MODEL=claude-haiku-4-5-20251001      # Latest Haiku (updated 2026-02-17)
+BALANCED_MODEL=                           # Empty = use MODEL_NAME
+POWERFUL_MODEL=claude-sonnet-4-6          # Latest Sonnet (updated 2026-02-17)
 ```
 
 **Documentation:**
@@ -188,13 +188,49 @@ POWERFUL_MODEL=claude-sonnet-4-5
 - Singleton factories: `get_*()` pattern for all monitors
 - Non-blocking error handling: All integrations wrapped in try/except
 
+## Recent Feature Additions (2026-02-17)
+
+> **IMPORTANT**: These features are implemented but previously undocumented. Update memory whenever implementing bugs/features.
+
+### Universal LLM Provider Auto-Detection (commit 8afef32)
+- **Setting**: `llm_provider: str = "auto"` — auto-detects provider from API keys and model name patterns
+- **JSON Repair**: Automatic recovery from malformed LLM JSON responses (handles GLM and other quirky providers)
+- **Supports**: Anthropic, OpenAI-compatible (OpenRouter, Ollama, GLM), automatic schema normalization
+
+### Parallel Query Execution in Research (commit e0ea291)
+- Research pipeline now executes multiple search queries concurrently
+- Citation-aware summaries: each result linked to its source query
+- **File**: `backend/app/domain/services/agents/research_agent.py`
+
+### Configurable LLM Request Timeout (commit b4c17f6)
+- **Setting**: `LLM_REQUEST_TIMEOUT=300.0` (default 5 minutes)
+- Prevents hanging on slow providers; configurable per-deployment
+- **File**: `backend/app/core/config_llm.py`
+
+### Hard-Stop Enforcement on Tool Loops (commits f6c89e2, 30c3043)
+- Detects 5+ consecutive read operations without writes (analysis paralysis)
+- **Automatic**: Injects hard-stop signal; guards filter before monitor init
+- **Files**: `execution.py`, `tool_efficiency_monitor.py`
+
+### Sandbox WebSocket Support (commit c0b1262)
+- **Issue**: CDP screencast WebSocket returned 404 without WebSocket libs
+- **Fix**: `uvicorn[standard]==0.37.0` in `sandbox/requirements.runtime.txt`
+- **Rebuild**: `docker compose build --no-cache sandbox` required
+- **Verification**: `[CDP Stream] WebSocket connected` in logs
+
+### Memory & Workflow Guidelines
+- **Update memory on every bug/feature**: Document root cause, fix, and impact
+- **Workflow**: Analyze architecture → validate against best practices + Context7 MCP → implement sustainable solution → document
+
+---
+
 ## Communication & Accuracy Standards
 
 - **Absolute Status Accuracy Rule**: When creating summaries or status reports, maintain 100% factual accuracy. Never mark a task as "Completed" if it is only partially done or if only foundational code is in place. Always clearly distinguish "Completed", "In Progress", and "Not Started".
 - **Absolute Full Implementation Rule**: When requested to write code, provide the full, unabridged implementation for every file. Never use placeholders (e.g., `// ... rest of code`, `// ... implementation details`), summaries, or skipped sections to save space.
 - **Absolute Persistence Rule**: If a request is complex, do not simplify it to fit a single response. Output as much valid code as possible, then stop and await a "Continue" prompt to finish the rest. Prioritize absolute completeness over brevity or speed, regardless of task size.
 
-## 2026 Best Practices (Context7 MCP Validated - 2026-02-11)
+## 2026 Best Practices (Context7 MCP Validated - 2026-02-17)
 
 ### Applied Enhancements
 
@@ -221,11 +257,21 @@ POWERFUL_MODEL=claude-sonnet-4-5
 - Examples: `backend/docs/examples/pydantic_v2_best_practices_2026.py`
 
 **Context7 Validation**: All changes validated against authoritative sources:
-- FastAPI: `/websites/fastapi_tiangolo` (Score: 96.8/100)
-- Pydantic v2: `/websites/pydantic_dev_2_12` (Score: 83.5/100)
+- FastAPI: `/websites/fastapi_tiangolo` (Score: 91.4/100, 21,400 snippets)
+- Pydantic v2: `/websites/pydantic_dev_2_12` (Score: 83.5/100, 2,770 snippets)
+- Pydantic (llmstxt): `/llmstxt/pydantic_dev_llms-full_txt` (Score: 87.6/100, 3,391 snippets)
+- Pydantic Settings: `/pydantic/pydantic-settings` (Score: 84.2/100, 202 snippets)
 - Docker: `/websites/docker` (Score: 88.5/100)
 - Pytest: `/pytest-dev/pytest` (Score: 87.7/100)
 - Ruff: `/websites/astral_sh_ruff` (Score: 86.3/100)
+
+**2026 Emerging Patterns (Research-Validated)**:
+- **Structured concurrency**: Prefer AnyIO task groups over raw asyncio.gather for proper cancellation
+- **SSE best practices**: Include `id:` field and `retry:` for browser reconnect support; 30s heartbeat prevents proxy timeouts
+- **LLM adapter pattern**: Abstract via Protocol class; use registry for provider → adapter mapping
+- **OpenTelemetry**: Auto-instrument httpx + asyncpg for distributed tracing across LLM calls
+- **Container security**: Run image scanning (Trivy/Syft) in CI; never bake secrets into images
+- **Rate limit handling**: Exponential backoff with jitter; catch HTTP 429 and rotate API keys
 
 ## Detailed Standards
 

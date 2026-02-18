@@ -530,7 +530,7 @@ VERIFICATION REQUIREMENTS:
    - Version numbers for products
 
 3. RESPONSE TO MISSING DATA:
-   - State "[Not verified]" rather than fabricating
+   - State clearly that the claim could not be verified
    - Omit the claim entirely if unverifiable
    - Never use qualitative substitutes for quantitative data
 
@@ -546,7 +546,7 @@ After generating your response, verify your key claims:
 
 1. For each SPECIFIC STATISTIC or NUMBER:
    - Ask: "Can I verify this from my sources?"
-   - If NO: Remove the claim or mark as "[Unverified]"
+   - If NO: Remove the claim or move uncertainty to a short caveat sentence (no inline tags)
 
 2. For each COMPARISON:
    - Ask: "Am I using the same metrics for all items?"

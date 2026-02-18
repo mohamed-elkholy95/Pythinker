@@ -253,6 +253,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import type { ReportData } from './types';
+import { collapseDuplicateReportBlocks, normalizeVerificationMarkers } from './reportContentNormalizer';
 import { showErrorToast } from '@/utils/toast';
 
 interface TocItem {
@@ -293,6 +294,10 @@ const isDownloading = ref(false);
 const isFullscreen = ref(false);
 const isCopied = ref(false);
 
+const normalizedReportContent = computed(() =>
+  props.report?.content ? collapseDuplicateReportBlocks(props.report.content) : ''
+);
+
 // Configure marked options
 marked.use({
   breaks: true,
@@ -308,32 +313,16 @@ renderer.heading = function({ text, depth }: { text: string; depth: number }) {
   return `<h${depth} id="${id}">${parsedText}</h${depth}>`;
 };
 
-// Transform verification badge text into styled HTML spans
-const transformVerificationBadges = (html: string): string => {
-  // Match [Unverified], [Unverified factual claim], [Unverified statistical claim], etc.
-  html = html.replace(
-    /\[Unverified(?:\s+[\w\s]*?claim)?\]/gi,
-    '<span class="verification-badge badge-unverified">Unverified</span>'
-  );
-  // Match [Verified]
-  html = html.replace(
-    /\[Verified\]/gi,
-    '<span class="verification-badge badge-verified">Verified</span>'
-  );
-  return html;
-};
-
 const renderedContent = computed(() => {
-  if (!props.report?.content) return '';
+  if (!normalizedReportContent.value) return '';
   try {
     // Skip the first h1 since we display it separately
-    let content = props.report.content;
+    let content = normalizedReportContent.value;
     const lines = content.split('\n');
     const filteredLines = lines.filter(line => !line.match(/^#\s+/));
-    content = filteredLines.join('\n');
+    content = normalizeVerificationMarkers(filteredLines.join('\n'));
 
-    let html = marked.parse(content, { renderer }) as string;
-    html = transformVerificationBadges(html);
+    const html = marked.parse(content, { renderer }) as string;
     return DOMPurify.sanitize(html);
   } catch {
     return '<p class="text-red-500">Failed to render content</p>';
@@ -342,7 +331,7 @@ const renderedContent = computed(() => {
 
 // Extract table of contents
 const extractToc = () => {
-  if (!props.report?.content) {
+  if (!normalizedReportContent.value) {
     tableOfContents.value = [];
     return;
   }
@@ -352,7 +341,7 @@ const extractToc = () => {
   const toc: TocItem[] = [];
   let match;
 
-  while ((match = headingRegex.exec(props.report.content)) !== null) {
+  while ((match = headingRegex.exec(normalizedReportContent.value)) !== null) {
     const level = match[1].length;
     const rawTitle = match[2].trim();
     const title = rawTitle.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
@@ -463,7 +452,7 @@ const handleShare = async () => {
 
   const shareData = {
     title: props.report.title,
-    text: props.report.content?.substring(0, 200) + '...',
+    text: normalizedReportContent.value.substring(0, 200) + '...',
     url: window.location.href
   };
 
@@ -481,7 +470,7 @@ const handleShare = async () => {
 
   // Fallback: Copy report content to clipboard
   try {
-    const shareText = `${props.report.title}\n\n${props.report.content}`;
+    const shareText = `${props.report.title}\n\n${normalizedReportContent.value}`;
     await navigator.clipboard.writeText(shareText);
     isCopied.value = true;
     setTimeout(() => {
@@ -513,11 +502,11 @@ const getSafeFilename = (title: string) => {
 
 // Download as Markdown
 const handleDownloadMarkdown = () => {
-  if (!props.report?.content) return;
+  if (!normalizedReportContent.value) return;
 
   showDownloadOptions.value = false;
   const filename = getSafeFilename(props.report.title) + '.md';
-  const blob = new Blob([props.report.content], { type: 'text/markdown;charset=utf-8' });
+  const blob = new Blob([normalizedReportContent.value], { type: 'text/markdown;charset=utf-8' });
   saveAs(blob, filename);
   emit('download');
 };
@@ -562,13 +551,13 @@ const handleDownloadPdf = async () => {
 
 // Download as DOCX
 const handleDownloadDocx = async () => {
-  if (!props.report?.content) return;
+  if (!normalizedReportContent.value) return;
 
   showDownloadOptions.value = false;
   isDownloading.value = true;
 
   try {
-    const lines = props.report.content.split('\n');
+    const lines = normalizedReportContent.value.split('\n');
     const children: Paragraph[] = [];
 
     for (const line of lines) {
@@ -650,12 +639,12 @@ const handleDownloadDocx = async () => {
 
 // Copy content to clipboard
 const handleCopyContent = async () => {
-  if (!props.report?.content) return;
+  if (!normalizedReportContent.value) return;
 
   showMoreOptions.value = false;
 
   try {
-    await navigator.clipboard.writeText(props.report.content);
+    await navigator.clipboard.writeText(normalizedReportContent.value);
     isCopied.value = true;
     setTimeout(() => {
       isCopied.value = false;
@@ -1042,36 +1031,19 @@ watch(isOpen, (newVal) => {
   margin: 24px 0;
 }
 
-/* ===== VERIFICATION BADGES ===== */
-.doc-body.prose :deep(.verification-badge) {
-  display: inline-flex;
-  align-items: center;
-  font-size: 10px;
-  font-weight: 500;
-  padding: 1px 7px;
-  border-radius: 10px;
-  vertical-align: baseline;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  line-height: 1.6;
-  white-space: nowrap;
-}
-
-.doc-body.prose :deep(.badge-verified) {
-  background: var(--function-success-tsp);
-  color: var(--function-success);
-  border: 1px solid var(--function-success-border);
-}
-
-.doc-body.prose :deep(.badge-unverified) {
-  background: var(--function-warning-tsp);
+/* ===== VERIFICATION MARKER ===== */
+.doc-body.prose :deep(.verification-marker) {
   color: var(--function-warning);
-  border: 1px solid rgba(247, 144, 9, 0.3);
+  font-size: 0.72em;
+  line-height: 1;
+  margin-left: 0.28rem;
+  opacity: 0.8;
+  cursor: help;
+  user-select: none;
 }
 
-:global(.dark) .doc-body.prose :deep(.badge-unverified),
-:global([data-theme='dark']) .doc-body.prose :deep(.badge-unverified) {
-  border-color: rgba(210, 153, 34, 0.35);
+.doc-body.prose :deep(.verification-marker:hover) {
+  opacity: 1;
 }
 
 /* ===== TOC CONTAINER ===== */

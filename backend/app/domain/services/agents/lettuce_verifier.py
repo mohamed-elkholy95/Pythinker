@@ -272,7 +272,7 @@ class LettuceVerifier:
     def redact_hallucinations(self, answer: str, spans: list[HallucinatedSpan]) -> str:
         """Remove or mark hallucinated spans in the answer.
 
-        Replaces hallucinated spans with [unverified] markers. Spans are
+        Removes hallucinated spans with a neutral omission marker. Spans are
         processed in reverse order to preserve character positions.
 
         Args:
@@ -289,7 +289,7 @@ class LettuceVerifier:
         sorted_spans = sorted(spans, key=lambda s: s.start, reverse=True)
         result = answer
         for span in sorted_spans:
-            result = result[: span.start] + "[unverified]" + result[span.end :]
+            result = result[: span.start] + " […] " + result[span.end :]
         return result
 
 

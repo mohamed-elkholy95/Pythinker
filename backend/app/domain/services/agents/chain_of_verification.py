@@ -162,7 +162,7 @@ RULES FOR CORRECTION:
 3. QUALIFY claims that were UNCERTAIN - add hedging language like "reportedly" or remove specific numbers
 4. MAINTAIN the original structure, tone, and intent
 5. Do NOT add new claims - only correct existing ones
-6. If a metric was contradicted, either remove it or mark as "[Unverified]"
+6. If a metric was contradicted, either remove it or state uncertainty in natural language (no inline tags)
 
 Generate the corrected response with hallucinations removed:
 """

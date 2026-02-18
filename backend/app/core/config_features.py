@@ -150,7 +150,7 @@ class FeatureFlagsSettingsMixin:
     feature_claim_provenance: bool = True  # Track claim-to-source linkage
     feature_enhanced_grounding: bool = True  # Numeric/entity verification in sources
     feature_cove_verification: bool = False  # Chain-of-Verification for reports (deprecated — use lettuce)
-    feature_lettuce_verification: bool = False  # LettuceDetect encoder-based hallucination detection (disabled: wrong tool for LLM-synthesized reports without dense retrieval grounding)
+    feature_lettuce_verification: bool = True  # LettuceDetect encoder-based hallucination detection (enabled by default for factual verification gate)
     lettuce_model_path: str = "KRLabsOrg/tinylettuce-ettin-17m-en"  # HF model path (CPU-friendly, 17M params)
     lettuce_confidence_threshold: float = 0.8  # Min hallucination score to flag a span (raised from 0.5 to reduce false positives on LLM-synthesized content)
     lettuce_min_response_length: int = 200  # Skip verification for short responses
