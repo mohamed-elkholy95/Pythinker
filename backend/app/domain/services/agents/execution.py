@@ -210,9 +210,23 @@ class ExecutionAgent(BaseAgent):
 
         Context7 validated: ModelRouter integration, Settings feature flag.
         """
-        from app.domain.services.agents.model_router import get_model_router
+        from app.domain.services.agents.model_router import ModelRouter, ModelTier, get_model_router
 
         try:
+            # If user selected a non-auto thinking mode, force the tier
+            thinking_mode = getattr(self, "_user_thinking_mode", None)
+            if thinking_mode == "fast":
+                router: ModelRouter = ModelRouter(force_tier=ModelTier.FAST, metrics=_metrics)
+                config = router.route(step_description)
+                logger.debug(f"Model routing (forced fast): model={config.model_name}")
+                return config.model_name
+            if thinking_mode == "deep_think":
+                router = ModelRouter(force_tier=ModelTier.POWERFUL, metrics=_metrics)
+                config = router.route(step_description)
+                logger.debug(f"Model routing (forced deep_think): model={config.model_name}")
+                return config.model_name
+
+            # Default: auto — complexity-based routing via singleton
             router = get_model_router(metrics=_metrics)
             config = router.route(step_description)
 

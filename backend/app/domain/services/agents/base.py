@@ -161,6 +161,7 @@ class BaseAgent:
         self._background_tasks: set[asyncio.Task] = set()
         self._active_phase: str | None = None  # Phase-based tool filtering (set by orchestrator)
         self._step_model_override: str | None = None  # DeepCode Phase 1: Adaptive model selection
+        self._user_thinking_mode: str | None = None  # User-selected thinking mode override
         self._circuit_breaker = circuit_breaker
         self._feature_flags = feature_flags
 
@@ -232,6 +233,15 @@ class BaseAgent:
             "browser_view",
         }
     )
+
+    def set_thinking_mode(self, thinking_mode: str | None) -> None:
+        """Set user-requested thinking mode for model selection override.
+
+        Args:
+            thinking_mode: 'fast' -> FAST tier, 'deep_think' -> POWERFUL tier,
+                           'auto'/None -> automatic complexity-based routing.
+        """
+        self._user_thinking_mode = thinking_mode
 
     def get_available_tools(self) -> list[dict[str, Any]] | None:
         """Get all available tools list, filtered by active phase if set."""

@@ -449,6 +449,7 @@ import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
+import type { ThinkingMode } from '../api/agent';
 import type { SSECallbacks, SSEGapInfo } from '../api/client';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent } from '../types/message';
 import { waitForSessionReady } from '@/utils/sessionReady';
@@ -885,7 +886,7 @@ const splitterHandleStyle = computed<Record<string, string>>(() => ({
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
 const isSandboxInitializing = computed(() => sessionStatus.value === SessionStatus.INITIALIZING);
 const isWaitingForSessionReady = ref(false);
-const pendingInitialMessage = ref<{ message: string; files: FileInfo[] } | null>(null);
+const pendingInitialMessage = ref<{ message: string; files: FileInfo[]; thinkingMode: ThinkingMode } | null>(null);
 const sessionInitTimedOut = ref(false);
 const skipNextRouteReset = ref(false);
 
@@ -895,6 +896,7 @@ interface PendingSessionCreateState {
   message?: string;
   skills?: string[];
   files?: FileInfo[];
+  thinking_mode?: ThinkingMode;
 }
 
 interface SessionTitleHintDetail {
@@ -1139,7 +1141,7 @@ const maybeSendPendingInitialMessage = () => {
     pendingInitialMessage.value = null;
     // Initial prompt is already rendered optimistically while session warms up.
     // Skip inserting a second optimistic bubble when it is actually sent.
-    chat(pending.message, pending.files, { skipOptimistic: true });
+    chat(pending.message, pending.files, { skipOptimistic: true, thinkingMode: pending.thinkingMode });
   }
 };
 
@@ -1159,6 +1161,7 @@ const initializePendingSession = async () => {
   const pendingMessage = (pendingState.message || '').trim();
   const pendingFiles = Array.isArray(pendingState.files) ? pendingState.files : [];
   const pendingSkills = Array.isArray(pendingState.skills) ? pendingState.skills : [];
+  const pendingThinkingMode: ThinkingMode = pendingState.thinking_mode || 'auto';
   const mode = pendingState.mode === 'discuss' ? 'discuss' : 'agent';
 
   // Show immediate chat view feedback while backend session is being created.
@@ -1187,7 +1190,7 @@ const initializePendingSession = async () => {
       for (const skillId of pendingSkills) {
         selectSkill(skillId);
       }
-      pendingInitialMessage.value = { message: pendingMessage, files: pendingFiles };
+      pendingInitialMessage.value = { message: pendingMessage, files: pendingFiles, thinkingMode: pendingThinkingMode };
       await refreshSessionStatus(session.session_id);
       await waitForSessionIfInitializing();
       maybeSendPendingInitialMessage();
@@ -2947,8 +2950,8 @@ const handleEvent = (event: AgentSSEEvent) => {
   streamController.enqueueEvent(event);
 };
 
-const handleSubmit = () => {
-  chat(inputMessage.value, attachments.value);
+const handleSubmit = (thinkingMode: ThinkingMode = 'auto') => {
+  chat(inputMessage.value, attachments.value, { thinkingMode });
 }
 
 const markLastUserMessageAsAgentModeUpgrade = () => {
@@ -2982,7 +2985,7 @@ let lastSentTime = 0;
 const chat = async (
   message: string = '',
   files: FileInfo[] = [],
-  options?: { skipOptimistic?: boolean }
+  options?: { skipOptimistic?: boolean; thinkingMode?: ThinkingMode }
 ) => {
   const streamAttemptId = beginStreamAttempt();
   if (!sessionId.value) return;
@@ -3131,7 +3134,7 @@ const chat = async (
           upload_date: file.upload_date
         })),
         effectiveSkillIds, // session + per-message skills
-        undefined, // options
+        { thinking_mode: options?.thinkingMode },
         transportCallbacks,
         followUp
       );

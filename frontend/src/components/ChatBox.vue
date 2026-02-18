@@ -35,6 +35,7 @@
                         </button>
                         <ConnectorButton />
                         <SkillPicker />
+                        <ThinkingModeSelector v-model="thinkingMode" />
                     </div>
                     <div class="chatbox-actions-right">
                         <button v-if="!isRunning || sendEnabled"
@@ -65,9 +66,11 @@ import { Paperclip, Puzzle, X } from 'lucide-vue-next';
 import ConnectorButton from './connectors/ConnectorButton.vue';
 import ConnectorBanner from './connectors/ConnectorBanner.vue';
 import SkillPicker from './SkillPicker.vue';
+import ThinkingModeSelector from './ThinkingModeSelector.vue';
 import { useSkills } from '@/composables/useSkills';
 import { getCommandMap } from '@/api/skills';
 import type { FileInfo } from '../api/file';
+import type { ThinkingMode } from '@/api/agent';
 import { showInfoToast } from '../utils/toast';
 
 const { t } = useI18n();
@@ -79,6 +82,7 @@ const hasTextInput = ref(false);
 const isComposing = ref(false);
 const chatBoxFileListRef = ref();
 const textareaRef = ref<HTMLTextAreaElement>();
+const thinkingMode = ref<ThinkingMode>('auto');
 
 // Session skill chips: resolve skill IDs to name/id pairs for display
 const sessionSkillChips = computed(() => {
@@ -137,7 +141,7 @@ const sendEnabled = computed(() => {
 
 const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void;
-    (e: 'submit'): void;
+    (e: 'submit', thinkingMode: ThinkingMode): void;
     (e: 'stop'): void;
     (e: 'fileClick', file: FileInfo): void;
 }>();
@@ -157,7 +161,9 @@ const handleEnterKeydown = (event: KeyboardEvent) => {
 
 const handleSubmit = () => {
     if (!sendEnabled.value) return;
-    emit('submit');
+    const selectedMode = thinkingMode.value;
+    thinkingMode.value = 'auto';  // Reset to Auto after each send
+    emit('submit', selectedMode);
 };
 
 const handleStop = () => {

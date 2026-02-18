@@ -429,6 +429,7 @@ class MessageEvent(BaseEvent):
     attachments: list[FileInfo] | None = None
     skills: list[str] | None = None  # Skill IDs enabled for this message
     deep_research: bool | None = None  # Enable deep research mode (parallel wide_research)
+    thinking_mode: str | None = None  # Model tier override: 'auto', 'fast', 'deep_think'
     # Follow-up context from suggestion clicks
     follow_up_selected_suggestion: str | None = None  # The suggestion text that was clicked
     follow_up_anchor_event_id: str | None = None  # Event ID to anchor context to

@@ -143,10 +143,19 @@ export interface ChatAttachment {
 }
 
 /**
+ * Thinking mode for model tier selection
+ * - 'auto': Complexity-based routing (default)
+ * - 'fast': Force FAST model tier (speed-optimized)
+ * - 'deep_think': Force POWERFUL model tier (maximum reasoning)
+ */
+export type ThinkingMode = 'auto' | 'fast' | 'deep_think';
+
+/**
  * Chat options for additional features
  */
 export interface ChatOptions {
   deep_research?: boolean;  // Enable deep research mode (parallel searches with approval)
+  thinking_mode?: ThinkingMode;  // Override model tier selection
 }
 
 /**
@@ -175,6 +184,7 @@ export const chatWithSession = async (
     || Boolean(attachments && attachments.length > 0)
     || Boolean(skills && skills.length > 0)
     || Boolean(options?.deep_research)
+    || Boolean(options?.thinking_mode && options.thinking_mode !== 'auto')
     || Boolean(followUp)
 
   const body: Record<string, unknown> = {
@@ -182,7 +192,8 @@ export const chatWithSession = async (
     timestamp: Math.floor(Date.now() / 1000),
     attachments,
     skills,
-    deep_research: options?.deep_research
+    deep_research: options?.deep_research,
+    thinking_mode: options?.thinking_mode,
   };
 
   // Resume cursors are only needed for transport resume calls without fresh input.

@@ -1803,6 +1803,7 @@ class AgentTaskRunner(TaskRunner):
                     attachments=attachments,
                     skills=event.skills or [],
                     deep_research=event.deep_research or False,
+                    thinking_mode=event.thinking_mode,
                 )
 
                 # Set current task for attention manipulation (Pythinker pattern)

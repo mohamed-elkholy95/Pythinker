@@ -484,6 +484,7 @@ async def chat(
         or request.attachments
         or request.skills
         or request.deep_research
+        or (request.thinking_mode and request.thinking_mode != "auto")
         or request.follow_up
     )
     if session.status in ("completed", "failed") and not has_fresh_input:
@@ -616,6 +617,7 @@ async def chat(
                 attachments=request.attachments,
                 skills=request.skills,
                 deep_research=request.deep_research,
+                thinking_mode=request.thinking_mode,
                 follow_up=follow_up_dict,
             )
             stream_iter = guard.wrap(chat_stream).__aiter__()
