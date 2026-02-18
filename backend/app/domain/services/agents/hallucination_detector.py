@@ -10,7 +10,7 @@ hallucinations (wrong types, missing required params, invalid values).
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from difflib import SequenceMatcher
 from typing import Any, ClassVar
 
@@ -23,7 +23,7 @@ class HallucinationEvent:
 
     attempted_tool: str
     suggested_tools: list[str]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     context: str | None = None
 
 

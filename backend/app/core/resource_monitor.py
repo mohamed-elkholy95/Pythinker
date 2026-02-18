@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -96,7 +96,7 @@ class ResourceMonitor:
                     cpu_percent=self._calculate_cpu_percent(stats),
                     memory_used_mb=stats["memory_stats"]["usage"] / 1024 / 1024,
                     memory_percent=(stats["memory_stats"]["usage"] / stats["memory_stats"]["limit"]) * 100,
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(UTC),
                 )
 
                 self._resource_history[session_id].append(snapshot)

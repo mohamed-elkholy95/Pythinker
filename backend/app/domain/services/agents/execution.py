@@ -5,7 +5,7 @@ import re
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -2130,7 +2130,7 @@ class ExecutionAgent(BaseAgent):
         logger.debug("Cleared execution context")
 
     # Attention Injection (Pythinker AI Pattern)
-    def _apply_attention(self, messages: list[dict]) -> list[dict]:
+    def _apply_attention(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Apply attention injection to messages.
 
         Implements Pythinker AI's attention manipulation pattern to
@@ -2318,7 +2318,7 @@ class ExecutionAgent(BaseAgent):
         if not event.function_result or not event.function_result.success:
             return
 
-        access_time = event.started_at or datetime.now()
+        access_time = event.started_at or datetime.now(UTC)
 
         # Extract sources from search results
         if event.function_name == "info_search_web":
@@ -2454,7 +2454,7 @@ class ExecutionAgent(BaseAgent):
                 url=url,
                 title=query[:100],
                 snippet=None,
-                access_time=datetime.now(),
+                access_time=datetime.now(UTC),
                 source_type="search",
             )
         )

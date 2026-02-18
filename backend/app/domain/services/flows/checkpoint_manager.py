@@ -8,7 +8,7 @@ on session restart.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -42,8 +42,8 @@ class WorkflowCheckpoint:
     status: CheckpointStatus
     workflow_data: dict[str, Any]  # Full workflow serialization
     context: dict[str, Any]  # Shared context
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -76,8 +76,8 @@ class WorkflowCheckpoint:
             status=CheckpointStatus(data.get("status", "active")),
             workflow_data=data.get("workflow_data", {}),
             context=data.get("context", {}),
-            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(),
-            updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(),
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(UTC),
+            updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(UTC),
             expires_at=datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None,
             metadata=data.get("metadata", {}),
         )
@@ -86,7 +86,7 @@ class WorkflowCheckpoint:
         """Check if the checkpoint has expired."""
         if self.expires_at is None:
             return False
-        return datetime.now() > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
 
 class CheckpointManager:
@@ -183,7 +183,7 @@ class CheckpointManager:
             status=CheckpointStatus.ACTIVE,
             workflow_data=workflow.to_dict(),
             context=workflow.context.copy(),
-            expires_at=datetime.now() + timedelta(hours=self._ttl_hours),
+            expires_at=datetime.now(UTC) + timedelta(hours=self._ttl_hours),
             metadata=metadata or {},
         )
 
@@ -408,7 +408,7 @@ class CheckpointManager:
 
             # Update checkpoint status
             checkpoint.status = CheckpointStatus.RESUMED
-            checkpoint.updated_at = datetime.now()
+            checkpoint.updated_at = datetime.now(UTC)
             await self.save_checkpoint(workflow, session_id)
 
             logger.info(f"Restored workflow {workflow_id} from checkpoint")
@@ -438,7 +438,7 @@ class CheckpointManager:
             return False
 
         checkpoint.status = CheckpointStatus.COMPLETED
-        checkpoint.updated_at = datetime.now()
+        checkpoint.updated_at = datetime.now(UTC)
 
         key = self._get_key(workflow_id, session_id)
 
@@ -472,7 +472,7 @@ class CheckpointManager:
 
         if self._collection:
             try:
-                result = await self._collection.delete_many({"expires_at": {"$lt": datetime.now().isoformat()}})
+                result = await self._collection.delete_many({"expires_at": {"$lt": datetime.now(UTC).isoformat()}})
                 cleaned = result.deleted_count
             except Exception as e:
                 logger.error(f"Failed to cleanup expired checkpoints: {e}")

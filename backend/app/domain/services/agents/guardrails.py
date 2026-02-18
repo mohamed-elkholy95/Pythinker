@@ -14,7 +14,7 @@ Architecture:
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, ClassVar
 
@@ -88,7 +88,7 @@ class InputAnalysisResult:
     cleaned_input: str | None = None  # Sanitized version if applicable
     clarification_needed: bool = False
     clarification_questions: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def should_proceed(self) -> bool:
@@ -528,7 +528,7 @@ class OutputAnalysisResult:
     filtered_output: str | None = None
     needs_revision: bool = False
     revision_guidance: str | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def should_deliver(self) -> bool:

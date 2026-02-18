@@ -18,7 +18,7 @@ import logging
 import math
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -167,7 +167,7 @@ class ToolActionRecord:
     success: bool
     result_hash: str
     error: str | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
@@ -273,7 +273,7 @@ class StuckDetector:
 
         record = ResponseRecord(
             content_hash=content_hash,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             tool_calls=tool_names,
             content_preview=content[:100] if content else "",
             embedding=embedding,

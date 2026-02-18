@@ -785,7 +785,7 @@ class PlanActFlow(BaseFlow):
             reason: Reason for forced compaction (logged)
         """
         # Debounce check (skip if compacted recently, unless forced)
-        now = datetime.now()
+        now = datetime.now(UTC)
         if not force and self._last_compact_time:
             elapsed = (now - self._last_compact_time).total_seconds()
             if elapsed < self._compact_debounce_seconds:
@@ -1517,9 +1517,7 @@ class PlanActFlow(BaseFlow):
             queries.append(f"{topic} review")
 
         # Add year if not present (for recency)
-        import datetime
-
-        current_year = datetime.datetime.now().year
+        current_year = datetime.now(UTC).year
         if str(current_year) not in topic and str(current_year - 1) not in topic:
             queries.append(f"{topic} {current_year}")
 
@@ -1620,7 +1618,7 @@ class PlanActFlow(BaseFlow):
             force: Force save regardless of debounce timer
         """
         # Debounce check (skip if saved recently, unless forced)
-        now = datetime.now()
+        now = datetime.now(UTC)
         if not force and self._last_save_time:
             elapsed = (now - self._last_save_time).total_seconds()
             if elapsed < self._save_debounce_seconds:

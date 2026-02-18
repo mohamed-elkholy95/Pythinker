@@ -5,7 +5,7 @@ agent performance, workflow efficiency, and tool usage.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class AnalyticsService:
         """
         from app.infrastructure.models.documents import WorkflowStateDocument
 
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = datetime.now(UTC) - timedelta(days=days)
 
         workflow_states = await WorkflowStateDocument.find(WorkflowStateDocument.timestamp >= cutoff_date).to_list()
 
@@ -76,7 +76,7 @@ class AnalyticsService:
 
         from app.infrastructure.models.documents import ToolExecutionDocument
 
-        cutoff_date = datetime.now() - timedelta(days=7)
+        cutoff_date = datetime.now(UTC) - timedelta(days=7)
 
         tool_executions = await ToolExecutionDocument.find(ToolExecutionDocument.started_at >= cutoff_date).to_list()
 
@@ -143,7 +143,7 @@ class AnalyticsService:
         """
         from app.infrastructure.models.documents import ToolExecutionDocument
 
-        cutoff_date = datetime.now() - timedelta(days=7)
+        cutoff_date = datetime.now(UTC) - timedelta(days=7)
 
         tool_executions = await ToolExecutionDocument.find(
             ToolExecutionDocument.started_at >= cutoff_date,
@@ -186,7 +186,7 @@ class AnalyticsService:
 
         from app.infrastructure.models.documents import ToolExecutionDocument
 
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = datetime.now(UTC) - timedelta(days=days)
 
         failed_executions = await ToolExecutionDocument.find(
             ToolExecutionDocument.started_at >= cutoff_date,
@@ -242,7 +242,7 @@ class AnalyticsService:
             "tool_performance": tool_perf,
             "mode_selection": mode_accuracy,
             "errors": errors,
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         }
 
 

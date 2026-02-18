@@ -11,7 +11,7 @@ import contextlib
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from importlib import import_module
 from typing import Any
@@ -127,7 +127,7 @@ class Artifact:
     filename: str
     path: str
     size_bytes: int
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     content_preview: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -355,7 +355,7 @@ class CodeExecutorTool(BaseTool):
         Returns:
             ToolResult with execution output and artifacts
         """
-        start_time = datetime.now()
+        start_time = datetime.now(UTC)
 
         # Validate language
         try:
@@ -442,7 +442,7 @@ class CodeExecutorTool(BaseTool):
         exec_result = await self.sandbox.exec_command(self.session_id, work_dir, f"timeout {timeout}s {exec_cmd} 2>&1")
 
         # Calculate execution time
-        execution_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        execution_time_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
         # Clean up code file
         await self.sandbox.file_delete(code_path)

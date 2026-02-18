@@ -12,7 +12,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -48,7 +48,7 @@ class CollaborationContext:
     pattern_type: PatternType
     task_description: str
     participants: list[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -110,7 +110,7 @@ class CollaborationPattern(ABC):
 
     def _create_session_id(self) -> str:
         """Create a unique session ID."""
-        return f"collab_{datetime.now().timestamp()}"
+        return f"collab_{datetime.now(UTC).timestamp()}"
 
 
 class DebatePattern(CollaborationPattern):
@@ -142,7 +142,7 @@ class DebatePattern(CollaborationPattern):
         Returns:
             Collaboration result with synthesized conclusion
         """
-        start_time = datetime.now()
+        start_time = datetime.now(UTC)
         contributions: dict[str, list[str]] = {}
 
         logger.info(f"Starting debate: {context.session_id}")
@@ -199,7 +199,7 @@ class DebatePattern(CollaborationPattern):
             )
             consensus = len(set(position_assignments.values())) > 1
 
-        duration = (datetime.now() - start_time).total_seconds() * 1000
+        duration = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         # Flatten contributions
         flat_contributions = {p: "\n".join(args) for p, args in contributions.items()}
@@ -252,7 +252,7 @@ class AssemblyLinePattern(CollaborationPattern):
         Returns:
             Collaboration result with assembled output
         """
-        start_time = datetime.now()
+        start_time = datetime.now(UTC)
         contributions: dict[str, str] = {}
 
         logger.info(f"Starting assembly line: {context.session_id}")
@@ -299,7 +299,7 @@ class AssemblyLinePattern(CollaborationPattern):
             stage_outputs.append(stage_output)
             current_output = stage_output
 
-        duration = (datetime.now() - start_time).total_seconds() * 1000
+        duration = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         return CollaborationResult(
             session_id=context.session_id,
@@ -340,7 +340,7 @@ class SwarmPattern(CollaborationPattern):
         Returns:
             Collaboration result with aggregated output
         """
-        start_time = datetime.now()
+        start_time = datetime.now(UTC)
         contributions: dict[str, str] = {}
 
         logger.info(f"Starting swarm: {context.session_id}")
@@ -387,7 +387,7 @@ class SwarmPattern(CollaborationPattern):
             aggregation_strategy,
         )
 
-        duration = (datetime.now() - start_time).total_seconds() * 1000
+        duration = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         return CollaborationResult(
             session_id=context.session_id,
@@ -447,7 +447,7 @@ class MentorStudentPattern(CollaborationPattern):
         Returns:
             Collaboration result
         """
-        start_time = datetime.now()
+        start_time = datetime.now(UTC)
         contributions: dict[str, str] = {}
 
         logger.info(f"Starting mentor-student: {context.session_id}")
@@ -489,7 +489,7 @@ class MentorStudentPattern(CollaborationPattern):
         )
         contributions[mentor_id] = mentor_output
 
-        duration = (datetime.now() - start_time).total_seconds() * 1000
+        duration = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         return CollaborationResult(
             session_id=context.session_id,
@@ -560,7 +560,7 @@ class PatternExecutor:
         pattern = self.get_pattern(pattern_type)
 
         context = CollaborationContext(
-            session_id=f"collab_{datetime.now().timestamp()}",
+            session_id=f"collab_{datetime.now(UTC).timestamp()}",
             pattern_type=pattern_type,
             task_description=task_description,
             participants=participants,

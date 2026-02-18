@@ -7,7 +7,7 @@ future performance through pattern recognition.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class TaskOutcome:
     error_types: list[str] = field(default_factory=list)
     user_satisfaction: float | None = None  # 0-1 if provided
     context_factors: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -42,14 +42,14 @@ class TaskPattern:
     average_duration_ms: float = 0.0
     tool_sequence: list[str] = field(default_factory=list)
     context_factors: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
-    last_seen: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_seen: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def update_with_outcome(self, outcome: TaskOutcome) -> None:
         """Update pattern with a new outcome."""
         alpha = 0.2  # Learning rate
         self.occurrence_count += 1
-        self.last_seen = datetime.now()
+        self.last_seen = datetime.now(UTC)
 
         # Update success rate
         self.success_rate = alpha * (1.0 if outcome.success else 0.0) + (1 - alpha) * self.success_rate

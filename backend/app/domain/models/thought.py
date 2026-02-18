@@ -5,7 +5,7 @@ This module defines structured representations of reasoning processes,
 enabling explicit step-by-step thinking before agent decisions.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -41,7 +41,7 @@ class Thought(BaseModel):
     and quality assessment.
     """
 
-    id: str = Field(default_factory=lambda: f"thought_{datetime.now().timestamp()}")
+    id: str = Field(default_factory=lambda: f"thought_{datetime.now(UTC).timestamp()}")
     type: ThoughtType
     content: str
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -50,7 +50,7 @@ class Thought(BaseModel):
     contradicting_evidence: list[str] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)  # IDs of thoughts this depends on
     metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def is_high_quality(self) -> bool:
         """Check if this thought is high quality with good confidence."""
@@ -71,7 +71,7 @@ class ReasoningStep(BaseModel):
     Groups related thoughts together for a coherent reasoning step.
     """
 
-    id: str = Field(default_factory=lambda: f"step_{datetime.now().timestamp()}")
+    id: str = Field(default_factory=lambda: f"step_{datetime.now(UTC).timestamp()}")
     name: str  # e.g., "Problem Analysis", "Option Evaluation"
     thoughts: list[Thought] = Field(default_factory=list)
     conclusion: str | None = None
@@ -100,13 +100,13 @@ class ThoughtChain(BaseModel):
     with explicit reasoning steps and traceability.
     """
 
-    id: str = Field(default_factory=lambda: f"chain_{datetime.now().timestamp()}")
+    id: str = Field(default_factory=lambda: f"chain_{datetime.now(UTC).timestamp()}")
     problem: str  # The original problem/question
     context: dict[str, Any] = Field(default_factory=dict)
     steps: list[ReasoningStep] = Field(default_factory=list)
     final_decision: str | None = None
     overall_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -175,7 +175,7 @@ class Decision(BaseModel):
     supporting rationale and confidence.
     """
 
-    id: str = Field(default_factory=lambda: f"decision_{datetime.now().timestamp()}")
+    id: str = Field(default_factory=lambda: f"decision_{datetime.now(UTC).timestamp()}")
     action: str  # What to do
     rationale: str  # Why to do it
     confidence: float = Field(ge=0.0, le=1.0)

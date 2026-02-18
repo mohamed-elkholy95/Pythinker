@@ -40,7 +40,7 @@ def _date_eq_or_legacy_string(day: date) -> list[dict[str, object]]:
     """Match daily keys across date/string/datetime legacy storage."""
     day_start_utc = datetime(day.year, day.month, day.day, tzinfo=UTC)
     next_day_utc = day_start_utc + timedelta(days=1)
-    day_start_naive = datetime(day.year, day.month, day.day)
+    day_start_naive = datetime(day.year, day.month, day.day)  # noqa: DTZ001 - intentionally naive for legacy MongoDB records
     next_day_naive = day_start_naive + timedelta(days=1)
     return [
         {"date": day},
@@ -53,7 +53,7 @@ def _date_eq_or_legacy_string(day: date) -> list[dict[str, object]]:
 def _date_gte_or_legacy_string(day: date) -> list[dict[str, dict[str, date | str | datetime]]]:
     """Range-match date/string/datetime legacy storage."""
     day_start_utc = datetime(day.year, day.month, day.day, tzinfo=UTC)
-    day_start_naive = datetime(day.year, day.month, day.day)
+    day_start_naive = datetime(day.year, day.month, day.day)  # noqa: DTZ001 - intentionally naive for legacy MongoDB records
     return [
         {"date": {"$gte": day}},
         {"date": {"$gte": day.isoformat()}},
@@ -145,7 +145,7 @@ class UsageService:
 
         This increments tool call counters without token/cost tracking.
         """
-        today = date.today()
+        today = datetime.now(UTC).date()
         usage_id = f"{user_id}_{today.isoformat()}"
 
         # Use atomic upsert to avoid duplicate docs under concurrency.
@@ -189,7 +189,7 @@ class UsageService:
         Uses atomic find_one_and_update with upsert to eliminate the race
         condition where concurrent requests could create duplicate documents.
         """
-        today = date.today()
+        today = datetime.now(UTC).date()
         usage_id = f"{record.user_id}_{today.isoformat()}"
 
         # Sanitize model name for MongoDB key (/ and . are path separators)
@@ -318,7 +318,7 @@ class UsageService:
         Returns:
             List of DailyUsageAggregate, one per day with usage
         """
-        start_date = date.today() - timedelta(days=days - 1)
+        start_date = datetime.now(UTC).date() - timedelta(days=days - 1)
 
         docs = await DailyUsageDocument.find(
             {
@@ -345,7 +345,7 @@ class UsageService:
             List of MonthlyUsageSummary, one per month with usage
         """
         # Calculate date range
-        today = date.today()
+        today = datetime.now(UTC).date()
         start_date = date(today.year, today.month, 1) - timedelta(days=30 * (months - 1))
 
         # Get daily aggregates and roll up by month
@@ -416,7 +416,7 @@ class UsageService:
         Returns:
             Dict with today and month summaries
         """
-        today = date.today()
+        today = datetime.now(UTC).date()
         month_start = date(today.year, today.month, 1)
 
         # Get today's usage

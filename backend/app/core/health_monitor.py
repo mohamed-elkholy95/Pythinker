@@ -6,7 +6,7 @@ Provides comprehensive monitoring for all system components.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -105,7 +105,7 @@ class HealthMonitor:
         """Check health of a specific component"""
         try:
             health = self._components.get(component, ComponentHealth(component, ComponentStatus.UNKNOWN))
-            health.last_check = datetime.now()
+            health.last_check = datetime.now(UTC)
 
             if component == "error_manager":
                 await self._check_error_manager_health(health)
@@ -146,7 +146,7 @@ class HealthMonitor:
 
         health.add_metric(
             HealthMetric(
-                name="error_rate", value=error_rate, status=health.status, timestamp=datetime.now(), metadata=stats
+                name="error_rate", value=error_rate, status=health.status, timestamp=datetime.now(UTC), metadata=stats
             )
         )
 
@@ -184,7 +184,7 @@ class HealthMonitor:
                 name="healthy_sandbox_ratio",
                 value=healthy_ratio,
                 status=health.status,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(UTC),
                 metadata=stats,
             )
         )
@@ -207,7 +207,7 @@ class HealthMonitor:
             logger.warning(f"Database health check failed: {e}")
 
         health.add_metric(
-            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now())
+            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now(UTC))
         )
 
     async def _check_redis_health(self, health: ComponentHealth):
@@ -228,7 +228,7 @@ class HealthMonitor:
             logger.warning(f"Redis health check failed: {e}")
 
         health.add_metric(
-            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now())
+            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now(UTC))
         )
 
     async def _check_redis_cache_health(self, health: ComponentHealth):
@@ -243,7 +243,7 @@ class HealthMonitor:
         if redis is None:
             health.status = ComponentStatus.HEALTHY
             health.add_metric(
-                HealthMetric(name="response_time", value=0, status=health.status, timestamp=datetime.now())
+                HealthMetric(name="response_time", value=0, status=health.status, timestamp=datetime.now(UTC))
             )
             return
 
@@ -260,7 +260,7 @@ class HealthMonitor:
             logger.warning(f"Cache Redis health check failed: {e}")
 
         health.add_metric(
-            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now())
+            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now(UTC))
         )
 
     async def _check_qdrant_health(self, health: ComponentHealth):
@@ -281,7 +281,7 @@ class HealthMonitor:
             logger.warning(f"Qdrant health check failed: {e}")
 
         health.add_metric(
-            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now())
+            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now(UTC))
         )
 
     def get_system_health(self) -> dict[str, Any]:
@@ -299,7 +299,7 @@ class HealthMonitor:
         return {
             "overall_status": overall_status.value,
             "components": component_statuses,
-            "last_check": datetime.now().isoformat(),
+            "last_check": datetime.now(UTC).isoformat(),
             "monitoring_active": self._is_monitoring,
         }
 

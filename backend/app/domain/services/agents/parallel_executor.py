@@ -14,7 +14,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, ClassVar
 
@@ -279,7 +279,7 @@ class ParallelToolExecutor:
         actual_time = 0
 
         for batch in batches:
-            batch_start = datetime.now()
+            batch_start = datetime.now(UTC)
 
             if len(batch) == 1:
                 # Sequential execution
@@ -299,7 +299,7 @@ class ParallelToolExecutor:
                 total_sequential_time += sum_time
                 actual_time += max_time
 
-            batch_time = (datetime.now() - batch_start).total_seconds() * 1000
+            batch_time = (datetime.now(UTC) - batch_start).total_seconds() * 1000
             logger.debug(f"Batch executed: {len(batch)} calls in {batch_time:.0f}ms")
 
         # Store results
@@ -328,11 +328,11 @@ class ParallelToolExecutor:
         Returns:
             ToolResult
         """
-        start = datetime.now()
+        start = datetime.now(UTC)
 
         try:
             result = await asyncio.wait_for(executor(call.tool_name, call.arguments), timeout=self.timeout_per_call)
-            execution_time = (datetime.now() - start).total_seconds() * 1000
+            execution_time = (datetime.now(UTC) - start).total_seconds() * 1000
 
             return ToolResult(
                 call_id=call.id,
@@ -343,7 +343,7 @@ class ParallelToolExecutor:
             )
 
         except TimeoutError:
-            execution_time = (datetime.now() - start).total_seconds() * 1000
+            execution_time = (datetime.now(UTC) - start).total_seconds() * 1000
             logger.warning(f"Tool call timed out: {call.tool_name}")
             return ToolResult(
                 call_id=call.id,
@@ -355,7 +355,7 @@ class ParallelToolExecutor:
             )
 
         except Exception as e:
-            execution_time = (datetime.now() - start).total_seconds() * 1000
+            execution_time = (datetime.now(UTC) - start).total_seconds() * 1000
             logger.error(f"Tool call failed: {call.tool_name} - {e}")
             return ToolResult(
                 call_id=call.id,

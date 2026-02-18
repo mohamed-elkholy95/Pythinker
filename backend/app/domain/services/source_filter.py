@@ -286,7 +286,7 @@ class SourceFilterService:
                     # Try common date formats
                     for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%B %d, %Y", "%Y"]:
                         try:
-                            return datetime.strptime(date_str, fmt)
+                            return datetime.strptime(date_str, fmt).replace(tzinfo=UTC)
                         except ValueError:
                             continue
                 except (ValueError, AttributeError):
@@ -305,7 +305,7 @@ class SourceFilterService:
                 try:
                     date_str = match.group(1)
                     if "-" in date_str:
-                        return datetime.strptime(date_str, "%Y-%m-%d")
+                        return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
                 except (ValueError, IndexError):
                     continue
 

@@ -5,7 +5,7 @@ import os
 import time
 from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 from mcp import ClientSession, StdioServerParameters
@@ -37,7 +37,7 @@ class ServerHealth:
 
     server_name: str
     healthy: bool = True
-    last_check: datetime = field(default_factory=datetime.now)
+    last_check: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_error: str | None = None
     consecutive_failures: int = 0
     tools_count: int = 0
@@ -121,12 +121,12 @@ class CachedToolSchema:
     """Tool schema with TTL-based caching"""
 
     tools: list[MCPToolType]
-    cached_at: datetime = field(default_factory=datetime.now)
+    cached_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     ttl_seconds: int = 300  # 5 minutes default
 
     def is_expired(self) -> bool:
         """Check if cache entry has expired"""
-        elapsed = (datetime.now() - self.cached_at).total_seconds()
+        elapsed = (datetime.now(UTC) - self.cached_at).total_seconds()
         return elapsed > self.ttl_seconds
 
 
@@ -170,7 +170,7 @@ class ToolUsageStats:
         """Record a tool call."""
         self.call_count += 1
         self.total_duration_ms += duration_ms
-        self.last_used = datetime.now()
+        self.last_used = datetime.now(UTC)
 
         self.min_duration_ms = min(self.min_duration_ms, duration_ms)
         self.max_duration_ms = max(self.max_duration_ms, duration_ms)
@@ -297,14 +297,14 @@ class MCPClientManager:
                 health.last_error = None
                 health.consecutive_failures = 0
                 health.tools_count = len(tools_response.tools) if tools_response else 0
-                health.last_check = datetime.now()
+                health.last_check = datetime.now(UTC)
                 logger.debug(f"Health check passed for {server_name}")
 
             except Exception as e:
                 health.healthy = False
                 health.last_error = str(e)
                 health.consecutive_failures += 1
-                health.last_check = datetime.now()
+                health.last_check = datetime.now(UTC)
                 logger.warning(f"Health check failed for {server_name}: {e}")
 
             self._server_health[server_name] = health
@@ -606,12 +606,12 @@ class MCPClientManager:
 
             # Use TTL-based caching for tool schemas
             self._tools_cache[server_name] = CachedToolSchema(
-                tools=tools, cached_at=datetime.now(), ttl_seconds=self.TOOL_SCHEMA_TTL
+                tools=tools, cached_at=datetime.now(UTC), ttl_seconds=self.TOOL_SCHEMA_TTL
             )
 
             # Initialize health tracking
             self._server_health[server_name] = ServerHealth(
-                server_name=server_name, healthy=True, tools_count=len(tools), last_check=datetime.now()
+                server_name=server_name, healthy=True, tools_count=len(tools), last_check=datetime.now(UTC)
             )
 
             logger.info(f"Server {server_name} provides {len(tools)} tools (cached for {self.TOOL_SCHEMA_TTL}s)")
@@ -1003,7 +1003,7 @@ class MCPClientManager:
             if server_name in self._server_health:
                 self._server_health[server_name].healthy = True
                 self._server_health[server_name].consecutive_failures = 0
-                self._server_health[server_name].last_check = datetime.now()
+                self._server_health[server_name].last_check = datetime.now(UTC)
 
             # Process result
             if result:
@@ -1037,7 +1037,7 @@ class MCPClientManager:
                 health.healthy = False
                 health.consecutive_failures += 1
                 health.last_error = str(e)
-                health.last_check = datetime.now()
+                health.last_check = datetime.now(UTC)
 
             logger.error(f"Failed to call MCP tool {tool_name}: {e}")
             return ToolResult(success=False, message=f"Failed to call MCP tool: {e!s}")

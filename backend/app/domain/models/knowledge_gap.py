@@ -5,7 +5,7 @@ This module defines models for tracking what the agent knows
 and doesn't know, enabling better self-awareness.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -39,7 +39,7 @@ class KnowledgeGap(BaseModel):
     that may be relevant to the current task.
     """
 
-    id: str = Field(default_factory=lambda: f"gap_{datetime.now().timestamp()}")
+    id: str = Field(default_factory=lambda: f"gap_{datetime.now(UTC).timestamp()}")
     gap_type: GapType
     severity: GapSeverity
     description: str
@@ -48,7 +48,7 @@ class KnowledgeGap(BaseModel):
     resolution_options: list[str] = Field(default_factory=list)
     can_be_filled: bool = True  # Whether this gap can potentially be filled
     requires_external: bool = False  # Requires external resources
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def is_blocking(self) -> bool:
         """Check if this gap blocks progress."""
@@ -68,7 +68,7 @@ class InformationRequest(BaseModel):
     one or more knowledge gaps.
     """
 
-    id: str = Field(default_factory=lambda: f"request_{datetime.now().timestamp()}")
+    id: str = Field(default_factory=lambda: f"request_{datetime.now(UTC).timestamp()}")
     gap_ids: list[str]  # Gaps this request addresses
     request_type: str  # search, ask_user, read_file, etc.
     query: str  # The specific query/request
@@ -89,7 +89,7 @@ class KnowledgeDomain(BaseModel):
     known_topics: list[str] = Field(default_factory=list)
     unknown_topics: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
-    last_updated: datetime = Field(default_factory=datetime.now)
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def has_knowledge(self, topic: str) -> bool:
         """Check if the domain includes knowledge of a topic."""
@@ -116,7 +116,7 @@ class KnowledgeAssessment(BaseModel):
     information_requests: list[InformationRequest] = Field(default_factory=list)
     can_proceed: bool = True
     blocking_gaps: list[str] = Field(default_factory=list)  # IDs of blocking gaps
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def has_critical_gaps(self) -> bool:

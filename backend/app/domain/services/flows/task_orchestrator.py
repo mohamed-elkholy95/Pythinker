@@ -11,7 +11,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import (
     Any,
@@ -206,7 +206,7 @@ class Workflow:
     status: WorkflowStatus = WorkflowStatus.PENDING
     context: dict[str, Any] = field(default_factory=dict)  # Shared context
     timeout_seconds: int = 3600
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     completed_at: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -277,7 +277,7 @@ class Workflow:
             status=WorkflowStatus(data.get("status", "pending")),
             context=data.get("context", {}),
             timeout_seconds=data.get("timeout_seconds", 3600),
-            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(),
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(UTC),
             started_at=datetime.fromisoformat(data["started_at"]) if data.get("started_at") else None,
             completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
             metadata=data.get("metadata", {}),
@@ -459,7 +459,7 @@ class TaskOrchestrator:
         """
         self._current_workflow = workflow
         workflow.status = WorkflowStatus.RUNNING
-        workflow.started_at = datetime.now()
+        workflow.started_at = datetime.now(UTC)
 
         logger.info(f"Starting workflow {workflow.id}: {workflow.name}")
 
@@ -472,7 +472,7 @@ class TaskOrchestrator:
             while True:
                 # Check for timeout
                 if workflow.started_at:
-                    elapsed = (datetime.now() - workflow.started_at).total_seconds()
+                    elapsed = (datetime.now(UTC) - workflow.started_at).total_seconds()
                     if elapsed > workflow.timeout_seconds:
                         workflow.status = WorkflowStatus.FAILED
                         yield ErrorEvent(error=f"Workflow timeout after {elapsed:.0f}s")
@@ -490,7 +490,7 @@ class TaskOrchestrator:
                     else:
                         # All stages complete
                         workflow.status = WorkflowStatus.COMPLETED
-                        workflow.completed_at = datetime.now()
+                        workflow.completed_at = datetime.now(UTC)
                     break
 
                 # Execute stage
@@ -535,7 +535,7 @@ class TaskOrchestrator:
             Events from execution
         """
         stage.status = StageStatus.RUNNING
-        stage.started_at = datetime.now()
+        stage.started_at = datetime.now(UTC)
 
         logger.info(f"Executing stage {stage.id}: {stage.name}")
 
@@ -573,9 +573,9 @@ class TaskOrchestrator:
                             error="Step not found",
                         )
 
-                    wf_step.started_at = datetime.now()
+                    wf_step.started_at = datetime.now(UTC)
                     result = await execute_step_func(wf_step, workflow.context)
-                    wf_step.completed_at = datetime.now()
+                    wf_step.completed_at = datetime.now(UTC)
 
                     # Update workflow step status
                     if result.success:
@@ -606,7 +606,7 @@ class TaskOrchestrator:
         else:
             stage.status = StageStatus.FAILED
 
-        stage.completed_at = datetime.now()
+        stage.completed_at = datetime.now(UTC)
         self._execution_stats[stage.id] = executor.get_stats()
 
         logger.info(f"Stage {stage.id} {stage.status.value}: {progress['completed']}/{progress['total']} completed")
@@ -677,7 +677,7 @@ class TaskOrchestrator:
             "status": workflow.status.value,
             "progress": workflow.get_progress(),
             "stage_stats": stage_stats,
-            "duration_seconds": ((workflow.completed_at or datetime.now()) - workflow.started_at).total_seconds()
+            "duration_seconds": ((workflow.completed_at or datetime.now(UTC)) - workflow.started_at).total_seconds()
             if workflow.started_at
             else 0,
         }

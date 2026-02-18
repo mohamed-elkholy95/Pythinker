@@ -1,7 +1,7 @@
 """Timeline models for action recording and replay."""
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -105,8 +105,8 @@ class TimelineAction(BaseModel):
     sequence_number: int  # Ordered position in the timeline
 
     # Timing
-    timestamp: datetime = Field(default_factory=datetime.now)
-    started_at: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
     duration_ms: int | None = None  # Computed from started_at and completed_at
 
@@ -129,7 +129,7 @@ class TimelineAction(BaseModel):
 
     def mark_completed(self, result: Any = None) -> None:
         """Mark this action as completed and calculate duration."""
-        self.completed_at = datetime.now()
+        self.completed_at = datetime.now(UTC)
         self.status = ActionStatus.COMPLETED
         self.function_result = result
         if self.started_at:
@@ -138,7 +138,7 @@ class TimelineAction(BaseModel):
 
     def mark_failed(self, error: str) -> None:
         """Mark this action as failed with error details."""
-        self.completed_at = datetime.now()
+        self.completed_at = datetime.now(UTC)
         self.status = ActionStatus.FAILED
         self.metadata.error_message = error
         if self.started_at:

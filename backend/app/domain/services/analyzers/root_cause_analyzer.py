@@ -5,7 +5,7 @@ the root cause of failures.
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import ClassVar
 
 from pydantic import BaseModel
@@ -66,7 +66,7 @@ class RootCauseAnalyzer:
                 contributing_factors=[],
                 recommended_fix="Configure analytics repository",
                 session_id=session_id,
-                analyzed_at=datetime.now(),
+                analyzed_at=datetime.now(UTC),
             )
 
         # Gather all relevant data
@@ -104,7 +104,7 @@ class RootCauseAnalyzer:
             contributing_factors=contributing_factors,
             recommended_fix=recommended_fix,
             session_id=session_id,
-            analyzed_at=datetime.now(),
+            analyzed_at=datetime.now(UTC),
         )
 
     def _check_tool_failure_cascade(self, tool_executions: list[ToolExecutionAnalytics]) -> float:

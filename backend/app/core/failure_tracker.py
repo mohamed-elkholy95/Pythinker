@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 
 @dataclass
@@ -32,18 +32,18 @@ class FailureTracker:
 
     def record_failure(self, name: str, error_type: str, detail: str | None = None) -> None:
         events = self._events.setdefault(name, [])
-        events.append(FailureEvent(timestamp=datetime.now(), error_type=error_type, detail=detail))
+        events.append(FailureEvent(timestamp=datetime.now(UTC), error_type=error_type, detail=detail))
         if len(events) > self._history_limit:
             self._events[name] = events[-self._history_limit :]
 
     def record_success(self, name: str) -> None:
         successes = self._successes.setdefault(name, [])
-        successes.append(datetime.now())
+        successes.append(datetime.now(UTC))
         if len(successes) > self._history_limit:
             self._successes[name] = successes[-self._history_limit :]
 
     def get_stats(self, name: str) -> FailureStats:
-        now = datetime.now()
+        now = datetime.now(UTC)
         events = self._events.get(name, [])
         successes = self._successes.get(name, [])
 

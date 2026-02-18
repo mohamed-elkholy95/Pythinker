@@ -13,14 +13,14 @@ class LoginRequest(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v):
+    def validate_email(cls, v: str) -> str:
         if not v or "@" not in v:
             raise ValueError("Valid email is required")
         return v.strip().lower()
 
     @field_validator("password")
     @classmethod
-    def validate_password(cls, v):
+    def validate_password(cls, v: str) -> str:
         if not v or len(v) < 6:
             raise ValueError("Password must be at least 6 characters long")
         return v
@@ -35,21 +35,21 @@ class RegisterRequest(BaseModel):
 
     @field_validator("fullname")
     @classmethod
-    def validate_fullname(cls, v):
+    def validate_fullname(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Full name must be at least 2 characters long")
         return v.strip()
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v):
+    def validate_email(cls, v: str) -> str:
         if not v or "@" not in v:
             raise ValueError("Valid email is required")
         return v.strip().lower()
 
     @field_validator("password")
     @classmethod
-    def validate_password(cls, v):
+    def validate_password(cls, v: str) -> str:
         if not v or len(v) < 6:
             raise ValueError("Password must be at least 6 characters long")
         return v
@@ -63,14 +63,14 @@ class ChangePasswordRequest(BaseModel):
 
     @field_validator("old_password")
     @classmethod
-    def validate_old_password(cls, v):
+    def validate_old_password(cls, v: str) -> str:
         if not v:
             raise ValueError("Old password is required")
         return v
 
     @field_validator("new_password")
     @classmethod
-    def validate_new_password(cls, v):
+    def validate_new_password(cls, v: str) -> str:
         if not v or len(v) < 6:
             raise ValueError("New password must be at least 6 characters long")
         return v
@@ -83,7 +83,7 @@ class ChangeFullnameRequest(BaseModel):
 
     @field_validator("fullname")
     @classmethod
-    def validate_fullname(cls, v):
+    def validate_fullname(cls, v: str) -> str:
         if not v or len(v.strip()) < 2:
             raise ValueError("Full name must be at least 2 characters long")
         return v.strip()
@@ -96,7 +96,7 @@ class RefreshTokenRequest(BaseModel):
 
     @field_validator("refresh_token")
     @classmethod
-    def validate_refresh_token(cls, v):
+    def validate_refresh_token(cls, v: str) -> str:
         if not v:
             raise ValueError("Refresh token is required")
         return v
@@ -109,7 +109,7 @@ class SendVerificationCodeRequest(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v):
+    def validate_email(cls, v: str) -> str:
         if not v or "@" not in v:
             raise ValueError("Valid email is required")
         return v.strip().lower()
@@ -124,14 +124,14 @@ class ResetPasswordRequest(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v):
+    def validate_email(cls, v: str) -> str:
         if not v or "@" not in v:
             raise ValueError("Valid email is required")
         return v.strip().lower()
 
     @field_validator("verification_code")
     @classmethod
-    def validate_verification_code(cls, v):
+    def validate_verification_code(cls, v: str) -> str:
         if not v:
             raise ValueError("Verification code is required")
         if not v.isdigit() or len(v) != 6:
@@ -140,7 +140,7 @@ class ResetPasswordRequest(BaseModel):
 
     @field_validator("new_password")
     @classmethod
-    def validate_new_password(cls, v):
+    def validate_new_password(cls, v: str) -> str:
         if not v or len(v) < 6:
             raise ValueError("New password must be at least 6 characters long")
         return v

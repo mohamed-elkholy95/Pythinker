@@ -199,9 +199,9 @@ class FileService:
         zip_buffer.seek(0)
 
         # Generate archive filename
-        from datetime import datetime
+        from datetime import UTC, datetime
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         archive_name = f"files_{timestamp}.zip"
 
         logger.info(f"Zip archive created successfully: {archive_name}, size={zip_buffer.getbuffer().nbytes} bytes")

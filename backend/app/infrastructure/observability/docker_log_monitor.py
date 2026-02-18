@@ -135,6 +135,10 @@ class DockerLogMonitor:
         if last is not None and (now - last) < self._throttle_seconds:
             return
         self._last_alert_by_key[key] = now
+        # Evict stale entries to prevent unbounded memory growth
+        if len(self._last_alert_by_key) > 1000:
+            cutoff = now - self._throttle_seconds * 2
+            self._last_alert_by_key = {k: v for k, v in self._last_alert_by_key.items() if v > cutoff}
         msg = f"[container={container_name}] {line}"
         if level >= logging.ERROR:
             logger.error(msg)

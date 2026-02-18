@@ -7,7 +7,7 @@ reasoning chains from LLM outputs.
 
 import logging
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.domain.exceptions.base import InvalidStateException
@@ -226,7 +226,7 @@ class ThoughtChainBuilder:
 
         self._current_chain.final_decision = final_decision
         self._current_chain.overall_confidence = self._current_chain.calculate_overall_confidence()
-        self._current_chain.completed_at = datetime.now()
+        self._current_chain.completed_at = datetime.now(UTC)
 
         completed = self._current_chain
         self._current_chain = None

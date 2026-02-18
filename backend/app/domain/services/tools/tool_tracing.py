@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -88,7 +88,7 @@ class ToolTracer:
 
         trace = ToolTrace(
             tool_name=tool_name,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             duration_ms=duration_ms,
             success=result.success if result else False,
             args_summary=self._summarize_args(arguments),

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -30,7 +30,7 @@ from app.interfaces.schemas.file import FileInfoResponse
 
 class BaseEventData(BaseModel):
     event_id: str | None
-    timestamp: int = Field(default_factory=lambda: int(datetime.now().timestamp()))
+    timestamp: int = Field(default_factory=lambda: int(datetime.now(UTC).timestamp()))
 
     @classmethod
     def base_event_data(cls, event: AgentEvent) -> dict:

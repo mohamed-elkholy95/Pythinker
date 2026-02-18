@@ -9,7 +9,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import wraps
 from typing import Any, TypeVar
 
@@ -70,7 +70,7 @@ class ToolExecutionMetrics:
         self.total_duration_ms += duration_ms
         self.min_duration_ms = min(self.min_duration_ms, duration_ms)
         self.max_duration_ms = max(self.max_duration_ms, duration_ms)
-        self.last_used = datetime.now()
+        self.last_used = datetime.now(UTC)
 
         if success:
             self.success_count += 1
@@ -79,7 +79,7 @@ class ToolExecutionMetrics:
             self.failure_count += 1
             self.consecutive_failures += 1
             self.last_error = error
-            self.last_error_time = datetime.now()
+            self.last_error_time = datetime.now(UTC)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert metrics to dictionary for serialization."""
@@ -244,7 +244,7 @@ class ToolExecutionProfiler:
 
         record = ExecutionRecord(
             tool_name=tool_name,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             duration_ms=duration_ms,
             success=success,
             error=error,

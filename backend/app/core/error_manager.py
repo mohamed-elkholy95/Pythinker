@@ -9,7 +9,7 @@ import traceback
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from functools import wraps
 from typing import Any
@@ -205,11 +205,11 @@ class ErrorManager:
         Returns:
             bool: True if error was recovered, False otherwise
         """
-        error_id = f"{context.component}_{datetime.now().timestamp()}"
+        error_id = f"{context.component}_{datetime.now(UTC).timestamp()}"
 
         error_record = ErrorRecord(
             id=error_id,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             severity=severity,
             category=category,
             context=context,
@@ -273,7 +273,7 @@ class ErrorManager:
 
     def get_error_stats(self, hours: int = 24) -> dict[str, Any]:
         """Get error statistics for the specified time period"""
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
         recent_errors = [e for e in self._error_history if e.timestamp > cutoff]
 
         return {
@@ -299,7 +299,7 @@ class CircuitBreaker:
         if self.state == "closed":
             return True
         if self.state == "open":
-            if datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
+            if datetime.now(UTC) - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
                 self.state = "half-open"
                 return True
             return False
@@ -314,7 +314,7 @@ class CircuitBreaker:
     def record_failure(self):
         """Record failed operation"""
         self.failure_count += 1
-        self.last_failure_time = datetime.now()
+        self.last_failure_time = datetime.now(UTC)
 
         if self.failure_count >= self.failure_threshold:
             self.state = "open"

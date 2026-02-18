@@ -17,7 +17,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -141,7 +141,7 @@ class WideResearchFlow:
             Aggregated research result
         """
         self._research_id = str(uuid.uuid4())[:12]
-        started_at = datetime.now()
+        started_at = datetime.now(UTC)
 
         logger.info(f"Starting wide research {self._research_id} on topic: {config.topic}")
 
@@ -185,7 +185,7 @@ class WideResearchFlow:
         if config.aggregation_strategy == AggregationStrategy.SYNTHESIZE:
             synthesis = self._generate_synthesis(config.topic)
 
-        completed_at = datetime.now()
+        completed_at = datetime.now(UTC)
 
         result = WideResearchResult(
             research_id=self._research_id,
@@ -222,7 +222,7 @@ class WideResearchFlow:
             Progress events and final result
         """
         self._research_id = str(uuid.uuid4())[:12]
-        started_at = datetime.now()
+        started_at = datetime.now(UTC)
 
         # Emit start event
         yield ToolEvent(
@@ -294,7 +294,7 @@ class WideResearchFlow:
             citations=citations,
             synthesis=synthesis,
             started_at=started_at,
-            completed_at=datetime.now(),
+            completed_at=datetime.now(UTC),
             errors=errors,
         )
 

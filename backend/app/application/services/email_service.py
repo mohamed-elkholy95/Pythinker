@@ -30,7 +30,7 @@ class EmailService:
 
     async def _store_verification_code(self, email: str, code: str) -> None:
         """Store verification code with expiration time in cache"""
-        now = datetime.now()
+        now = datetime.now(UTC)
         # Create verification code data
         code_data = {
             "code": code,
@@ -54,7 +54,7 @@ class EmailService:
 
         # Check if code has expired (cache TTL should handle this, but double-check)
         expires_at = datetime.fromisoformat(stored_data["expires_at"])
-        if datetime.now() > expires_at:
+        if datetime.now(UTC) > expires_at:
             await self.cache.delete(key)
             return False
 
@@ -73,7 +73,7 @@ class EmailService:
             return True
 
         # Update attempt count in cache
-        remaining_ttl = int((expires_at - datetime.now()).total_seconds())
+        remaining_ttl = int((expires_at - datetime.now(UTC)).total_seconds())
         if remaining_ttl > 0:
             await self.cache.set(key, stored_data, ttl=remaining_ttl)
 
@@ -125,7 +125,7 @@ class EmailService:
             try:
                 # Check if the existing code was created less than 60 seconds ago
                 created_at = datetime.fromisoformat(existing_data["created_at"])
-                time_since_creation = (datetime.now() - created_at).total_seconds()
+                time_since_creation = (datetime.now(UTC) - created_at).total_seconds()
 
                 if time_since_creation < 60:
                     remaining_wait = int(60 - time_since_creation)
@@ -256,7 +256,7 @@ class EmailService:
             if data:
                 try:
                     expires_at = datetime.fromisoformat(data["expires_at"])
-                    if datetime.now() > expires_at:
+                    if datetime.now(UTC) > expires_at:
                         await self.cache.delete(key)
                         expired_count += 1
                 except (KeyError, ValueError):

@@ -9,7 +9,7 @@ This module provides enhanced Tree-of-Thoughts exploration with:
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -55,7 +55,7 @@ class ThoughtNode:
     depth: int = 0
     is_terminal: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def add_child(self, child: "ThoughtNode") -> None:
         """Add a child node."""

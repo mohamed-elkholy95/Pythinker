@@ -7,7 +7,7 @@ multi-armed bandit algorithms (Thompson sampling).
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -29,8 +29,8 @@ class PromptVariant:
     success_count: int = 0
     average_quality: float = 0.0
     average_latency_ms: float = 0.0
-    created_at: datetime = field(default_factory=datetime.now)
-    last_used: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_used: datetime = field(default_factory=lambda: datetime.now(UTC))
     is_active: bool = True
 
     @property
@@ -58,7 +58,7 @@ class PromptVariant:
             latency_ms: Optional latency in milliseconds
         """
         self.total_trials += 1
-        self.last_used = datetime.now()
+        self.last_used = datetime.now(UTC)
 
         if success:
             self.alpha += 1
@@ -190,7 +190,7 @@ class PromptOptimizer:
         best_sample, best_variant = max(samples, key=lambda x: x[0])
 
         # Record selection
-        self._selection_history.append((category, best_variant.variant_id, datetime.now()))
+        self._selection_history.append((category, best_variant.variant_id, datetime.now(UTC)))
 
         logger.debug(
             f"Selected variant {best_variant.variant_id} for {category} "

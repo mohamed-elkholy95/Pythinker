@@ -7,7 +7,7 @@ sessions for continuous improvement.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -39,7 +39,7 @@ class TransferableKnowledge:
     success_when_used: int = 0
     context_tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_used: datetime | None = None
     expires_at: datetime | None = None
 
@@ -53,14 +53,14 @@ class TransferableKnowledge:
     def mark_used(self, success: bool) -> None:
         """Mark the knowledge as used."""
         self.usage_count += 1
-        self.last_used = datetime.now()
+        self.last_used = datetime.now(UTC)
         if success:
             self.success_when_used += 1
 
     def is_expired(self) -> bool:
         """Check if the knowledge has expired."""
         if self.expires_at:
-            return datetime.now() > self.expires_at
+            return datetime.now(UTC) > self.expires_at
         return False
 
 
@@ -133,7 +133,7 @@ class KnowledgeTransfer:
             The stored knowledge item
         """
         knowledge = TransferableKnowledge(
-            knowledge_id=f"k_{len(self._knowledge_store)}_{datetime.now().timestamp()}",
+            knowledge_id=f"k_{len(self._knowledge_store)}_{datetime.now(UTC).timestamp()}",
             knowledge_type=knowledge_type,
             content=content,
             source_session_id=source_session_id,
@@ -397,7 +397,7 @@ class KnowledgeTransfer:
             score += min(word_overlap * 0.05, 0.3)
 
         # Recency boost
-        age_hours = (datetime.now() - knowledge.created_at).total_seconds() / 3600
+        age_hours = (datetime.now(UTC) - knowledge.created_at).total_seconds() / 3600
         recency = max(0, 1 - (age_hours / (24 * 30)))  # Decay over 30 days
         score += recency * self.RECENCY_WEIGHT
 

@@ -7,7 +7,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Optional
 
@@ -286,7 +286,7 @@ class ManagedSandbox:
             await self._wait_for_services()
 
             self.state = SandboxState.HEALTHY
-            self.metrics.last_activity = datetime.now()
+            self.metrics.last_activity = datetime.now(UTC)
 
         except Exception as e:
             self.state = SandboxState.FAILED
@@ -361,7 +361,7 @@ class ManagedSandbox:
         is enabled for better cancellation and exception handling.
         """
         try:
-            self.health.last_check = datetime.now()
+            self.health.last_check = datetime.now(UTC)
 
             # Check if TaskGroup feature is enabled
             settings = get_settings()

@@ -6,7 +6,7 @@ and system-wide trends.
 
 import logging
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.domain.repositories.analytics_repository import get_analytics_repository
@@ -33,7 +33,7 @@ class PatternDetector:
             logger.warning("Analytics repository not configured")
             return []
 
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = datetime.now(UTC) - timedelta(days=days)
 
         # Get failed sessions
         failed_sessions = await analytics_repo.get_failed_sessions(cutoff_date, limit=100)
@@ -89,7 +89,7 @@ class PatternDetector:
             return []
 
         # Get recent failed tool executions
-        cutoff_date = datetime.now() - timedelta(days=7)
+        cutoff_date = datetime.now(UTC) - timedelta(days=7)
         failed_executions = await analytics_repo.get_failed_tool_executions(cutoff_date, limit=500)
 
         if not failed_executions:
@@ -139,7 +139,7 @@ class PatternDetector:
                 "errors": 0,
             }
 
-        cutoff_date = datetime.now() - timedelta(days=7)
+        cutoff_date = datetime.now(UTC) - timedelta(days=7)
 
         # Get mode selection decisions
         mode_decisions = await analytics_repo.get_mode_selection_decisions(cutoff_date, limit=500)
@@ -189,7 +189,7 @@ class PatternDetector:
             logger.warning("Analytics repository not configured")
             return {}
 
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = datetime.now(UTC) - timedelta(days=days)
 
         # Get sessions
         sessions = await analytics_repo.get_sessions_since(cutoff_date, limit=500)

@@ -31,7 +31,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, ClassVar, TypeVar
 
@@ -197,7 +197,7 @@ class CircuitBreaker:
         """Record a successful call."""
         self._stats.total_calls += 1
         self._stats.successful_calls += 1
-        self._stats.last_success_time = datetime.now()
+        self._stats.last_success_time = datetime.now(UTC)
         self._stats.record_result(True, self.config.sliding_window_size)
 
         # Phase 6: Record metric
@@ -220,8 +220,8 @@ class CircuitBreaker:
         """Record a failed call."""
         self._stats.total_calls += 1
         self._stats.failed_calls += 1
-        self._stats.last_failure_time = datetime.now()
-        self._last_failure_time = datetime.now()
+        self._stats.last_failure_time = datetime.now(UTC)
+        self._last_failure_time = datetime.now(UTC)
         self._stats.record_result(False, self.config.sliding_window_size)
 
         # Phase 6: Record metric
@@ -259,7 +259,7 @@ class CircuitBreaker:
         if self._last_failure_time is None:
             return True
 
-        elapsed = datetime.now() - self._last_failure_time
+        elapsed = datetime.now(UTC) - self._last_failure_time
         return elapsed >= timedelta(seconds=self.config.recovery_timeout)
 
     def _transition_to(self, new_state: CircuitState) -> None:
@@ -267,7 +267,7 @@ class CircuitBreaker:
         old_state = self._state
         self._state = new_state
         self._stats.state_changes += 1
-        self._stats.last_state_change = datetime.now()
+        self._stats.last_state_change = datetime.now(UTC)
 
         # Phase 6: Record metrics
         _import_metrics()

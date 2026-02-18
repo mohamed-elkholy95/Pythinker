@@ -3,7 +3,7 @@ import contextlib
 import hashlib
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
 
 import websockets
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
@@ -611,7 +611,7 @@ async def chat(
                 session_id=session_id,
                 user_id=current_user.id,
                 message=request.message,
-                timestamp=datetime.fromtimestamp(request.timestamp) if request.timestamp else None,
+                timestamp=datetime.fromtimestamp(request.timestamp, tz=UTC) if request.timestamp else None,
                 event_id=request.event_id,
                 attachments=request.attachments,
                 skills=request.skills,

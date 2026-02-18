@@ -20,7 +20,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, ClassVar
 
@@ -87,7 +87,7 @@ class DecompositionResult:
     estimated_total_complexity: float
     decomposition_tree_depth: int
     parallel_groups: list[list[str]]  # Groups of subtask IDs that can run in parallel
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def atomic_subtasks(self) -> list[Subtask]:

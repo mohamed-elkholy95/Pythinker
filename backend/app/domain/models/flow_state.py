@@ -4,7 +4,7 @@ Flow state persistence models for checkpoint/recovery.
 Enables resumption of agent flows after crashes or interruptions.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -55,9 +55,9 @@ class FlowStateSnapshot(BaseModel):
     max_iterations: int = 100
 
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-    last_activity_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_activity_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Additional metadata
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -66,8 +66,8 @@ class FlowStateSnapshot(BaseModel):
         """Create updated snapshot with new values"""
         data = self.model_dump()
         data.update(kwargs)
-        data["updated_at"] = datetime.now()
-        data["last_activity_at"] = datetime.now()
+        data["updated_at"] = datetime.now(UTC)
+        data["last_activity_at"] = datetime.now(UTC)
         return FlowStateSnapshot.model_validate(data)
 
     def mark_step_completed(self, step_id: str) -> "FlowStateSnapshot":

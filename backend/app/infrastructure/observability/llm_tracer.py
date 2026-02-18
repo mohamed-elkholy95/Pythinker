@@ -25,7 +25,7 @@ from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -90,6 +90,43 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> flo
     return input_cost + output_cost
 
 
+_MAX_CONTENT_LENGTH = 500  # Max chars stored per message content field (PII protection)
+_PII_REDACTION_ENABLED = True  # Can be disabled for debugging via env override
+
+
+def _redact_message_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Redact/truncate message content to prevent PII storage in traces.
+
+    Preserves role and structure but truncates content to _MAX_CONTENT_LENGTH
+    to avoid logging sensitive user data (PII, credentials, personal info).
+    """
+    if not _PII_REDACTION_ENABLED:
+        return messages
+    redacted = []
+    for msg in messages:
+        redacted_msg = dict(msg)
+        content = redacted_msg.get("content")
+        if isinstance(content, str) and len(content) > _MAX_CONTENT_LENGTH:
+            redacted_msg["content"] = (
+                content[:_MAX_CONTENT_LENGTH] + f"...[{len(content) - _MAX_CONTENT_LENGTH} chars redacted]"
+            )
+        elif isinstance(content, list):
+            # Handle multi-part content (vision messages, tool results)
+            new_parts = []
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    text = part["text"]
+                    if len(text) > _MAX_CONTENT_LENGTH:
+                        part = dict(part)
+                        part["text"] = (
+                            text[:_MAX_CONTENT_LENGTH] + f"...[{len(text) - _MAX_CONTENT_LENGTH} chars redacted]"
+                        )
+                new_parts.append(part)
+            redacted_msg["content"] = new_parts
+        redacted.append(redacted_msg)
+    return redacted
+
+
 @dataclass
 class LLMTrace:
     """Complete trace record for an LLM call."""
@@ -101,7 +138,7 @@ class LLMTrace:
     model: str = ""
 
     # Timing
-    start_time: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
     end_time: datetime | None = None
     latency_ms: float = 0.0
 
@@ -111,7 +148,7 @@ class LLMTrace:
     cached_tokens: int = 0
     total_cost_usd: float = 0.0
 
-    # Content (may be truncated for storage)
+    # Content (truncated for PII protection — see _redact_message_content)
     input_messages: list[dict[str, Any]] = field(default_factory=list)
     output_content: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
@@ -135,10 +172,15 @@ class LLMTrace:
         error: str | None = None,
     ) -> None:
         """Complete the trace with results."""
-        self.end_time = datetime.now()
+        self.end_time = datetime.now(UTC)
         self.latency_ms = (self.end_time - self.start_time).total_seconds() * 1000
 
-        self.output_content = output
+        # Truncate output to prevent PII storage
+        self.output_content = (
+            output[:_MAX_CONTENT_LENGTH] + f"...[{len(output) - _MAX_CONTENT_LENGTH} chars redacted]"
+            if len(output) > _MAX_CONTENT_LENGTH
+            else output
+        )
         if tool_calls:
             self.tool_calls = tool_calls
 
@@ -189,7 +231,7 @@ class ToolTrace:
     function_name: str = ""
 
     # Timing
-    start_time: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
     end_time: datetime | None = None
     latency_ms: float = 0.0
 
@@ -204,7 +246,7 @@ class ToolTrace:
 
     def complete(self, result: str = "", success: bool = True, error: str | None = None) -> None:
         """Complete the tool trace."""
-        self.end_time = datetime.now()
+        self.end_time = datetime.now(UTC)
         self.latency_ms = (self.end_time - self.start_time).total_seconds() * 1000
         self.result = result
         self.success = success
@@ -343,7 +385,7 @@ class NoOpLLMTracer(LLMTracerInterface):
             parent_span_id=current_span_id.get(),
             name=name,
             model=model,
-            input_messages=input_messages,
+            input_messages=_redact_message_content(input_messages),
             metadata=metadata or {},
         )
 

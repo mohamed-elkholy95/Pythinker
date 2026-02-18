@@ -8,7 +8,7 @@ to avoid redundant operations and reduce latency.
 import hashlib
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -33,15 +33,15 @@ class CachedResult:
     tool_name: str
     result_data: Any
     result_hash: str
-    created_at: datetime = field(default_factory=datetime.now)
-    expires_at: datetime = field(default_factory=lambda: datetime.now() + timedelta(seconds=300))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime = field(default_factory=lambda: datetime.now(UTC) + timedelta(seconds=300))
     hit_count: int = 0
     last_hit: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def is_expired(self) -> bool:
         """Check if the cached result has expired."""
-        return datetime.now() > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
     def is_valid(self) -> bool:
         """Check if the cached result is still valid."""
@@ -50,7 +50,7 @@ class CachedResult:
     def record_hit(self) -> None:
         """Record a cache hit."""
         self.hit_count += 1
-        self.last_hit = datetime.now()
+        self.last_hit = datetime.now(UTC)
 
 
 @dataclass
@@ -181,7 +181,7 @@ class ResultCache:
             tool_name=tool_name,
             result_data=result,
             result_hash=result_hash,
-            expires_at=datetime.now() + timedelta(seconds=ttl_seconds),
+            expires_at=datetime.now(UTC) + timedelta(seconds=ttl_seconds),
             metadata=metadata or {},
         )
 
@@ -312,7 +312,7 @@ class ResultCache:
 
         # Find entry with oldest last_hit (or created_at if never hit)
         oldest_key = None
-        oldest_time = datetime.now()
+        oldest_time = datetime.now(UTC)
 
         for key, cached in self._cache.items():
             check_time = cached.last_hit or cached.created_at

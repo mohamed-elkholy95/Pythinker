@@ -8,7 +8,7 @@ pre-executing predictable next steps while current step completes.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -54,7 +54,7 @@ class SpeculativeTask:
     tool_args: dict[str, Any]
     prediction_confidence: float
     depends_on: str | None = None  # Task ID this depends on
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     completed_at: datetime | None = None
     result: Any = None
@@ -159,7 +159,7 @@ class SpeculativeExecutor:
 
         # Create task
         task = SpeculativeTask(
-            task_id=f"spec_{len(self._queue)}_{datetime.now().timestamp()}",
+            task_id=f"spec_{len(self._queue)}_{datetime.now(UTC).timestamp()}",
             tool_name=tool_name,
             tool_args=tool_args,
             prediction_confidence=confidence,
@@ -296,11 +296,11 @@ class SpeculativeExecutor:
         tool_executor: Any,
     ) -> SpeculativeResult:
         """Execute a single speculative task."""
-        task.started_at = datetime.now()
+        task.started_at = datetime.now(UTC)
 
         try:
             result = await tool_executor(task.tool_name, task.tool_args)
-            task.completed_at = datetime.now()
+            task.completed_at = datetime.now(UTC)
             task.result = result
 
             execution_time_ms = (task.completed_at - task.started_at).total_seconds() * 1000
@@ -315,7 +315,7 @@ class SpeculativeExecutor:
 
         except Exception as e:
             task.error = str(e)
-            task.completed_at = datetime.now()
+            task.completed_at = datetime.now(UTC)
             raise
 
     def _find_task_by_id(self, task_id: str) -> SpeculativeTask | None:
