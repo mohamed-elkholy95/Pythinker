@@ -61,17 +61,44 @@ export default defineConfig({
           target: process.env.BACKEND_URL,
           changeOrigin: true,
           ws: true,
+          // Prevent hanging connections during backend hot-reload
+          timeout: 30_000,
           configure: (proxy) => {
-            proxy.on('error', (err, _req, res) => {
-              // Intentional: ECONNREFUSED during backend restart windows returns 504.
-              // docker-compose depends_on service_healthy already gates startup order;
-              // these errors only appear transiently during container restarts.
-              // The frontend client handles 504 as "backend unavailable" — no retry here.
-              if (res && 'writeHead' in res && !res.headersSent) {
-                (res as import('http').ServerResponse).writeHead(504, { 'Content-Type': 'application/json' });
-                (res as import('http').ServerResponse).end(
-                  JSON.stringify({ code: 504, message: `Backend unavailable: ${err.message}` }),
-                );
+            // Error codes expected during uvicorn --reload (1-2s restart window).
+            // docker-compose depends_on service_healthy gates initial startup;
+            // these only appear transiently during code-change restarts.
+            const TRANSIENT = new Set(['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT']);
+            let suppressedCount = 0;
+
+            proxy.on('error', (err: NodeJS.ErrnoException, _req, res) => {
+              const isTransient = TRANSIENT.has(err.code ?? '');
+
+              if (isTransient) {
+                // Batch-log transient errors to avoid flooding the console during rapid reloads
+                suppressedCount++;
+                if (suppressedCount === 1 || suppressedCount % 10 === 0) {
+                  console.warn(`[proxy] Backend temporarily unavailable (${err.code}) — ${suppressedCount} transient error(s)`);
+                }
+              } else {
+                console.error(`[proxy] Unexpected proxy error: ${err.code} ${err.message}`);
+              }
+
+              // HTTP response → return 504 so frontend client sees a clean status code
+              if (res && 'writeHead' in res && !(res as import('http').ServerResponse).headersSent) {
+                const httpRes = res as import('http').ServerResponse;
+                httpRes.writeHead(504, { 'Content-Type': 'application/json' });
+                httpRes.end(JSON.stringify({
+                  code: 504,
+                  message: isTransient
+                    ? 'Backend temporarily unavailable (restarting)'
+                    : `Backend unavailable: ${err.message}`,
+                }));
+                return;
+              }
+
+              // WebSocket upgrade → close the underlying socket cleanly
+              if (res && 'destroy' in res && typeof (res as import('net').Socket).destroy === 'function') {
+                (res as import('net').Socket).destroy();
               }
             });
           },

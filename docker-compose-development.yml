@@ -77,7 +77,10 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      # 30s start_period: backend loads Playwright, connects MongoDB/Redis/Qdrant on first boot.
+      # start_interval: faster probes during startup (Docker Engine 25+).
+      start_period: 30s
+      start_interval: 3s
 
   sandbox:
     build:
