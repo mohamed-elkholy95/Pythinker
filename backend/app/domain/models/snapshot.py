@@ -1,7 +1,7 @@
 """State snapshot models for timeline reconstruction."""
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -93,7 +93,7 @@ class StateSnapshot(BaseModel):
     sequence_number: int  # Position in timeline
 
     # Timing
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Snapshot type
     snapshot_type: SnapshotType
@@ -131,7 +131,7 @@ class StateSnapshot(BaseModel):
                 path=file_path,
                 content=content,
                 size_bytes=len(content.encode("utf-8")),
-                modified_at=datetime.now(),
+                modified_at=datetime.now(UTC),
             ),
         )
 

@@ -5,7 +5,7 @@ This module defines models for tracking agent capabilities
 and enabling intelligent agent routing.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -89,8 +89,8 @@ class AgentProfile(BaseModel):
     current_load: int = 0
     total_tasks_completed: int = 0
     overall_success_rate: float = Field(default=0.0, ge=0.0, le=1.0)
-    created_at: datetime = Field(default_factory=datetime.now)
-    last_active: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_active: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def get_capability(self, name: str) -> AgentCapability | None:
@@ -215,7 +215,7 @@ class AgentAssignment(BaseModel):
     agent_type: str
     capability_used: str
     suitability_score: float
-    assigned_at: datetime = Field(default_factory=datetime.now)
+    assigned_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     completed_at: datetime | None = None
     success: bool | None = None

@@ -11,7 +11,7 @@ Per MCP specification, resources:
 - Can be subscribed to for real-time updates
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -89,7 +89,7 @@ class ResourceSubscription(BaseModel):
 
     uri: str = Field(description="URI of the subscribed resource")
     server_name: str = Field(description="MCP server providing the resource")
-    subscribed_at: datetime = Field(default_factory=datetime.now)
+    subscribed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     active: bool = Field(default=True)
 
 

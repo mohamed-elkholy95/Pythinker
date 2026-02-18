@@ -236,7 +236,7 @@ class AgentDomainService:
                 if not task:
                     raise RuntimeError("Failed to create task")
 
-        await self._session_repository.update_latest_message(session_id, message, datetime.now())
+        await self._session_repository.update_latest_message(session_id, message, datetime.now(UTC))
 
         message_event = MessageEvent(message=message, role="user")
         event_id = await task.input_stream.put(message_event.model_dump_json())
@@ -374,7 +374,7 @@ class AgentDomainService:
 
                                 # Store user message event
                                 await self._session_repository.update_latest_message(
-                                    session_id, message, timestamp or datetime.now()
+                                    session_id, message, timestamp or datetime.now(UTC)
                                 )
                                 message_event = MessageEvent(
                                     message=message,
@@ -480,7 +480,7 @@ class AgentDomainService:
                                 logger.warning(f"Workspace initialization error (non-fatal): {e}")
 
                     await self._session_repository.update_latest_message(
-                        session_id, message, timestamp or datetime.now()
+                        session_id, message, timestamp or datetime.now(UTC)
                     )
 
                     # Resolve skill activation through a single framework.

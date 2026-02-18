@@ -25,7 +25,7 @@ import asyncio
 import logging
 from collections.abc import Coroutine
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class TaskGroupResult:
     successful_count: int
     failed_count: int
     total_count: int
-    start_time: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
     end_time: datetime | None = None
     execution_time_ms: float = 0.0
 
@@ -161,7 +161,7 @@ async def gather_with_taskgroup_detailed(
     Returns:
         TaskGroupResult with detailed execution information
     """
-    start_time = datetime.now()
+    start_time = datetime.now(UTC)
     results: list[Any] = []
     errors: list[Exception] = []
 
@@ -173,7 +173,7 @@ async def gather_with_taskgroup_detailed(
             failed_count=0,
             total_count=0,
             start_time=start_time,
-            end_time=datetime.now(),
+            end_time=datetime.now(UTC),
         )
 
     try:
@@ -182,7 +182,7 @@ async def gather_with_taskgroup_detailed(
         # If we're not returning exceptions, collect them
         errors.extend(eg.exceptions)
 
-    end_time = datetime.now()
+    end_time = datetime.now(UTC)
 
     # Separate successes from failures
     errors.extend(r for r in results if isinstance(r, Exception))
@@ -336,7 +336,7 @@ class TaskGroupExecutor:
         Returns:
             List of results
         """
-        start_time = datetime.now()
+        start_time = datetime.now(UTC)
         self._total_runs += 1
         self._total_tasks += len(coros)
 
@@ -378,7 +378,7 @@ class TaskGroupExecutor:
             return results
 
         finally:
-            end_time = datetime.now()
+            end_time = datetime.now(UTC)
             self._total_time_ms += (end_time - start_time).total_seconds() * 1000
 
     def reset_stats(self) -> None:

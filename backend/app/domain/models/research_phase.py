@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -23,7 +23,7 @@ class ResearchCheckpoint(BaseModel):
     phase: ResearchPhase
     notes: str
     sources: list[str] = Field(default_factory=list)
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     query_context: str
 
 

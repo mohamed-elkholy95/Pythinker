@@ -5,7 +5,7 @@ Monitors agent metrics and emits alerts when thresholds are exceeded.
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
@@ -156,7 +156,7 @@ class AlertManager:
         cooldown_key = f"{alert_type}:{session_id or 'system'}"
         if cooldown_key in self._alert_cooldown:
             last_alert = self._alert_cooldown[cooldown_key]
-            if datetime.now() - last_alert < timedelta(seconds=self._cooldown_seconds):
+            if datetime.now(UTC) - last_alert < timedelta(seconds=self._cooldown_seconds):
                 logger.debug(f"Alert {alert_type} in cooldown, skipping")
                 return
 
@@ -166,12 +166,12 @@ class AlertManager:
             severity=severity,
             message=message,
             session_id=session_id,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
         )
 
         self._alerts.append(alert)
         self._alert_counts[alert_type] += 1
-        self._alert_cooldown[cooldown_key] = datetime.now()
+        self._alert_cooldown[cooldown_key] = datetime.now(UTC)
 
         # Trim alerts if too many
         if len(self._alerts) > self._max_alerts:
@@ -198,7 +198,7 @@ class AlertManager:
         Returns:
             List of recent alerts
         """
-        cutoff = datetime.now() - timedelta(minutes=minutes)
+        cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
         return [alert for alert in self._alerts if alert.timestamp >= cutoff]
 
     def get_alert_counts(self) -> dict[str, int]:

@@ -287,28 +287,37 @@ class MongoSkillRepository(SkillRepository):
         if not 1 <= rating <= 5:
             return False
 
-        document = await SkillDocument.find_one(SkillDocument.skill_id == skill_id)
-        if not document:
+        # Step 1: Atomically set just this user's rating using dot-notation key.
+        # This avoids the read-modify-write race condition where two concurrent
+        # writers could overwrite each other's ratings dict entirely.
+        result = await SkillDocument.find_one(SkillDocument.skill_id == skill_id).update(
+            {"$set": {f"ratings.{user_id}": rating}}
+        )
+        if result is None:
             return False
 
-        # Get or initialize rating data
-        ratings = getattr(document, "ratings", {}) or {}
-
-        # Update the rating
-        ratings[user_id] = rating
-
-        # Recalculate average
-        avg_rating = sum(ratings.values()) / len(ratings) if ratings else 0
-
-        # Update document
-        await SkillDocument.find_one(SkillDocument.skill_id == skill_id).update(
-            {
-                "$set": {
-                    "ratings": ratings,
-                    "community_rating": avg_rating,
-                    "rating_count": len(ratings),
+        # Step 2: Recalculate community_rating and rating_count server-side using
+        # a MongoDB aggregation pipeline update (4.2+). This ensures the avg is
+        # computed from the authoritative server state, eliminating the race.
+        collection = SkillDocument.get_motor_collection()
+        await collection.update_one(
+            {"skill_id": skill_id},
+            [
+                {
+                    "$set": {
+                        "rating_count": {"$size": {"$objectToArray": "$ratings"}},
+                        "community_rating": {
+                            "$avg": {
+                                "$map": {
+                                    "input": {"$objectToArray": "$ratings"},
+                                    "as": "r",
+                                    "in": "$$r.v",
+                                }
+                            }
+                        },
+                    }
                 }
-            }
+            ],
         )
 
         return True

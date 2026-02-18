@@ -15,7 +15,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.domain.external.search import SearchEngine
@@ -154,7 +154,7 @@ class DeepResearchFlow:
         if config.auto_run:
             # Auto-run: skip approval, start immediately
             self._session.status = "started"
-            self._session.started_at = datetime.now()
+            self._session.started_at = datetime.now(UTC)
             yield self._create_event(DeepResearchStatus.STARTED)
         else:
             # Awaiting approval
@@ -179,7 +179,7 @@ class DeepResearchFlow:
 
             # Approved - start execution
             self._session.status = "started"
-            self._session.started_at = datetime.now()
+            self._session.started_at = datetime.now(UTC)
             yield self._create_event(DeepResearchStatus.STARTED)
 
         # Execute queries in parallel
@@ -188,7 +188,7 @@ class DeepResearchFlow:
 
         # Mark completed
         self._session.status = "completed"
-        self._session.completed_at = datetime.now()
+        self._session.completed_at = datetime.now(UTC)
         yield self._create_event(DeepResearchStatus.COMPLETED)
 
         logger.info(
@@ -218,13 +218,13 @@ class DeepResearchFlow:
                 # Check if already skipped
                 if self._skip_events[query.id].is_set():
                     query.status = ResearchQueryStatus.SKIPPED
-                    query.completed_at = datetime.now()
+                    query.completed_at = datetime.now(UTC)
                     await self._event_queue.put(self._create_event(DeepResearchStatus.QUERY_SKIPPED))
                     return
 
                 # Mark as searching
                 query.status = ResearchQueryStatus.SEARCHING
-                query.started_at = datetime.now()
+                query.started_at = datetime.now(UTC)
                 await self._event_queue.put(self._create_event(DeepResearchStatus.QUERY_STARTED))
 
                 try:
@@ -259,7 +259,7 @@ class DeepResearchFlow:
                     query.status = ResearchQueryStatus.FAILED
                     query.error = str(e)
 
-                query.completed_at = datetime.now()
+                query.completed_at = datetime.now(UTC)
                 await self._event_queue.put(self._create_event(DeepResearchStatus.QUERY_COMPLETED))
 
         # Start all queries as tasks

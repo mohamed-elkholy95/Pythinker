@@ -16,7 +16,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 from app.domain.models.pressure import PressureLevel
@@ -522,7 +522,7 @@ class MemoryManager:
     def get_archive_path(self, function_name: str) -> str:
         """Generate unique archive file path"""
         self._archive_counter += 1
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         return f"{self._sandbox_path}/{function_name}_{timestamp}_{self._archive_counter}.txt"
 
     # =========================================================================
@@ -771,7 +771,7 @@ ERRORS: (if any)"""
                         "message_id": message_id,
                         "function_name": function_name,
                         "original_content": content,
-                        "archived_at": datetime.now().isoformat(),
+                        "archived_at": datetime.now(UTC).isoformat(),
                         "extraction_method": extraction.extraction_method,
                         "key_facts": extraction.key_facts,
                         "urls": extraction.urls,

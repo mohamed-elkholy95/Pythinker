@@ -14,8 +14,9 @@ Key Features:
 import asyncio
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from functools import lru_cache
 from typing import Any
@@ -107,22 +108,30 @@ TOOL_CATEGORY_PATTERNS = {
 
 # Pre-compiled regex patterns for performance (Phase 4 optimization)
 # Avoids recompiling patterns on every task classification call
+_get_compiled_task_patterns_init_lock = threading.Lock()
+
+
 @lru_cache(maxsize=1)
 def _get_compiled_task_patterns() -> dict[str, list[re.Pattern[str]]]:
     """Get compiled regex patterns for task type detection."""
-    return {
-        task_type: [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
-        for task_type, patterns in TASK_PATTERNS.items()
-    }
+    with _get_compiled_task_patterns_init_lock:
+        return {
+            task_type: [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
+            for task_type, patterns in TASK_PATTERNS.items()
+        }
+
+
+_get_compiled_category_patterns_init_lock = threading.Lock()
 
 
 @lru_cache(maxsize=1)
 def _get_compiled_category_patterns() -> dict[ToolCategory, list[re.Pattern[str]]]:
     """Get compiled regex patterns for tool category detection."""
-    return {
-        category: [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
-        for category, patterns in TOOL_CATEGORY_PATTERNS.items()
-    }
+    with _get_compiled_category_patterns_init_lock:
+        return {
+            category: [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
+            for category, patterns in TOOL_CATEGORY_PATTERNS.items()
+        }
 
 
 @dataclass
@@ -359,7 +368,7 @@ class DynamicToolsetManager:
             for tool_name, info in self._tools.items():
                 if info.last_used and tool_name in candidates:
                     # Boost recently used tools
-                    age = (datetime.now() - info.last_used).total_seconds()
+                    age = (datetime.now(UTC) - info.last_used).total_seconds()
                     if age < 300:  # Used in last 5 minutes
                         candidates[tool_name] += 0.5
 
@@ -466,7 +475,7 @@ class DynamicToolsetManager:
 
         info = self._tools[tool_name]
         info.usage_count += 1
-        info.last_used = datetime.now()
+        info.last_used = datetime.now(UTC)
 
         # Update average duration
         if duration_ms > 0:
@@ -523,7 +532,7 @@ class DynamicToolsetManager:
             return False
 
         _, cached_time = self._task_type_cache[task_type]
-        age = (datetime.now() - cached_time).total_seconds()
+        age = (datetime.now(UTC) - cached_time).total_seconds()
         return age < self.config.cache_ttl_seconds
 
     def prefetch_tools_for_message(self, message: str, include_mcp: bool = True) -> list[dict[str, Any]]:
@@ -553,7 +562,7 @@ class DynamicToolsetManager:
 
         # Cache the result
         if self.config.enable_task_type_cache:
-            self._task_type_cache[cache_key] = (tools, datetime.now())
+            self._task_type_cache[cache_key] = (tools, datetime.now(UTC))
             logger.debug(f"Prefetch cached {len(tools)} tools for task type: {task_type}")
 
         return tools
@@ -619,7 +628,7 @@ class DynamicToolsetManager:
         """Get statistics about the tool cache."""
         cache_entries = []
         for key, (tools, cached_time) in self._task_type_cache.items():
-            age = (datetime.now() - cached_time).total_seconds()
+            age = (datetime.now(UTC) - cached_time).total_seconds()
             cache_entries.append(
                 {
                     "key": key,

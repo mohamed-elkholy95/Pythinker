@@ -8,7 +8,7 @@ PlanActFlow for approval checkpoints at critical operations.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -171,7 +171,7 @@ class SafetyLimits:
         """Start a new run, resetting counters."""
         self.current_iterations = 0
         self.current_tool_calls = 0
-        self.start_time = datetime.now()
+        self.start_time = datetime.now(UTC)
         self.current_tokens = 0
         self.current_cost = 0.0
         logger.debug("Safety limits counters reset for new run")
@@ -238,7 +238,7 @@ class SafetyLimits:
         if self.start_time is None:
             return True
 
-        elapsed = (datetime.now() - self.start_time).total_seconds()
+        elapsed = (datetime.now(UTC) - self.start_time).total_seconds()
         if elapsed > self.max_execution_time_seconds:
             logger.warning(f"Time limit exceeded: {elapsed:.0f}s/{self.max_execution_time_seconds}s")
             return False
@@ -272,7 +272,7 @@ class SafetyLimits:
         """Get remaining capacity for all limits."""
         elapsed = 0
         if self.start_time:
-            elapsed = (datetime.now() - self.start_time).total_seconds()
+            elapsed = (datetime.now(UTC) - self.start_time).total_seconds()
 
         return {
             "iterations": self.max_iterations - self.current_iterations,
@@ -292,7 +292,7 @@ class ApprovalRequest:
     tool_name: str | None = None
     parameters: dict[str, Any] | None = None
     risk_level: str = "medium"  # low, medium, high, critical
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""

@@ -11,7 +11,7 @@ Enhanced with ProgressMetrics integration for reflection system (Phase 2).
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.domain.models.reflection import ProgressMetrics
@@ -55,7 +55,7 @@ class TaskState:
     steps: list[dict[str, Any]] = field(default_factory=list)
     key_findings: list[str] = field(default_factory=list)
     current_step_index: int = 0
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
     # Track visited URLs and search queries to survive token trimming
     visited_urls: set[str] = field(default_factory=set)
     searched_queries: set[str] = field(default_factory=set)
@@ -86,7 +86,7 @@ class TaskState:
                     step["result"] = result
                 found = True
                 break
-        self.last_updated = datetime.now()
+        self.last_updated = datetime.now(UTC)
         return found
 
     def mark_step_in_progress(self, step_id: str) -> bool:
@@ -103,7 +103,7 @@ class TaskState:
                 step["status"] = "in_progress"
                 found = True
                 break
-        self.last_updated = datetime.now()
+        self.last_updated = datetime.now(UTC)
         return found
 
     def record_url(self, url: str) -> bool:
@@ -160,7 +160,7 @@ class TaskState:
             # Keep findings list manageable
             if len(self.key_findings) > 10:
                 self.key_findings = self.key_findings[-10:]
-        self.last_updated = datetime.now()
+        self.last_updated = datetime.now(UTC)
 
     def get_current_step(self) -> dict[str, Any] | None:
         """Get the current step being worked on"""
@@ -289,7 +289,7 @@ class TaskStateManager:
 
         # Initialize progress metrics for reflection
         self._progress_metrics = ProgressMetrics(
-            steps_completed=0, steps_remaining=len(steps), total_steps=len(steps), started_at=datetime.now()
+            steps_completed=0, steps_remaining=len(steps), total_steps=len(steps), started_at=datetime.now(UTC)
         )
 
         # Clear recent actions
@@ -335,7 +335,7 @@ class TaskStateManager:
                             step["result"] = result
                         found = True
                         break
-                self._state.last_updated = datetime.now()
+                self._state.last_updated = datetime.now(UTC)
             elif status == "blocked":
                 # Handle blocked status (dependencies not satisfied or upstream failure)
                 for step in self._state.steps:
@@ -345,7 +345,7 @@ class TaskStateManager:
                             step["result"] = result
                         found = True
                         break
-                self._state.last_updated = datetime.now()
+                self._state.last_updated = datetime.now(UTC)
             elif status == "skipped":
                 # Handle skipped status (iteration limit reached, etc.)
                 for step in self._state.steps:
@@ -355,7 +355,7 @@ class TaskStateManager:
                             step["result"] = result
                         found = True
                         break
-                self._state.last_updated = datetime.now()
+                self._state.last_updated = datetime.now(UTC)
 
             if not found:
                 available_ids = [str(s["id"]) for s in self._state.steps]
@@ -524,7 +524,7 @@ class TaskStateManager:
             steps_completed=0,
             steps_remaining=len(new_steps),
             total_steps=len(new_steps),
-            started_at=datetime.now(),
+            started_at=datetime.now(UTC),
         )
 
         # Clear recent actions (fresh start)
@@ -602,7 +602,7 @@ class TaskStateManager:
                 "success": success,
                 "result": str(result)[:200] if result else None,
                 "error": error,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
             self._recent_actions.append(action_record)
 

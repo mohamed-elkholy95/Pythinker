@@ -5,7 +5,7 @@ enabling course correction during execution rather than only at the end.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -358,7 +358,7 @@ class ProgressMetrics:
         """Record a successful action."""
         self.successful_actions += 1
         self.actions_since_progress = 0
-        self.last_progress_at = datetime.now()
+        self.last_progress_at = datetime.now(UTC)
 
     def record_failure(self, error: str) -> None:
         """Record a failed action."""
@@ -374,7 +374,7 @@ class ProgressMetrics:
         if self.steps_remaining > 0:
             self.steps_remaining -= 1
         self.actions_since_progress = 0
-        self.last_progress_at = datetime.now()
+        self.last_progress_at = datetime.now(UTC)
 
     def record_no_progress(self) -> None:
         """Record an action that made no progress."""

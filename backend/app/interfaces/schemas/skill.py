@@ -1,6 +1,7 @@
 """Schemas for skill-related API requests and responses."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -44,7 +45,7 @@ class UserSkillResponse(BaseModel):
 
     skill: SkillResponse
     enabled: bool
-    config: dict = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
     order: int = 0
 
 
@@ -67,7 +68,7 @@ class UpdateUserSkillRequest(BaseModel):
     """Request schema for updating a user's skill configuration."""
 
     enabled: bool | None = None
-    config: dict | None = None
+    config: dict[str, Any] | None = None
     order: int | None = None
 
 
@@ -170,7 +171,7 @@ class SkillPackageResponse(BaseModel):
     icon: str = Field(default="puzzle", description="Lucide icon name")
     category: str = Field(default="custom", description="Skill category")
     author: str | None = Field(default=None, description="Author name")
-    file_tree: dict = Field(default_factory=dict, description="Hierarchical file tree")
+    file_tree: dict[str, Any] = Field(default_factory=dict, description="Hierarchical file tree")
     files: list[SkillPackageFileResponse] = Field(default_factory=list, description="Package files")
     file_id: str | None = Field(default=None, description="GridFS file ID for download")
     skill_id: str | None = Field(default=None, description="Associated skill ID in database")

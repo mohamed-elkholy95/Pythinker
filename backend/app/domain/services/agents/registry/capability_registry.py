@@ -6,7 +6,7 @@ and routing tasks to the most suitable agents.
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.domain.models.agent_capability import (
@@ -313,7 +313,7 @@ class AgentRegistry:
 
         # Update agent load
         agent.current_load += 1
-        agent.last_active = datetime.now()
+        agent.last_active = datetime.now(UTC)
 
         self._assignments.append(assignment)
         logger.info(f"Routed task {task_id} to {agent.agent_name} (capability={capability_name}, score={score:.2f})")
@@ -347,7 +347,7 @@ class AgentRegistry:
             return
 
         # Update assignment
-        assignment.completed_at = datetime.now()
+        assignment.completed_at = datetime.now(UTC)
         assignment.success = success
         assignment.result_summary = result_summary
 

@@ -10,7 +10,7 @@ Supports cross-session learning by persisting patterns to long-term memory.
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -117,7 +117,7 @@ class ErrorPatternAnalyzer:
             tool_name=tool_name,
             error_type=error_context.error_type,
             error_message=error_context.message[:500],
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             metadata=metadata or {},
         )
 
@@ -134,7 +134,7 @@ class ErrorPatternAnalyzer:
     def record_success(self, tool_name: str) -> None:
         """Record a successful tool execution to break failure streaks"""
         self._consecutive_failures[tool_name] = 0
-        self._last_success_time[tool_name] = datetime.now()
+        self._last_success_time[tool_name] = datetime.now(UTC)
 
     def analyze_patterns(self) -> list[DetectedPattern]:
         """
@@ -147,7 +147,7 @@ class ErrorPatternAnalyzer:
             return []
 
         patterns = []
-        now = datetime.now()
+        now = datetime.now(UTC)
         window_start = now - self.PATTERN_WINDOW
 
         # Get recent errors within window

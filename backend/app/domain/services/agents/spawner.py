@@ -6,7 +6,7 @@ enabling specialized agents to be created on-demand.
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, ClassVar
 
@@ -74,7 +74,7 @@ class SpawnedAgentConfig:
         self.context = context or {}
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds
-        self.created_at = datetime.now()
+        self.created_at = datetime.now(UTC)
 
 
 class SpawnDecision:
@@ -334,7 +334,7 @@ class AgentSpawner:
         Returns:
             Number of agents cleaned up
         """
-        now = datetime.now()
+        now = datetime.now(UTC)
         to_remove = []
 
         for name, config in self._spawned_agents.items():

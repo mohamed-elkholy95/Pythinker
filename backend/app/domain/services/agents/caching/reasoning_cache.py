@@ -8,7 +8,7 @@ to enable faster decision-making on similar problems.
 import hashlib
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.domain.models.thought import Decision, ThoughtChain
@@ -27,9 +27,9 @@ class CachedReasoning:
     decision: Decision
     success_count: int = 0
     failure_count: int = 0
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_used: datetime | None = None
-    expires_at: datetime = field(default_factory=lambda: datetime.now() + timedelta(hours=24))
+    expires_at: datetime = field(default_factory=lambda: datetime.now(UTC) + timedelta(hours=24))
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -42,7 +42,7 @@ class CachedReasoning:
 
     def is_expired(self) -> bool:
         """Check if the cached reasoning has expired."""
-        return datetime.now() > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
     def is_reliable(self, min_uses: int = 3, min_success_rate: float = 0.6) -> bool:
         """Check if this pattern is reliable enough to use."""
@@ -51,7 +51,7 @@ class CachedReasoning:
 
     def record_use(self, success: bool) -> None:
         """Record a use of this pattern."""
-        self.last_used = datetime.now()
+        self.last_used = datetime.now(UTC)
         if success:
             self.success_count += 1
         else:
@@ -130,7 +130,7 @@ class ReasoningCache:
             problem_summary=problem[:200],
             thought_chain=thought_chain,
             decision=decision,
-            expires_at=datetime.now() + timedelta(hours=ttl_hours),
+            expires_at=datetime.now(UTC) + timedelta(hours=ttl_hours),
             metadata=context or {},
         )
 
@@ -341,7 +341,7 @@ class ReasoningCache:
 
         for key, cached in self._cache.items():
             total_uses = cached.success_count + cached.failure_count
-            recency = (datetime.now() - (cached.last_used or cached.created_at)).total_seconds()
+            recency = (datetime.now(UTC) - (cached.last_used or cached.created_at)).total_seconds()
             score = total_uses - (recency / 3600)  # Penalize old entries
 
             if score < worst_score:

@@ -5,7 +5,7 @@ This module defines models for learning and applying
 user-specific preferences across sessions.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -52,21 +52,21 @@ class OutputFormat(str, Enum):
 class UserPreference(BaseModel):
     """A single user preference setting."""
 
-    preference_id: str = Field(default_factory=lambda: f"pref_{datetime.now().timestamp()}")
+    preference_id: str = Field(default_factory=lambda: f"pref_{datetime.now(UTC).timestamp()}")
     category: PreferenceCategory
     name: str
     value: Any
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     source: str = "inferred"  # inferred, explicit, default
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     usage_count: int = 0
 
     def update_value(self, new_value: Any, confidence_boost: float = 0.1) -> None:
         """Update the preference value."""
         self.value = new_value
         self.confidence = min(1.0, self.confidence + confidence_boost)
-        self.updated_at = datetime.now()
+        self.updated_at = datetime.now(UTC)
         self.usage_count += 1
 
 
@@ -91,8 +91,8 @@ class UserPreferenceProfile(BaseModel):
     prefers_explanations: bool = True
     prefers_suggestions: bool = True
 
-    created_at: datetime = Field(default_factory=datetime.now)
-    last_active: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_active: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def get_preference(
         self,

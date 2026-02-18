@@ -1,6 +1,6 @@
 """Deep Research domain models for parallel search execution."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -56,7 +56,7 @@ class DeepResearchSession(BaseModel):
     config: DeepResearchConfig
     queries: list[ResearchQuery]
     status: str = "pending"  # pending, awaiting_approval, started, completed, cancelled
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     completed_at: datetime | None = None
 

@@ -7,7 +7,7 @@ of later steps until earlier steps complete.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -40,7 +40,7 @@ class LazyStep:
     tool_requirements: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)  # Other step IDs
     expansion_context: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     expanded_at: datetime | None = None
     executed_at: datetime | None = None
 
@@ -57,7 +57,7 @@ class LazyStep:
         self.detailed_actions = detailed_actions
         self.tool_requirements = tool_requirements
         self.detail_level = StepDetailLevel.DETAILED
-        self.expanded_at = datetime.now()
+        self.expanded_at = datetime.now(UTC)
 
 
 @dataclass
@@ -68,7 +68,7 @@ class LazyPlan:
     goal: str
     lazy_steps: list[LazyStep] = field(default_factory=list)
     expansion_horizon: int = 2  # How many steps ahead to expand
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def get_step(self, step_id: str) -> LazyStep | None:
         """Get a step by ID."""
@@ -267,7 +267,7 @@ class LazyPlanner:
         step = plan.get_step(step_id)
         if step:
             step.detail_level = StepDetailLevel.EXECUTED
-            step.executed_at = datetime.now()
+            step.executed_at = datetime.now(UTC)
 
             # Store result in context for future steps
             if result:

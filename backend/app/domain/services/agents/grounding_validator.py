@@ -21,7 +21,7 @@ Enhanced Features (Phase 3):
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -97,7 +97,7 @@ class GroundingResult:
     ungrounded_claims: list[str]
     grounded_claims: list[str]
     warnings: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def is_acceptable(self) -> bool:
@@ -145,7 +145,7 @@ class EnhancedGroundingResult:
     ungrounded_claims: list[str]
     grounded_claims: list[str]
     warnings: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Enhanced fields for numeric/entity verification
     numeric_claims: list[NumericClaim] = field(default_factory=list)

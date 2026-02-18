@@ -5,7 +5,7 @@ This module defines models for structured agent-to-agent messaging,
 enabling collaborative problem-solving between agents.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -54,7 +54,7 @@ class AgentMessage(BaseModel):
     for collaboration and coordination.
     """
 
-    id: str = Field(default_factory=lambda: f"msg_{datetime.now().timestamp()}")
+    id: str = Field(default_factory=lambda: f"msg_{datetime.now(UTC).timestamp()}")
     message_type: MessageType
     sender_id: str
     sender_type: str  # planner, executor, critic, etc.
@@ -74,7 +74,7 @@ class AgentMessage(BaseModel):
     correlation_id: str | None = None  # For tracking related messages
 
     # Timing
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     delivered_at: datetime | None = None
     expires_at: datetime | None = None
 
@@ -85,13 +85,13 @@ class AgentMessage(BaseModel):
     def is_expired(self) -> bool:
         """Check if the message has expired."""
         if self.expires_at:
-            return datetime.now() > self.expires_at
+            return datetime.now(UTC) > self.expires_at
         return False
 
     def mark_delivered(self) -> None:
         """Mark message as delivered."""
         self.status = MessageStatus.DELIVERED
-        self.delivered_at = datetime.now()
+        self.delivered_at = datetime.now(UTC)
 
     def mark_completed(self) -> None:
         """Mark message as completed."""
@@ -169,18 +169,18 @@ class MessageThread(BaseModel):
     Groups related messages together for conversation tracking.
     """
 
-    id: str = Field(default_factory=lambda: f"thread_{datetime.now().timestamp()}")
+    id: str = Field(default_factory=lambda: f"thread_{datetime.now(UTC).timestamp()}")
     subject: str
     participants: list[str] = Field(default_factory=list)  # Agent IDs
     messages: list[str] = Field(default_factory=list)  # Message IDs
-    created_at: datetime = Field(default_factory=datetime.now)
-    last_activity: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_activity: datetime = Field(default_factory=lambda: datetime.now(UTC))
     is_closed: bool = False
 
     def add_message(self, message_id: str) -> None:
         """Add a message to the thread."""
         self.messages.append(message_id)
-        self.last_activity = datetime.now()
+        self.last_activity = datetime.now(UTC)
 
     def add_participant(self, agent_id: str) -> None:
         """Add a participant to the thread."""

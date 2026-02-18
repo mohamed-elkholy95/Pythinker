@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -24,7 +24,7 @@ class RecoveryMonitor:
         self._history_limit = history_limit
 
     def record_open(self, name: str) -> None:
-        self._open_times[name] = datetime.now()
+        self._open_times[name] = datetime.now(UTC)
 
     def record_recovery(self, name: str, success: bool) -> RecoveryStats:
         stats = self._stats.setdefault(name, RecoveryStats())
@@ -36,7 +36,7 @@ class RecoveryMonitor:
 
         opened_at = self._open_times.get(name)
         if opened_at and success:
-            delta = (datetime.now() - opened_at).total_seconds()
+            delta = (datetime.now(UTC) - opened_at).total_seconds()
             stats.last_recovery_seconds = delta
             # Incremental MTTR average
             if stats.mttr_seconds == 0.0:

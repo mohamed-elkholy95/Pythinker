@@ -8,7 +8,7 @@ including tokens, rate limits, and time budgets.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, ClassVar
 
@@ -96,7 +96,7 @@ class ResourceBudget:
     def should_reset(self) -> bool:
         """Check if resources should be reset."""
         if self.reset_at:
-            return datetime.now() >= self.reset_at
+            return datetime.now(UTC) >= self.reset_at
         return False
 
 
@@ -108,7 +108,7 @@ class ScheduledTask:
     description: str
     priority: SchedulePriority = SchedulePriority.NORMAL
     resource_requirements: dict[ResourceType, float] = field(default_factory=dict)
-    scheduled_at: datetime = field(default_factory=datetime.now)
+    scheduled_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     execute_after: datetime | None = None
     deadline: datetime | None = None
     retry_count: int = 0
@@ -118,13 +118,13 @@ class ScheduledTask:
     def is_ready(self) -> bool:
         """Check if task is ready to execute."""
         if self.execute_after:
-            return datetime.now() >= self.execute_after
+            return datetime.now(UTC) >= self.execute_after
         return True
 
     def is_overdue(self) -> bool:
         """Check if task is past deadline."""
         if self.deadline:
-            return datetime.now() > self.deadline
+            return datetime.now(UTC) > self.deadline
         return False
 
     def can_retry(self) -> bool:
@@ -186,12 +186,12 @@ class ResourceScheduler:
             ResourceType.TOKENS: ResourceBudget(
                 resource_type=ResourceType.TOKENS,
                 total=token_budget,
-                reset_at=datetime.now() + timedelta(minutes=1),
+                reset_at=datetime.now(UTC) + timedelta(minutes=1),
             ),
             ResourceType.API_CALLS: ResourceBudget(
                 resource_type=ResourceType.API_CALLS,
                 total=api_call_limit,
-                reset_at=datetime.now() + timedelta(minutes=1),
+                reset_at=datetime.now(UTC) + timedelta(minutes=1),
             ),
             ResourceType.CONCURRENT_TASKS: ResourceBudget(
                 resource_type=ResourceType.CONCURRENT_TASKS,
@@ -307,7 +307,7 @@ class ResourceScheduler:
             self._metrics.tasks_executed += 1
 
             # Update wait time metric
-            wait_ms = (datetime.now() - task.scheduled_at).total_seconds() * 1000
+            wait_ms = (datetime.now(UTC) - task.scheduled_at).total_seconds() * 1000
             alpha = 0.2
             self._metrics.average_wait_ms = alpha * wait_ms + (1 - alpha) * self._metrics.average_wait_ms
 
@@ -342,7 +342,7 @@ class ResourceScheduler:
                 jitter=True,
             )
             delay_seconds = calculate_delay(task.retry_count + 1, retry_config)
-            task.execute_after = datetime.now() + timedelta(seconds=delay_seconds)
+            task.execute_after = datetime.now(UTC) + timedelta(seconds=delay_seconds)
 
             self._queue.append(task)
             return True
@@ -456,7 +456,7 @@ class ResourceScheduler:
 
     def _reset_budgets_if_needed(self) -> None:
         """Reset budgets that are due for reset."""
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         for budget in self._budgets.values():
             if budget.should_reset():

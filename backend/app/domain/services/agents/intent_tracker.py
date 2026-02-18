@@ -14,7 +14,7 @@ and correction guidance.
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, ClassVar
 
@@ -54,7 +54,7 @@ class UserIntent:
     implicit_constraints: list[str]  # Inferred constraints from context
     preferences: dict[str, str]  # Format, style, etc.
     original_prompt: str
-    extracted_at: datetime = field(default_factory=datetime.now)
+    extracted_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -78,7 +78,7 @@ class IntentTrackingResult:
     drift_alerts: list[DriftAlert]
     on_track: bool
     guidance: str | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def needs_correction(self) -> bool:
@@ -358,7 +358,7 @@ class IntentTracker:
                 "step_id": step_id,
                 "requirement": requirement,
                 "summary": work_summary,
-                "timestamp": datetime.now(),
+                "timestamp": datetime.now(UTC),
             }
         )
 

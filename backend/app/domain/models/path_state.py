@@ -6,7 +6,7 @@ scoring them, and selecting the best approach for complex tasks.
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -85,32 +85,32 @@ class PathState:
     score_breakdown: dict[str, float] = field(default_factory=dict)
 
     # Timestamps
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
     def start(self) -> None:
         """Mark path as started."""
         self.status = PathStatus.EXPLORING
-        self.started_at = datetime.now()
+        self.started_at = datetime.now(UTC)
 
     def complete(self, final_result: str) -> None:
         """Mark path as completed."""
         self.status = PathStatus.COMPLETED
         self.final_result = final_result
-        self.completed_at = datetime.now()
+        self.completed_at = datetime.now(UTC)
 
     def fail(self, reason: str) -> None:
         """Mark path as failed."""
         self.status = PathStatus.FAILED
         self.final_result = f"Failed: {reason}"
-        self.completed_at = datetime.now()
+        self.completed_at = datetime.now(UTC)
 
     def abandon(self, reason: str) -> None:
         """Abandon path due to low score."""
         self.status = PathStatus.ABANDONED
         self.final_result = f"Abandoned: {reason}"
-        self.completed_at = datetime.now()
+        self.completed_at = datetime.now(UTC)
 
     def select(self) -> None:
         """Mark path as the selected winner."""
@@ -119,7 +119,7 @@ class PathState:
     def add_result(self, step_id: str, result: Any, confidence: float = 0.8) -> None:
         """Add an intermediate result."""
         self.intermediate_results.append(
-            {"step_id": step_id, "result": result, "confidence": confidence, "timestamp": datetime.now().isoformat()}
+            {"step_id": step_id, "result": result, "confidence": confidence, "timestamp": datetime.now(UTC).isoformat()}
         )
         self.metrics.confidence_scores.append(confidence)
         self.metrics.steps_completed += 1

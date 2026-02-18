@@ -15,7 +15,7 @@ import logging
 import threading
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional
 
@@ -40,7 +40,7 @@ class MetricEvent:
 
     metric_type: MetricType
     value: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     labels: dict[str, str] = field(default_factory=dict)
 
 
@@ -165,7 +165,7 @@ class MetricsCollector:
             return
 
         self._initialized = True
-        self._start_time = datetime.now()
+        self._start_time = datetime.now(UTC)
 
         # Aggregate metrics
         self.tokens = TokenMetrics()
@@ -176,7 +176,7 @@ class MetricsCollector:
         # Time-series data (last hour, 1-minute buckets)
         self._time_series: deque = deque(maxlen=60)
         self._current_bucket: dict[str, Any] = self._new_bucket()
-        self._bucket_start = datetime.now()
+        self._bucket_start = datetime.now(UTC)
 
         # Error tracking
         self._errors: deque = deque(maxlen=100)
@@ -189,7 +189,7 @@ class MetricsCollector:
     def _new_bucket(self) -> dict[str, Any]:
         """Create a new time bucket for metrics."""
         return {
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(UTC),
             "token_usage": 0,
             "cache_hits": 0,
             "cache_misses": 0,
@@ -201,7 +201,7 @@ class MetricsCollector:
 
     def _rotate_bucket_if_needed(self) -> None:
         """Rotate to new bucket if current one is > 1 minute old."""
-        now = datetime.now()
+        now = datetime.now(UTC)
         if (now - self._bucket_start) >= timedelta(minutes=1):
             self._time_series.append(self._current_bucket)
             self._current_bucket = self._new_bucket()
@@ -301,7 +301,7 @@ class MetricsCollector:
     def record_error(self, error_type: str, message: str, context: dict | None = None) -> None:
         """Record an error event."""
         self._errors.append(
-            {"timestamp": datetime.now(), "type": error_type, "message": message[:200], "context": context or {}}
+            {"timestamp": datetime.now(UTC), "type": error_type, "message": message[:200], "context": context or {}}
         )
 
         self._rotate_bucket_if_needed()
@@ -321,7 +321,7 @@ class MetricsCollector:
 
     def get_summary(self) -> dict[str, Any]:
         """Get comprehensive metrics summary."""
-        uptime = datetime.now() - self._start_time
+        uptime = datetime.now(UTC) - self._start_time
 
         return {
             "uptime_seconds": uptime.total_seconds(),
@@ -382,7 +382,7 @@ class MetricsCollector:
         self._current_bucket = self._new_bucket()
         self._errors.clear()
         self._toolset_reductions.clear()
-        self._start_time = datetime.now()
+        self._start_time = datetime.now(UTC)
         logger.info("Metrics reset")
 
     def export_prometheus(self) -> str:

@@ -6,7 +6,7 @@ Uses in-memory storage with automatic cleanup of completed sessions.
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from app.domain.services.flows.deep_research import DeepResearchFlow
@@ -46,7 +46,7 @@ class DeepResearchManager:
         """
         async with self._lock:
             self._sessions[session_id] = flow
-            self._session_times[session_id] = datetime.now()
+            self._session_times[session_id] = datetime.now(UTC)
             logger.info(f"Registered deep research for session {session_id}")
 
             # Start cleanup task if not running
@@ -133,7 +133,7 @@ class DeepResearchManager:
 
     async def _cleanup_stale_sessions(self) -> None:
         """Remove sessions that have timed out."""
-        now = datetime.now()
+        now = datetime.now(UTC)
         timeout = timedelta(minutes=SESSION_TIMEOUT_MINUTES)
 
         async with self._lock:

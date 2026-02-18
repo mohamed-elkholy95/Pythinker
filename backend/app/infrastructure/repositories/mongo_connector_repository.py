@@ -27,7 +27,9 @@ class MongoConnectorRepository:
         return document.to_domain() if document else None
 
     async def get_by_type(self, connector_type: ConnectorType) -> list[Connector]:
-        documents = await ConnectorDocument.find(ConnectorDocument.connector_type == connector_type.value).to_list()
+        documents = (
+            await ConnectorDocument.find(ConnectorDocument.connector_type == connector_type.value).limit(500).to_list()
+        )
         return [doc.to_domain() for doc in documents]
 
     async def create(self, connector: Connector) -> Connector:
@@ -68,7 +70,7 @@ class MongoConnectorRepository:
                 {"name": {"$regex": escaped_query, "$options": "i"}},
                 {"description": {"$regex": escaped_query, "$options": "i"}},
             ]
-        documents = await ConnectorDocument.find(filters).to_list()
+        documents = await ConnectorDocument.find(filters).limit(500).to_list()
         return [doc.to_domain() for doc in documents]
 
 
@@ -76,7 +78,7 @@ class MongoUserConnectorRepository:
     """MongoDB implementation of UserConnectorRepository."""
 
     async def get_by_user(self, user_id: str) -> list[UserConnector]:
-        documents = await UserConnectorDocument.find(UserConnectorDocument.user_id == user_id).to_list()
+        documents = await UserConnectorDocument.find(UserConnectorDocument.user_id == user_id).limit(500).to_list()
         return [doc.to_domain() for doc in documents]
 
     async def get_by_id(self, user_connector_id: str) -> UserConnector | None:

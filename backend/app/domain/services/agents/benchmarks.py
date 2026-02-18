@@ -14,7 +14,7 @@ import statistics
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -43,7 +43,7 @@ class BenchmarkResult:
     metrics: dict[str, Any] = field(default_factory=dict)
     duration_ms: float = 0
     error: str | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -52,7 +52,7 @@ class BenchmarkSuite:
 
     name: str
     results: list[BenchmarkResult] = field(default_factory=list)
-    started_at: datetime = field(default_factory=datetime.now)
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
 
     @property
@@ -135,7 +135,7 @@ class AgentBenchmarks:
                 )
                 logger.error(f"Benchmark {name} failed: {e}")
 
-        suite.completed_at = datetime.now()
+        suite.completed_at = datetime.now(UTC)
         return suite
 
     async def run_category(self, category: BenchmarkCategory) -> BenchmarkSuite:
@@ -168,7 +168,7 @@ class AgentBenchmarks:
                         BenchmarkResult(name=name, category=category, passed=False, score=0.0, error=str(e))
                     )
 
-        suite.completed_at = datetime.now()
+        suite.completed_at = datetime.now(UTC)
         return suite
 
     # ==================== Token Efficiency Benchmarks ====================

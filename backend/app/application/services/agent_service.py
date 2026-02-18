@@ -943,7 +943,7 @@ class AgentService:
         assistant_event = MessageEvent(role="assistant", message=response)
         done_event = DoneEvent()
 
-        now = timestamp or datetime.now()
+        now = timestamp or datetime.now(UTC)
         await self._session_repository.update_latest_message(session_id, message, now)
         await self._session_repository.add_event(session_id, user_event)
         await self._session_repository.add_event(session_id, assistant_event)

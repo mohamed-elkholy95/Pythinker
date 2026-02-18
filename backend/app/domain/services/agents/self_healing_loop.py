@@ -10,7 +10,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, TypeVar
 
@@ -46,7 +46,7 @@ class RecoveryAttempt:
     strategy: RecoveryStrategy
     error_type: ErrorType
     original_error: str
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     success: bool = False
     result: str | None = None
     duration_ms: int | None = None
@@ -74,7 +74,7 @@ class SelfReflectionResult:
     recommendations: list[str]
     should_adjust_strategy: bool = False
     suggested_strategy: RecoveryStrategy | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 # Strategy selection based on error type
@@ -355,7 +355,7 @@ class SelfHealingLoop:
         Returns:
             Tuple of (success, result, attempt_record)
         """
-        start_time = datetime.now()
+        start_time = datetime.now(UTC)
 
         # Track the error pattern
         self._track_error_pattern(error_context)
@@ -394,7 +394,7 @@ class SelfHealingLoop:
 
             # Record success
             attempt.success = True
-            attempt.duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+            attempt.duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
             # Learn from success
             error_key = f"{error_context.error_type.value}:{tool_name or 'general'}"
@@ -409,7 +409,7 @@ class SelfHealingLoop:
             # Record failure
             attempt.success = False
             attempt.result = str(e)[:200]
-            attempt.duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+            attempt.duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
             logger.warning(f"Recovery attempt failed with strategy {strategy.value}: {e}")
 
