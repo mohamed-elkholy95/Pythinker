@@ -20,11 +20,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount, computed } from 'vue';
+import { ref, watch, onBeforeUnmount, computed, nextTick } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { normalizeVerificationMarkers } from './reportContentNormalizer';
+import { normalizeVerificationMarkers, linkifyInlineCitations } from './reportContentNormalizer';
 import { createTiptapDocumentExtensions } from './tiptapDocumentExtensions';
 
 const props = defineProps<{
@@ -41,13 +41,41 @@ const _emit = defineEmits<{
 
 const contentRef = ref<HTMLElement | null>(null);
 
-// Convert markdown to HTML
+// Convert markdown to HTML, applying citation linkification before marked.parse()
 const htmlContent = computed(() => {
   if (!props.content) return '';
   const normalizedMarkdown = normalizeVerificationMarkers(props.content);
-  const rawHtml = marked.parse(normalizedMarkdown, { async: false, breaks: true, gfm: true }) as string;
+  const linkedMarkdown = linkifyInlineCitations(normalizedMarkdown);
+  const rawHtml = marked.parse(linkedMarkdown, { async: false, breaks: true, gfm: true }) as string;
   return DOMPurify.sanitize(rawHtml);
 });
+
+// After TipTap renders, stamp id="ref-N" onto ordered list items inside the
+// References / Sources / Bibliography section. TipTap strips unknown id attrs
+// from its schema nodes, so we must do this via direct DOM mutation.
+const addReferenceAnchors = () => {
+  const proseMirror = contentRef.value?.querySelector('.ProseMirror');
+  if (!proseMirror) return;
+
+  const refHeadingRe = /^(references?|sources?|bibliography|citations?)$/i;
+  const headings = Array.from(proseMirror.querySelectorAll('h1, h2, h3, h4'));
+
+  for (const heading of headings) {
+    if (!refHeadingRe.test(heading.textContent?.trim() ?? '')) continue;
+
+    let sibling = heading.nextElementSibling;
+    while (sibling) {
+      if (sibling.tagName === 'OL') {
+        sibling.querySelectorAll('li').forEach((item, index) => {
+          item.setAttribute('id', `ref-${index + 1}`);
+        });
+        break;
+      }
+      if (/^H[1-4]$/.test(sibling.tagName)) break;
+      sibling = sibling.nextElementSibling;
+    }
+  }
+};
 
 const editor = useEditor({
   content: htmlContent.value,
@@ -58,6 +86,8 @@ const editor = useEditor({
       class: 'focus:outline-none min-h-full',
     },
   },
+  onCreate: () => { nextTick(addReferenceAnchors); },
+  onUpdate: () => { nextTick(addReferenceAnchors); },
 });
 
 // Watch for content changes - convert markdown to HTML
@@ -238,6 +268,36 @@ defineExpose({
 
 :deep(.verification-marker:hover) {
   opacity: 1;
+}
+
+/* ===== INLINE CITATION LINKS ===== */
+/* Target by href attr so the style is robust even if TipTap rewrites the class */
+:deep(a[href^="#ref-"]) {
+  color: #1a73e8;
+  font-size: 0.78em;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 0 0.05em;
+  border-radius: 3px;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+  line-height: 1;
+}
+
+:deep(a[href^="#ref-"]:hover) {
+  background-color: rgba(26, 115, 232, 0.12);
+  opacity: 0.85;
+  text-decoration: none;
+}
+
+:global(.dark) :deep(a[href^="#ref-"]),
+:global([data-theme='dark']) :deep(a[href^="#ref-"]) {
+  color: #58a6ff;
+}
+
+:global(.dark) :deep(a[href^="#ref-"]:hover),
+:global([data-theme='dark']) :deep(a[href^="#ref-"]:hover) {
+  background-color: rgba(88, 166, 255, 0.12);
 }
 
 :deep(.prose hr) {

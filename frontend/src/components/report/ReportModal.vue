@@ -126,7 +126,7 @@
       <!-- Content Area -->
       <div class="content-wrapper">
         <!-- Main Document Content -->
-        <div class="document-container" ref="documentContainerRef" @scroll="handleScroll" @click="showTocSidebar = false">
+        <div class="document-container" ref="documentContainerRef" @scroll="handleScroll" @click.capture="handleCitationClick" @click="showTocSidebar = false">
           <div class="document-content">
             <!-- Document Title -->
             <h1 class="doc-title">{{ report?.title }}</h1>
@@ -363,6 +363,20 @@ const scrollToTop = () => {
   if (container) {
     container.scrollTo({ top: 0, behavior: 'smooth' });
   }
+};
+
+// Intercept clicks on inline citation links (href="#ref-N") before TipTap's
+// openOnClick handler fires, then scroll to the corresponding reference item.
+const handleCitationClick = (e: MouseEvent) => {
+  const anchor = (e.target as HTMLElement).closest('a[href^="#ref-"]') as HTMLAnchorElement | null;
+  if (!anchor) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  const refId = anchor.getAttribute('href')!.slice(1); // strip leading '#'
+  const refEl = documentContainerRef.value?.querySelector(`[id="${refId}"]`) as HTMLElement | null;
+  refEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 // Truncate text with ellipsis
@@ -1017,6 +1031,33 @@ watch(isOpen, (newVal) => {
   height: auto;
   border-radius: 8px;
   margin: 24px 0;
+}
+
+/* ===== INLINE CITATION LINKS ===== */
+.doc-body :deep(a[href^="#ref-"]) {
+  color: #1a73e8;
+  font-size: 0.78em;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 0 0.05em;
+  border-radius: 3px;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.doc-body :deep(a[href^="#ref-"]:hover) {
+  background-color: rgba(26, 115, 232, 0.12);
+  opacity: 0.85;
+}
+
+:global(.dark) .doc-body :deep(a[href^="#ref-"]),
+:global([data-theme='dark']) .doc-body :deep(a[href^="#ref-"]) {
+  color: #58a6ff;
+}
+
+:global(.dark) .doc-body :deep(a[href^="#ref-"]:hover),
+:global([data-theme='dark']) .doc-body :deep(a[href^="#ref-"]:hover) {
+  background-color: rgba(88, 166, 255, 0.12);
 }
 
 /* ===== VERIFICATION MARKER ===== */
