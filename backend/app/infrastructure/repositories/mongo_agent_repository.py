@@ -2,6 +2,8 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
+from pymongo.errors import ConnectionFailure, OperationFailure
+
 from app.domain.exceptions.base import AgentNotFoundException
 from app.domain.models.agent import Agent
 from app.domain.models.memory import Memory
@@ -48,8 +50,8 @@ class WriteCoalescer:
                 await AgentDocument.find_one(AgentDocument.agent_id == agent_id).update(
                     {"$set": {f"memories.{name}": memory, "updated_at": datetime.now(UTC)}}
                 )
-            except Exception as e:
-                logger.warning(f"Coalesced write failed for {key}: {e}")
+            except (ConnectionFailure, OperationFailure) as e:
+                logger.warning("Coalesced write failed for %s: %s", key, e)
 
 
 # Global write coalescer instance

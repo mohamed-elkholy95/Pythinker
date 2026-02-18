@@ -16,6 +16,7 @@ from typing import ClassVar
 from beanie import Document
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import Field
+from pymongo.errors import DuplicateKeyError
 
 from app.domain.exceptions.base import DuplicateResourceException
 from app.domain.models.agent_event import AgentEvent, AgentEventType
@@ -89,11 +90,8 @@ class EventStoreRepository:
 
             logger.debug(f"Appended event {event.event_type} (seq={event.sequence}) for session {event.session_id}")
 
-        except Exception as e:
-            if "duplicate key" in str(e).lower():
-                raise DuplicateResourceException(f"Event {event.event_id} already exists") from e
-            logger.error(f"Failed to append event {event.event_id}: {e}", exc_info=True)
-            raise
+        except DuplicateKeyError as e:
+            raise DuplicateResourceException(f"Event {event.event_id} already exists") from e
 
     async def get_events_by_session(
         self,

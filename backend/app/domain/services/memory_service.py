@@ -7,15 +7,19 @@ Provides high-level operations for:
 - Memory consolidation and cleanup
 """
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from openai import APIConnectionError as OpenAIConnectionError
+from openai import APIError as OpenAIAPIError
 from openai import AsyncOpenAI
 
 from app.core.async_utils import gather_compat
+from app.domain.exceptions.base import IntegrationException, LLMException
 from app.domain.external.llm import LLM
 from app.domain.models.long_term_memory import (
     ExtractedMemory,
@@ -185,8 +189,10 @@ class MemoryService:
                 # Sparse vector (self-hosted BM25)
                 sparse_vector = self._generate_sparse_vector(content)
 
-            except Exception as e:
-                logger.warning(f"Failed to generate embedding: {e}")
+            except (OpenAIAPIError, OpenAIConnectionError) as e:
+                logger.warning("Embedding API error during store_memory: %s", e)
+            except (ValueError, TypeError) as e:
+                logger.warning("Invalid input for embedding generation: %s", e)
 
         # Create memory entry with Phase 1 metadata
         memory = MemoryEntry(
@@ -252,7 +258,11 @@ class MemoryService:
                         MemoryUpdate(sync_state="pending"),
                     )
                 except Exception as e:
-                    logger.error(f"Failed to create outbox entry for memory {created_memory.id}: {e}")
+                    # Broad catch justified: outbox write is non-critical and must
+                    # not prevent the primary MongoDB write from succeeding. The
+                    # outbox layer may raise driver errors (pymongo) or validation
+                    # errors that we cannot enumerate exhaustively.
+                    logger.error("Failed to create outbox entry for memory %s: %s", created_memory.id, e)
                     # Mark as failed
                     await self._repository.update(
                         created_memory.id,
@@ -295,9 +305,9 @@ class MemoryService:
         # MongoDB write first to get the generated ID
         try:
             mongo_result = await self._repository.create(memory)
-        except Exception as e:
-            logger.error(f"MongoDB write failed: {e}")
-            raise
+        except (OSError, ConnectionError) as e:
+            logger.error("MongoDB connection failed during parallel store: %s", e)
+            raise IntegrationException(f"MongoDB unavailable: {e}", service="mongodb") from e
 
         # Phase 2: Write to outbox for async sync
         if self._outbox_repo:
@@ -325,7 +335,10 @@ class MemoryService:
                     MemoryUpdate(sync_state="pending"),
                 )
             except Exception as e:
-                logger.error(f"Memory created in MongoDB but outbox write failed: {e}")
+                # Broad catch justified: outbox write is non-critical and must
+                # not roll back the successful MongoDB write. The outbox layer may
+                # raise driver errors (pymongo) or validation errors.
+                logger.error("Memory created in MongoDB but outbox write failed: %s", e)
                 # Mark as failed
                 await self._repository.update(
                     mongo_result.id,
@@ -379,8 +392,8 @@ class MemoryService:
                     },
                 )
                 created.append(memory)
-            except Exception as e:
-                logger.warning(f"Failed to store extracted memory: {e}")
+            except (IntegrationException, OSError, ValueError) as e:
+                logger.warning("Failed to store extracted memory: %s", e)
 
         return created
 
@@ -422,8 +435,8 @@ class MemoryService:
                         "confidence": extracted.confidence,
                     },
                 )
-            except Exception as e:
-                logger.warning(f"Failed to store extracted memory: {e}")
+            except (IntegrationException, OSError, ValueError) as e:
+                logger.warning("Failed to store extracted memory in parallel: %s", e)
                 return None
 
         # Create tasks for all memories
@@ -516,8 +529,8 @@ class MemoryService:
                                 )
                             )
 
-            except Exception as e:
-                logger.warning(f"vector store search failed, falling back to MongoDB: {e}")
+            except (IntegrationException, OpenAIAPIError, OpenAIConnectionError, OSError, ValueError) as e:
+                logger.warning("Vector store search failed, falling back to MongoDB: %s", e)
 
         # Fallback to MongoDB vector search (limited to 500 candidates)
         if not results and self._llm:
@@ -533,8 +546,8 @@ class MemoryService:
                     memory_types=memory_types,
                 )
 
-            except Exception as e:
-                logger.warning(f"MongoDB vector search failed, falling back to keyword: {e}")
+            except (IntegrationException, OpenAIAPIError, OpenAIConnectionError, OSError, ValueError) as e:
+                logger.warning("MongoDB vector search failed, falling back to keyword: %s", e)
 
         # Final fallback to keyword search
         if not results:
@@ -581,8 +594,8 @@ class MemoryService:
                     # Reranker not available, just truncate
                     results = results[:limit]
 
-            except Exception as e:
-                logger.debug(f"Reranking failed, using original results: {e}")
+            except (ImportError, ValueError, RuntimeError) as e:
+                logger.debug("Reranking failed, using original results: %s", e)
                 results = results[:limit]
         else:
             results = results[:limit]
@@ -605,8 +618,8 @@ class MemoryService:
                 results = diversified
                 logger.debug(f"Applied MMR diversification to {len(results)} memories")
 
-            except Exception as e:
-                logger.debug(f"MMR diversification failed, using original results: {e}")
+            except (ImportError, ValueError, RuntimeError, OpenAIAPIError, OpenAIConnectionError) as e:
+                logger.debug("MMR diversification failed, using original results: %s", e)
 
         # Record access for all retrieved memories
         for result in results:
@@ -734,8 +747,8 @@ class MemoryService:
             try:
                 llm_extracted = await self._llm_extract_memories(full_text)
                 extracted.extend(llm_extracted)
-            except Exception as e:
-                logger.warning(f"LLM memory extraction failed: {e}")
+            except (LLMException, IntegrationException, OpenAIAPIError, OpenAIConnectionError, ValueError) as e:
+                logger.warning("LLM memory extraction failed: %s", e)
 
         # Deduplicate
         seen_content = set()
@@ -900,7 +913,10 @@ class MemoryService:
                     )
                 )
             except Exception as e:
-                logger.warning(f"Failed to create outbox delete entry for memory {memory_id}: {e}")
+                # Broad catch justified: outbox delete is non-critical; the
+                # primary MongoDB delete must proceed regardless. Vector store
+                # orphans are cleaned up by the reconciliation worker.
+                logger.warning("Failed to create outbox delete entry for memory %s: %s", memory_id, e)
 
         # Delete from MongoDB
         return await self._repository.delete(memory_id)
@@ -932,7 +948,9 @@ class MemoryService:
                     )
                 )
             except Exception as e:
-                logger.warning(f"Failed to create outbox batch delete entry for user {user_id}: {e}")
+                # Broad catch justified: outbox batch delete is non-critical; the
+                # primary MongoDB delete must proceed. Same rationale as single delete.
+                logger.warning("Failed to create outbox batch delete entry for user %s: %s", user_id, e)
 
         # Delete from MongoDB
         return await self._repository.delete_by_user(user_id)
@@ -987,8 +1005,8 @@ class MemoryService:
 
                 resolver = get_contradiction_resolver(llm=self._llm)
                 evidence_list = await resolver.detect_contradictions(evidence_list)
-            except Exception as e:
-                logger.debug(f"Contradiction detection failed: {e}")
+            except (ImportError, LLMException, IntegrationException, ValueError) as e:
+                logger.debug("Contradiction detection failed: %s", e)
 
         # Phase 4: Filter rejected evidence
         evidence_list = [ev for ev in evidence_list if not ev.should_reject]
@@ -1052,7 +1070,7 @@ class MemoryService:
                 artifact_types=["task_outcome", "procedure"],
             )
         except Exception as e:
-            logger.warning(f"Similar task retrieval failed: {e}")
+            logger.warning("Similar task retrieval failed: %s", e)
             return []
 
     async def store_task_artifact(
@@ -1097,7 +1115,7 @@ class MemoryService:
             )
             logger.debug(f"Stored task artifact for session {session_id}")
         except Exception as e:
-            logger.debug(f"Task artifact storage failed (non-critical): {e}")
+            logger.debug("Task artifact storage failed (non-critical): %s", e)
 
     async def get_error_context(
         self,
@@ -1148,7 +1166,7 @@ class MemoryService:
 
             return "\n".join(lines)
         except Exception as e:
-            logger.debug(f"Error context retrieval failed: {e}")
+            logger.debug("Error context retrieval failed: %s", e)
             return ""
 
     async def store_session_summary(
@@ -1238,7 +1256,7 @@ Provide a concise summary (max 200 words)."""
             response = await self._llm.ask(messages=[{"role": "user", "content": prompt}])
             return response.get("content", outcome)
         except Exception as e:
-            logger.warning(f"Session summary generation failed: {e}")
+            logger.warning("Session summary generation failed: %s", e)
             return f"Outcome: {outcome}\nMessages: {len(conversation)}"
 
     # Private helper methods
@@ -1322,8 +1340,8 @@ Provide a concise summary (max 200 words)."""
                 if response.data and len(response.data) > 0:
                     return response.data[0].embedding
 
-            except Exception as e:
-                logger.warning(f"Embedding API failed: {e}, using fallback")
+            except (OpenAIAPIError, OpenAIConnectionError) as e:
+                logger.warning("Embedding API failed, using fallback: %s", e)
 
         # Fallback: Simple hash-based embedding
         # Note: Uses 1536 dimensions to match vector store collection config
@@ -1427,8 +1445,6 @@ Only extract genuinely useful information. Return empty array if nothing notable
             )
 
             content = response.get("content", "[]")
-            import json
-
             items = json.loads(content)
 
             if not isinstance(items, list):
@@ -1460,13 +1476,17 @@ Only extract genuinely useful information. Return empty array if nothing notable
 
             return extracted
 
-        except Exception as e:
-            from app.infrastructure.external.key_pool import APIKeysExhaustedError
+        except LLMException as e:
+            # LLMKeysExhaustedError inherits from LLMException — quiet log for key exhaustion
+            from app.domain.exceptions.base import LLMKeysExhaustedError
 
-            if isinstance(e, APIKeysExhaustedError):
-                logger.debug("LLM extraction skipped: %s", e)
+            if isinstance(e, LLMKeysExhaustedError):
+                logger.debug("LLM extraction skipped (keys exhausted): %s", e)
             else:
-                logger.warning(f"LLM extraction failed: {e}")
+                logger.warning("LLM extraction failed: %s", e)
+            return []
+        except (IntegrationException, OpenAIAPIError, OpenAIConnectionError, json.JSONDecodeError) as e:
+            logger.warning("LLM extraction failed: %s", e)
             return []
 
     def _text_similarity(self, text1: str, text2: str) -> float:
@@ -1524,7 +1544,7 @@ class ContextChunk:
     id: str
     summary: str
     message_range: tuple  # (start_idx, end_idx)
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     token_estimate: int = 0
     relevance_tags: list[str] = field(default_factory=list)
 
@@ -1650,8 +1670,8 @@ class ContextEngineeringService:
 
             return chunk
 
-        except Exception as e:
-            logger.error(f"Summarization failed: {e}")
+        except (LLMException, IntegrationException, OpenAIAPIError, OpenAIConnectionError) as e:
+            logger.error("Summarization failed: %s", e)
             return None
 
     async def get_relevant_context(self, step_description: str, max_tokens: int | None = None) -> str:
@@ -1672,8 +1692,14 @@ class ContextEngineeringService:
         if self.config.use_semantic_retrieval and self._llm:
             try:
                 relevant_chunks = await self._semantic_retrieve(step_description, self.config.max_chunks_to_retrieve)
-            except Exception as e:
-                logger.warning(f"Semantic retrieval failed: {e}")
+            except (
+                LLMException,
+                IntegrationException,
+                OpenAIAPIError,
+                OpenAIConnectionError,
+                json.JSONDecodeError,
+            ) as e:
+                logger.warning("Semantic retrieval failed: %s", e)
                 if self.config.fallback_to_recent:
                     relevant_chunks = self._get_recent_chunks(self.config.max_chunks_to_retrieve)
                 else:
@@ -1844,8 +1870,6 @@ class ContextEngineeringService:
         response = await self._llm.ask(
             messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}
         )
-
-        import json
 
         content = response.get("content", "{}")
         try:

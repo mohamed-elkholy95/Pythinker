@@ -360,8 +360,8 @@ class OpenAILLM(LLM):
                 completion_tokens=completion_tokens,
                 cached_tokens=cached_tokens,
             )
-        except Exception as e:
-            logger.warning(f"Failed to record usage: {type(e).__name__}: {e}")
+        except Exception as e:  # Broad catch: telemetry must not crash the LLM call path
+            logger.warning("Failed to record usage: %s: %s", type(e).__name__, e)
 
     async def _record_usage_counts(
         self,
@@ -388,8 +388,8 @@ class OpenAILLM(LLM):
                 completion_tokens=completion_tokens,
                 cached_tokens=cached_tokens,
             )
-        except Exception as e:
-            logger.warning(f"Failed to record usage counts: {type(e).__name__}: {e}")
+        except Exception as e:  # Broad catch: telemetry must not crash the LLM call path
+            logger.warning("Failed to record usage counts: %s: %s", type(e).__name__, e)
 
     async def _record_stream_usage(
         self,
@@ -414,8 +414,8 @@ class OpenAILLM(LLM):
                 completion_tokens=completion_tokens,
                 cached_tokens=0,
             )
-        except Exception as e:
-            logger.warning(f"Failed to record streaming usage: {e}")
+        except Exception as e:  # Broad catch: telemetry must not crash the LLM call path
+            logger.warning("Failed to record streaming usage: %s", e)
 
     def _tools_to_text(self, tools: list[dict[str, Any]]) -> str:
         """Convert OpenAI tools format to text description for MLX models."""
@@ -1226,7 +1226,7 @@ To extract data from a webpage:
                     )
                 raise
 
-            except Exception as e:
+            except Exception as e:  # Broad catch: dispatches across OpenAI/GLM/MLX/Kimi provider errors
                 # Check for authentication errors (401) and rotate keys
                 error_msg = str(e).lower()
                 if "401" in error_msg or "unauthorized" in error_msg or "authentication" in error_msg:
@@ -1573,7 +1573,7 @@ To extract data from a webpage:
                 if attempt == max_retries:
                     raise
                 await asyncio.sleep(retry_after)
-            except Exception as e:
+            except Exception as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
                 error_msg = str(e).lower()
                 if any(
                     term in error_msg
@@ -1897,7 +1897,7 @@ To extract data from a webpage:
                         yield chunk
                     return
                 raise
-            except Exception as e:
+            except Exception as e:  # Broad catch: dispatches across multi-provider errors; re-raises on final attempt
                 error_msg = str(e).lower()
 
                 # Check for authentication errors (401) and rotate keys

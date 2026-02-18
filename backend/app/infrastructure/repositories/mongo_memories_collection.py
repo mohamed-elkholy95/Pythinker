@@ -9,9 +9,11 @@ from datetime import datetime
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.errors import ConnectionFailure, OperationFailure
 
 from app.domain.repositories.memories_collection import MemoriesCollectionProtocol
 from app.infrastructure.storage.mongodb import get_mongodb
+from app.infrastructure.utils.bson_helpers import normalize_doc_id, to_object_id
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,7 @@ class MongoMemoriesCollection(MemoriesCollectionProtocol):
 
         results = []
         async for doc in cursor:
-            doc["_id"] = str(doc["_id"])
+            normalize_doc_id(doc)
             results.append(doc)
         return results
 
@@ -83,7 +85,7 @@ class MongoMemoriesCollection(MemoriesCollectionProtocol):
 
         results = []
         async for doc in cursor:
-            doc["_id"] = str(doc["_id"])
+            normalize_doc_id(doc)
             results.append(doc)
         return results
 
@@ -95,8 +97,6 @@ class MongoMemoriesCollection(MemoriesCollectionProtocol):
         last_sync_attempt: datetime | None = None,
     ) -> bool:
         """Update sync state fields on a memory document."""
-        from bson import ObjectId
-
         collection = await self._ensure_collection()
 
         update_doc: dict[str, Any] = {"$set": {"sync_state": sync_state}}
@@ -107,8 +107,14 @@ class MongoMemoriesCollection(MemoriesCollectionProtocol):
         if sync_attempts_increment > 0:
             update_doc["$inc"] = {"sync_attempts": sync_attempts_increment}
 
+        try:
+            object_id = to_object_id(memory_id)
+        except ValueError:
+            logger.warning("Invalid ObjectId for memory_id=%r; skipping sync state update.", memory_id)
+            return False
+
         result = await collection.update_one(
-            {"_id": ObjectId(memory_id)},
+            {"_id": object_id},
             update_doc,
         )
         return result.modified_count > 0
@@ -125,7 +131,7 @@ class MongoMemoriesCollection(MemoriesCollectionProtocol):
             async for doc in collection.aggregate(pipeline):
                 state = doc["_id"] or "unknown"
                 sync_states[state] = doc["count"]
-        except Exception as exc:
+        except (ConnectionFailure, OperationFailure) as exc:
             logger.warning("Failed to aggregate memory sync states: %s", exc)
 
         return sync_states

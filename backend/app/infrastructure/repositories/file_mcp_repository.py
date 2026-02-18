@@ -19,7 +19,7 @@ class FileMCPRepository(MCPRepository):
         try:
             with open(file_path) as file:  # noqa: ASYNC230
                 return MCPConfig.model_validate_json(file.read())
-        except Exception as e:
-            logger.exception(f"Error reading MCP config file: {e}")
+        except (OSError, ValueError) as e:
+            logger.exception("Error reading MCP config file: %s", e)
 
         return MCPConfig(mcp_servers={})

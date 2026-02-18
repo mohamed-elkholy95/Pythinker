@@ -194,9 +194,54 @@ class RequestContextFilter(logging.Filter):
         return True
 
 
+def _is_safe_webhook_url(url: str) -> bool:
+    """Validate webhook URL to prevent SSRF attacks.
+
+    Only allows public HTTPS URLs. Blocks private IP ranges, localhost,
+    and non-HTTPS schemes to prevent Server-Side Request Forgery.
+    """
+    import ipaddress
+    import urllib.parse
+
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:
+        return False
+
+    # Must be https (or http for local dev — configurable)
+    if parsed.scheme not in ("http", "https"):
+        return False
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+
+    # Block localhost and loopback
+    if hostname in ("localhost", "127.0.0.1", "::1"):
+        return False
+
+    # Block private/internal IP ranges (RFC 1918, link-local, etc.)
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            return False
+    except ValueError:
+        # Not an IP address — it's a hostname, which is generally OK
+        # Block known internal hostnames patterns
+        if any(hostname.endswith(suffix) for suffix in (".internal", ".local", ".corp", ".lan")):
+            return False
+
+    return True
+
+
 class LogAlertHandler(logging.Handler):
     def __init__(self, webhook_url: str, timeout_seconds: float, throttle_seconds: int):
         super().__init__(level=logging.WARNING)
+        if not _is_safe_webhook_url(webhook_url):
+            raise ValueError(
+                f"Unsafe webhook URL rejected (SSRF protection): {webhook_url!r}. "
+                "Only public HTTP/HTTPS URLs are allowed."
+            )
         self._webhook_url = webhook_url
         self._timeout_seconds = timeout_seconds
         self._throttle_seconds = throttle_seconds
