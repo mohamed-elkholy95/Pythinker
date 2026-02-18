@@ -1,5 +1,6 @@
 <template>
   <div
+    v-bind="$attrs"
     ref="contentRef"
     :class="[
       'bg-[var(--background-white-main)]',
@@ -17,15 +18,49 @@
       ]"
     />
   </div>
+
+  <!-- Citation reference card — teleported to body so it escapes overflow clipping -->
+  <Teleport to="body">
+    <Transition name="cit-pop">
+      <a
+        v-if="citCard.visible"
+        class="cit-card"
+        :href="citCard.url || undefined"
+        target="_blank"
+        rel="noopener noreferrer"
+        :style="{ left: citCard.x + 'px', top: citCard.y + 'px' }"
+        @mouseenter="keepCard"
+        @mouseleave="scheduleHideCard"
+      >
+        <p class="cit-card-title">{{ citCard.title }}</p>
+        <div class="cit-card-footer">
+          <img
+            v-if="citCard.faviconUrl"
+            :src="citCard.faviconUrl"
+            class="cit-card-favicon"
+            @error="(e) => { (e.target as HTMLImageElement).style.display = 'none' }"
+          />
+          <span class="cit-card-domain">{{ citCard.domain }}</span>
+          <svg class="cit-card-arrow" viewBox="0 0 12 12" fill="none">
+            <path d="M2.5 9.5L9.5 2.5M9.5 2.5H5M9.5 2.5V7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </a>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount, computed, nextTick } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount, computed, nextTick, reactive } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { normalizeVerificationMarkers, linkifyInlineCitations } from './reportContentNormalizer';
 import { createTiptapDocumentExtensions } from './tiptapDocumentExtensions';
+import { getFaviconUrl } from '@/utils/toolDisplay';
+
+// Fragment root (div + Teleport) — disable auto attr-inheritance so $attrs go to the real div
+defineOptions({ inheritAttrs: false });
 
 const props = defineProps<{
   content: string;
@@ -41,6 +76,10 @@ const _emit = defineEmits<{
 
 const contentRef = ref<HTMLElement | null>(null);
 
+// ── Citation reference card state (declared early — template accesses this on first render) ──
+const citCard = reactive({ visible: false, title: '', domain: '', faviconUrl: '', url: '', x: 0, y: 0 });
+let _hideCardTimer: ReturnType<typeof setTimeout> | null = null;
+
 // Convert markdown to HTML, applying citation linkification before marked.parse()
 const htmlContent = computed(() => {
   if (!props.content) return '';
@@ -53,28 +92,76 @@ const htmlContent = computed(() => {
 // After TipTap renders, stamp id="ref-N" onto ordered list items inside the
 // References / Sources / Bibliography section. TipTap strips unknown id attrs
 // from its schema nodes, so we must do this via direct DOM mutation.
+// Also injects data-tooltip={title\ndomain} into inline citation badges.
 const addReferenceAnchors = () => {
   const proseMirror = contentRef.value?.querySelector('.ProseMirror');
   if (!proseMirror) return;
 
   const refHeadingRe = /^(references?|sources?|bibliography|citations?)$/i;
   const headings = Array.from(proseMirror.querySelectorAll('h1, h2, h3, h4'));
+  const refMap = new Map<string, { title: string; domain: string; url: string }>();
 
   for (const heading of headings) {
     if (!refHeadingRe.test(heading.textContent?.trim() ?? '')) continue;
 
     let sibling = heading.nextElementSibling;
     while (sibling) {
-      if (sibling.tagName === 'OL') {
-        sibling.querySelectorAll('li').forEach((item, index) => {
-          item.setAttribute('id', `ref-${index + 1}`);
-        });
-        break;
-      }
       if (/^H[1-4]$/.test(sibling.tagName)) break;
+
+      if (sibling.tagName === 'OL') {
+        // Ordered-list style: "1. [Link Title](URL)"
+        sibling.querySelectorAll('li').forEach((item, index) => {
+          const num = String(index + 1);
+          item.setAttribute('id', `ref-${num}`);
+          const anchor = item.querySelector('a[href]') as HTMLAnchorElement | null;
+          if (anchor?.href && !anchor.href.startsWith('#')) {
+            try {
+              const domain = new URL(anchor.href).hostname.replace(/^www\./, '');
+              const title = (anchor.textContent?.trim() || domain).slice(0, 64);
+              refMap.set(num, { title, domain, url: anchor.href });
+            } catch {
+              // ignore malformed URLs
+            }
+          }
+        });
+        break; // OL exhausts the references section
+      }
+
+      // Bracket-style: "[N] [Link Title](URL)" — rendered as a <p> by marked
+      if (sibling.tagName === 'P' || sibling.tagName === 'DIV') {
+        const text = sibling.textContent?.trimStart() ?? '';
+        const m = text.match(/^\[(\d{1,3})\]/);
+        if (m) {
+          const num = m[1];
+          sibling.setAttribute('id', `ref-${num}`);
+          const anchor = sibling.querySelector('a[href]') as HTMLAnchorElement | null;
+          if (anchor?.href && !anchor.href.startsWith('#')) {
+            try {
+              const domain = new URL(anchor.href).hostname.replace(/^www\./, '');
+              const title = (anchor.textContent?.trim() || domain).slice(0, 64);
+              refMap.set(num, { title, domain, url: anchor.href });
+            } catch {
+              // ignore malformed URLs
+            }
+          }
+        }
+      }
+
       sibling = sibling.nextElementSibling;
     }
   }
+
+  // Inject data-title + data-domain into inline citation badge anchors
+  proseMirror.querySelectorAll('a[href^="#ref-"]').forEach((badge) => {
+    const href = (badge as HTMLAnchorElement).getAttribute('href');
+    const num = href?.replace('#ref-', '');
+    if (num && refMap.has(num)) {
+      const { title, domain, url } = refMap.get(num)!;
+      (badge as HTMLElement).dataset.title = title;
+      (badge as HTMLElement).dataset.domain = domain;
+      (badge as HTMLElement).dataset.url = url;
+    }
+  });
 };
 
 const editor = useEditor({
@@ -104,7 +191,38 @@ watch(() => props.editable, (newEditable) => {
   }
 });
 
+// ── Citation reference card handlers ──────────────────────────────────────
+const keepCard = () => { if (_hideCardTimer) { clearTimeout(_hideCardTimer); _hideCardTimer = null; } };
+const scheduleHideCard = () => { _hideCardTimer = setTimeout(() => { citCard.visible = false; }, 120); };
+
+const _onBadgeOver = (e: MouseEvent) => {
+  const badge = (e.target as HTMLElement).closest('a[href^="#ref-"]') as HTMLElement | null;
+  if (!badge?.dataset.title && !badge?.dataset.domain) return;
+  keepCard();
+  const rect = badge.getBoundingClientRect();
+  citCard.title = badge.dataset.title ?? '';
+  citCard.domain = badge.dataset.domain ?? '';
+  citCard.faviconUrl = citCard.domain ? (getFaviconUrl(`https://${citCard.domain}`) ?? '') : '';
+  // Centre the card below the badge, clamped to viewport width
+  const cardWidth = 260;
+  citCard.x = Math.min(Math.max(rect.left + rect.width / 2 - cardWidth / 2, 8), window.innerWidth - cardWidth - 8);
+  citCard.y = rect.bottom + 8;
+  citCard.visible = true;
+};
+
+const _onBadgeOut = (e: MouseEvent) => {
+  if ((e.target as HTMLElement).closest('a[href^="#ref-"]')) scheduleHideCard();
+};
+
+onMounted(() => {
+  contentRef.value?.addEventListener('mouseover', _onBadgeOver);
+  contentRef.value?.addEventListener('mouseout', _onBadgeOut);
+});
+
 onBeforeUnmount(() => {
+  contentRef.value?.removeEventListener('mouseover', _onBadgeOver);
+  contentRef.value?.removeEventListener('mouseout', _onBadgeOut);
+  if (_hideCardTimer) clearTimeout(_hideCardTimer);
   editor.value?.destroy();
 });
 
@@ -270,35 +388,54 @@ defineExpose({
   opacity: 1;
 }
 
-/* ===== INLINE CITATION LINKS ===== */
-/* Target by href attr so the style is robust even if TipTap rewrites the class */
+/* ===== INLINE CITATION BADGE ===== */
+/* Default: outlined. Hover: fills solid black + popup card appears. */
 :deep(a[href^="#ref-"]) {
-  color: #1a73e8;
-  font-size: 0.78em;
-  font-weight: 600;
-  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3.5px;
+  background: transparent;
+  border: 1.5px solid rgba(0, 0, 0, 0.22);
+  border-radius: 5px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 9.5px;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 0;
+  text-decoration: none !important;
   cursor: pointer;
-  padding: 0 0.05em;
-  border-radius: 3px;
-  transition: background-color 0.15s ease, opacity 0.15s ease;
+  position: relative;
+  vertical-align: 0.25em;
   line-height: 1;
+  margin: 0 1.5px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  user-select: none;
 }
 
 :deep(a[href^="#ref-"]:hover) {
-  background-color: rgba(26, 115, 232, 0.12);
-  opacity: 0.85;
-  text-decoration: none;
+  background: #1c1c1e;
+  border-color: #1c1c1e;
+  color: #ffffff;
+  text-decoration: none !important;
 }
 
 :global(.dark) :deep(a[href^="#ref-"]),
 :global([data-theme='dark']) :deep(a[href^="#ref-"]) {
-  color: #58a6ff;
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.45);
 }
 
 :global(.dark) :deep(a[href^="#ref-"]:hover),
 :global([data-theme='dark']) :deep(a[href^="#ref-"]:hover) {
-  background-color: rgba(88, 166, 255, 0.12);
+  background: #e5e5e7;
+  border-color: #e5e5e7;
+  color: #1c1c1e;
 }
+
+/* no pseudo-element tooltip — handled by .cit-card teleported to body */
 
 :deep(.prose hr) {
   border-color: var(--border-main);
@@ -465,5 +602,111 @@ defineExpose({
 :deep(.prose-compact strong) {
   color: var(--text-primary);
   font-weight: 600;
+}
+</style>
+
+<!-- Global styles for the teleported citation card (no scoping — lives on <body>) -->
+<style>
+.cit-card {
+  position: fixed;
+  z-index: 99999;
+  width: 260px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  padding: 11px 14px 10px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 4px 6px rgba(0, 0, 0, 0.04),
+    0 12px 28px rgba(0, 0, 0, 0.10);
+  pointer-events: auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  text-decoration: none;
+  display: block;
+  cursor: pointer;
+}
+
+.cit-card-title {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #111111;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cit-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cit-card-favicon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.cit-card-domain {
+  font-size: 12px;
+  color: #666666;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cit-card-arrow {
+  width: 11px;
+  height: 11px;
+  color: #999999;
+  flex-shrink: 0;
+}
+
+/* ── Transition ── */
+.cit-pop-enter-active {
+  transition: opacity 0.16s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.cit-pop-leave-active {
+  transition: opacity 0.1s ease;
+}
+.cit-pop-enter-from {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+}
+.cit-pop-leave-to {
+  opacity: 0;
+}
+
+/* ── Dark mode ── */
+.dark .cit-card,
+[data-theme='dark'] .cit-card {
+  background: #1e1e20;
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 4px 6px rgba(0, 0, 0, 0.2),
+    0 12px 28px rgba(0, 0, 0, 0.4);
+}
+
+.dark .cit-card-title,
+[data-theme='dark'] .cit-card-title {
+  color: #f0f0f0;
+}
+
+.dark .cit-card-domain,
+[data-theme='dark'] .cit-card-domain {
+  color: rgba(240, 240, 240, 0.45);
+}
+
+.dark .cit-card-arrow,
+[data-theme='dark'] .cit-card-arrow {
+  color: rgba(240, 240, 240, 0.35);
 }
 </style>
