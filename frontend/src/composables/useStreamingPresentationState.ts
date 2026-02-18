@@ -3,6 +3,8 @@ import {
   STREAMING_FRAME_BATCH_MS,
   STREAMING_LABELS,
   STREAMING_STALE_TIMEOUT_MS,
+  THINKING_ROTATING_LABELS,
+  THINKING_ROTATION_INTERVAL_MS,
   type StreamPhase,
   type StreamingViewType,
   VALID_PHASE_TRANSITIONS
@@ -43,6 +45,31 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
   let frameBatchTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingPreviewText: string | null = null;
   let staleCheckTimer: ReturnType<typeof setTimeout> | null = null;
+  let labelRotationTimer: ReturnType<typeof setInterval> | null = null;
+
+  const thinkingLabelIndex = ref(0);
+
+  const startLabelRotation = (): void => {
+    if (labelRotationTimer !== null) return;
+    labelRotationTimer = setInterval(() => {
+      thinkingLabelIndex.value = (thinkingLabelIndex.value + 1) % THINKING_ROTATING_LABELS.length;
+    }, THINKING_ROTATION_INTERVAL_MS);
+  };
+
+  const stopLabelRotation = (): void => {
+    if (labelRotationTimer === null) return;
+    clearInterval(labelRotationTimer);
+    labelRotationTimer = null;
+    thinkingLabelIndex.value = 0;
+  };
+
+  watch(phase, (p) => {
+    if (p === 'thinking') {
+      startLabelRotation();
+    } else {
+      stopLabelRotation();
+    }
+  }, { immediate: true });
 
   const touch = (): void => {
     lastUpdatedAt.value = Date.now();
@@ -167,7 +194,7 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
     if (resolve(input.isInitializing)) return STREAMING_LABELS.initializing;
     if (phase.value === 'summarizing') return STREAMING_LABELS.summarizing_active;
     if (phase.value === 'summary_final') return STREAMING_LABELS.summarizing_final;
-    if (phase.value === 'thinking') return STREAMING_LABELS.thinking;
+    if (phase.value === 'thinking') return THINKING_ROTATING_LABELS[thinkingLabelIndex.value];
     if (resolve(input.isSessionComplete || false)) return STREAMING_LABELS.completed;
     if (toolDisplayName.value) return `Pythinker is using ${toolDisplayName.value}`;
     return STREAMING_LABELS.waiting;
@@ -230,6 +257,7 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
   );
 
   const cleanup = (): void => {
+    stopLabelRotation();
     if (staleCheckTimer !== null) {
       clearTimeout(staleCheckTimer);
       staleCheckTimer = null;

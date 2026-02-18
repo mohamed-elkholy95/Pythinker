@@ -184,7 +184,7 @@
             v-else-if="currentViewType === 'live_preview' && !isReplayMode"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
-            <!-- Placeholder for loading/text-only operations -->
+            <!-- Placeholder shown when no session (no LiveViewer mounted) -->
             <LoadingState
               v-if="showLivePreviewPlaceholder"
               :label="livePreviewPlaceholderLabel || 'Loading'"
@@ -193,7 +193,8 @@
               :animation="livePreviewPlaceholderAnimation || 'globe'"
             />
 
-            <!-- Live viewer when enabled -->
+            <!-- Live viewer — always mounted when session exists so its
+                 internal reconnect logic can work without deadlocking -->
             <LiveViewer
               v-else-if="livePreviewEnabled"
               :key="'live-preview-main-' + (sessionId || 'none')"
@@ -219,6 +220,19 @@
               message="Pythinker's computer is inactive"
             />
 
+            <!-- Reconnecting overlay — shown on top of LiveViewer so the
+                 component stays mounted and its reconnect timers keep running -->
+            <Transition name="fade">
+              <LoadingState
+                v-if="livePreviewDisconnected && livePreviewEnabled"
+                class="absolute inset-0 z-10 bg-[var(--background-white-main)]/90"
+                :label="livePreviewPlaceholderLabel || 'Reconnecting'"
+                :detail="livePreviewPlaceholderDetail"
+                :is-active="true"
+                animation="globe"
+              />
+            </Transition>
+
             <!-- URL bar overlay - shows current URL during browser operations -->
             <div v-if="showLivePreviewUrlBar" class="live-preview-url-bar">
               <div class="live-preview-url-status">
@@ -230,7 +244,7 @@
 
             <!-- Take over button — visible whenever session is active -->
             <button
-              v-if="!isShare && !!props.sessionId && !showLivePreviewPlaceholder"
+              v-if="!isShare && !!props.sessionId"
               @click="takeOver"
               class="takeover-btn absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-[var(--text-onblack)] group transition-all duration-300">
               <TakeOverIcon />
@@ -701,7 +715,9 @@ const contentHeaderLabel = computed(() => {
 const showLivePreviewPlaceholder = computed(() => {
   if (forceBrowserView.value) return false;
   if (!props.sessionId) return true;
-  if (livePreviewDisconnected.value) return true;
+  // NOTE: livePreviewDisconnected is handled as an overlay now,
+  // not a replacement — keeping LiveViewer mounted allows its
+  // internal reconnect logic to work instead of deadlocking.
   return false;
 });
 
@@ -723,7 +739,7 @@ const livePreviewPlaceholderAnimation = computed<'globe' | 'check' | 'spinner'>(
 });
 
 const livePreviewEnabled = computed(() => {
-  return !!props.sessionId && !showLivePreviewPlaceholder.value;
+  return !!props.sessionId;
 });
 
 // Whether the current tool has a rich native view (editor, terminal, search)
@@ -1264,6 +1280,16 @@ const handleBrowseUrl = async (url: string) => {
 </script>
 
 <style scoped>
+/* Reconnecting overlay fade transition */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
 .panel-content-header {
   box-shadow: inset 0 1px 0 0 var(--border-white);
 }

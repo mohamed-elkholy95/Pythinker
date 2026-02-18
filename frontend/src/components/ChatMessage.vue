@@ -300,6 +300,7 @@ import FinalizationStepCard from './FinalizationStepCard.vue';
 import { copyToClipboard } from '../utils/dom';
 import { isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLayout';
 import { groupConsecutiveTools } from '../composables/useToolGrouping';
+import { normalizeTimestampSeconds } from '../utils/time';
 
 
 const props = defineProps<{
@@ -445,11 +446,12 @@ const showMessageExpandControl = computed(() => props.message.type === 'user' &&
 const { relativeTime } = useRelativeTime();
 
 const formatTimestampTooltip = (timestamp: number): string => {
-  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+  const normalizedTimestamp = normalizeTimestampSeconds(timestamp);
+  if (normalizedTimestamp === null) {
     return '';
   }
 
-  const date = new Date(timestamp * 1000);
+  const date = new Date(normalizedTimestamp * 1000);
   if (Number.isNaN(date.getTime())) {
     return '';
   }
@@ -569,12 +571,12 @@ watch(
 }
 
 .assistant-time {
-  opacity: 0;
+  opacity: 0.82;
   transition: opacity 0.15s ease;
 }
 
 .assistant-header-row:hover .assistant-time {
-  opacity: 0.85;
+  opacity: 1;
 }
 
 .assistant-message-text {
