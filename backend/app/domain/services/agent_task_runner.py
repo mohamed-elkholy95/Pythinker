@@ -829,7 +829,7 @@ class AgentTaskRunner(TaskRunner):
         existing = event.attachments or []
         expected_name = f"report-{event.id}.md"
         if not self._has_attachment(existing, expected_name):
-            file_path = f"/home/ubuntu/{expected_name}"
+            file_path = f"/workspace/{self._session_id}/{expected_name}"
             try:
                 result = await self._sandbox.file_write(file=file_path, content=event.content)
                 if result is not None and hasattr(result, "success") and not result.success:

@@ -1148,7 +1148,7 @@ class AgentService:
         if "codec can't decode" in error_message or "invalid start byte" in error_message:
             return FileViewResponse(content=f"[Binary file: {file_path}. Download to view.]", file=file_path)
 
-        raise RuntimeError(f"Failed to read file: {error_message}")
+        raise NotFoundError(f"Failed to read file: {error_message}")
 
     async def init_workspace_from_manifest(
         self,
