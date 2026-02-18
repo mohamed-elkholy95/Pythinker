@@ -538,6 +538,8 @@ const shouldShowUnifiedStreaming = computed(() => {
   if (!props.live || !props.toolContent?.streaming_content) return false;
   // Don't interfere with summary streaming
   if (isSummaryPhase.value || props.summaryStreamText) return false;
+  // Search tools stream the query string (not JSON results) — let SearchContentView handle them
+  if (streamingContentType.value === 'search') return false;
   return true;
 });
 
