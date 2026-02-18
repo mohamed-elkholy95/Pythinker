@@ -1,7 +1,7 @@
 """Tests for Deep Research feature."""
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -249,7 +249,7 @@ class TestDeepResearchFlow:
                     query="query 1",
                     status=ResearchQueryStatus.COMPLETED,
                     result=[{"title": "R1", "link": "http://r1.com", "snippet": "S1"}],
-                    completed_at=datetime.now(),
+                    completed_at=datetime.now(UTC),
                 ),
                 ResearchQuery(
                     id="2",

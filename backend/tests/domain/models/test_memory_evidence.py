@@ -139,7 +139,7 @@ class TestPromptBlockFormatting:
             source_type="user_knowledge",
             retrieval_score=0.95,
             embedding_quality=0.90,
-            timestamp=datetime(2024, 1, 1),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             session_id="session-10",
             memory_type="fact",
             importance="high",
@@ -163,7 +163,7 @@ class TestPromptBlockFormatting:
             source_type="user_knowledge",
             retrieval_score=0.6,
             embedding_quality=0.5,
-            timestamp=datetime(2024, 1, 1),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             session_id="session-11",
             memory_type="fact",
             importance="low",
@@ -182,7 +182,7 @@ class TestPromptBlockFormatting:
             source_type="user_knowledge",
             retrieval_score=0.8,
             embedding_quality=0.8,
-            timestamp=datetime(2024, 1, 1),
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
             session_id="session-12",
             memory_type="fact",
             importance="medium",
@@ -239,7 +239,7 @@ class TestEvidenceSerialization:
 
     def test_to_dict(self):
         """Test evidence serialization to dictionary."""
-        timestamp = datetime(2024, 1, 1, 12, 0, 0)
+        timestamp = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         evidence = MemoryEvidence(
             memory_id="mem-16",
             content="Test serialization",
