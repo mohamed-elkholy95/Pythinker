@@ -155,13 +155,17 @@
       <div class="step-left-rail w-[24px] relative flex-shrink-0">
         <!-- Status indicator at top -->
         <div class="step-status-node w-4 flex items-center justify-center relative z-[1]" style="height: 26px;">
-          <div v-if="stepContent.status === 'completed'"
+          <div v-if="stepContent.status === 'completed' || stepContent.status === 'skipped'"
             class="step-status-indicator step-icon-badge step-icon-completed w-4 h-4 flex items-center justify-center rounded-[15px]">
             <CheckIcon class="step-completed-check" :size="10" :stroke-width="2" />
           </div>
-          <div v-else-if="stepContent.status === 'running'"
+          <div v-else-if="stepContent.status === 'running' || stepContent.status === 'started'"
             class="step-status-indicator step-icon-badge step-icon-running w-4 h-4 flex items-center justify-center rounded-[15px] step-running">
             <span class="step-running-dot" aria-hidden="true"></span>
+          </div>
+          <div v-else-if="stepContent.status === 'failed' || stepContent.status === 'blocked'"
+            class="step-status-indicator step-icon-badge step-icon-failed w-4 h-4 flex items-center justify-center rounded-[15px]">
+            <XIcon class="step-failed-x" :size="10" :stroke-width="2.5" />
           </div>
           <div v-else
             class="step-status-indicator step-icon-badge step-icon-pending w-4 h-4 flex items-center justify-center rounded-[15px]">
@@ -283,7 +287,7 @@ import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
 import { Message, MessageContent, AttachmentsContent, ReportContent, DeepResearchContent, SkillDeliveryContent } from '../types/message';
 import ToolUse from './ToolUse.vue';
 import PhaseGroup from './PhaseGroup.vue';
-import { CheckIcon, Copy, Check } from 'lucide-vue-next';
+import { CheckIcon, Copy, Check, XIcon } from 'lucide-vue-next';
 import { computed, ref, watch, onUnmounted } from 'vue';
 import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
@@ -733,6 +737,18 @@ watch(
   height: 9px;
 }
 
+.step-icon-failed {
+  background: #fee2e2;
+  border: 0;
+  border-radius: 15px;
+}
+
+.step-failed-x {
+  color: #ef4444;
+  width: 9px;
+  height: 9px;
+}
+
 .step-icon-running {
   background: var(--fill-tsp-white-dark);
   border: 0;
@@ -863,6 +879,10 @@ watch(
 
 :global(.dark) .step-completed-check {
   color: var(--icon-white-tsp);
+}
+
+:global(.dark) .step-icon-failed {
+  background: rgba(239, 68, 68, 0.2);
 }
 
 :global(.dark) .step-icon-running {

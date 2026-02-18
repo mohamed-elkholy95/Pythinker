@@ -2133,7 +2133,7 @@ const handleStepEvent = (stepData: StepEventData) => {
       type: 'step',
       content: stepContent,
     });
-  } else if (stepData.status === 'completed' || stepData.status === 'failed') {
+  } else if (stepData.status === 'completed' || stepData.status === 'failed' || stepData.status === 'blocked' || stepData.status === 'skipped') {
     // Find the matching step by ID and update its status
     const matchingStep = messages.value
       .filter(m => m.type === 'step')
@@ -2160,7 +2160,7 @@ const handleStepEvent = (stepData: StepEventData) => {
       if (planStep) planStep.status = stepData.status
     }
 
-    if (stepData.status === 'failed') {
+    if (stepData.status === 'failed' || stepData.status === 'blocked') {
       transitionTo('error')
       // Notify sidebar that session is no longer running
       if (sessionId.value) {
