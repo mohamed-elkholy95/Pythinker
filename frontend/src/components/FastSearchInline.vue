@@ -63,7 +63,14 @@
             </div>
           </div>
           <div class="fsi-card-thumb" :style="getThumbStyle(result)">
-            <span class="fsi-thumb-letter">{{ getIconLetter(result) }}</span>
+            <img
+              v-if="!thumbErrors[result.link]"
+              :src="getThumbFaviconUrl(result.link)"
+              alt=""
+              class="fsi-thumb-img"
+              @error="handleThumbError(result.link)"
+            />
+            <span v-else class="fsi-thumb-letter">{{ getIconLetter(result) }}</span>
           </div>
         </button>
       </div>
@@ -117,6 +124,7 @@ const INITIAL_VISIBLE = 4;
 
 const isExpanded = ref(false);
 const faviconErrors = ref<Record<string, boolean>>({});
+const thumbErrors = ref<Record<string, boolean>>({});
 const progressLabel = ref('');
 
 const progressLabels = computed(() => [
@@ -177,6 +185,19 @@ function getThumbStyle(result: SearchResultItem): { background: string; color: s
 
 function getFavicon(link: string): string {
   return getFaviconUrl(link) ?? '';
+}
+
+function getThumbFaviconUrl(link: string): string {
+  try {
+    const hostname = new URL(link).hostname;
+    return `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+  } catch {
+    return '';
+  }
+}
+
+function handleThumbError(link: string) {
+  thumbErrors.value[link] = true;
 }
 
 function getIconLetter(result: SearchResultItem): string {
@@ -407,6 +428,13 @@ function handleOpen(result: SearchResultItem) {
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
+}
+
+.fsi-thumb-img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  border-radius: 6px;
 }
 
 .fsi-thumb-letter {
