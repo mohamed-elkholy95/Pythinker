@@ -49,6 +49,9 @@ class QdrantTaskRepository(TaskArtifactRepository):
                 vectors = collection_info.config.params.vectors
                 self._use_named_vectors = isinstance(vectors, dict)
             except Exception as e:
+                # Broad catch justified: qdrant_client may raise httpx errors,
+                # gRPC errors, or custom exceptions depending on transport mode.
+                # Defaulting to named vectors is the safe fallback.
                 logger.debug(
                     "Failed to introspect vector mode for collection %s, defaulting to named vectors: %s",
                     self._collection,
@@ -103,7 +106,7 @@ class QdrantTaskRepository(TaskArtifactRepository):
                     )
                 ],
             )
-        except Exception as e:
+        except Exception as e:  # Broad catch: qdrant_client uses varied exception types (gRPC/REST)
             if not self._is_vector_name_error(e):
                 raise
 
@@ -159,7 +162,7 @@ class QdrantTaskRepository(TaskArtifactRepository):
 
         try:
             results = await get_qdrant().client.query_points(**query_kwargs)
-        except Exception as e:
+        except Exception as e:  # Broad catch: qdrant_client uses varied exception types (gRPC/REST)
             if not self._is_vector_name_error(e):
                 raise
 

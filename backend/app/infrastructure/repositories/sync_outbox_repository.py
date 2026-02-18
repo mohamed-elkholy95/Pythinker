@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.errors import ConnectionFailure, OperationFailure
 
 from app.domain.models.sync_outbox import (
     DeadLetterEntry,
@@ -15,6 +16,7 @@ from app.domain.models.sync_outbox import (
 )
 from app.domain.repositories.sync_outbox_repository import SyncOutboxRepositoryProtocol
 from app.infrastructure.storage.mongodb import get_mongodb
+from app.infrastructure.utils.bson_helpers import normalize_for_mongodb, to_object_id
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,7 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
             max_retries=entry.max_retries,
         )
 
-        doc = self._normalize_for_mongodb(outbox_entry.model_dump(exclude={"id"}))
+        doc = normalize_for_mongodb(outbox_entry.model_dump(exclude={"id"}))
         result = await collection.insert_one(doc)
 
         outbox_entry.id = str(result.inserted_id)
@@ -97,11 +99,11 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
     async def update(self, entry_id: str, update: OutboxUpdate) -> bool:
         """Update an outbox entry."""
         collection, _ = await self._ensure_collections()
-        update_data = self._normalize_for_mongodb(dict(update.model_dump(exclude_none=True)))
+        update_data = normalize_for_mongodb(dict(update.model_dump(exclude_none=True)))
         update_data["updated_at"] = datetime.now(UTC)
 
         result = await collection.update_one(
-            {"_id": self._to_object_id(entry_id)},
+            {"_id": to_object_id(entry_id)},
             {"$set": update_data},
         )
 
@@ -155,7 +157,7 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
         )
 
         doc = dlq_entry.model_dump(exclude={"id"})
-        doc = self._normalize_for_mongodb(doc)
+        doc = normalize_for_mongodb(doc)
         result = await dlq_collection.insert_one(doc)
         dlq_entry.id = str(result.inserted_id)
 
@@ -187,13 +189,13 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
                 status = doc["_id"]
                 count = doc["count"]
                 stats[status] = count
-        except Exception as exc:
+        except (ConnectionFailure, OperationFailure) as exc:
             logger.warning("Failed to aggregate outbox stats: %s", exc)
 
         # DLQ stats
         try:
             dlq_count = await dlq_collection.count_documents({})
-        except Exception as exc:
+        except (ConnectionFailure, OperationFailure) as exc:
             logger.warning("Failed to count DLQ documents: %s", exc)
             dlq_count = 0
         stats["dead_letter_queue"] = dlq_count
@@ -224,24 +226,3 @@ class SyncOutboxRepository(SyncOutboxRepositoryProtocol):
             logger.info(f"Cleaned up {result.deleted_count} completed outbox entries older than {days} days")
 
         return result.deleted_count
-
-    def _to_object_id(self, id_str: str):
-        """Convert string ID to MongoDB ObjectId."""
-        from bson import ObjectId
-
-        return ObjectId(id_str)
-
-    def _normalize_for_mongodb(self, value: Any) -> Any:
-        """Recursively normalize values for BSON serialization.
-
-        MongoDB requires document keys to be strings. Some payload producers
-        (for example sparse vectors) use integer keys, so normalize nested
-        mapping keys to strings before writes.
-        """
-        if isinstance(value, dict):
-            return {str(key): self._normalize_for_mongodb(item) for key, item in value.items()}
-        if isinstance(value, list):
-            return [self._normalize_for_mongodb(item) for item in value]
-        if isinstance(value, tuple):
-            return [self._normalize_for_mongodb(item) for item in value]
-        return value

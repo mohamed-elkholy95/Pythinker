@@ -13,8 +13,9 @@ from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, TEXT
+from pymongo.errors import ConnectionFailure, DuplicateKeyError, OperationFailure
 
-from app.domain.exceptions.base import MergeException
+from app.domain.exceptions.base import DuplicateResourceException, IntegrationException, MergeException
 from app.domain.models.long_term_memory import (
     MemoryEntry,
     MemoryQuery,
@@ -96,8 +97,8 @@ class MongoMemoryRepository(MemoryRepository):
             self._indexes_created = True
             logger.info("Memory repository indexes created successfully")
 
-        except Exception as e:
-            logger.error(f"Failed to create indexes: {e}")
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.error("Failed to create memory indexes: %s", e)
             # Continue without indexes - queries will be slower but work
 
     def _to_document(self, memory: MemoryEntry) -> dict[str, Any]:
@@ -128,9 +129,12 @@ class MongoMemoryRepository(MemoryRepository):
             await self._collection.insert_one(doc)
             logger.debug(f"Created memory {memory.id} for user {memory.user_id}")
             return memory
-        except Exception as e:
-            logger.error(f"Failed to create memory: {e}")
-            raise
+        except DuplicateKeyError as e:
+            logger.warning("Memory already exists: %s", memory.id)
+            raise DuplicateResourceException(f"Memory {memory.id} already exists") from e
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.error("Failed to create memory: %s", e)
+            raise IntegrationException(f"MongoDB write failed: {e}", service="mongodb") from e
 
     async def create_many(self, memories: list[MemoryEntry]) -> list[MemoryEntry]:
         """Create multiple memories in batch."""
@@ -146,9 +150,12 @@ class MongoMemoryRepository(MemoryRepository):
             await self._collection.insert_many(docs)
             logger.debug(f"Created {len(memories)} memories in batch")
             return memories
-        except Exception as e:
-            logger.error(f"Failed to create memories batch: {e}")
-            raise
+        except DuplicateKeyError as e:
+            logger.warning("Duplicate key in memory batch insert: %s", e)
+            raise DuplicateResourceException("Duplicate memory in batch insert") from e
+        except (ConnectionFailure, OperationFailure) as e:
+            logger.error("Failed to create memories batch: %s", e)
+            raise IntegrationException(f"MongoDB batch write failed: {e}", service="mongodb") from e
 
     async def get_by_id(self, memory_id: str) -> MemoryEntry | None:
         """Get memory by ID."""
@@ -294,12 +301,32 @@ class MongoMemoryRepository(MemoryRepository):
 
         # Default: filter-based retrieval
         else:
-            cursor = (
-                self._collection.find(mongo_query)
-                .sort([("importance", DESCENDING), ("created_at", DESCENDING)])
-                .skip(query.offset)
-                .limit(query.limit)
-            )
+            # Sort by numeric importance rank (not alphabetically) to ensure
+            # critical > high > medium > low ordering. String sort gives wrong
+            # order: m(edium) > l(ow) > h(igh) > c(ritical) alphabetically.
+            pipeline = [
+                {"$match": mongo_query},
+                {
+                    "$addFields": {
+                        "_importance_rank": {
+                            "$switch": {
+                                "branches": [
+                                    {"case": {"$eq": ["$importance", "critical"]}, "then": 4},
+                                    {"case": {"$eq": ["$importance", "high"]}, "then": 3},
+                                    {"case": {"$eq": ["$importance", "medium"]}, "then": 2},
+                                    {"case": {"$eq": ["$importance", "low"]}, "then": 1},
+                                ],
+                                "default": 0,
+                            }
+                        }
+                    }
+                },
+                {"$sort": {"_importance_rank": -1, "created_at": -1}},
+                {"$skip": query.offset},
+                {"$limit": query.limit},
+                {"$project": {"_importance_rank": 0}},
+            ]
+            cursor = self._collection.aggregate(pipeline)
 
             async for doc in cursor:
                 memory = self._from_document(doc)

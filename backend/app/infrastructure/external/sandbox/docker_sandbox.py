@@ -267,15 +267,23 @@ class DockerSandbox(Sandbox):
             if settings.sandbox_network:
                 container_config["network"] = settings.sandbox_network
 
-            # Create container
+            # Create container — if anything after this line fails we must clean up
             container = docker_client.containers.run(**container_config)
 
-            # Get container IP address
-            container.reload()  # Refresh container info
-            ip_address = DockerSandbox._get_container_ip(container)
+            try:
+                # Get container IP address
+                container.reload()  # Refresh container info
+                ip_address = DockerSandbox._get_container_ip(container)
 
-            # Create and return DockerSandbox instance
-            return DockerSandbox(ip=ip_address, container_name=container_name)
+                # Create and return DockerSandbox instance
+                return DockerSandbox(ip=ip_address, container_name=container_name)
+            except Exception:
+                # Prevent container orphaning: stop/remove the container on init failure
+                with contextlib.suppress(Exception):
+                    container.stop(timeout=5)
+                with contextlib.suppress(Exception):
+                    container.remove(force=True)
+                raise
 
         except Exception as e:
             raise Exception(f"Failed to create Docker sandbox: {e!s}") from e
