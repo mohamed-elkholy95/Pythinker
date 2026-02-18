@@ -112,6 +112,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { SkipBack, SkipForward, Play } from 'lucide-vue-next'
 import type { ScreenshotMetadata } from '../../types/screenshot'
+import { normalizeTimestampSeconds } from '../../utils/time'
 
 interface Props {
   progress: number
@@ -139,9 +140,12 @@ const isHovering = ref(false)
 
 // Format timestamp for display
 const formattedTimestamp = computed(() => {
-  if (!props.currentTimestamp) return ''
+  const normalizedTimestamp = normalizeTimestampSeconds(props.currentTimestamp ?? Number.NaN)
+  if (normalizedTimestamp === null) return ''
 
-  const date = new Date(props.currentTimestamp * 1000)
+  const date = new Date(normalizedTimestamp * 1000)
+  if (Number.isNaN(date.getTime())) return ''
+
   return date.toLocaleString('en-US', {
     month: 'numeric',
     day: 'numeric',
@@ -154,7 +158,7 @@ const formattedTimestamp = computed(() => {
 })
 
 const showTimestamp = computed(() => {
-  if (!props.currentTimestamp) return false
+  if (normalizeTimestampSeconds(props.currentTimestamp ?? Number.NaN) === null) return false
   if (props.showTimestampOnInteract) return isHovering.value || isDragging.value
   return true
 })

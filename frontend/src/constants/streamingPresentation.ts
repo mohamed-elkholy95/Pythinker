@@ -11,6 +11,19 @@ export const STREAMING_LABELS = {
   waiting: 'Initializing',
 } as const;
 
+export const THINKING_ROTATING_LABELS = [
+  'Thinking',
+  'Analyzing',
+  'Reasoning',
+  'Processing',
+  'Exploring',
+  'Researching',
+  'Evaluating',
+  'Pondering',
+] as const;
+
+export const THINKING_ROTATION_INTERVAL_MS = 3000;
+
 export const VALID_PHASE_TRANSITIONS: Record<StreamPhase, ReadonlyArray<StreamPhase>> = {
   idle: ['thinking', 'summarizing'],
   thinking: ['summarizing', 'idle'],

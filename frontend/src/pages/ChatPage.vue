@@ -1743,7 +1743,7 @@ const handleOpenPanel = () => {
       function: 'browser_view',
       args: {},
       status: 'completed',
-      timestamp: Date.now(),
+      timestamp: Math.floor(Date.now() / 1000),
     };
     toolPanel.value?.showToolPanel(placeholderTool, true);
     panelToolId.value = placeholderTool.tool_call_id;
@@ -2060,7 +2060,7 @@ const handlePhaseEvent = (phaseData: import('../types/event').AgentPhaseEventDat
         color: phaseData.color,
         total_phases: phaseData.total_phases,
         steps: [],
-        timestamp: phaseData.timestamp || Date.now(),
+        timestamp: phaseData.timestamp || Math.floor(Date.now() / 1000),
       } as import('../types/message').PhaseContent,
     })
   } else if (phaseData.status === 'completed' || phaseData.status === 'skipped') {

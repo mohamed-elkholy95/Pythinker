@@ -2,6 +2,18 @@
  * Time related utility functions
  */
 
+const MS_TIMESTAMP_THRESHOLD = 1e11;
+
+/**
+ * Normalize epoch timestamp to Unix seconds.
+ * Accepts either seconds or milliseconds input.
+ */
+export const normalizeTimestampSeconds = (timestamp: number): number | null => {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+  if (timestamp > MS_TIMESTAMP_THRESHOLD) return Math.floor(timestamp / 1000);
+  return Math.floor(timestamp);
+};
+
 /**
  * Convert ISO 8601 datetime string to timestamp number
  * @param isoString ISO 8601 datetime string (e.g., "2025-06-22T04:42:11.842000")
@@ -28,10 +40,11 @@ export const parseISODateTime = (isoString: string): number => {
  * @param timestamp Unix timestamp in **seconds**
  */
 export const formatRelativeTime = (timestamp: number): string => {
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return 'Just now';
+  const normalizedTimestamp = normalizeTimestampSeconds(timestamp);
+  if (normalizedTimestamp === null) return 'Just now';
 
   const now = Math.floor(Date.now() / 1000);
-  const diffSec = now - timestamp;
+  const diffSec = now - normalizedTimestamp;
 
   if (!Number.isFinite(diffSec) || diffSec < 0) return 'Just now';
   if (diffSec < 60) return 'Just now';
@@ -64,11 +77,12 @@ export const formatRelativeTime = (timestamp: number): string => {
  * @returns Formatted time string
  */
 export const formatCustomTime = (timestamp: number, t?: (key: string) => string, locale?: string): string => {
-  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+  const normalizedTimestamp = normalizeTimestampSeconds(timestamp);
+  if (normalizedTimestamp === null) {
     return t ? t('Just now') : 'Just now';
   }
 
-  const date = new Date(timestamp * 1000);
+  const date = new Date(normalizedTimestamp * 1000);
   if (Number.isNaN(date.getTime())) {
     return t ? t('Just now') : 'Just now';
   }

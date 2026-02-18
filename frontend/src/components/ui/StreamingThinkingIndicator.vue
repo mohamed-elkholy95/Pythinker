@@ -22,7 +22,9 @@
       <div class="text-wrapper">
         <!-- Header -->
         <div class="thinking-header">
-          <span class="thinking-label">Thinking</span>
+          <Transition name="label-fade" mode="out-in">
+            <span class="thinking-label" :key="currentLabel">{{ currentLabel }}</span>
+          </Transition>
           <div class="thinking-dots">
             <span class="dot"></span>
             <span class="dot"></span>
@@ -49,8 +51,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
+import { THINKING_ROTATING_LABELS, THINKING_ROTATION_INTERVAL_MS } from '@/constants/streamingPresentation'
 
 const props = defineProps<{
   text: string
@@ -58,6 +61,23 @@ const props = defineProps<{
 }>()
 
 const thinkingTextRef = ref<HTMLDivElement | null>(null)
+const labelIndex = ref(0)
+let rotationTimer: ReturnType<typeof setInterval> | null = null
+
+const currentLabel = computed(() => THINKING_ROTATING_LABELS[labelIndex.value])
+
+onMounted(() => {
+  rotationTimer = setInterval(() => {
+    labelIndex.value = (labelIndex.value + 1) % THINKING_ROTATING_LABELS.length
+  }, THINKING_ROTATION_INTERVAL_MS)
+})
+
+onBeforeUnmount(() => {
+  if (rotationTimer !== null) {
+    clearInterval(rotationTimer)
+    rotationTimer = null
+  }
+})
 
 const displayText = computed(() => {
   const maxLines = props.maxLines ?? 8
@@ -197,6 +217,22 @@ watch(
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: gradient-shift 3s ease infinite;
+}
+
+/* Label Crossfade Transition */
+.label-fade-enter-active,
+.label-fade-leave-active {
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.label-fade-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.label-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* Animated Dots */
