@@ -7,6 +7,10 @@ def _reset_settings(monkeypatch, **env_overrides):
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     for key, value in env_overrides.items():
         monkeypatch.setenv(key, value)
+    # Pre-warm the cache so redact_event_dict doesn't skip due to currsize==0 guard.
+    # The guard in redact_event_dict skips redaction when currsize==0 to prevent
+    # deadlock during get_settings() initialization (lock is non-reentrant).
+    get_settings()
 
 
 def test_redact_event_dict_redacts_sensitive_keys(monkeypatch):

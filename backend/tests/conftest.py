@@ -9,7 +9,6 @@ Provides comprehensive fixtures for:
 - HTTP client mocking
 """
 
-import asyncio
 import json
 import os
 import sys
@@ -431,19 +430,6 @@ def mock_settings():
     settings.rate_limit_enabled = False
 
     return settings
-
-
-# =============================================================================
-# Event Loop Configuration
-# =============================================================================
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 # =============================================================================

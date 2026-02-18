@@ -60,6 +60,7 @@ async def test_stop_session_skips_destroy_for_unowned_sandbox(mock_get_settings:
     mock_get_settings.return_value = SimpleNamespace(
         sandbox_lifecycle_mode="static",
         max_concurrent_agents=2,
+        max_concurrent_executions=4,
     )
     session = Session(
         id="session-id",

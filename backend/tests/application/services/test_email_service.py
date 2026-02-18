@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import email as email_mod
 import smtplib
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -56,7 +56,7 @@ def _stored_code_data(
     attempts: int = 0,
 ) -> dict[str, Any]:
     """Build a stored verification-code dict matching EmailService format."""
-    now = datetime.now()
+    now = datetime.now(UTC)
     return {
         "code": code,
         "created_at": (now - timedelta(seconds=created_seconds_ago)).isoformat(),
@@ -67,7 +67,7 @@ def _stored_code_data(
 
 def _expired_code_data(code: str = "123456", *, attempts: int = 0) -> dict[str, Any]:
     """Build a stored verification-code dict that is already expired."""
-    now = datetime.now()
+    now = datetime.now(UTC)
     return {
         "code": code,
         "created_at": (now - timedelta(seconds=600)).isoformat(),
@@ -212,7 +212,7 @@ class TestVerifyCode:
     ) -> None:
         """If remaining TTL <= 0 after a wrong attempt, cache.set is NOT called."""
         # Expires essentially now (within a fraction of a second)
-        now = datetime.now()
+        now = datetime.now(UTC)
         stored = {
             "code": "654321",
             "created_at": (now - timedelta(seconds=300)).isoformat(),

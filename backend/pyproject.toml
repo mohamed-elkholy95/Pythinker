@@ -61,6 +61,7 @@ select = [
     "PERF",   # Perflint (performance anti-patterns)
     "FURB",   # refurb (modern Python idioms)
     "FLY",    # flynt (f-string conversion)
+    "DTZ",    # flake8-datetimez (enforce UTC-aware datetimes)
 ]
 
 ignore = [
