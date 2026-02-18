@@ -1033,32 +1033,54 @@ watch(isOpen, (newVal) => {
   margin: 24px 0;
 }
 
-/* ===== INLINE CITATION LINKS ===== */
+/* ===== INLINE CITATION BADGE ===== */
+/* Default: outlined. Hover: fills solid black. Inverted in dark mode. */
 .doc-body :deep(a[href^="#ref-"]) {
-  color: #1a73e8;
-  font-size: 0.78em;
-  font-weight: 600;
-  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3.5px;
+  background: transparent;
+  border: 1.5px solid rgba(0, 0, 0, 0.22);
+  border-radius: 5px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 9.5px;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 0;
+  text-decoration: none !important;
   cursor: pointer;
-  padding: 0 0.05em;
-  border-radius: 3px;
-  transition: background-color 0.15s ease, opacity 0.15s ease;
+  position: relative;
+  vertical-align: 0.25em;
+  line-height: 1;
+  margin: 0 1.5px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  user-select: none;
 }
 
 .doc-body :deep(a[href^="#ref-"]:hover) {
-  background-color: rgba(26, 115, 232, 0.12);
-  opacity: 0.85;
+  background: #1c1c1e;
+  border-color: #1c1c1e;
+  color: #ffffff;
+  text-decoration: none !important;
 }
 
 :global(.dark) .doc-body :deep(a[href^="#ref-"]),
 :global([data-theme='dark']) .doc-body :deep(a[href^="#ref-"]) {
-  color: #58a6ff;
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.45);
 }
 
 :global(.dark) .doc-body :deep(a[href^="#ref-"]:hover),
 :global([data-theme='dark']) .doc-body :deep(a[href^="#ref-"]:hover) {
-  background-color: rgba(88, 166, 255, 0.12);
+  background: #e5e5e7;
+  border-color: #e5e5e7;
+  color: #1c1c1e;
 }
+
+/* Citation reference card is rendered by TiptapReportEditor via Teleport — no local styles needed */
 
 /* ===== VERIFICATION MARKER ===== */
 .doc-body.prose :deep(.verification-marker) {
