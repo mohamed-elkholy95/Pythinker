@@ -23,8 +23,8 @@
                     >
                         <ArrowLeft class="w-5 h-5" />
                     </button>
-                    <div v-if="previewFile" class="header-icon text-[var(--icon-secondary)]">
-                        <component :is="getFileIconComponent(previewFile.filename)" :size="36" />
+                    <div v-if="previewFile" class="header-icon flex items-center justify-center">
+                        <FileTypeIcon :filename="previewFile.filename" :size="32" />
                     </div>
                     <div class="header-info">
                         <h2 class="header-title">
@@ -100,8 +100,8 @@
                                 @click="showFile(file)"
                             >
                                 <!-- File Icon -->
-                                <div class="flex-shrink-0 w-10 h-10 flex items-center justify-center text-[var(--icon-secondary)]">
-                                    <component :is="getFileIconComponent(file.filename)" :size="40" />
+                                <div class="flex-shrink-0 w-10 h-10 flex items-center justify-center">
+                                    <FileTypeIcon :filename="file.filename" :size="40" />
                                 </div>
 
                                 <!-- File Info -->
@@ -193,7 +193,8 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { showSuccessToast, showErrorToast } from '../utils/toast';
-import { getFileType, isInteractiveChartFile, getFileIconComponent } from '../utils/fileType';
+import { getFileType, isInteractiveChartFile } from '../utils/fileType';
+import FileTypeIcon from './FileTypeIcon.vue';
 
 const { t } = useI18n();
 const route = useRoute();
