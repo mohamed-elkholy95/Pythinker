@@ -127,10 +127,10 @@ export function useKonvaTimeline(
       return []
     }
 
-    const startTime = Math.min(...events.value.map((e) => e.data.timestamp || 0))
+    const startTime = Math.min(...events.value.map((e) => e.data?.timestamp || 0))
 
     return events.value.map((event, index) => {
-      const eventTime = event.data.timestamp || 0
+      const eventTime = event.data?.timestamp || 0
       const relativeTime = eventTime - startTime
       const progress = relativeTime / timeline.duration.value
 

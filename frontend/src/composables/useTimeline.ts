@@ -75,7 +75,7 @@ export function useTimeline(
 
   // Calculate time-based properties
   const timestamps = computed(() => {
-    return events.value.map(e => e.data.timestamp || 0)
+    return events.value.map(e => e.data?.timestamp || 0)
   })
 
   const startTime = computed(() => {
@@ -95,7 +95,7 @@ export function useTimeline(
   const currentTime = computed(() => {
     if (events.value.length === 0) return 0
     const event = events.value[currentIndex.value]
-    return (event?.data.timestamp || startTime.value) - startTime.value
+    return (event?.data?.timestamp || startTime.value) - startTime.value
   })
 
   const progress = computed(() => {
@@ -117,7 +117,7 @@ export function useTimeline(
     const current = events.value[currentIndex.value]
     const next = events.value[currentIndex.value + 1]
 
-    if (!current?.data.timestamp || !next?.data.timestamp) {
+    if (!current?.data?.timestamp || !next?.data?.timestamp) {
       return 500 // Default delay if no timestamp
     }
 
@@ -207,7 +207,7 @@ export function useTimeline(
     let closestDiff = Infinity
 
     events.value.forEach((event, index) => {
-      const diff = Math.abs((event.data.timestamp || 0) - targetTime)
+      const diff = Math.abs((event.data?.timestamp || 0) - targetTime)
       if (diff < closestDiff) {
         closestDiff = diff
         closestIndex = index
