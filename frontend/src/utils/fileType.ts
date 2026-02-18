@@ -166,8 +166,11 @@ export const getFileIconColor = (filename: string): string => {
   // Interactive chart
   if (ext === 'chart') return '#6366f1';
 
-  // Markdown / text — slate (neutral, not the default icon grey)
-  if (['md', 'markdown', 'txt', 'log', 'text'].includes(ext)) return '#64748b';
+  // Markdown / reports — blue
+  if (['md', 'markdown'].includes(ext)) return '#3b82f6';
+
+  // Plain text / logs — slate
+  if (['txt', 'log', 'text'].includes(ext)) return '#64748b';
 
   // Fallback — theme icon colour
   return 'var(--icon-secondary)';
