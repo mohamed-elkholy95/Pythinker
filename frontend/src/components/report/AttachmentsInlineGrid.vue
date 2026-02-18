@@ -32,7 +32,10 @@
           class="file-card flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--background-card)] border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-main)] hover:shadow-sm transition-all"
           @click="openFile(file)"
         >
-          <div class="flex-shrink-0 w-9 h-9 flex items-center justify-center text-[var(--icon-secondary)]">
+          <div
+            class="flex-shrink-0 w-9 h-9 flex items-center justify-center"
+            :style="{ color: getFileIconColor(file.filename) }"
+          >
             <component :is="getFileIcon(file.filename)" :size="36" />
           </div>
           <div class="flex flex-col min-w-0 flex-1">
@@ -69,7 +72,7 @@ import {
 } from 'lucide-vue-next';
 import type { FileInfo } from '@/api/file';
 import { fileApi } from '@/api/file';
-import { isChartPngFile, getChartHtmlFile, getFileIconComponent } from '@/utils/fileType';
+import { isChartPngFile, getChartHtmlFile, getFileIconComponent, getFileIconColor } from '@/utils/fileType';
 
 const props = defineProps<{
   attachments: FileInfo[];
@@ -120,9 +123,7 @@ const formatFileSize = (bytes: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-const getFileIcon = (filename: string) => {
-  return getFileIconComponent(filename);
-};
+const getFileIcon = (filename: string) => getFileIconComponent(filename);
 
 
 const getFileTypeLabel = (filename: string) => {

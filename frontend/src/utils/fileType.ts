@@ -121,6 +121,59 @@ export const getFileIconComponent = (filename: string): Component => {
 };
 
 /**
+ * Returns a CSS colour string for a file icon based on its extension.
+ * Keeps universally-recognised type colours (PDF red, spreadsheet green, etc.)
+ * that stay consistent across light and dark themes.
+ */
+export const getFileIconColor = (filename: string): string => {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+
+  // PDF — red
+  if (ext === 'pdf') return '#ef4444';
+
+  // Spreadsheets / CSV — green
+  if (['csv', 'xls', 'xlsx', 'ods'].includes(ext)) return '#22c55e';
+
+  // Word documents — blue
+  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) return '#3b82f6';
+
+  // Presentations — orange
+  if (['ppt', 'pptx', 'odp'].includes(ext)) return '#f97316';
+
+  // Images — purple
+  if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico', 'tiff', 'tif', 'heic', 'heif'].includes(ext)) return '#a855f7';
+
+  // Video — rose
+  if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv', '3gp', 'ogv'].includes(ext)) return '#f43f5e';
+
+  // Audio — violet
+  if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a', 'opus'].includes(ext)) return '#8b5cf6';
+
+  // Archives — amber
+  if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'lzma'].includes(ext)) return '#f59e0b';
+
+  // JSON / config / data — yellow
+  if (['json', 'yaml', 'yml', 'toml', 'xml'].includes(ext)) return '#eab308';
+
+  // Code — cyan
+  const codeExts = [
+    'js', 'ts', 'jsx', 'tsx', 'vue', 'py', 'java', 'c', 'cpp',
+    'h', 'hpp', 'go', 'rs', 'php', 'rb', 'swift', 'kt', 'scala',
+    'html', 'css', 'scss', 'sh', 'bash', 'sql',
+  ];
+  if (codeExts.includes(ext)) return '#06b6d4';
+
+  // Interactive chart
+  if (ext === 'chart') return '#6366f1';
+
+  // Markdown / text — slate (neutral, not the default icon grey)
+  if (['md', 'markdown', 'txt', 'log', 'text'].includes(ext)) return '#64748b';
+
+  // Fallback — theme icon colour
+  return 'var(--icon-secondary)';
+};
+
+/**
  * Check if a file is an interactive Plotly chart based on metadata (Phase 5)
  */
 export const isInteractiveChartFile = (metadata?: Record<string, any>): boolean => {
