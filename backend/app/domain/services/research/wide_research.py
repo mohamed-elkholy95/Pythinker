@@ -1,6 +1,7 @@
 """Wide research orchestrator for parallel multi-agent research."""
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
@@ -45,7 +46,7 @@ class WideResearchOrchestrator:
         search_tool: SearchToolProtocol,
         llm: LLMProtocol | None,
         max_concurrency: int = 10,
-        on_progress: Callable[[ResearchTask], None] | None = None,
+        on_progress: Callable[[ResearchTask], Any] | None = None,
         critic: "CriticAgent | None" = None,
     ):
         """
@@ -116,7 +117,9 @@ class WideResearchOrchestrator:
             )
             task.start()
             if self.on_progress:
-                self.on_progress(task)
+                result = self.on_progress(task)
+                if inspect.iscoroutine(result):
+                    await result
 
             try:
                 # Search for information
@@ -154,7 +157,9 @@ class WideResearchOrchestrator:
                 task.fail(str(e))
 
             if self.on_progress:
-                self.on_progress(task)
+                result = self.on_progress(task)
+                if inspect.iscoroutine(result):
+                    await result
 
             return task
 
