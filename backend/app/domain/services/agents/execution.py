@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import re
 import uuid
@@ -168,9 +169,23 @@ class ExecutionAgent(BaseAgent):
         # Phase 1/4: Request contract for entity fidelity (set by PlanActFlow)
         self._request_contract = None
 
+        # Conversation context injection (set per-step by PlanActFlow, consumed once)
+        self._pending_conversation_context: str | None = None
+
     def set_request_contract(self, contract) -> None:
         """Set request contract for search fidelity and entity context (Phase 4)."""
         self._request_contract = contract
+
+    def inject_conversation_context(self, context: str) -> None:
+        """Inject conversation context retrieved from Qdrant for the current step.
+
+        Called by PlanActFlow before execute_step(). The context is consumed once
+        during the next execute_step() call and then cleared.
+
+        Args:
+            context: Formatted conversation context string (sliding window + semantic + cross-session)
+        """
+        self._pending_conversation_context = context
 
     def set_response_policy(self, policy: ResponsePolicy | None) -> None:
         """Set per-run response policy for summarize stage."""
@@ -383,6 +398,10 @@ class ExecutionAgent(BaseAgent):
         synthesized_context = self._context_manager.get_synthesized_context(for_step_id=step.id)
         blockers = self._context_manager.get_blockers()
 
+        # Consume pending conversation context (set by PlanActFlow, one-shot)
+        conversation_context = self._pending_conversation_context
+        self._pending_conversation_context = None
+
         # Build execution prompt with context signals
         base_prompt = build_execution_prompt(
             step=step.description,
@@ -393,6 +412,7 @@ class ExecutionAgent(BaseAgent):
             task_state=task_state_signal,
             memory_context=memory_context,
             search_context=self._pre_planning_search_context,
+            conversation_context=conversation_context,
         )
 
         # Add working context if available
@@ -1220,18 +1240,39 @@ class ExecutionAgent(BaseAgent):
     )
     _EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
 
+    # Pattern matching JSON tool result objects (possibly wrapped in ```json blocks)
+    _JSON_CODEBLOCK_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\s*\n?```$", re.DOTALL)
+
     def _clean_report_content(self, content: str) -> str:
-        """Strip hallucinated tool-call XML and boilerplate from summarization output.
+        """Strip hallucinated tool-call XML, JSON tool results, and boilerplate.
 
         During summarization the LLM sometimes reproduces tool-call XML from
         earlier conversation history (e.g. ``<tool_call>file_read...</tool_call>``)
         and appends boilerplate sections ("Final Result", "Artifact References")
-        instead of actual report content.  This method removes those artifacts.
+        instead of actual report content.
+
+        It may also echo raw JSON tool results (e.g. from file_write) like:
+        ``{"success": true, "result": "...", "attachments": [...]}``
+        This method detects that pattern and replaces it with actual report
+        content extracted from the agent's conversation memory.
         """
         if not content:
             return content
 
         original_len = len(content)
+
+        # 0. Detect JSON tool result objects echoed by the LLM during summarization.
+        #    If the entire content is a JSON tool result, recover the actual report
+        #    from the file_write tool call arguments in conversation memory.
+        cleaned = self._resolve_json_tool_result(content)
+        if cleaned != content:
+            logger.info(
+                "Resolved JSON tool result (%d chars) to actual report content (%d chars)",
+                len(content),
+                len(cleaned),
+            )
+            # Re-run remaining cleanup on the resolved content
+            content = cleaned
 
         # 1. Strip <tool_call>...</tool_call> and <function_call>...</function_call> blocks
         cleaned = self._TOOL_CALL_RE.sub("", content)
@@ -1253,6 +1294,118 @@ class ExecutionAgent(BaseAgent):
             )
 
         return cleaned
+
+    def _resolve_json_tool_result(self, content: str) -> str:
+        """If content is a JSON tool result, recover the actual report content.
+
+        Some LLMs echo the raw tool result JSON during summarization instead of
+        writing a proper report. For example::
+
+            {"success": true, "result": "Delivered professional research report...",
+             "attachments": ["/workspace/report.md"]}
+
+        This method detects that pattern and:
+        1. Searches conversation memory for the file_write tool call that produced
+           the result, extracting the actual markdown content from its arguments.
+        2. Falls back to the ``result`` description string if memory search fails.
+
+        Returns the original content unchanged if it's not a JSON tool result.
+        """
+        stripped = content.strip()
+
+        # Unwrap ```json ... ``` code blocks
+        codeblock_match = self._JSON_CODEBLOCK_RE.match(stripped)
+        if codeblock_match:
+            stripped = codeblock_match.group(1).strip()
+
+        # Quick check: must look like a JSON object
+        if not (stripped.startswith("{") and stripped.endswith("}")):
+            return content
+
+        try:
+            parsed = json.loads(stripped)
+        except (json.JSONDecodeError, ValueError):
+            return content
+
+        # Must be a tool result dict with "success" key
+        if not isinstance(parsed, dict) or "success" not in parsed:
+            return content
+
+        logger.warning(
+            "Summarization output is a JSON tool result (success=%s), recovering actual report content",
+            parsed.get("success"),
+        )
+
+        # Strategy 1: Search conversation memory for the file_write call that
+        # produced this result.  The actual report markdown is in the tool call's
+        # ``content`` argument.
+        report_from_memory = self._extract_report_from_file_write_memory()
+        if report_from_memory:
+            return report_from_memory
+
+        # Strategy 2: Use the ``result`` description string as fallback
+        result_text = parsed.get("result", "")
+        if isinstance(result_text, str) and len(result_text.strip()) > 30:
+            logger.info("Using tool result 'result' field as fallback report content")
+            return result_text.strip()
+
+        # Strategy 3: Return empty so the caller can handle the failure
+        return ""
+
+    def _extract_report_from_file_write_memory(self) -> str | None:
+        """Search conversation memory for the last file_write tool call with markdown content.
+
+        Scans messages in reverse order looking for an assistant message with a
+        ``file_write`` or ``file_create`` tool call whose arguments include a
+        ``content`` field containing substantial markdown (>200 chars).
+
+        Returns the extracted markdown content, or None if not found.
+        """
+        if not self.memory:
+            return None
+
+        messages = self.memory.get_messages()
+
+        # Walk messages in reverse to find the most recent file_write call
+        for msg in reversed(messages):
+            tool_calls = msg.get("tool_calls")
+            if not tool_calls or msg.get("role") != "assistant":
+                continue
+
+            for tc in tool_calls:
+                func = tc.get("function", {})
+                func_name = func.get("name", "")
+                if func_name not in ("file_write", "file_create"):
+                    continue
+
+                # Parse the arguments JSON
+                args_str = func.get("arguments", "")
+                if not args_str:
+                    continue
+
+                try:
+                    args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+                file_content = args.get("content", "")
+                file_path = args.get("path", "")
+
+                # Only recover markdown files with substantial content
+                if (
+                    isinstance(file_content, str)
+                    and len(file_content.strip()) > 200
+                    and isinstance(file_path, str)
+                    and file_path.endswith(".md")
+                ):
+                    logger.info(
+                        "Recovered report content from file_write memory (path=%s, %d chars)",
+                        file_path,
+                        len(file_content),
+                    )
+                    return file_content.strip()
+
+        return None
 
     async def _generate_confirmation_summary(self, report_content: str, title: str | None) -> str | None:
         """Generate a brief confirmation message summarizing key findings.
