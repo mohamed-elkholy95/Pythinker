@@ -1420,7 +1420,7 @@ class PlanActFlow(BaseFlow):
 
         from app.core.deep_research_manager import get_deep_research_manager
         from app.domain.models.deep_research import DeepResearchConfig
-        from app.domain.models.event import DeepResearchStatus
+        from app.domain.models.event import DeepResearchEvent, DeepResearchStatus
         from app.domain.services.flows.deep_research import DeepResearchFlow
         from app.domain.services.flows.phased_research import PhasedResearchFlow
 
@@ -1468,6 +1468,7 @@ class PlanActFlow(BaseFlow):
                 max_concurrent=min(5, max(1, len(queries))),
             )
 
+            completed_event: DeepResearchEvent | None = None
             async for event in flow.run(config):
                 # Keep frontend status text stable while per-query updates stream through query payloads.
                 if event.status in {
@@ -1476,7 +1477,16 @@ class PlanActFlow(BaseFlow):
                     DeepResearchStatus.QUERY_SKIPPED,
                 }:
                     event = event.model_copy(update={"status": DeepResearchStatus.STARTED})
-                yield event
+                # Hold the COMPLETED event — emit SUMMARIZING first so the phase bar
+                # transitions properly before the final completion signal.
+                if event.status == DeepResearchStatus.COMPLETED:
+                    completed_event = event
+                else:
+                    yield event
+
+            # Signal summarizing phase so the progress bar shows it as active
+            if completed_event is not None:
+                yield completed_event.model_copy(update={"status": DeepResearchStatus.SUMMARIZING})
 
             summary = flow.generate_research_summary()
             if summary:
@@ -1486,6 +1496,10 @@ class PlanActFlow(BaseFlow):
                     content=summary,
                     attachments=[],
                 )
+
+            # Emit final completed event after the report is ready
+            if completed_event is not None:
+                yield completed_event
 
             yield DoneEvent()
         except Exception as e:

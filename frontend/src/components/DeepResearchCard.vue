@@ -4,7 +4,7 @@
     <div class="research-header" @click="toggleExpand">
       <div class="research-icon">
         <Search v-if="isPending || isAwaitingApproval" :size="18" />
-        <Loader2 v-else-if="isSearching" :size="18" class="animate-spin" />
+        <Loader2 v-else-if="isSearching || isSummarizing" :size="18" class="animate-spin" />
         <CheckCircle2 v-else-if="isCompleted" :size="18" />
         <XCircle v-else-if="isCancelled" :size="18" />
       </div>
@@ -101,6 +101,7 @@ const isSearching = computed(() =>
   props.content.status === 'query_completed' ||
   props.content.status === 'query_skipped'
 )
+const isSummarizing = computed(() => props.content.status === 'summarizing')
 const isCompleted = computed(() => props.content.status === 'completed')
 const isCancelled = computed(() => props.content.status === 'cancelled')
 
@@ -108,8 +109,9 @@ const phaseForIndicator = computed(() => {
   if (props.content.phase) return props.content.phase
   if (isPending.value || isAwaitingApproval.value) return 'planning'
   if (isSearching.value) return 'executing'
+  if (isSummarizing.value) return 'summarizing'
   if (isCompleted.value) return 'completed'
-  return 'summarizing'
+  return 'planning'
 })
 
 // Status text
@@ -124,6 +126,8 @@ const statusText = computed(() => {
     case 'query_completed':
     case 'query_skipped':
       return `Searching... (${props.content.completed_count}/${props.content.total_count})`
+    case 'summarizing':
+      return 'Generating report...'
     case 'completed':
       return 'Research completed'
     case 'cancelled':

@@ -121,6 +121,7 @@ export type DeepResearchStatus =
   | 'query_started'
   | 'query_completed'
   | 'query_skipped'
+  | 'summarizing'
   | 'completed'
   | 'cancelled';
 export type DeepResearchQueryStatus = 'pending' | 'searching' | 'completed' | 'skipped' | 'failed';
