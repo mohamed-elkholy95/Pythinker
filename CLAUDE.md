@@ -23,6 +23,14 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 > **Before committing:**
 > - **Frontend**: `cd frontend && bun run lint && bun run type-check`
 > - **Backend**: `conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest tests/`
+>
+> **Git commit strategy (MANDATORY):**
+> - When committing multiple files, ALWAYS split into **multiple atomic commits** grouped by logical concern
+> - Never bundle unrelated changes (bug fixes, features, refactors, chores) into one commit
+> - Each commit must be **independently revertable** — one concern, one commit
+> - Cluster by: bug-fix type · feature scope · architectural layer · impact area
+> - Format: `fix(scope)` · `feat(scope)` · `refactor(scope)` · `chore(scope)` · `docs(scope)` · `test(scope)`
+> - Stage files selectively with `git add <specific-files>` — never `git add .` for multi-concern changesets
 
 ## Development Guidelines
 
