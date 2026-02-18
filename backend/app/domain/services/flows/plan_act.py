@@ -2225,8 +2225,15 @@ class PlanActFlow(BaseFlow):
                 # Update session status
                 await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
 
-                # Execute fast path and yield all events
+                # Execute fast path and yield all events.
+                # For non-GREETING intents, inject a TitleEvent immediately before DoneEvent
+                # so the sidebar title is populated (fast paths skip the planner that normally
+                # generates TitleEvent).
                 async for event in fast_path_router.execute(intent, params, message):
+                    if isinstance(event, DoneEvent) and intent != QueryIntent.GREETING:
+                        raw = (message.message or "").strip()
+                        fast_title = raw[:60].rstrip() + ("…" if len(raw) > 60 else "")
+                        yield TitleEvent(title=fast_title)
                     yield event
 
                 # For GREETING, keep session PENDING (waiting for actual task)
