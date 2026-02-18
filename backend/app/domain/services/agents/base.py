@@ -197,6 +197,12 @@ class BaseAgent:
             allow_destructive_operations=False,
         )
 
+        # Per-agent efficiency monitor (NOT a global singleton — prevents cross-session bleed)
+        from app.domain.services.agents.tool_efficiency_monitor import ToolEfficiencyMonitor
+
+        self._efficiency_monitor = ToolEfficiencyMonitor(window_size=10, read_threshold=5, strong_threshold=7)
+        self._efficiency_nudges: list[dict] = []
+
         # Context manager for Pythinker-style attention manipulation (optional)
         self.context_manager: SandboxContextManager | None = None
 
@@ -214,6 +220,17 @@ class BaseAgent:
 
         return get_feature_flags()
 
+    # Search/read tools blocked during hard-stop mode
+    _HARD_STOP_BLOCKED_TOOLS: ClassVar[frozenset[str]] = frozenset({
+        "search",
+        "info_search_web",
+        "wide_research",
+        "browser_navigate",
+        "browser_get_content",
+        "browser_agent_extract",
+        "browser_view",
+    })
+
     def get_available_tools(self) -> list[dict[str, Any]] | None:
         """Get all available tools list, filtered by active phase if set."""
         available_tools = []
@@ -225,6 +242,13 @@ class BaseAgent:
             allowed = self.PHASE_TOOL_GROUPS.get(self._active_phase)
             if allowed is not None:  # None means all tools
                 available_tools = [t for t in available_tools if t.get("function", {}).get("name", "") in allowed]
+
+        # Block search tools when efficiency monitor signals hard stop (analysis paralysis)
+        if self._efficiency_monitor._consecutive_reads >= self._efficiency_monitor.strong_threshold:
+            available_tools = [
+                t for t in available_tools
+                if t.get("function", {}).get("name", "") not in self._HARD_STOP_BLOCKED_TOOLS
+            ]
 
         return available_tools
 
@@ -653,39 +677,32 @@ class BaseAgent:
 
                 # Tool efficiency monitoring (analysis paralysis detection)
                 try:
-                    from app.domain.services.agents.tool_efficiency_monitor import get_efficiency_monitor
-
-                    efficiency_monitor = get_efficiency_monitor()
-                    efficiency_monitor.record(function_name)
-                    signal = efficiency_monitor.check_efficiency()
+                    self._efficiency_monitor.record(function_name)
+                    signal = self._efficiency_monitor.check_efficiency()
 
                     if not signal.is_balanced and signal.nudge_message:
-                        # Inject nudge message into conversation context
                         logger.info(
-                            f"Tool efficiency nudge: {signal.nudge_message} "
+                            f"Tool efficiency nudge (hard_stop={signal.hard_stop}): {signal.nudge_message[:80]}... "
                             f"(reads={signal.read_count}, actions={signal.action_count}, "
                             f"confidence={signal.confidence})"
                         )
 
-                        # Record Prometheus metric
                         self._metrics.increment(
                             "pythinker_tool_efficiency_nudges_total",
                             labels={
-                                "threshold": "strong" if signal.confidence >= 0.9 else "soft",
+                                "threshold": "hard_stop" if signal.hard_stop else "soft",
                                 "read_count": str(signal.read_count),
                                 "action_count": str(signal.action_count),
                             },
                         )
 
-                        # Store nudge in agent context for next LLM call
-                        if not hasattr(self, "_efficiency_nudges"):
-                            self._efficiency_nudges = []
                         self._efficiency_nudges.append(
                             {
                                 "message": signal.nudge_message,
                                 "read_count": signal.read_count,
                                 "action_count": signal.action_count,
                                 "confidence": signal.confidence,
+                                "hard_stop": signal.hard_stop,
                             }
                         )
                 except Exception as e:
@@ -754,33 +771,29 @@ class BaseAgent:
 
         # Tool efficiency monitoring (even on failure, track the attempt)
         try:
-            from app.domain.services.agents.tool_efficiency_monitor import get_efficiency_monitor
-
-            efficiency_monitor = get_efficiency_monitor()
-            efficiency_monitor.record(function_name)
-            signal = efficiency_monitor.check_efficiency()
+            self._efficiency_monitor.record(function_name)
+            signal = self._efficiency_monitor.check_efficiency()
 
             if not signal.is_balanced and signal.nudge_message:
                 logger.info(
-                    f"Tool efficiency nudge (after failure): {signal.nudge_message} "
+                    f"Tool efficiency nudge after failure (hard_stop={signal.hard_stop}): "
                     f"(reads={signal.read_count}, actions={signal.action_count})"
                 )
                 self._metrics.increment(
                     "pythinker_tool_efficiency_nudges_total",
                     labels={
-                        "threshold": "strong" if signal.confidence >= 0.9 else "soft",
+                        "threshold": "hard_stop" if signal.hard_stop else "soft",
                         "read_count": str(signal.read_count),
                         "action_count": str(signal.action_count),
                     },
                 )
-                if not hasattr(self, "_efficiency_nudges"):
-                    self._efficiency_nudges = []
                 self._efficiency_nudges.append(
                     {
                         "message": signal.nudge_message,
                         "read_count": signal.read_count,
                         "action_count": signal.action_count,
                         "confidence": signal.confidence,
+                        "hard_stop": signal.hard_stop,
                     }
                 )
         except Exception as e:
@@ -1266,15 +1279,15 @@ class BaseAgent:
         await self._ensure_within_token_limit()
 
         # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
-        if hasattr(self, "_efficiency_nudges") and self._efficiency_nudges:
-            # Take the most recent nudge
-            nudge = self._efficiency_nudges[-1]
+        if self._efficiency_nudges:
+            # Take the most severe nudge (hard_stop takes priority)
+            nudge = max(self._efficiency_nudges, key=lambda n: (n.get("hard_stop", False), n["confidence"]))
+            # Always use "user" role — many LLM APIs (e.g. GLM-5) reject mid-conversation system messages
             nudge_message = {
                 "role": "user",
-                "content": f"⚠️ **Efficiency Notice**: {nudge['message']}",
+                "content": nudge["message"],
             }
             await self._add_to_memory([nudge_message])
-            # Clear nudges after injection
             self._efficiency_nudges.clear()
 
         response_format = None
@@ -1603,16 +1616,9 @@ class BaseAgent:
         self._stuck_detector.reset()
         self._stuck_recovery_exhausted = False
 
-        # Reset efficiency monitor (DeepCode Phase 2: Tool Efficiency Monitor)
-        try:
-            from app.domain.services.agents.tool_efficiency_monitor import get_efficiency_monitor
-
-            efficiency_monitor = get_efficiency_monitor()
-            efficiency_monitor.reset()
-            if hasattr(self, "_efficiency_nudges"):
-                self._efficiency_nudges.clear()
-        except Exception as e:
-            logger.debug(f"Efficiency monitor reset failed: {e}")
+        # Reset per-agent efficiency monitor
+        self._efficiency_monitor.reset()
+        self._efficiency_nudges.clear()
 
         logger.debug("Reliability state reset")
 
@@ -1634,11 +1640,12 @@ class BaseAgent:
         await self._ensure_within_token_limit()
 
         # Inject efficiency nudges if any are pending (DeepCode Phase 2: Tool Efficiency Monitor)
-        if hasattr(self, "_efficiency_nudges") and self._efficiency_nudges:
-            nudge = self._efficiency_nudges[-1]
+        if self._efficiency_nudges:
+            nudge = max(self._efficiency_nudges, key=lambda n: (n.get("hard_stop", False), n["confidence"]))
+            # Always use "user" role — many LLM APIs (e.g. GLM-5) reject mid-conversation system messages
             nudge_message = {
                 "role": "user",
-                "content": f"⚠️ **Efficiency Notice**: {nudge['message']}",
+                "content": nudge["message"],
             }
             await self._add_to_memory([nudge_message])
             self._efficiency_nudges.clear()
