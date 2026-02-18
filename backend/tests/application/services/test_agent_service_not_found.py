@@ -2,7 +2,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.application.errors.exceptions import NotFoundError
 from app.application.services.agent_service import AgentService
 
 
@@ -45,16 +44,18 @@ def _build_service() -> AgentService:
 
 
 @pytest.mark.asyncio
-async def test_delete_session_raises_not_found_for_missing_session() -> None:
+async def test_delete_session_is_idempotent_for_missing_session() -> None:
+    """delete_session is idempotent — returns silently if session not found."""
     service = _build_service()
 
-    with pytest.raises(NotFoundError, match="Session not found"):
-        await service.delete_session("missing-session", "user-1")
+    # Should NOT raise: idempotent delete returns silently
+    await service.delete_session("missing-session", "user-1")
 
 
 @pytest.mark.asyncio
-async def test_stop_session_raises_not_found_for_missing_session() -> None:
+async def test_stop_session_is_idempotent_for_missing_session() -> None:
+    """stop_session is idempotent — returns silently if session not found."""
     service = _build_service()
 
-    with pytest.raises(NotFoundError, match="Session not found"):
-        await service.stop_session("missing-session", "user-1")
+    # Should NOT raise: idempotent stop returns silently
+    await service.stop_session("missing-session", "user-1")
