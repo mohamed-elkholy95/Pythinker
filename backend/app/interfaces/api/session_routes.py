@@ -550,7 +550,7 @@ async def chat(
         stream_event_count = 0
         heartbeat_count = 0
         close_reason = "unknown"
-        last_emitted_event_id = request.event_id
+        last_emitted_event_id: str | None = None  # Updated to UUID as real events are sent.
         disconnect_event = asyncio.Event()
         cancel_token = CancellationToken(event=disconnect_event, session_id=session_id)
         guard = StreamGuard(
