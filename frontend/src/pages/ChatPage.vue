@@ -2098,13 +2098,13 @@ const findActivePhaseMessage = (phaseId: string | undefined) => {
 // Handle step event
 const handleStepEvent = (stepData: StepEventData) => {
   const lastStep = getLastStep();
-  if (stepData.status === 'running') {
+  if (stepData.status === 'running' || stepData.status === 'started') {
     // Check if a running step with the same ID already exists (progressive update pattern)
     // Used by finalization steps that emit multiple RUNNING events with changing descriptions
     const existingRunningStep = messages.value
       .filter(m => m.type === 'step')
       .map(m => m.content as StepContent)
-      .find(s => s.id === stepData.id && s.status === 'running');
+      .find(s => s.id === stepData.id && (s.status === 'running' || s.status === 'started'));
 
     if (existingRunningStep) {
       // Push the current description into history and update to new description
