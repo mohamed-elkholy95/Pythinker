@@ -3,8 +3,9 @@ const UNVERIFIED_MARKER_RE = /\[(?:unverified(?:\s+[^\]\n]*?)?|not verified)\]?/
 const VERIFIED_MARKER_RE = /\[(?:verified(?:\s+[^\]\n]*?)?)\]?/gi;
 const VERIFICATION_TAG_RE = /\[(?:unverified|verified|not verified)[^\]]*\]?/gi;
 
-// Matches [N] where N is 1–3 digits, not preceded by ^ (footnote) and not followed by (, :, or [
-const INLINE_CITATION_RE = /(?<!\^)\[(\d{1,3})\](?![(:[])/g;
+// Matches [N] where N is 1–3 digits, not preceded by ^ (footnote) and not followed by ( or :
+// Note: [ is intentionally NOT excluded so consecutive citations [1][2][3] all get linkified
+const INLINE_CITATION_RE = /(?<!\^)\[(\d{1,3})\](?![(:])/g;
 // Detects a "references/sources/bibliography" section heading
 const REFERENCES_HEADING_RE = /^#{1,4}\s*(references?|sources?|bibliography|citations?)\s*$/i;
 // Ordered list item at the start of a line: "3. text"
@@ -156,9 +157,15 @@ export const linkifyInlineCitations = (markdown: string): string => {
         return line;
       }
 
-      // Outside references section: linkify inline [N] patterns
-      return line.replace(INLINE_CITATION_RE, (_, num) => {
-        return `<sup><a href="#ref-${num}" class="inline-citation">[${num}]</a></sup>`;
+      // Outside references section: linkify inline [N] patterns.
+      // First move sentence-ending punctuation from after citation groups to before them
+      // so citations always sit AFTER punctuation. e.g. "word [1]." → "word.[1]"
+      const punct_normalized = line.replace(
+        / *((?:\[\d{1,3}\]\s*)+)([.!?,;])\s*$/g,
+        (_, cites: string, punct: string) => `${punct}${cites.trimEnd()}`,
+      );
+      return punct_normalized.replace(INLINE_CITATION_RE, (_, num) => {
+        return `<a href="#ref-${num}" class="inline-citation">${num}</a>`;
       });
     })
     .join('\n');
