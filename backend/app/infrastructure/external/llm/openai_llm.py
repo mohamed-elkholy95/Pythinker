@@ -140,8 +140,7 @@ class OpenAILLM(LLM):
 
         logger.info(
             f"Initialized OpenAI LLM with {len(key_configs)} API key(s) "
-            f"using FAILOVER strategy, model: {self._model_name}"
-            + (" [GLM API mode]" if self._is_glm_api else "")
+            f"using FAILOVER strategy, model: {self._model_name}" + (" [GLM API mode]" if self._is_glm_api else "")
         )
 
     async def get_api_key(self) -> str | None:
