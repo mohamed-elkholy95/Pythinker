@@ -253,6 +253,15 @@ services:
       - "yes"
       - --latency-monitor-threshold
       - "100"
+      # Auto-compact AOF when it doubles and exceeds 64 MB — prevents unbounded
+      # growth and the startup-crash loop caused by a corrupted tail.
+      - --auto-aof-rewrite-percentage
+      - "100"
+      - --auto-aof-rewrite-min-size
+      - "64mb"
+      # Allow truncating up to 8 KB of corrupt AOF tail instead of hard-crashing.
+      - --aof-load-corrupt-tail-max-size
+      - "8192"
     volumes:
       - redis_runtime_data:/data
     restart: unless-stopped
