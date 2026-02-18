@@ -105,22 +105,25 @@ class TestEmbeddingClient:
 
     @pytest.mark.asyncio
     async def test_embed_batch_single_text(self):
-        """Should handle single-item batch."""
+        """Should handle single-item batch via raw HTTP (not SDK)."""
         client = EmbeddingClient(api_key="test-key")
 
-        mock_data_item = MagicMock()
-        mock_data_item.index = 0
-        mock_data_item.embedding = [0.5] * 1536
+        api_response = {
+            "data": [{"index": 0, "embedding": [0.5] * 1536}],
+        }
 
-        mock_response = MagicMock()
-        mock_response.data = [mock_data_item]
+        mock_http_response = MagicMock()
+        mock_http_response.status_code = 200
+        mock_http_response.json.return_value = api_response
+        mock_http_response.raise_for_status = MagicMock()
 
-        mock_embeddings = MagicMock()
-        mock_embeddings.create = AsyncMock(return_value=mock_response)
-        client._client = MagicMock()
-        client._client.embeddings = mock_embeddings
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(return_value=mock_http_response)
+        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+        mock_http_client.__aexit__ = AsyncMock(return_value=False)
 
-        result = await client.embed_batch(["single text"])
+        with patch("app.infrastructure.external.embedding.client.httpx.AsyncClient", return_value=mock_http_client):
+            result = await client.embed_batch(["single text"])
 
         assert len(result) == 1
         assert result[0] == [0.5] * 1536
@@ -130,24 +133,25 @@ class TestEmbeddingClient:
         """Batch results should maintain input order even when API returns shuffled."""
         client = EmbeddingClient(api_key="test-key")
 
-        # Create mock response with shuffled indices
-        mock_item_1 = MagicMock()
-        mock_item_1.index = 1
-        mock_item_1.embedding = [0.2] * 1536
+        api_response = {
+            "data": [
+                {"index": 1, "embedding": [0.2] * 1536},
+                {"index": 0, "embedding": [0.1] * 1536},
+            ],
+        }
 
-        mock_item_0 = MagicMock()
-        mock_item_0.index = 0
-        mock_item_0.embedding = [0.1] * 1536
+        mock_http_response = MagicMock()
+        mock_http_response.status_code = 200
+        mock_http_response.json.return_value = api_response
+        mock_http_response.raise_for_status = MagicMock()
 
-        mock_response = MagicMock()
-        mock_response.data = [mock_item_1, mock_item_0]  # Shuffled order
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(return_value=mock_http_response)
+        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+        mock_http_client.__aexit__ = AsyncMock(return_value=False)
 
-        mock_embeddings = MagicMock()
-        mock_embeddings.create = AsyncMock(return_value=mock_response)
-        client._client = MagicMock()
-        client._client.embeddings = mock_embeddings
-
-        result = await client.embed_batch(["text0", "text1"])
+        with patch("app.infrastructure.external.embedding.client.httpx.AsyncClient", return_value=mock_http_client):
+            result = await client.embed_batch(["text0", "text1"])
 
         # Should be sorted by index (0 first, then 1)
         assert result[0] == [0.1] * 1536
@@ -158,27 +162,31 @@ class TestEmbeddingClient:
         """Batch should truncate all texts to 8000 chars."""
         client = EmbeddingClient(api_key="test-key")
 
-        mock_item_0 = MagicMock()
-        mock_item_0.index = 0
-        mock_item_0.embedding = [0.1] * 1536
+        api_response = {
+            "data": [
+                {"index": 0, "embedding": [0.1] * 1536},
+                {"index": 1, "embedding": [0.2] * 1536},
+            ],
+        }
 
-        mock_item_1 = MagicMock()
-        mock_item_1.index = 1
-        mock_item_1.embedding = [0.2] * 1536
+        mock_http_response = MagicMock()
+        mock_http_response.status_code = 200
+        mock_http_response.json.return_value = api_response
+        mock_http_response.raise_for_status = MagicMock()
 
-        mock_response = MagicMock()
-        mock_response.data = [mock_item_0, mock_item_1]
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(return_value=mock_http_response)
+        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+        mock_http_client.__aexit__ = AsyncMock(return_value=False)
 
-        mock_embeddings = MagicMock()
-        mock_embeddings.create = AsyncMock(return_value=mock_response)
-        client._client = MagicMock()
-        client._client.embeddings = mock_embeddings
+        with patch("app.infrastructure.external.embedding.client.httpx.AsyncClient", return_value=mock_http_client):
+            long_texts = ["x" * 10000, "y" * 9000]
+            await client.embed_batch(long_texts)
 
-        long_texts = ["x" * 10000, "y" * 9000]
-        await client.embed_batch(long_texts)
-
-        call_kwargs = mock_embeddings.create.call_args.kwargs
-        input_texts = call_kwargs["input"]
+        # Verify truncation in the HTTP request body
+        call_kwargs = mock_http_client.post.call_args
+        request_body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+        input_texts = request_body["input"]
         assert len(input_texts[0]) == 8000
         assert len(input_texts[1]) == 8000
 
