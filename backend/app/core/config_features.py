@@ -240,6 +240,12 @@ class ResearchSettingsMixin:
     feature_enhanced_research: bool = False  # Enable enhanced research flow
     feature_phased_research: bool = False  # Enable phased research workflow for deep research
 
+    # Parallel Research (MindSearch-inspired)
+    parallel_research_enabled: bool = True  # Auto-detect research tasks and run sub-questions in parallel
+    parallel_research_max_concurrency: int = 5  # Max parallel search tasks
+    parallel_research_min_subquestions: int = 2  # Min sub-questions to trigger parallel mode
+    parallel_research_llm_decomposition: bool = True  # Use LLM to decompose queries (vs plan-step extraction)
+
 
 class TypoCorrectionSettingsMixin:
     """Typo correction (PromptQuickValidator) configuration."""

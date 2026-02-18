@@ -187,6 +187,72 @@ class WideResearchOrchestrator:
 
         return tasks
 
+    async def execute_with_dependencies(
+        self,
+        tasks: list[ResearchTask],
+        parallel_groups: list[list[int]],
+    ) -> list[ResearchTask]:
+        """Execute tasks respecting dependency ordering with context inheritance.
+
+        Processes task groups level-by-level.  After each level completes,
+        completed results are appended as context to queries in the next
+        level — implementing the MindSearch ``user_context_template`` pattern
+        where child queries benefit from parent answers.
+
+        Args:
+            tasks: All research tasks (indices must match ``parallel_groups``).
+            parallel_groups: Groups of task indices; each group can run in
+                parallel, but groups are processed sequentially.
+
+        Returns:
+            List of tasks with updated statuses and results.
+        """
+        task_by_index = {t.index: t for t in tasks}
+        completed_context: dict[int, str] = {}  # index -> result snippet
+
+        for group_idx, group in enumerate(parallel_groups):
+            # Enrich queries with context from previously completed tasks
+            group_tasks: list[ResearchTask] = []
+            for task_index in group:
+                task = task_by_index.get(task_index)
+                if not task:
+                    continue
+
+                # Inject context from completed dependencies
+                if completed_context:
+                    context_parts = [f"[Prior finding]: {snippet}" for snippet in completed_context.values()]
+                    context_str = "\n".join(context_parts)
+                    # Enrich query with parent context (max 500 chars per snippet)
+                    task.query = f"{task.query}\n\nContext from prior research:\n{context_str}"
+
+                group_tasks.append(task)
+
+            if not group_tasks:
+                continue
+
+            logger.debug(
+                "Executing dependency group %d/%d (%d tasks)",
+                group_idx + 1,
+                len(parallel_groups),
+                len(group_tasks),
+            )
+
+            # Execute this group in parallel
+            results = await asyncio.gather(
+                *[self._execute_single(t) for t in group_tasks],
+                return_exceptions=True,
+            )
+
+            # Capture results for context inheritance
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    group_tasks[i].fail(str(result))
+                elif result.status == ResearchStatus.COMPLETED and result.result:
+                    # Truncate context to prevent prompt bloat
+                    completed_context[result.index] = result.result[:500]
+
+        return tasks
+
     async def synthesize(
         self,
         tasks: list[ResearchTask],
