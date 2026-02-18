@@ -27,6 +27,7 @@ Usage:
 """
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -127,6 +128,18 @@ class LettuceVerifier:
             return False  # Already failed once, don't retry
 
         try:
+            # Authenticate with HuggingFace Hub if token is available to avoid
+            # unauthenticated rate limits during model download.
+            hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+            if hf_token:
+                try:
+                    from huggingface_hub import login as hf_login
+
+                    hf_login(token=hf_token, add_to_git_credential=False)
+                    logger.debug("Authenticated with HuggingFace Hub")
+                except Exception as auth_err:
+                    logger.debug("HF Hub auth skipped: %s", auth_err)
+
             detector_cls = _get_detector_class()
             logger.info("Loading LettuceDetect model: %s", self.model_path)
             start = time.monotonic()
