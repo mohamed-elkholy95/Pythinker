@@ -233,6 +233,43 @@ AVOID these sections entirely:
 Keep the report CONCISE and FOCUSED on delivering value.
 """
 
+DECOMPOSITION_PROMPT = """
+Decompose the following research question into independent sub-questions that
+can each be answered with a single web search.
+
+## Rules
+1. Each sub-question must be independently searchable (no dependencies between them).
+2. Each sub-question must focus on a single topic or entity.
+3. Do NOT create compound questions (no "and", "as well as", "in addition to").
+4. Return between 2 and 6 sub-questions.
+5. Keep each sub-question concise (3-50 words).
+6. Ensure full coverage — the union of sub-question answers should address
+   the original question completely.
+
+## Examples
+
+**Question**: "Compare the pricing and features of GPT-4, Claude, and Gemini"
+**sub_questions**:
+- "What are the pricing plans and costs for GPT-4?"
+- "What are the key features and capabilities of GPT-4?"
+- "What are the pricing plans and costs for Claude?"
+- "What are the key features and capabilities of Claude?"
+- "What are the pricing plans and costs for Gemini?"
+- "What are the key features and capabilities of Gemini?"
+
+**Question**: "What are the best Python web frameworks in 2026?"
+**sub_questions**:
+- "What are the most popular Python web frameworks in 2026?"
+- "What are the performance benchmarks for Python web frameworks?"
+- "What are the key differences between FastAPI Django and Flask?"
+
+## Question to decompose
+{question}
+
+Return your answer as a JSON object with a single key "sub_questions" containing
+a list of strings.
+"""
+
 # Detection patterns for research-type tasks
 RESEARCH_TASK_INDICATORS = [
     "compare",

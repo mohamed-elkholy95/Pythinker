@@ -164,6 +164,13 @@ class ExecutionAgent(BaseAgent):
         self._collected_sources: list[SourceCitation] = []
         self._seen_urls: set[str] = set()
 
+        # Citation index for inline references [1], [2] (Phase 2: MindSearch-inspired)
+        self._citation_counter: int = 0
+        self._url_to_citation: dict[str, int] = {}
+
+        # Parallel research context injected by PlanActFlow (MindSearch-inspired)
+        self._parallel_research_context: str | None = None
+
         # Multimodal information persistence (P5.2)
         # Per Pythinker pattern: persist key findings every 2 view operations
         self._view_operation_count: int = 0
@@ -498,7 +505,15 @@ class ExecutionAgent(BaseAgent):
         )
 
         # Use streaming prompt (plain markdown, no JSON wrapper)
-        summarize_prompt = STREAMING_SUMMARIZE_PROMPT
+        # Phase 2: Switch to citation-aware prompt when sources were collected
+        if self._collected_sources:
+            from app.domain.services.prompts.execution import CITATION_AWARE_SUMMARIZE_PROMPT
+
+            source_list = self._build_numbered_source_list()
+            summarize_prompt = f"{CITATION_AWARE_SUMMARIZE_PROMPT}\n\n## Available Sources\n{source_list}"
+        else:
+            summarize_prompt = STREAMING_SUMMARIZE_PROMPT
+
         if active_policy.mode == VerbosityMode.CONCISE:
             summarize_prompt += (
                 "\n\nKeep the final response concise while preserving: final result, key artifacts, "
@@ -508,6 +523,20 @@ class ExecutionAgent(BaseAgent):
             summarize_prompt += (
                 "\n\nProvide a detailed and well-structured response with clear reasoning, deliverables, and caveats."
             )
+
+        # Inject parallel research findings into memory before summarization
+        if self._parallel_research_context:
+            await self._add_to_memory(
+                [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Here are the research findings from parallel search:\n\n" + self._parallel_research_context
+                        ),
+                    }
+                ]
+            )
+
         await self._add_to_memory([{"role": "user", "content": summarize_prompt}])
         await self._ensure_within_token_limit()
 
@@ -599,14 +628,17 @@ class ExecutionAgent(BaseAgent):
                     "You MUST write a plain Markdown report. Do NOT output any XML tags. "
                     "Start your response with a # heading and write the report content directly."
                 )
-                await self._add_to_memory([
-                    {"role": "assistant", "content": "(Previous summarization attempt produced invalid XML output.)"},
-                    {"role": "user", "content": retry_prompt},
-                ])
-                retry_text = ""
-                retry_stream = self.llm.ask_stream(
-                    list(self.memory.get_messages()), tools=None, tool_choice=None
+                await self._add_to_memory(
+                    [
+                        {
+                            "role": "assistant",
+                            "content": "(Previous summarization attempt produced invalid XML output.)",
+                        },
+                        {"role": "user", "content": retry_prompt},
+                    ]
                 )
+                retry_text = ""
+                retry_stream = self.llm.ask_stream(list(self.memory.get_messages()), tools=None, tool_choice=None)
                 async with aclosing(retry_stream) as stream:
                     async for chunk in stream:
                         retry_text += chunk
@@ -2251,7 +2283,10 @@ class ExecutionAgent(BaseAgent):
                         source_type="search",
                     )
                 )
-                logger.debug(f"Tracked search source: {title[:50] if title else url[:50]}")
+                # Assign citation index for inline references
+                self._citation_counter += 1
+                self._url_to_citation[url] = self._citation_counter
+                logger.debug(f"Tracked search source [{self._citation_counter}]: {title[:50] if title else url[:50]}")
 
     def _extract_browser_source(self, event: ToolEvent, access_time: datetime) -> None:
         """Extract source from browser navigation events.
@@ -2305,6 +2340,53 @@ class ExecutionAgent(BaseAgent):
             return md_h1_match.group(1).strip()[:200]
 
         return None
+
+    def _track_parallel_research_source(self, url: str, query: str) -> None:
+        """Track a source discovered during parallel research execution.
+
+        Called by PlanActFlow._execute_parallel_research_steps() to register
+        sources from the WideResearchOrchestrator into the executor's citation
+        index, so they appear in the final report.
+
+        Args:
+            url: Source URL
+            query: The search query that discovered this source
+        """
+        if not url or url in self._seen_urls or len(self._collected_sources) >= self._max_collected_sources:
+            return
+
+        self._seen_urls.add(url)
+
+        # Assign citation index
+        self._citation_counter += 1
+        self._url_to_citation[url] = self._citation_counter
+
+        self._collected_sources.append(
+            SourceCitation(
+                url=url,
+                title=query[:100],
+                snippet=None,
+                access_time=datetime.now(),
+                source_type="search",
+            )
+        )
+
+    def _build_numbered_source_list(self) -> str:
+        """Build a numbered source list for citation-aware summarization.
+
+        Returns:
+            Formatted string like:
+            [1] Title - URL
+            [2] Title - URL
+        """
+        lines = []
+        for i, source in enumerate(self._collected_sources, start=1):
+            title = source.title or source.url
+            lines.append(f"[{i}] {title} - {source.url}")
+            # Ensure url_to_citation mapping is up to date
+            if source.url not in self._url_to_citation:
+                self._url_to_citation[source.url] = i
+        return "\n".join(lines)
 
     def get_collected_sources(self) -> list[SourceCitation]:
         """Get all collected source citations.

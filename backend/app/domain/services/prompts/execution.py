@@ -1278,6 +1278,59 @@ FORBIDDEN:
 IMPORTANT: Write ONLY the Markdown report. No JSON wrapping, no prose before or after. Start directly with the # title heading. All information you need is already in the conversation — do NOT attempt to call tools or reproduce tool call syntax.
 """
 
+# Citation-aware summarization prompt (MindSearch-inspired)
+# Used when collected sources are available, instructs LLM to use inline [N] citations
+CITATION_AWARE_SUMMARIZE_PROMPT = """Based on the research findings and Q&A pairs collected, write a detailed and comprehensive final response as a professional research report in Markdown.
+
+CITATION REQUIREMENTS:
+- Each key claim MUST be marked with the source reference from the Available Sources list below.
+- Use inline citations in the format [N] where N matches the source number, e.g. [1], [2].
+- If multiple sources support a claim, use multiple citations: [1][3].
+- ONLY cite sources listed in the Available Sources section — do not fabricate citations.
+- Every factual statement should have at least one citation.
+
+REPORT STRUCTURE (follow this format exactly):
+
+# [Clear, Descriptive Title]
+
+## Introduction
+Brief context and scope of the research (2-3 sentences).
+
+## [Main Section 1]
+### [Subsection if needed]
+Content with inline citations [1]. Use tables for comparisons:
+
+| Category | Details | Source |
+|----------|---------|--------|
+| Item 1   | Value   | [1]    |
+
+## [Main Section 2]
+Continue with clear, factual content and citations [2][3].
+
+## Conclusion
+Key takeaways and recommendations.
+
+## References
+List all cited sources with their numbers matching the inline citations.
+
+WRITING GUIDELINES:
+- Be CONCISE - no filler text, disclaimers, or meta-commentary
+- Focus on FACTS and FINDINGS with proper attribution
+- Use **bold** for key terms
+- Use tables for structured comparisons
+- Write in professional, rigorous tone
+- Maintain consistent citation usage throughout
+- The final response should NOT include the raw Q&A pairs — synthesize them into coherent prose
+
+FORBIDDEN:
+- Fabricated citations or source numbers not in the Available Sources list
+- Vague expressions like "based on the above content" or "according to research"
+- Meta-commentary about the report itself
+- Tool call XML (e.g. <tool_call>, <function_call>)
+
+IMPORTANT: Write ONLY the Markdown report. Start directly with the # title heading.
+"""
+
 # Confirmation summary prompt - emitted as a MessageEvent before the ReportEvent
 CONFIRMATION_SUMMARY_PROMPT = """Given this completed report, write a brief confirmation message for the user.
 
