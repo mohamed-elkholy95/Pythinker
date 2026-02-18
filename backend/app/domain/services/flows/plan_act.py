@@ -225,6 +225,11 @@ class PlanActFlow(BaseFlow):
         self._memory_service = memory_service
         self._user_id = user_id
 
+        # Conversation context: real-time retrieval for step execution
+        from app.domain.services.conversation_context_service import get_conversation_context_service
+
+        self._conversation_context_service = get_conversation_context_service()
+
         # Phase 5: Checkpoint tracking for incremental progress saves
         self._checkpoint_interval = 5  # Write checkpoint every 5 steps
         self._steps_completed_count = 0
@@ -2537,6 +2542,28 @@ class PlanActFlow(BaseFlow):
                             # Phase 1/4: Pass request contract for search fidelity and entity context
                             if hasattr(step_executor, "set_request_contract") and self._request_contract:
                                 step_executor.set_request_contract(self._request_contract)
+
+                            # Pre-step: inject conversation context from Qdrant
+                            if self._conversation_context_service and self._user_id:
+                                try:
+                                    conv_ctx = await self._conversation_context_service.retrieve_context(
+                                        user_id=self._user_id,
+                                        session_id=self._session_id,
+                                        query=step.description or "",
+                                        current_turn_number=getattr(self, "_steps_completed_count", 0),
+                                    )
+                                    if not conv_ctx.is_empty:
+                                        formatted = conv_ctx.format_for_injection(max_chars=3000)
+                                        if formatted and hasattr(step_executor, "inject_conversation_context"):
+                                            step_executor.inject_conversation_context(formatted)
+                                            logger.debug(
+                                                "Injected conversation context (%d chars, %d turns) into step %s",
+                                                len(formatted),
+                                                conv_ctx.total_turns,
+                                                step.id,
+                                            )
+                                except Exception as ctx_err:
+                                    logger.debug("Conversation context retrieval failed (non-critical): %s", ctx_err)
 
                             # Phase 4 P1: Mark step executing to prevent compaction
                             if hasattr(step_executor, "_token_manager"):

@@ -27,6 +27,7 @@ COLLECTIONS: dict[str, models.VectorParams] = {
     "task_artifacts": DENSE_VECTOR_CONFIG,
     "tool_logs": DENSE_VECTOR_CONFIG,
     "semantic_cache": DENSE_VECTOR_CONFIG,
+    "conversation_context": DENSE_VECTOR_CONFIG,
 }
 
 # Sparse vector configuration (BM25 + IDF)
@@ -40,7 +41,11 @@ COLLECTION_INDEXES: dict[str, list[str]] = {
     "task_artifacts": ["user_id", "session_id", "artifact_type", "agent_role"],
     "tool_logs": ["user_id", "session_id", "tool_name", "outcome"],
     "semantic_cache": ["context_hash", "model"],
+    "conversation_context": ["session_id", "user_id", "role", "event_type", "turn_number", "created_at"],
 }
+
+# Fields that require INTEGER index type instead of KEYWORD
+INTEGER_INDEX_FIELDS: set[str] = {"turn_number", "created_at"}
 
 
 class QdrantStorage:
@@ -145,12 +150,18 @@ class QdrantStorage:
             for field in fields:
                 with contextlib.suppress(Exception):
                     # Index may already exist — suppress duplicates
+                    # Use INTEGER index for numeric fields, KEYWORD for everything else
+                    field_schema = (
+                        models.PayloadSchemaType.INTEGER
+                        if field in INTEGER_INDEX_FIELDS
+                        else models.PayloadSchemaType.KEYWORD
+                    )
                     await self._client.create_payload_index(
                         collection_name=collection_name,
                         field_name=field,
-                        field_schema=models.PayloadSchemaType.KEYWORD,
+                        field_schema=field_schema,
                     )
-                    logger.debug(f"Created payload index on {collection_name}.{field}")
+                    logger.debug(f"Created payload index on {collection_name}.{field} ({field_schema})")
 
     async def shutdown(self) -> None:
         """Shutdown Qdrant connection."""

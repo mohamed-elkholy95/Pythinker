@@ -242,6 +242,14 @@ RELEVANT CONTEXT FROM MEMORY:
 ---
 """
 
+CONVERSATION_CONTEXT_SIGNAL = """
+---
+CONVERSATION CONTEXT (from current and past sessions):
+{conversation_context}
+Use this context to maintain conversational continuity. Reference earlier decisions and findings when relevant.
+---
+"""
+
 PRE_PLANNING_SEARCH_CONTEXT_SIGNAL = """
 ---
 CURRENT WEB INFORMATION (retrieved at planning time — use these facts):
@@ -1298,6 +1306,7 @@ def build_execution_prompt(
     task_state: str | None = None,
     memory_context: str | None = None,
     search_context: str | None = None,
+    conversation_context: str | None = None,
     enable_cot: bool = True,
     include_current_date: bool = True,
     enable_source_attribution: bool = True,
@@ -1315,6 +1324,7 @@ def build_execution_prompt(
         task_state: Optional current task state for recitation
         memory_context: Optional relevant memories from long-term storage
         search_context: Optional real-time web search results from pre-planning search
+        conversation_context: Optional conversation context from Qdrant (sliding window + semantic)
         enable_cot: Enable Chain-of-Thought for complex tasks (default: True)
         include_current_date: Include current date context (default: True)
         enable_source_attribution: Enable source attribution signal for research tasks (default: True)
@@ -1395,6 +1405,10 @@ def build_execution_prompt(
     # Inject pre-planning search context if present (real-time web info)
     if search_context:
         prompt = PRE_PLANNING_SEARCH_CONTEXT_SIGNAL.format(search_context=search_context) + prompt
+
+    # Inject conversation context if present (real-time Qdrant vectorized turns)
+    if conversation_context:
+        prompt = CONVERSATION_CONTEXT_SIGNAL.format(conversation_context=conversation_context) + prompt
 
     # Inject memory context if present (Phase 6: Qdrant integration)
     if memory_context:

@@ -50,6 +50,7 @@ from app.core.config_llm import (
     EmbeddingSettingsMixin,
     LLMConcurrencySettingsMixin,
     LLMSettingsMixin,
+    LLMTimeoutSettingsMixin,
 )
 from app.core.config_sandbox import (
     BrowserSettingsMixin,
@@ -74,6 +75,7 @@ class Settings(
     LLMSettingsMixin,
     EmbeddingSettingsMixin,
     LLMConcurrencySettingsMixin,
+    LLMTimeoutSettingsMixin,
     # Sandbox / Browser layer
     SandboxSettingsMixin,
     SandboxPoolSettingsMixin,

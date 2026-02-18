@@ -86,3 +86,6 @@ class QdrantSettingsMixin:
     # Phase 1: Hybrid search feature flags
     qdrant_use_hybrid_search: bool = True  # Enable dense+sparse hybrid retrieval (RRF fusion)
     qdrant_sparse_vector_enabled: bool = True  # Generate BM25 sparse vectors
+
+    # Conversation context collection (real-time turn vectorization during active sessions)
+    qdrant_conversation_context_collection: str = "conversation_context"
