@@ -322,9 +322,7 @@ Returns both interactive HTML and static PNG files.""",
             exec_status = exec_result.data.get("status") if exec_result.data else None
             if exec_status == "running":
                 logger.debug("Chart script still running, waiting up to 120s for completion")
-                wait_result = await self.sandbox.wait_for_process(
-                    session_id=self.session_id, seconds=120
-                )
+                wait_result = await self.sandbox.wait_for_process(session_id=self.session_id, seconds=120)
                 if not wait_result.success:
                     logger.warning(f"Chart script timed out: {wait_result.message}")
                     return ToolResult(

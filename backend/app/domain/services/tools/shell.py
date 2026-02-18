@@ -65,7 +65,10 @@ class ShellTool(BaseTool):
         name="shell_exec",
         description="Execute commands in a specified shell session. Use for running code, installing packages, or managing files.",
         parameters={
-            "id": {"type": "string", "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name."},
+            "id": {
+                "type": "string",
+                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+            },
             "exec_dir": {
                 "type": "string",
                 "description": "Working directory for command execution (must use absolute path)",
@@ -127,7 +130,12 @@ class ShellTool(BaseTool):
     @tool(
         name="shell_view",
         description="View the content of a specified shell session. Use for checking command execution results or monitoring output.",
-        parameters={"id": {"type": "string", "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name."}},
+        parameters={
+            "id": {
+                "type": "string",
+                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+            }
+        },
         required=["id"],
     )
     async def shell_view(self, id: str) -> ToolResult:
@@ -146,7 +154,10 @@ class ShellTool(BaseTool):
         name="shell_wait",
         description="Wait for the running process in a specified shell session to return. Use after running commands that require longer runtime.",
         parameters={
-            "id": {"type": "string", "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name."},
+            "id": {
+                "type": "string",
+                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+            },
             "seconds": {"type": "integer", "description": "Wait duration in seconds"},
         },
         required=["id"],
@@ -170,7 +181,10 @@ class ShellTool(BaseTool):
         name="shell_write_to_process",
         description="Write input to a running process in a specified shell session. Use for responding to interactive command prompts.",
         parameters={
-            "id": {"type": "string", "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name."},
+            "id": {
+                "type": "string",
+                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+            },
             "input": {"type": "string", "description": "Input content to write to the process"},
             "press_enter": {"type": "boolean", "description": "Whether to press Enter key after input"},
         },
@@ -192,7 +206,12 @@ class ShellTool(BaseTool):
     @tool(
         name="shell_kill_process",
         description="Terminate a running process in a specified shell session. Use for stopping long-running processes or handling frozen commands.",
-        parameters={"id": {"type": "string", "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name."}},
+        parameters={
+            "id": {
+                "type": "string",
+                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+            }
+        },
         required=["id"],
     )
     async def shell_kill_process(self, id: str) -> ToolResult:

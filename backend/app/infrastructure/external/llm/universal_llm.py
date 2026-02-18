@@ -190,10 +190,7 @@ class UniversalLLM:
         self._backend: LLM = self._create_backend(self._provider_name)
         self._last_stream_metadata: dict[str, Any] | None = None
 
-        logger.info(
-            f"UniversalLLM ready — provider={self._provider_name}, "
-            f"model={self._backend.model_name}"
-        )
+        logger.info(f"UniversalLLM ready — provider={self._provider_name}, model={self._backend.model_name}")
 
     # ─────────── Backend factory ───────────
 
@@ -240,13 +237,10 @@ class UniversalLLM:
             from app.infrastructure.external.llm.anthropic_llm import AnthropicLLM
         except ImportError as exc:
             raise ImportError(
-                "Anthropic provider requires the 'anthropic' package. "
-                "Install it with: pip install anthropic"
+                "Anthropic provider requires the 'anthropic' package. Install it with: pip install anthropic"
             ) from exc
 
-        fallback_keys = [
-            k for k in [self._anthropic_api_key_2, self._anthropic_api_key_3] if k and k.strip()
-        ]
+        fallback_keys = [k for k in [self._anthropic_api_key_2, self._anthropic_api_key_3] if k and k.strip()]
 
         # Use anthropic_model_name from settings if model_name looks like an OpenAI model
         from app.core.config import get_settings
@@ -271,9 +265,7 @@ class UniversalLLM:
         try:
             from app.infrastructure.external.llm.ollama_llm import OllamaLLM
         except ImportError as exc:
-            raise ImportError(
-                "Ollama provider not available. Ensure ollama_llm.py is present."
-            ) from exc
+            raise ImportError("Ollama provider not available. Ensure ollama_llm.py is present.") from exc
 
         return OllamaLLM(
             base_url=self._ollama_base_url,
@@ -566,10 +558,7 @@ class UniversalLLM:
                     },
                 ]
 
-        raise ValueError(
-            f"ask_json_validated failed after {max_retries + 1} attempts. "
-            f"Last error: {last_error}"
-        )
+        raise ValueError(f"ask_json_validated failed after {max_retries + 1} attempts. Last error: {last_error}")
 
     async def probe(self) -> bool:
         """Quick health check — send a minimal request to verify connectivity.
@@ -589,7 +578,4 @@ class UniversalLLM:
             return False
 
     def __repr__(self) -> str:
-        return (
-            f"UniversalLLM(provider={self._provider_name!r}, "
-            f"model={self.model_name!r})"
-        )
+        return f"UniversalLLM(provider={self._provider_name!r}, model={self.model_name!r})"

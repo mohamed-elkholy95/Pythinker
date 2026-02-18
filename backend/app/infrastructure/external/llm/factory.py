@@ -148,9 +148,7 @@ def get_llm_from_factory() -> LLM | None:
         kwargs["redis_client"] = redis_client
 
     elif provider == "anthropic":
-        fallback_keys = [
-            k for k in [settings.anthropic_api_key_2, settings.anthropic_api_key_3] if k and k.strip()
-        ]
+        fallback_keys = [k for k in [settings.anthropic_api_key_2, settings.anthropic_api_key_3] if k and k.strip()]
         if fallback_keys:
             kwargs["fallback_api_keys"] = fallback_keys
         kwargs["redis_client"] = redis_client
