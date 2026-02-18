@@ -199,11 +199,12 @@ class TestRecoveryE2E:
         )
         assert final_triggers > initial_triggers
 
-        # Verify success metric incremented
+        # Verify success metric was recorded (should be at least 1 after recovery)
         success_count = agent_response_recovery_success.get(
             {"recovery_strategy": decision.strategy.value, "retry_count": "1"}
         )
-        assert success_count >= 0  # Metric exists
+        assert success_count is not None, "Recovery success metric should exist"
+        assert success_count >= 1, f"Expected at least 1 recovery success, got {success_count}"
 
     @pytest.mark.asyncio
     async def test_recovery_with_failure_snapshot(self, recovery_policy, snapshot_service):

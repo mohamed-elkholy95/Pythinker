@@ -8,7 +8,11 @@ def test_adaptive_threshold_decreases_on_failures():
 
     breaker.record_failure()
 
-    assert breaker.config.failure_threshold <= 5
+    # After a failure with 100% failure rate (>= high_failure_rate 0.7),
+    # the threshold should decrease by adjust_step (1), from 5 to 4
+    assert breaker.config.failure_threshold == 4, (
+        f"Expected threshold to decrease from 5 to 4 after failure, got {breaker.config.failure_threshold}"
+    )
 
 
 def test_adaptive_recovery_records_success():

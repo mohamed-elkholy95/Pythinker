@@ -6,6 +6,8 @@ import pytest
 
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
+pytestmark = [pytest.mark.integration]
+
 
 async def _start_browser_or_skip() -> PlaywrightBrowser:
     """Start browser and skip tests when local CDP infrastructure is unavailable."""

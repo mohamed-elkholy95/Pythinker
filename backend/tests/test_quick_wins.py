@@ -154,9 +154,11 @@ class TestRequirementExtractor:
 
         req_set = extract_requirements(prompt)
 
-        # Check that must/should/optional are handled
+        # Verify extraction produces requirements (at least 1 from the prose prompt)
+        assert len(req_set.requirements) >= 1, "Expected at least one requirement extracted from prose prompt"
+        # Verify must_haves is a subset of requirements (type consistency check)
         must_haves = req_set.must_haves
-        assert len(must_haves) >= 0  # Depends on extraction
+        assert all(r.priority == RequirementPriority.MUST_HAVE for r in must_haves)
 
     def test_coverage_tracking(self):
         """Should track requirement coverage."""

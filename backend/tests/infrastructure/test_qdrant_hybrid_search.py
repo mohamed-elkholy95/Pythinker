@@ -13,6 +13,8 @@ from app.domain.models.long_term_memory import MemoryImportance, MemoryType
 from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
 from app.infrastructure.storage.qdrant import get_qdrant
 
+pytestmark = [pytest.mark.integration]
+
 
 @pytest.fixture(scope="function")
 async def qdrant_repo():

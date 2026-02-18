@@ -37,6 +37,7 @@ def _is_mongodb_available() -> bool:
 
 
 pytestmark = [
+    pytest.mark.integration,
     pytest.mark.skipif(not _is_mongodb_available(), reason="MongoDB not available for reconciliation tests"),
 ]
 
