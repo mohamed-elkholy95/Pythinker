@@ -588,7 +588,40 @@ class ExecutionAgent(BaseAgent):
             message_content = self._clean_report_content(message_content)
 
             if not message_content:
-                logger.warning("Summarization produced only tool-call XML / boilerplate — no real content")
+                logger.warning(
+                    "Summarization produced only tool-call XML / boilerplate (%d raw chars) — retrying with strict prompt",
+                    len(accumulated_text),
+                )
+
+                # Retry once with a strict anti-XML reinforcement prompt
+                retry_prompt = (
+                    "Your previous response contained only XML tool-call syntax, which is invalid here. "
+                    "You MUST write a plain Markdown report. Do NOT output any XML tags. "
+                    "Start your response with a # heading and write the report content directly."
+                )
+                await self._add_to_memory([
+                    {"role": "assistant", "content": "(Previous summarization attempt produced invalid XML output.)"},
+                    {"role": "user", "content": retry_prompt},
+                ])
+                retry_text = ""
+                retry_stream = self.llm.ask_stream(
+                    list(self.memory.get_messages()), tools=None, tool_choice=None
+                )
+                async with aclosing(retry_stream) as stream:
+                    async for chunk in stream:
+                        retry_text += chunk
+                        yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+
+                yield StreamEvent(content="", is_final=True, phase="summarizing")
+                message_content = self._clean_report_content(retry_text.strip())
+
+            if not message_content:
+                # Both attempts failed — extract fallback from conversation memory
+                logger.warning("Summarization retry also empty — extracting fallback from conversation memory")
+                message_content = self._extract_fallback_summary()
+
+            if not message_content:
+                logger.warning("Summarization failed: no content from LLM or conversation memory")
                 yield StepEvent(
                     status=StepStatus.FAILED,
                     step=Step(
@@ -1173,6 +1206,39 @@ class ExecutionAgent(BaseAgent):
             )
 
         return cleaned
+
+    def _extract_fallback_summary(self) -> str:
+        """Extract a fallback summary from the agent's conversation memory.
+
+        Scans assistant messages in reverse for substantive content that can
+        serve as a degraded-but-usable summary when the summarization LLM call
+        produces no usable output.
+
+        Returns:
+            A string with fallback content, or empty string if nothing usable found.
+        """
+        if not self.memory:
+            return ""
+
+        messages = self.memory.get_messages()
+        # Walk backwards through assistant messages looking for substantial content
+        for msg in reversed(messages):
+            if msg.get("role") != "assistant":
+                continue
+            content = msg.get("content", "")
+            if not content or len(content) < 50:
+                continue
+            # Skip messages that are just tool-call XML
+            cleaned = self._TOOL_CALL_RE.sub("", content)
+            cleaned = self._FUNCTION_CALL_RE.sub("", cleaned).strip()
+            if len(cleaned) >= 50:
+                logger.info(
+                    "Extracted fallback summary from conversation memory (%d chars)",
+                    len(cleaned),
+                )
+                return f"# Task Summary\n\n{cleaned}"
+
+        return ""
 
     def _resolve_json_tool_result(self, content: str) -> str:
         """If content is a JSON tool result, recover the actual report content.

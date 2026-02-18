@@ -21,7 +21,7 @@ from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
-from app.domain.models.event import AgentEvent, BaseEvent, DoneEvent, ErrorEvent, MessageEvent, WaitEvent
+from app.domain.models.event import AgentEvent, BaseEvent, DoneEvent, ErrorEvent, MessageEvent, ProgressEvent, WaitEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
@@ -98,12 +98,14 @@ class AgentDomainService:
             usage_recorder=usage_recorder,
         )
 
-        # Global concurrency guard: limits active agent tasks to available sandbox slots.
-        # When saturated, new chat() calls wait (not reject) -- matching queue semantics
-        # without the overhead of a separate worker process.
+        # Two-tier concurrency guard:
+        # 1. _sandbox_init_semaphore: limits concurrent sandbox initialization (I/O-heavy)
+        # 2. _agent_execution_semaphore: limits concurrent LLM execution loops (I/O-bound, higher limit)
         from app.core.config import get_settings as _init_settings
 
-        self._agent_concurrency = asyncio.Semaphore(_init_settings().max_concurrent_agents)
+        _settings = _init_settings()
+        self._sandbox_init_semaphore = asyncio.Semaphore(_settings.max_concurrent_agents)
+        self._agent_execution_semaphore = asyncio.Semaphore(_settings.max_concurrent_executions)
         logger.info("AgentDomainService initialization completed")
 
     # ------------------------------------------------------------------
@@ -229,7 +231,8 @@ class AgentDomainService:
                 raise RuntimeError("Session not found")
             task = await self._get_task(session)
             if session.status != SessionStatus.RUNNING or task is None:
-                task = await self._create_task(session)
+                async with self._sandbox_init_semaphore:
+                    task = await self._create_task(session)
                 if not task:
                     raise RuntimeError("Failed to create task")
 
@@ -266,8 +269,10 @@ class AgentDomainService:
                 Domain service checks this periodically and cancels active task execution.
         """
 
-        # Acquire concurrency slot -- blocks when all sandbox slots are busy.
-        await self._agent_concurrency.acquire()
+        # Two-tier concurrency: sandbox init is bounded by _sandbox_init_semaphore
+        # (acquired/released around task creation only), while the LLM execution loop
+        # uses _agent_execution_semaphore (higher limit, held for full event loop).
+        execution_slot_acquired = False
 
         try:
             session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
@@ -415,7 +420,8 @@ class AgentDomainService:
                         session.mode = recommended_mode
                         await self._session_repository.update_mode(session_id, recommended_mode)
 
-                    # Use session-level lock to prevent concurrent task creation
+                    # Use session-level lock to prevent concurrent task creation.
+                    # Sandbox init semaphore limits concurrent sandbox/browser init (I/O-heavy).
                     task_lock = self._get_task_creation_lock(session_id)
                     async with task_lock:
                         # Re-check task status inside the lock - another request may have
@@ -429,7 +435,8 @@ class AgentDomainService:
                                 logger.info("Cancellation requested before task creation for session %s", session_id)
                                 return
                             is_reactivation = session.status == SessionStatus.COMPLETED
-                            task = await self._create_task(session, extra_mcp_configs=extra_mcp_configs)
+                            async with self._sandbox_init_semaphore:
+                                task = await self._create_task(session, extra_mcp_configs=extra_mcp_configs)
                             if not task:
                                 raise RuntimeError("Failed to create task")
 
@@ -569,6 +576,19 @@ class AgentDomainService:
 
             stream_poll_block_ms = max(1, _get_cfg().redis_stream_poll_block_ms)
 
+            # Acquire execution slot for the LLM event loop (higher concurrency limit).
+            # Emit progress event if waiting >5s so user knows the system is queued.
+            try:
+                await asyncio.wait_for(self._agent_execution_semaphore.acquire(), timeout=5.0)
+            except TimeoutError:
+                logger.info("Session %s waiting for execution slot...", session_id)
+                yield ProgressEvent(
+                    progress="Waiting for an available execution slot...",
+                    percent=0,
+                )
+                await self._agent_execution_semaphore.acquire()
+            execution_slot_acquired = True
+
             received_events = False
             terminal_status: SessionStatus | None = None
             while task and not task.done:
@@ -648,7 +668,8 @@ class AgentDomainService:
             await self._teardown_session_runtime(session_id, status=SessionStatus.FAILED, destroy_sandbox=False)
             yield event
         finally:
-            self._agent_concurrency.release()
+            if execution_slot_acquired:
+                self._agent_execution_semaphore.release()
             await self._session_repository.update_unread_message_count(session_id, 0)
             # Flush remaining conversation context turns (non-blocking)
             if self._conversation_context_service:
@@ -818,7 +839,8 @@ class AgentDomainService:
                 raise RuntimeError("Session not found")
             task = await self._get_task(session)
             if not task or task.done:
-                task = await self._create_task(session)
+                async with self._sandbox_init_semaphore:
+                    task = await self._create_task(session)
 
         runner = getattr(task, "runner", None) or getattr(task, "_runner", None)
         if not runner or not hasattr(runner, "execute_pending_action"):

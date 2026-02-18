@@ -896,7 +896,7 @@ To extract data from a webpage:
                 # If we have pending tool_ids from a previous assistant message,
                 # that means we never got responses — convert to text to preserve context
                 if pending_tool_ids:
-                    logger.warning(
+                    logger.debug(
                         f"Converting orphaned assistant message with unfulfilled tool_calls: {pending_tool_ids}"
                     )
                     # Find and convert the last assistant message with tool_calls
@@ -931,7 +931,7 @@ To extract data from a webpage:
                 # Regular message (user/system/assistant without tool_calls)
                 if pending_tool_ids:
                     # Incomplete tool sequence — convert assistant to text instead of removing
-                    logger.warning("Incomplete tool sequence detected, converting assistant message to text")
+                    logger.debug("Incomplete tool sequence detected, converting assistant message to text")
                     for j in range(len(fixed_messages) - 1, -1, -1):
                         if fixed_messages[j].get("role") == "assistant" and fixed_messages[j].get("tool_calls"):
                             fixed_messages[j] = self._convert_orphaned_assistant(fixed_messages[j])
@@ -943,7 +943,7 @@ To extract data from a webpage:
 
         # Handle trailing incomplete tool sequence
         if pending_tool_ids:
-            logger.warning("Trailing incomplete tool sequence, converting last assistant message to text")
+            logger.debug("Trailing incomplete tool sequence, converting last assistant message to text")
             for j in range(len(fixed_messages) - 1, -1, -1):
                 if fixed_messages[j].get("role") == "assistant" and fixed_messages[j].get("tool_calls"):
                     fixed_messages[j] = self._convert_orphaned_assistant(fixed_messages[j])
