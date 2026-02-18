@@ -121,14 +121,15 @@ async def load_skill_plugins() -> int:
             logger.exception(f"Failed to load plugin '{plugin_name}': {e}")
 
     if loaded_count > 0:
-        # Invalidate SkillRegistry so it picks up newly persisted plugin skills
+        # Refresh all skill caches so newly persisted plugin skills are visible
+        # and SkillTriggerMatcher patterns are rebuilt alongside SkillRegistry.
         try:
-            from app.domain.services.skill_registry import SkillRegistry
+            from app.domain.services.skill_registry import refresh_all_skill_caches
 
-            SkillRegistry.reset_instance()
-            logger.debug("SkillRegistry cache invalidated after plugin load")
+            await refresh_all_skill_caches()
+            logger.debug("Skill caches refreshed after plugin load")
         except Exception as e:
-            logger.warning(f"Could not reset SkillRegistry after plugin load: {e}")
+            logger.warning(f"Could not refresh skill caches after plugin load: {e}")
 
     return loaded_count
 
@@ -253,9 +254,9 @@ async def _register_plugin_tools(plugin_name: str, plugin: SkillPlugin) -> int:
 
     count = 0
     try:
-        from app.domain.services.tools.dynamic_toolset import DynamicToolsetManager
+        from app.domain.services.tools.dynamic_toolset import get_toolset_manager
 
-        manager = DynamicToolsetManager()
+        manager = get_toolset_manager()
 
         tool_schemas: list[dict] = []
         for tool in tools:

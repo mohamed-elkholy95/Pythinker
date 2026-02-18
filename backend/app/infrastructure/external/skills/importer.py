@@ -6,6 +6,7 @@ Supports importing skills from:
 - Zip archive URLs (full skill packages with scripts/references)
 
 All fetching goes through HTTPClientPool (project-wide connection pooling policy).
+All external URLs are validated against the project's SSRF guard before fetching.
 All imported skills are validated with skills-ref before persisting.
 
 Architecture notes:
@@ -21,16 +22,17 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import os
 import re
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import aiofiles
 
 from app.domain.models.skill import Skill, SkillCategory, SkillSource
+from app.domain.utils.url_filters import is_ssrf_target
 from app.infrastructure.external.http_pool import HTTPClientPool
 
 logger = logging.getLogger(__name__)
@@ -45,13 +47,15 @@ except ImportError:
     _AGENTSKILLS_AVAILABLE = False
 
 
-# GitHub raw content base URL — used by import_from_github()
-_GITHUB_RAW_BASE = "https://raw.githubusercontent.com"
 _GITHUB_API_BASE = "https://api.github.com"
 
-# Reasonable limits to avoid DoS via large skill archives
+# Reasonable limits to prevent DoS via large skill archives or deep trees
 _MAX_SKILL_ARCHIVE_BYTES = 10 * 1024 * 1024  # 10 MB
 _MAX_SKILL_FILES = 100
+
+# Fixed pool name for all ad-hoc external URL fetches — prevents pool
+# pollution from user-supplied hostnames filling the 100-entry HTTPClientPool.
+_EXTERNAL_IMPORT_POOL_NAME = "skill-import-external"
 
 
 class SkillImportError(Exception):
@@ -62,6 +66,7 @@ class ExternalSkillImporter:
     """Fetches and validates AgentSkills-compatible skills from external sources.
 
     All HTTP operations use HTTPClientPool (project connection pooling policy).
+    All external URLs are checked with is_ssrf_target() before any fetch.
     Validation uses the skills-ref library (AgentSkills open standard).
 
     Example::
@@ -104,7 +109,7 @@ class ExternalSkillImporter:
             repo: Repository in ``owner/repo`` format (e.g. ``"anthropics/skills"``).
             path: Path inside the repo to the skill directory (e.g. ``"pdf-processing"``).
             ref: Git branch, tag, or commit SHA. Defaults to ``"main"``.
-            category: Pythinker category to assign. Defaults to COMMUNITY.
+            category: Pythinker category to assign. Defaults to CUSTOM.
 
         Returns:
             Validated Skill domain object ready for persistence.
@@ -136,7 +141,9 @@ class ExternalSkillImporter:
 
         with tempfile.TemporaryDirectory(prefix="pythinker-skill-") as tmp_str:
             tmp_dir = Path(tmp_str)
-            await self._download_github_entries(entries, tmp_dir, repo, ref)
+            # Shared mutable counter prevents unbounded recursion across dirs
+            file_counter: list[int] = [0]
+            await self._download_github_entries(entries, tmp_dir, repo, ref, file_counter)
             return await self._build_skill_from_dir(tmp_dir, category, source=SkillSource.COMMUNITY)
 
     async def import_from_url(
@@ -151,20 +158,22 @@ class ExternalSkillImporter:
 
         Args:
             url: Direct URL to the raw SKILL.md content.
-            category: Pythinker category to assign. Defaults to COMMUNITY.
+            category: Pythinker category to assign. Defaults to CUSTOM.
 
         Returns:
             Validated Skill domain object.
 
         Raises:
-            SkillImportError: On HTTP errors or validation failures.
+            SkillImportError: On SSRF-blocked URLs, HTTP errors, or validation failures.
         """
-        logger.info(f"Importing skill from URL: {url}")
-        parsed = urlparse(url)
-        client_name = f"skill-import-{parsed.netloc}"
+        # SSRF guard — blocks private IPs, localhost, cloud metadata, Docker services
+        ssrf_reason = is_ssrf_target(url)
+        if ssrf_reason:
+            raise SkillImportError(f"URL blocked by SSRF protection: {ssrf_reason}")
 
+        logger.info(f"Importing skill from URL: {url}")
         client = await HTTPClientPool.get_client(
-            client_name,
+            _EXTERNAL_IMPORT_POOL_NAME,
             timeout=self._timeout,
         )
         response = await client.get(url)
@@ -197,21 +206,23 @@ class ExternalSkillImporter:
             url: URL to a ``.zip`` archive containing the skill.
             skill_subpath: Optional sub-directory inside the zip where the
                            skill lives (e.g. ``"pdf-processing/"``).
-            category: Pythinker category to assign. Defaults to COMMUNITY.
+            category: Pythinker category to assign. Defaults to CUSTOM.
 
         Returns:
             Validated Skill domain object.
 
         Raises:
-            SkillImportError: On HTTP errors, oversized archives, or validation
-                              failures.
+            SkillImportError: On SSRF-blocked URLs, HTTP errors, oversized
+                              archives, or validation failures.
         """
-        logger.info(f"Importing skill from ZIP: {url}")
-        parsed = urlparse(url)
-        client_name = f"skill-import-zip-{parsed.netloc}"
+        # SSRF guard — blocks private IPs, localhost, cloud metadata, Docker services
+        ssrf_reason = is_ssrf_target(url)
+        if ssrf_reason:
+            raise SkillImportError(f"URL blocked by SSRF protection: {ssrf_reason}")
 
+        logger.info(f"Importing skill from ZIP: {url}")
         client = await HTTPClientPool.get_client(
-            client_name,
+            _EXTERNAL_IMPORT_POOL_NAME,
             timeout=self._timeout,
         )
         response = await client.get(url)
@@ -312,12 +323,12 @@ class ExternalSkillImporter:
                 allowed_tools = raw_tools.split() if raw_tools.strip() else []
             except Exception as e:
                 logger.warning(f"skills-ref read_properties failed ({e}); using regex fallback")
-                skill_name, description, author, version, tags, allowed_tools = await self._parse_skill_md_fallback(
-                    skill_md
+                skill_name, description, author, version, tags, allowed_tools = (
+                    await self._parse_skill_md_fallback(skill_md)
                 )
         else:
-            skill_name, description, author, version, tags, allowed_tools = await self._parse_skill_md_fallback(
-                skill_md
+            skill_name, description, author, version, tags, allowed_tools = (
+                await self._parse_skill_md_fallback(skill_md)
             )
 
         if not skill_name:
@@ -337,7 +348,9 @@ class ExternalSkillImporter:
             allowed_tools=allowed_tools or None,
         )
 
-    async def _parse_skill_md_fallback(self, skill_md: Path) -> tuple[str, str, str | None, str, list[str], list[str]]:
+    async def _parse_skill_md_fallback(
+        self, skill_md: Path
+    ) -> tuple[str, str, str | None, str, list[str], list[str]]:
         """Minimal SKILL.md parser used when skills-ref is unavailable.
 
         Returns:
@@ -366,17 +379,21 @@ class ExternalSkillImporter:
         dest_dir: Path,
         repo: str,
         ref: str,
+        file_counter: list[int],
     ) -> None:
         """Download GitHub directory contents into dest_dir.
 
-        Recursively fetches files and subdirectories.  Limits total file count
-        to ``_MAX_SKILL_FILES`` to avoid runaway downloads.
+        Recursively fetches files and subdirectories.  The ``file_counter``
+        list is shared (mutable) across all recursion levels so the
+        ``_MAX_SKILL_FILES`` limit is truly global, not per-directory.
 
         Args:
             entries: List of GitHub Contents API entry dicts.
             dest_dir: Local directory to write files into.
             repo: ``owner/repo`` string (for sub-directory API calls).
             ref: Git ref for sub-directory lookups.
+            file_counter: Single-element list ``[n]`` tracking total files
+                          downloaded across all recursive calls.
         """
         client = await HTTPClientPool.get_client(
             "github-api",
@@ -385,11 +402,10 @@ class ExternalSkillImporter:
             headers={"Accept": "application/vnd.github.v3+json"},
         )
 
-        file_count = 0
         for entry in entries:
-            if file_count >= _MAX_SKILL_FILES:
-                logger.warning(f"Reached max file limit ({_MAX_SKILL_FILES}); stopping download")
-                break
+            if file_counter[0] >= _MAX_SKILL_FILES:
+                logger.warning(f"Reached global max file limit ({_MAX_SKILL_FILES}); stopping download")
+                return
 
             entry_type = entry.get("type")
             entry_name = entry.get("name", "")
@@ -399,11 +415,16 @@ class ExternalSkillImporter:
                 download_url = entry.get("download_url")
                 if not download_url:
                     continue
+                # SSRF guard on API-supplied download URLs (defense-in-depth)
+                ssrf_reason = is_ssrf_target(download_url)
+                if ssrf_reason:
+                    logger.warning(f"Skipping download_url blocked by SSRF guard: {ssrf_reason}")
+                    continue
                 raw_resp = await client.get(download_url)
                 if raw_resp.status_code == 200:
                     async with aiofiles.open(dest_path, "w", encoding="utf-8") as f:
                         await f.write(raw_resp.text)
-                    file_count += 1
+                    file_counter[0] += 1
 
             elif entry_type == "dir":
                 dest_path.mkdir(parents=True, exist_ok=True)
@@ -412,23 +433,35 @@ class ExternalSkillImporter:
                 if sub_resp.status_code == 200:
                     sub_entries = sub_resp.json()
                     if isinstance(sub_entries, list):
-                        await self._download_github_entries(sub_entries, dest_path, repo, ref)
+                        # Pass the same mutable counter into the recursive call
+                        await self._download_github_entries(
+                            sub_entries, dest_path, repo, ref, file_counter
+                        )
 
     async def _extract_zip(self, content_bytes: bytes, dest_dir: Path) -> None:
-        """Extract a zip archive into dest_dir using an executor thread.
+        """Extract a zip archive into dest_dir, blocking zip-slip attacks.
+
+        Checks each member's resolved destination path before extraction to
+        prevent directory traversal via ``..`` components, absolute paths,
+        backslash separators, and symlink-based escapes.
 
         Args:
             content_bytes: Raw zip archive bytes.
             dest_dir: Destination directory (already exists).
         """
+        dest_abs = os.path.abspath(dest_dir)
 
         def _do_extract() -> None:
             with zipfile.ZipFile(io.BytesIO(content_bytes)) as zf:
-                # Safety: reject any entry with path traversal
                 for member in zf.infolist():
-                    if ".." in member.filename or member.filename.startswith("/"):
-                        raise SkillImportError(f"Dangerous path in zip archive: {member.filename}")
-                zf.extractall(dest_dir)
+                    # os.path.abspath(join) normalises ".." in string space —
+                    # no filesystem I/O needed, so works before the file exists.
+                    member_abs = os.path.abspath(os.path.join(dest_abs, member.filename))
+                    if not member_abs.startswith(dest_abs + os.sep) and member_abs != dest_abs:
+                        raise SkillImportError(
+                            f"Zip-slip attempt blocked: '{member.filename}' escapes archive root"
+                        )
+                    zf.extract(member, dest_dir)
 
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _do_extract)

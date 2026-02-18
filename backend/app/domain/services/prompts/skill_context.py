@@ -51,16 +51,16 @@ ALLOWED_COMMANDS: frozenset[str] = frozenset(
         "echo",
         # Git commands (read-only operations)
         "git",
-        # Node/Python version info
-        "node",
-        "python",
-        "python3",
-        # Package managers (version/list only - validated below)
+        # Package managers (version/list only — validated by BLOCKED_SUBCOMMANDS)
         "npm",
         "pip",
         "pip3",
         # System info
         "which",
+        # NOTE: python, python3, node intentionally excluded — they accept
+        # arbitrary script file paths as arguments (e.g. `python /tmp/evil.py`),
+        # which bypasses the BLOCKED_SUBCOMMANDS check. Use `python --version`
+        # needs can be covered by `which python` or system info commands instead.
     }
 )
 
@@ -197,7 +197,7 @@ async def expand_dynamic_context(content: str, skill_source: "SkillSource | None
             try:
                 # Run command with timeout using shell=False for security
                 result = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
+                    asyncio.get_running_loop().run_in_executor(
                         None,
                         lambda args=parsed_args: subprocess.run(  # noqa: S603, ASYNC221 - Validated command execution in executor for skill dynamic context
                             args,
@@ -490,7 +490,7 @@ async def build_available_skills_xml_from_registry() -> str:
         skills = await registry.get_available_skills()
 
         # Map skills back to their directory paths for skills-ref compatibility
-        skills_base_dir = Path(__file__).parent.parent.parent.parent.parent / "skills"
+        skills_base_dir = Path(__file__).parent.parent.parent.parent.parent.parent / "skills"
         if not skills_base_dir.exists():
             # Try relative to the working directory
             import os
@@ -499,7 +499,7 @@ async def build_available_skills_xml_from_registry() -> str:
 
         skill_dirs: list[Path] = []
         for skill in skills:
-            candidate = skills_base_dir / skill.name
+            candidate = skills_base_dir / skill.id
             if candidate.is_dir() and (candidate / "SKILL.md").exists():
                 skill_dirs.append(candidate)
 
