@@ -52,6 +52,17 @@ class EmbeddingSettingsMixin:
     embedding_model: str = "text-embedding-3-small"  # 1536 dimensions
 
 
+class LLMTimeoutSettingsMixin:
+    """LLM HTTP request timeout configuration."""
+
+    # Total timeout for a single LLM HTTP request (connect + read + write).
+    # Generous default (300s / 5 min) because some providers (e.g. glm-4.7 via
+    # OpenRouter) can take 60-120s for a single completion.  The connect timeout
+    # is hardcoded to 10s inside the client factory so unreachable servers fail
+    # fast while slow-but-alive providers get the full budget.
+    llm_request_timeout: float = 300.0
+
+
 class LLMConcurrencySettingsMixin:
     """LLM concurrency, token management, and semantic cache configuration."""
 
