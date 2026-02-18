@@ -177,6 +177,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import TiptapReportEditor from './TiptapReportEditor.vue';
 import type { ReportData, ReportSection } from './types';
+import { collapseDuplicateReportBlocks } from './reportContentNormalizer';
 
 export type { ReportData, ReportSection };
 
@@ -195,6 +196,7 @@ const emit = defineEmits<{
 
 const showMenu = ref(false);
 const showDownloadMenu = ref(false);
+const normalizedReportContent = computed(() => collapseDuplicateReportBlocks(props.report.content || ''));
 
 const getSuggestionIcon = (index: number) => {
   const icons = [Puzzle, MessageCircle, MessageCircle, Briefcase];
@@ -203,9 +205,9 @@ const getSuggestionIcon = (index: number) => {
 
 // Process content for preview - keep card rendering lightweight
 const processedContent = computed(() => {
-  if (!props.report.content) return '';
+  if (!normalizedReportContent.value) return '';
 
-  const lines = props.report.content.split('\n');
+  const lines = normalizedReportContent.value.split('\n');
   const cleaned: string[] = [];
   let index = 0;
   let scanned = 0;
@@ -276,9 +278,9 @@ const handleShare = () => {
 const handleDownloadMarkdown = () => {
   showMenu.value = false;
   showDownloadMenu.value = false;
-  if (!props.report.content) return;
+  if (!normalizedReportContent.value) return;
   const filename = getSafeFilename(props.report.title) + '.md';
-  const blob = new Blob([props.report.content], { type: 'text/markdown;charset=utf-8' });
+  const blob = new Blob([normalizedReportContent.value], { type: 'text/markdown;charset=utf-8' });
   saveAs(blob, filename);
   emit('download', props.report, 'markdown');
 };

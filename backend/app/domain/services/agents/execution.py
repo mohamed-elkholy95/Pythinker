@@ -559,8 +559,12 @@ class ExecutionAgent(BaseAgent):
                 async with aclosing(stream_iter) as stream:
                     async for chunk in stream:
                         attempt_text += chunk
-                        accumulated_text += chunk
                         yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+
+                if stream_attempt == 1:
+                    accumulated_text = attempt_text
+                else:
+                    accumulated_text = self._merge_stream_continuation(accumulated_text, attempt_text)
 
                 stream_metadata = self._get_last_stream_metadata()
                 is_truncated_stream = (
@@ -611,10 +615,12 @@ class ExecutionAgent(BaseAgent):
             yield StreamEvent(content="", is_final=True, phase="summarizing")
 
             message_content = accumulated_text.strip()
+            message_content = self._collapse_duplicate_report_payload(message_content)
 
             # Strip hallucinated tool-call XML and boilerplate that the LLM
             # may reproduce from earlier conversation history during summarization.
             message_content = self._clean_report_content(message_content)
+            message_content = self._collapse_duplicate_report_payload(message_content)
 
             if not message_content:
                 logger.warning(
@@ -715,10 +721,10 @@ class ExecutionAgent(BaseAgent):
                         async with aclosing(continuation_iter) as cont_stream:
                             async for chunk in cont_stream:
                                 continuation_text += chunk
-                                accumulated_text += chunk
                                 yield StreamEvent(content=chunk, is_final=False, phase="completing")
 
-                        message_content = accumulated_text.strip()
+                        accumulated_text = self._merge_stream_continuation(accumulated_text, continuation_text)
+                        message_content = self._collapse_duplicate_report_payload(accumulated_text.strip())
 
                         # Record outcome
                         _metrics.increment(
@@ -942,6 +948,86 @@ class ExecutionAgent(BaseAgent):
             "Your previous response was truncated by token limits. Continue exactly where you stopped, "
             "without repeating prior sections. Complete any unfinished heading, list, or code block."
         )
+
+    def _merge_stream_continuation(self, base_text: str, continuation_text: str) -> str:
+        """Merge continuation output while avoiding duplicated overlap."""
+        base = base_text or ""
+        continuation = continuation_text or ""
+
+        if not continuation.strip():
+            return base
+        if not base.strip():
+            return continuation
+        if continuation in base:
+            return base
+        if base in continuation and len(continuation) >= int(len(base) * 0.8):
+            return continuation
+
+        base_tail = base[-4000:]
+        continuation_head = continuation[:4000]
+        max_overlap = min(len(base_tail), len(continuation_head), 1200)
+        min_overlap = 80
+
+        for overlap_size in range(max_overlap, min_overlap - 1, -1):
+            if base_tail[-overlap_size:] == continuation_head[:overlap_size]:
+                return base + continuation[overlap_size:]
+
+        if base.endswith("\n") or continuation.startswith("\n"):
+            return base + continuation
+        return base + "\n" + continuation
+
+    def _collapse_duplicate_report_payload(self, content: str) -> str:
+        """Collapse duplicate full-report payloads caused by continuation retries."""
+        normalized = (content or "").strip()
+        if len(normalized) < 300:
+            return normalized
+
+        heading_matches = list(self._REPORT_H1_RE.finditer(normalized))
+        if len(heading_matches) < 2:
+            return normalized
+
+        first_heading = heading_matches[0]
+        first_title = first_heading.group(1).strip().lower()
+
+        duplicate_heading = None
+        for heading in heading_matches[1:]:
+            if heading.group(1).strip().lower() == first_title:
+                duplicate_heading = heading
+                break
+
+        if duplicate_heading is None:
+            return normalized
+
+        first_index = first_heading.start()
+        duplicate_index = duplicate_heading.start()
+        if duplicate_index <= first_index:
+            return normalized
+
+        first_block = normalized[first_index:duplicate_index].strip()
+        second_block = normalized[duplicate_index:].strip()
+        if len(second_block) < 200:
+            return normalized
+
+        first_score = self._report_quality_score(first_block)
+        second_score = self._report_quality_score(second_block)
+        chosen_block = second_block if (second_score < first_score) else first_block
+        if second_score == first_score and len(second_block) >= len(first_block):
+            chosen_block = second_block
+
+        prefix = normalized[:first_index].strip()
+        if prefix:
+            return f"{prefix}\n\n{chosen_block}".strip()
+        return chosen_block
+
+    def _report_quality_score(self, report_block: str) -> int:
+        """Score report quality; lower score is better."""
+        if not report_block:
+            return 10_000
+
+        marker_count = len(self._VERIFICATION_TAG_RE.findall(report_block))
+        dangling_brackets = abs(report_block.count("[") - report_block.count("]"))
+        short_penalty = 1 if len(report_block) < 500 else 0
+        return marker_count * 5 + dangling_brackets + short_penalty
 
     def _run_delivery_integrity_gate(
         self,
@@ -1183,6 +1269,8 @@ class ExecutionAgent(BaseAgent):
         r"(?:-\s*No (?:file )?artifacts? (?:were |was )[^\n]*\n*)+",
     )
     _EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
+    _REPORT_H1_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+    _VERIFICATION_TAG_RE = re.compile(r"\[(?:unverified|verified|not verified)[^\]]*\]?", re.IGNORECASE)
 
     # Pattern matching JSON tool result objects (possibly wrapped in ```json blocks)
     _JSON_CODEBLOCK_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\s*\n?```$", re.DOTALL)
@@ -1771,7 +1859,7 @@ class ExecutionAgent(BaseAgent):
                         },
                     )
 
-                    # Do NOT inline-replace with [unverified] markers — that
+                    # Do NOT inline-replace with verification tags — that
                     # breaks markdown tables, sentences, and structured output.
                     # Instead, append a brief disclaimer when the hallucination
                     # ratio is significant enough to warrant user notice.

@@ -38,6 +38,7 @@ CHROME_FLAGS=(
     --disable-gpu
     --disable-gpu-sandbox
     --disable-vulkan
+    --disable-dev-shm-usage
     --disable-accelerated-jpeg-decoding
     --disable-accelerated-mjpeg-decode
     --disable-accelerated-video-decode

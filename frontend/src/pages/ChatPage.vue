@@ -493,6 +493,7 @@ import SessionWarmupMessage from '@/components/SessionWarmupMessage.vue';
 import { ReportModal, TaskCompletedFooter } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
+import { collapseDuplicateReportBlocks } from '@/components/report/reportContentNormalizer';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
@@ -2500,13 +2501,14 @@ const handleReportEvent = (reportData: ReportEventData) => {
   // Track anchor event ID for follow-up suggestions
   followUpAnchorEventId.value = reportData.event_id;
 
-  const sections = extractSectionsFromMarkdown(reportData.content);
+  const normalizedReportContent = collapseDuplicateReportBlocks(reportData.content);
+  const sections = extractSectionsFromMarkdown(normalizedReportContent);
   const epochSec = toEpochSeconds(reportData.timestamp) ?? Math.floor(Date.now() / 1000);
   const nextReportContent: ReportContent = {
     id: reportData.id,
     event_id: reportData.event_id,
     title: reportData.title,
-    content: reportData.content,
+    content: normalizedReportContent,
     lastModified: epochSec * 1000,
     fileCount: reportAttachments.length,
     sections,

@@ -18,6 +18,8 @@ Concise instructions for automated agents working in this repo.
 - **Plan execution**: complete all phases; priorities indicate order, not optional steps.
 - **Backend env**: always use `conda activate pythinker`.
 - **Context7 validation (always)**: validate all new implementations, files, and configurations against fetched Context7 MCP documentation to ensure accuracy and compliance before deployment.
+- **Research-backed implementation (absolute)**: for every debug task, new feature, refactor, or architecture change, validate decisions against up-to-date reliable sources using Context7 MCP and internet browsing (prefer official/primary sources). Prioritize thoroughness and quality over brevity.
+- **Durable solution standard (absolute)**: provide comprehensive reasoning with explicit assumptions, step-by-step decisions, and long-term sustainability considerations (robustness, maintainability, scalability). Include necessary refactoring to reduce technical debt when justified by evidence.
 - **Development-only environment**: this repo is development-only with no production users. Prioritize flexibility and experimentation; unrestricted iteration and breaking changes are allowed, and no decisions need to optimize for production stability, data retention, or user impact.
 - **Status report accuracy (absolute)**: summaries/status reports must be 100% factual. Never mark partially done or foundational-only work as `Completed`. Always distinguish `Completed`, `In Progress`, and `Not Started`.
 - **Full implementation only (absolute)**: when writing code, provide full unabridged file implementations. Never use placeholders, omitted sections, or summary-only substitutions.

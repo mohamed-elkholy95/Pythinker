@@ -35,6 +35,7 @@ import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { common, createLowlight } from 'lowlight';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { normalizeVerificationMarkers } from './reportContentNormalizer';
 
 const props = defineProps<{
   content: string;
@@ -55,7 +56,8 @@ const lowlight = createLowlight(common);
 // Convert markdown to HTML
 const htmlContent = computed(() => {
   if (!props.content) return '';
-  const rawHtml = marked.parse(props.content, { async: false }) as string;
+  const normalizedMarkdown = normalizeVerificationMarkers(props.content);
+  const rawHtml = marked.parse(normalizedMarkdown, { async: false }) as string;
   return DOMPurify.sanitize(rawHtml);
 });
 
@@ -264,6 +266,20 @@ defineExpose({
 :deep(.prose pre code) {
   background-color: transparent;
   padding: 0;
+}
+
+:deep(.verification-marker) {
+  color: var(--function-warning);
+  font-size: 0.72em;
+  line-height: 1;
+  margin-left: 0.24rem;
+  opacity: 0.8;
+  cursor: help;
+  user-select: none;
+}
+
+:deep(.verification-marker:hover) {
+  opacity: 1;
 }
 
 :deep(.prose hr) {

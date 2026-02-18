@@ -48,9 +48,10 @@ _STREAM_FRAME_TIMEOUT = settings.CDP_STREAM_FRAME_TIMEOUT
 _STREAM_HEALTH_CHECK_INTERVAL = settings.CDP_STREAM_HEALTH_CHECK_INTERVAL
 
 # Page recovery thresholds
-_PAGE_RECOVERY_FAILURE_THRESHOLD = 3  # Consecutive same-page failures before recovery
+_PAGE_RECOVERY_FAILURE_THRESHOLD = 3   # Consecutive same-page failures before tab replacement
 _CHROME_RESTART_FAILURE_THRESHOLD = 6  # Total failures before Chrome restart
-_CHROME_RESTART_COOLDOWN = 30.0  # Minimum seconds between Chrome restarts
+_CHROME_RESTART_COOLDOWN = 30.0        # Minimum seconds between Chrome restarts
+_SAME_URL_REDISCOVERY_THRESHOLD = 2    # Times same broken URL rediscovered after cache invalidation
 
 
 @dataclass
@@ -122,6 +123,10 @@ class CDPScreencastService:
         # to prevent "Concurrent call to receive() is not allowed" errors.
         self._command_lock: asyncio.Lock = asyncio.Lock()
 
+        # Serializes recovery actions (tab replacement / Chrome restart) to
+        # prevent multiple concurrent coroutines from each triggering escalation.
+        self._recovery_lock: asyncio.Lock = asyncio.Lock()
+
         # Connection caching
         self._cached_ws_url: str | None = None
         self._ws_url_cached_at: float = 0.0
@@ -133,6 +138,12 @@ class CDPScreencastService:
         self._same_page_failure_count: int = 0
         self._total_consecutive_failures: int = 0
         self._last_chrome_restart: float = 0.0
+
+        # Same-URL rediscovery tracking — detects when cache invalidation still
+        # returns the same broken URL (Chrome renderer stuck on dead page).
+        # Triggers escalation independently of the cache TTL heuristic.
+        self._last_invalidated_url: str | None = None
+        self._rediscovery_counter: int = 0
 
     # ------------------------------------------------------------------
     # Connection state
@@ -191,22 +202,54 @@ class CDPScreencastService:
 
         Call this when CDP commands fail with page-detached errors so the next
         connection attempt discovers the current active page target via /json.
+
+        Stores the invalidated URL so _get_cached_ws_url() can detect when the
+        same broken URL keeps being rediscovered after invalidation.
         """
         if self._cached_ws_url:
             logger.info(
-                f"Invalidating cached CDP URL (was: ...{self._cached_ws_url[-20:]})"
+                "Invalidating cached CDP URL (was: ...%s)", self._cached_ws_url[-20:]
             )
+            # Remember the URL being invalidated for rediscovery detection
+            self._last_invalidated_url = self._cached_ws_url
         self._cached_ws_url = None
         self._ws_url_cached_at = 0.0
 
     async def _get_cached_ws_url(self) -> str | None:
-        """Get WebSocket URL with caching to avoid repeated /json lookups."""
+        """Get WebSocket URL with caching to avoid repeated /json lookups.
+
+        Tracks same-URL rediscovery: when cache invalidation returns the same
+        broken URL, _rediscovery_counter increments. Reaching
+        _SAME_URL_REDISCOVERY_THRESHOLD triggers escalation in capture_single_frame()
+        even when the cache is fresh (bypasses the TTL-based heuristic).
+        """
         now = time.monotonic()
         if self._cached_ws_url and (now - self._ws_url_cached_at) < _WS_URL_CACHE_TTL:
             return self._cached_ws_url
 
         url = await self.get_ws_debugger_url()
         if url:
+            # Detect when cache invalidation keeps returning the same broken URL.
+            # This happens when Chrome's renderer is stuck: the broken page target
+            # remains registered in /json even after cache invalidation + rediscovery.
+            if url == self._last_invalidated_url:
+                self._rediscovery_counter += 1
+                logger.warning(
+                    "Same broken URL rediscovered after cache invalidation "
+                    "(count=%d, url=...%s)",
+                    self._rediscovery_counter,
+                    url[-20:],
+                )
+            else:
+                # New URL — reset rediscovery counter (Chrome registered a new target)
+                if self._rediscovery_counter > 0:
+                    logger.info(
+                        "New URL discovered after %d rediscovery attempt(s) — "
+                        "resetting rediscovery counter",
+                        self._rediscovery_counter,
+                    )
+                self._rediscovery_counter = 0
+
             self._cached_ws_url = url
             self._ws_url_cached_at = now
         return url
@@ -352,6 +395,8 @@ class CDPScreencastService:
         self._failing_page_url = None
         self._same_page_failure_count = 0
         self._total_consecutive_failures = 0
+        self._rediscovery_counter = 0
+        self._last_invalidated_url = None
 
     async def _try_replace_broken_tab(self) -> bool:
         """Attempt to replace a broken browser tab without restarting Chrome.
@@ -410,6 +455,8 @@ class CDPScreencastService:
                 async with self._command_lock:
                     await self._cleanup_stale_connection()
                 self._same_page_failure_count = 0
+                self._rediscovery_counter = 0
+                self._last_invalidated_url = None
                 await asyncio.sleep(_PAGE_REDISCOVERY_DELAY)
                 return True
 
@@ -486,26 +533,111 @@ class CDPScreencastService:
 
         Escalation ladder:
         1. Cache invalidation + page rediscovery (handled by caller)
-        2. Tab replacement (same page fails >= _PAGE_RECOVERY_FAILURE_THRESHOLD)
+        2. Tab replacement (same page fails >= _PAGE_RECOVERY_FAILURE_THRESHOLD,
+           OR same broken URL rediscovered >= _SAME_URL_REDISCOVERY_THRESHOLD)
         3. Chrome restart (total failures >= _CHROME_RESTART_FAILURE_THRESHOLD)
 
-        Returns True if recovery was attempted (caller should retry).
-        """
-        if self._total_consecutive_failures >= _CHROME_RESTART_FAILURE_THRESHOLD:
-            logger.warning(
-                f"Escalating to Chrome restart after "
-                f"{self._total_consecutive_failures} consecutive failures"
-            )
-            return await self._try_restart_chrome()
+        Protected by _recovery_lock to prevent multiple concurrent coroutines from
+        each triggering independent recovery actions (which race and cancel each other).
 
-        if self._same_page_failure_count >= _PAGE_RECOVERY_FAILURE_THRESHOLD:
-            logger.info(
-                f"Escalating to tab replacement after "
-                f"{self._same_page_failure_count} failures on same page"
+        Returns True if recovery was attempted (caller should retry).
+        Returns False if:
+        - Another recovery is already in progress (caller should abort this attempt)
+        - All thresholds cleared by a concurrent recovery (caller should retry normally)
+        """
+        # Fast path: if recovery is already running, skip this duplicate attempt.
+        # The concurrent recovery will reset counters; this call should just abort.
+        if self._recovery_lock.locked():
+            logger.debug(
+                "Recovery already in progress — skipping concurrent escalation attempt "
+                "(same_page=%d, total=%d, rediscovery=%d)",
+                self._same_page_failure_count,
+                self._total_consecutive_failures,
+                self._rediscovery_counter,
             )
+            return False
+
+        async with self._recovery_lock:
+            # Double-check thresholds after acquiring lock — a concurrent recovery
+            # may have already succeeded and reset counters while we waited.
+            needs_tab_replace = (
+                self._same_page_failure_count >= _PAGE_RECOVERY_FAILURE_THRESHOLD
+                or self._rediscovery_counter >= _SAME_URL_REDISCOVERY_THRESHOLD
+            )
+            needs_chrome_restart = (
+                self._total_consecutive_failures >= _CHROME_RESTART_FAILURE_THRESHOLD
+            )
+
+            if not (needs_tab_replace or needs_chrome_restart):
+                logger.info(
+                    "Recovery thresholds cleared by concurrent recovery — "
+                    "no further action needed (same_page=%d, total=%d, rediscovery=%d)",
+                    self._same_page_failure_count,
+                    self._total_consecutive_failures,
+                    self._rediscovery_counter,
+                )
+                return True  # Concurrent recovery already fixed things
+
+            if needs_chrome_restart:
+                logger.warning(
+                    "Escalating to Chrome restart "
+                    "(total_failures=%d >= threshold=%d)",
+                    self._total_consecutive_failures,
+                    _CHROME_RESTART_FAILURE_THRESHOLD,
+                )
+                return await self._try_restart_chrome()
+
+            # Tab replacement (same page failing or same URL being rediscovered)
+            if self._rediscovery_counter >= _SAME_URL_REDISCOVERY_THRESHOLD:
+                logger.warning(
+                    "Escalating to tab replacement: same broken URL rediscovered "
+                    "%d times after cache invalidation (url=...%s)",
+                    self._rediscovery_counter,
+                    (self._last_invalidated_url or "unknown")[-20:],
+                )
+            else:
+                logger.info(
+                    "Escalating to tab replacement "
+                    "(same_page_failures=%d >= threshold=%d)",
+                    self._same_page_failure_count,
+                    _PAGE_RECOVERY_FAILURE_THRESHOLD,
+                )
             return await self._try_replace_broken_tab()
 
-        return False
+    async def _maybe_escalate(self, context: str) -> bool:
+        """Check escalation thresholds inline and escalate if needed.
+
+        Called immediately after every _record_page_failure() to ensure
+        escalation fires within the current burst — without waiting for the
+        next call's pre-check.  This is critical because concurrent callers
+        all bypass the pre-check simultaneously (they all read count=0 at
+        call start, before any failure is recorded).
+
+        Args:
+            context: Short description of where the failure occurred (for logging).
+
+        Returns:
+            True  — escalation was triggered (caller should retry or return None).
+            False — thresholds not yet met (caller should use normal retry path).
+        """
+        needs_escalation = (
+            self._same_page_failure_count >= _PAGE_RECOVERY_FAILURE_THRESHOLD
+            or self._total_consecutive_failures >= _CHROME_RESTART_FAILURE_THRESHOLD
+            or self._rediscovery_counter >= _SAME_URL_REDISCOVERY_THRESHOLD
+        )
+        if not needs_escalation:
+            return False
+
+        logger.warning(
+            "Inline escalation triggered after %s "
+            "(same_page=%d, total=%d, rediscovery=%d)",
+            context,
+            self._same_page_failure_count,
+            self._total_consecutive_failures,
+            self._rediscovery_counter,
+        )
+        await self._escalate_recovery()
+        return True
 
     async def connect(self) -> bool:
         """Connect to Chrome via CDP WebSocket."""
@@ -849,11 +981,21 @@ class CDPScreencastService:
         capture_quality = quality if quality is not None else self.config.quality
         capture_format = image_format if image_format is not None else self.config.format
 
-        # Check if escalated recovery is needed before attempting
+        # Pre-check: escalate if thresholds were met by a previous call's failures.
+        # This covers the case where previous bursts accumulated enough failures
+        # that the NEXT burst's first call should immediately trigger recovery.
         if (
             self._same_page_failure_count >= _PAGE_RECOVERY_FAILURE_THRESHOLD
             or self._total_consecutive_failures >= _CHROME_RESTART_FAILURE_THRESHOLD
+            or self._rediscovery_counter >= _SAME_URL_REDISCOVERY_THRESHOLD
         ):
+            logger.warning(
+                "Pre-check escalation: previous burst accumulated failures "
+                "(same_page=%d, total=%d, rediscovery=%d)",
+                self._same_page_failure_count,
+                self._total_consecutive_failures,
+                self._rediscovery_counter,
+            )
             recovered = await self._escalate_recovery()
             if not recovered:
                 return None
@@ -879,8 +1021,14 @@ class CDPScreencastService:
                 if result is None:
                     logger.warning("CDP capture timed out, forcing reconnect")
                     self._record_page_failure(current_ws_url)
-                    await self._handle_page_detached("capture_screenshot_timeout")
-                    if attempt == 0:
+                    # Inline escalation — don't wait for next call's pre-check.
+                    # This matters because concurrent callers all bypass the
+                    # pre-check simultaneously (all see count=0 at call start).
+                    if await self._maybe_escalate("timeout"):
+                        if attempt == 0:
+                            continue
+                    elif attempt == 0:
+                        await self._handle_page_detached("capture_screenshot_timeout")
                         continue
                     return None
 
@@ -893,19 +1041,32 @@ class CDPScreencastService:
 
                 # Command returned error - check if page is detached
                 if "error" in result:
-                    logger.warning(f"CDP capture error response: {result['error']}")
+                    logger.warning(
+                        "CDP capture error response: %s", result["error"]
+                    )
                     self._record_page_failure(current_ws_url)
+
+                    # Inline escalation check — fires immediately when thresholds
+                    # are met, without waiting for the next call's pre-check.
+                    if await self._maybe_escalate("error"):
+                        if attempt == 0:
+                            continue
+                        return None
 
                     if self._is_page_detached_error(result) and attempt == 0:
                         await self._handle_page_detached("capture_screenshot")
                         continue
 
-                    # Non-retryable error
+                    # Non-retryable error — invalidate cache so the next call
+                    # forces a fresh /json URL lookup instead of reusing the
+                    # broken cached URL.  Without this, attempt 1 always
+                    # reconnects to the same dead page target.
+                    self.invalidate_cache()
                     async with self._command_lock:
                         await self._cleanup_stale_connection()
 
             except Exception as e:
-                logger.warning(f"Failed to capture single frame: {e}")
+                logger.warning("Failed to capture single frame: %s", e)
                 self._record_page_failure(current_ws_url)
                 if attempt == 0:
                     await self._handle_page_detached("capture_screenshot_exception")
