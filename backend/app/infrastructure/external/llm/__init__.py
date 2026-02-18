@@ -2,52 +2,48 @@
 
 Provides LLM implementations and factory for dynamic provider selection.
 
-Supported providers:
-- openai: OpenAI-compatible API (default, includes DeepSeek, etc.)
-- anthropic: Anthropic Claude models (requires anthropic package)
-- ollama: Local Ollama models
-"""
+Supported providers (set LLM_PROVIDER in .env):
+- "auto"      → auto-detect from keys/model/URL (default, recommended)
+- "openai"    → OpenAI-compatible (OpenAI, OpenRouter, GLM-5, DeepSeek, etc.)
+- "anthropic" → Anthropic native API (Claude models)
+- "ollama"    → Local Ollama server
 
-import logging
+Quick provider switching examples (.env):
+
+    # Use Anthropic Claude
+    LLM_PROVIDER=auto
+    ANTHROPIC_API_KEY=sk-ant-...
+    # MODEL_NAME=claude-opus-4-5  (optional, defaults to anthropic_model_name)
+
+    # Use OpenAI / OpenRouter
+    LLM_PROVIDER=auto
+    API_KEY=sk-...
+    MODEL_NAME=gpt-4o
+
+    # Use GLM-5 (ZhipuAI)
+    LLM_PROVIDER=auto
+    API_KEY=your-zhipu-key
+    API_BASE=https://api.z.ai/api/paas/v4
+    MODEL_NAME=glm-5
+
+    # Use local Ollama
+    LLM_PROVIDER=auto
+    OLLAMA_BASE_URL=http://localhost:11434
+    OLLAMA_MODEL=llama3.2
+"""
 
 from app.domain.external.llm import LLM
 from app.infrastructure.external.llm.factory import (
     LLMProviderRegistry,
+    get_llm,
     get_llm_from_factory,
+    reset_llm_cache,
 )
 
-logger = logging.getLogger(__name__)
-
-
-_cached_llm: LLM | None = None
-_llm_init_attempted: bool = False
-
-
-def get_llm() -> LLM | None:
-    """Get LLM instance based on configuration.
-
-    Uses the LLMProviderRegistry to dynamically select and instantiate
-    the appropriate LLM based on LLM_PROVIDER setting.
-
-    Caches successful results but retries on None to avoid permanently
-    caching a failed initialization.
-
-    Returns:
-        LLM instance or None if configuration is invalid
-    """
-    global _cached_llm, _llm_init_attempted
-    if _cached_llm is not None:
-        return _cached_llm
-    result = get_llm_from_factory()
-    if result is not None:
-        _cached_llm = result
-    elif not _llm_init_attempted:
-        _llm_init_attempted = True
-        logger.warning("LLM initialization returned None — will retry on next call")
-    return result
-
-
 __all__ = [
+    "LLM",
     "LLMProviderRegistry",
     "get_llm",
+    "get_llm_from_factory",
+    "reset_llm_cache",
 ]
