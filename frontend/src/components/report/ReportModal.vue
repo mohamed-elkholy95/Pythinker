@@ -144,7 +144,14 @@
             </div>
 
             <!-- Rendered Content -->
-            <div class="doc-body prose" v-html="renderedContent"></div>
+            <div class="doc-body">
+              <TiptapReportEditor
+                class="doc-body-tiptap"
+                :content="viewerContent"
+                :compact="false"
+                :embedded="true"
+              />
+            </div>
           </div>
         </div>
 
@@ -230,8 +237,6 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 import html2pdf from 'html2pdf.js';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
@@ -253,13 +258,15 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import type { ReportData } from './types';
-import { collapseDuplicateReportBlocks, normalizeVerificationMarkers } from './reportContentNormalizer';
+import TiptapReportEditor from './TiptapReportEditor.vue';
+import { collapseDuplicateReportBlocks, prepareMarkdownForViewer } from './reportContentNormalizer';
 import { showErrorToast } from '@/utils/toast';
 
 interface TocItem {
   id: string;
   title: string;
   level: number;
+  index: number;
 }
 
 interface Suggestion {
@@ -297,37 +304,12 @@ const isCopied = ref(false);
 const normalizedReportContent = computed(() =>
   props.report?.content ? collapseDuplicateReportBlocks(props.report.content) : ''
 );
-
-// Configure marked options
-marked.use({
-  breaks: true,
-  gfm: true,
-});
-
-// Custom renderer to add IDs to headings
-const renderer = new marked.Renderer();
-renderer.heading = function({ text, depth }: { text: string; depth: number }) {
-  const cleanText = text.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
-  const id = cleanText.toLowerCase().replace(/[^\w]+/g, '-');
-  const parsedText = marked.parseInline(text);
-  return `<h${depth} id="${id}">${parsedText}</h${depth}>`;
-};
-
-const renderedContent = computed(() => {
-  if (!normalizedReportContent.value) return '';
-  try {
-    // Skip the first h1 since we display it separately
-    let content = normalizedReportContent.value;
-    const lines = content.split('\n');
-    const filteredLines = lines.filter(line => !line.match(/^#\s+/));
-    content = normalizeVerificationMarkers(filteredLines.join('\n'));
-
-    const html = marked.parse(content, { renderer }) as string;
-    return DOMPurify.sanitize(html);
-  } catch {
-    return '<p class="text-red-500">Failed to render content</p>';
-  }
-});
+const viewerContent = computed(() =>
+  prepareMarkdownForViewer(normalizedReportContent.value, {
+    stripMainTitle: true,
+    collapseDuplicateBlocks: false
+  })
+);
 
 // Extract table of contents
 const extractToc = () => {
@@ -340,14 +322,16 @@ const extractToc = () => {
   const headingRegex = /^(#{2,4})\s+(.+)$/gm;
   const toc: TocItem[] = [];
   let match;
+  let headingIndex = 0;
 
   while ((match = headingRegex.exec(normalizedReportContent.value)) !== null) {
     const level = match[1].length;
     const rawTitle = match[2].trim();
     const title = rawTitle.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
-    const id = title.toLowerCase().replace(/[^\w]+/g, '-');
+    const id = `${title.toLowerCase().replace(/[^\w]+/g, '-')}-${headingIndex}`;
 
-    toc.push({ id, title, level });
+    toc.push({ id, title, level, index: headingIndex });
+    headingIndex += 1;
   }
 
   tableOfContents.value = toc;
@@ -362,7 +346,11 @@ const scrollToSection = (id: string) => {
   const container = documentContainerRef.value;
   if (!container) return;
 
-  const element = container.querySelector(`#${id}`);
+  const tocItem = tableOfContents.value.find(item => item.id === id);
+  if (!tocItem) return;
+
+  const headings = container.querySelectorAll('.ProseMirror h2, .ProseMirror h3, .ProseMirror h4');
+  const element = headings[tocItem.index] as HTMLElement | undefined;
   if (element) {
     element.scrollIntoView({ behavior: 'smooth', block: 'start' });
     activeSection.value = id;
@@ -388,19 +376,19 @@ const handleScroll = () => {
   const container = documentContainerRef.value;
   if (!container) return;
 
-  const headings = container.querySelectorAll('h1, h2, h3, h4');
+  const headings = container.querySelectorAll('.ProseMirror h2, .ProseMirror h3, .ProseMirror h4');
   const containerRect = container.getBoundingClientRect();
 
-  let currentSection = '';
-  headings.forEach((heading) => {
+  let currentIndex = -1;
+  headings.forEach((heading, index) => {
     const rect = heading.getBoundingClientRect();
     if (rect.top <= containerRect.top + 100) {
-      currentSection = heading.id;
+      currentIndex = index;
     }
   });
 
-  if (currentSection) {
-    activeSection.value = currentSection;
+  if (currentIndex >= 0 && tableOfContents.value[currentIndex]) {
+    activeSection.value = tableOfContents.value[currentIndex].id;
   }
 };
 

@@ -480,6 +480,7 @@ import ToolPanel from '../components/ToolPanel.vue'
 import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight, Menu } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
+import { downloadFile } from '../api/file';
 import type { FileInfo } from '../api/file';
 import { useLeftPanel } from '../composables/useLeftPanel'
 import { useSessionFileList } from '../composables/useSessionFileList'
@@ -493,7 +494,7 @@ import SessionWarmupMessage from '@/components/SessionWarmupMessage.vue';
 import { ReportModal, TaskCompletedFooter } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
-import { collapseDuplicateReportBlocks } from '@/components/report/reportContentNormalizer';
+import { collapseDuplicateReportBlocks, preparePlainTextForViewer } from '@/components/report/reportContentNormalizer';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
@@ -2705,21 +2706,61 @@ const handleReportOpen = (report: ReportData) => {
   openReport(report);
 }
 
+const textPreviewExtensions = new Set(['md', 'markdown', 'txt', 'log', 'text']);
+
+const canOpenInReportModal = (file: FileInfo): boolean => {
+  const ext = file.filename.split('.').pop()?.toLowerCase() || '';
+  return textPreviewExtensions.has(ext);
+};
+
+const openTextFileInReportModal = async (file: FileInfo) => {
+  try {
+    const blob = await downloadFile(file.file_id);
+    const textContent = await blob.text();
+    const extension = file.filename.split('.').pop()?.toLowerCase() || '';
+    const contentForModal =
+      extension === 'md' || extension === 'markdown'
+        ? collapseDuplicateReportBlocks(textContent)
+        : preparePlainTextForViewer(textContent);
+    const reportPreview: ReportData = {
+      id: file.file_id,
+      title: file.filename,
+      content: contentForModal,
+      author: 'Pythinker',
+      lastModified: file.upload_date ? new Date(file.upload_date).getTime() : Date.now(),
+      fileCount: 1,
+      sections: extractSectionsFromMarkdown(contentForModal),
+      attachments: [file],
+    };
+    openReport(reportPreview);
+  } catch {
+    showErrorToast('Failed to open text preview');
+  }
+};
+
 const closeFilePreview = () => {
   filePreviewOpen.value = false;
   filePreviewFile.value = null;
 };
 
 // Handle report file open
-const handleReportFileOpen = (file: FileInfo) => {
+const handleReportFileOpen = async (file: FileInfo) => {
   hideFilePanel();
+  if (canOpenInReportModal(file)) {
+    await openTextFileInReportModal(file);
+    return;
+  }
   filePreviewFile.value = file;
   filePreviewOpen.value = true;
 }
 
 // Handle attached file click (open in modal)
-const handleAttachmentFileClick = (file: FileInfo) => {
+const handleAttachmentFileClick = async (file: FileInfo) => {
   hideFilePanel();
+  if (canOpenInReportModal(file)) {
+    await openTextFileInReportModal(file);
+    return;
+  }
   filePreviewFile.value = file;
   filePreviewOpen.value = true;
 }

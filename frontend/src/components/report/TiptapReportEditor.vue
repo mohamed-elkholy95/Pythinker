@@ -3,7 +3,7 @@
     ref="contentRef"
     :class="[
       'bg-[var(--background-white-main)]',
-      compact ? 'overflow-hidden' : 'h-full overflow-y-auto px-8 py-6'
+      embedded ? 'overflow-visible' : compact ? 'overflow-hidden' : 'h-full overflow-y-auto px-8 py-6'
     ]"
     @scroll="$emit('scroll', $event)"
   >
@@ -22,26 +22,17 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount, computed } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
-import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link';
-import Image from '@tiptap/extension-image';
-import Highlight from '@tiptap/extension-highlight';
-import TaskList from '@tiptap/extension-task-list';
-import TaskItem from '@tiptap/extension-task-item';
-import TextAlign from '@tiptap/extension-text-align';
-import Typography from '@tiptap/extension-typography';
-import Underline from '@tiptap/extension-underline';
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
-import { common, createLowlight } from 'lowlight';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { normalizeVerificationMarkers } from './reportContentNormalizer';
+import { createTiptapDocumentExtensions } from './tiptapDocumentExtensions';
 
 const props = defineProps<{
   content: string;
   editable?: boolean;
   compact?: boolean;
   hideMainTitleInCompact?: boolean;
+  embedded?: boolean;
 }>();
 
 const _emit = defineEmits<{
@@ -50,58 +41,18 @@ const _emit = defineEmits<{
 
 const contentRef = ref<HTMLElement | null>(null);
 
-// Create lowlight instance with common languages
-const lowlight = createLowlight(common);
-
 // Convert markdown to HTML
 const htmlContent = computed(() => {
   if (!props.content) return '';
   const normalizedMarkdown = normalizeVerificationMarkers(props.content);
-  const rawHtml = marked.parse(normalizedMarkdown, { async: false }) as string;
+  const rawHtml = marked.parse(normalizedMarkdown, { async: false, breaks: true, gfm: true }) as string;
   return DOMPurify.sanitize(rawHtml);
 });
 
 const editor = useEditor({
   content: htmlContent.value,
   editable: props.editable ?? false,
-  extensions: [
-    StarterKit.configure({
-      codeBlock: false, // We use CodeBlockLowlight instead
-      link: false, // Configured separately below
-      underline: false, // Configured separately below
-    }),
-    Link.configure({
-      openOnClick: true,
-      HTMLAttributes: {
-        class: 'report-link hover:underline cursor-pointer',
-        target: '_blank',
-        rel: 'noopener noreferrer',
-      },
-    }),
-    Image.configure({
-      HTMLAttributes: {
-        class: 'max-w-full h-auto rounded-lg my-4',
-      },
-    }),
-    Highlight.configure({
-      multicolor: true,
-    }),
-    TaskList,
-    TaskItem.configure({
-      nested: true,
-    }),
-    TextAlign.configure({
-      types: ['heading', 'paragraph'],
-    }),
-    Typography,
-    Underline,
-    CodeBlockLowlight.configure({
-      lowlight,
-      HTMLAttributes: {
-        class: 'bg-[var(--fill-tsp-gray-main)] rounded-lg p-4 my-4 overflow-x-auto text-sm font-mono',
-      },
-    }),
-  ],
+  extensions: createTiptapDocumentExtensions(),
   editorProps: {
     attributes: {
       class: 'focus:outline-none min-h-full',
@@ -236,6 +187,7 @@ defineExpose({
   margin-top: 1rem;
   margin-bottom: 1rem;
   font-size: 0.875rem;
+  table-layout: fixed;
 }
 
 :deep(.prose th) {
@@ -249,6 +201,12 @@ defineExpose({
 :deep(.prose td) {
   border: 1px solid var(--border-light);
   padding: 0.75rem;
+  vertical-align: top;
+}
+
+:deep(.prose th p),
+:deep(.prose td p) {
+  margin: 0;
 }
 
 :deep(.prose code) {
