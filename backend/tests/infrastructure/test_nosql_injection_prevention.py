@@ -61,6 +61,7 @@ class TestConnectorSearchRegexEscaping:
 
         mock_cursor = MagicMock()
         mock_cursor.to_list = AsyncMock(return_value=[])
+        mock_cursor.limit.return_value = mock_cursor  # chain: find().limit().to_list()
 
         with patch("app.infrastructure.repositories.mongo_connector_repository.ConnectorDocument") as mock_doc:
             mock_doc.find.return_value = mock_cursor
@@ -82,6 +83,7 @@ class TestConnectorSearchRegexEscaping:
 
         mock_cursor = MagicMock()
         mock_cursor.to_list = AsyncMock(return_value=[])
+        mock_cursor.limit.return_value = mock_cursor  # chain: find().limit().to_list()
 
         with patch("app.infrastructure.repositories.mongo_connector_repository.ConnectorDocument") as mock_doc:
             mock_doc.find.return_value = mock_cursor
@@ -101,6 +103,7 @@ class TestConnectorSearchRegexEscaping:
 
         mock_cursor = MagicMock()
         mock_cursor.to_list = AsyncMock(return_value=[])
+        mock_cursor.limit.return_value = mock_cursor  # chain: find().limit().to_list()
 
         with patch("app.infrastructure.repositories.mongo_connector_repository.ConnectorDocument") as mock_doc:
             mock_doc.find.return_value = mock_cursor

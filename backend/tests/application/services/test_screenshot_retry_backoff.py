@@ -177,15 +177,18 @@ async def test_circuit_breaker_and_retry_work_together():
 
     service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session", minio_storage=minio)
 
-    # Trigger multiple failures to open circuit
-    for _ in range(6):
-        result = await service.capture(ScreenshotTrigger.PERIODIC)
-        assert result is None
+    # Mock asyncio.sleep to avoid real delays (the test uses retry backoff which
+    # would take ~30s with default settings of 3 retries x 2s initial delay)
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        # Trigger multiple failures to open circuit
+        for _ in range(6):
+            result = await service.capture(ScreenshotTrigger.PERIODIC)
+            assert result is None
 
-    # Circuit should now be open
-    if service._circuit_breaker:
-        assert service._circuit_breaker.state.value == "open"
+        # Circuit should now be open
+        if service._circuit_breaker:
+            assert service._circuit_breaker.state.value == "open"
 
-        # Further captures should be skipped immediately (no retry)
-        result = await service.capture(ScreenshotTrigger.PERIODIC)
-        assert result is None
+            # Further captures should be skipped immediately (no retry)
+            result = await service.capture(ScreenshotTrigger.PERIODIC)
+            assert result is None
