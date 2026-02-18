@@ -61,6 +61,7 @@ class SandboxPoolSettingsMixin:
     sandbox_pool_min_size: int = 1  # Pre-warm 1 sandbox, create 2nd on demand
     sandbox_pool_max_size: int = 2  # Cap at 2 for 2-concurrent-task target
     max_concurrent_agents: int = 2  # In-process concurrency guard; matches sandbox_pool_max_size
+    max_concurrent_executions: int = 4  # LLM execution concurrency (higher than agents since LLM calls are I/O-bound)
     sandbox_pool_warmup_interval: int = 30  # Seconds between pool maintenance checks
 
     # Sandbox idle management
