@@ -134,6 +134,18 @@ class ShellService:
         Asynchronously execute a command in the specified shell session
         """
         logger.info(f"Executing command in session {session_id}: {command}")
+
+        # Enforce ALLOW_SUDO — reject sudo commands when disabled
+        if not settings.ALLOW_SUDO:
+            stripped = command.strip()
+            if stripped == "sudo" or stripped.startswith("sudo "):
+                logger.warning(
+                    f"Rejected sudo command (ALLOW_SUDO=false): {command}"
+                )
+                raise BadRequestException(
+                    "sudo commands are disabled in this sandbox (ALLOW_SUDO=false)"
+                )
+
         if not exec_dir:
             exec_dir = os.path.expanduser("~")
         exec_dir = self._resolve_home_alias(exec_dir)

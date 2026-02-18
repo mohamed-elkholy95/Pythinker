@@ -166,6 +166,8 @@ _cdp_consecutive_failures: int = 0
 _CDP_FAILURE_THRESHOLD: int = 3  # Skip after 3 consecutive failures
 _cdp_skip_until: float = 0.0
 _CDP_SKIP_DURATION: float = 5.0  # Skip for 5s after threshold (reduced from 30s)
+# Protects _cdp_consecutive_failures and _cdp_skip_until from concurrent access
+_cdp_failure_lock: asyncio.Lock = asyncio.Lock()
 
 
 def _get_cdp_service() -> CDPScreencastService:
@@ -199,24 +201,34 @@ async def _capture_with_cdp(
     P1.3: Tracks consecutive failures and skips CDP tier during cooldown.
     On cooldown expiry, invalidates the CDP URL cache so the next attempt
     discovers the current active page (handles navigation/crash recovery).
+
+    All reads/writes to _cdp_consecutive_failures and _cdp_skip_until are
+    serialized via _cdp_failure_lock to prevent concurrent requests from
+    racing on the failure state.
     """
     global _cdp_consecutive_failures, _cdp_skip_until
 
-    # P1.3: Skip CDP if in cooldown period
     now = time.monotonic()
-    if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD and now < _cdp_skip_until:
-        logger.debug(
-            f"[Screenshot] Skipping CDP tier (in cooldown, {_cdp_consecutive_failures} failures)"
-        )
-        return None
 
-    # When cooldown expires, invalidate cache so we re-discover the active page
+    # P1.3: Check cooldown and reset under lock
+    should_invalidate = False
+    async with _cdp_failure_lock:
+        if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD and now < _cdp_skip_until:
+            logger.debug(
+                f"[Screenshot] Skipping CDP tier (in cooldown, {_cdp_consecutive_failures} failures)"
+            )
+            return None
+
+        # When cooldown expires, reset failures and flag for cache invalidation
+        if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD and now >= _cdp_skip_until:
+            logger.info(
+                "[Screenshot] CDP cooldown expired, invalidating cache for fresh page discovery"
+            )
+            _cdp_consecutive_failures = 0
+            should_invalidate = True
+
     service = _get_cdp_service()
-    if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD and now >= _cdp_skip_until:
-        logger.info(
-            "[Screenshot] CDP cooldown expired, invalidating cache for fresh page discovery"
-        )
-        _cdp_consecutive_failures = 0
+    if should_invalidate:
         service.invalidate_cache()
 
     try:
@@ -227,42 +239,43 @@ async def _capture_with_cdp(
         )
         if not image_data:
             logger.debug("[Screenshot] CDP capture returned empty frame")
-            # P1.3: Track failure
-            _cdp_consecutive_failures += 1
-            if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
-                _cdp_skip_until = now + _CDP_SKIP_DURATION
-                logger.warning(
-                    f"[Screenshot] CDP failed {_cdp_consecutive_failures}x, "
-                    f"skipping for {_CDP_SKIP_DURATION}s"
-                )
+            async with _cdp_failure_lock:
+                _cdp_consecutive_failures += 1
+                if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
+                    _cdp_skip_until = time.monotonic() + _CDP_SKIP_DURATION
+                    logger.warning(
+                        f"[Screenshot] CDP failed {_cdp_consecutive_failures}x, "
+                        f"skipping for {_CDP_SKIP_DURATION}s"
+                    )
             return None
         # P1.3: Reset on success
-        _cdp_consecutive_failures = 0
+        async with _cdp_failure_lock:
+            _cdp_consecutive_failures = 0
         return image_data
     except asyncio.TimeoutError:
         logger.warning(
             "[Screenshot] CDP capture timed out after %.1fs",
             _SCREENSHOT_TIMEOUT_SECONDS,
         )
-        # P1.3: Track failure
-        _cdp_consecutive_failures += 1
-        if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
-            _cdp_skip_until = now + _CDP_SKIP_DURATION
-            logger.warning(
-                f"[Screenshot] CDP failed {_cdp_consecutive_failures}x, "
-                f"skipping for {_CDP_SKIP_DURATION}s"
-            )
+        async with _cdp_failure_lock:
+            _cdp_consecutive_failures += 1
+            if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
+                _cdp_skip_until = time.monotonic() + _CDP_SKIP_DURATION
+                logger.warning(
+                    f"[Screenshot] CDP failed {_cdp_consecutive_failures}x, "
+                    f"skipping for {_CDP_SKIP_DURATION}s"
+                )
         return None
     except Exception as e:
         logger.warning(f"[Screenshot] CDP capture failed: {e}")
-        # P1.3: Track failure
-        _cdp_consecutive_failures += 1
-        if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
-            _cdp_skip_until = now + _CDP_SKIP_DURATION
-            logger.warning(
-                f"[Screenshot] CDP failed {_cdp_consecutive_failures}x, "
-                f"skipping for {_CDP_SKIP_DURATION}s"
-            )
+        async with _cdp_failure_lock:
+            _cdp_consecutive_failures += 1
+            if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
+                _cdp_skip_until = time.monotonic() + _CDP_SKIP_DURATION
+                logger.warning(
+                    f"[Screenshot] CDP failed {_cdp_consecutive_failures}x, "
+                    f"skipping for {_CDP_SKIP_DURATION}s"
+                )
         return None
 
 

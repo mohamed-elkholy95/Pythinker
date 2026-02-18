@@ -5,13 +5,20 @@ Translates mouse, keyboard, and scroll events into CDP Input.dispatch* commands
 for interactive browser control.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
 
 import aiohttp
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
+
+# Command timeout — Input.dispatch* commands are lightweight but we need a
+# ceiling to prevent indefinite hangs when Chrome is unresponsive.
+_INPUT_COMMAND_TIMEOUT = settings.CDP_INPUT_COMMAND_TIMEOUT
 
 
 class MouseButton(StrEnum):
@@ -88,8 +95,12 @@ class CDPInputService:
         self.cdp_url = cdp_url
         self.session: aiohttp.ClientSession | None = None
         self.ws: aiohttp.ClientWebSocketResponse | None = None
-        self.msg_id = 0
+        self._msg_counter: int = 0
         self._connected = False
+
+        # Serialize all CDP command send/receive cycles on the shared WebSocket
+        # to prevent concurrent receive() calls (aiohttp forbids this).
+        self._command_lock: asyncio.Lock = asyncio.Lock()
 
     async def connect(self) -> bool:
         """
@@ -154,49 +165,104 @@ class CDPInputService:
         self._connected = False
 
         if self.ws:
-            await self.ws.close()
+            try:
+                await self.ws.close()
+            except Exception as e:
+                logger.debug("Ignoring error closing CDP input WebSocket: %s", e)
             self.ws = None
 
         if self.session:
-            await self.session.close()
+            try:
+                await self.session.close()
+            except Exception as e:
+                logger.debug("Ignoring error closing CDP input session: %s", e)
             self.session = None
 
         logger.info("Disconnected from CDP")
 
-    async def _send_command(self, method: str, params: dict | None = None) -> dict:
+    async def _send_command(
+        self,
+        method: str,
+        params: dict | None = None,
+        timeout: float = _INPUT_COMMAND_TIMEOUT,
+    ) -> dict:
         """
-        Send CDP command and wait for response.
+        Send CDP command and wait for response with timeout and concurrency protection.
+
+        Serialized via _command_lock to prevent concurrent receive() calls
+        on the shared WebSocket (aiohttp forbids this). Uses asyncio.wait_for
+        with a timeout ceiling to avoid indefinite hangs.
 
         Args:
             method: CDP method name (e.g., "Input.dispatchMouseEvent")
             params: Method parameters
+            timeout: Maximum seconds to wait for response
 
         Returns:
             Response dict
 
         Raises:
-            RuntimeError: If not connected or command fails
+            RuntimeError: If not connected, command fails, or timeout exceeded
         """
         if not self._connected or not self.ws:
             raise RuntimeError("Not connected to CDP")
 
-        self.msg_id += 1
-        msg = {"id": self.msg_id, "method": method}
-        if params:
-            msg["params"] = params
+        async with self._command_lock:
+            # Re-check after acquiring lock (connection may have been closed)
+            if not self.ws or self.ws.closed:
+                self._connected = False
+                raise RuntimeError("CDP WebSocket closed")
 
-        await self.ws.send_json(msg)
+            self._msg_counter += 1
+            msg_id = self._msg_counter
 
-        # Wait for response
-        async for ws_msg in self.ws:
-            if ws_msg.type == aiohttp.WSMsgType.TEXT:
-                data = ws_msg.json()
-                if data.get("id") == self.msg_id:
-                    if "error" in data:
-                        raise RuntimeError(f"CDP command failed: {data['error']}")
-                    return data.get("result", {})
+            message: dict = {"id": msg_id, "method": method}
+            if params:
+                message["params"] = params
 
-        raise RuntimeError("WebSocket closed before response received")
+            try:
+                await self.ws.send_json(message)
+
+                # Wait for matching response, skipping CDP event messages
+                start_time = asyncio.get_event_loop().time()
+                while True:
+                    remaining = timeout - (asyncio.get_event_loop().time() - start_time)
+                    if remaining <= 0:
+                        raise RuntimeError(f"CDP command timed out: {method}")
+
+                    try:
+                        ws_msg = await asyncio.wait_for(
+                            self.ws.receive(), timeout=remaining
+                        )
+                    except asyncio.TimeoutError:
+                        raise RuntimeError(
+                            f"CDP command timed out waiting for response: {method}"
+                        )
+
+                    if ws_msg.type == aiohttp.WSMsgType.TEXT:
+                        data = ws_msg.json()
+                        if data.get("id") == msg_id:
+                            if "error" in data:
+                                raise RuntimeError(
+                                    f"CDP command failed: {data['error']}"
+                                )
+                            return data.get("result", {})
+                        # Not our response — CDP event or response to a
+                        # previous timed-out command; skip and keep waiting.
+                    elif ws_msg.type == aiohttp.WSMsgType.ERROR:
+                        raise RuntimeError(f"CDP WebSocket error: {ws_msg.data}")
+                    elif ws_msg.type in (
+                        aiohttp.WSMsgType.CLOSE,
+                        aiohttp.WSMsgType.CLOSED,
+                    ):
+                        self._connected = False
+                        raise RuntimeError(
+                            "WebSocket closed before response received"
+                        )
+            except RuntimeError:
+                raise
+            except Exception as e:
+                raise RuntimeError(f"CDP command error: {e}") from e
 
     async def dispatch_mouse_event(self, event: MouseEvent) -> None:
         """

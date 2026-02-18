@@ -139,7 +139,12 @@ let intentionalClose = false
 
 // Frame heartbeat watchdog — detects connected-but-dead streams
 // (e.g., Chrome hung, proxy connected but no frames flowing)
-const FRAME_STALL_TIMEOUT_MS = 15_000 // 15s with no frames → stale
+// NOTE: The sandbox CDP service already has its own health-check watchdog
+// (10s frame timeout + Chrome /json health check). The frontend watchdog
+// is a safety net for proxy-level issues (e.g., backend proxy hung).
+// Timeouts here should be longer than the sandbox-side ones to avoid
+// double-triggering reconnects.
+const FRAME_STALL_TIMEOUT_MS = 25_000 // 25s with no frames → stale (sandbox timeout is 10s)
 const FIRST_FRAME_GRACE_MS = 30_000 // 30s grace for initial page load
 let lastFrameReceivedAt = 0
 let hasReceivedFirstFrame = false

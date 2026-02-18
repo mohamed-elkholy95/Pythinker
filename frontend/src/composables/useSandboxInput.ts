@@ -212,11 +212,19 @@ function flushInputQueue(): void {
 }
 
 /**
- * Queue a CDP input event
+ * Queue a CDP input event.
+ * Caps the queue at 200 events to prevent unbounded memory growth
+ * when the network is slow or the sandbox is unresponsive.
  */
+const MAX_INPUT_QUEUE_SIZE = 200
+
 function queueInput(event: CDPInputEvent): void {
   if (!isForwarding.value) {
     return
+  }
+  if (inputQueue.length >= MAX_INPUT_QUEUE_SIZE) {
+    // Drop oldest events to make room (keep most recent input responsive)
+    inputQueue.splice(0, inputQueue.length - MAX_INPUT_QUEUE_SIZE + 1)
   }
   inputQueue.push(event)
 }
