@@ -15,6 +15,7 @@ Domain-specific settings are defined in:
 
 import logging
 import secrets
+import threading
 import warnings
 from functools import lru_cache
 from typing import ClassVar
@@ -361,12 +362,16 @@ class Settings(
         logger.info(f"Configuration validated successfully (environment: {self.environment})")
 
 
+_get_settings_init_lock = threading.Lock()
+
+
 @lru_cache
 def get_settings() -> Settings:
     """Get application settings."""
-    settings = Settings()
-    settings.validate()
-    return settings
+    with _get_settings_init_lock:
+        settings = Settings()
+        settings.validate()
+        return settings
 
 
 def get_feature_flags() -> dict[str, bool]:

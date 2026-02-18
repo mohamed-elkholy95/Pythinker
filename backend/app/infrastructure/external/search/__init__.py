@@ -12,6 +12,7 @@ Supported providers:
 """
 
 import logging
+import threading
 from functools import lru_cache
 
 from app.domain.external.search import SearchEngine
@@ -33,6 +34,9 @@ from app.infrastructure.external.search.utils import (
 logger = logging.getLogger(__name__)
 
 
+_get_search_engine_init_lock = threading.Lock()
+
+
 @lru_cache
 def get_search_engine() -> SearchEngine | None:
     """Get search engine instance based on configuration.
@@ -43,7 +47,8 @@ def get_search_engine() -> SearchEngine | None:
     Returns:
         SearchEngine instance or None if configuration is invalid
     """
-    return get_search_engine_from_factory()
+    with _get_search_engine_init_lock:
+        return get_search_engine_from_factory()
 
 
 __all__ = [

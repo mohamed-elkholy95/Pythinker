@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from functools import lru_cache
 
 from bson import ObjectId
@@ -138,7 +139,11 @@ class MongoDB:
         return file_data
 
 
+_mongodb_init_lock = threading.Lock()
+
+
 @lru_cache
 def get_mongodb() -> MongoDB:
-    """Get the MongoDB instance."""
-    return MongoDB()
+    """Get the MongoDB instance (thread-safe singleton)."""
+    with _mongodb_init_lock:
+        return MongoDB()

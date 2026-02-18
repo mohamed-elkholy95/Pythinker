@@ -1,5 +1,6 @@
 import io
 import logging
+import threading
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any, BinaryIO
@@ -201,9 +202,13 @@ class GridFSFileStorage(FileStorage):
             return None
 
 
+_get_file_storage_init_lock = threading.Lock()
+
+
 @lru_cache
 def get_file_storage() -> FileStorage:
     """Get file storage instance"""
-    from app.infrastructure.storage.mongodb import get_mongodb
+    with _get_file_storage_init_lock:
+        from app.infrastructure.storage.mongodb import get_mongodb
 
-    return GridFSFileStorage(mongodb=get_mongodb())
+        return GridFSFileStorage(mongodb=get_mongodb())

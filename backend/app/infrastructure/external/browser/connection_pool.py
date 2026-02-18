@@ -942,8 +942,18 @@ class PooledConnectionContext:
         """Release the connection back to the pool."""
         if self._connection:
             self._had_error = exc_type is not None
-            await self._pool._release_connection(
-                self._cdp_url,
-                self._connection,
-                had_error=self._had_error,
-            )
+            try:
+                await self._pool._release_connection(
+                    self._cdp_url,
+                    self._connection,
+                    had_error=self._had_error,
+                )
+            except Exception:
+                # Log but never propagate release errors — they must not mask
+                # the original exception (exc_val) and must not leak the connection.
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Failed to release browser connection back to pool; connection will be marked as lost.",
+                    exc_info=True,
+                )
