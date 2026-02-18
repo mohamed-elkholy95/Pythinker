@@ -13,6 +13,15 @@
       :animation="placeholderAnimation || 'globe'"
     />
 
+    <!-- Session complete: freeze on the replay screenshot instead of live stream -->
+    <div v-else-if="isSessionComplete && replayScreenshotUrl" class="sandbox-content-inner">
+      <img
+        :src="replayScreenshotUrl"
+        class="sandbox-frozen-screenshot"
+        alt="Session complete — final state"
+      />
+    </div>
+
     <!-- CDP Screencast View (Konva-powered) -->
     <div v-else-if="enabled" class="sandbox-content-inner">
       <!-- Loading overlay -->
@@ -91,6 +100,10 @@ const props = withDefaults(
     quality?: number
     maxFps?: number
     showStats?: boolean
+    /** When true, disconnects the live stream and shows replayScreenshotUrl as a frozen frame. */
+    isSessionComplete?: boolean
+    /** URL of the final screenshot to display when the session is complete. */
+    replayScreenshotUrl?: string
   }>(),
   {
     viewOnly: true,
@@ -98,6 +111,8 @@ const props = withDefaults(
     quality: 70,
     maxFps: 15,
     showStats: false,
+    isSessionComplete: false,
+    replayScreenshotUrl: '',
   }
 )
 
@@ -451,12 +466,25 @@ function handleVisibilityChange(): void {
   }
 }
 
+// When session completes, disconnect the live stream — the frozen screenshot takes over.
+watch(
+  () => props.isSessionComplete,
+  (complete) => {
+    if (complete) {
+      disconnect()
+    }
+  }
+)
+
 // Watch enabled prop
 watch(
   () => props.enabled,
   (enabled) => {
     if (enabled) {
-      initConnection()
+      // Don't reconnect if session is already complete
+      if (!props.isSessionComplete) {
+        initConnection()
+      }
     } else {
       disconnect()
     }
@@ -551,6 +579,16 @@ defineExpose({
   left: 0;
   right: 0;
   bottom: 0;
+}
+
+.sandbox-frozen-screenshot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--background-gray-main);
 }
 
 .sandbox-loading {

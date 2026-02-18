@@ -210,6 +210,8 @@
               :editor-file-path="resolvedFilePath"
               :search-results="searchResults"
               :search-query="searchQuery"
+              :is-session-complete="streamingPresentation.isSessionComplete.value"
+              :replay-screenshot-url="props.replayScreenshotUrl || ''"
               @connected="onLivePreviewConnected"
               @disconnected="onLivePreviewDisconnected"
             />
@@ -332,6 +334,8 @@
               :editor-file-path="resolvedFilePath"
               :search-results="searchResults"
               :search-query="searchQuery"
+              :is-session-complete="streamingPresentation.isSessionComplete.value"
+              :replay-screenshot-url="props.replayScreenshotUrl || ''"
               @connected="onLivePreviewConnected"
               @disconnected="onLivePreviewDisconnected"
             />
@@ -677,7 +681,7 @@ const streamingPresentation = useStreamingPresentationState({
     }
     return 'generic';
   }),
-  isSessionComplete: computed(() => false),
+  isSessionComplete: computed(() => !props.isLoading && !!props.replayScreenshotUrl),
   replayScreenshotUrl: computed(() => props.replayScreenshotUrl || ''),
   previewText: computed(() => props.summaryStreamText || '')
 });
