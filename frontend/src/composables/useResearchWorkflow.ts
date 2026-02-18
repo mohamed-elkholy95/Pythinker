@@ -63,10 +63,12 @@ const inferDeepPhase = (status: DeepResearchStatus): string | null => {
       return 'planning'
     case 'started':
       return 'executing'
+    case 'summarizing':
+      return 'summarizing'
     case 'completed':
       return 'completed'
     case 'cancelled':
-      return 'summarizing'
+      return null
     default:
       return null
   }

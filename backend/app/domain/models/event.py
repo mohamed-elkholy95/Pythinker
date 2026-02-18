@@ -732,6 +732,7 @@ class DeepResearchStatus(str, Enum):
     QUERY_STARTED = "query_started"
     QUERY_COMPLETED = "query_completed"
     QUERY_SKIPPED = "query_skipped"
+    SUMMARIZING = "summarizing"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
