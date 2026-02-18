@@ -1209,7 +1209,7 @@ class PlanActFlow(BaseFlow):
         # Emit initial research progress event (reuse DeepResearchEvent protocol)
         query_data = [
             DeepResearchQueryData(
-                id=idx,
+                id=str(idx),
                 query=q,
                 status=DeepResearchQueryStatus.PENDING,
             )
@@ -1315,7 +1315,7 @@ class PlanActFlow(BaseFlow):
         # Emit completion event with actual query data
         final_query_data = [
             DeepResearchQueryData(
-                id=idx,
+                id=str(idx),
                 query=task.query,
                 status=DeepResearchQueryStatus.COMPLETED
                 if task.status.value == "completed"
