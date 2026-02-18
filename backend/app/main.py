@@ -460,6 +460,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Failed to seed skills (non-critical): {e}")
 
+        # Load pip-installed skill plugins (AgentSkills entry-point discovery)
+        try:
+            from app.infrastructure.plugins.skill_plugin_loader import load_skill_plugins
+
+            plugin_count = await load_skill_plugins()
+            if plugin_count > 0:
+                logger.info(f"Loaded {plugin_count} skill plugin(s) via entry-points")
+        except Exception as e:
+            logger.warning(f"Failed to load skill plugins (non-critical): {e}")
+
         # Seed official connectors
         try:
             from app.infrastructure.seeds.connectors_seed import seed_connectors

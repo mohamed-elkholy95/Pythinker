@@ -3,6 +3,13 @@ name = "pythinker-backend"
 version = "0.1.0"
 requires-python = ">=3.11"
 
+# AgentSkills plugin entry-point group.
+# Third-party packages register skills + tools by declaring:
+#   [project.entry-points."pythinker.skills"]
+#   "my-plugin" = "my_package.skills:register"
+# The register() callable must return a SkillPlugin instance.
+# See: backend/app/infrastructure/plugins/skill_plugin_loader.py
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120
