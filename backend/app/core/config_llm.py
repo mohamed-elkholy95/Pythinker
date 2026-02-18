@@ -9,7 +9,12 @@ class LLMSettingsMixin:
     """LLM provider and model configuration."""
 
     # LLM Provider selection
-    llm_provider: str = "openai"  # "openai", "ollama"
+    # "auto"      → auto-detect from API keys / model name / base URL (recommended)
+    # "openai"    → OpenAI-compatible (OpenAI, OpenRouter, GLM-5, DeepSeek, etc.)
+    # "anthropic" → Anthropic native API (Claude models)
+    # "ollama"    → Local Ollama server
+    # "universal" → alias for "auto"
+    llm_provider: str = "auto"
 
     # OpenAI-compatible provider (default)
     # Works with OpenRouter, DeepSeek, OpenAI, and other OpenAI-compatible APIs
