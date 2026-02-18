@@ -36,6 +36,8 @@ from app.domain.models.event import (
     VerificationEvent,
     VerificationStatus,
     WaitEvent,
+    WideResearchEvent,
+    WideResearchStatus,
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
@@ -2869,7 +2871,41 @@ class PlanActFlow(BaseFlow):
                                 # Phase 3: Track tool usage for proactive compaction
                                 if isinstance(event, ToolEvent) and event.tool_name:
                                     self._track_tool_usage(event.tool_name)
+                                    # Emit WideResearchEvent to drive frontend live overlay
+                                    if event.tool_name == "wide_research":
+                                        _wr_args = event.function_args
+                                        _wr_topic: str = _wr_args.get("topic", "")
+                                        _wr_queries: list[str] = _wr_args.get("queries", [])
+                                        _wr_types: list[str] = _wr_args.get("search_types") or ["info"]
+                                        if event.status == ToolStatus.CALLING:
+                                            yield WideResearchEvent(
+                                                research_id=event.tool_call_id,
+                                                topic=_wr_topic,
+                                                status=WideResearchStatus.SEARCHING,
+                                                total_queries=len(_wr_queries),
+                                                completed_queries=0,
+                                                search_types=_wr_types,
+                                                current_query=_wr_queries[0] if _wr_queries else None,
+                                            )
                                 yield event
+                                # Emit WideResearchEvent completion after tool result arrives
+                                if (
+                                    isinstance(event, ToolEvent)
+                                    and event.tool_name == "wide_research"
+                                    and event.status == ToolStatus.CALLED
+                                ):
+                                    _wr_args = event.function_args
+                                    _wr_topic = _wr_args.get("topic", "")
+                                    _wr_queries = _wr_args.get("queries", [])
+                                    _wr_types = _wr_args.get("search_types") or ["info"]
+                                    yield WideResearchEvent(
+                                        research_id=event.tool_call_id,
+                                        topic=_wr_topic,
+                                        status=WideResearchStatus.COMPLETED,
+                                        total_queries=len(_wr_queries),
+                                        completed_queries=len(_wr_queries),
+                                        search_types=_wr_types,
+                                    )
 
                                 # Yield any pending events from skill creator tools (Phase 3: Custom Skills)
                                 while self._pending_events:
