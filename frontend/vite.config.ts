@@ -110,11 +110,23 @@ export default defineConfig({
     target: 'esnext',
     rollupOptions: {
       output: {
-        manualChunks: {
-          'monaco-editor': ['monaco-editor'],
-          'shiki': ['shiki'],
-          'konva': ['konva', 'vue-konva'],
-          'lottie': ['lottie-web'],
+        manualChunks(id) {
+          if (id.includes('node_modules/monaco-editor')) {
+            return 'monaco-editor';
+          }
+          if (id.includes('node_modules/shiki')) {
+            return 'shiki';
+          }
+          if (id.includes('node_modules/plotly.js-dist-min')) {
+            return 'plotly';
+          }
+          if (id.includes('node_modules/konva') || id.includes('node_modules/vue-konva')) {
+            return 'konva';
+          }
+          if (id.includes('node_modules/lottie-web')) {
+            return 'lottie';
+          }
+          return undefined;
         },
       },
     },

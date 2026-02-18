@@ -1,4 +1,4 @@
-import type { Component } from 'vue';
+import { defineAsyncComponent, type Component } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
   FileText,
@@ -13,10 +13,18 @@ import {
   FileBarChart,
   Link as LinkIcon,
 } from 'lucide-vue-next';
-import UnknownFilePreview from '../components/filePreviews/UnknownFilePreview.vue';
-import TiptapFilePreview from '../components/filePreviews/TiptapFilePreview.vue';
-import CodeFilePreview from '../components/filePreviews/CodeFilePreview.vue';
-import ImageFilePreview from '../components/filePreviews/ImageFilePreview.vue';
+const UnknownFilePreview = defineAsyncComponent(
+  () => import('../components/filePreviews/UnknownFilePreview.vue')
+);
+const TiptapFilePreview = defineAsyncComponent(
+  () => import('../components/filePreviews/TiptapFilePreview.vue')
+);
+const CodeFilePreview = defineAsyncComponent(
+  () => import('../components/filePreviews/CodeFilePreview.vue')
+);
+const ImageFilePreview = defineAsyncComponent(
+  () => import('../components/filePreviews/ImageFilePreview.vue')
+);
 
 export interface FileType {
   icon: Component; // Lucide icon component
