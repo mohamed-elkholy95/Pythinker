@@ -37,6 +37,8 @@
     :show-stats="showStats"
     :is-canvas-mode="isCanvasMode"
     :show-controls="showControls"
+    :is-session-complete="isSessionComplete"
+    :replay-screenshot-url="replayScreenshotUrl"
     @connected="emit('connected')"
     @disconnected="(reason?: string) => emit('disconnected', reason)"
     @error="(error: string) => emit('error', error)"
@@ -76,6 +78,10 @@ const props = withDefaults(
     toolContent?: ToolContent
     /** Whether tool is actively running */
     isActive?: boolean
+    /** When true, shows frozen replay screenshot instead of live stream */
+    isSessionComplete?: boolean
+    /** URL of the final screenshot to show when session is complete */
+    replayScreenshotUrl?: string
     /** Terminal output content */
     terminalContent?: string
     /** Editor/file content */
@@ -103,7 +109,9 @@ const props = withDefaults(
     editorContent: '',
     editorFilePath: '',
     searchResults: () => [],
-    searchQuery: ''
+    searchQuery: '',
+    isSessionComplete: false,
+    replayScreenshotUrl: ''
   }
 )
 
