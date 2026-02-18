@@ -7,6 +7,9 @@ services:
       - ./frontend/src:/app/src  # Mount only source code
       - ./frontend/public:/app/public  # Mount public assets
       - ./frontend/index.html:/app/index.html  # Mount index.html
+      - ./frontend/package.json:/app/package.json  # Mount package manifest for dependency sync
+      - ./frontend/package-lock.json:/app/package-lock.json  # Mount lockfile for deterministic npm ci
+      - ./frontend/bun.lock:/app/bun.lock  # Keep lockfiles in sync across npm/bun workflows
       - ./frontend/vite.config.ts:/app/vite.config.ts  # Mount vite config
       - ./frontend/tsconfig.json:/app/tsconfig.json  # Mount tsconfig
       - ./frontend/tsconfig.app.json:/app/tsconfig.app.json  # Mount tsconfig app

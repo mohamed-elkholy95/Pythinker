@@ -14,11 +14,15 @@ COPY package.json package-lock.json ./
 # Install exact dependency tree from lockfile
 RUN npm ci
 
+# Development bootstrap script: re-sync deps when lockfile changes
+COPY dev-start.sh /usr/local/bin/dev-start.sh
+RUN chmod +x /usr/local/bin/dev-start.sh
+
 # The source code will be mounted as a volume
 # node_modules from the image will be used
 
 # Expose Vite dev server port
 EXPOSE 5174
 
-# Start development server with Node.js for full API compatibility
-CMD ["npx", "vite", "--host", "0.0.0.0"]
+# Start development server with lockfile-aware dependency sync
+CMD ["/usr/local/bin/dev-start.sh"]
