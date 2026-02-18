@@ -30,7 +30,7 @@ from app.interfaces.schemas.file import FileInfoResponse
 
 class BaseEventData(BaseModel):
     event_id: str | None
-    timestamp: datetime = Field(default_factory=lambda: datetime.now())
+    timestamp: int = Field(default_factory=lambda: int(datetime.now().timestamp()))
 
     @classmethod
     def base_event_data(cls, event: AgentEvent) -> dict:
