@@ -11,6 +11,8 @@ import sys
 import httpx
 import pytest
 
+pytestmark = [pytest.mark.integration]
+
 # Sandbox API base URL - from env or dev default
 SANDBOX_URL = os.environ.get("SANDBOX_TEST_URL", "http://localhost:8083")
 SANDBOX_SECRET = os.environ.get("SANDBOX_TEST_SECRET") or os.environ.get("SANDBOX_API_SECRET")

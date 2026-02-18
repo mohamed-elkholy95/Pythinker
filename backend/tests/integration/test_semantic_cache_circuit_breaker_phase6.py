@@ -91,9 +91,8 @@ class TestSemanticCacheCircuitBreakerIntegration:
         # Should return cached response
         assert result == "cached response"
 
-        # Circuit breaker should have recorded a hit
-        # Note: Actual recording happens in _record_prometheus_query
-        assert len(circuit_breaker._samples) >= 0  # May or may not record depending on timing
+        # Circuit breaker should have recorded at least one sample for the cache hit
+        assert len(circuit_breaker._samples) >= 1, "Circuit breaker should record at least one sample after a cache hit"
 
     @pytest.mark.asyncio
     async def test_cache_miss_recorded_to_circuit_breaker(self):
@@ -126,8 +125,10 @@ class TestSemanticCacheCircuitBreakerIntegration:
         # Should return None
         assert result is None
 
-        # Circuit breaker should have recorded a miss
-        assert len(circuit_breaker._samples) >= 0
+        # Circuit breaker should have recorded at least one sample for the cache miss
+        assert len(circuit_breaker._samples) >= 1, (
+            "Circuit breaker should record at least one sample after a cache miss"
+        )
 
     @pytest.mark.asyncio
     async def test_prometheus_metrics_updated_on_cache_operations(self):

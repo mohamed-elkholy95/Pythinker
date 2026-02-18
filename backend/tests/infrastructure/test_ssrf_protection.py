@@ -71,8 +71,7 @@ class TestSSRFFailClosed:
     """Verify fail-closed behavior on parse/DNS errors."""
 
     def test_fails_closed_on_parse_error(self) -> None:
-        # Malformed URL should be blocked, not allowed
+        # Malformed URL should be blocked (fail-closed), not allowed through
         result = is_ssrf_target("http://[invalid-ipv6/path")
-        # Should either return None (parseable) or a block reason (unparseable)
-        # The key is it shouldn't crash
-        assert isinstance(result, str) or result is None
+        assert result is not None, "Malformed URL must be blocked (fail-closed behavior)"
+        assert isinstance(result, str), f"Block reason must be a string, got {type(result)}"

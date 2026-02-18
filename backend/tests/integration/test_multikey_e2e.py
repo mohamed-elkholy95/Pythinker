@@ -33,6 +33,8 @@ from app.infrastructure.external.search.serper_search import SerperSearchEngine
 from app.infrastructure.external.search.tavily_search import TavilySearchEngine
 from app.infrastructure.storage.redis import get_redis
 
+pytestmark = [pytest.mark.integration]
+
 
 @pytest.fixture
 async def redis_client():
