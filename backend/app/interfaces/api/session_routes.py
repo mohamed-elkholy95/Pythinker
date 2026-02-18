@@ -1148,7 +1148,11 @@ async def screencast_websocket(
     The browser cannot reach sandbox containers directly, so the
     backend acts as a WebSocket relay.
     """
-    await websocket.accept()
+    try:
+        await websocket.accept()
+    except RuntimeError as e:
+        logger.warning(f"Screencast WebSocket accept failed (connection already closed or shutdown in progress): {e}")
+        return
     logger.info(f"Accepted screencast WebSocket for session {session_id}")
 
     try:
@@ -1270,7 +1274,11 @@ async def input_websocket(
 
     Proxies mouse/keyboard input from the browser to the sandbox.
     """
-    await websocket.accept()
+    try:
+        await websocket.accept()
+    except RuntimeError as e:
+        logger.warning(f"Input WebSocket accept failed (connection already closed or shutdown in progress): {e}")
+        return
 
     try:
         # Extract user_id from signed URL (uid parameter) for authorization
