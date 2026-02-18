@@ -323,12 +323,12 @@ class ExternalSkillImporter:
                 allowed_tools = raw_tools.split() if raw_tools.strip() else []
             except Exception as e:
                 logger.warning(f"skills-ref read_properties failed ({e}); using regex fallback")
-                skill_name, description, author, version, tags, allowed_tools = (
-                    await self._parse_skill_md_fallback(skill_md)
+                skill_name, description, author, version, tags, allowed_tools = await self._parse_skill_md_fallback(
+                    skill_md
                 )
         else:
-            skill_name, description, author, version, tags, allowed_tools = (
-                await self._parse_skill_md_fallback(skill_md)
+            skill_name, description, author, version, tags, allowed_tools = await self._parse_skill_md_fallback(
+                skill_md
             )
 
         if not skill_name:
@@ -348,9 +348,7 @@ class ExternalSkillImporter:
             allowed_tools=allowed_tools or None,
         )
 
-    async def _parse_skill_md_fallback(
-        self, skill_md: Path
-    ) -> tuple[str, str, str | None, str, list[str], list[str]]:
+    async def _parse_skill_md_fallback(self, skill_md: Path) -> tuple[str, str, str | None, str, list[str], list[str]]:
         """Minimal SKILL.md parser used when skills-ref is unavailable.
 
         Returns:
@@ -434,9 +432,7 @@ class ExternalSkillImporter:
                     sub_entries = sub_resp.json()
                     if isinstance(sub_entries, list):
                         # Pass the same mutable counter into the recursive call
-                        await self._download_github_entries(
-                            sub_entries, dest_path, repo, ref, file_counter
-                        )
+                        await self._download_github_entries(sub_entries, dest_path, repo, ref, file_counter)
 
     async def _extract_zip(self, content_bytes: bytes, dest_dir: Path) -> None:
         """Extract a zip archive into dest_dir, blocking zip-slip attacks.
@@ -458,9 +454,7 @@ class ExternalSkillImporter:
                     # no filesystem I/O needed, so works before the file exists.
                     member_abs = os.path.abspath(os.path.join(dest_abs, member.filename))
                     if not member_abs.startswith(dest_abs + os.sep) and member_abs != dest_abs:
-                        raise SkillImportError(
-                            f"Zip-slip attempt blocked: '{member.filename}' escapes archive root"
-                        )
+                        raise SkillImportError(f"Zip-slip attempt blocked: '{member.filename}' escapes archive root")
                     zf.extract(member, dest_dir)
 
         loop = asyncio.get_running_loop()
