@@ -623,17 +623,16 @@ class TestPromptIntegration:
 
         assert "CONVERSATION CONTEXT" not in prompt
 
-    def test_inject_conversation_context_on_execution_agent(self):
-        """ExecutionAgent.inject_conversation_context stores context for next step."""
-        from unittest.mock import MagicMock
+    def test_execute_step_accepts_conversation_context_kwarg(self):
+        """ExecutionAgent.execute_step accepts conversation_context keyword argument."""
+        import inspect
 
         from app.domain.services.agents.execution import ExecutionAgent
 
-        agent = MagicMock(spec=ExecutionAgent)
-        agent._pending_conversation_context = None
-        ExecutionAgent.inject_conversation_context(agent, "## Session Context\n...")
-
-        assert agent._pending_conversation_context == "## Session Context\n..."
+        sig = inspect.signature(ExecutionAgent.execute_step)
+        param = sig.parameters["conversation_context"]
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY
+        assert param.default is None
 
 
 class TestContentHash:
