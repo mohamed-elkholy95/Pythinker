@@ -221,15 +221,17 @@ class BaseAgent:
         return get_feature_flags()
 
     # Search/read tools blocked during hard-stop mode
-    _HARD_STOP_BLOCKED_TOOLS: ClassVar[frozenset[str]] = frozenset({
-        "search",
-        "info_search_web",
-        "wide_research",
-        "browser_navigate",
-        "browser_get_content",
-        "browser_agent_extract",
-        "browser_view",
-    })
+    _HARD_STOP_BLOCKED_TOOLS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "search",
+            "info_search_web",
+            "wide_research",
+            "browser_navigate",
+            "browser_get_content",
+            "browser_agent_extract",
+            "browser_view",
+        }
+    )
 
     def get_available_tools(self) -> list[dict[str, Any]] | None:
         """Get all available tools list, filtered by active phase if set."""
@@ -244,10 +246,13 @@ class BaseAgent:
                 available_tools = [t for t in available_tools if t.get("function", {}).get("name", "") in allowed]
 
         # Block search tools when efficiency monitor signals hard stop (analysis paralysis)
-        if self._efficiency_monitor._consecutive_reads >= self._efficiency_monitor.strong_threshold:
+        # Guard with hasattr: get_available_tools() is called during __init__ before _efficiency_monitor is set
+        if (
+            hasattr(self, "_efficiency_monitor")
+            and self._efficiency_monitor._consecutive_reads >= self._efficiency_monitor.strong_threshold
+        ):
             available_tools = [
-                t for t in available_tools
-                if t.get("function", {}).get("name", "") not in self._HARD_STOP_BLOCKED_TOOLS
+                t for t in available_tools if t.get("function", {}).get("name", "") not in self._HARD_STOP_BLOCKED_TOOLS
             ]
 
         return available_tools
