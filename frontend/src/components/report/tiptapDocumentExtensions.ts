@@ -17,10 +17,14 @@ import Color from '@tiptap/extension-color';
 import Superscript from '@tiptap/extension-superscript';
 import Subscript from '@tiptap/extension-subscript';
 import { common, createLowlight } from 'lowlight';
+import { PlotlyChartBlock } from './tiptapPlotlyExtension';
 
 const lowlight = createLowlight(common);
 
 export const createTiptapDocumentExtensions = () => [
+  // PlotlyChartBlock must come before CodeBlockLowlight so its parseHTML
+  // rule takes precedence for `language-chart` / `language-plotly` code fences.
+  PlotlyChartBlock,
   StarterKit.configure({
     codeBlock: false,
     link: false,
