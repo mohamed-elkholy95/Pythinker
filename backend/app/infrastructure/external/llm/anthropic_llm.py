@@ -527,6 +527,9 @@ class AnthropicLLM(LLM):
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> T:
         """Send chat request with structured output validation and graduated retry.
 
