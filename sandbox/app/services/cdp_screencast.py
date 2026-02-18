@@ -26,26 +26,26 @@ from typing import AsyncGenerator, Callable
 
 import aiohttp
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# CDP connection settings
+# CDP connection settings (defaults from centralized config)
 # ---------------------------------------------------------------------------
 CDP_HOST = "127.0.0.1"
 CDP_PORT = 9222
 CDP_ENDPOINT = f"http://{CDP_HOST}:{CDP_PORT}"
 
-# Connection management
-_WS_URL_CACHE_TTL = 15.0  # Cache the WebSocket URL for 15s (Chrome can restart in <10s)
-_HEALTH_CHECK_TIMEOUT = 2.0  # Quick health check timeout
-_CAPTURE_COMMAND_TIMEOUT = (
-    6.0  # P1.2: Increased from 4.0s to allow more time for heavy pages
-)
-_CONNECT_TIMEOUT = 3.0  # Timeout for WebSocket connection establishment
+# Connection management — read from Settings for env-var configurability
+_WS_URL_CACHE_TTL = settings.CDP_WS_URL_CACHE_TTL
+_HEALTH_CHECK_TIMEOUT = 2.0  # Quick health check (not worth externalizing)
+_CAPTURE_COMMAND_TIMEOUT = settings.CDP_COMMAND_TIMEOUT
+_CONNECT_TIMEOUT = settings.CDP_CONNECT_TIMEOUT
 _PAGE_REDISCOVERY_DELAY = 0.3  # Brief pause for Chrome to register new page target
 _MAX_RETRY_ATTEMPTS = 2  # Initial attempt + 1 retry after page re-discovery
-_STREAM_FRAME_TIMEOUT = 10.0  # Max seconds to wait for next frame before declaring stream dead
-_STREAM_HEALTH_CHECK_INTERVAL = 30.0  # Periodic health check during streaming
+_STREAM_FRAME_TIMEOUT = settings.CDP_STREAM_FRAME_TIMEOUT
+_STREAM_HEALTH_CHECK_INTERVAL = settings.CDP_STREAM_HEALTH_CHECK_INTERVAL
 
 # Page recovery thresholds
 _PAGE_RECOVERY_FAILURE_THRESHOLD = 3  # Consecutive same-page failures before recovery
@@ -300,14 +300,14 @@ class CDPScreencastService:
         if self._ws:
             try:
                 await self._ws.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Ignoring error closing stale CDP WebSocket: %s", e)
             self._ws = None
         if self._session:
             try:
                 await self._session.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Ignoring error closing stale CDP session: %s", e)
             self._session = None
 
     async def _handle_page_detached(self, context: str) -> None:

@@ -25,7 +25,12 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
-from app.services.cdp_screencast import CDPScreencastService, ScreencastConfig
+from app.core.config import settings as sandbox_settings
+from app.services.cdp_screencast import (
+    CDPScreencastService,
+    ScreencastConfig,
+    get_screencast_service,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -42,11 +47,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _active_stop_event: asyncio.Event | None = None
 _active_done_event: asyncio.Event | None = None
-# Must exceed _CAPTURE_COMMAND_TIMEOUT (6s) in cdp_screencast.py, because
-# stop_screencast() sends a CDP command that may block for the full command
-# timeout when Chrome is hung. 8s gives enough margin for the stop command
-# to timeout and the finally block to run done_event.set().
-_PREEMPT_WAIT_TIMEOUT = 8.0
+# Serialize access to the preemption globals so two simultaneous WebSocket
+# connections don't race to overwrite each other's events.
+_slot_lock: asyncio.Lock = asyncio.Lock()
+# Must exceed CDP_COMMAND_TIMEOUT (6s) because stop_screencast() sends a CDP
+# command that may block for the full command timeout when Chrome is hung.
+_PREEMPT_WAIT_TIMEOUT = sandbox_settings.CDP_PREEMPT_WAIT_TIMEOUT
 
 
 @router.get("/frame")
@@ -70,17 +76,17 @@ async def capture_frame(
     start_time = time.time()
     logger.info(f"[CDP Screenshot] Request: quality={quality}, format={format}")
 
-    config = ScreencastConfig(format=format, quality=quality)
-    service = CDPScreencastService(config)
+    service = get_screencast_service()
 
     try:
-        if not await service.connect():
+        if not await service.ensure_connected():
             raise HTTPException(
                 status_code=503, detail="Failed to connect to Chrome CDP"
             )
 
-        image_data = await service.capture_single_frame()
-        await service.disconnect()
+        image_data = await service.capture_single_frame(
+            quality=quality, image_format=format
+        )
 
         if not image_data:
             raise HTTPException(status_code=500, detail="Failed to capture frame")
@@ -139,35 +145,35 @@ async def stream_frames_ws(
         f"[CDP Stream] WebSocket connected: quality={quality}, max_fps={max_fps}"
     )
 
-    # ── Preempt any existing stream ──────────────────────────────────
-    if _active_stop_event is not None:
-        logger.info("[CDP Stream] Preempting existing stream for new connection")
-        _active_stop_event.set()
-        if _active_done_event is not None:
-            try:
-                await asyncio.wait_for(
-                    _active_done_event.wait(), timeout=_PREEMPT_WAIT_TIMEOUT
-                )
-            except TimeoutError:
-                logger.warning(
-                    "[CDP Stream] Previous stream cleanup timed out after "
-                    f"{_PREEMPT_WAIT_TIMEOUT}s — force-clearing slot. "
-                    "Old stream may have a hung CDP command."
-                )
-                # Force-clear the slot so the new stream can proceed.
-                # The old stream's finally block will still run eventually
-                # and call done_event.set(), but we don't wait for it.
-                _active_stop_event = None
-                _active_done_event = None
+    # ── Preempt any existing stream (under lock) ─────────────────────
+    async with _slot_lock:
+        if _active_stop_event is not None:
+            logger.info("[CDP Stream] Preempting existing stream for new connection")
+            _active_stop_event.set()
+            if _active_done_event is not None:
+                try:
+                    await asyncio.wait_for(
+                        _active_done_event.wait(), timeout=_PREEMPT_WAIT_TIMEOUT
+                    )
+                except TimeoutError:
+                    logger.warning(
+                        "[CDP Stream] Previous stream cleanup timed out after "
+                        f"{_PREEMPT_WAIT_TIMEOUT}s — force-clearing slot. "
+                        "Old stream may have a hung CDP command."
+                    )
+                    # Force-clear the slot so the new stream can proceed.
+                    # The old stream's finally block will still run eventually
+                    # and call done_event.set(), but we don't wait for it.
+                    _active_stop_event = None
+                    _active_done_event = None
 
-    # ── Register this stream ─────────────────────────────────────────
-    stop_event = asyncio.Event()
-    done_event = asyncio.Event()
-    _active_stop_event = stop_event
-    _active_done_event = done_event
+        # ── Register this stream ─────────────────────────────────────
+        stop_event = asyncio.Event()
+        done_event = asyncio.Event()
+        _active_stop_event = stop_event
+        _active_done_event = done_event
 
-    config = ScreencastConfig(format="jpeg", quality=quality)
-    service = CDPScreencastService(config)
+    service = get_screencast_service(ScreencastConfig(format="jpeg", quality=quality))
     min_frame_interval = 1.0 / max_fps
     paused = False
     frame_count = 0
@@ -383,9 +389,10 @@ async def stream_frames_ws(
         await service.disconnect()
         # Signal that cleanup is complete so a waiting newcomer can proceed
         done_event.set()
-        if _active_stop_event is stop_event:
-            _active_stop_event = None
-            _active_done_event = None
+        async with _slot_lock:
+            if _active_stop_event is stop_event:
+                _active_stop_event = None
+                _active_done_event = None
         logger.info(f"[CDP Stream] Session ended, sent {frame_count} frames")
 
 
@@ -410,8 +417,7 @@ async def stream_frames_mjpeg(
     logger.info(f"[CDP MJPEG] Stream started: quality={quality}, max_fps={max_fps}")
 
     async def generate_mjpeg():
-        config = ScreencastConfig(format="jpeg", quality=quality)
-        service = CDPScreencastService(config)
+        service = get_screencast_service(ScreencastConfig(format="jpeg", quality=quality))
         min_frame_interval = 1.0 / max_fps
         last_frame_time = 0
 
