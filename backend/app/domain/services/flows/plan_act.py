@@ -1118,11 +1118,16 @@ class PlanActFlow(BaseFlow):
 
         Returns True when:
         - Feature flag is enabled
+        - Thinking mode is NOT 'fast' (fast mode skips parallel research for speed)
         - Plan has enough research-type steps (>= min_subquestions)
         - We are NOT already in deep_research mode (which has its own flow)
         """
         settings = get_settings()
         if not settings.parallel_research_enabled:
+            return False
+
+        # Fast thinking mode opts out of parallel research — speed over coverage
+        if getattr(self, "_current_thinking_mode", None) == "fast":
             return False
 
         if not self.plan or not self.plan.steps:
@@ -2432,6 +2437,7 @@ class PlanActFlow(BaseFlow):
 
         # === THINKING MODE: propagate user model-tier override to executor ===
         # 'fast' -> FAST tier, 'deep_think' -> POWERFUL tier, None/'auto' -> complexity-based auto
+        self._current_thinking_mode = message.thinking_mode  # Store for parallel research gating
         if message.thinking_mode and message.thinking_mode != "auto":
             self.executor.set_thinking_mode(message.thinking_mode)
             logger.info(

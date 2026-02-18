@@ -161,10 +161,16 @@ const handleEnterKeydown = (event: KeyboardEvent) => {
 
 const handleSubmit = () => {
     if (!sendEnabled.value) return;
-    const selectedMode = thinkingMode.value;
-    thinkingMode.value = 'auto';  // Reset to Auto after each send
-    emit('submit', selectedMode);
+    emit('submit', thinkingMode.value);
 };
+
+// Reset thinking mode to auto when agent finishes (falling edge of isRunning)
+// so the next task starts fresh on Auto, while preserving the selection during execution
+watch(() => props.isRunning, (running, wasRunning) => {
+    if (!running && wasRunning) {
+        thinkingMode.value = 'auto';
+    }
+});
 
 const handleStop = () => {
     emit('stop');
