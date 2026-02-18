@@ -1,7 +1,13 @@
 # Enhanced Execution Prompt Implementation
 # Ready to replace backend/app/domain/services/prompts/execution.py
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domain.models.step_execution_context import StepExecutionContext
 
 # ============================================================================
 # ENHANCED EXECUTION SYSTEM PROMPT
@@ -1297,46 +1303,29 @@ REPORT CONTENT:
 # ============================================================================
 
 
-def build_execution_prompt(
-    step: str,
-    message: str,
-    attachments: str,
-    language: str,
-    pressure_signal: str | None = None,
-    task_state: str | None = None,
-    memory_context: str | None = None,
-    search_context: str | None = None,
-    conversation_context: str | None = None,
-    enable_cot: bool = True,
-    include_current_date: bool = True,
-    enable_source_attribution: bool = True,
-    enable_intent_guidance: bool = True,
-    enable_anti_hallucination: bool = True,
+def build_execution_prompt_from_context(
+    ctx: StepExecutionContext,
 ) -> str:
-    """Build execution prompt with optional context signals and CoT reasoning.
+    """Build execution prompt from a StepExecutionContext.
+
+    Primary entry point for prompt assembly. The legacy build_execution_prompt()
+    delegates to this function for backward compatibility.
 
     Args:
-        step: Current step description
-        message: User message
-        attachments: User attachments
-        language: Working language
-        pressure_signal: Optional context pressure warning
-        task_state: Optional current task state for recitation
-        memory_context: Optional relevant memories from long-term storage
-        search_context: Optional real-time web search results from pre-planning search
-        conversation_context: Optional conversation context from Qdrant (sliding window + semantic)
-        enable_cot: Enable Chain-of-Thought for complex tasks (default: True)
-        include_current_date: Include current date context (default: True)
-        enable_source_attribution: Enable source attribution signal for research tasks (default: True)
-        enable_intent_guidance: Enable Pythinker-style intent analysis guidance (default: True)
-        enable_anti_hallucination: Enable anti-hallucination signals (default: True)
+        ctx: Assembled step execution context (frozen dataclass)
 
     Returns:
-        Formatted execution prompt with injected signals
+        Formatted execution prompt with all injected signals and appendages
     """
-    from datetime import UTC, datetime
+    step = ctx.step_description
+    cfg = ctx.signal_config
 
-    prompt = ENHANCED_EXECUTION_PROMPT.format(step=step, message=message, attachments=attachments, language=language)
+    prompt = ENHANCED_EXECUTION_PROMPT.format(
+        step=step,
+        message=ctx.user_message,
+        attachments=ctx.attachments,
+        language=ctx.language,
+    )
 
     current_date = datetime.now(UTC).strftime("%Y-%m-%d")
 
@@ -1345,7 +1334,7 @@ def build_execution_prompt(
         prompt = DIAGNOSTIC_TASK_SIGNAL + prompt
 
     # Inject anti-hallucination signals (based on industry best practices)
-    if enable_anti_hallucination:
+    if cfg.enable_anti_hallucination:
         # Always inject temporal grounding for awareness of current date
         prompt = TEMPORAL_GROUNDING_SIGNAL.format(current_date=current_date) + prompt
 
@@ -1369,7 +1358,7 @@ def build_execution_prompt(
             prompt = ANTI_HALLUCINATION_PROTOCOL.format(current_date=current_date) + prompt
 
     # Inject CoT reasoning for complex tasks
-    if enable_cot and is_complex_task(step):
+    if cfg.enable_cot and is_complex_task(step):
         constraints = extract_task_constraints(step)
         constraints_text = "\n   - ".join(constraints) if constraints else "None explicitly stated"
 
@@ -1379,11 +1368,11 @@ def build_execution_prompt(
         prompt = COT_REASONING_SIGNAL.format(primary_objective=primary_obj, constraints=constraints_text) + prompt
 
     # Inject source attribution signal for research tasks
-    if enable_source_attribution and is_research_task(step):
+    if cfg.enable_source_attribution and is_research_task(step):
         prompt = SOURCE_ATTRIBUTION_SIGNAL + prompt
 
     # Inject intent-aware guidance signals (Pythinker-style)
-    if enable_intent_guidance:
+    if cfg.enable_intent_guidance:
         # Inject cross-validation signal for tasks requiring accuracy
         if requires_validation(step):
             prompt = CROSS_VALIDATION_SIGNAL + prompt
@@ -1403,30 +1392,113 @@ def build_execution_prompt(
             prompt = INTENT_ANALYSIS_SIGNAL + prompt
 
     # Inject pre-planning search context if present (real-time web info)
-    if search_context:
-        prompt = PRE_PLANNING_SEARCH_CONTEXT_SIGNAL.format(search_context=search_context) + prompt
+    if ctx.search_context:
+        prompt = PRE_PLANNING_SEARCH_CONTEXT_SIGNAL.format(search_context=ctx.search_context) + prompt
 
     # Inject conversation context if present (real-time Qdrant vectorized turns)
-    if conversation_context:
-        prompt = CONVERSATION_CONTEXT_SIGNAL.format(conversation_context=conversation_context) + prompt
+    if ctx.conversation_context:
+        prompt = CONVERSATION_CONTEXT_SIGNAL.format(conversation_context=ctx.conversation_context) + prompt
 
     # Inject memory context if present (Phase 6: Qdrant integration)
-    if memory_context:
-        prompt = MEMORY_CONTEXT_SIGNAL.format(memory_context=memory_context) + prompt
+    if ctx.memory_context:
+        prompt = MEMORY_CONTEXT_SIGNAL.format(memory_context=ctx.memory_context) + prompt
 
     # Inject pressure signal if present
-    if pressure_signal:
-        prompt = CONTEXT_PRESSURE_SIGNAL.format(pressure_signal=pressure_signal) + prompt
+    if ctx.pressure_signal:
+        prompt = CONTEXT_PRESSURE_SIGNAL.format(pressure_signal=ctx.pressure_signal) + prompt
 
     # Inject task state for recitation if present
-    if task_state:
-        prompt = TASK_STATE_SIGNAL.format(task_state=task_state) + prompt
+    if ctx.task_state:
+        prompt = TASK_STATE_SIGNAL.format(task_state=ctx.task_state) + prompt
 
     # Inject current date context (prepended first, so it appears at the top)
-    if include_current_date:
+    if cfg.include_current_date:
         prompt = get_current_date_signal() + prompt
 
+    # Append post-prompt context sections (previously scattered in execute_step)
+    if ctx.working_context_summary:
+        prompt = f"{prompt}\n\n## Working Context\n{ctx.working_context_summary}"
+
+    if ctx.synthesized_context:
+        prompt = f"{prompt}\n\n{ctx.synthesized_context}"
+
+    if ctx.blocker_warnings:
+        blocker_text = "\n".join(f"- {b}" for b in ctx.blocker_warnings)
+        prompt = f"{prompt}\n\n## ⚠️ Active Blockers\n{blocker_text}"
+
+    if ctx.error_pattern_signal:
+        prompt = f"{prompt}\n\n## Proactive Guidance\n{ctx.error_pattern_signal}"
+
+    if ctx.locked_entity_reminder:
+        prompt = f"{prompt}{ctx.locked_entity_reminder}"
+
     return prompt
+
+
+def build_execution_prompt(
+    step: str,
+    message: str,
+    attachments: str,
+    language: str,
+    pressure_signal: str | None = None,
+    task_state: str | None = None,
+    memory_context: str | None = None,
+    search_context: str | None = None,
+    conversation_context: str | None = None,
+    enable_cot: bool = True,
+    include_current_date: bool = True,
+    enable_source_attribution: bool = True,
+    enable_intent_guidance: bool = True,
+    enable_anti_hallucination: bool = True,
+) -> str:
+    """Build execution prompt with optional context signals and CoT reasoning.
+
+    Backward-compatible wrapper. Prefer build_execution_prompt_from_context()
+    with a StepExecutionContext for new code.
+
+    Args:
+        step: Current step description
+        message: User message
+        attachments: User attachments
+        language: Working language
+        pressure_signal: Optional context pressure warning
+        task_state: Optional current task state for recitation
+        memory_context: Optional relevant memories from long-term storage
+        search_context: Optional real-time web search results from pre-planning search
+        conversation_context: Optional conversation context from Qdrant (sliding window + semantic)
+        enable_cot: Enable Chain-of-Thought for complex tasks (default: True)
+        include_current_date: Include current date context (default: True)
+        enable_source_attribution: Enable source attribution signal for research tasks (default: True)
+        enable_intent_guidance: Enable Pythinker-style intent analysis guidance (default: True)
+        enable_anti_hallucination: Enable anti-hallucination signals (default: True)
+
+    Returns:
+        Formatted execution prompt with injected signals
+    """
+    from app.domain.models.step_execution_context import (
+        PromptSignalConfig,
+        StepExecutionContext,
+    )
+
+    ctx = StepExecutionContext(
+        step_description=step,
+        user_message=message,
+        attachments=attachments,
+        language=language,
+        pressure_signal=pressure_signal,
+        task_state=task_state,
+        memory_context=memory_context,
+        search_context=search_context,
+        conversation_context=conversation_context,
+        signal_config=PromptSignalConfig(
+            enable_cot=enable_cot,
+            include_current_date=include_current_date,
+            enable_source_attribution=enable_source_attribution,
+            enable_intent_guidance=enable_intent_guidance,
+            enable_anti_hallucination=enable_anti_hallucination,
+        ),
+    )
+    return build_execution_prompt_from_context(ctx)
 
 
 def build_execution_system_prompt(base_prompt: str, pressure_signal: str | None = None) -> str:

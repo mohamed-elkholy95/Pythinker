@@ -36,19 +36,19 @@ from app.domain.services.agents.chain_of_verification import ChainOfVerification
 from app.domain.services.agents.compliance_gates import GateStatus, get_compliance_gates
 from app.domain.services.agents.context_manager import ContextManager, InsightType
 from app.domain.services.agents.critic import CriticAgent, CriticConfig, CriticVerdict
-from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
 from app.domain.services.agents.output_coverage_validator import OutputCoverageValidator
 from app.domain.services.agents.prompt_adapter import PromptAdapter
 from app.domain.services.agents.response_compressor import ResponseCompressor
 from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
 from app.domain.services.agents.reward_scoring import RewardScorer
+from app.domain.services.agents.step_context_assembler import StepContextAssembler
 from app.domain.services.agents.task_state_manager import get_task_state_manager
 from app.domain.services.attention_injector import AttentionInjector
 from app.domain.services.prompts.execution import (
     CONFIRMATION_SUMMARY_PROMPT,
     EXECUTION_SYSTEM_PROMPT,
     STREAMING_SUMMARIZE_PROMPT,
-    build_execution_prompt,
+    build_execution_prompt_from_context,
 )
 from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.tools.base import BaseTool
@@ -138,6 +138,14 @@ class ExecutionAgent(BaseAgent):
         # Context manager for execution continuity (Phase 1)
         self._context_manager = ContextManager(max_context_tokens=8000)
 
+        # Step context assembler — gathers all context signals for prompt building
+        self._context_assembler = StepContextAssembler(
+            context_manager=self._context_manager,
+            token_manager=self._token_manager,
+            memory_service=memory_service,
+            user_id=user_id,
+        )
+
         # Chain-of-Verification for hallucination reduction (Phase 2 — deprecated)
         self._cove = ChainOfVerification(
             llm=llm,
@@ -169,23 +177,9 @@ class ExecutionAgent(BaseAgent):
         # Phase 1/4: Request contract for entity fidelity (set by PlanActFlow)
         self._request_contract = None
 
-        # Conversation context injection (set per-step by PlanActFlow, consumed once)
-        self._pending_conversation_context: str | None = None
-
     def set_request_contract(self, contract) -> None:
         """Set request contract for search fidelity and entity context (Phase 4)."""
         self._request_contract = contract
-
-    def inject_conversation_context(self, context: str) -> None:
-        """Inject conversation context retrieved from Qdrant for the current step.
-
-        Called by PlanActFlow before execute_step(). The context is consumed once
-        during the next execute_step() call and then cleared.
-
-        Args:
-            context: Formatted conversation context string (sliding window + semantic + cross-session)
-        """
-        self._pending_conversation_context = context
 
     def set_response_policy(self, policy: ResponsePolicy | None) -> None:
         """Set per-run response policy for summarize stage."""
@@ -252,7 +246,14 @@ class ExecutionAgent(BaseAgent):
 
         return await super().invoke_tool(tool, function_name, arguments, skip_security)
 
-    async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
+    async def execute_step(
+        self,
+        plan: Plan,
+        step: Step,
+        message: Message,
+        *,
+        conversation_context: str | None = None,
+    ) -> AsyncGenerator[BaseEvent, None]:
         # Store user request for critic context
         self._user_request = message.message
 
@@ -315,142 +316,20 @@ class ExecutionAgent(BaseAgent):
         # Increment iteration counter for prompt adapter
         self._prompt_adapter.increment_iteration()
 
-        # Get task state context signal for recitation
-        task_state_manager = get_task_state_manager()
-        task_state_signal = task_state_manager.get_context_signal()
-
-        # Get context pressure signal if memory is under pressure
-        pressure_signal = None
-        if self.memory:
-            pressure = self._token_manager.get_context_pressure(self.memory.get_messages())
-            pressure_signal = pressure.to_context_signal()
-
-        # Retrieve relevant memories for this step (Phase 6: Qdrant integration)
-        # Phase 3: Enhanced with cross-session intelligence
-        memory_context = None
-        if self._memory_service and self._user_id:
-            try:
-                context_parts = []
-
-                # 1. Similar tasks from past sessions (Phase 3)
-                similar_tasks = await self._memory_service.find_similar_tasks(
-                    user_id=self._user_id,
-                    task_description=step.description,
-                    limit=3,
-                )
-                if similar_tasks:
-                    task_context_lines = ["## Past Similar Tasks"]
-                    for task in similar_tasks:
-                        outcome = "✓ Success" if task.get("success") else "✗ Failed"
-                        summary = task.get("content_summary", "")[:200]
-                        task_context_lines.append(f"- {outcome}: {summary}")
-                    context_parts.append("\n".join(task_context_lines))
-                    logger.debug(f"Injected {len(similar_tasks)} similar tasks into context")
-
-                # 2. Error context for tools being used (Phase 3)
-                # Infer likely tools from step description
-                step_lower = step.description.lower()
-                likely_tools = [tool.name for tool in self.tools if tool.name.lower() in step_lower]
-
-                if likely_tools:
-                    for tool_name in likely_tools[:2]:  # Limit to 2 tools
-                        error_context = await self._memory_service.get_error_context(
-                            user_id=self._user_id,
-                            tool_name=tool_name,
-                            context=step.description,
-                            limit=2,
-                        )
-                        if error_context:
-                            context_parts.append(error_context)
-                            logger.debug(f"Injected error context for tool: {tool_name}")
-
-                # 3. Relevant memories for this step (Phase 3: with reranking + MMR)
-                memories = await self._memory_service.retrieve_for_task(
-                    user_id=self._user_id, task_description=step.description, limit=5
-                )
-                if memories:
-                    memory_text = await self._memory_service.format_memories_for_context(memories, max_tokens=500)
-                    context_parts.append(memory_text)
-                    logger.debug(f"Injected {len(memories)} memories into execution context")
-
-                # Combine all context parts
-                if context_parts:
-                    memory_context = "\n\n".join(context_parts)
-
-            except Exception as e:
-                logger.warning(f"Failed to retrieve memories for step: {e}")
-
-        # Get proactive error pattern signals
-        error_pattern_signal = None
-        try:
-            pattern_analyzer = get_error_pattern_analyzer()
-            likely_tools = pattern_analyzer.infer_tools_from_description(step.description)
-            error_pattern_signal = pattern_analyzer.get_proactive_signals(likely_tools)
-            if error_pattern_signal:
-                logger.debug(f"Injecting proactive error warning for tools: {likely_tools}")
-        except Exception as e:
-            logger.warning(f"Failed to get error pattern signals: {e}")
-
-        # Get working context summary for execution continuity (Phase 1)
-        context_summary = self._context_manager.get_context_summary()
-
-        # Get synthesized insights from previous steps (Phase 2.5)
-        synthesized_context = self._context_manager.get_synthesized_context(for_step_id=step.id)
-        blockers = self._context_manager.get_blockers()
-
-        # Consume pending conversation context (set by PlanActFlow, one-shot)
-        conversation_context = self._pending_conversation_context
-        self._pending_conversation_context = None
-
-        # Build execution prompt with context signals
-        base_prompt = build_execution_prompt(
-            step=step.description,
-            message=message.message,
-            attachments="\n".join(message.attachments),
-            language=plan.language,
-            pressure_signal=pressure_signal,
-            task_state=task_state_signal,
-            memory_context=memory_context,
-            search_context=self._pre_planning_search_context,
+        # Assemble all context signals via StepContextAssembler
+        ctx = await self._context_assembler.assemble(
+            plan=plan,
+            step=step,
+            message=message,
+            tools=self.tools,
+            memory_messages=self.memory.get_messages() if self.memory else None,
+            pre_planning_search_context=self._pre_planning_search_context,
             conversation_context=conversation_context,
+            request_contract=self._request_contract,
         )
 
-        # Add working context if available
-        if context_summary:
-            base_prompt = f"{base_prompt}\n\n## Working Context\n{context_summary}"
-            logger.debug("Injected working context into execution prompt")
-
-        # Add synthesized insights from previous steps (Phase 2.5)
-        if synthesized_context:
-            base_prompt = f"{base_prompt}\n\n{synthesized_context}"
-            logger.debug("Injected synthesized context from previous steps")
-
-        # Add blocker warnings if any
-        if blockers:
-            blocker_text = "\n".join([f"- {b.content}" for b in blockers[:3]])
-            base_prompt = f"{base_prompt}\n\n## ⚠️ Active Blockers\n{blocker_text}"
-            logger.debug(f"Injected {len(blockers)} blocker warnings")
-
-        # Add proactive error warnings if any
-        if error_pattern_signal:
-            base_prompt = f"{base_prompt}\n\n## Proactive Guidance\n{error_pattern_signal}"
-
-        # Phase 4: Inject locked entities reminder when enabled
-        from app.core.config import get_settings
-
-        settings = get_settings()
-        if (
-            settings.enable_search_fidelity_guardrail
-            and self._request_contract
-            and self._request_contract.locked_entities
-        ):
-            entity_reminder = (
-                "\n\n## IMPORTANT\n"
-                "The user's request specifically mentions: "
-                + ", ".join(self._request_contract.locked_entities)
-                + ". Preserve these exact terms in your response and search queries."
-            )
-            base_prompt = f"{base_prompt}{entity_reminder}"
+        # Build execution prompt from assembled context (includes all appendages)
+        base_prompt = build_execution_prompt_from_context(ctx)
 
         # Adapt prompt with context-specific guidance if applicable
         if self._prompt_adapter.should_inject_guidance():
@@ -1301,8 +1180,11 @@ class ExecutionAgent(BaseAgent):
         Some LLMs echo the raw tool result JSON during summarization instead of
         writing a proper report. For example::
 
-            {"success": true, "result": "Delivered professional research report...",
-             "attachments": ["/workspace/report.md"]}
+            {
+                "success": true,
+                "result": "Delivered professional research report...",
+                "attachments": ["/workspace/report.md"],
+            }
 
         This method detects that pattern and:
         1. Searches conversation memory for the file_write tool call that produced

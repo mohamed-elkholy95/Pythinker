@@ -2543,7 +2543,8 @@ class PlanActFlow(BaseFlow):
                             if hasattr(step_executor, "set_request_contract") and self._request_contract:
                                 step_executor.set_request_contract(self._request_contract)
 
-                            # Pre-step: inject conversation context from Qdrant
+                            # Pre-step: retrieve conversation context from Qdrant
+                            conversation_context: str | None = None
                             if self._conversation_context_service and self._user_id:
                                 try:
                                     conv_ctx = await self._conversation_context_service.retrieve_context(
@@ -2554,10 +2555,10 @@ class PlanActFlow(BaseFlow):
                                     )
                                     if not conv_ctx.is_empty:
                                         formatted = conv_ctx.format_for_injection(max_chars=3000)
-                                        if formatted and hasattr(step_executor, "inject_conversation_context"):
-                                            step_executor.inject_conversation_context(formatted)
+                                        if formatted:
+                                            conversation_context = formatted
                                             logger.debug(
-                                                "Injected conversation context (%d chars, %d turns) into step %s",
+                                                "Retrieved conversation context (%d chars, %d turns) for step %s",
                                                 len(formatted),
                                                 conv_ctx.total_turns,
                                                 step.id,
@@ -2569,7 +2570,12 @@ class PlanActFlow(BaseFlow):
                             if hasattr(step_executor, "_token_manager"):
                                 step_executor._token_manager.mark_step_executing()
 
-                            async for event in step_executor.execute_step(self.plan, step, message):
+                            async for event in step_executor.execute_step(
+                                self.plan,
+                                step,
+                                message,
+                                conversation_context=conversation_context,
+                            ):
                                 await self._check_cancelled()
                                 # Phase 3: Track tool usage for proactive compaction
                                 if isinstance(event, ToolEvent) and event.tool_name:
