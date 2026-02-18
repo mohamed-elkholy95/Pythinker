@@ -32,6 +32,7 @@ class EfficiencySignal:
     action_count: int
     nudge_message: str | None = None
     confidence: float = 1.0
+    hard_stop: bool = False  # When True, search tools should be blocked
 
 
 class ToolEfficiencyMonitor:
@@ -104,7 +105,7 @@ class ToolEfficiencyMonitor:
         self,
         window_size: int = 10,
         read_threshold: int = 5,
-        strong_threshold: int = 10,
+        strong_threshold: int = 7,
     ):
         """Initialize tool efficiency monitor.
 
@@ -161,13 +162,17 @@ class ToolEfficiencyMonitor:
                 read_count=read_count,
                 action_count=action_count,
                 nudge_message=(
-                    f"⚠️ PATTERN DETECTED: {self._consecutive_reads} consecutive information-gathering operations "
-                    f"without taking action. Analysis paralysis risk. Consider:\n"
-                    "1. Taking action based on current information\n"
-                    "2. Making decisions with available data\n"
-                    "3. Creating/modifying files if planning is complete"
+                    f"⛔ HARD STOP — WRITE NOW: You have performed {self._consecutive_reads} consecutive "
+                    f"search/read operations without writing a single file or taking any action. "
+                    f"Search tools are now temporarily disabled.\n\n"
+                    f"You MUST immediately:\n"
+                    f"1. Use `file_write` to save your findings to disk\n"
+                    f"2. Synthesize what you already know into the output\n"
+                    f"3. Do NOT search again — you have enough information\n\n"
+                    f"Continuing to search without writing is analysis paralysis. Write now."
                 ),
                 confidence=0.95,
+                hard_stop=True,
             )
 
         if self._consecutive_reads >= self.read_threshold:
@@ -176,8 +181,9 @@ class ToolEfficiencyMonitor:
                 read_count=read_count,
                 action_count=action_count,
                 nudge_message=(
-                    f"💡 EFFICIENCY NOTE: {self._consecutive_reads} reads without writes. "
-                    "If you have enough information, consider taking action."
+                    f"⚠️ STOP SEARCHING — START WRITING: {self._consecutive_reads} consecutive reads "
+                    f"with no output produced. You likely have enough information already.\n"
+                    f"Do NOT search again. Use `file_write` to save your findings now and make progress."
                 ),
                 confidence=0.75,
             )

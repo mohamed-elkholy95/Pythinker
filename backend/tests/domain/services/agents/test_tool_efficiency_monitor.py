@@ -63,7 +63,7 @@ class TestMonitorInitialization:
         monitor = ToolEfficiencyMonitor()
         assert monitor.window_size == 10
         assert monitor.read_threshold == 5
-        assert monitor.strong_threshold == 10
+        assert monitor.strong_threshold == 7  # Lowered from 10 for earlier intervention
         assert monitor._consecutive_reads == 0
 
     def test_init_with_custom_params(self):
@@ -163,18 +163,20 @@ class TestThresholdDetection:
 
         signal = monitor.check_efficiency()
         assert signal.is_balanced is False
-        assert "💡 EFFICIENCY NOTE" in signal.nudge_message
+        assert "⚠️ STOP SEARCHING" in signal.nudge_message
+        assert signal.hard_stop is False
         assert signal.confidence == 0.75
 
     def test_strong_threshold_triggered(self):
-        """At strong_threshold should return strong nudge."""
+        """At strong_threshold should return hard-stop nudge."""
         monitor = ToolEfficiencyMonitor(read_threshold=5, strong_threshold=10)
         for _ in range(10):
             monitor.record("file_read")
 
         signal = monitor.check_efficiency()
         assert signal.is_balanced is False
-        assert "⚠️ PATTERN DETECTED" in signal.nudge_message
+        assert "⛔ HARD STOP" in signal.nudge_message
+        assert signal.hard_stop is True
         assert signal.confidence == 0.95
 
 
@@ -220,7 +222,7 @@ class TestSingletonFactory:
         # Clear singleton
         import app.domain.services.agents.tool_efficiency_monitor as module
 
-        module._efficiency_monitor_singleton = None
+        module._efficiency_monitor = None
 
         monitor1 = get_efficiency_monitor()
         monitor2 = get_efficiency_monitor()
