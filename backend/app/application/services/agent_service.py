@@ -559,6 +559,7 @@ class AgentService:
         attachments: list[dict] | None = None,
         skills: list[str] | None = None,
         deep_research: bool | None = None,
+        thinking_mode: str | None = None,
         follow_up: dict | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
         started_at = time.perf_counter()
@@ -583,6 +584,7 @@ class AgentService:
                     attachments=attachments,
                     skills=skills,
                     deep_research=deep_research,
+                    thinking_mode=thinking_mode,
                     follow_up=follow_up,
                 )
                 if direct_response:
@@ -673,6 +675,7 @@ class AgentService:
             deep_research,
             extra_mcp_configs=extra_mcp_configs,
             auto_trigger_enabled=auto_trigger_enabled,
+            thinking_mode=thinking_mode,
             follow_up_selected_suggestion=follow_up_selected_suggestion,
             follow_up_anchor_event_id=follow_up_anchor_event_id,
             follow_up_source=follow_up_source,
@@ -895,11 +898,12 @@ class AgentService:
         attachments: list[dict] | None,
         skills: list[str] | None,
         deep_research: bool | None,
+        thinking_mode: str | None,
         follow_up: dict | None,
     ) -> str | None:
         """Return a deterministic direct response for tiny prompts, when safe."""
         # Only bypass for bare chat prompts. Any enriched context should go through full flow.
-        if attachments or skills or deep_research or follow_up is not None:
+        if attachments or skills or deep_research or thinking_mode or follow_up is not None:
             return None
 
         normalized = message.strip()

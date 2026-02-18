@@ -2430,6 +2430,18 @@ class PlanActFlow(BaseFlow):
         self._message_deep_research = message.deep_research
         self._parallel_research_done = False
 
+        # === THINKING MODE: propagate user model-tier override to executor ===
+        # 'fast' -> FAST tier, 'deep_think' -> POWERFUL tier, None/'auto' -> complexity-based auto
+        if message.thinking_mode and message.thinking_mode != "auto":
+            self.executor.set_thinking_mode(message.thinking_mode)
+            logger.info(
+                "Thinking mode override applied for session %s: %s",
+                self._session_id,
+                message.thinking_mode,
+            )
+        else:
+            self.executor.set_thinking_mode(None)  # Reset to auto
+
         if message.deep_research:
             logger.info(f"Deep Research mode activated for session {self._session_id}")
             topic = self._extract_research_topic(message.message) or message.message

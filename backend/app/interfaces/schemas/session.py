@@ -53,6 +53,7 @@ class ChatRequest(BaseModel):
     event_id: str | None = None
     skills: list[str] | None = None
     deep_research: bool | None = None
+    thinking_mode: str | None = None  # Model tier override: 'auto', 'fast', 'deep_think'
     follow_up: FollowUpContext | None = None
 
 

@@ -116,7 +116,7 @@ import SimpleBar from '../components/SimpleBar.vue';
 import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
-import type { AgentMode } from '../api/agent';
+import type { AgentMode, ThinkingMode } from '../api/agent';
 import {
   Search, Palette, Bot, Menu,
   Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
@@ -332,7 +332,7 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
   });
 };
 
-const handleSubmit = async (skillIds: string[] = []) => {
+const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: string[] = []) => {
   // Merge pending skill from "Build with Pythinker" button if present
   if (pendingSkillId.value && !skillIds.includes(pendingSkillId.value)) {
     skillIds = [...skillIds, pendingSkillId.value];
@@ -360,6 +360,7 @@ const handleSubmit = async (skillIds: string[] = []) => {
         mode: 'agent',
         message: submitMessage,
         skills: skillIds,
+        thinking_mode: thinkingMode,
         files: attachments.value.map((file: FileInfo) => ({
           file_id: file.file_id,
           filename: file.filename,
