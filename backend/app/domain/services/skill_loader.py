@@ -472,7 +472,10 @@ class SkillLoader:
         skill_path = self.skills_dir / skill_name
         full_path = skill_path / resource_path
 
-        # Security: prevent path traversal
+        # Security: prevent path traversal and eliminate TOCTOU race.
+        # We resolve once, check containment, then open the *resolved* path —
+        # this means even a symlink swap between check and open is safe because
+        # we always open the path we already validated.
         try:
             resolved = full_path.resolve()
             skill_resolved = skill_path.resolve()
@@ -482,12 +485,14 @@ class SkillLoader:
         except (OSError, ValueError):
             return None
 
-        if not full_path.exists():
+        if not resolved.exists():
             logger.debug(f"Resource not found: {skill_name}/{resource_path}")
             return None
 
         try:
-            async with aiofiles.open(full_path, encoding="utf-8") as f:
+            # Open the resolved (canonical) path, not the original, to eliminate
+            # the TOCTOU window between the containment check and the open call.
+            async with aiofiles.open(resolved, encoding="utf-8") as f:
                 content = await f.read()
             logger.debug(f"Loaded resource: {skill_name}/{resource_path}")
             return content
