@@ -16,16 +16,26 @@ and uses a command allowlist to prevent arbitrary code execution.
 """
 
 import asyncio
+import html
 import logging
 import re
 import shlex
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.domain.models.skill import Skill, SkillSource
 
 logger = logging.getLogger(__name__)
+
+# Optional skills-ref integration for standard <available_skills> XML generation
+try:
+    from skills_ref.prompt import to_prompt as _agentskills_to_prompt
+
+    _AGENTSKILLS_PROMPT_AVAILABLE = True
+except ImportError:
+    _AGENTSKILLS_PROMPT_AVAILABLE = False
 
 
 # Allowlist of safe commands for dynamic context expansion
@@ -394,6 +404,114 @@ async def build_skill_context_async(skills: list["Skill"]) -> str:
         + "\n\n".join(prompt_additions)
         + "\n</enabled_skills>\n"
     )
+
+
+def build_available_skills_xml(skill_dirs: list[Path]) -> str:
+    """Generate the standard AgentSkills <available_skills> XML block.
+
+    Uses the official skills-ref library (Anthropic open standard) to emit
+    the ``<available_skills>`` XML format that Claude models natively
+    recognise from training.  Falls back to a lightweight custom
+    implementation when skills-ref is not installed.
+
+    This function covers skill **discovery** — i.e. telling the agent which
+    skills it *can* invoke.  It is separate from ``build_skill_context()``,
+    which covers skill **activation** — i.e. injecting instructions from
+    skills that are *already* enabled.
+
+    Usage (in system prompt assembly)::
+
+        skill_dirs = [Path("skills/web-research"), Path("skills/pdf")]
+        xml = build_available_skills_xml(skill_dirs)
+        system_prompt = base_prompt + xml
+
+    Args:
+        skill_dirs: List of paths to individual skill directories.
+                    Each directory must contain a ``SKILL.md`` file.
+
+    Returns:
+        ``<available_skills>…</available_skills>`` XML string, or empty
+        string if no valid skill directories are provided.
+    """
+    valid_dirs = [d for d in skill_dirs if d.is_dir() and (d / "SKILL.md").exists()]
+    if not valid_dirs:
+        return ""
+
+    # --- Primary: AgentSkills standard (skills-ref library) ---
+    if _AGENTSKILLS_PROMPT_AVAILABLE:
+        try:
+            return _agentskills_to_prompt(valid_dirs)
+        except Exception as e:
+            logger.debug(f"skills-ref to_prompt failed ({e}), using fallback")
+
+    # --- Fallback: lightweight custom XML builder ---
+    entries: list[str] = []
+    for skill_dir in valid_dirs:
+        skill_md = skill_dir / "SKILL.md"
+        try:
+            content = skill_md.read_text(encoding="utf-8")
+            # Extract name and description from frontmatter (simple regex, no deps)
+            name_match = re.search(r"^name:\s*(.+)$", content, re.MULTILINE)
+            desc_match = re.search(r"^description:\s*(.+)$", content, re.MULTILINE)
+            skill_name = html.escape(name_match.group(1).strip()) if name_match else skill_dir.name
+            skill_desc = html.escape(desc_match.group(1).strip()) if desc_match else ""
+            location = html.escape(str(skill_md.resolve()))
+            entries.append(
+                f"<skill>\n"
+                f"<name>{skill_name}</name>\n"
+                f"<description>{skill_desc}</description>\n"
+                f"<location>{location}</location>\n"
+                f"</skill>"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to build XML entry for skill {skill_dir.name}: {e}")
+
+    if not entries:
+        return ""
+
+    return "<available_skills>\n" + "\n".join(entries) + "\n</available_skills>"
+
+
+async def build_available_skills_xml_from_registry() -> str:
+    """Build <available_skills> XML for all filesystem-discovered skills.
+
+    Queries the SkillLoader for skills that exist on disk (official + seeded)
+    and generates the standard AgentSkills discovery XML.  Intended for
+    injection into the base system prompt so the agent knows what skills
+    it can request to load.
+
+    Returns:
+        ``<available_skills>`` XML string, or empty string if unavailable.
+    """
+    try:
+        from app.domain.services.skill_registry import get_skill_registry
+
+        registry = await get_skill_registry()
+        skills = await registry.get_available_skills()
+
+        # Map skills back to their directory paths for skills-ref compatibility
+        skills_base_dir = Path(__file__).parent.parent.parent.parent.parent / "skills"
+        if not skills_base_dir.exists():
+            # Try relative to the working directory
+            import os
+
+            skills_base_dir = Path(os.getcwd()) / "skills"
+
+        skill_dirs: list[Path] = []
+        for skill in skills:
+            candidate = skills_base_dir / skill.name
+            if candidate.is_dir() and (candidate / "SKILL.md").exists():
+                skill_dirs.append(candidate)
+
+        if not skill_dirs:
+            logger.debug("No filesystem skill directories found for <available_skills> XML")
+            return ""
+
+        return build_available_skills_xml(skill_dirs)
+
+    except Exception as e:
+        logger.debug(f"build_available_skills_xml_from_registry: {e}")
+        return ""
 
 
 def get_skill_tools(skills: list["Skill"]) -> set[str]:

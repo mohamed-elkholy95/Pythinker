@@ -5,6 +5,11 @@ Implements Pythinker AI's context-efficient skill loading pattern:
 - Loads only what's needed at each disclosure level
 - Caches loaded skills to avoid redundant I/O
 
+AgentSkills standard compliance (Anthropic open standard):
+- Uses skills-ref library for SKILL.md parsing and validation
+- Skills created here are portable to Claude Code, Cursor, GitHub Copilot, etc.
+- Falls back to legacy PyYAML parser for backward compatibility
+
 Progressive Disclosure Levels:
 - Level 1: Metadata only (name, description) - ~100 tokens
 - Level 2: Metadata + body (full instructions) - <500 lines
@@ -13,10 +18,11 @@ Progressive Disclosure Levels:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import aiofiles
 
@@ -29,7 +35,88 @@ from app.domain.models.skill import (
     SkillSource,
 )
 
+if TYPE_CHECKING:
+    pass
+
 logger = logging.getLogger(__name__)
+
+# Optional skills-ref integration (AgentSkills open standard)
+try:
+    from skills_ref.parser import parse_frontmatter as _agentskills_parse_frontmatter
+    from skills_ref.validator import validate as _agentskills_validate
+
+    _AGENTSKILLS_AVAILABLE = True
+    logger.debug("skills-ref library available — AgentSkills standard compliance enabled")
+except ImportError:
+    _AGENTSKILLS_AVAILABLE = False
+    logger.debug("skills-ref not installed — using legacy YAML parser only")
+
+
+# Maps AgentSkills metadata.category values to Pythinker's SkillCategory enum
+_CATEGORY_MAP: dict[str, SkillCategory] = {
+    "research": SkillCategory.RESEARCH,
+    "coding": SkillCategory.CODING,
+    "browser": SkillCategory.BROWSER,
+    "file_management": SkillCategory.FILE_MANAGEMENT,
+    "file-management": SkillCategory.FILE_MANAGEMENT,
+    "data_analysis": SkillCategory.DATA_ANALYSIS,
+    "data-analysis": SkillCategory.DATA_ANALYSIS,
+    "communication": SkillCategory.COMMUNICATION,
+    "custom": SkillCategory.CUSTOM,
+}
+
+
+def _extract_agentskills_fields(meta_dict: dict) -> dict:
+    """Extract and normalize AgentSkills frontmatter fields for Pythinker's Skill model.
+
+    Handles the mapping from AgentSkills field names (hyphens allowed) to
+    Pythinker's Skill model fields (underscores). Also maps the nested
+    ``metadata`` sub-dict (arbitrary key-value pairs) to structured fields.
+
+    AgentSkills frontmatter reference:
+      name, description, license, compatibility, allowed-tools,
+      metadata.author, metadata.version, metadata.category, metadata.tags
+
+    Args:
+        meta_dict: Raw frontmatter dict from skills-ref or PyYAML parser.
+
+    Returns:
+        Dict with keys: category, author, version, tags, allowed_tools.
+    """
+    extra_meta: dict = meta_dict.get("metadata", {}) or {}
+
+    # Category: check metadata sub-dict first, then top-level
+    raw_category = extra_meta.get("category") or meta_dict.get("category", "")
+    category = _CATEGORY_MAP.get(str(raw_category).lower(), SkillCategory.CUSTOM)
+
+    # Author and version from metadata sub-dict
+    author: str | None = extra_meta.get("author") or meta_dict.get("author") or None
+    version: str = str(extra_meta.get("version") or meta_dict.get("version") or "1.0.0")
+
+    # Tags: accept list or comma/space-separated string
+    raw_tags = extra_meta.get("tags") or meta_dict.get("tags") or []
+    if isinstance(raw_tags, str):
+        tags: list[str] = [t.strip() for t in re.split(r"[,\s]+", raw_tags) if t.strip()]
+    else:
+        tags = list(raw_tags)
+
+    # allowed-tools: AgentSkills uses hyphenated key + space-separated pattern string
+    # e.g. "Bash(git:*) Read Write" → ["Bash(git:*)", "Read", "Write"]
+    raw_tools = meta_dict.get("allowed-tools") or meta_dict.get("allowed_tools") or ""
+    if isinstance(raw_tools, str):
+        allowed_tools: list[str] = raw_tools.split() if raw_tools.strip() else []
+    elif isinstance(raw_tools, list):
+        allowed_tools = [str(t) for t in raw_tools]
+    else:
+        allowed_tools = []
+
+    return {
+        "category": category,
+        "author": author,
+        "version": version,
+        "tags": tags,
+        "allowed_tools": allowed_tools,
+    }
 
 
 class SkillLoaderProtocol(Protocol):
@@ -153,6 +240,9 @@ class SkillLoader:
     async def _load_skill_at_level(self, name: str, disclosure_level: int) -> Skill | None:
         """Internal method to load a skill at a specific level.
 
+        Uses the AgentSkills standard (skills-ref) for parsing and validation
+        when available, with fallback to the legacy PyYAML parser.
+
         Args:
             name: The skill name/identifier.
             disclosure_level: The disclosure level (1, 2, or 3).
@@ -168,6 +258,10 @@ class SkillLoader:
             return None
 
         try:
+            # --- AgentSkills non-blocking validation (warnings only) ---
+            if _AGENTSKILLS_AVAILABLE:
+                await self._run_agentskills_validation(name, skill_path)
+
             # Read SKILL.md content
             async with aiofiles.open(skill_md_path, encoding="utf-8") as f:
                 content = await f.read()
@@ -176,16 +270,10 @@ class SkillLoader:
                 logger.warning(f"Empty SKILL.md for skill: {name}")
                 return None
 
-            # Parse metadata from frontmatter
-            try:
-                metadata = SkillMetadata.from_yaml(content)
-            except ValueError as e:
-                logger.warning(f"Invalid frontmatter in {name}/SKILL.md: {e}")
+            # --- Parse frontmatter via AgentSkills standard with fallback ---
+            meta_dict, body = await self._parse_frontmatter(name, content)
+            if not meta_dict:
                 return None
-
-            # Extract body (everything after frontmatter)
-            match = re.match(r"^---\n.*?\n---\n*", content, re.DOTALL)
-            body = content[match.end() :].strip() if match else ""
 
             # Build skill based on disclosure level
             skill_body = "" if disclosure_level < 2 else body
@@ -194,19 +282,79 @@ class SkillLoader:
             if disclosure_level >= 3:
                 resources = await self._load_resources(skill_path)
 
+            # Map AgentSkills fields to Pythinker Skill model
+            skill_name = meta_dict.get("name") or name
+            skill_extra = _extract_agentskills_fields(meta_dict)
+
             return Skill(
-                id=metadata.name or name,
-                name=metadata.name or name,
-                description=metadata.description,
-                category=SkillCategory.CUSTOM,
+                id=skill_name,
+                name=skill_name,
+                description=meta_dict.get("description", ""),
+                category=skill_extra["category"],
                 source=SkillSource.CUSTOM,
                 body=skill_body,
                 resources=resources,
+                author=skill_extra["author"],
+                version=skill_extra["version"],
+                tags=skill_extra["tags"],
+                allowed_tools=skill_extra["allowed_tools"] or None,
             )
 
         except Exception as e:
             logger.error(f"Error loading skill {name}: {e}")
             return None
+
+    async def _run_agentskills_validation(self, name: str, skill_path: Path) -> None:
+        """Run AgentSkills standard validation in a thread (non-blocking).
+
+        Logs warnings for any violations without blocking skill loading.
+        This ensures all filesystem-loaded skills are standard-compliant.
+
+        Args:
+            name: Skill name for log context.
+            skill_path: Path to the skill directory.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            errors: list[str] = await loop.run_in_executor(None, _agentskills_validate, skill_path)
+            if errors:
+                for err in errors:
+                    logger.warning(f"[AgentSkills] {name}: {err}")
+            else:
+                logger.debug(f"[AgentSkills] {name}: passes standard validation")
+        except Exception as e:
+            logger.debug(f"[AgentSkills] {name}: validation skipped ({e})")
+
+    async def _parse_frontmatter(self, name: str, content: str) -> tuple[dict, str]:
+        """Parse SKILL.md frontmatter using skills-ref with PyYAML fallback.
+
+        Tries the AgentSkills standard parser first (strictyaml-based),
+        then falls back to Pythinker's legacy PyYAML parser.
+
+        Args:
+            name: Skill name for log context.
+            content: Full SKILL.md file content.
+
+        Returns:
+            Tuple of (metadata_dict, body_str). Returns ({}, "") on failure.
+        """
+        # --- Primary: AgentSkills standard parser (strictyaml) ---
+        if _AGENTSKILLS_AVAILABLE:
+            try:
+                meta_dict, body = _agentskills_parse_frontmatter(content)
+                return meta_dict, body
+            except Exception as e:
+                logger.debug(f"[AgentSkills] {name}: standard parser failed ({e}), using fallback")
+
+        # --- Fallback: legacy PyYAML parser ---
+        try:
+            metadata = SkillMetadata.from_yaml(content)
+            match = re.match(r"^---\n.*?\n---\n*", content, re.DOTALL)
+            body = content[match.end() :].strip() if match else ""
+            return {"name": metadata.name, "description": metadata.description}, body
+        except ValueError as e:
+            logger.warning(f"Invalid frontmatter in {name}/SKILL.md: {e}")
+            return {}, ""
 
     async def _load_resources(self, skill_path: Path) -> list[SkillResource]:
         """Load all bundled resources from a skill directory.
