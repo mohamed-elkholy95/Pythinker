@@ -4,8 +4,8 @@ Provides two pure functions that map our capability flags to the correct
 instructor mode and produce a patched async client.  Keeping instructor
 behind this adapter means:
 
-1. Only one file imports ``instructor`` — clean dependency boundary.
-2. Soft-import friendly — callers check ``INSTRUCTOR_AVAILABLE`` first.
+1. Only one file imports ``instructor`` - clean dependency boundary.
+2. Soft-import friendly - callers check ``INSTRUCTOR_AVAILABLE`` first.
 3. Mode selection is independently testable without an OpenAI client.
 """
 
@@ -26,7 +26,7 @@ try:
     from instructor import AsyncInstructor, Mode
 
     INSTRUCTOR_AVAILABLE = True
-except ImportError:  # pragma: no cover – optional dependency
+except ImportError:  # pragma: no cover - optional dependency
     INSTRUCTOR_AVAILABLE = False
     AsyncInstructor = None  # type: ignore[assignment,misc]
     Mode = None  # type: ignore[assignment,misc]
@@ -39,7 +39,7 @@ def select_instructor_mode(
     *,
     supports_json_schema: bool,
     supports_json_object: bool,
-) -> "Mode":
+) -> Mode:
     """Pick the strongest ``instructor.Mode`` the provider can handle.
 
     Args:
@@ -63,9 +63,9 @@ def select_instructor_mode(
 
 
 def patch_client(
-    client: "AsyncOpenAI",
-    mode: "Mode",
-) -> "AsyncInstructor":
+    client: AsyncOpenAI,
+    mode: Mode,
+) -> AsyncInstructor:
     """Wrap an :class:`AsyncOpenAI` client with instructor validation.
 
     Args:
