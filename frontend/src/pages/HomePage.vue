@@ -57,7 +57,9 @@
               :aria-checked="selectedResearchMode === 'fast_search'"
               @click="selectedResearchMode = 'fast_search'"
             >
-              <Zap :size="16" />
+              <span class="mode-icon-wrap">
+                <Zap :size="12" :stroke-width="2.5" />
+              </span>
               <span>{{ $t('Fast Search') }}</span>
             </button>
             <button
@@ -67,7 +69,9 @@
               :aria-checked="selectedResearchMode === 'deep_research'"
               @click="selectedResearchMode = 'deep_research'"
             >
-              <Globe :size="16" />
+              <span class="mode-icon-wrap">
+                <Globe :size="12" :stroke-width="2" />
+              </span>
               <span>{{ $t('Deep Research') }}</span>
             </button>
           </div>
@@ -443,36 +447,56 @@ const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: strin
 .mode-selector {
   display: inline-flex;
   padding: 3px;
-  border-radius: 10px;
-  background: var(--fill-tsp-gray-main);
-  border: 1px solid var(--border-main);
+  border-radius: var(--radius-lg);
+  background: var(--fill-tsp-white-main);
+  border: 1px solid var(--border-dark);
 }
 
 .mode-option {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   padding: 7px 16px;
-  border-radius: 8px;
+  border-radius: calc(var(--radius-lg) - 3px);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   cursor: pointer;
   transition: all 0.2s ease;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   background: transparent;
   border: 1px solid transparent;
 }
 
 .mode-option:hover:not(.active) {
   color: var(--text-primary);
-  background: var(--fill-tsp-gray-light);
+  background: var(--fill-tsp-white-dark);
 }
 
 .mode-option.active {
   background: var(--background-card);
   color: var(--text-primary);
-  border-color: var(--border-main);
+  border-color: var(--border-dark);
   box-shadow: 0 1px 3px var(--shadow-XS);
+}
+
+/* ── Icon circle inside mode buttons ── */
+.mode-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: var(--fill-tsp-white-dark);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.mode-option.active .mode-icon-wrap {
+  background: var(--bolt-elements-item-contentAccent);
+  color: var(--Button-primary-white);
 }
 
 .mode-description {
