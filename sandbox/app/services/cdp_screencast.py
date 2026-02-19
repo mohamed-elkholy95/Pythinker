@@ -774,6 +774,10 @@ class CDPScreencastService:
             result = await self._send_command("Page.startScreencast", params)
             if result and "error" not in result:
                 self._running = True
+                # Screencast started successfully — page target is confirmed valid.
+                # Reset all failure/rediscovery counters that may have accumulated
+                # from preemption-driven cache invalidation cycles.
+                self._record_page_success()
                 logger.info(f"CDP screencast started with config: {self.config}")
                 return True
 
