@@ -39,12 +39,14 @@ def select_instructor_mode(
     *,
     supports_json_schema: bool,
     supports_json_object: bool,
+    is_openrouter: bool = False,
 ) -> Mode:
     """Pick the strongest ``instructor.Mode`` the provider can handle.
 
     Args:
         supports_json_schema: Provider honours ``response_format.type = "json_schema"``
         supports_json_object: Provider honours ``response_format.type = "json_object"``
+        is_openrouter: Whether the provider is OpenRouter (requires dedicated mode)
 
     Returns:
         The best available ``instructor.Mode`` enum member.
@@ -54,6 +56,12 @@ def select_instructor_mode(
     """
     if not INSTRUCTOR_AVAILABLE:
         raise RuntimeError("instructor is not installed")
+
+    # Instructor v1.14+ has a dedicated OpenRouter mode that uses their
+    # native structured output endpoint.  ``from_openai`` auto-detects the
+    # provider and asserts the mode matches, so we must use it.
+    if is_openrouter:
+        return instructor.Mode.OPENROUTER_STRUCTURED_OUTPUTS
 
     if supports_json_schema:
         return instructor.Mode.JSON_SCHEMA
