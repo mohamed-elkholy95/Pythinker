@@ -152,16 +152,17 @@ const MAX_RECONNECT_ATTEMPTS = 5
 const NON_RETRYABLE_WS_CODES = new Set([1002, 1003, 1007, 1008])
 let intentionalClose = false
 
-// Frame heartbeat watchdog — detects connected-but-dead streams
-// (e.g., Chrome hung, proxy connected but no frames flowing)
-// NOTE: The sandbox CDP service already has its own health-check watchdog
-// (10s frame timeout + Chrome /json health check). The frontend watchdog
-// is a safety net for proxy-level issues (e.g., backend proxy hung).
-// Timeouts here should be longer than the sandbox-side ones to avoid
-// double-triggering reconnects.
-const FRAME_STALL_TIMEOUT_MS = 25_000 // 25s with no frames → stale (sandbox timeout is 10s)
-const FIRST_FRAME_GRACE_MS = 30_000 // 30s grace for initial page load
-let lastFrameReceivedAt = 0
+// Connection liveness watchdog — detects dead streams
+// (e.g., Chrome hung, proxy died, backend crashed)
+// NOTE: Chrome's Page.startScreencast only sends frames when the compositor
+// produces new content. On static pages, no frames are sent after the
+// initial capture. The sandbox sends "ping" every 5s — as long as pings
+// flow, the connection chain is alive and we should NOT reconnect.
+// The watchdog therefore tracks ANY message (frames + pings) for liveness.
+const CONNECTION_STALL_TIMEOUT_MS = 25_000 // 25s with no messages at all → dead connection
+const FIRST_FRAME_GRACE_MS = 30_000 // 30s grace for initial frame (slow page loads)
+let lastMessageReceivedAt = 0 // Any WebSocket message (frame, ping, JSON)
+let lastFrameReceivedAt = 0 // Binary frames only — for first-frame tracking
 let hasReceivedFirstFrame = false
 let frameWatchdogInterval: number | null = null
 
@@ -214,6 +215,7 @@ async function connect(): Promise<void> {
     ws.onopen = () => {
       isLoading.value = false
       connectionAttempts = 0
+      lastMessageReceivedAt = Date.now()
       lastFrameReceivedAt = Date.now()
       emit('connected')
       startFrameWatchdog()
@@ -235,8 +237,11 @@ async function connect(): Promise<void> {
     }
 
     ws.onmessage = (event) => {
+      // Track ANY message for connection liveness (frames, pings, JSON)
+      lastMessageReceivedAt = Date.now()
+
       if (event.data instanceof ArrayBuffer) {
-        // Binary frame data — update heartbeat timestamp
+        // Binary frame data
         lastFrameReceivedAt = Date.now()
         hasReceivedFirstFrame = true
         // Push frame to Konva renderer
@@ -396,9 +401,11 @@ function cleanupInput(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Frame heartbeat watchdog
-// Detects connected-but-dead streams: WebSocket is OPEN but no binary frames
-// arrive within FRAME_STALL_TIMEOUT_MS. Triggers proactive reconnect.
+// Connection liveness watchdog
+// Detects dead streams: WebSocket is OPEN but no messages at all (not even
+// server pings) arrive within CONNECTION_STALL_TIMEOUT_MS. Before the first
+// frame, uses FIRST_FRAME_GRACE_MS to allow slow page loads. After the first
+// frame, pings count as proof of life (Chrome sends no frames on static pages).
 // ---------------------------------------------------------------------------
 
 function startFrameWatchdog(): void {
@@ -408,24 +415,35 @@ function startFrameWatchdog(): void {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
     if (!isTabVisible) return // Don't trigger while tab is hidden
 
-    const elapsed = Date.now() - lastFrameReceivedAt
-    // Use longer grace period before the first frame arrives (slow page loads)
-    const threshold = hasReceivedFirstFrame ? FRAME_STALL_TIMEOUT_MS : FIRST_FRAME_GRACE_MS
+    const now = Date.now()
 
-    if (elapsed >= threshold) {
-      console.warn(
-        `[SandboxViewer] No frame received in ${(elapsed / 1000).toFixed(1)}s ` +
-        `(threshold: ${(threshold / 1000).toFixed(0)}s) — stream appears stale, triggering reconnect`
-      )
-      // Close the zombie connection — onclose handler will trigger reconnect
-      stopFrameWatchdog()
-      if (ws) {
-        try {
-          ws.close(4000, 'Frame stall timeout')
-        } catch {
-          // Ignore
-        }
+    // Before the first binary frame: use generous grace period.
+    // Even if pings arrive, we want at least one frame before relaxing.
+    if (!hasReceivedFirstFrame) {
+      const frameElapsed = now - lastFrameReceivedAt
+      if (frameElapsed >= FIRST_FRAME_GRACE_MS) {
+        console.warn(
+          `[SandboxViewer] No initial frame in ${(frameElapsed / 1000).toFixed(1)}s — ` +
+          `triggering reconnect`
+        )
+        stopFrameWatchdog()
+        try { ws?.close(4000, 'First frame timeout') } catch { /* noop */ }
       }
+      return
+    }
+
+    // After first frame: check connection liveness via ANY message (including pings).
+    // Chrome only sends screencast frames when the compositor produces new content.
+    // On static pages, pings (every 5s) are the only proof of life — that's fine.
+    const messageElapsed = now - lastMessageReceivedAt
+    if (messageElapsed >= CONNECTION_STALL_TIMEOUT_MS) {
+      console.warn(
+        `[SandboxViewer] No message received in ${(messageElapsed / 1000).toFixed(1)}s ` +
+        `(threshold: ${(CONNECTION_STALL_TIMEOUT_MS / 1000).toFixed(0)}s) — ` +
+        `connection appears dead, triggering reconnect`
+      )
+      stopFrameWatchdog()
+      try { ws?.close(4000, 'Connection stall timeout') } catch { /* noop */ }
     }
   }, 3000) // Check every 3s
 }
@@ -455,6 +473,7 @@ function handleVisibilityChange(): void {
       initConnection()
     } else if (ws && ws.readyState === WebSocket.OPEN) {
       // Connection still alive — reset watchdog baseline
+      lastMessageReceivedAt = Date.now()
       lastFrameReceivedAt = Date.now()
     }
   } else {
