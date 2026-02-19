@@ -511,9 +511,11 @@ onMounted(() => {
       annotationLayer.bind(annotationLayerNode, stage)
     }
 
-    // Retry if critical nodes not ready
-    if ((!imageNode || !screencastLayer) && attempt < 3) {
-      setTimeout(() => bindKonvaNodes(attempt + 1), 50)
+    // Retry if critical nodes not ready (10 attempts × 100ms = 1s total).
+    // vue-konva can take multiple ticks to create Konva nodes, especially
+    // on slower renders or when the component tree is deep.
+    if ((!imageNode || !screencastLayer) && attempt < 10) {
+      setTimeout(() => bindKonvaNodes(attempt + 1), 100)
     }
   }
   nextTick(() => bindKonvaNodes())

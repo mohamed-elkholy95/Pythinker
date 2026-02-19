@@ -245,7 +245,11 @@ async function connect(): Promise<void> {
         lastFrameReceivedAt = Date.now()
         hasReceivedFirstFrame = true
         // Push frame to Konva renderer
-        liveStageRef.value?.pushFrame(event.data)
+        try {
+          liveStageRef.value?.pushFrame(event.data)
+        } catch (e) {
+          console.warn('[SandboxViewer] Frame push failed:', e)
+        }
       } else if (typeof event.data === 'string') {
         // Text message: JSON control or server ping
         if (event.data === 'ping') {
