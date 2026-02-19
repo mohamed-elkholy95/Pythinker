@@ -49,6 +49,8 @@ export function useKonvaScreencast() {
   let _pendingUrl: string | null = null
   /** Whether a frame decode is currently in flight (prevents pileup) */
   let _decoding = false
+  /** Timestamp when the current decode started — safety valve for stuck decodes */
+  let _lastDecodeStart = 0
 
   // Stats internals
   let _statsInterval: number | null = null
@@ -88,10 +90,22 @@ export function useKonvaScreencast() {
     // Track bytes
     stats.value.bytesReceived += data.byteLength
 
-    // If a decode is already in-flight, drop this frame (back-pressure)
-    if (_decoding) return
+    // If a decode is already in-flight, drop this frame (back-pressure).
+    // Safety valve: if _decoding has been true for >2s, force-release it.
+    // A single frame decode should never take >2s — this means the decode
+    // pipeline got stuck (e.g., Image.onload/onerror never fired).
+    if (_decoding) {
+      const elapsed = Date.now() - _lastDecodeStart
+      if (elapsed > 2000) {
+        console.warn(`[Screencast] Decode stuck for ${elapsed}ms — force-releasing mutex`)
+        _decoding = false
+      } else {
+        return
+      }
+    }
 
     _decoding = true
+    _lastDecodeStart = Date.now()
     _decodeFrame(data)
   }
 
