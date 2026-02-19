@@ -130,15 +130,37 @@ class DockerSandbox(Sandbox):
         self._browser_progress_callback = callback
 
     @staticmethod
+    def _normalize_address(address: str) -> str:
+        """Strip scheme and port from an address, returning bare hostname or IP.
+
+        SANDBOX_ADDRESS may be set to ``http://sandbox:8080`` (with scheme and
+        port).  The sandbox constructor builds URLs as ``http://{ip}:8080``, so
+        passing the raw value through would produce ``http://http://sandbox:8080:8080``.
+        """
+        addr = address.strip()
+        # Strip scheme
+        for prefix in ("https://", "http://"):
+            if addr.lower().startswith(prefix):
+                addr = addr[len(prefix) :]
+                break
+        # Strip port suffix (e.g. ":8080")
+        if ":" in addr:
+            addr = addr.rsplit(":", 1)[0]
+        return addr
+
+    @staticmethod
     def _resolve_to_ip(address: str) -> str:
         """Resolve hostname to IP address synchronously
 
         Args:
-            address: Hostname or IP address
+            address: Hostname or IP address (may include scheme/port)
 
         Returns:
             IP address
         """
+        # Normalise first — SANDBOX_ADDRESS may contain scheme and port
+        address = DockerSandbox._normalize_address(address)
+
         try:
             # Check if already an IP address
             socket.inet_pton(socket.AF_INET, address)
@@ -1112,7 +1134,7 @@ class DockerSandbox(Sandbox):
         """Resolve hostname to IP address
 
         Args:
-            hostname: Hostname to resolve
+            hostname: Hostname to resolve (may include scheme/port)
 
         Returns:
             Resolved IP address, or None if resolution fails
@@ -1121,6 +1143,9 @@ class DockerSandbox(Sandbox):
             This method is cached using LRU cache with a maximum size of 128 entries.
             The cache helps reduce repeated DNS lookups for the same hostname.
         """
+        # Normalise: SANDBOX_ADDRESS may contain scheme and port
+        hostname = DockerSandbox._normalize_address(hostname)
+
         try:
             # First check if hostname is already in IP address format
             try:
@@ -1602,9 +1627,11 @@ class DockerSandbox(Sandbox):
             with cls._sandbox_rr_lock:
                 address = addresses[cls._sandbox_rr_index % len(addresses)]
                 cls._sandbox_rr_index += 1
-            ip = await cls._resolve_hostname_to_ip(address)
-            container_name = f"dev-sandbox-{address}"
-            logger.info(f"Assigned dev sandbox '{address}' (IP: {ip}) via round-robin")
+            # Normalise: strip scheme/port so container name stays clean
+            hostname = cls._normalize_address(address)
+            ip = await cls._resolve_hostname_to_ip(hostname)
+            container_name = f"dev-sandbox-{hostname}"
+            logger.info(f"Assigned dev sandbox '{hostname}' (IP: {ip}) via round-robin")
             return DockerSandbox(ip=ip, container_name=container_name)
 
         return await asyncio.to_thread(DockerSandbox._create_task)
@@ -1630,14 +1657,15 @@ class DockerSandbox(Sandbox):
         )
         if uses_static_sandboxes and settings.sandbox_address:
             # For multi-sandbox dev mode, extract hostname from container_name
-            # Container names are "dev-sandbox-{hostname}" when using round-robin
+            # Container names are "dev-sandbox-{hostname}" where hostname is normalised
             addresses = [a.strip() for a in settings.sandbox_address.split(",") if a.strip()]
-            # Try to match the sandbox ID to a known address
+            # Try to match the sandbox ID to a known normalised address
             for addr in addresses:
-                if id == f"dev-sandbox-{addr}":
-                    ip = await cls._resolve_hostname_to_ip(addr)
+                hostname = cls._normalize_address(addr)
+                if id == f"dev-sandbox-{hostname}":
+                    ip = await cls._resolve_hostname_to_ip(hostname)
                     return DockerSandbox(ip=ip, container_name=id)
-            # Fallback: use first address
+            # Fallback: use first address (normalised)
             ip = await cls._resolve_hostname_to_ip(addresses[0])
             return DockerSandbox(ip=ip, container_name=id)
 
