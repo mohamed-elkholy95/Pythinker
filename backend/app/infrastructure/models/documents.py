@@ -98,15 +98,50 @@ class AgentDocument(BaseDocument[Agent], id_field="agent_id", domain_model_class
 # Known AgentEvent types for the discriminated union — used to filter out
 # legacy/removed event types so that loading old sessions from MongoDB
 # doesn't crash Pydantic validation.
-_KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
-    "error", "plan", "tool", "tool_stream", "tool_progress", "step", "message",
-    "done", "title", "wait", "knowledge", "datasource", "idle", "mcp_health",
-    "mode_change", "suggestion", "report", "skill_delivery", "skill_activation",
-    "stream", "verification", "reflection", "path", "multi_task", "workspace",
-    "budget", "progress", "comprehension", "task_recreation", "phase_transition",
-    "checkpoint_saved", "wide_research", "deep_research", "thought", "confidence",
-    "canvas_update", "flow_selection", "flow_transition", "research_mode", "phase",
-})
+_KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "error",
+        "plan",
+        "tool",
+        "tool_stream",
+        "tool_progress",
+        "step",
+        "message",
+        "done",
+        "title",
+        "wait",
+        "knowledge",
+        "datasource",
+        "idle",
+        "mcp_health",
+        "mode_change",
+        "suggestion",
+        "report",
+        "skill_delivery",
+        "skill_activation",
+        "stream",
+        "verification",
+        "reflection",
+        "path",
+        "multi_task",
+        "workspace",
+        "budget",
+        "progress",
+        "comprehension",
+        "task_recreation",
+        "phase_transition",
+        "checkpoint_saved",
+        "wide_research",
+        "deep_research",
+        "thought",
+        "confidence",
+        "canvas_update",
+        "flow_selection",
+        "flow_transition",
+        "research_mode",
+        "phase",
+    }
+)
 
 _doc_logger = logging.getLogger(__name__)
 
@@ -153,6 +188,7 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
                         _doc_logger.debug("Skipping unknown event type %r during session load", ev_type)
                 data["events"] = filtered
         return data
+
     files: list[FileInfo] = Field(default_factory=list)
     is_shared: bool | None = False
     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
