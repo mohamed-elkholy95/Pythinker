@@ -209,18 +209,14 @@ class TestSelectInstructorMode:
     def test_openrouter_uses_dedicated_mode(self) -> None:
         import instructor
 
-        mode = select_instructor_mode(
-            supports_json_schema=True, supports_json_object=True, is_openrouter=True
-        )
+        mode = select_instructor_mode(supports_json_schema=True, supports_json_object=True, is_openrouter=True)
         assert mode == instructor.Mode.OPENROUTER_STRUCTURED_OUTPUTS
 
     def test_openrouter_overrides_json_schema(self) -> None:
         """OpenRouter mode takes precedence even when json_schema is supported."""
         import instructor
 
-        mode = select_instructor_mode(
-            supports_json_schema=False, supports_json_object=False, is_openrouter=True
-        )
+        mode = select_instructor_mode(supports_json_schema=False, supports_json_object=False, is_openrouter=True)
         assert mode == instructor.Mode.OPENROUTER_STRUCTURED_OUTPUTS
 
 
@@ -238,14 +234,10 @@ class TestAskStructuredOpenRouter:
 
         response_json = '{"name": "test", "value": 42}'
         create_mock = AsyncMock(return_value=_FakeResponse(response_json))
-        llm.client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock))
-        )
+        llm.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock)))
 
         # Disable instructor to test the manual path's response_format
-        with patch(
-            "app.infrastructure.external.llm.openai_llm.get_settings"
-        ) as mock_settings:
+        with patch("app.infrastructure.external.llm.openai_llm.get_settings") as mock_settings:
             settings_obj = SimpleNamespace(
                 use_instructor_structured_output=False,
             )
@@ -276,13 +268,9 @@ class TestAskStructuredOpenRouter:
 
         response_json = '{"name": "test", "value": 42}'
         create_mock = AsyncMock(return_value=_FakeResponse(response_json))
-        llm.client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock))
-        )
+        llm.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock)))
 
-        with patch(
-            "app.infrastructure.external.llm.openai_llm.get_settings"
-        ) as mock_settings:
+        with patch("app.infrastructure.external.llm.openai_llm.get_settings") as mock_settings:
             settings_obj = SimpleNamespace(
                 use_instructor_structured_output=False,
             )
@@ -313,17 +301,11 @@ class TestAskStructuredOpenRouter:
         mock_completion = _FakeResponse('{"name": "instructor", "value": 99}')
         mock_create = AsyncMock(return_value=(expected_result, mock_completion))
 
-        llm.client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock()))
-        )
+        llm.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())))
 
         with (
-            patch(
-                "app.infrastructure.external.llm.openai_llm.get_settings"
-            ) as mock_settings,
-            patch(
-                "app.infrastructure.external.llm.instructor_adapter.instructor"
-            ) as mock_instructor,
+            patch("app.infrastructure.external.llm.openai_llm.get_settings") as mock_settings,
+            patch("app.infrastructure.external.llm.instructor_adapter.instructor") as mock_instructor,
         ):
             settings_obj = SimpleNamespace(
                 use_instructor_structured_output=True,
@@ -332,9 +314,7 @@ class TestAskStructuredOpenRouter:
 
             # Mock instructor.from_openai to return a patched client
             mock_patched = SimpleNamespace(
-                chat=SimpleNamespace(
-                    completions=SimpleNamespace(create_with_completion=mock_create)
-                )
+                chat=SimpleNamespace(completions=SimpleNamespace(create_with_completion=mock_create))
             )
             mock_instructor.from_openai.return_value = mock_patched
             mock_instructor.Mode.JSON_SCHEMA = "json_schema"
@@ -363,9 +343,7 @@ class TestAskOpenRouterProvider:
         )
 
         create_mock = AsyncMock(return_value=_FakeResponse("hello"))
-        llm.client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock))
-        )
+        llm.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock)))
 
         await llm.ask(
             messages=[{"role": "user", "content": "test"}],
@@ -386,9 +364,7 @@ class TestAskOpenRouterProvider:
         )
 
         create_mock = AsyncMock(return_value=_FakeResponse("hello"))
-        llm.client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock))
-        )
+        llm.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock)))
 
         await llm.ask(
             messages=[{"role": "user", "content": "test"}],

@@ -341,17 +341,13 @@ Returns both interactive HTML and static PNG files.""",
             # reader may still be buffering. Retry with view_shell after a
             # short delay.
             if not raw_output and exec_status == "completed":
-                logger.debug(
-                    "Chart output empty after exec, retrying with view_shell after 0.5s delay"
-                )
+                logger.debug("Chart output empty after exec, retrying with view_shell after 0.5s delay")
                 await asyncio.sleep(0.5)
                 view_result = await self.sandbox.view_shell(session_id=self.session_id)
                 raw_output = view_result.data.get("output") if view_result.data else None
 
             if not raw_output:
-                logger.warning(
-                    f"Chart script produced no output. exec_result.data={exec_result.data}"
-                )
+                logger.warning(f"Chart script produced no output. exec_result.data={exec_result.data}")
                 return ToolResult(
                     success=False,
                     message="Chart script produced no output — the script may have failed silently",
