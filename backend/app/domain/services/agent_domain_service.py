@@ -254,7 +254,6 @@ class AgentDomainService:
         latest_event_id: str | None = None,
         attachments: list[dict] | None = None,
         skills: list[str] | None = None,
-        deep_research: bool | None = None,
         extra_mcp_configs: dict[str, Any] | None = None,
         auto_trigger_enabled: bool | None = None,
         thinking_mode: str | None = None,
@@ -355,7 +354,7 @@ class AgentDomainService:
                     # EARLY FAST PATH: For simple queries (GREETING/KNOWLEDGE) on new sessions,
                     # skip expensive task creation (sandbox + browser init ~60s) and respond directly.
                     # This reduces "Hello" latency from 60-90s to <2s.
-                    if task is None and not attachments and not skills and not deep_research:
+                    if task is None and not attachments and not skills:
                         from app.domain.models.message import Message
                         from app.domain.services.flows.fast_path import (
                             FastPathRouter,
@@ -506,7 +505,6 @@ class AgentDomainService:
                         role="user",
                         attachments=resolved_attachments,
                         skills=skills_to_use,
-                        deep_research=deep_research,
                         thinking_mode=thinking_mode,
                         follow_up_selected_suggestion=follow_up_selected_suggestion,
                         follow_up_anchor_event_id=follow_up_anchor_event_id,
@@ -641,7 +639,6 @@ class AgentDomainService:
                     has_message_content
                     or attachments
                     or skills
-                    or deep_research
                     or follow_up_selected_suggestion
                     or follow_up_anchor_event_id
                     or follow_up_source

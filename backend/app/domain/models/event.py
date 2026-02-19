@@ -428,7 +428,6 @@ class MessageEvent(BaseEvent):
     message: str
     attachments: list[FileInfo] | None = None
     skills: list[str] | None = None  # Skill IDs enabled for this message
-    deep_research: bool | None = None  # Enable deep research mode (parallel wide_research)
     thinking_mode: str | None = None  # Model tier override: 'auto', 'fast', 'deep_think'
     # Follow-up context from suggestion clicks
     follow_up_selected_suggestion: str | None = None  # The suggestion text that was clicked
@@ -723,20 +722,6 @@ class BudgetEvent(BaseEvent):
     session_paused: bool = False
 
 
-class DeepResearchStatus(str, Enum):
-    """Deep research status enum"""
-
-    PENDING = "pending"
-    AWAITING_APPROVAL = "awaiting_approval"
-    STARTED = "started"
-    QUERY_STARTED = "query_started"
-    QUERY_COMPLETED = "query_completed"
-    QUERY_SKIPPED = "query_skipped"
-    SUMMARIZING = "summarizing"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-
-
 class PhaseTransitionEvent(BaseEvent):
     """Phased research progress transition event."""
 
@@ -744,7 +729,7 @@ class PhaseTransitionEvent(BaseEvent):
     phase: str
     label: str | None = None
     research_id: str | None = None
-    source: str | None = None  # deep_research | wide_research | session
+    source: str | None = None  # wide_research | session
 
 
 class CheckpointSavedEvent(BaseEvent):
@@ -757,16 +742,6 @@ class CheckpointSavedEvent(BaseEvent):
     source_count: int | None = None
 
 
-class DeepResearchQueryStatus(str, Enum):
-    """Individual query status enum"""
-
-    PENDING = "pending"
-    SEARCHING = "searching"
-    COMPLETED = "completed"
-    SKIPPED = "skipped"
-    FAILED = "failed"
-
-
 class WideResearchStatus(str, Enum):
     """Wide research status enum for parallel multi-source search"""
 
@@ -775,29 +750,6 @@ class WideResearchStatus(str, Enum):
     AGGREGATING = "aggregating"
     COMPLETED = "completed"
     FAILED = "failed"
-
-
-class DeepResearchQueryData(BaseModel):
-    """Individual research query data"""
-
-    id: str
-    query: str
-    status: DeepResearchQueryStatus = DeepResearchQueryStatus.PENDING
-    result: list[SearchResultItem] | None = None
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-
-
-class DeepResearchEvent(BaseEvent):
-    """Deep research progress event for parallel search execution"""
-
-    type: Literal["deep_research"] = "deep_research"
-    research_id: str  # Unique research session ID
-    status: DeepResearchStatus
-    total_queries: int
-    completed_queries: int = 0
-    queries: list[DeepResearchQueryData] = Field(default_factory=list)
-    auto_run: bool = False
 
 
 class WideResearchEvent(BaseEvent):
@@ -933,7 +885,6 @@ AgentEvent = Annotated[
         TaskRecreationEvent,
         PhaseTransitionEvent,
         CheckpointSavedEvent,
-        DeepResearchEvent,
         WideResearchEvent,
         ThoughtEvent,
         ConfidenceEvent,
