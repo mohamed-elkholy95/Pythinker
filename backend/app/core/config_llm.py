@@ -39,6 +39,12 @@ class LLMSettingsMixin:
     anthropic_api_key_3: str | None = None  # Fallback Anthropic key #2
     anthropic_model_name: str = "claude-sonnet-4-20250514"
 
+    # Instructor-based structured output validation
+    # When enabled, uses the `instructor` library for Pydantic-validated JSON responses
+    # with automatic retry on validation failure.  Falls back to manual parsing if
+    # instructor is not installed.
+    use_instructor_structured_output: bool = True
+
     # Adaptive Model Selection (DeepCode Integration Phase 1)
     # Enables dynamic model routing based on step complexity for cost optimization
     adaptive_model_selection_enabled: bool = False
