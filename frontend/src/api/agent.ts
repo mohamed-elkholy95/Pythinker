@@ -11,9 +11,15 @@ import type { FileInfo } from './file';
  */
 export type AgentMode = 'discuss' | 'agent';
 
+/**
+ * Research mode - determines research strategy for the session
+ */
+export type ResearchMode = 'fast_search' | 'deep_research';
+
 export interface CreateSessionOptions {
   require_fresh_sandbox?: boolean;
   sandbox_wait_seconds?: number;
+  research_mode?: ResearchMode;
 }
 
 /**
@@ -25,9 +31,11 @@ export async function createSession(
   mode: AgentMode = 'agent',
   options?: CreateSessionOptions
 ): Promise<CreateSessionResponse> {
+  const { research_mode, ...restOptions } = options || {};
   const response = await apiClient.put<ApiResponse<CreateSessionResponse>>('/sessions', {
     mode,
-    ...(options || {}),
+    research_mode: research_mode || 'deep_research',
+    ...restOptions,
   });
   return response.data.data;
 }

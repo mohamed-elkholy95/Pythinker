@@ -47,6 +47,38 @@
           </p>
         </div>
 
+        <!-- Research Mode Selector -->
+        <div class="mode-selector-wrapper">
+          <div class="mode-selector" role="radiogroup" :aria-label="$t('Research mode')">
+            <button
+              class="mode-option"
+              :class="{ active: selectedResearchMode === 'fast_search' }"
+              role="radio"
+              :aria-checked="selectedResearchMode === 'fast_search'"
+              @click="selectedResearchMode = 'fast_search'"
+            >
+              <Zap :size="16" />
+              <span>{{ $t('Fast Search') }}</span>
+            </button>
+            <button
+              class="mode-option"
+              :class="{ active: selectedResearchMode === 'deep_research' }"
+              role="radio"
+              :aria-checked="selectedResearchMode === 'deep_research'"
+              @click="selectedResearchMode = 'deep_research'"
+            >
+              <Globe :size="16" />
+              <span>{{ $t('Deep Research') }}</span>
+            </button>
+          </div>
+          <p class="mode-description">
+            {{ selectedResearchMode === 'fast_search'
+              ? $t('Quick answers from search APIs')
+              : $t('Browser-first thorough analysis')
+            }}
+          </p>
+        </div>
+
         <!-- Chat Input -->
         <div class="chat-input-wrapper">
           <ChatBox
@@ -116,9 +148,9 @@ import SimpleBar from '../components/SimpleBar.vue';
 import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
-import type { AgentMode, ThinkingMode } from '../api/agent';
+import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
 import {
-  Search, Palette, Bot, Menu,
+  Palette, Bot, Menu, Zap, Globe,
   Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
 } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
@@ -144,26 +176,13 @@ const message = ref('');
 const isSubmitting = ref(false);
 const attachments = ref<FileInfo[]>([]);
 const pendingSkillId = ref<string | null>(null);
+const selectedResearchMode = ref<ResearchMode>('deep_research');
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
 const { isLeftPanelShow, toggleLeftPanel } = useLeftPanel();
 
-// Visible feature buttons
+// Visible feature buttons (Research/Deep Research/Wide Research removed — now handled by mode selector)
 const visibleFeatures: Feature[] = [
-  {
-    id: 'research',
-    label: 'Research',
-    icon: Search,
-    mode: 'agent',
-    prompt: 'Create a comprehensive research report on: '
-  },
-  {
-    id: 'deep-research',
-    label: 'Deep Research',
-    icon: Search,
-    mode: 'agent',
-    prompt: 'Conduct a deep research with multiple parallel searches on: '
-  },
   {
     id: 'design',
     label: 'Design',
@@ -173,7 +192,7 @@ const visibleFeatures: Feature[] = [
   }
 ];
 
-// More dropdown features
+// More dropdown features (Wide Research removed)
 const moreFeatures: Feature[] = [
   {
     id: 'schedule',
@@ -181,13 +200,6 @@ const moreFeatures: Feature[] = [
     icon: Calendar,
     mode: 'agent',
     prompt: 'Schedule a task to: '
-  },
-  {
-    id: 'wide-research',
-    label: 'Wide Research',
-    icon: Search,
-    mode: 'agent',
-    prompt: 'Conduct a wide and in-depth research on: '
   },
   {
     id: 'spreadsheet',
@@ -319,6 +331,7 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
     state: {
       pendingSessionCreate: true,
       mode,
+      research_mode: selectedResearchMode.value,
       message: initialMessage ?? '',
       skills: [],
       files: attachments.value.map((file: FileInfo) => ({
@@ -358,6 +371,7 @@ const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: strin
       state: {
         pendingSessionCreate: true,
         mode: 'agent',
+        research_mode: selectedResearchMode.value,
         message: submitMessage,
         skills: skillIds,
         thinking_mode: thinkingMode,
@@ -415,6 +429,56 @@ const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: strin
   line-height: 1.2;
   color: var(--text-primary);
   letter-spacing: -0.02em;
+}
+
+/* ===== MODE SELECTOR ===== */
+.mode-selector-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.mode-selector {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--fill-tsp-gray-main);
+  border: 1px solid var(--border-main);
+}
+
+.mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.mode-option:hover:not(.active) {
+  color: var(--text-primary);
+  background: var(--fill-tsp-gray-light);
+}
+
+.mode-option.active {
+  background: var(--background-card);
+  color: var(--text-primary);
+  border-color: var(--border-main);
+  box-shadow: 0 1px 3px var(--shadow-XS);
+}
+
+.mode-description {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 /* ===== CHAT INPUT WRAPPER ===== */
