@@ -1160,6 +1160,7 @@ const NATIVE_EVENTSOURCE_EVENT_TYPES = [
   'skill_activation',
   'thought',
   'canvas_update',
+  'workspace',
   'agent_error',
   'session_error',
   'complete',

@@ -35,6 +35,7 @@ export type AgentSSEEvent = {
     | 'skill_activation'
     | 'thought'
     | 'canvas_update'
+    | 'workspace'
     | 'research_mode';
   data:
     | ToolEventData
@@ -57,7 +58,8 @@ export type AgentSSEEvent = {
     | SkillDeliveryEventData
     | SkillActivationEventData
     | ThoughtEventData
-    | CanvasUpdateEventData;
+    | CanvasUpdateEventData
+    | WorkspaceEventData;
 }
 
 export interface BaseEventData {
@@ -270,4 +272,13 @@ export interface CanvasUpdateEventData extends BaseEventData {
   operation: string;
   element_count: number;
   project_name?: string;
+}
+
+export interface WorkspaceEventData extends BaseEventData {
+  action: 'initialized' | 'deliverables_ready';
+  workspace_type?: string;
+  workspace_path?: string;
+  structure?: Record<string, string>;
+  files_organized?: number;
+  deliverables_count?: number;
 }

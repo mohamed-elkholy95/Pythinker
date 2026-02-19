@@ -466,6 +466,7 @@ import {
   SkillActivationEventData,
   CanvasUpdateEventData,
   ToolStreamEventData,
+  WorkspaceEventData,
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
@@ -2817,6 +2818,8 @@ const processEvent = (event: AgentSSEEvent) => {
     handleSkillActivationEvent(event.data as SkillActivationEventData);
   } else if (event.event === 'canvas_update') {
     handleCanvasUpdateEvent(event.data as CanvasUpdateEventData);
+  } else if (event.event === 'workspace') {
+    researchWorkflow.handleWorkspaceEvent(event.data as WorkspaceEventData);
   } else if (event.event === 'research_mode') {
     const rmData = event.data as { research_mode: string };
     sessionResearchMode.value = (rmData.research_mode as agentApi.ResearchMode) || 'deep_research';

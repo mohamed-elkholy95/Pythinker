@@ -5,12 +5,21 @@ import type {
   PhaseTransitionEventData,
   StreamEventData,
   WideResearchEventData,
+  WorkspaceEventData,
 } from '@/types/event'
 import type {
   ResearchCheckpointSummary,
   ResearchReflectionSummary,
   WideResearchState,
 } from '@/types/message'
+
+export interface WorkspaceInfo {
+  initialized: boolean
+  workspacePath: string | null
+  workspaceType: string | null
+  structure: Record<string, string> | null
+  deliverablesCount: number
+}
 
 const PHASE_LABELS: Record<string, string> = {
   planning: 'Planning',
@@ -79,6 +88,14 @@ export function useResearchWorkflow() {
   const checkpoints = ref<ResearchCheckpointSummary[]>([])
   const latestReflection = ref<ResearchReflectionSummary | null>(null)
   const reflectionBuffer = ref('')
+
+  const workspaceInfo = ref<WorkspaceInfo>({
+    initialized: false,
+    workspacePath: null,
+    workspaceType: null,
+    structure: null,
+    deliverablesCount: 0,
+  })
 
   const activePhase = computed(() => widePhase.value ?? sessionPhase.value)
   const activePhaseLabel = computed(() => toPhaseLabel(activePhase.value))
@@ -177,6 +194,23 @@ export function useResearchWorkflow() {
     }
   }
 
+  const handleWorkspaceEvent = (data: WorkspaceEventData) => {
+    if (data.action === 'initialized') {
+      workspaceInfo.value = {
+        initialized: true,
+        workspacePath: data.workspace_path ?? null,
+        workspaceType: data.workspace_type ?? null,
+        structure: data.structure ?? null,
+        deliverablesCount: 0,
+      }
+    } else if (data.action === 'deliverables_ready') {
+      workspaceInfo.value = {
+        ...workspaceInfo.value,
+        deliverablesCount: data.deliverables_count ?? 0,
+      }
+    }
+  }
+
   const reset = () => {
     wideResearch.clearResearch()
     widePhase.value = null
@@ -184,6 +218,13 @@ export function useResearchWorkflow() {
     checkpoints.value = []
     latestReflection.value = null
     reflectionBuffer.value = ''
+    workspaceInfo.value = {
+      initialized: false,
+      workspacePath: null,
+      workspaceType: null,
+      structure: null,
+      deliverablesCount: 0,
+    }
   }
 
   return {
@@ -193,11 +234,13 @@ export function useResearchWorkflow() {
     activePhaseLabel: readonly(activePhaseLabel),
     checkpoints: readonly(checkpoints),
     latestReflection: readonly(latestReflection),
+    workspaceInfo: readonly(workspaceInfo),
 
     handleWideResearchEvent,
     handlePhaseTransitionEvent,
     handleCheckpointSavedEvent,
     handleStreamEvent,
+    handleWorkspaceEvent,
     reset,
   }
 }
