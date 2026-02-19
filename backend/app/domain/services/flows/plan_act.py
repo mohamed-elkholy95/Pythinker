@@ -28,6 +28,7 @@ from app.domain.models.event import (
     PlanStatus,
     ProgressEvent,
     ReportEvent,
+    ResearchModeEvent,
     StepEvent,
     StepStatus,
     TitleEvent,
@@ -218,8 +219,10 @@ class PlanActFlow(BaseFlow):
         correction_event_sink: Callable[[CorrectionEvent], None] | None = None,
         feedback_lookup: Callable[[str], str | None] | None = None,
         cancel_token: CancellationToken | None = None,
+        research_mode: str = "deep_research",
     ):
         self._feature_flags = feature_flags
+        self._research_mode = research_mode
         self._alert_port = alert_port
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -2063,6 +2066,10 @@ class PlanActFlow(BaseFlow):
     async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:
         """Internal run method with tracing."""
         await self._check_cancelled()
+
+        # Emit research mode event so frontend can adapt layout (e.g., auto-open browser panel)
+        yield ResearchModeEvent(research_mode=self._research_mode)
+
         original_message = message.message
         settings = get_settings()
 
@@ -2574,6 +2581,18 @@ class PlanActFlow(BaseFlow):
                             except Exception as e:
                                 logger.debug("Role-scoped memory injection skipped: %s", e)
 
+                        # Deep Research: inject browser-first emphasis into planner prompt
+                        _saved_planner_prompt = self.planner.system_prompt
+                        if self._research_mode == "deep_research":
+                            self.planner.system_prompt += (
+                                "\n\n## Research Strategy: Browser-First Deep Research\n"
+                                "You are a researcher agent. Your PRIMARY instrument is the web browser. "
+                                "Always prefer browser_navigate and browser_agent_extract over simple API searches. "
+                                "Browse multiple authoritative sources, extract content directly from web pages, "
+                                "and verify information visually. Use info_search_web only for initial discovery, "
+                                "then follow up with browser-based deep reading of the most relevant results."
+                            )
+
                         async for event in self.planner.create_plan(message, replan_context=replan_context):
                             await self._check_cancelled()
                             if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
@@ -2606,6 +2625,9 @@ class PlanActFlow(BaseFlow):
                                 yield TitleEvent(title=event.plan.title)
                                 # Skip plan.message - execute silently without explaining
                             yield event
+
+                        # Restore planner prompt after deep research injection
+                        self.planner.system_prompt = _saved_planner_prompt
 
                     # Validate plan before proceeding
                     if not self._validate_plan_before_execution():

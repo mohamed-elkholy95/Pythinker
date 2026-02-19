@@ -41,7 +41,7 @@ from app.domain.models.event import (
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
 from app.domain.models.search import SearchResults
-from app.domain.models.session import AgentMode, SessionStatus
+from app.domain.models.session import AgentMode, ResearchMode, SessionStatus
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
@@ -50,6 +50,7 @@ from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.comparison_chart_generator import ComparisonChartGenerator
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.discuss import DiscussFlow
+from app.domain.services.flows.fast_search import FastSearchFlow
 from app.domain.services.flows.plan_act import PlanActFlow
 from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorFlow,
@@ -177,6 +178,7 @@ class AgentTaskRunner(TaskRunner):
         mcp_repository: MCPRepository,
         search_engine: SearchEngine | None = None,
         mode: AgentMode = AgentMode.AGENT,
+        research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH,
         enable_multi_agent: bool = True,
         enable_coordinator: bool = False,
         memory_service: Optional["MemoryService"] = None,
@@ -202,6 +204,7 @@ class AgentTaskRunner(TaskRunner):
         self._mcp_tool = MCPTool()
         self._extra_mcp_configs = extra_mcp_configs or {}
         self._mode = mode
+        self._research_mode = research_mode
 
         # Multi-agent configuration
         self._enable_multi_agent = enable_multi_agent
@@ -256,9 +259,12 @@ class AgentTaskRunner(TaskRunner):
         self._plan_act_flow: PlanActFlow | None = None
         self._discuss_flow: DiscussFlow | None = None
         self._coordinator_flow: CoordinatorFlow | None = None
+        self._fast_search_flow: FastSearchFlow | None = None
 
         if mode == AgentMode.AGENT:
-            if self._flow_mode == FlowMode.COORDINATOR:
+            if research_mode == ResearchMode.FAST_SEARCH:
+                self._init_fast_search_flow()
+            elif self._flow_mode == FlowMode.COORDINATOR:
                 self._init_coordinator_flow()
             else:
                 self._init_plan_act_flow()
@@ -266,8 +272,9 @@ class AgentTaskRunner(TaskRunner):
             self._init_discuss_flow()
 
         logger.info(
-            "Flow selected: mode=%s, flow=%s, session=%s, reason=%s",
+            "Flow selected: mode=%s, research_mode=%s, flow=%s, session=%s, reason=%s",
             mode.value,
+            research_mode.value,
             self._flow_mode.value,
             session_id,
             self._flow_selection_reason,
@@ -355,6 +362,7 @@ class AgentTaskRunner(TaskRunner):
                 correction_event_sink=typo_analytics.record_event,
                 feedback_lookup=typo_analytics.get_feedback_override,
                 cancel_token=self._cancel_token,
+                research_mode=self._research_mode.value,
             )
             # Inject circuit breaker for tool-level failure protection
             try:
@@ -404,6 +412,16 @@ class AgentTaskRunner(TaskRunner):
             )
             logger.debug(f"Initialized DiscussFlow for agent {self._agent_id}")
 
+    def _init_fast_search_flow(self) -> None:
+        """Initialize FastSearchFlow for fast search mode"""
+        if self._fast_search_flow is None:
+            self._fast_search_flow = FastSearchFlow(
+                session_id=self._session_id,
+                llm=self._llm,
+                search_engine=self._search_engine,
+            )
+            logger.debug(f"Initialized FastSearchFlow for session {self._session_id}")
+
     async def initialize(self) -> None:
         """Initialize Pythinker-style components from the agent factory.
 
@@ -450,6 +468,7 @@ class AgentTaskRunner(TaskRunner):
         self._mode = AgentMode.AGENT
 
         # Initialize appropriate flow based on configuration
+        # Note: mode switch always goes to plan_act (deep research), not fast search
         if self._flow_mode == FlowMode.COORDINATOR:
             self._init_coordinator_flow()
         else:
@@ -459,8 +478,10 @@ class AgentTaskRunner(TaskRunner):
 
     @property
     def _flow(self) -> BaseFlow | None:
-        """Get the current flow based on mode and configuration."""
+        """Get the current flow based on mode, research mode, and configuration."""
         if self._mode == AgentMode.AGENT:
+            if self._research_mode == ResearchMode.FAST_SEARCH and self._fast_search_flow:
+                return self._fast_search_flow
             if self._flow_mode == FlowMode.COORDINATOR and self._coordinator_flow:
                 return self._coordinator_flow
             return self._plan_act_flow
