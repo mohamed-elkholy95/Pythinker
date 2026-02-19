@@ -4,6 +4,7 @@ Plotly chart creation tool for the agent.
 Supports 8 chart types: bar, line, scatter, pie, area, grouped_bar, stacked_bar, box
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -332,16 +333,33 @@ Returns both interactive HTML and static PNG files.""",
                 view_result = await self.sandbox.view_shell(session_id=self.session_id)
                 raw_output = view_result.data.get("output") if view_result.data else None
             else:
+                # Extract output — NEVER fall back to exec_result.message
+                # (it's a generic string like "Command executed", not JSON)
                 raw_output = exec_result.data.get("output") if exec_result.data else None
+
+            # If command completed but output is empty, the sandbox output
+            # reader may still be buffering. Retry with view_shell after a
+            # short delay.
+            if not raw_output and exec_status == "completed":
+                logger.debug(
+                    "Chart output empty after exec, retrying with view_shell after 0.5s delay"
+                )
+                await asyncio.sleep(0.5)
+                view_result = await self.sandbox.view_shell(session_id=self.session_id)
+                raw_output = view_result.data.get("output") if view_result.data else None
+
+            if not raw_output:
+                logger.warning(
+                    f"Chart script produced no output. exec_result.data={exec_result.data}"
+                )
+                return ToolResult(
+                    success=False,
+                    message="Chart script produced no output — the script may have failed silently",
+                )
 
             # Parse JSON output from script — find the JSON line in potentially mixed output
             try:
-                output_str = raw_output or exec_result.message or ""
-                if not output_str:
-                    return ToolResult(
-                        success=False,
-                        message="Chart script produced no output",
-                    )
+                output_str = raw_output
                 # Script outputs JSON on a single line; search for it in case stderr is mixed in
                 json_line = next(
                     (line for line in output_str.splitlines() if line.strip().startswith("{")),
