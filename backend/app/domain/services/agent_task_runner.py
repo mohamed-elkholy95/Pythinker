@@ -1823,7 +1823,6 @@ class AgentTaskRunner(TaskRunner):
                     message=message,
                     attachments=attachments,
                     skills=event.skills or [],
-                    deep_research=event.deep_research or False,
                     thinking_mode=event.thinking_mode,
                 )
 
@@ -1928,7 +1927,6 @@ class AgentTaskRunner(TaskRunner):
                 message=mode_switch_task,
                 attachments=message.attachments,
                 skills=message.skills,
-                deep_research=message.deep_research,
             )
 
             # Run through Agent mode flow
