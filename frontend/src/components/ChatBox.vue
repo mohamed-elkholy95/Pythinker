@@ -67,7 +67,6 @@ import { Paperclip, Puzzle, X } from 'lucide-vue-next';
 import ConnectorButton from './connectors/ConnectorButton.vue';
 import ConnectorBanner from './connectors/ConnectorBanner.vue';
 import SkillPicker from './SkillPicker.vue';
-import ThinkingModeSelector from './ThinkingModeSelector.vue';
 import { useSkills } from '@/composables/useSkills';
 import { getCommandMap } from '@/api/skills';
 import type { FileInfo } from '../api/file';
