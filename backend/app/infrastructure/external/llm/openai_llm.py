@@ -1803,12 +1803,9 @@ To extract data from a webpage:
             logger.debug(f"DeepInfra NVIDIA model {self._model_name} doesn't support json_object format")
             return False
 
-        # OpenRouter supports json_object/json_schema for most models natively
-        if getattr(self, "_is_openrouter", False):
-            return True
-
-        # Conservative default for unknown providers
-        return False
+        # OpenRouter supports json_object/json_schema for most models natively.
+        # Conservative default: False for unknown providers.
+        return getattr(self, "_is_openrouter", False)
 
     async def ask_stream(
         self,
