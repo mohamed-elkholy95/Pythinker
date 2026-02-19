@@ -39,6 +39,7 @@
               </span>
               <ChevronRight class="chat-title-chevron" :size="16" />
             </button>
+            <ResearchModeBadge :mode="sessionResearchMode" />
           </div>
           <!-- Right: Buttons -->
           <div class="flex items-center gap-1 flex-shrink-0">
@@ -143,10 +144,7 @@
             @reportFileOpen="handleReportFileOpen"
             @showAllFiles="handleFileListShow"
             @reportRate="handleReportRate"
-            @selectSuggestion="handleSuggestionSelect"
-            @deepResearchRun="handleDeepResearchRun"
-            @deepResearchSkip="handleDeepResearchSkip"
-            @toggleAutoRun="handleToggleAutoRun" />
+            @selectSuggestion="handleSuggestionSelect" />
           <SessionWarmupMessage
             v-if="showSessionWarmupMessage"
             :state="warmupState"
@@ -353,11 +351,7 @@
           />
         </div>
       </div>
-      <!-- Wide Research Overlay -->
-      <WideResearchOverlay
-        :state="researchWorkflow.wideOverlayState.value"
-        :phase="researchWorkflow.activePhase.value"
-      />
+      <!-- Wide Research UI removed — behavior absorbed into Deep Research mode -->
       </div>
 
       <div v-if="isToolPanelOpen && !isMobileViewport" class="relative h-full w-[8px] flex-shrink-0">
@@ -467,7 +461,6 @@ import {
   StreamEventData,
   ProgressEventData,
   DeepResearchEventData,
-  WideResearchEventData,
   PhaseTransitionEventData,
   CheckpointSavedEventData,
   SkillDeliveryEventData,
@@ -501,12 +494,13 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import PlannerActivityIndicator from '@/components/ui/PlannerActivityIndicator.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
-import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
+// WideResearchOverlay removed — absorbed into Deep Research mode
 import ConnectionStatusBanner from '@/components/ConnectionStatusBanner.vue';
+import ResearchModeBadge from '@/components/ResearchModeBadge.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { useSkills } from '@/composables/useSkills';
-import { useDeepResearch } from '@/composables/useDeepResearch';
+// useDeepResearch removed — DeepResearchCard no longer used
 import { useResearchWorkflow } from '@/composables/useResearchWorkflow';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
@@ -533,7 +527,7 @@ const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 const { emitStatusChange } = useSessionStatus()
 const { getEffectiveSkillIds, clearSelectedSkills, lockSkillsForSession, clearSessionSkills, selectSkill } = useSkills()
-const { toggleAutoRun } = useDeepResearch()
+// Deep research card interactions removed
 const researchWorkflow = useResearchWorkflow()
 // ConnectorDialog composable — dialog manages its own visibility
 useConnectorDialog()
@@ -893,6 +887,7 @@ const skipNextRouteReset = ref(false);
 interface PendingSessionCreateState {
   pendingSessionCreate: boolean;
   mode?: 'agent' | 'discuss';
+  research_mode?: agentApi.ResearchMode;
   message?: string;
   skills?: string[];
   files?: FileInfo[];
@@ -1117,6 +1112,9 @@ const warmupState = computed<'initializing' | 'thinking' | 'timed_out'>(() => {
 // Track active canvas project from canvas_update SSE events
 const activeCanvasProjectId = ref<string | null>(null);
 
+// Track the session's research mode (set from SSE event or session creation)
+const sessionResearchMode = ref<agentApi.ResearchMode | null>(null);
+
 const refreshSessionStatus = async (targetSessionId?: string) => {
   const activeSessionId = targetSessionId ?? sessionId.value;
   if (!activeSessionId) {
@@ -1163,6 +1161,7 @@ const initializePendingSession = async () => {
   const pendingSkills = Array.isArray(pendingState.skills) ? pendingState.skills : [];
   const pendingThinkingMode: ThinkingMode = pendingState.thinking_mode || 'auto';
   const mode = pendingState.mode === 'discuss' ? 'discuss' : 'agent';
+  const researchMode = pendingState.research_mode || 'deep_research';
 
   // Show immediate chat view feedback while backend session is being created.
   if (pendingMessage || pendingFiles.length > 0) {
@@ -1172,7 +1171,8 @@ const initializePendingSession = async () => {
   }
 
   try {
-    const session = await agentApi.createSession(mode);
+    const session = await agentApi.createSession(mode, { research_mode: researchMode });
+    sessionResearchMode.value = researchMode;
     sessionId.value = session.session_id;
     if (pendingMessage) {
       emitSessionTitleHint({
@@ -1332,6 +1332,9 @@ const resetState = () => {
 
   // Clear streaming content buffer
   streamingContentBuffer.clear();
+
+  // Reset session research mode
+  sessionResearchMode.value = null;
 
   // Reset reactive state to initial values
   Object.assign(state, createInitialState());
@@ -2627,36 +2630,6 @@ const handleCheckpointSavedEvent = (data: CheckpointSavedEventData) => {
   syncDeepResearchMessageMetadata(data.research_id);
 };
 
-// Handle deep research run (approve)
-const handleDeepResearchRun = async (_researchId: string) => {
-  if (!sessionId.value) return;
-  try {
-    await agentApi.approveDeepResearch(sessionId.value);
-  } catch {
-    showErrorToast(t('Failed to start research'));
-  }
-};
-
-// Handle deep research skip
-const handleDeepResearchSkip = async (_researchId: string, queryId?: string) => {
-  if (!sessionId.value) return;
-  try {
-    await agentApi.skipDeepResearchQuery(sessionId.value, queryId);
-  } catch {
-    showErrorToast(t('Failed to skip query'));
-  }
-};
-
-// Handle toggle auto-run preference
-const handleToggleAutoRun = () => {
-  toggleAutoRun();
-};
-
-// Handle wide research SSE events
-const handleWideResearchEvent = (data: WideResearchEventData) => {
-  researchWorkflow.handleWideResearchEvent(data);
-};
-
 // Handle skill delivery events
 const handleSkillDeliveryEvent = (data: SkillDeliveryEventData) => {
   showInfoToast(`Skill "${data.name}" package ready`);
@@ -2923,8 +2896,6 @@ const processEvent = (event: AgentSSEEvent) => {
     handleProgressEvent(event.data as ProgressEventData);
   } else if (event.event === 'deep_research') {
     handleDeepResearchEvent(event.data as DeepResearchEventData);
-  } else if (event.event === 'wide_research') {
-    handleWideResearchEvent(event.data as WideResearchEventData);
   } else if (event.event === 'phase_transition') {
     handlePhaseTransitionEvent(event.data as PhaseTransitionEventData);
   } else if (event.event === 'checkpoint_saved') {
@@ -2935,6 +2906,9 @@ const processEvent = (event: AgentSSEEvent) => {
     handleSkillActivationEvent(event.data as SkillActivationEventData);
   } else if (event.event === 'canvas_update') {
     handleCanvasUpdateEvent(event.data as CanvasUpdateEventData);
+  } else if (event.event === 'research_mode') {
+    const rmData = event.data as { research_mode: string };
+    sessionResearchMode.value = (rmData.research_mode as agentApi.ResearchMode) || 'deep_research';
   }
   lastEventId.value = event.data.event_id;
   // Persist lastEventId to sessionStorage for proper event resumption on page refresh
@@ -3169,7 +3143,8 @@ const restoreSession = async () => {
 
   const session = await agentApi.getSession(sessionId.value);
   sessionStatus.value = session.status as SessionStatus;
-  console.log('[RESTORE] Session:', sessionId.value, 'Status:', sessionStatus.value, 'LastEventId:', lastEventId.value);
+  sessionResearchMode.value = (session.research_mode as agentApi.ResearchMode) || 'deep_research';
+  console.log('[RESTORE] Session:', sessionId.value, 'Status:', sessionStatus.value, 'ResearchMode:', sessionResearchMode.value, 'LastEventId:', lastEventId.value);
 
   // Initialize share mode based on session state
   shareMode.value = session.is_shared ? 'public' : 'private';

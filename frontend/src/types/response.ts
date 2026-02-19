@@ -14,6 +14,11 @@ export enum AgentMode {
     AGENT = "agent"
 }
 
+export enum ResearchMode {
+    FAST_SEARCH = "fast_search",
+    DEEP_RESEARCH = "deep_research"
+}
+
 export type StreamingMode = 'cdp_only'
 
 export interface SandboxInfo {
@@ -25,6 +30,7 @@ export interface SandboxInfo {
 export interface CreateSessionResponse {
     session_id: string;
     mode: AgentMode;
+    research_mode: ResearchMode;
     sandbox: SandboxInfo | null;
     status: SessionStatus;
 }
@@ -33,6 +39,7 @@ export interface GetSessionResponse {
     session_id: string;
     title: string | null;
     status: SessionStatus;
+    research_mode: ResearchMode;
     streaming_mode: StreamingMode | null;
     events: AgentSSEEvent[];
     is_shared: boolean;

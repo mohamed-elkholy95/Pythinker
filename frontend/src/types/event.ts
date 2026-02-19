@@ -35,7 +35,8 @@ export type AgentSSEEvent = {
     | 'skill_delivery'
     | 'skill_activation'
     | 'thought'
-    | 'canvas_update';
+    | 'canvas_update'
+    | 'research_mode';
   data:
     | ToolEventData
     | ToolStreamEventData
