@@ -698,11 +698,17 @@ class MultiTaskEvent(BaseEvent):
 
 
 class WorkspaceEvent(BaseEvent):
-    """Workspace structure and organization event"""
+    """Workspace structure and organization event.
+
+    Emitted during Deep Research to notify the frontend of workspace lifecycle:
+    - "initialized": workspace directories created in sandbox
+    - "deliverables_ready": all deliverable files cataloged at session end
+    """
 
     type: Literal["workspace"] = "workspace"
-    action: str  # "initialized", "organized", "validated", "deliverable_added"
+    action: str  # "initialized", "deliverables_ready"
     workspace_type: str | None = None  # "research", "code_project", "data_analysis"
+    workspace_path: str | None = None  # absolute path in sandbox
     structure: dict[str, str] | None = None  # folder_name -> purpose
     files_organized: int = 0
     deliverables_count: int = 0
@@ -768,6 +774,22 @@ class WideResearchEvent(BaseEvent):
     search_types: list[str] = Field(default_factory=list)
     current_query: str | None = None
     errors: list[str] = Field(default_factory=list)
+
+
+class LegacyDeepResearchEvent(BaseEvent):
+    """Legacy event type for backward compatibility with old sessions.
+
+    DeepResearchEvent was removed but MongoDB may still contain these events.
+    This stub allows SessionDocument deserialization to succeed without crashing.
+    """
+
+    type: Literal["deep_research"] = "deep_research"
+    research_id: str = ""
+    status: str = ""
+    total_queries: int = 0
+    completed_queries: int = 0
+    queries: list[dict[str, Any]] = Field(default_factory=list)
+    auto_run: bool = False
 
 
 class ThoughtEvent(BaseEvent):
@@ -886,6 +908,7 @@ AgentEvent = Annotated[
         PhaseTransitionEvent,
         CheckpointSavedEvent,
         WideResearchEvent,
+        LegacyDeepResearchEvent,
         ThoughtEvent,
         ConfidenceEvent,
         CanvasUpdateEvent,

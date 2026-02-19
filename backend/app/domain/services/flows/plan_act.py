@@ -39,6 +39,7 @@ from app.domain.models.event import (
     WaitEvent,
     WideResearchEvent,
     WideResearchStatus,
+    WorkspaceEvent,
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
@@ -1942,20 +1943,52 @@ class PlanActFlow(BaseFlow):
         if self._research_mode == "deep_research":
             workspace_base = f"/workspace/{self._session_id}"
             workspace_path = f"{workspace_base}/output"
-            mkdir_cmd = (
-                f"mkdir -p {workspace_path}/reports {workspace_path}/charts {workspace_path}/data {workspace_path}/code"
-            )
+            workspace_structure = {
+                "reports": "Markdown reports, analysis documents",
+                "charts": "Plotly charts (HTML/PNG), visualizations",
+                "data": "CSV, JSON, raw extracted data",
+                "code": "Scripts, code samples, notebooks",
+            }
+            subdirs = " ".join(f"{workspace_path}/{d}" for d in workspace_structure)
+            mkdir_cmd = f"mkdir -p {subdirs}"
             try:
                 result = await self._sandbox.exec_command(self._session_id, workspace_base, mkdir_cmd)
                 if result.success:
                     self._workspace_output_path = workspace_path
                     logger.info("Deep Research workspace created: %s", workspace_path)
+
+                    # Verify directories were actually created
+                    verify_cmd = " && ".join(f"test -d {workspace_path}/{d}" for d in workspace_structure)
+                    verify_result = await self._sandbox.exec_command(self._session_id, workspace_base, verify_cmd)
+                    if not verify_result.success:
+                        logger.warning("Workspace directory verification failed — some dirs may be missing")
                 else:
                     logger.warning("Workspace mkdir failed, using fallback: %s", result.message)
                     self._workspace_output_path = workspace_base
+                    workspace_structure = {}
             except Exception as e:
                 logger.warning("Workspace creation failed, using fallback: %s", e)
                 self._workspace_output_path = workspace_base
+                workspace_structure = {}
+
+            # Persist workspace path to session metadata for resilience
+            try:
+                session = await self._session_repository.find_by_id(self._session_id)
+                if session:
+                    ws = session.workspace_structure or {}
+                    ws["_output_path"] = self._workspace_output_path
+                    ws.update(workspace_structure)
+                    await self._session_repository.update_by_id(self._session_id, {"workspace_structure": ws})
+            except Exception as e:
+                logger.debug("Workspace path persistence to session failed (non-critical): %s", e)
+
+            # Notify frontend of workspace initialization
+            yield WorkspaceEvent(
+                action="initialized",
+                workspace_type="research",
+                workspace_path=self._workspace_output_path,
+                structure=workspace_structure or None,
+            )
 
             # Inject workspace-aware instructions into executor prompt
             from app.domain.services.prompts.execution import build_workspace_context
@@ -3033,19 +3066,26 @@ class PlanActFlow(BaseFlow):
                             logger.warning(f"File sweep failed before summarizing: {e}")
 
                     # Inject workspace deliverables listing into summarization context
+                    workspace_file_count = 0
                     if self._research_mode == "deep_research" and self._workspace_output_path:
                         try:
-                            tree_cmd = (
-                                f"find {self._workspace_output_path} -type f "
-                                f"-printf '%P  (%s bytes)\\n' 2>/dev/null | sort | head -100"
-                            )
-                            tree_result = await self._sandbox.exec_command(
-                                self._session_id, self._workspace_output_path, tree_cmd
-                            )
+                            wp = self._workspace_output_path
+                            # Primary: GNU find -printf for size-annotated listing
+                            tree_cmd = f"find {wp} -type f -printf '%P  (%s bytes)\\n' 2>/dev/null | sort | head -100"
+                            tree_result = await self._sandbox.exec_command(self._session_id, wp, tree_cmd)
                             listing = ""
                             if tree_result.success:
                                 listing = (tree_result.data or {}).get("output", "").strip()
+
+                            # Fallback: plain find if -printf is unavailable (Alpine/BusyBox)
+                            if not listing:
+                                fallback_cmd = f"find {wp} -type f 2>/dev/null | sed 's|^{wp}/||' | sort | head -100"
+                                fb_result = await self._sandbox.exec_command(self._session_id, wp, fallback_cmd)
+                                if fb_result.success:
+                                    listing = (fb_result.data or {}).get("output", "").strip()
+
                             if listing:
+                                workspace_file_count = listing.count("\n") + 1
                                 deliverables_ctx = (
                                     "\n\n## Workspace Deliverables\n"
                                     "The following files were created during this research session:\n"
@@ -3056,10 +3096,18 @@ class PlanActFlow(BaseFlow):
                                 self.executor.system_prompt += deliverables_ctx
                                 logger.info(
                                     "Injected workspace listing (%d files) into summarization context",
-                                    listing.count("\n") + 1,
+                                    workspace_file_count,
                                 )
                         except Exception as e:
                             logger.warning("Workspace listing for summarization failed: %s", e)
+
+                        # Notify frontend that deliverables are cataloged
+                        yield WorkspaceEvent(
+                            action="deliverables_ready",
+                            workspace_type="research",
+                            workspace_path=self._workspace_output_path,
+                            deliverables_count=workspace_file_count,
+                        )
 
                     # Fetch session files to include in the final report
                     session_files: list[FileInfo] = []
