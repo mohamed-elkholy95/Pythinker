@@ -1124,7 +1124,6 @@ class PlanActFlow(BaseFlow):
         - Feature flag is enabled
         - Thinking mode is NOT 'fast' (fast mode skips parallel research for speed)
         - Plan has enough research-type steps (>= min_subquestions)
-        - We are NOT already in deep_research mode (which has its own flow)
         """
         settings = get_settings()
         if not settings.parallel_research_enabled:
@@ -1180,12 +1179,6 @@ class PlanActFlow(BaseFlow):
             research_steps: Steps identified as search/research tasks
             trace_ctx: Tracing context for observability
         """
-        from app.domain.models.event import (
-            DeepResearchEvent,
-            DeepResearchQueryData,
-            DeepResearchQueryStatus,
-            DeepResearchStatus,
-        )
         from app.domain.services.agents.research_query_decomposer import ResearchQueryDecomposer
         from app.domain.services.research.search_adapter import SearchToolAdapter
         from app.domain.services.research.wide_research import WideResearchOrchestrator
@@ -1195,8 +1188,6 @@ class PlanActFlow(BaseFlow):
         if not self._search_engine:
             logger.warning("Parallel research skipped: no search engine available")
             return
-
-        research_id = uuid4().hex[:12]
 
         # ── Query generation: LLM decomposition or step descriptions ────
         if settings.parallel_research_llm_decomposition and self._llm:
@@ -1217,22 +1208,10 @@ class PlanActFlow(BaseFlow):
             f"{len(queries)} sub-questions, max_concurrency={settings.parallel_research_max_concurrency}"
         )
 
-        # Emit initial research progress event (reuse DeepResearchEvent protocol)
-        query_data = [
-            DeepResearchQueryData(
-                id=str(idx),
-                query=q,
-                status=DeepResearchQueryStatus.PENDING,
-            )
-            for idx, q in enumerate(queries)
-        ]
-        yield DeepResearchEvent(
-            research_id=research_id,
-            status=DeepResearchStatus.STARTED,
-            total_queries=len(queries),
-            completed_queries=0,
-            queries=query_data,
-            auto_run=True,
+        # Emit initial progress event for parallel research
+        yield ProgressEvent(
+            phase=PlanningPhase.FINALIZING,
+            message=f"Running {len(queries)} parallel research queries...",
         )
 
         # Create orchestrator with search adapter
@@ -1323,24 +1302,10 @@ class PlanActFlow(BaseFlow):
             yield StepEvent(step=step, status=StepStatus.COMPLETED)
             await self._task_state_manager.update_step_status(str(step.id), "completed")
 
-        # Emit completion event with actual query data
-        final_query_data = [
-            DeepResearchQueryData(
-                id=str(idx),
-                query=task.query,
-                status=DeepResearchQueryStatus.COMPLETED
-                if task.status.value == "completed"
-                else DeepResearchQueryStatus.FAILED,
-            )
-            for idx, task in enumerate(completed_tasks)
-        ]
-        yield DeepResearchEvent(
-            research_id=research_id,
-            status=DeepResearchStatus.COMPLETED,
-            total_queries=len(queries),
-            completed_queries=successful_tasks,
-            queries=final_query_data,
-            auto_run=True,
+        # Emit completion progress event
+        yield ProgressEvent(
+            phase=PlanningPhase.FINALIZING,
+            message=f"Parallel research complete: {successful_tasks}/{len(queries)} queries succeeded",
         )
 
         if accumulated_findings:
@@ -1415,104 +1380,6 @@ class PlanActFlow(BaseFlow):
     def _extract_research_topic(self, user_message: str) -> str | None:
         """Extract the research topic from the user's message."""
         return self._ack_generator._extract_research_topic(user_message)
-
-    async def _execute_deep_research(
-        self, topic: str, original_message: str, trace_ctx
-    ) -> AsyncGenerator[BaseEvent, None]:
-        """Execute deep research through the DeepResearchFlow manager path."""
-        del original_message, trace_ctx  # Reserved for future tracing hooks
-
-        from app.core.deep_research_manager import get_deep_research_manager
-        from app.domain.models.deep_research import DeepResearchConfig
-        from app.domain.models.event import DeepResearchEvent, DeepResearchStatus
-        from app.domain.services.flows.deep_research import DeepResearchFlow
-        from app.domain.services.flows.phased_research import PhasedResearchFlow
-
-        logger.info(f"Executing deep research on topic: {topic}")
-
-        if self._search_engine is None:
-            yield MessageEvent(message="Search capabilities are not available for deep research.")
-            yield DoneEvent()
-            return
-
-        deep_flags = self._resolve_feature_flags()
-        if deep_flags.get("phased_research"):
-            phased_flow = PhasedResearchFlow(
-                search_engine=self._search_engine,
-                session_id=self._session_id,
-            )
-
-            try:
-                async for event in phased_flow.run(topic):
-                    yield event
-                yield DoneEvent()
-            except Exception as e:
-                logger.error(f"Phased deep research failed: {e}")
-                yield ErrorEvent(error=f"Deep research failed: {e}")
-                yield DoneEvent()
-            return
-
-        queries = self._generate_research_queries(topic)
-        if not queries:
-            yield MessageEvent(message="I couldn't generate valid research queries for that topic.")
-            yield DoneEvent()
-            return
-
-        flow = DeepResearchFlow(search_engine=self._search_engine, session_id=self._session_id)
-        manager = get_deep_research_manager()
-        registered = False
-
-        try:
-            await manager.register(self._session_id, flow)
-            registered = True
-
-            config = DeepResearchConfig(
-                queries=queries,
-                auto_run=True,  # Preserve current immediate-run behavior
-                max_concurrent=min(5, max(1, len(queries))),
-            )
-
-            completed_event: DeepResearchEvent | None = None
-            async for event in flow.run(config):
-                # Keep frontend status text stable while per-query updates stream through query payloads.
-                if event.status in {
-                    DeepResearchStatus.QUERY_STARTED,
-                    DeepResearchStatus.QUERY_COMPLETED,
-                    DeepResearchStatus.QUERY_SKIPPED,
-                }:
-                    event = event.model_copy(update={"status": DeepResearchStatus.STARTED})
-                # Hold the COMPLETED event — emit SUMMARIZING first so the phase bar
-                # transitions properly before the final completion signal.
-                if event.status == DeepResearchStatus.COMPLETED:
-                    completed_event = event
-                else:
-                    yield event
-
-            # Signal summarizing phase so the progress bar shows it as active
-            if completed_event is not None:
-                yield completed_event.model_copy(update={"status": DeepResearchStatus.SUMMARIZING})
-
-            summary = flow.generate_research_summary()
-            if summary:
-                yield ReportEvent(
-                    id=str(uuid4()),
-                    title=f"Research: {topic}",
-                    content=summary,
-                    attachments=[],
-                )
-
-            # Emit final completed event after the report is ready
-            if completed_event is not None:
-                yield completed_event
-
-            yield DoneEvent()
-        except Exception as e:
-            logger.error(f"Deep research failed: {e}")
-            yield ErrorEvent(error=f"Deep research failed: {e}")
-            yield DoneEvent()
-        finally:
-            if registered:
-                await manager.unregister(self._session_id)
 
     def _generate_research_queries(self, topic: str) -> list[str]:
         """Generate search queries from a research topic.
@@ -2481,11 +2348,6 @@ class PlanActFlow(BaseFlow):
         # in agent_domain_service.py — the "skill-creator" skill's system_prompt_addition
         # is injected via the normal skill context pipeline (execution.py/planner.py).
 
-        # === DEEP RESEARCH MODE ===
-        # When deep_research is True, directly execute wide_research tool
-        # This provides parallel multi-source search capabilities
-        # Track deep_research flag so parallel research doesn't double-trigger
-        self._message_deep_research = message.deep_research
         self._parallel_research_done = False
 
         # === THINKING MODE: propagate user model-tier override to executor ===
@@ -2500,21 +2362,6 @@ class PlanActFlow(BaseFlow):
             )
         else:
             self.executor.set_thinking_mode(None)  # Reset to auto
-
-        if message.deep_research:
-            logger.info(f"Deep Research mode activated for session {self._session_id}")
-            topic = self._extract_research_topic(message.message) or message.message
-            logger.info(f"Deep Research topic: {topic}")
-
-            # Execute wide_research directly through the search tool
-            async for event in self._execute_deep_research(topic, message.message, trace_ctx):
-                yield event
-
-            # After deep research, proceed to summarization
-            await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
-            logger.info(f"Deep Research completed for session {self._session_id}")
-            return
-        # === END DEEP RESEARCH MODE ===
 
         step = None
         while True:
@@ -2792,11 +2639,7 @@ class PlanActFlow(BaseFlow):
                     # Before entering the standard step-by-step loop, check if
                     # this plan has multiple research steps that can be fanned
                     # out concurrently for faster execution.
-                    if (
-                        not getattr(self, "_parallel_research_done", False)
-                        and not getattr(self, "_message_deep_research", False)
-                        and self._should_use_parallel_research()
-                    ):
+                    if not getattr(self, "_parallel_research_done", False) and self._should_use_parallel_research():
                         self._parallel_research_done = True  # Only run once per plan
                         research_steps, _remaining = self._partition_research_steps()
                         logger.info(
