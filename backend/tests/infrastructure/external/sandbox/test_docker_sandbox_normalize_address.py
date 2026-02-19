@@ -7,8 +7,6 @@ and container naming.
 
 from __future__ import annotations
 
-import pytest
-
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 
 

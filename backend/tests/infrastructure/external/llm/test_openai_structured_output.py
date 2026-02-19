@@ -12,7 +12,6 @@ from app.infrastructure.external.llm.instructor_adapter import (
 )
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
 
-
 # ── helpers ──────────────────────────────────────────────────────────────
 
 
