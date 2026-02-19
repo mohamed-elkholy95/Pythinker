@@ -17,15 +17,15 @@ class LLMSettingsMixin:
     llm_provider: str = "auto"
 
     # OpenAI-compatible provider (default)
-    # Works with OpenRouter, DeepSeek, OpenAI, and other OpenAI-compatible APIs
+    # Works with OpenRouter, Kimi Code, DeepSeek, OpenAI, and other OpenAI-compatible APIs
     api_key: str | None = None
     api_key_2: str | None = None  # Fallback OpenAI/OpenRouter key #1
     api_key_3: str | None = None  # Fallback OpenAI/OpenRouter key #2
     api_base: str = "https://openrouter.ai/api/v1"
 
     # Model configuration
-    # NVIDIA Nemotron 3 Nano 30B A3B: 30B MoE (3B active), 262k context, agentic AI optimized
-    model_name: str = "nvidia/nemotron-3-nano-30b-a3b"
+    # Qwen3-Coder-Next: 80B MoE (3B active), 262k context, $0.12/$0.75 per 1M tokens
+    model_name: str = "qwen/qwen3-coder-next"
     temperature: float = 0.3  # Lower temperature for deterministic JSON responses
     max_tokens: int = 16000  # Output token limit per LLM call
 
