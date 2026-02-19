@@ -21,6 +21,7 @@ from app.domain.models.event import (
     ToolStatus,
     ToolStreamEvent,
     WideResearchEvent,
+    WorkspaceEvent,
 )
 from app.domain.models.plan import ExecutionStatus
 from app.domain.models.search import SearchResultItem
@@ -611,6 +612,36 @@ class ThoughtSSEEvent(BaseSSEEvent):
         )
 
 
+class WorkspaceEventData(BaseEventData):
+    """Workspace lifecycle event data for SSE."""
+
+    action: str  # "initialized", "organized", "validated", "deliverables_ready"
+    workspace_type: str | None = None  # "research", "code_project", "data_analysis"
+    structure: dict[str, str] | None = None  # folder_name -> purpose
+    files_organized: int = 0
+    deliverables_count: int = 0
+    workspace_path: str | None = None
+
+
+class WorkspaceSSEEvent(BaseSSEEvent):
+    event: Literal["workspace"] = "workspace"
+    data: WorkspaceEventData
+
+    @classmethod
+    def from_event(cls, event: WorkspaceEvent) -> Self:
+        return cls(
+            data=WorkspaceEventData(
+                **BaseEventData.base_event_data(event),
+                action=event.action,
+                workspace_type=event.workspace_type,
+                structure=event.structure,
+                files_organized=event.files_organized,
+                deliverables_count=event.deliverables_count,
+                workspace_path=event.workspace_path,
+            )
+        )
+
+
 AgentSSEEvent = (
     CommonSSEEvent
     | PlanSSEEvent
@@ -631,6 +662,7 @@ AgentSSEEvent = (
     | WideResearchSSEEvent
     | SkillActivationSSEEvent
     | ThoughtSSEEvent
+    | WorkspaceSSEEvent
 )
 
 
