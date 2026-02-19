@@ -207,6 +207,23 @@ class TestSelectInstructorMode:
         mode = select_instructor_mode(supports_json_schema=True, supports_json_object=False)
         assert mode == instructor.Mode.JSON_SCHEMA
 
+    def test_openrouter_uses_dedicated_mode(self) -> None:
+        import instructor
+
+        mode = select_instructor_mode(
+            supports_json_schema=True, supports_json_object=True, is_openrouter=True
+        )
+        assert mode == instructor.Mode.OPENROUTER_STRUCTURED_OUTPUTS
+
+    def test_openrouter_overrides_json_schema(self) -> None:
+        """OpenRouter mode takes precedence even when json_schema is supported."""
+        import instructor
+
+        mode = select_instructor_mode(
+            supports_json_schema=False, supports_json_object=False, is_openrouter=True
+        )
+        assert mode == instructor.Mode.OPENROUTER_STRUCTURED_OUTPUTS
+
 
 # ── ask_structured with OpenRouter uses json_schema ──────────────────────
 

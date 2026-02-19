@@ -1470,6 +1470,7 @@ To extract data from a webpage:
             mode = select_instructor_mode(
                 supports_json_schema=supports_strict_schema,
                 supports_json_object=self._supports_json_object_format(),
+                is_openrouter=getattr(self, "_is_openrouter", False),
             )
             patched_client = patch_client(client, mode)
             logger.info(
