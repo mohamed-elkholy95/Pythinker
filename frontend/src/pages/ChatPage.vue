@@ -460,7 +460,6 @@ import {
   ReportEventData,
   StreamEventData,
   ProgressEventData,
-  DeepResearchEventData,
   PhaseTransitionEventData,
   CheckpointSavedEventData,
   SkillDeliveryEventData,
@@ -468,7 +467,6 @@ import {
   CanvasUpdateEventData,
   ToolStreamEventData,
 } from '../types/event';
-import type { DeepResearchContent } from '../types/message';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
 import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight, Menu } from 'lucide-vue-next';
@@ -500,7 +498,6 @@ import ResearchModeBadge from '@/components/ResearchModeBadge.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { useSkills } from '@/composables/useSkills';
-// useDeepResearch removed — DeepResearchCard no longer used
 import { useResearchWorkflow } from '@/composables/useResearchWorkflow';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
@@ -527,7 +524,6 @@ const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 const { emitStatusChange } = useSessionStatus()
 const { getEffectiveSkillIds, clearSelectedSkills, lockSkillsForSession, clearSessionSkills, selectSkill } = useSkills()
-// Deep research card interactions removed
 const researchWorkflow = useResearchWorkflow()
 // ConnectorDialog composable — dialog manages its own visibility
 useConnectorDialog()
@@ -796,9 +792,9 @@ const hasEmbeddedCompletionFooter = computed(() => {
     if (messageType === 'report' || messageType === 'skill_delivery') {
       return true;
     }
-    // Stop scanning at the latest user/deep-research boundary.
+    // Stop scanning at the latest user boundary.
     // Assistant/system noise after a report should not re-enable global footer.
-    if (messageType === 'user' || messageType === 'deep_research') {
+    if (messageType === 'user') {
       return false;
     }
   }
@@ -924,7 +920,6 @@ const hasAgentStartedResponding = computed(() => {
     message.type === 'tool' ||
     message.type === 'step' ||
     message.type === 'report' ||
-    message.type === 'deep_research' ||
     message.type === 'skill_delivery'
   );
 
@@ -2225,9 +2220,6 @@ const handlePlanEvent = (planData: PlanEventData) => {
 // Handle stream event (thinking text streaming or summary streaming)
 const handleStreamEvent = (streamData: StreamEventData) => {
   researchWorkflow.handleStreamEvent(streamData);
-  if (streamData.phase === 'reflection') {
-    syncDeepResearchMessageMetadata();
-  }
   const phase = streamData.phase || 'thinking';
 
   if (phase === 'summarizing') {
@@ -2543,91 +2535,12 @@ const handleReportEvent = (reportData: ReportEventData) => {
   });
 }
 
-// Handle deep research event
-const handleDeepResearchEvent = (data: DeepResearchEventData) => {
-  const workflowState = researchWorkflow.handleDeepResearchEvent(data);
-
-  // Find existing deep research message
-  const idx = messages.value.findIndex(
-    m => m.type === 'deep_research' &&
-         (m.content as DeepResearchContent).research_id === data.research_id
-  );
-
-  if (idx >= 0) {
-    // Update existing message
-    const existingContent = messages.value[idx].content as DeepResearchContent;
-    messages.value[idx].content = {
-      ...existingContent,
-      status: workflowState.status,
-      queries: data.queries,
-      completed_count: data.completed_queries,
-      total_count: data.total_queries,
-      auto_run: data.auto_run,
-      phase: workflowState.phase ?? undefined,
-      phase_label: workflowState.phase_label ?? undefined,
-      latest_reflection: workflowState.latest_reflection,
-      checkpoints: workflowState.checkpoints,
-    } as DeepResearchContent;
-  } else {
-    // Create new message
-    messages.value.push({
-      id: generateMessageId(),
-      type: 'deep_research',
-      content: {
-        research_id: data.research_id,
-        status: workflowState.status,
-        queries: data.queries || [],
-        completed_count: data.completed_queries,
-        total_count: data.total_queries,
-        auto_run: data.auto_run,
-        phase: workflowState.phase ?? undefined,
-        phase_label: workflowState.phase_label ?? undefined,
-        latest_reflection: workflowState.latest_reflection,
-        checkpoints: workflowState.checkpoints,
-        timestamp: data.timestamp
-      } as DeepResearchContent
-    });
-  }
-};
-
-const syncDeepResearchMessageMetadata = (researchId?: string) => {
-  const findTargetIndex = (): number => {
-    if (researchId) {
-      return messages.value.findIndex(
-        (message) =>
-          message.type === 'deep_research' &&
-          (message.content as DeepResearchContent).research_id === researchId,
-      );
-    }
-
-    for (let i = messages.value.length - 1; i >= 0; i -= 1) {
-      if (messages.value[i].type === 'deep_research') return i;
-    }
-    return -1;
-  };
-
-  const idx = findTargetIndex();
-  if (idx < 0) return;
-
-  const current = messages.value[idx].content as DeepResearchContent;
-  const workflowState = researchWorkflow.getDeepResearchState(current.research_id, current.status);
-  messages.value[idx].content = {
-    ...current,
-    phase: workflowState.phase ?? undefined,
-    phase_label: workflowState.phase_label ?? undefined,
-    latest_reflection: workflowState.latest_reflection,
-    checkpoints: workflowState.checkpoints,
-  } as DeepResearchContent;
-};
-
 const handlePhaseTransitionEvent = (data: PhaseTransitionEventData) => {
   researchWorkflow.handlePhaseTransitionEvent(data);
-  syncDeepResearchMessageMetadata(data.research_id);
 };
 
 const handleCheckpointSavedEvent = (data: CheckpointSavedEventData) => {
   researchWorkflow.handleCheckpointSavedEvent(data);
-  syncDeepResearchMessageMetadata(data.research_id);
 };
 
 // Handle skill delivery events
@@ -2894,8 +2807,6 @@ const processEvent = (event: AgentSSEEvent) => {
     handleStreamEvent(event.data as StreamEventData);
   } else if (event.event === 'progress') {
     handleProgressEvent(event.data as ProgressEventData);
-  } else if (event.event === 'deep_research') {
-    handleDeepResearchEvent(event.data as DeepResearchEventData);
   } else if (event.event === 'phase_transition') {
     handlePhaseTransitionEvent(event.data as PhaseTransitionEventData);
   } else if (event.event === 'checkpoint_saved') {

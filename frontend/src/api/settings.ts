@@ -9,7 +9,6 @@ export interface UserSettings {
   browser_agent_max_steps: number
   browser_agent_timeout: number
   browser_agent_use_vision: boolean
-  deep_research_auto_run: boolean
   response_verbosity_preference: 'adaptive' | 'concise' | 'detailed'
   clarification_policy: 'auto' | 'always' | 'never'
   quality_floor_enforced: boolean
@@ -43,7 +42,6 @@ export interface UpdateSettingsRequest {
   browser_agent_max_steps?: number
   browser_agent_timeout?: number
   browser_agent_use_vision?: boolean
-  deep_research_auto_run?: boolean
   response_verbosity_preference?: 'adaptive' | 'concise' | 'detailed'
   clarification_policy?: 'auto' | 'always' | 'never'
   quality_floor_enforced?: boolean

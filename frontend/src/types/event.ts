@@ -1,5 +1,5 @@
 import type { FileInfo } from '../api/file';
-import type { SourceCitation, DeepResearchQuery, DeepResearchStatus, SkillPackageFile, SkillPackageFileTree } from './message';
+import type { SourceCitation, SkillPackageFile, SkillPackageFileTree } from './message';
 import type { ToolContentPayload } from './toolContent';
 
 /**
@@ -28,7 +28,6 @@ export type AgentSSEEvent = {
     | 'report'
     | 'stream'
     | 'progress'
-    | 'deep_research'
     | 'wide_research'
     | 'phase_transition'
     | 'checkpoint_saved'
@@ -52,7 +51,6 @@ export type AgentSSEEvent = {
     | ReportEventData
     | StreamEventData
     | ProgressEventData
-    | DeepResearchEventData
     | WideResearchEventData
     | PhaseTransitionEventData
     | CheckpointSavedEventData
@@ -195,15 +193,6 @@ export interface ProgressEventData extends BaseEventData {
   progress_percent?: number;
 }
 
-export interface DeepResearchEventData extends BaseEventData {
-  research_id: string;
-  status: DeepResearchStatus;
-  total_queries: number;
-  completed_queries: number;
-  queries: DeepResearchQuery[];
-  auto_run: boolean;
-}
-
 // Wide Research types (parallel multi-source search)
 export type WideResearchStatus = 'pending' | 'searching' | 'aggregating' | 'completed' | 'failed';
 
@@ -235,7 +224,7 @@ export interface PhaseTransitionEventData extends BaseEventData {
   phase: ResearchWorkflowPhase;
   label?: string;
   research_id?: string;
-  source?: 'deep_research' | 'wide_research' | 'session';
+  source?: 'wide_research' | 'session';
 }
 
 export interface CheckpointSavedEventData extends BaseEventData {

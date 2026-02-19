@@ -162,7 +162,6 @@ export type ThinkingMode = 'auto' | 'fast' | 'deep_think';
  * Chat options for additional features
  */
 export interface ChatOptions {
-  deep_research?: boolean;  // Enable deep research mode (parallel searches with approval)
   thinking_mode?: ThinkingMode;  // Override model tier selection
 }
 
@@ -191,7 +190,6 @@ export const chatWithSession = async (
   const hasFreshInput = message.trim().length > 0
     || Boolean(attachments && attachments.length > 0)
     || Boolean(skills && skills.length > 0)
-    || Boolean(options?.deep_research)
     || Boolean(options?.thinking_mode && options.thinking_mode !== 'auto')
     || Boolean(followUp)
 
@@ -200,7 +198,6 @@ export const chatWithSession = async (
     timestamp: Math.floor(Date.now() / 1000),
     attachments,
     skills,
-    deep_research: options?.deep_research,
     thinking_mode: options?.thinking_mode,
   };
 
