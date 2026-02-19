@@ -318,6 +318,7 @@ class AgentTaskFactory:
             agent_repository=self._repository,
             mcp_repository=self._mcp_repository,
             mode=session.mode,  # Pass session mode to task runner
+            research_mode=session.research_mode,  # Pass research strategy to task runner
             # Multi-agent orchestration configuration
             enable_multi_agent=settings.enable_multi_agent,
             # Unified flow engine selection
