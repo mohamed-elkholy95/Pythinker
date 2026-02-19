@@ -223,6 +223,7 @@ class PlanActFlow(BaseFlow):
     ):
         self._feature_flags = feature_flags
         self._research_mode = research_mode
+        self._workspace_output_path: str | None = None  # Set during run() for deep_research
         self._alert_port = alert_port
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -2070,6 +2071,30 @@ class PlanActFlow(BaseFlow):
         # Emit research mode event so frontend can adapt layout (e.g., auto-open browser panel)
         yield ResearchModeEvent(research_mode=self._research_mode)
 
+        # Step 2: Create structured output workspace for Deep Research
+        if self._research_mode == "deep_research":
+            workspace_base = f"/workspace/{self._session_id}"
+            workspace_path = f"{workspace_base}/output"
+            mkdir_cmd = (
+                f"mkdir -p {workspace_path}/reports {workspace_path}/charts {workspace_path}/data {workspace_path}/code"
+            )
+            try:
+                result = await self._sandbox.exec_command(self._session_id, workspace_base, mkdir_cmd)
+                if result.success:
+                    self._workspace_output_path = workspace_path
+                    logger.info("Deep Research workspace created: %s", workspace_path)
+                else:
+                    logger.warning("Workspace mkdir failed, using fallback: %s", result.message)
+                    self._workspace_output_path = workspace_base
+            except Exception as e:
+                logger.warning("Workspace creation failed, using fallback: %s", e)
+                self._workspace_output_path = workspace_base
+
+            # Inject workspace-aware instructions into executor prompt
+            from app.domain.services.prompts.execution import build_workspace_context
+
+            self.executor.system_prompt += build_workspace_context(self._workspace_output_path)
+
         original_message = message.message
         settings = get_settings()
 
@@ -2581,16 +2606,25 @@ class PlanActFlow(BaseFlow):
                             except Exception as e:
                                 logger.debug("Role-scoped memory injection skipped: %s", e)
 
-                        # Deep Research: inject browser-first emphasis into planner prompt
+                        # Deep Research: inject browser-first emphasis + workspace instructions
                         _saved_planner_prompt = self.planner.system_prompt
                         if self._research_mode == "deep_research":
+                            wp = self._workspace_output_path or f"/workspace/{self._session_id}/output"
                             self.planner.system_prompt += (
                                 "\n\n## Research Strategy: Browser-First Deep Research\n"
                                 "You are a researcher agent. Your PRIMARY instrument is the web browser. "
                                 "Always prefer browser_navigate and browser_agent_extract over simple API searches. "
                                 "Browse multiple authoritative sources, extract content directly from web pages, "
                                 "and verify information visually. Use info_search_web only for initial discovery, "
-                                "then follow up with browser-based deep reading of the most relevant results."
+                                "then follow up with browser-based deep reading of the most relevant results.\n\n"
+                                "## Workspace & Deliverables\n"
+                                f"All deliverable files MUST be saved to: `{wp}/`\n"
+                                "Directory structure:\n"
+                                f"- `{wp}/reports/` — Markdown reports, analysis documents\n"
+                                f"- `{wp}/charts/` — Plotly charts (HTML), visualizations, images\n"
+                                f"- `{wp}/data/` — CSV, JSON, raw extracted data\n"
+                                f"- `{wp}/code/` — Scripts, code samples, notebooks\n\n"
+                                "Your FINAL step must compile and deliver all workspace files to the user."
                             )
 
                         async for event in self.planner.create_plan(message, replan_context=replan_context):
@@ -3154,6 +3188,35 @@ class PlanActFlow(BaseFlow):
                             await self._file_sweep_callback()
                         except Exception as e:
                             logger.warning(f"File sweep failed before summarizing: {e}")
+
+                    # Inject workspace deliverables listing into summarization context
+                    if self._research_mode == "deep_research" and self._workspace_output_path:
+                        try:
+                            tree_cmd = (
+                                f"find {self._workspace_output_path} -type f "
+                                f"-printf '%P  (%s bytes)\\n' 2>/dev/null | sort | head -100"
+                            )
+                            tree_result = await self._sandbox.exec_command(
+                                self._session_id, self._workspace_output_path, tree_cmd
+                            )
+                            listing = ""
+                            if tree_result.success:
+                                listing = (tree_result.data or {}).get("output", "").strip()
+                            if listing:
+                                deliverables_ctx = (
+                                    "\n\n## Workspace Deliverables\n"
+                                    "The following files were created during this research session:\n"
+                                    f"```\n{listing}\n```\n"
+                                    'Include a "## Deliverables" section in your final report '
+                                    "listing each file with a brief description of its contents."
+                                )
+                                self.executor.system_prompt += deliverables_ctx
+                                logger.info(
+                                    "Injected workspace listing (%d files) into summarization context",
+                                    listing.count("\n") + 1,
+                                )
+                        except Exception as e:
+                            logger.warning("Workspace listing for summarization failed: %s", e)
 
                     # Fetch session files to include in the final report
                     session_files: list[FileInfo] = []

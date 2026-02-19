@@ -1567,3 +1567,32 @@ def build_execution_system_prompt(base_prompt: str, pressure_signal: str | None 
     if pressure_signal:
         return base_prompt + "\n\n" + CONTEXT_PRESSURE_SIGNAL.format(pressure_signal=pressure_signal)
     return base_prompt
+
+
+def build_workspace_context(workspace_path: str) -> str:
+    """Build workspace-aware execution context for Deep Research mode.
+
+    Instructs the execution agent to save all deliverable files to the
+    organized workspace directory structure.
+
+    Args:
+        workspace_path: Absolute path to the workspace output directory.
+
+    Returns:
+        Prompt fragment with workspace management instructions.
+    """
+    return (
+        "\n\n## Workspace Management (Deep Research)\n\n"
+        f"You have an organized output workspace at: `{workspace_path}/`\n\n"
+        "**MANDATORY: Save ALL deliverable files to this workspace:**\n"
+        f"- Reports & docs → `{workspace_path}/reports/filename.md`\n"
+        f"- Charts & images → `{workspace_path}/charts/filename.html` or `.png`\n"
+        f"- Data files → `{workspace_path}/data/filename.csv` or `.json`\n"
+        f"- Code & scripts → `{workspace_path}/code/filename.py`\n\n"
+        "**Rules:**\n"
+        "1. Use `file_write` to save files (NOT shell echo/cat)\n"
+        "2. Use descriptive filenames: `competitor_analysis.md` not `report.md`\n"
+        "3. For charts: save both interactive HTML and static PNG when possible\n"
+        "4. For data: save raw extracted data as CSV/JSON for user reuse\n"
+        "5. At task completion, all workspace files will be automatically delivered to the user\n"
+    )
