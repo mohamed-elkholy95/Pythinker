@@ -229,10 +229,31 @@ class ShellService:
                 logger.debug(f"Waiting for process completion in session: {session_id}")
                 wait_result = await self.wait_for_process(session_id, seconds=5)
                 if wait_result.returncode is not None:
-                    # Process has completed, get the output
+                    # Process has completed — give the output reader task a
+                    # moment to drain any remaining buffered stdout before we
+                    # read the accumulated output.
                     logger.debug(
                         f"Process completed with code: {wait_result.returncode}"
                     )
+                    await asyncio.sleep(0.1)
+
+                    # Explicitly drain any bytes still sitting in the pipe
+                    shell = self.active_shells.get(session_id)
+                    if shell:
+                        process = shell["process"]
+                        if process.stdout:
+                            try:
+                                remaining = await asyncio.wait_for(
+                                    process.stdout.read(), timeout=1.0
+                                )
+                                if remaining:
+                                    self._append_output(
+                                        shell,
+                                        remaining.decode("utf-8", errors="replace"),
+                                    )
+                            except (asyncio.TimeoutError, Exception):
+                                pass
+
                     view_result = await self.view_shell(session_id)
 
                     return ShellExecResult(
