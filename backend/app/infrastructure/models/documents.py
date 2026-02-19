@@ -12,7 +12,7 @@ from app.domain.models.file import FileInfo
 from app.domain.models.memory import Memory
 from app.domain.models.multi_task import MultiTaskChallenge
 from app.domain.models.screenshot import SessionScreenshot
-from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.models.session import AgentMode, ResearchMode, Session, SessionStatus
 from app.domain.models.skill import Skill, SkillCategory, SkillInvocationType, SkillSource
 from app.domain.models.usage import DailyUsageAggregate, UsageRecord, UsageType
 from app.domain.models.user import User, UserRole
@@ -116,6 +116,7 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     files: list[FileInfo] = Field(default_factory=list)
     is_shared: bool | None = False
     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
+    research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH  # Research strategy
     pending_action: dict[str, Any] | None = None
     pending_action_status: str | None = None
     # Workspace metadata (sanitized)
