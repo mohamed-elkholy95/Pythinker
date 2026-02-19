@@ -132,15 +132,24 @@ class OpenAILLM(LLM):
         # GLM-5 requires: system as first message only, strict alternation, no json_object format
         self._is_glm_api = self._detect_glm_api()
 
+        # Detect if using OpenRouter API — supports native json_schema structured outputs
+        self._is_openrouter = self._detect_openrouter()
+
         # Initialize prompt cache manager for KV-cache optimization
         self._cache_manager = get_prompt_cache_manager(self._model_name)
 
         # Client will be created with active key on-demand
         self.client: AsyncOpenAI | None = None
 
+        tags = []
+        if self._is_glm_api:
+            tags.append("[GLM API]")
+        if self._is_openrouter:
+            tags.append("[OpenRouter]")
+        tag_str = " " + " ".join(tags) if tags else ""
         logger.info(
             f"Initialized OpenAI LLM with {len(key_configs)} API key(s) "
-            f"using FAILOVER strategy, model: {self._model_name}" + (" [GLM API mode]" if self._is_glm_api else "")
+            f"using FAILOVER strategy, model: {self._model_name}{tag_str}"
         )
 
     async def get_api_key(self) -> str | None:
@@ -280,6 +289,19 @@ class OpenAILLM(LLM):
         # Also detect by model name (glm- prefix covers glm-4, glm-5, glm-z1, etc.)
         model_lower = self._model_name.lower()
         return model_lower.startswith("glm-") or "glm-z" in model_lower
+
+    def _detect_openrouter(self) -> bool:
+        """Detect if using OpenRouter API.
+
+        OpenRouter natively supports json_schema structured outputs for most models,
+        including Qwen, Llama, Mistral, etc. Adding ``provider.require_parameters: true``
+        ensures OpenRouter only routes to providers that honour the requested parameters.
+
+        Base URL: https://openrouter.ai/api/v1
+        """
+        if not self._api_base:
+            return False
+        return "openrouter" in self._api_base.lower()
 
     @staticmethod
     def _repair_tool_args_json(args_str: str) -> str:
@@ -1140,6 +1162,12 @@ To extract data from a webpage:
                 if self._is_thinking_api:
                     params["extra_body"] = {"thinking": {"type": "disabled"}}
 
+                # OpenRouter: ensure routing to providers that honour response_format
+                if getattr(self, "_is_openrouter", False) and response_format:
+                    extra = params.get("extra_body", {})
+                    extra.setdefault("provider", {})["require_parameters"] = True
+                    params["extra_body"] = extra
+
                 llm_call_start = time.monotonic()
 
                 if request_tools:
@@ -1418,8 +1446,38 @@ To extract data from a webpage:
         # Build JSON schema from Pydantic model
         schema = response_model.model_json_schema()
 
-        # Detect if model supports native structured outputs (GPT-4o+, GPT-5+)
+        # Detect if model supports native structured outputs (GPT-4o+, GPT-5+, OpenRouter)
         supports_strict_schema = self._supports_structured_output()
+
+        # Determine if instructor library should handle validation.
+        # Instructor is skipped for thinking APIs (need special reasoning_content handling)
+        # and when tools are provided (instructor doesn't mix well with tool calling).
+        from app.infrastructure.external.llm.instructor_adapter import (
+            INSTRUCTOR_AVAILABLE,
+            patch_client,
+            select_instructor_mode,
+        )
+
+        settings = get_settings()
+        use_instructor = (
+            INSTRUCTOR_AVAILABLE
+            and getattr(settings, "use_instructor_structured_output", True)
+            and not self._is_thinking_api
+            and not tools
+        )
+        patched_client = None
+        if use_instructor:
+            mode = select_instructor_mode(
+                supports_json_schema=supports_strict_schema,
+                supports_json_object=self._supports_json_object_format(),
+            )
+            patched_client = patch_client(client, mode)
+            logger.info(
+                "Using instructor (mode=%s) for structured output (model=%s, schema=%s)",
+                mode,
+                self._model_name,
+                response_model.__name__,
+            )
 
         max_retries = 3
         base_delay = 1.0
@@ -1465,6 +1523,11 @@ To extract data from a webpage:
                         "type": "json_schema",
                         "json_schema": {"name": response_model.__name__, "strict": True, "schema": schema},
                     }
+                    # OpenRouter: ensure routing only to providers that honour json_schema
+                    if getattr(self, "_is_openrouter", False):
+                        extra = params.get("extra_body", {})
+                        extra.setdefault("provider", {})["require_parameters"] = True
+                        params["extra_body"] = extra
                 elif self._supports_json_object_format():
                     # Use json_object if provider supports it
                     params["response_format"] = {"type": "json_object"}
@@ -1491,6 +1554,29 @@ To extract data from a webpage:
                     params["parallel_tool_calls"] = False
 
                 llm_call_start = time.monotonic()
+
+                # ── instructor path ──────────────────────────────────────
+                if patched_client and not tools:
+                    # Instructor handles response_format, JSON parsing, and
+                    # Pydantic validation internally.  We pop response_format
+                    # to avoid double-setting it.
+                    params.pop("response_format", None)
+                    result, completion = await patched_client.chat.completions.create_with_completion(
+                        response_model=response_model,
+                        max_retries=1,
+                        **params,
+                    )
+                    llm_call_duration = time.monotonic() - llm_call_start
+                    log_fn = logger.warning if llm_call_duration > 30 else logger.info
+                    log_fn(
+                        f"LLM ask_structured() [instructor] completed in {llm_call_duration:.1f}s "
+                        f"(model={effective_model}, schema={response_model.__name__}, "
+                        f"attempt={attempt + 1})"
+                    )
+                    await self._record_usage(completion)
+                    return result
+
+                # ── manual path (fallback) ───────────────────────────────
                 response = await client.chat.completions.create(**params)
                 llm_call_duration = time.monotonic() - llm_call_start
                 log_fn = logger.warning if llm_call_duration > 30 else logger.info
@@ -1635,10 +1721,15 @@ To extract data from a webpage:
 
     def _supports_structured_output(self) -> bool:
         """Check if the model supports native structured output with strict schemas."""
-        # GPT-4o and later models support structured outputs
         # MLX and local models typically don't
         if self._is_mlx_mode:
             return False
+
+        # OpenRouter natively supports json_schema for most models
+        if getattr(self, "_is_openrouter", False):
+            return True
+
+        # GPT-4o and later models support structured outputs
         supported_prefixes = (
             "gpt-4o",
             "gpt-4-turbo",
@@ -1712,13 +1803,9 @@ To extract data from a webpage:
             logger.debug(f"DeepInfra NVIDIA model {self._model_name} doesn't support json_object format")
             return False
 
-        # Many OpenRouter providers don't support json_object
-        if "openrouter" in base:
-            # Only specific model families support it
-            supported_prefixes = ("openai/", "anthropic/", "google/")
-            if not self._model_name.startswith(supported_prefixes):
-                logger.debug(f"OpenRouter model {self._model_name} doesn't support json_object format")
-                return False
+        # OpenRouter supports json_object/json_schema for most models natively
+        if getattr(self, "_is_openrouter", False):
+            return True
 
         # Conservative default for unknown providers
         return False
