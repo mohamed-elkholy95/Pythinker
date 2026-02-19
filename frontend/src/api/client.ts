@@ -343,13 +343,11 @@ const hasFreshInputPayload = (payload: unknown): boolean => {
   const message = typeof body.message === 'string' ? body.message.trim() : '';
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
   const skills = Array.isArray(body.skills) ? body.skills : [];
-  const deepResearch = body.deep_research === true;
   const followUp = body.follow_up;
 
   return message.length > 0
     || attachments.length > 0
     || skills.length > 0
-    || deepResearch
     || Boolean(followUp);
 };
 
@@ -1155,7 +1153,6 @@ const NATIVE_EVENTSOURCE_EVENT_TYPES = [
   'report',
   'stream',
   'progress',
-  'deep_research',
   'wide_research',
   'phase_transition',
   'checkpoint_saved',

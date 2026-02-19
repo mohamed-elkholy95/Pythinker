@@ -2,35 +2,15 @@ import { computed, readonly, ref } from 'vue'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import type {
   CheckpointSavedEventData,
-  DeepResearchEventData,
   PhaseTransitionEventData,
   StreamEventData,
   WideResearchEventData,
 } from '@/types/event'
 import type {
-  DeepResearchStatus,
   ResearchCheckpointSummary,
   ResearchReflectionSummary,
   WideResearchState,
 } from '@/types/message'
-
-interface DeepResearchWorkflowMeta {
-  phase: string | null
-  phase_label: string | null
-  checkpoints: ResearchCheckpointSummary[]
-  latest_reflection: ResearchReflectionSummary | null
-}
-
-export interface DeepResearchWorkflowState extends DeepResearchWorkflowMeta {
-  status: DeepResearchStatus
-}
-
-const EMPTY_DEEP_META: DeepResearchWorkflowMeta = {
-  phase: null,
-  phase_label: null,
-  checkpoints: [],
-  latest_reflection: null,
-}
 
 const PHASE_LABELS: Record<string, string> = {
   planning: 'Planning',
@@ -41,37 +21,6 @@ const PHASE_LABELS: Record<string, string> = {
   phase_1: 'Phase 1: Fundamentals',
   phase_2: 'Phase 2: Use Cases',
   phase_3: 'Phase 3: Best Practices',
-}
-
-const QUERY_PHASE_STATUSES = new Set<DeepResearchStatus>([
-  'query_started',
-  'query_completed',
-  'query_skipped',
-])
-
-const normalizeDeepStatus = (status: DeepResearchEventData['status']): DeepResearchStatus => {
-  if (QUERY_PHASE_STATUSES.has(status)) {
-    return 'started'
-  }
-  return status
-}
-
-const inferDeepPhase = (status: DeepResearchStatus): string | null => {
-  switch (status) {
-    case 'pending':
-    case 'awaiting_approval':
-      return 'planning'
-    case 'started':
-      return 'executing'
-    case 'summarizing':
-      return 'summarizing'
-    case 'completed':
-      return 'completed'
-    case 'cancelled':
-      return null
-    default:
-      return null
-  }
 }
 
 const inferWidePhase = (status: WideResearchEventData['status']): string | null => {
@@ -127,11 +76,9 @@ export function useResearchWorkflow() {
 
   const widePhase = ref<string | null>(null)
   const sessionPhase = ref<string | null>(null)
-  const deepMetaById = ref<Record<string, DeepResearchWorkflowMeta>>({})
   const checkpoints = ref<ResearchCheckpointSummary[]>([])
   const latestReflection = ref<ResearchReflectionSummary | null>(null)
   const reflectionBuffer = ref('')
-  const lastDeepResearchId = ref<string | null>(null)
 
   const activePhase = computed(() => widePhase.value ?? sessionPhase.value)
   const activePhaseLabel = computed(() => toPhaseLabel(activePhase.value))
@@ -148,68 +95,9 @@ export function useResearchWorkflow() {
     }
   })
 
-  const updateDeepMeta = (
-    researchId: string,
-    updater: (current: DeepResearchWorkflowMeta) => DeepResearchWorkflowMeta,
-  ): DeepResearchWorkflowMeta => {
-    const current = deepMetaById.value[researchId] ?? EMPTY_DEEP_META
-    const next = updater(current)
-    deepMetaById.value = {
-      ...deepMetaById.value,
-      [researchId]: next,
-    }
-    return next
-  }
-
-  const applyCheckpoint = (researchId: string | undefined, checkpoint: ResearchCheckpointSummary) => {
-    checkpoints.value = [...checkpoints.value, checkpoint]
-    const targetId = researchId ?? lastDeepResearchId.value ?? undefined
-    if (!targetId) return
-
-    updateDeepMeta(targetId, (current) => ({
-      ...current,
-      checkpoints: [...current.checkpoints, checkpoint],
-    }))
-  }
-
-  const applyReflection = (researchId: string | undefined, reflection: ResearchReflectionSummary) => {
-    latestReflection.value = reflection
-    const targetId = researchId ?? lastDeepResearchId.value ?? undefined
-    if (!targetId) return
-
-    updateDeepMeta(targetId, (current) => ({
-      ...current,
-      latest_reflection: reflection,
-    }))
-  }
-
   const setSessionPhase = (phase: string | null | undefined) => {
     if (!phase || phase === 'thinking') return
     sessionPhase.value = phase
-  }
-
-  const setDeepPhase = (researchId: string, phase: string | null) => {
-    if (!phase) return
-    setSessionPhase(phase)
-    updateDeepMeta(researchId, (current) => ({
-      ...current,
-      phase,
-      phase_label: toPhaseLabel(phase),
-    }))
-  }
-
-  const getDeepResearchState = (
-    researchId: string,
-    status: DeepResearchStatus,
-  ): DeepResearchWorkflowState => {
-    const meta = deepMetaById.value[researchId] ?? EMPTY_DEEP_META
-    return {
-      status,
-      phase: meta.phase,
-      phase_label: meta.phase_label,
-      checkpoints: meta.checkpoints,
-      latest_reflection: meta.latest_reflection,
-    }
   }
 
   const handleWideResearchEvent = (data: WideResearchEventData) => {
@@ -245,26 +133,11 @@ export function useResearchWorkflow() {
     }
   }
 
-  const handleDeepResearchEvent = (data: DeepResearchEventData): DeepResearchWorkflowState => {
-    lastDeepResearchId.value = data.research_id
-
-    const normalizedStatus = normalizeDeepStatus(data.status)
-    const statusPhase = inferDeepPhase(normalizedStatus)
-    setDeepPhase(data.research_id, statusPhase)
-
-    return getDeepResearchState(data.research_id, normalizedStatus)
-  }
-
   const handlePhaseTransitionEvent = (data: PhaseTransitionEventData) => {
     setSessionPhase(data.phase)
 
     if (data.source === 'wide_research') {
       widePhase.value = data.phase
-    }
-
-    if (data.research_id) {
-      lastDeepResearchId.value = data.research_id
-      setDeepPhase(data.research_id, data.phase)
     }
   }
 
@@ -276,7 +149,7 @@ export function useResearchWorkflow() {
       timestamp: data.timestamp,
     }
 
-    applyCheckpoint(data.research_id, checkpoint)
+    checkpoints.value = [...checkpoints.value, checkpoint]
     setSessionPhase(data.phase)
   }
 
@@ -285,7 +158,7 @@ export function useResearchWorkflow() {
       reflectionBuffer.value += data.content
       const parsed = parseReflection(reflectionBuffer.value)
       if (parsed) {
-        applyReflection(lastDeepResearchId.value ?? undefined, parsed)
+        latestReflection.value = parsed
       }
       if (data.is_final) {
         reflectionBuffer.value = ''
@@ -308,11 +181,9 @@ export function useResearchWorkflow() {
     wideResearch.clearResearch()
     widePhase.value = null
     sessionPhase.value = null
-    deepMetaById.value = {}
     checkpoints.value = []
     latestReflection.value = null
     reflectionBuffer.value = ''
-    lastDeepResearchId.value = null
   }
 
   return {
@@ -322,14 +193,11 @@ export function useResearchWorkflow() {
     activePhaseLabel: readonly(activePhaseLabel),
     checkpoints: readonly(checkpoints),
     latestReflection: readonly(latestReflection),
-    deepMetaById: readonly(deepMetaById),
 
     handleWideResearchEvent,
-    handleDeepResearchEvent,
     handlePhaseTransitionEvent,
     handleCheckpointSavedEvent,
     handleStreamEvent,
-    getDeepResearchState,
     reset,
   }
 }

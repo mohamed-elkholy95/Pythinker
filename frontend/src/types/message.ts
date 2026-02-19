@@ -1,8 +1,7 @@
 import type { FileInfo } from '../api/file';
-import type { SearchResultItem } from './search';
 import type { ToolContentPayload } from './toolContent';
 
-export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments" | "report" | "deep_research" | "skill_delivery" | "thought";
+export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments" | "report" | "skill_delivery" | "thought";
 
 // Step item types for interleaved tools and thoughts
 export type StepItemType = 'tool' | 'thought';
@@ -113,19 +112,6 @@ export interface ReportContent extends BaseContent {
   sources?: SourceCitation[];
 }
 
-// Deep Research types
-export type DeepResearchStatus =
-  | 'pending'
-  | 'awaiting_approval'
-  | 'started'
-  | 'query_started'
-  | 'query_completed'
-  | 'query_skipped'
-  | 'summarizing'
-  | 'completed'
-  | 'cancelled';
-export type DeepResearchQueryStatus = 'pending' | 'searching' | 'completed' | 'skipped' | 'failed';
-
 export interface ResearchCheckpointSummary {
   phase: string;
   notes_preview?: string;
@@ -137,28 +123,6 @@ export interface ResearchReflectionSummary {
   learned: string;
   next_step?: string;
   timestamp: number;
-}
-
-export interface DeepResearchQuery {
-  id: string;
-  query: string;
-  status: DeepResearchQueryStatus;
-  result?: SearchResultItem[];
-  started_at?: number;
-  completed_at?: number;
-}
-
-export interface DeepResearchContent extends BaseContent {
-  research_id: string;
-  status: DeepResearchStatus;
-  queries: DeepResearchQuery[];
-  completed_count: number;
-  total_count: number;
-  auto_run: boolean;
-  phase?: string;
-  phase_label?: string;
-  latest_reflection?: ResearchReflectionSummary | null;
-  checkpoints?: ResearchCheckpointSummary[];
 }
 
 // Skill Package types for skill delivery
