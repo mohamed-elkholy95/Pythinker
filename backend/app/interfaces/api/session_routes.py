@@ -200,6 +200,7 @@ async def create_session(
     session = await agent_service.create_session(
         current_user.id,
         mode=request.mode,
+        research_mode=request.research_mode,
         initial_message=request.message,  # Phase 4 P0: Pass initial message for intent classification
         require_fresh_sandbox=request.require_fresh_sandbox,
         sandbox_wait_seconds=request.sandbox_wait_seconds,
@@ -221,7 +222,13 @@ async def create_session(
             logger.debug(f"Could not fetch sandbox info: {e}")
 
     return APIResponse.success(
-        CreateSessionResponse(session_id=session.id, mode=session.mode, sandbox=sandbox_info, status=session.status)
+        CreateSessionResponse(
+            session_id=session.id,
+            mode=session.mode,
+            research_mode=session.research_mode,
+            sandbox=sandbox_info,
+            status=session.status,
+        )
     )
 
 
@@ -239,6 +246,7 @@ async def get_session(
             session_id=session.id,
             title=session.title,
             status=session.status,
+            research_mode=session.research_mode,
             streaming_mode=get_settings().sandbox_streaming_mode.value,
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
@@ -1222,12 +1230,29 @@ async def screencast_websocket(
                 except Exception as e:
                     logger.error(f"Error forwarding from screencast: {e}")
 
-            async def monitor_browser_disconnect():
-                """Detect browser close immediately instead of waiting for next send failure."""
+            async def forward_from_browser():
+                """Relay browser → sandbox messages (pong, pause/resume, control).
+
+                Also detects browser disconnect immediately instead of waiting
+                for the next send failure in ``forward_from_sandbox``.
+                """
                 try:
                     while True:
                         msg = await websocket.receive()
-                        if msg.get("type") == "websocket.disconnect":
+                        msg_type = msg.get("type")
+                        if msg_type == "websocket.disconnect":
+                            break
+                        # Forward text/binary messages to the sandbox so that
+                        # pong responses and control commands (pause/resume)
+                        # actually reach the sandbox's receive_control loop.
+                        text = msg.get("text")
+                        data = msg.get("bytes")
+                        try:
+                            if text is not None:
+                                await sandbox_ws.send(text)
+                            elif data is not None:
+                                await sandbox_ws.send(data)
+                        except websockets.exceptions.ConnectionClosed:
                             break
                 except (WebSocketDisconnect, RuntimeError):
                     pass
@@ -1235,7 +1260,7 @@ async def screencast_websocket(
             # Run both directions concurrently — finish when either side closes.
             tasks = [
                 asyncio.create_task(forward_from_sandbox()),
-                asyncio.create_task(monitor_browser_disconnect()),
+                asyncio.create_task(forward_from_browser()),
             ]
             try:
                 _done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
