@@ -35,7 +35,8 @@
                         </button>
                         <ConnectorButton />
                         <SkillPicker />
-                        <ThinkingModeSelector v-model="thinkingMode" />
+                        <!-- ThinkingModeSelector hidden — adaptive routing handles model selection automatically -->
+                        <!-- <ThinkingModeSelector v-model="thinkingMode" /> -->
                     </div>
                     <div class="chatbox-actions-right">
                         <button v-if="!isRunning || sendEnabled"
