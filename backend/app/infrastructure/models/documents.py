@@ -1,8 +1,9 @@
+import logging
 from datetime import UTC, date, datetime
 from typing import Any, ClassVar, Generic, Self, TypeVar
 
 from beanie import Document
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pymongo import ASCENDING, DESCENDING, IndexModel
 
 from app.domain.models.agent import Agent
@@ -94,6 +95,22 @@ class AgentDocument(BaseDocument[Agent], id_field="agent_id", domain_model_class
         ]
 
 
+# Known AgentEvent types for the discriminated union — used to filter out
+# legacy/removed event types so that loading old sessions from MongoDB
+# doesn't crash Pydantic validation.
+_KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
+    "error", "plan", "tool", "tool_stream", "tool_progress", "step", "message",
+    "done", "title", "wait", "knowledge", "datasource", "idle", "mcp_health",
+    "mode_change", "suggestion", "report", "skill_delivery", "skill_activation",
+    "stream", "verification", "reflection", "path", "multi_task", "workspace",
+    "budget", "progress", "comprehension", "task_recreation", "phase_transition",
+    "checkpoint_saved", "wide_research", "deep_research", "thought", "confidence",
+    "canvas_update", "flow_selection", "flow_transition", "research_mode", "phase",
+})
+
+_doc_logger = logging.getLogger(__name__)
+
+
 class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model_class=Session):
     """MongoDB model for Session"""
 
@@ -111,8 +128,31 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     latest_message_at: datetime | None = None
     created_at: datetime = datetime.now(UTC)
     updated_at: datetime = datetime.now(UTC)
-    events: list[AgentEvent]
+    events: list[AgentEvent] = Field(default_factory=list)
     status: SessionStatus
+
+    @model_validator(mode="before")
+    @classmethod
+    def _filter_unknown_events(cls, data: Any) -> Any:
+        """Filter out legacy/removed event types before Pydantic validation.
+
+        MongoDB may contain events with types that have been removed from the
+        codebase. Without this filter, the discriminated
+        union on AgentEvent would raise a ValidationError and crash the entire
+        session load.
+        """
+        if isinstance(data, dict) and "events" in data:
+            raw_events = data["events"]
+            if raw_events:
+                filtered = []
+                for ev in raw_events:
+                    ev_type = ev.get("type", "") if isinstance(ev, dict) else getattr(ev, "type", "")
+                    if ev_type in _KNOWN_EVENT_TYPES:
+                        filtered.append(ev)
+                    else:
+                        _doc_logger.debug("Skipping unknown event type %r during session load", ev_type)
+                data["events"] = filtered
+        return data
     files: list[FileInfo] = Field(default_factory=list)
     is_shared: bool | None = False
     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
