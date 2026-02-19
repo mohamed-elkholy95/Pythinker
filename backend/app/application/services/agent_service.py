@@ -32,7 +32,7 @@ from app.domain.external.task import Task
 from app.domain.models.agent import Agent
 from app.domain.models.event import AgentEvent, DoneEvent, ErrorEvent, MessageEvent
 from app.domain.models.file import FileInfo
-from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.models.session import AgentMode, ResearchMode, Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
@@ -148,6 +148,7 @@ class AgentService:
         self,
         user_id: str,
         mode: AgentMode = AgentMode.AGENT,
+        research_mode: ResearchMode | None = None,
         initial_message: str | None = None,
         require_fresh_sandbox: bool = True,
         sandbox_wait_seconds: float = 3.0,
@@ -191,7 +192,8 @@ class AgentService:
                 logger.info(f"Mode overridden by intent classification: {mode.value}")
 
         agent = await self._create_agent()
-        session = Session(agent_id=agent.id, user_id=user_id, mode=mode)
+        effective_research_mode = research_mode or ResearchMode.DEEP_RESEARCH
+        session = Session(agent_id=agent.id, user_id=user_id, mode=mode, research_mode=effective_research_mode)
         settings = get_settings()
         session.sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
         if require_fresh_sandbox:

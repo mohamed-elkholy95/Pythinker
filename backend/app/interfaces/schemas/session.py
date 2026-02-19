@@ -8,7 +8,7 @@ from app.application.schemas.session import (
 from app.application.schemas.session import (
     ShellViewResponse as ApplicationShellViewResponse,
 )
-from app.domain.models.session import AgentMode, SessionStatus
+from app.domain.models.session import AgentMode, ResearchMode, SessionStatus
 from app.interfaces.schemas.event import AgentSSEEvent
 
 ConsoleRecord = ApplicationConsoleRecord
@@ -20,6 +20,7 @@ class CreateSessionRequest(BaseModel):
     """Create session request schema"""
 
     mode: AgentMode | None = AgentMode.AGENT
+    research_mode: ResearchMode | None = ResearchMode.DEEP_RESEARCH
     message: str | None = None  # Phase 4 P0: Initial message for intent classification
     require_fresh_sandbox: bool = True
     sandbox_wait_seconds: float = 3.0
@@ -89,6 +90,7 @@ class CreateSessionResponse(BaseModel):
 
     session_id: str
     mode: AgentMode = AgentMode.AGENT
+    research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH
     sandbox: SandboxInfo | None = None  # Phase 4: Early sandbox info for optimistic live preview setup
     status: SessionStatus = SessionStatus.PENDING
 
@@ -99,6 +101,7 @@ class GetSessionResponse(BaseModel):
     session_id: str
     title: str | None = None
     status: SessionStatus
+    research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH
     streaming_mode: StreamingMode | None = None
     events: list[AgentSSEEvent] = Field(default_factory=list)
     is_shared: bool = False
