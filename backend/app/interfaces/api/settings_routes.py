@@ -20,6 +20,12 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 # Available providers configuration
 LLM_PROVIDERS = [
     {
+        "id": "kimi",
+        "name": "Kimi (Moonshot)",
+        "models": ["kimi-for-coding", "kimi-k2.5", "moonshot-v1-128k", "moonshot-v1-32k"],
+        "requires_api_key": True,
+    },
+    {
         "id": "openai",
         "name": "OpenAI",
         "models": ["gpt-4", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
