@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.models.event import (
     AgentEvent,
-    DeepResearchEvent,
     MessageEvent,
     PlanEvent,
     ProgressEvent,
@@ -431,57 +430,6 @@ class CommonSSEEvent(BaseSSEEvent):
     data: CommonEventData
 
 
-class DeepResearchQueryEventData(BaseModel):
-    """Individual query data for SSE event"""
-
-    id: str
-    query: str
-    status: str  # DeepResearchQueryStatus value
-    result: list[dict] | None = None
-    started_at: int | None = None  # Unix timestamp
-    completed_at: int | None = None  # Unix timestamp
-
-
-class DeepResearchEventData(BaseEventData):
-    """Deep research progress event data"""
-
-    research_id: str
-    status: str  # DeepResearchStatus value
-    total_queries: int
-    completed_queries: int
-    queries: list[DeepResearchQueryEventData]
-    auto_run: bool = False
-
-
-class DeepResearchSSEEvent(BaseSSEEvent):
-    event: Literal["deep_research"] = "deep_research"
-    data: DeepResearchEventData
-
-    @classmethod
-    def from_event(cls, event: DeepResearchEvent) -> Self:
-        return cls(
-            data=DeepResearchEventData(
-                **BaseEventData.base_event_data(event),
-                research_id=event.research_id,
-                status=event.status.value,
-                total_queries=event.total_queries,
-                completed_queries=event.completed_queries,
-                queries=[
-                    DeepResearchQueryEventData(
-                        id=q.id,
-                        query=q.query,
-                        status=q.status.value,
-                        result=q.result,
-                        started_at=int(q.started_at.timestamp()) if q.started_at else None,
-                        completed_at=int(q.completed_at.timestamp()) if q.completed_at else None,
-                    )
-                    for q in event.queries
-                ],
-                auto_run=event.auto_run,
-            )
-        )
-
-
 class SkillPackageFileEventData(BaseModel):
     """File data within a skill delivery event for SSE"""
 
@@ -679,7 +627,6 @@ AgentSSEEvent = (
     | SuggestionSSEEvent
     | ModeChangeSSEEvent
     | StreamSSEEvent
-    | DeepResearchSSEEvent
     | ProgressSSEEvent
     | WideResearchSSEEvent
     | SkillActivationSSEEvent

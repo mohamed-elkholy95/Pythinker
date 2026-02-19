@@ -44,7 +44,6 @@ class ChatRequest(BaseModel):
         event_id: Optional event ID to resume from (skips events up to this ID).
                  Used for page refresh resumption to avoid re-sending old events.
         skills: List of skill IDs to enable for this request
-        deep_research: Enable deep research mode (parallel wide_research)
         follow_up: Follow-up context from suggestion clicks
     """
 
@@ -53,7 +52,6 @@ class ChatRequest(BaseModel):
     attachments: list[dict] | None = None
     event_id: str | None = None
     skills: list[str] | None = None
-    deep_research: bool | None = None
     thinking_mode: str | None = None  # Model tier override: 'auto', 'fast', 'deep_think'
     follow_up: FollowUpContext | None = None
 
@@ -156,27 +154,6 @@ class SharedSessionResponse(BaseModel):
     status: SessionStatus
     events: list[AgentSSEEvent] = Field(default_factory=list)
     is_shared: bool
-
-
-class DeepResearchApproveRequest(BaseModel):
-    """Approve deep research request"""
-
-    pass  # No body needed, just the action
-
-
-class DeepResearchSkipRequest(BaseModel):
-    """Skip deep research query request"""
-
-    query_id: str | None = None  # If None, skip all
-
-
-class DeepResearchStatusResponse(BaseModel):
-    """Deep research status response"""
-
-    research_id: str
-    status: str
-    total_queries: int
-    completed_queries: int
 
 
 class BrowseUrlRequest(BaseModel):

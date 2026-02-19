@@ -16,7 +16,6 @@ from app.application.services.screenshot_service import ScreenshotQueryService
 from app.application.services.token_service import TokenService
 from app.core import prometheus_metrics as pm
 from app.core.config import get_settings
-from app.core.deep_research_manager import get_deep_research_manager
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
@@ -55,8 +54,6 @@ from app.interfaces.schemas.session import (
     ConfirmActionRequest,
     CreateSessionRequest,
     CreateSessionResponse,
-    DeepResearchSkipRequest,
-    DeepResearchStatusResponse,
     DeleteSessionResponse,
     GetSessionResponse,
     ListSessionItem,
@@ -484,14 +481,13 @@ async def chat(
 
     # Short-circuit for completed/failed sessions ONLY when there is no fresh user
     # input (pure reconnect / page-refresh).  When the request carries a message,
-    # attachments, skills, follow-up context, or deep-research flag the call must
-    # reach agent_service.chat() so the domain-level reactivation path can create a
+    # attachments, skills, or follow-up context the call must reach
+    # agent_service.chat() so the domain-level reactivation path can create a
     # new task and re-initialise the sandbox.
     has_fresh_input = bool(
         (request.message and request.message.strip())
         or request.attachments
         or request.skills
-        or request.deep_research
         or (request.thinking_mode and request.thinking_mode != "auto")
         or request.follow_up
     )
@@ -624,7 +620,6 @@ async def chat(
                 event_id=request.event_id,
                 attachments=request.attachments,
                 skills=request.skills,
-                deep_research=request.deep_research,
                 thinking_mode=request.thinking_mode,
                 follow_up=follow_up_dict,
             )
@@ -1597,84 +1592,6 @@ async def get_shared_session_files(
     for file in files:
         await get_file_service().enrich_with_file_url(file)
     return APIResponse.success(files)
-
-
-@router.post("/{session_id}/deep-research/approve", response_model=APIResponse[None])
-async def approve_deep_research(
-    session_id: str,
-    current_user: User = Depends(get_current_user),
-    agent_service: AgentService = Depends(get_agent_service),
-) -> APIResponse[None]:
-    """Approve a pending deep research session to start execution.
-
-    This endpoint signals the deep research flow to begin executing
-    queries that were waiting for user approval.
-    """
-    # Verify session ownership
-    session = await agent_service.get_session(session_id, current_user.id)
-    if not session:
-        raise NotFoundError("Session not found")
-
-    # Approve the research
-    manager = get_deep_research_manager()
-    if await manager.approve(session_id):
-        logger.info(f"Deep research approved for session {session_id}")
-        return APIResponse.success()
-    raise HTTPException(status_code=404, detail="No active deep research found for this session")
-
-
-@router.post("/{session_id}/deep-research/skip", response_model=APIResponse[None])
-async def skip_deep_research_query(
-    session_id: str,
-    request: DeepResearchSkipRequest,
-    current_user: User = Depends(get_current_user),
-    agent_service: AgentService = Depends(get_agent_service),
-) -> APIResponse[None]:
-    """Skip a specific query or all pending queries in deep research.
-
-    If query_id is provided, skips only that query.
-    If query_id is None, skips all pending/searching queries.
-    """
-    # Verify session ownership
-    session = await agent_service.get_session(session_id, current_user.id)
-    if not session:
-        raise NotFoundError("Session not found")
-
-    # Skip the query(s)
-    manager = get_deep_research_manager()
-    if await manager.skip_query(session_id, request.query_id):
-        logger.info(f"Deep research query skipped for session {session_id}: {request.query_id or 'all'}")
-        return APIResponse.success()
-    raise HTTPException(status_code=404, detail="No active deep research found for this session")
-
-
-@router.get("/{session_id}/deep-research/status", response_model=APIResponse[DeepResearchStatusResponse])
-async def get_deep_research_status(
-    session_id: str,
-    current_user: User = Depends(get_current_user),
-    agent_service: AgentService = Depends(get_agent_service),
-) -> APIResponse[DeepResearchStatusResponse]:
-    """Get the current status of deep research for a session."""
-    # Verify session ownership
-    session = await agent_service.get_session(session_id, current_user.id)
-    if not session:
-        raise NotFoundError("Session not found")
-
-    manager = get_deep_research_manager()
-    flow = manager.get(session_id)
-
-    if not flow or not flow.get_session():
-        raise HTTPException(status_code=404, detail="No active deep research found for this session")
-
-    research_session = flow.get_session()
-    return APIResponse.success(
-        DeepResearchStatusResponse(
-            research_id=research_session.research_id,
-            status=research_session.status,
-            total_queries=research_session.total_count,
-            completed_queries=research_session.completed_count,
-        )
-    )
 
 
 @router.delete("/{session_id}/share", response_model=APIResponse[ShareSessionResponse])
