@@ -28,6 +28,18 @@ class AgentMode(str, Enum):
     AGENT = "agent"  # Full PlanAct capabilities
 
 
+class ResearchMode(str, Enum):
+    """Research strategy for the session.
+
+    Controls how information gathering works within an agent session.
+    FAST_SEARCH: API-based search only, no planning, quick synthesis (~seconds).
+    DEEP_RESEARCH: Browser-first, multi-step planning, CDP prominent (default).
+    """
+
+    FAST_SEARCH = "fast_search"
+    DEEP_RESEARCH = "deep_research"
+
+
 class Session(BaseModel):
     """Session model"""
 
@@ -50,6 +62,7 @@ class Session(BaseModel):
     status: SessionStatus = SessionStatus.PENDING
     is_shared: bool = False  # Whether this session is shared publicly
     mode: AgentMode = AgentMode.AGENT  # Agent mode: agent (full PlanAct) or discuss (simple Q&A)
+    research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH  # Research strategy: fast_search or deep_research
     pending_action: dict | None = None
     pending_action_status: str | None = None
     # Workspace metadata (sanitized)

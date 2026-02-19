@@ -887,6 +887,17 @@ class FlowTransitionEvent(BaseEvent):
     elapsed_ms: float | None = None  # Time spent in previous state
 
 
+class ResearchModeEvent(BaseEvent):
+    """Emitted at the start of a session flow to indicate the active research mode.
+
+    Allows the frontend to adapt its layout (e.g., auto-open browser panel
+    for deep_research, hide it for fast_search).
+    """
+
+    type: Literal["research_mode"] = "research_mode"
+    research_mode: str  # "fast_search" or "deep_research"
+
+
 # Discriminated union on 'type' field for efficient Pydantic v2 validation
 # Using Union[] syntax required for Annotated discriminator pattern
 AgentEvent = Annotated[
@@ -929,6 +940,7 @@ AgentEvent = Annotated[
         CanvasUpdateEvent,
         FlowSelectionEvent,
         FlowTransitionEvent,
+        ResearchModeEvent,
         PhaseEvent,
     ],
     Discriminator("type"),
