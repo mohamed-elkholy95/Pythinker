@@ -47,6 +47,7 @@ from app.core.config_features import (
     TimelineSettingsMixin,
     TypoCorrectionSettingsMixin,
 )
+from app.core.config_knowledge import KnowledgeBaseSettingsMixin
 from app.core.config_llm import (
     EmbeddingSettingsMixin,
     LLMConcurrencySettingsMixin,
@@ -97,6 +98,7 @@ class Settings(
     FeatureFlagsSettingsMixin,
     ResearchSettingsMixin,
     TypoCorrectionSettingsMixin,
+    KnowledgeBaseSettingsMixin,
     # BaseSettings must come last
     BaseSettings,
 ):
