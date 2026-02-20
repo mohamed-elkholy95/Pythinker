@@ -35,8 +35,7 @@
                         </button>
                         <ConnectorButton />
                         <SkillPicker />
-                        <!-- ThinkingModeSelector hidden — adaptive routing handles model selection automatically -->
-                        <!-- <ThinkingModeSelector v-model="thinkingMode" /> -->
+                        <AutonomyControl v-model="thinkingMode" />
                     </div>
                     <div class="chatbox-actions-right">
                         <button v-if="!isRunning || sendEnabled"
@@ -45,7 +44,7 @@
                             @click="handleSubmit">
                             <SendIcon :disabled="!sendEnabled" />
                         </button>
-                        <button v-else @click="handleStop" class="chatbox-stop-btn">
+                        <button v-else @click="handleStop" class="chatbox-stop-btn active-interrupt">
                             <div class="stop-icon"></div>
                         </button>
                     </div>
@@ -67,6 +66,7 @@ import { Paperclip, Puzzle, X } from 'lucide-vue-next';
 import ConnectorButton from './connectors/ConnectorButton.vue';
 import ConnectorBanner from './connectors/ConnectorBanner.vue';
 import SkillPicker from './SkillPicker.vue';
+import AutonomyControl from './AutonomyControl.vue';
 import { useSkills } from '@/composables/useSkills';
 import { getCommandMap } from '@/api/skills';
 import type { FileInfo } from '../api/file';
@@ -274,18 +274,18 @@ onMounted(async () => {
     max-height: 300px;
     background: var(--fill-input-chat);
     border-radius: 22px;
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    border: 1px solid var(--border-main);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.02);
     overflow: hidden;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .chatbox-container:hover {
-    border-color: rgba(0, 0, 0, 0.2);
+    border-color: var(--border-dark);
 }
 
 .chatbox-container:focus-within {
-    border-color: rgba(0, 0, 0, 0.2);
+    border-color: var(--border-dark);
 }
 
 :global([data-theme='dark']) .chatbox-container {
@@ -535,9 +535,9 @@ onMounted(async () => {
     gap: 4px;
     padding: 2px 6px 2px 5px;
     border-radius: 10px;
-    background: rgba(0, 0, 0, 0.08);
-    border: 1px solid rgba(0, 0, 0, 0.2);
-    color: #000000;
+    background: var(--fill-tsp-white-dark);
+    border: 1px solid var(--border-dark);
+    color: var(--text-primary);
     font-size: 11px;
     font-weight: 500;
     line-height: 1.2;
@@ -552,13 +552,36 @@ onMounted(async () => {
     border-radius: 50%;
     border: none;
     background: transparent;
-    color: #000000;
+    color: var(--text-primary);
     cursor: pointer;
     padding: 0;
     transition: background 0.1s ease;
 }
 
 .session-skill-remove:hover {
-    background: rgba(59, 130, 246, 0.15);
+    background: var(--fill-tsp-white-main);
+}
+
+/* Stop button urgency ring — pulses while agent is running */
+@keyframes stop-pulse-ring {
+  0% {
+    box-shadow:
+      0 10px 20px rgba(0, 0, 0, 0.28),
+      0 0 0 0 color-mix(in srgb, var(--status-running) 55%, transparent);
+  }
+  70% {
+    box-shadow:
+      0 10px 20px rgba(0, 0, 0, 0.28),
+      0 0 0 7px color-mix(in srgb, var(--status-running) 0%, transparent);
+  }
+  100% {
+    box-shadow:
+      0 10px 20px rgba(0, 0, 0, 0.28),
+      0 0 0 0 color-mix(in srgb, var(--status-running) 0%, transparent);
+  }
+}
+
+.chatbox-stop-btn.active-interrupt {
+  animation: stop-pulse-ring 1.8s ease-out infinite;
 }
 </style>
