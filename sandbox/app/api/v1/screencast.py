@@ -330,6 +330,31 @@ async def stream_frames_ws(
                 if disconnected.is_set() or stop_event.is_set():
                     break
 
+                # If stream exited without yielding frames and Chrome is
+                # healthy, the page is likely static or a transient WS
+                # hiccup occurred.  Send a fallback screenshot and retry
+                # without counting it as a recovery failure.
+                if not stream_yielded_frames and await service.health_check():
+                    logger.info(
+                        "[CDP Stream] Stream exited with 0 frames but Chrome "
+                        "is healthy — sending fallback screenshot before retry"
+                    )
+                    try:
+                        fallback = await service.capture_single_frame()
+                        if fallback:
+                            await websocket.send_bytes(fallback)
+                            frame_count += 1
+                    except (RuntimeError, WebSocketDisconnect):
+                        disconnected.set()
+                        stream_cancel.set()
+                        break
+                    except Exception as e:
+                        logger.debug(
+                            f"[CDP Stream] Fallback screenshot failed: {e}"
+                        )
+                    await asyncio.sleep(2.0)
+                    continue
+
                 # Stream exited without client disconnect — Chrome may be hung
                 recovery_count += 1
                 if recovery_count > _MAX_STREAM_RECOVERIES:

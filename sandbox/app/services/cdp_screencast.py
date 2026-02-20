@@ -22,7 +22,7 @@ import base64
 import logging
 import time
 from dataclasses import dataclass
-from typing import AsyncGenerator, Callable
+from typing import AsyncGenerator, Callable, ClassVar
 
 import aiohttp
 
@@ -48,20 +48,24 @@ _STREAM_FRAME_TIMEOUT = settings.CDP_STREAM_FRAME_TIMEOUT
 _STREAM_HEALTH_CHECK_INTERVAL = settings.CDP_STREAM_HEALTH_CHECK_INTERVAL
 
 # Page recovery thresholds
-_PAGE_RECOVERY_FAILURE_THRESHOLD = 3   # Consecutive same-page failures before tab replacement
+_PAGE_RECOVERY_FAILURE_THRESHOLD = 5   # Consecutive same-page failures before tab replacement
 _CHROME_RESTART_FAILURE_THRESHOLD = 6  # Total failures before Chrome restart
 _CHROME_RESTART_COOLDOWN = 30.0        # Minimum seconds between Chrome restarts
-_SAME_URL_REDISCOVERY_THRESHOLD = 2    # Times same broken URL rediscovered after cache invalidation
+_SAME_URL_REDISCOVERY_THRESHOLD = 4    # Times same broken URL rediscovered after cache invalidation
 
 
 @dataclass
 class ScreencastConfig:
-    """Configuration for CDP screencast streaming."""
+    """Configuration for CDP screencast streaming.
+
+    Default dimensions match Playwright's browser viewport (1280x900)
+    to ensure consistent rendering across the CDP screencast pipeline.
+    """
 
     format: str = "jpeg"  # jpeg is faster than png
     quality: int = 80  # 80% is good balance of quality/bandwidth
     max_width: int = 1280
-    max_height: int = 1024
+    max_height: int = 900  # Match Playwright DEFAULT_VIEWPORT height
     every_nth_frame: int = 1  # Capture every frame
 
 
@@ -254,12 +258,36 @@ class CDPScreencastService:
             self._ws_url_cached_at = now
         return url
 
+    # URLs considered "idle" — not worth streaming over a page with real content.
+    _IDLE_PAGE_URLS: ClassVar[frozenset[str]] = frozenset({
+        "about:blank",
+        "chrome://newtab/",
+        "chrome://new-tab-page/",
+    })
+    # URL prefixes for default homepages (Google, data: URIs).
+    _IDLE_PAGE_PREFIXES: ClassVar[tuple[str, ...]] = (
+        "https://www.google.com/",
+        "https://google.com/",
+        "http://www.google.com/",
+        "http://google.com/",
+        "data:",
+    )
+
+    @classmethod
+    def _is_idle_page_url(cls, url: str) -> bool:
+        """Check if a page URL is an idle/default page (not real browsing content)."""
+        if not url:
+            return True
+        if url in cls._IDLE_PAGE_URLS:
+            return True
+        return url.startswith(cls._IDLE_PAGE_PREFIXES)
+
     async def get_ws_debugger_url(self) -> str | None:
         """Get the WebSocket debugger URL for the active browser page.
 
         Queries Chrome's /json introspection endpoint to discover page targets.
-        Filters for type="page" targets, preferring non-blank pages when multiple
-        targets exist (e.g., after a crash creates a new blank tab).
+        Filters for type="page" targets, preferring pages with real browsing
+        content over idle/default pages (blank, new tab, Google homepage).
         """
         try:
             async with aiohttp.ClientSession() as session:
@@ -278,18 +306,61 @@ class CDPScreencastService:
                             # Fallback: use first target regardless of type
                             return targets[0].get("webSocketDebuggerUrl")
 
-                        # Prefer non-blank pages (after crash, Chrome may have
-                        # both a crashed target and a new blank tab)
+                        # Prefer pages with real browsing content (not idle/default)
                         for page in pages:
                             url = page.get("url", "")
-                            if url and url not in ("about:blank", "chrome://newtab/"):
+                            if not self._is_idle_page_url(url):
                                 return page.get("webSocketDebuggerUrl")
 
-                        # All pages are blank - return the first one
+                        # All pages are idle — return the first one
                         return pages[0].get("webSocketDebuggerUrl")
         except Exception as e:
             logger.debug(f"Failed to get CDP WebSocket URL: {e}")
         return None
+
+    async def _has_better_page_target(self) -> bool:
+        """Check if a page with real browsing content exists that differs from the current target.
+
+        Called during static-page timeouts to detect when Playwright has navigated
+        a different tab than the one the screencast is streaming.  If a better
+        target is found, the caller should break the stream so the reconnection
+        logic picks up the active page.
+
+        Returns True if switching is recommended.
+        """
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{CDP_ENDPOINT}/json",
+                    timeout=aiohttp.ClientTimeout(total=_CONNECT_TIMEOUT),
+                ) as resp:
+                    if resp.status != 200:
+                        return False
+                    targets = await resp.json()
+                    if not targets:
+                        return False
+
+                    pages = [t for t in targets if t.get("type") == "page"]
+                    if len(pages) < 2:
+                        return False  # Only one page — nothing to switch to
+
+                    # Find pages with real browsing content
+                    for page in pages:
+                        url = page.get("url", "")
+                        ws_url = page.get("webSocketDebuggerUrl", "")
+                        if (
+                            not self._is_idle_page_url(url)
+                            and ws_url != self._cached_ws_url
+                        ):
+                            logger.info(
+                                "Better page target found: %s (current: ...%s)",
+                                url[:80],
+                                (self._cached_ws_url or "none")[-20:],
+                            )
+                            return True
+        except Exception as e:
+            logger.debug("Better page target check failed: %s", e)
+        return False
 
     # ------------------------------------------------------------------
     # Connection lifecycle
@@ -353,6 +424,34 @@ class CDPScreencastService:
                 logger.debug("Ignoring error closing stale CDP session: %s", e)
             self._session = None
 
+    async def _ensure_viewport(self) -> None:
+        """Set viewport dimensions on the connected page via CDP.
+
+        Sends Emulation.setDeviceMetricsOverride so screenshots and screencast
+        frames render at the expected resolution (config.max_width × max_height)
+        regardless of the actual browser window size.  This is critical for pages
+        opened via /json/new or headless tabs that have tiny default viewports.
+        """
+        if not self._ws or self._ws.closed:
+            return
+        result = await self._send_command(
+            "Emulation.setDeviceMetricsOverride",
+            {
+                "width": self.config.max_width,
+                "height": self.config.max_height,
+                "deviceScaleFactor": 1,
+                "mobile": False,
+            },
+        )
+        if result and "error" not in result:
+            logger.info(
+                "Set viewport to %dx%d via Emulation.setDeviceMetricsOverride",
+                self.config.max_width,
+                self.config.max_height,
+            )
+        else:
+            logger.debug("Viewport override not applied: %s", result)
+
     async def _handle_page_detached(self, context: str) -> None:
         """Common handler for page-detached errors.
 
@@ -401,21 +500,16 @@ class CDPScreencastService:
     async def _try_replace_broken_tab(self) -> bool:
         """Attempt to replace a broken browser tab without restarting Chrome.
 
-        Uses the Chrome DevTools HTTP API:
-        1. PUT /json/new — opens a fresh tab (new page target)
-        2. GET /json/close/{id} — closes the broken tab
+        Uses the Chrome DevTools HTTP API to open a fresh tab (PUT /json/new).
+        Does NOT close the old tab — Playwright may be actively using it from
+        the backend.  The screencast simply needs a working page target to
+        attach to; the old tab is harmless if left open.
 
         Returns True if a new healthy page target is now available.
         """
         logger.info("Attempting tab replacement for broken CDP page")
         try:
             async with aiohttp.ClientSession() as session:
-                # Extract broken target ID from the cached URL
-                old_target_id: str | None = None
-                if self._failing_page_url:
-                    # URL format: ws://host:port/devtools/page/{TARGET_ID}
-                    old_target_id = self._failing_page_url.rsplit("/", 1)[-1]
-
                 # Open a fresh tab
                 async with session.put(
                     f"{CDP_ENDPOINT}/json/new",
@@ -431,24 +525,9 @@ class CDPScreencastService:
                         f"Created new tab: {new_target.get('id', 'unknown')}"
                     )
 
-                # Close the broken tab (best-effort)
-                if old_target_id:
-                    try:
-                        async with session.get(
-                            f"{CDP_ENDPOINT}/json/close/{old_target_id}",
-                            timeout=aiohttp.ClientTimeout(total=_CONNECT_TIMEOUT),
-                        ) as close_resp:
-                            if close_resp.status == 200:
-                                logger.info(
-                                    f"Closed broken tab: {old_target_id}"
-                                )
-                            else:
-                                logger.debug(
-                                    f"Could not close broken tab {old_target_id}: "
-                                    f"HTTP {close_resp.status}"
-                                )
-                    except Exception:
-                        pass  # Non-critical — new tab is what matters
+                # NOTE: Old tab is intentionally NOT closed.  Playwright (running
+                # in the backend) may be controlling it.  Closing it would crash
+                # the agent's browser operations.
 
                 # Invalidate everything so next connect picks up the new tab
                 self.invalidate_cache()
@@ -771,6 +850,10 @@ class CDPScreencastService:
                         continue
                     return False
 
+            # Ensure proper viewport before starting screencast — headless
+            # tabs opened via /json/new have tiny default viewports.
+            await self._ensure_viewport()
+
             result = await self._send_command("Page.startScreencast", params)
             if result and "error" not in result:
                 self._running = True
@@ -898,6 +981,48 @@ class CDPScreencastService:
                         "Chrome health check passed — page likely static, "
                         "resetting timeout counter"
                     )
+
+                    # Capture a fallback screenshot so the frontend has at
+                    # least one frame to display for static pages.
+                    try:
+                        result = await self._send_command(
+                            "Page.captureScreenshot",
+                            {
+                                "format": self.config.format,
+                                "quality": self.config.quality,
+                            },
+                        )
+                        if result and "result" in result:
+                            frame_data = result["result"].get("data")
+                            if frame_data:
+                                image_bytes = base64.b64decode(frame_data)
+                                yield ScreencastFrame(
+                                    data=image_bytes,
+                                    session_id=0,
+                                    timestamp=time.monotonic(),
+                                    metadata={"synthetic": True},
+                                )
+                                logger.debug(
+                                    "Sent fallback screenshot for static page"
+                                )
+                    except Exception as e:
+                        logger.debug(
+                            f"Fallback screenshot capture failed: {e}"
+                        )
+
+                    # Check if Playwright is browsing on a different tab.
+                    # If a page with real content exists, break the stream
+                    # so the recovery loop reconnects to the active page.
+                    if await self._has_better_page_target():
+                        logger.info(
+                            "Breaking stream to switch to active page target"
+                        )
+                        # Invalidate so reconnection discovers the better page
+                        self.invalidate_cache()
+                        async with self._command_lock:
+                            await self._cleanup_stale_connection()
+                        break
+
                     continue
 
                 # Reset timeout counter on any received message
@@ -1011,6 +1136,10 @@ class CDPScreencastService:
                     self.invalidate_cache()
                     continue
                 return None
+
+            # Ensure proper viewport on first attempt (handles new tabs with tiny viewports)
+            if attempt == 0:
+                await self._ensure_viewport()
 
             # Capture the current WS URL for failure tracking
             current_ws_url = self._cached_ws_url
