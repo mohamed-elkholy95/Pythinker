@@ -71,39 +71,6 @@
             <component :is="feature.icon" :size="17" class="feature-icon" />
             <span>{{ $t(feature.label) }}</span>
           </button>
-
-          <!-- More Dropdown -->
-          <div class="relative" ref="moreDropdownRef">
-            <button
-              @click="toggleMoreDropdown"
-              class="feature-btn feature-btn-more"
-              :class="{ 'active': showMoreDropdown }"
-            >
-              <span>{{ $t('More') }}</span>
-            </button>
-
-            <!-- Dropdown Menu -->
-            <Transition
-              enter-active-class="transition duration-150 ease-out"
-              enter-from-class="transform scale-95 opacity-0 translate-y-2"
-              enter-to-class="transform scale-100 opacity-100 translate-y-0"
-              leave-active-class="transition duration-100 ease-in"
-              leave-from-class="transform scale-100 opacity-100 translate-y-0"
-              leave-to-class="transform scale-95 opacity-0 translate-y-2"
-            >
-              <div v-if="showMoreDropdown" class="more-dropdown">
-                <button
-                  v-for="item in moreFeatures"
-                  :key="item.id"
-                  @click="handleFeatureClick(item)"
-                  class="more-dropdown-item"
-                >
-                  <component :is="item.icon" :size="17" class="more-dropdown-icon" />
-                  <span>{{ $t(item.label) }}</span>
-                </button>
-              </div>
-            </Transition>
-          </div>
         </div>
       </div>
     </div>
@@ -119,7 +86,7 @@ import ChatBox from '../components/ChatBox.vue';
 import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
 import {
   Palette, Bot, Menu,
-  Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
+  MessageSquare, Search
 } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
 import type { FileInfo } from '../api/file';
@@ -148,67 +115,28 @@ const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
 const { isLeftPanelShow, toggleLeftPanel } = useLeftPanel();
 
-// Visible feature buttons (Research/Deep Research/Wide Research removed — now handled by mode selector)
+// Visible feature buttons
 const visibleFeatures: Feature[] = [
+  {
+    id: 'research',
+    label: 'Research',
+    icon: Search,
+    mode: 'agent',
+    prompt: 'create a comprehensive research report about: '
+  },
   {
     id: 'design',
     label: 'Design',
     icon: Palette,
     mode: 'agent',
     prompt: 'Create a design for: '
-  }
-];
-
-// More dropdown features (Wide Research removed)
-const moreFeatures: Feature[] = [
-  {
-    id: 'schedule',
-    label: 'Schedule task',
-    icon: Calendar,
-    mode: 'agent',
-    prompt: 'Schedule a task to: '
-  },
-  {
-    id: 'spreadsheet',
-    label: 'Spreadsheet',
-    icon: Table2,
-    mode: 'agent',
-    prompt: 'Create a spreadsheet for: '
-  },
-  {
-    id: 'visualization',
-    label: 'Visualization',
-    icon: BarChart3,
-    mode: 'agent',
-    prompt: 'Create a data visualization for: '
-  },
-  {
-    id: 'video',
-    label: 'Video',
-    icon: Video,
-    mode: 'agent',
-    prompt: 'Create a video about: '
-  },
-  {
-    id: 'audio',
-    label: 'Audio',
-    icon: AudioLines,
-    mode: 'agent',
-    prompt: 'Create audio content about: '
   },
   {
     id: 'chat',
-    label: 'Chat mode',
+    label: 'Chat Mode',
     icon: MessageSquare,
     mode: 'discuss',
     prompt: ''
-  },
-  {
-    id: 'playbook',
-    label: 'Playbook',
-    icon: BookOpen,
-    mode: 'agent',
-    prompt: 'Create a playbook for: '
   }
 ];
 
@@ -221,9 +149,7 @@ const avatarLetter = computed(() => {
 const showUserMenu = ref(false);
 const userMenuTimeout = ref<number | null>(null);
 
-// More dropdown state
-const showMoreDropdown = ref(false);
-const moreDropdownRef = ref<HTMLElement | null>(null);
+
 
 // Show user menu on hover
 const handleUserMenuEnter = () => {
@@ -241,17 +167,9 @@ const handleUserMenuLeave = () => {
   }, 200); // 200ms delay to allow moving to menu
 };
 
-// Toggle more dropdown
-const toggleMoreDropdown = () => {
-  showMoreDropdown.value = !showMoreDropdown.value;
-};
 
-// Close dropdown when clicking outside
-const handleClickOutside = (event: MouseEvent) => {
-  if (moreDropdownRef.value && !moreDropdownRef.value.contains(event.target as Node)) {
-    showMoreDropdown.value = false;
-  }
-};
+
+
 
 // Handle insert message event from settings (e.g., "Build with Pythinker" button)
 const handleInsertMessage = (event: Event) => {
@@ -265,20 +183,16 @@ const handleInsertMessage = (event: Event) => {
 
 onMounted(() => {
   hideFilePanel();
-  document.addEventListener('click', handleClickOutside);
   // Listen for message insert event from settings dialog
   window.addEventListener('pythinker:insert-chat-message', handleInsertMessage as EventListener);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
   window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage as EventListener);
 });
 
 // Handle feature button click
 const handleFeatureClick = async (feature: Feature) => {
-  showMoreDropdown.value = false;
-
   if (feature.id === 'chat') {
     // Chat mode - create session with discuss mode directly
     await createSessionWithMode('discuss');
@@ -479,60 +393,8 @@ const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: strin
   color: var(--text-primary);
 }
 
-.feature-btn-more {
-  padding-left: 22px;
-  padding-right: 22px;
-}
-
-.feature-btn-more.active {
-  border-color: var(--border-dark);
-}
-
 .feature-btn:focus-visible {
   outline: 2px solid var(--border-btn-primary);
   outline-offset: 2px;
-}
-
-/* ===== MORE DROPDOWN ===== */
-.more-dropdown {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  width: 220px;
-  padding: 6px;
-  border-radius: 14px;
-  z-index: 50;
-  background: var(--fill-input-chat);
-  border: 1px solid var(--bolt-elements-borderColor);
-  box-shadow: var(--shadow-L);
-}
-
-.more-dropdown-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--bolt-elements-textSecondary);
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.more-dropdown-item:hover {
-  background: var(--bolt-elements-item-backgroundAccent);
-  color: var(--bolt-elements-textPrimary);
-}
-
-.more-dropdown-icon {
-  color: var(--bolt-elements-textTertiary);
-  transition: color 0.15s ease;
-}
-
-.more-dropdown-item:hover .more-dropdown-icon {
-  color: var(--bolt-elements-item-contentAccent);
 }
 </style>
