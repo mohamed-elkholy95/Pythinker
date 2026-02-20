@@ -878,6 +878,7 @@ const sessionStatus = ref<SessionStatus | undefined>(undefined);
 const isSandboxInitializing = computed(() => sessionStatus.value === SessionStatus.INITIALIZING);
 const isWaitingForSessionReady = ref(false);
 const pendingInitialMessage = ref<{ message: string; files: FileInfo[]; thinkingMode: ThinkingMode } | null>(null);
+const currentThinkingMode = ref<ThinkingMode>('auto');
 const sessionInitTimedOut = ref(false);
 const skipNextRouteReset = ref(false);
 
@@ -2839,6 +2840,7 @@ const handleEvent = (event: AgentSSEEvent) => {
 };
 
 const handleSubmit = (thinkingMode: ThinkingMode = 'auto') => {
+  currentThinkingMode.value = thinkingMode;
   chat(inputMessage.value, attachments.value, { thinkingMode });
 }
 

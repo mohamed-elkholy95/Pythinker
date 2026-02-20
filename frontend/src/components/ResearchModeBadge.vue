@@ -18,7 +18,7 @@ defineProps<{
       <Globe v-else :size="11" :stroke-width="2" />
     </span>
     <span class="badge-label">
-      {{ mode === 'fast_search' ? 'Fast Search' : 'Deep Research' }}
+      {{ mode === 'fast_search' ? 'Fast Search' : 'Research' }}
     </span>
   </span>
 </template>
