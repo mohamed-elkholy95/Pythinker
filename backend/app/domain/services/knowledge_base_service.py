@@ -198,7 +198,7 @@ class KnowledgeBaseService:
         kb_id: str,
         user_id: str,
         query: str,
-        mode: str = "hybrid",
+        mode: str = "naive",
     ) -> KnowledgeQueryResult:
         import time
 

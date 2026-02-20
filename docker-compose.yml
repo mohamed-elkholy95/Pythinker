@@ -47,6 +47,7 @@ services:
       - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - knowledge_base_data:/app/data/knowledge_bases
       #- ./mcp.json:/etc/mcp.json # Mount MCP servers directory
     networks:
       - pythinker-network
@@ -301,6 +302,8 @@ volumes:
     name: pythinker-qdrant-data
   minio_data:
     name: pythinker-minio-data
+  knowledge_base_data:
+    name: pythinker-knowledge-base-data
 
 networks:
   pythinker-network:

@@ -44,7 +44,7 @@ class QueryKnowledgeBaseRequest(BaseModel):
     """Request body for querying a knowledge base."""
 
     query: str = Field(min_length=1, max_length=2000)
-    mode: str = Field(default="hybrid", pattern="^(hybrid|local|global|naive|mix)$")
+    mode: str = Field(default="naive", pattern="^(hybrid|local|global|naive|mix)$")
 
 
 class QueryResponse(BaseModel):
