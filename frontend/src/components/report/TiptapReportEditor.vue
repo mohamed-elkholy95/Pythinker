@@ -89,10 +89,11 @@ const htmlContent = computed(() => {
   return DOMPurify.sanitize(rawHtml);
 });
 
-// After TipTap renders, stamp id="ref-N" onto ordered list items inside the
+// After TipTap renders, stamp id="ref-N" onto list items inside the
 // References / Sources / Bibliography section. TipTap strips unknown id attrs
 // from its schema nodes, so we must do this via direct DOM mutation.
-// Also injects data-tooltip={title\ndomain} into inline citation badges.
+// Also injects data-{title,domain,url} into inline citation badges for the popup,
+// and stamps the same data onto reference-section anchors for hover popups.
 const addReferenceAnchors = () => {
   const proseMirror = contentRef.value?.querySelector('.ProseMirror');
   if (!proseMirror) return;
@@ -101,30 +102,69 @@ const addReferenceAnchors = () => {
   const headings = Array.from(proseMirror.querySelectorAll('h1, h2, h3, h4'));
   const refMap = new Map<string, { title: string; domain: string; url: string }>();
 
+  // Helper: find the first anchor whose raw href is external (not a fragment)
+  const findExternalAnchor = (el: Element): HTMLAnchorElement | null => {
+    const anchors = Array.from(el.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+    return anchors.find((a) => {
+      const raw = a.getAttribute('href') ?? '';
+      return raw && !raw.startsWith('#');
+    }) ?? null;
+  };
+
+  // Helper: extract a URL from plain text when no <a> tag is present
+  const extractUrlFromText = (text: string): string | null => {
+    const m = text.match(/https?:\/\/[^\s)<>]+/);
+    return m ? m[0] : null;
+  };
+
+  // Helper: build refMap entry from an anchor or bare-text URL
+  const extractRefMeta = (el: Element, num: string) => {
+    const anchor = findExternalAnchor(el);
+    if (anchor) {
+      try {
+        const domain = new URL(anchor.href).hostname.replace(/^www\./, '');
+        const title = (anchor.textContent?.trim() || domain).slice(0, 64);
+        refMap.set(num, { title, domain, url: anchor.href });
+        // Stamp data on the reference-section anchor for hover popup
+        anchor.dataset.title = title;
+        anchor.dataset.domain = domain;
+        anchor.dataset.url = anchor.href;
+        anchor.classList.add('ref-list-anchor');
+      } catch { /* ignore malformed URLs */ }
+      return;
+    }
+    // Fallback: bare URL in text content (LLM didn't use markdown link syntax)
+    const bareUrl = extractUrlFromText(el.textContent ?? '');
+    if (bareUrl) {
+      try {
+        const domain = new URL(bareUrl).hostname.replace(/^www\./, '');
+        const title = domain.slice(0, 64);
+        refMap.set(num, { title, domain, url: bareUrl });
+      } catch { /* ignore */ }
+    }
+  };
+
   for (const heading of headings) {
     if (!refHeadingRe.test(heading.textContent?.trim() ?? '')) continue;
 
     let sibling = heading.nextElementSibling;
+    let nextNum = 1; // running counter for list items across split lists
     while (sibling) {
       if (/^H[1-4]$/.test(sibling.tagName)) break;
 
-      if (sibling.tagName === 'OL') {
-        // Ordered-list style: "1. [Link Title](URL)"
-        sibling.querySelectorAll('li').forEach((item, index) => {
-          const num = String(index + 1);
+      // Ordered or unordered list — process all items
+      if (sibling.tagName === 'OL' || sibling.tagName === 'UL') {
+        const startAttr = sibling.getAttribute('start');
+        const startNum = startAttr ? parseInt(startAttr, 10) : nextNum;
+        sibling.querySelectorAll(':scope > li').forEach((item, index) => {
+          const num = String(startNum + index);
           item.setAttribute('id', `ref-${num}`);
-          const anchor = item.querySelector('a[href]') as HTMLAnchorElement | null;
-          if (anchor?.href && !anchor.href.startsWith('#')) {
-            try {
-              const domain = new URL(anchor.href).hostname.replace(/^www\./, '');
-              const title = (anchor.textContent?.trim() || domain).slice(0, 64);
-              refMap.set(num, { title, domain, url: anchor.href });
-            } catch {
-              // ignore malformed URLs
-            }
-          }
+          extractRefMeta(item, num);
         });
-        break; // OL exhausts the references section
+        nextNum = startNum + sibling.querySelectorAll(':scope > li').length;
+        // Continue scanning — references may span multiple lists
+        sibling = sibling.nextElementSibling;
+        continue;
       }
 
       // Bracket-style: "[N] [Link Title](URL)" — rendered as a <p> by marked
@@ -134,16 +174,8 @@ const addReferenceAnchors = () => {
         if (m) {
           const num = m[1];
           sibling.setAttribute('id', `ref-${num}`);
-          const anchor = sibling.querySelector('a[href]') as HTMLAnchorElement | null;
-          if (anchor?.href && !anchor.href.startsWith('#')) {
-            try {
-              const domain = new URL(anchor.href).hostname.replace(/^www\./, '');
-              const title = (anchor.textContent?.trim() || domain).slice(0, 64);
-              refMap.set(num, { title, domain, url: anchor.href });
-            } catch {
-              // ignore malformed URLs
-            }
-          }
+          extractRefMeta(sibling, num);
+          nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
         }
       }
 
@@ -151,15 +183,20 @@ const addReferenceAnchors = () => {
     }
   }
 
-  // Inject data-title + data-domain into inline citation badge anchors
+  // Stamp data attributes onto inline citation badge anchors for popup card.
+  // Also remove target/_blank / rel added by the Link extension — citation
+  // badges are internal fragment links and must scroll within the page.
   proseMirror.querySelectorAll('a[href^="#ref-"]').forEach((badge) => {
-    const href = (badge as HTMLAnchorElement).getAttribute('href');
-    const num = href?.replace('#ref-', '');
+    const el = badge as HTMLAnchorElement;
+    el.removeAttribute('target');
+    el.removeAttribute('rel');
+    const raw = el.getAttribute('href');
+    const num = raw?.replace('#ref-', '');
     if (num && refMap.has(num)) {
       const { title, domain, url } = refMap.get(num)!;
-      (badge as HTMLElement).dataset.title = title;
-      (badge as HTMLElement).dataset.domain = domain;
-      (badge as HTMLElement).dataset.url = url;
+      el.dataset.title = title;
+      el.dataset.domain = domain;
+      el.dataset.url = url;
     }
   });
 };
@@ -196,13 +233,54 @@ const keepCard = () => { if (_hideCardTimer) { clearTimeout(_hideCardTimer); _hi
 const scheduleHideCard = () => { _hideCardTimer = setTimeout(() => { citCard.visible = false; }, 120); };
 
 const _onBadgeOver = (e: MouseEvent) => {
-  const badge = (e.target as HTMLElement).closest('a[href^="#ref-"]') as HTMLElement | null;
-  if (!badge?.dataset.title && !badge?.dataset.domain) return;
+  const badge = (e.target as HTMLElement).closest(
+    'a[href^="#ref-"], .ref-list-anchor',
+  ) as HTMLElement | null;
+  if (!badge) return;
+
+  // Fast path: pre-stamped by addReferenceAnchors
+  let title = badge.dataset.title ?? '';
+  let domain = badge.dataset.domain ?? '';
+  let url = badge.dataset.url ?? '';
+
+  // Fallback: resolve at hover time from the reference element in the DOM.
+  // Covers cases where addReferenceAnchors ran before the References section
+  // was rendered, or where no formal heading was detected.
+  if (!title && !domain) {
+    const rawHref = (badge as HTMLAnchorElement).getAttribute?.('href') ?? '';
+    const refId = rawHref.startsWith('#') ? rawHref.slice(1) : '';
+    if (refId) {
+      const proseMirror = contentRef.value?.querySelector('.ProseMirror');
+      const refEl = proseMirror?.querySelector(`#${refId}`);
+      if (refEl) {
+        const anchors = Array.from(refEl.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+        const ext = anchors.find((a) => {
+          const h = a.getAttribute('href') ?? '';
+          return h && !h.startsWith('#');
+        });
+        if (ext) {
+          try {
+            domain = new URL(ext.href).hostname.replace(/^www\./, '');
+            title = (ext.textContent?.trim() || domain).slice(0, 64);
+            url = ext.href;
+            // Cache for future hovers
+            badge.dataset.title = title;
+            badge.dataset.domain = domain;
+            badge.dataset.url = url;
+          } catch { /* ignore malformed URLs */ }
+        }
+      }
+    }
+  }
+
+  if (!title && !domain) return;
+
   keepCard();
   const rect = badge.getBoundingClientRect();
-  citCard.title = badge.dataset.title ?? '';
-  citCard.domain = badge.dataset.domain ?? '';
-  citCard.faviconUrl = citCard.domain ? (getFaviconUrl(`https://${citCard.domain}`) ?? '') : '';
+  citCard.title = title;
+  citCard.domain = domain;
+  citCard.faviconUrl = domain ? (getFaviconUrl(`https://${domain}`) ?? '') : '';
+  citCard.url = url;
   // Centre the card below the badge, clamped to viewport width
   const cardWidth = 260;
   citCard.x = Math.min(Math.max(rect.left + rect.width / 2 - cardWidth / 2, 8), window.innerWidth - cardWidth - 8);
@@ -211,7 +289,7 @@ const _onBadgeOver = (e: MouseEvent) => {
 };
 
 const _onBadgeOut = (e: MouseEvent) => {
-  if ((e.target as HTMLElement).closest('a[href^="#ref-"]')) scheduleHideCard();
+  if ((e.target as HTMLElement).closest('a[href^="#ref-"], .ref-list-anchor')) scheduleHideCard();
 };
 
 onMounted(() => {
@@ -433,6 +511,26 @@ defineExpose({
   background: #e5e5e7;
   border-color: #e5e5e7;
   color: #1c1c1e;
+}
+
+/* ── Reference list anchors — hover shows popup card ─ */
+:deep(.ref-list-anchor) {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(26, 115, 232, 0.35);
+  text-underline-offset: 2px;
+  transition: text-decoration-color 0.15s ease, color 0.15s ease;
+}
+
+:deep(.ref-list-anchor:hover) {
+  text-decoration-color: #1a73e8;
+  color: #1a73e8;
+}
+
+:global(.dark) :deep(.ref-list-anchor:hover),
+:global([data-theme='dark']) :deep(.ref-list-anchor:hover) {
+  text-decoration-color: #58a6ff;
+  color: #58a6ff;
 }
 
 /* no pseudo-element tooltip — handled by .cit-card teleported to body */
