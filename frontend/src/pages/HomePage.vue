@@ -47,42 +47,6 @@
           </p>
         </div>
 
-        <!-- Research Mode Selector -->
-        <div class="mode-selector-wrapper">
-          <div class="mode-selector" role="radiogroup" :aria-label="$t('Research mode')">
-            <button
-              class="mode-option"
-              :class="{ active: selectedResearchMode === 'fast_search' }"
-              role="radio"
-              :aria-checked="selectedResearchMode === 'fast_search'"
-              @click="selectedResearchMode = 'fast_search'"
-            >
-              <span class="mode-icon-wrap">
-                <Zap :size="12" :stroke-width="2.5" />
-              </span>
-              <span>{{ $t('Fast Search') }}</span>
-            </button>
-            <button
-              class="mode-option"
-              :class="{ active: selectedResearchMode === 'deep_research' }"
-              role="radio"
-              :aria-checked="selectedResearchMode === 'deep_research'"
-              @click="selectedResearchMode = 'deep_research'"
-            >
-              <span class="mode-icon-wrap">
-                <Globe :size="12" :stroke-width="2" />
-              </span>
-              <span>{{ $t('Deep Research') }}</span>
-            </button>
-          </div>
-          <p class="mode-description">
-            {{ selectedResearchMode === 'fast_search'
-              ? $t('Quick answers from search APIs')
-              : $t('Browser-first thorough analysis')
-            }}
-          </p>
-        </div>
-
         <!-- Chat Input -->
         <div class="chat-input-wrapper">
           <ChatBox
@@ -154,7 +118,7 @@ import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
 import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
 import {
-  Palette, Bot, Menu, Zap, Globe,
+  Palette, Bot, Menu,
   Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
 } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
@@ -180,7 +144,6 @@ const message = ref('');
 const isSubmitting = ref(false);
 const attachments = ref<FileInfo[]>([]);
 const pendingSkillId = ref<string | null>(null);
-const selectedResearchMode = ref<ResearchMode>('deep_research');
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
 const { isLeftPanelShow, toggleLeftPanel } = useLeftPanel();
@@ -335,7 +298,7 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
     state: {
       pendingSessionCreate: true,
       mode,
-      research_mode: selectedResearchMode.value,
+      research_mode: 'deep_research' as ResearchMode,
       message: initialMessage ?? '',
       skills: [],
       files: attachments.value.map((file: FileInfo) => ({
@@ -375,7 +338,7 @@ const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: strin
       state: {
         pendingSessionCreate: true,
         mode: 'agent',
-        research_mode: selectedResearchMode.value,
+        research_mode: 'deep_research' as ResearchMode,
         message: submitMessage,
         skills: skillIds,
         thinking_mode: thinkingMode,
@@ -433,76 +396,6 @@ const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: strin
   line-height: 1.2;
   color: var(--text-primary);
   letter-spacing: -0.02em;
-}
-
-/* ===== MODE SELECTOR ===== */
-.mode-selector-wrapper {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-
-.mode-selector {
-  display: inline-flex;
-  padding: 3px;
-  border-radius: var(--radius-lg);
-  background: var(--fill-tsp-white-main);
-  border: 1px solid var(--border-dark);
-}
-
-.mode-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 16px;
-  border-radius: calc(var(--radius-lg) - 3px);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  color: var(--text-tertiary);
-  background: transparent;
-  border: 1px solid transparent;
-}
-
-.mode-option:hover:not(.active) {
-  color: var(--text-primary);
-  background: var(--fill-tsp-white-dark);
-}
-
-.mode-option.active {
-  background: var(--background-card);
-  color: var(--text-primary);
-  border-color: var(--border-dark);
-  box-shadow: 0 1px 3px var(--shadow-XS);
-}
-
-/* ── Icon circle inside mode buttons ── */
-.mode-icon-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: var(--radius-full);
-  background: var(--fill-tsp-white-dark);
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-  transition: all 0.2s ease;
-}
-
-.mode-option.active .mode-icon-wrap {
-  background: var(--bolt-elements-item-contentAccent);
-  color: var(--Button-primary-white);
-}
-
-.mode-description {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  text-align: center;
 }
 
 /* ===== CHAT INPUT WRAPPER ===== */
