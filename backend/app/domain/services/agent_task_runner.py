@@ -228,6 +228,14 @@ class AgentTaskRunner(TaskRunner):
         # MongoDB database for workflow checkpointing
         self._mongodb_db = mongodb_db
 
+        # Knowledge base service (RAG-Anything; None if feature disabled)
+        try:
+            from app.interfaces.dependencies import get_knowledge_base_service
+
+            self._knowledge_base_service = get_knowledge_base_service()
+        except Exception:
+            self._knowledge_base_service = None
+
         # Pythinker-style agent factory and components
         self._agent_factory: PythinkerAgentFactory | None = agent_factory
         self._manifest: StateManifest | None = None
@@ -363,6 +371,7 @@ class AgentTaskRunner(TaskRunner):
                 feedback_lookup=typo_analytics.get_feedback_override,
                 cancel_token=self._cancel_token,
                 research_mode=self._research_mode.value,
+                knowledge_base_service=self._knowledge_base_service,
             )
             # Inject circuit breaker for tool-level failure protection
             try:
