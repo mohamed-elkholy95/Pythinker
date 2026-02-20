@@ -44,6 +44,7 @@ class ChartTool(BaseTool):
         super().__init__(max_observe=max_observe)
         self.sandbox = sandbox
         self.session_id = session_id
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     @tool(
         name="chart_create",
@@ -302,30 +303,25 @@ Returns both interactive HTML and static PNG files.""",
                 command=command,
             )
 
-            # Clean up temp file (best-effort)
-            try:
-                await self.sandbox.exec_command(
-                    session_id=self.session_id,
-                    exec_dir="/home/ubuntu",
-                    command=f"rm -f {temp_input_path}",
-                )
-            except Exception:
-                logger.debug(f"Failed to clean up temp file {temp_input_path}")
-
             if not exec_result.success:
                 logger.warning(f"Chart generation failed: {exec_result.message}")
+                self._cleanup_temp_file(temp_input_path)
                 return ToolResult(
                     success=False,
                     message=f"Chart generation failed: {exec_result.message}",
                 )
 
-            # If the chart script is still running (took >5s), wait for it then fetch output
+            # If the chart script is still running (took >5s), wait for it then fetch output.
+            # IMPORTANT: Do NOT run any other exec_command on this session_id until the
+            # chart process finishes — the sandbox shell service is single-process-per-session
+            # and will kill the running chart script if we reuse the session.
             exec_status = exec_result.data.get("status") if exec_result.data else None
             if exec_status == "running":
                 logger.debug("Chart script still running, waiting up to 120s for completion")
                 wait_result = await self.sandbox.wait_for_process(session_id=self.session_id, seconds=120)
                 if not wait_result.success:
                     logger.warning(f"Chart script timed out: {wait_result.message}")
+                    self._cleanup_temp_file(temp_input_path)
                     return ToolResult(
                         success=False,
                         message="Chart generation timed out after 120 seconds",
@@ -345,6 +341,11 @@ Returns both interactive HTML and static PNG files.""",
                 await asyncio.sleep(0.5)
                 view_result = await self.sandbox.view_shell(session_id=self.session_id)
                 raw_output = view_result.data.get("output") if view_result.data else None
+
+            # Clean up temp file AFTER output has been captured — running
+            # exec_command earlier would kill the still-running chart process
+            # because the sandbox shell is single-process-per-session.
+            self._cleanup_temp_file(temp_input_path)
 
             if not raw_output:
                 logger.warning(f"Chart script produced no output. exec_result.data={exec_result.data}")
@@ -394,4 +395,24 @@ Returns both interactive HTML and static PNG files.""",
 
         except Exception as e:
             logger.exception(f"Chart creation failed: {e}")
+            self._cleanup_temp_file(temp_input_path)
             return ToolResult(success=False, message=f"Chart creation failed: {e}")
+
+    def _cleanup_temp_file(self, path: str) -> None:
+        """Schedule best-effort cleanup of a sandbox temp file.
+
+        Uses ``file_delete`` (a dedicated file API) instead of ``exec_command``
+        to avoid killing a still-running process — the sandbox shell service
+        is single-process-per-session and reusing the session would terminate
+        the chart script.
+        """
+
+        async def _do_cleanup() -> None:
+            try:
+                await self.sandbox.file_delete(path)
+            except Exception:
+                logger.debug(f"Failed to clean up temp file {path}")
+
+        task = asyncio.ensure_future(_do_cleanup())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
