@@ -136,23 +136,86 @@
         </div>
 
         <!-- Content Area: Dynamic content rendering -->
-        <div class="flex-1 min-h-0 min-w-0 w-full overflow-hidden relative">
+        <div class="flex-1 min-h-0 min-w-0 w-full overflow-hidden relative isolate">
+          <!-- Persistent browser background — always mounted when session is active.
+               Tool-specific views overlay on top so the browser stays connected
+               and instantly available when switching back (no reconnection delay). -->
+          <div
+            v-if="showPersistentBrowser"
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+            style="z-index: -1"
+          >
+            <LiveViewer
+              :key="'live-preview-persistent-' + (sessionId || 'none')"
+              :session-id="sessionId || ''"
+              :enabled="true"
+              :view-only="true"
+              :is-canvas-mode="isCanvasMode"
+              :show-controls="showBrowserControls"
+              :is-session-complete="isSessionComplete"
+              :replay-screenshot-url="props.replayScreenshotUrl || ''"
+              @connected="onLivePreviewConnected"
+              @disconnected="onLivePreviewDisconnected"
+            />
+
+            <!-- Reconnecting overlay -->
+            <Transition name="fade">
+              <LoadingState
+                v-if="livePreviewDisconnected && !!sessionId"
+                class="absolute inset-0 z-10 bg-[var(--background-white-main)]/90"
+                :label="livePreviewPlaceholderLabel || 'Reconnecting'"
+                :detail="livePreviewPlaceholderDetail"
+                :is-active="true"
+                animation="globe"
+              />
+            </Transition>
+
+            <!-- URL bar overlay - shows current URL during browser operations -->
+            <div v-if="showLivePreviewUrlBar" class="live-preview-url-bar">
+              <div class="live-preview-url-status">
+                <Loader2 v-if="isActiveOperation" :size="12" class="live-preview-url-spinner" />
+                <Check v-else :size="12" />
+              </div>
+              <span class="live-preview-url-text">{{ livePreviewUrlBarText }}</span>
+            </div>
+
+            <!-- Take over button -->
+            <button
+              v-if="!isShare && !!props.sessionId"
+              @click="takeOver"
+              class="takeover-btn absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-[var(--text-onblack)] group transition-all duration-300"
+            >
+              <TakeOverIcon />
+              <span class="text-sm max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:ml-1">
+                {{ $t('Take Over') }}
+              </span>
+            </button>
+          </div>
+
           <!-- Streaming Report (live summary composition — highest priority) -->
-          <StreamingReportView
+          <div
             v-if="isSummaryPhase || summaryStreamText"
-            :text="summaryStreamText || ''"
-            :is-final="!isSummaryStreaming"
-          />
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+          >
+            <StreamingReportView
+              :text="summaryStreamText || ''"
+              :is-final="!isSummaryStreaming"
+            />
+          </div>
 
           <!-- Unified Streaming View (tool execution streaming — second highest priority) -->
-          <UnifiedStreamingView
+          <div
             v-else-if="shouldShowUnifiedStreaming"
-            :text="toolContent.streaming_content || ''"
-            :content-type="streamingContentType"
-            :is-final="toolStatus === 'called'"
-            :language="streamingLanguage"
-            :tool-content="toolContent"
-          />
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+          >
+            <UnifiedStreamingView
+              :text="toolContent.streaming_content || ''"
+              :content-type="streamingContentType"
+              :is-final="toolStatus === 'called'"
+              :language="streamingLanguage"
+              :tool-content="toolContent"
+            />
+          </div>
 
           <!-- Replay mode: static screenshots — only when no richer native view exists.
                Terminal/editor/search views have their own content that is more informative
@@ -179,178 +242,85 @@
             />
           </div>
 
-          <!-- Live preview view (via backend proxy) — skip for completed sessions -->
-          <div
-            v-else-if="currentViewType === 'live_preview' && !isReplayMode"
-            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
-          >
-            <!-- Placeholder shown when no session (no LiveViewer mounted) -->
-            <LoadingState
-              v-if="showLivePreviewPlaceholder"
-              :label="livePreviewPlaceholderLabel || 'Loading'"
-              :detail="livePreviewPlaceholderDetail"
-              :is-active="isActiveOperation"
-              :animation="livePreviewPlaceholderAnimation || 'globe'"
-            />
-
-            <!-- Live viewer — always mounted when session exists so its
-                 internal reconnect logic can work without deadlocking -->
-            <LiveViewer
-              v-else-if="livePreviewEnabled"
-              :key="'live-preview-main-' + (sessionId || 'none')"
-              :session-id="sessionId || ''"
-              :enabled="livePreviewEnabled"
-              :view-only="true"
-              :is-canvas-mode="isCanvasMode"
-              :show-controls="showBrowserControls"
-              :tool-content="toolContent"
-              :is-active="isActiveOperation"
-              :terminal-content="terminalContent"
-              :editor-content="editorContent"
-              :editor-file-path="resolvedFilePath"
-              :search-results="searchResults"
-              :search-query="searchQuery"
-              :is-session-complete="isSessionComplete"
-              :replay-screenshot-url="props.replayScreenshotUrl || ''"
-              @connected="onLivePreviewConnected"
-              @disconnected="onLivePreviewDisconnected"
-            />
-
-            <!-- Inactive state when no session -->
-            <InactiveState
-              v-else
-              message="Pythinker's computer is inactive"
-            />
-
-            <!-- Reconnecting overlay — shown on top of LiveViewer so the
-                 component stays mounted and its reconnect timers keep running -->
-            <Transition name="fade">
-              <LoadingState
-                v-if="livePreviewDisconnected && livePreviewEnabled"
-                class="absolute inset-0 z-10 bg-[var(--background-white-main)]/90"
-                :label="livePreviewPlaceholderLabel || 'Reconnecting'"
-                :detail="livePreviewPlaceholderDetail"
-                :is-active="true"
-                animation="globe"
-              />
-            </Transition>
-
-            <!-- URL bar overlay - shows current URL during browser operations -->
-            <div v-if="showLivePreviewUrlBar" class="live-preview-url-bar">
-              <div class="live-preview-url-status">
-                <Loader2 v-if="isActiveOperation" :size="12" class="live-preview-url-spinner" />
-                <Check v-else :size="12" />
-              </div>
-              <span class="live-preview-url-text">{{ livePreviewUrlBarText }}</span>
-            </div>
-
-            <!-- Take over button — visible whenever session is active -->
-            <button
-              v-if="!isShare && !!props.sessionId"
-              @click="takeOver"
-              class="takeover-btn absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-[var(--text-onblack)] group transition-all duration-300">
-              <TakeOverIcon />
-              <span class="text-sm max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:ml-1">
-                {{ $t('Take Over') }}
-              </span>
-            </button>
-          </div>
+          <!-- Live preview: persistent browser in background shows through (no overlay needed) -->
+          <template v-else-if="currentViewType === 'live_preview'" />
 
           <!-- Terminal View -->
-          <TerminalContentView
-            v-else-if="currentViewType === 'terminal'"
-            :content="terminalContent"
-            :content-type="terminalContentType"
-            :is-live="isActiveOperation"
-            :is-writing="isWriting"
-            :auto-scroll="true"
-            @new-content="onNewTerminalContent"
-          />
-
-          <!-- Editor View -->
-          <EditorContentView
-            v-else-if="currentViewType === 'editor'"
-            :content="editorContent"
-            :filename="fileName"
-            :is-writing="isWriting"
-            :is-loading="isEditorLoading"
-          />
-
-          <!-- Search View -->
-          <SearchContentView
-            v-else-if="currentViewType === 'search'"
-            :results="searchResults"
-            :is-searching="isSearching"
-            :query="searchQuery"
-            :explicit-results="searchResultsExplicit"
-            @browseUrl="handleBrowseUrl"
-          />
-
-          <!-- Chart View -->
-          <ChartToolView
-            v-else-if="currentViewType === 'chart'"
-            :session-id="sessionId || ''"
-            :chart-content="toolContent"
-            :live="isActiveOperation"
-            :view-mode="chartViewMode"
-            :show-header-controls="true"
-            @update:viewMode="chartViewMode = $event"
-          />
-
-          <!-- Generic/MCP View -->
-          <GenericContentView
-            v-else-if="currentViewType === 'generic'"
-            :tool-name="toolContent?.name"
-            :function-name="toolContent?.function"
-            :args="toolContent?.args"
-            :result="toolContent?.content?.result"
-            :content="toolContent?.content"
-            :is-executing="isActiveOperation"
-          />
-
-          <!-- Wide Research View (parallel multi-source search) -->
-          <WideResearchOverlay
-            v-else-if="currentViewType === 'wide_research'"
-            :state="wideResearchState"
-            :always-show="true"
-          />
-
-          <!-- Live preview fallback when session exists but no dedicated view — skip for completed sessions -->
-          <div
-            v-else-if="sessionId && !isReplayMode"
-            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
-          >
-            <LiveViewer
-              :key="'live-preview-fallback-' + (sessionId || 'none')"
-              :session-id="sessionId"
-              :enabled="true"
-              :view-only="true"
-              :is-canvas-mode="isCanvasMode"
-              :show-controls="showBrowserControls"
-              :tool-content="toolContent"
-              :is-active="isActiveOperation"
-              :terminal-content="terminalContent"
-              :editor-content="editorContent"
-              :editor-file-path="resolvedFilePath"
-              :search-results="searchResults"
-              :search-query="searchQuery"
-              :is-session-complete="isSessionComplete"
-              :replay-screenshot-url="props.replayScreenshotUrl || ''"
-              @connected="onLivePreviewConnected"
-              @disconnected="onLivePreviewDisconnected"
+          <div v-else-if="currentViewType === 'terminal'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <TerminalContentView
+              :content="terminalContent"
+              :content-type="terminalContentType"
+              :is-live="isActiveOperation"
+              :is-writing="isWriting"
+              :auto-scroll="true"
+              @new-content="onNewTerminalContent"
             />
           </div>
 
-          <!-- Fallback: render GenericContentView when no session -->
-          <GenericContentView
-            v-else
-            :tool-name="toolContent?.name"
-            :function-name="toolContent?.function"
-            :args="toolContent?.args"
-            :result="toolContent?.content?.result"
-            :content="toolContent?.content"
-            :is-executing="isActiveOperation"
-          />
+          <!-- Editor View -->
+          <div v-else-if="currentViewType === 'editor'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <EditorContentView
+              :content="editorContent"
+              :filename="fileName"
+              :is-writing="isWriting"
+              :is-loading="isEditorLoading"
+            />
+          </div>
+
+          <!-- Search View -->
+          <div v-else-if="currentViewType === 'search'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <SearchContentView
+              :results="searchResults"
+              :is-searching="isSearching"
+              :query="searchQuery"
+              :explicit-results="searchResultsExplicit"
+              @browseUrl="handleBrowseUrl"
+            />
+          </div>
+
+          <!-- Chart View -->
+          <div v-else-if="currentViewType === 'chart'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <ChartToolView
+              :session-id="sessionId || ''"
+              :chart-content="toolContent"
+              :live="isActiveOperation"
+              :view-mode="chartViewMode"
+              :show-header-controls="true"
+              @update:viewMode="chartViewMode = $event"
+            />
+          </div>
+
+          <!-- Generic/MCP View -->
+          <div v-else-if="currentViewType === 'generic'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <GenericContentView
+              :tool-name="toolContent?.name"
+              :function-name="toolContent?.function"
+              :args="toolContent?.args"
+              :result="toolContent?.content?.result"
+              :content="toolContent?.content"
+              :is-executing="isActiveOperation"
+            />
+          </div>
+
+          <!-- Wide Research View (parallel multi-source search) -->
+          <div v-else-if="currentViewType === 'wide_research'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <WideResearchOverlay
+              :state="wideResearchState"
+              :always-show="true"
+            />
+          </div>
+
+          <!-- Fallback: render GenericContentView when no persistent browser and no dedicated view -->
+          <div v-else-if="!showPersistentBrowser" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <GenericContentView
+              :tool-name="toolContent?.name"
+              :function-name="toolContent?.function"
+              :args="toolContent?.args"
+              :result="toolContent?.content?.result"
+              :content="toolContent?.content"
+              :is-executing="isActiveOperation"
+            />
+          </div>
         </div>
 
         <!-- Timeline Controls — only render when timeline data exists -->
@@ -409,7 +379,6 @@ import TaskProgressBar from '@/components/TaskProgressBar.vue';
 // Content views are async to avoid loading heavy dependencies until needed.
 const LiveViewer = defineAsyncComponent(() => import('@/components/LiveViewer.vue'));
 const LoadingState = defineAsyncComponent(() => import('@/components/toolViews/shared/LoadingState.vue'));
-const InactiveState = defineAsyncComponent(() => import('@/components/toolViews/shared/InactiveState.vue'));
 const TerminalContentView = defineAsyncComponent(() => import('@/components/toolViews/TerminalContentView.vue'));
 const EditorContentView = defineAsyncComponent(() => import('@/components/toolViews/EditorContentView.vue'));
 const SearchContentView = defineAsyncComponent(() => import('@/components/toolViews/SearchContentView.vue'));
@@ -740,14 +709,12 @@ const livePreviewPlaceholderDetail = computed(() => {
   return '';
 });
 
-// Animation type for live preview placeholder
-const livePreviewPlaceholderAnimation = computed<'globe' | 'check' | 'spinner'>(() => {
-  return 'globe';
-});
-
-const livePreviewEnabled = computed(() => {
-  return !!props.sessionId;
-});
+/** Keep the browser CDP stream mounted when a session is active.
+ * Tool-specific views (editor, terminal, etc.) overlay on top, so the
+ * browser is instantly available when switching back — no reconnection. */
+const showPersistentBrowser = computed(() => {
+  return !!props.sessionId && !props.isReplayMode && !isSessionComplete.value
+})
 
 // Whether the current tool has a rich native view (editor, terminal, search)
 // that is more informative than a browser screenshot replay.
