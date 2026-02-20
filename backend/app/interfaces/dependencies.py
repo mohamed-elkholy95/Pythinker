@@ -249,10 +249,9 @@ def get_knowledge_base_service():
 
     try:
         from app.domain.services.knowledge_base_service import KnowledgeBaseService
+        from app.infrastructure.external.embedding.client import get_embedding_client
         from app.infrastructure.external.raganything.adapter import RAGAnythingAdapter
         from app.infrastructure.repositories.mongo_knowledge_repository import MongoKnowledgeRepository
-
-        from app.infrastructure.external.embedding.client import get_embedding_client
 
         llm = _get_llm_instance()
         embedding_client = get_embedding_client()
