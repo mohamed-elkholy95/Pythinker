@@ -221,6 +221,7 @@ class PlanActFlow(BaseFlow):
         feedback_lookup: Callable[[str], str | None] | None = None,
         cancel_token: CancellationToken | None = None,
         research_mode: str = "deep_research",
+        knowledge_base_service=None,
     ):
         self._feature_flags = feature_flags
         self._research_mode = research_mode
@@ -345,6 +346,20 @@ class PlanActFlow(BaseFlow):
         )
         tools.append(canvas_tool)
         logger.debug(f"Added canvas tool for Agent {agent_id}")
+
+        # Knowledge base tool (conditional on feature flag + service availability)
+        if knowledge_base_service is not None:
+            try:
+                from app.domain.services.tools.knowledge_base import KnowledgeBaseTool
+
+                kb_tool = KnowledgeBaseTool(
+                    kb_service=knowledge_base_service,
+                    user_id=user_id or "",
+                )
+                tools.append(kb_tool)
+                logger.debug(f"Added knowledge base tool for Agent {agent_id}")
+            except Exception as _kb_exc:
+                logger.warning("Failed to add knowledge base tool: %s", _kb_exc)
 
         # Create Tree-of-Thoughts explorer if feature enabled
         thought_tree_explorer = None

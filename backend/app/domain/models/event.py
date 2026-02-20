@@ -281,6 +281,16 @@ class ChartToolContent(BaseModel):
     error: str | None = None  # Sync/render error message for frontend display
 
 
+class KnowledgeBaseToolContent(BaseModel):
+    """Knowledge base tool content for query and list operations"""
+
+    operation: str  # "query", "list"
+    knowledge_base_id: str | None = None
+    query: str | None = None
+    results_count: int = 0
+    query_time_ms: float = 0.0
+
+
 ToolContent = (
     BrowserToolContent
     | SearchToolContent
@@ -304,6 +314,7 @@ ToolContent = (
     | PlanToolContent
     | RepoMapToolContent
     | ChartToolContent
+    | KnowledgeBaseToolContent
 )
 
 
