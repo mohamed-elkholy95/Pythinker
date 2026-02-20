@@ -14,8 +14,8 @@ export const API_CONFIG = {
 };
 
 // Complete API base URL
-export const BASE_URL = API_CONFIG.host 
-  ? `${API_CONFIG.host}/api/${API_CONFIG.version}` 
+export const BASE_URL = API_CONFIG.host
+  ? `${API_CONFIG.host}/api/${API_CONFIG.version}`
   : `/api/${API_CONFIG.version}`;
 
 // Login page route name/path
@@ -76,7 +76,7 @@ const processQueue = (error: unknown, token: string | null = null) => {
       resolve(token);
     }
   });
-  
+
   failedQueue = [];
 };
 
@@ -85,8 +85,8 @@ const processQueue = (error: unknown, token: string | null = null) => {
  */
 const redirectToLogin = () => {
   // Check if we're already on the login page
-  if (window.location.pathname === LOGIN_ROUTE || 
-      router.currentRoute.value.path === LOGIN_ROUTE) {
+  if (window.location.pathname === LOGIN_ROUTE ||
+    router.currentRoute.value.path === LOGIN_ROUTE) {
     return; // Already on login page, no need to redirect
   }
 
@@ -109,7 +109,7 @@ const refreshAuthToken = async (): Promise<string | null> => {
 
   isRefreshing = true;
   const refreshToken = getStoredRefreshToken();
-  
+
   if (!refreshToken) {
     // No refresh token available, clear auth and redirect to login
     clearStoredTokens();
@@ -128,17 +128,17 @@ const refreshAuthToken = async (): Promise<string | null> => {
       // Add special marker to prevent interceptor from retrying this request
       __isRefreshRequest: true
     } as AxiosRequestConfig & { __isRefreshRequest: boolean });
-    
+
     if (response.data && response.data.data) {
       const newAccessToken = response.data.data.access_token;
       storeToken(newAccessToken);
-      
+
       // Update default headers
       apiClient.defaults.headers.Authorization = `Bearer ${newAccessToken}`;
-      
+
       // Process queued requests
       processQueue(null, newAccessToken);
-      
+
       return newAccessToken;
     } else {
       throw new Error('Invalid refresh response');
@@ -147,15 +147,15 @@ const refreshAuthToken = async (): Promise<string | null> => {
     // Refresh token failed, clear tokens and redirect to login
     clearStoredTokens();
     delete apiClient.defaults.headers.Authorization;
-    
+
     processQueue(refreshError, null);
-    
+
     // Emit logout event
     window.dispatchEvent(new CustomEvent('auth:logout'));
-    
+
     // Redirect to login page
     redirectToLogin();
-    
+
     throw refreshError;
   } finally {
     isRefreshing = false;
@@ -182,7 +182,7 @@ export const _responseInterceptorId = apiClient.interceptors.response.use(
   },
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean; __isRefreshRequest?: boolean };
-    
+
     // Skip retry logic for refresh requests to prevent infinite loops
     if (originalRequest.__isRefreshRequest) {
       const apiError: ApiError = {
@@ -193,7 +193,7 @@ export const _responseInterceptorId = apiClient.interceptors.response.use(
       console.error('Refresh token request failed:', apiError);
       return Promise.reject(apiError);
     }
-    
+
     // Handle 401 Unauthorized errors with token refresh
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
@@ -250,7 +250,7 @@ export const _responseInterceptorId = apiClient.interceptors.response.use(
     console.error('API Error:', apiError);
     return Promise.reject(apiError);
   }
-); 
+);
 
 export interface SSECallbacks<T = unknown> {
   onOpen?: () => void;
@@ -735,8 +735,13 @@ export const createSSEConnection = async <T = unknown>(
         // First attempt: send full body with message
         requestBody = JSON.stringify(body);
       } else if (method === 'POST') {
-        // Reconnection: send only event_id to resume streaming (no message to prevent duplicate)
-        requestBody = JSON.stringify({ event_id: lastReceivedEventId });
+        // Reconnection: preserve original body context (skills, attachments, thinking_mode)
+        // but strip the message to prevent duplicate prompt submission.
+        // Update event_id to resume from last received position.
+        const resumeBody: Record<string, unknown> = body ? { ...body } : {};
+        delete resumeBody.message;
+        resumeBody.event_id = lastReceivedEventId;
+        requestBody = JSON.stringify(resumeBody);
       }
 
       // SSE best practice: Last-Event-ID for reconnection resumption (set per-request for retries)
@@ -1336,7 +1341,12 @@ export const createEventSourceConnection = async <T = unknown>(
       }
 
       if (!recoverable) {
+        // Deliver error event to UI before closing so the banner can display
+        if (onMessage) {
+          onMessage({ event: eventName, data: parsedData });
+        }
         closeConnection('completed');
+        return;
       }
     }
 

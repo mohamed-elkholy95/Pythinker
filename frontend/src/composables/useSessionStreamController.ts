@@ -46,6 +46,7 @@ interface UseSessionStreamControllerOptions {
 }
 
 const MAX_SEEN_EVENT_IDS = 1000
+const YIELD_BATCH_SIZE = 50
 const DEFAULT_MAX_AUTO_RETRIES = 4
 const DEFAULT_AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000, 60000]
 const DEFAULT_FALLBACK_STATUS_POLL_INTERVAL_MS = 5000
@@ -128,9 +129,27 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
       return
     }
 
-    for (const event of eventsToProcess) {
-      eventProcessor(event)
+    // Yield to the browser between chunks to prevent main-thread jank
+    // when a large burst of SSE events arrives at once
+    if (eventsToProcess.length <= YIELD_BATCH_SIZE) {
+      for (const event of eventsToProcess) {
+        eventProcessor(event)
+      }
+      return
     }
+
+    let offset = 0
+    const processChunk = () => {
+      const end = Math.min(offset + YIELD_BATCH_SIZE, eventsToProcess.length)
+      for (let i = offset; i < end; i += 1) {
+        eventProcessor!(eventsToProcess[i])
+      }
+      offset = end
+      if (offset < eventsToProcess.length) {
+        setTimeout(processChunk, 0)
+      }
+    }
+    processChunk()
   }
 
   const clearPendingEvents = (): void => {
