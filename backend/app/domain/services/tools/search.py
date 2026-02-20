@@ -659,6 +659,10 @@ class SearchTool(BaseTool):
             max_failures = 2
             navigation_timeout_seconds = 20.0
             for url in urls:
+                # Check if a foreground browser operation cancelled us
+                if getattr(self._browser, "_background_browse_cancelled", False):
+                    logger.info("_browse_top_results: cancelled by foreground browser operation")
+                    break
                 try:
                     if hasattr(self._browser, "navigate_for_display"):
                         success = await asyncio.wait_for(
@@ -780,6 +784,8 @@ class SearchTool(BaseTool):
 
         # Fire-and-forget: open top 3 results in browser for live preview visibility
         if result.success and self._browser and result.data:
+            if hasattr(self._browser, "allow_background_browsing"):
+                self._browser.allow_background_browsing()
             task = asyncio.create_task(self._browse_top_results(result.data, count=3))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)

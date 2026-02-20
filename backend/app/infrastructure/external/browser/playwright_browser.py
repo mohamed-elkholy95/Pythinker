@@ -168,6 +168,9 @@ class PlaywrightBrowser:
         self._display_failure_count: int = 0
         self._display_failure_threshold: int = 2
 
+        # Cancellation signal for background browsing (prevents race with foreground ops)
+        self._background_browse_cancelled: bool = False
+
         # Circuit breaker for browser crashes (Phase 1: hardening)
         # Tracks crash timestamps to detect repeated failures and fail-fast
         self._crash_history: list[float] = []  # Timestamps of recent crashes
@@ -2482,6 +2485,18 @@ class PlaywrightBrowser:
             else:
                 logger.debug(f"navigate_for_display failed for {url}: {e}")
             return False
+
+    def cancel_background_browsing(self) -> None:
+        """Signal background browsing loops to stop.
+
+        Called by foreground browser operations (e.g. search, navigate) to prevent
+        the fire-and-forget _browse_top_results task from competing for the page.
+        """
+        self._background_browse_cancelled = True
+
+    def allow_background_browsing(self) -> None:
+        """Reset cancellation for a new background browsing session."""
+        self._background_browse_cancelled = False
 
     async def restart(self, url: str) -> ToolResult:
         """Restart the browser and navigate to the specified URL

@@ -366,6 +366,10 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                 )
             del self._url_cache[url]
 
+        # Cancel any background browsing (from info_search_web) to avoid racing for the page
+        if hasattr(self.browser, "cancel_background_browsing"):
+            self.browser.cancel_background_browsing()
+
         # Start browser navigation concurrently so live preview shows activity immediately
         nav_task: asyncio.Task[None] | None = None
         if hasattr(self.browser, "navigate_for_display"):
@@ -416,8 +420,10 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
 
                             # Wait for browser nav to complete (already running concurrently)
                             if nav_task:
-                                with contextlib.suppress(Exception):
+                                try:
                                     await nav_task
+                                except Exception as nav_err:
+                                    logger.debug(f"navigate_for_display task failed (non-critical): {nav_err}")
                                 nav_task = None
 
                             return ToolResult(

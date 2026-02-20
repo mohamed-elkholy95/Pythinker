@@ -209,6 +209,7 @@ class TestBrowseTopResultsResilience:
         mock_browser = MagicMock()
         mock_browser.is_connected = MagicMock(return_value=True)
         mock_browser.navigate_for_display = AsyncMock(return_value=True)
+        mock_browser._background_browse_cancelled = False
         return SearchTool(search_engine=mock_engine, browser=mock_browser)
 
     @pytest.mark.asyncio
