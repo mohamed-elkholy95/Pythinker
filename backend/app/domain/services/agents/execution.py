@@ -592,9 +592,7 @@ class ExecutionAgent(BaseAgent):
                 stream_attempt += 1
                 attempt_text = ""
 
-                stream_iter = self.llm.ask_stream(
-                    stream_messages, tools=None, tool_choice=None, model=_summarize_model
-                )
+                stream_iter = self.llm.ask_stream(stream_messages, tools=None, tool_choice=None, model=_summarize_model)
                 async with aclosing(stream_iter) as stream:
                     async for chunk in stream:
                         attempt_text += chunk

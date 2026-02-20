@@ -103,9 +103,7 @@ class RAGAnythingAdapter:
                     raise KnowledgeBaseException(f"Document {file_path} is empty")
                 content_list = [{"type": "text", "text": text}]
                 await instance._ensure_lightrag_initialized()
-                await instance.insert_content_list(
-                    content_list, file_path=file_path, doc_id=doc_id
-                )
+                await instance.insert_content_list(content_list, file_path=file_path, doc_id=doc_id)
                 await instance.finalize_storages()
             else:
                 # Full MinerU pipeline for PDFs, Office docs, images, etc.
@@ -281,7 +279,12 @@ class RAGAnythingAdapter:
                 try:
                     # Replace Python single-quotes with double-quotes for JSON parsing.
                     # Only attempt this when the string looks like a serialised dict.
-                    json_str = stripped.replace("'", '"').replace("None", "null").replace("True", "true").replace("False", "false")
+                    json_str = (
+                        stripped.replace("'", '"')
+                        .replace("None", "null")
+                        .replace("True", "true")
+                        .replace("False", "false")
+                    )
                     parsed = json.loads(json_str)
                     if isinstance(parsed, dict):
                         content = parsed.get("content")
