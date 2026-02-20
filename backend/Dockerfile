@@ -17,7 +17,10 @@ ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 # Install dependencies
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y gcc g++ python3-dev && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && apt-get install -y gcc g++ python3-dev \
+    libxcb1 libxcb-util1 libxrender1 libxext6 libglib2.0-0 \
+    libgl1 libgles2 libglx0 libegl1 \
+    && rm -rf /var/lib/apt/lists/* && \
     python -m pip install "setuptools<81" Cython && \
     python -m pip install --no-build-isolation --no-cache-dir editdistpy==0.1.6 && \
     uv pip install --system --no-cache -r requirements.txt

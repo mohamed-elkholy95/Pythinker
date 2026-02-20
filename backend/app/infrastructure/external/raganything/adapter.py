@@ -18,6 +18,7 @@ from app.domain.models.knowledge_base import KnowledgeBase
 if TYPE_CHECKING:
     from app.core.config import Settings
     from app.domain.external.llm import LLM
+    from app.infrastructure.external.embedding.client import EmbeddingClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,10 @@ class RAGAnythingAdapter:
     EMBEDDING_DIM = 1536  # text-embedding-3-small
     EMBEDDING_MAX_TOKENS = 8192
 
-    def __init__(self, settings: "Settings", llm: "LLM") -> None:
+    def __init__(self, settings: "Settings", llm: "LLM", embedding_client: "EmbeddingClient") -> None:
         self._settings = settings
         self._llm = llm
+        self._embedding_client = embedding_client
         self._instances: dict[str, Any] = {}  # kb_id -> RAGAnything instance
 
     # ── Public API ────────────────────────────────────────────────────────
@@ -75,26 +77,43 @@ class RAGAnythingAdapter:
         logger.info("Created RAGAnything instance for kb=%s at %s", kb.id, working_dir)
         return instance
 
+    # Plain-text file extensions that can be read directly — no MinerU needed.
+    _TEXT_EXTENSIONS = frozenset(
+        {".txt", ".md", ".rst", ".csv", ".json", ".xml", ".html", ".htm", ".yaml", ".yml", ".log"}
+    )
+
     async def process_document(self, kb_id: str, file_path: str, doc_id: str) -> None:
         """Index a document into the knowledge base.
 
-        Runs the blocking MinerU parse + LightRAG insert in a thread pool
-        so as not to block the asyncio event loop.
+        Plain-text files are inserted via insert_content_list() to bypass MinerU
+        (which loads heavy ML models and causes OOM in constrained containers).
+        Binary/PDF files use process_document_complete() for full MinerU parsing.
         """
         if kb_id not in self._instances:
             raise KnowledgeBaseException(f"No RAGAnything instance for kb_id={kb_id!r}")
 
         instance = self._instances[kb_id]
-        loop = asyncio.get_event_loop()
+        suffix = Path(file_path).suffix.lower()
         try:
-            await loop.run_in_executor(
-                None,
-                lambda: instance.insert_file(
+            if suffix in self._TEXT_EXTENSIONS:
+                # Fast path: read text and insert directly into LightRAG —
+                # bypasses MinerU (heavy ML models not needed for plain text).
+                text = Path(file_path).read_text(encoding="utf-8", errors="replace").strip()
+                if not text:
+                    raise KnowledgeBaseException(f"Document {file_path} is empty")
+                content_list = [{"type": "text", "text": text}]
+                await instance._ensure_lightrag_initialized()
+                await instance.insert_content_list(
+                    content_list, file_path=file_path, doc_id=doc_id
+                )
+                await instance.finalize_storages()
+            else:
+                # Full MinerU pipeline for PDFs, Office docs, images, etc.
+                await instance.process_document_complete(
                     file_path,
-                    file_id=doc_id,
+                    doc_id=doc_id,
                     parse_method=self._settings.knowledge_base_parse_method,
-                ),
-            )
+                )
         except Exception as exc:
             raise KnowledgeBaseException(f"Failed to index document {file_path}: {exc}") from exc
 
@@ -104,20 +123,9 @@ class RAGAnythingAdapter:
             raise KnowledgeBaseException(f"No RAGAnything instance for kb_id={kb_id!r}")
 
         instance = self._instances[kb_id]
-        loop = asyncio.get_event_loop()
         try:
-
-            def _run_query() -> Any:
-                try:
-                    return instance.query(query, mode=mode, include_references=True)
-                except TypeError:
-                    # Backward compatibility with versions that do not support this kwarg.
-                    return instance.query(query, mode=mode)
-
-            result = await loop.run_in_executor(
-                None,
-                _run_query,
-            )
+            await instance._ensure_lightrag_initialized()
+            result = await instance.aquery(query, mode=mode)
             return self._normalize_query_response(result)
         except Exception as exc:
             raise KnowledgeBaseException(f"Query failed: {exc}") from exc
@@ -128,23 +136,9 @@ class RAGAnythingAdapter:
             raise KnowledgeBaseException(f"No RAGAnything instance for kb_id={kb_id!r}")
 
         instance = self._instances[kb_id]
-        loop = asyncio.get_event_loop()
         try:
-
-            def _run_multimodal_query() -> Any:
-                try:
-                    return instance.query_with_multimodal_content(
-                        query,
-                        content=content,
-                        include_references=True,
-                    )
-                except TypeError:
-                    return instance.query_with_multimodal_content(query, content=content)
-
-            result = await loop.run_in_executor(
-                None,
-                _run_multimodal_query,
-            )
+            await instance._ensure_lightrag_initialized()
+            result = await instance.aquery_with_multimodal(query, multimodal_content=content, mode="mix")
             return self._normalize_query_response(result)
         except Exception as exc:
             raise KnowledgeBaseException(f"Multimodal query failed: {exc}") from exc
@@ -230,7 +224,7 @@ class RAGAnythingAdapter:
     def _build_embedding_func(self) -> Any:
         """Build an EmbeddingFunc wrapping Pythinker's LLM embed_batch."""
         try:
-            from lightrag import EmbeddingFunc
+            from lightrag.utils import EmbeddingFunc
         except ImportError:
             # lightrag is a transitive dependency of raganything; if absent, return a stub
             logger.warning("lightrag not available; embedding func will be a plain async callable")
@@ -249,18 +243,52 @@ class RAGAnythingAdapter:
             func=_embed_texts,
         )
 
-    async def _embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Delegate embedding to the LLM's embed_batch method if available."""
-        embed_batch = getattr(self._llm, "embed_batch", None)
-        if embed_batch is None:
-            raise KnowledgeBaseException(
-                "LLM does not support embed_batch; cannot generate embeddings for knowledge base"
-            )
-        return await embed_batch(texts)
+    async def _embed_texts(self, texts: list[str]) -> Any:
+        """Delegate embedding to the EmbeddingClient.
+
+        Returns a numpy ndarray (shape: [n_texts, embedding_dim]) because
+        LightRAG's EmbeddingFunc.__call__ validates via result.size (numpy API).
+        """
+        import numpy as np
+
+        vectors = await self._embedding_client.embed_batch(texts)
+        return np.array(vectors, dtype=np.float32)
 
     def _normalize_query_response(self, result: Any) -> tuple[str, list[str]]:
-        """Normalize diverse query response formats into (answer, sources)."""
+        """Normalize diverse query response formats into (answer, sources).
+
+        LightRAG naive mode may return:
+        - A plain string (most modes)
+        - A ChatCompletionMessage object (openai SDK) with a .content attribute
+        - A dict with a 'content' key
+        - A stringified representation of the above (str(message_object))
+        """
+        # Handle OpenAI ChatCompletionMessage objects (and similar) before string check.
+        # These have a .content attribute but are not plain str/Mapping instances.
+        if hasattr(result, "content") and not isinstance(result, (str, bytes)):
+            content = getattr(result, "content", None)
+            if isinstance(content, str) and content.strip():
+                return content.strip(), []
+
         if isinstance(result, str):
+            # LightRAG naive mode may return str(ChatCompletionMessage) in some versions,
+            # producing: "{'content': '...', 'role': 'assistant', ...}"
+            # Parse safely via json after normalising Python single-quote dicts.
+            stripped = result.strip()
+            if stripped.startswith("{") and "content" in stripped:
+                import json
+
+                try:
+                    # Replace Python single-quotes with double-quotes for JSON parsing.
+                    # Only attempt this when the string looks like a serialised dict.
+                    json_str = stripped.replace("'", '"').replace("None", "null").replace("True", "true").replace("False", "false")
+                    parsed = json.loads(json_str)
+                    if isinstance(parsed, dict):
+                        content = parsed.get("content")
+                        if isinstance(content, str) and content.strip():
+                            return content.strip(), []
+                except Exception:
+                    pass
             return result, []
 
         answer: str | None = None

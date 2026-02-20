@@ -252,8 +252,11 @@ def get_knowledge_base_service():
         from app.infrastructure.external.raganything.adapter import RAGAnythingAdapter
         from app.infrastructure.repositories.mongo_knowledge_repository import MongoKnowledgeRepository
 
+        from app.infrastructure.external.embedding.client import get_embedding_client
+
         llm = _get_llm_instance()
-        adapter = RAGAnythingAdapter(settings=settings, llm=llm)
+        embedding_client = get_embedding_client()
+        adapter = RAGAnythingAdapter(settings=settings, llm=llm, embedding_client=embedding_client)
         mongodb_db = get_mongodb().client[settings.mongodb_database]
         repository = MongoKnowledgeRepository(db=mongodb_db)
         return KnowledgeBaseService(repository=repository, adapter=adapter, settings=settings)
