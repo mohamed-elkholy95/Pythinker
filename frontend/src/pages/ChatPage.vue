@@ -2720,6 +2720,10 @@ const processEvent = (event: AgentSSEEvent) => {
     || responsePhase.value === 'reconnecting'
     || responsePhase.value === 'degraded'
   ) {
+    // Clear stale error state from previous connection attempts
+    // to prevent old error banners from flickering on successful reconnect
+    lastError.value = null
+    timeoutReason.value = null
     transitionTo('streaming')
   }
 
