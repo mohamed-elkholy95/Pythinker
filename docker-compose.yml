@@ -13,14 +13,20 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-        required: true
     restart: unless-stopped
     networks:
       - pythinker-network
+      - traefik-public
     environment:
       - BACKEND_URL=http://backend:8000
     volumes:
       - ./frontend/nginx.conf:/etc/nginx/nginx.conf.template:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.pythinker.rule=Host(`pythinker.pythought.com`)"
+      - "traefik.http.routers.pythinker.entrypoints=web"
+      - "traefik.http.services.pythinker.loadbalancer.server.port=80"
 
   backend:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-backend:${IMAGE_TAG:-latest}
@@ -51,16 +57,24 @@ services:
       #- ./mcp.json:/etc/mcp.json # Mount MCP servers directory
     networks:
       - pythinker-network
+      - traefik-public
     env_file:
       - .env
     environment:
       - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
       - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
-      - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
-      - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
+      - GRPC_ENABLE_FORK_SUPPORT=0 # Suppress gRPC fork warning from qdrant-client
+      - NODE_OPTIONS=--no-deprecation # Suppress Playwright url.parse() deprecation
+      - FAST_MODEL=${FAST_MODEL:-qwen/qwen3-coder-next}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.pythinker-api.rule=Host(`pythinker.pythought.com`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.pythinker-api.entrypoints=web"
+      - "traefik.http.services.pythinker-api.loadbalancer.server.port=8000"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1"]
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1" ]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -74,15 +88,16 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CHROMIUM: "1"
-        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"  # Keep minimal profile by default
+        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}" # Keep minimal profile by default
       x-bake:
         platforms:
           - linux/amd64
     hostname: sandbox
     # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT (zombie Chrome reaping handled there)
     restart: unless-stopped
+    privileged: true # FIX: Ubuntu compatibility (openat2/fsmount issue)
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      test: [ "CMD", "curl", "-sf", "http://localhost:8080/health" ]
       interval: 30s
       timeout: 10s
       start_period: 60s
@@ -90,14 +105,14 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
-      - LIBGL_ALWAYS_SOFTWARE=1  # Suppress Vulkan/GPU driver warnings in headless containers
+      - LIBGL_ALWAYS_SOFTWARE=1 # Suppress Vulkan/GPU driver warnings in headless containers
     # Sandbox ports bound to localhost only — backend proxies API/live-preview to users.
     # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file access).
     ports:
-      - "127.0.0.1:8083:8080"  # Sandbox API (localhost only)
-      - "127.0.0.1:8082:8082"  # Sandbox framework API (localhost only)
+      - "127.0.0.1:8083:8080" # Sandbox API (localhost only)
+      - "127.0.0.1:8082:8082" # Sandbox framework API (localhost only)
     shm_size: '2g'
     # Security hardening
     security_opt:
@@ -115,7 +130,7 @@ services:
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome temp files and user data
+      - /tmp:size=1g,nosuid,nodev # 1GB for Chrome temp files and user data
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     # File descriptor limits for browser processes
     ulimits:
@@ -124,13 +139,12 @@ services:
         hard: 65536
       # nproc removed: redundant with cgroup pids limit and scoped per-UID
       # (moby/moby#31424) — causes confusing pthread_create EAGAIN failures
-    # Resource limits: 2G per sandbox (Chromium uses less than Chrome for Testing)
+      # Resource limits: 2G per sandbox (Chromium uses less than Chrome for Testing)
     deploy:
       resources:
         limits:
           memory: 2G
           cpus: '1'
-          pids: 1024  # Raised from 300 — Chrome+Playwright+supervisord need ~400-600 PIDs under load
         reservations:
           memory: 512M
     networks:
@@ -144,22 +158,23 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CHROMIUM: "1"
-        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"  # Keep minimal profile by default
+        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}" # Keep minimal profile by default
       x-bake:
         platforms:
           - linux/amd64
     hostname: sandbox2
     # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT (zombie Chrome reaping handled there)
     restart: unless-stopped
+    privileged: true # FIX: Ubuntu compatibility (openat2/fsmount issue)
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
-      - LIBGL_ALWAYS_SOFTWARE=1  # Suppress Vulkan/GPU driver warnings in headless containers
+      - LIBGL_ALWAYS_SOFTWARE=1 # Suppress Vulkan/GPU driver warnings in headless containers
     ports:
-      - "127.0.0.1:8084:8080"  # Sandbox API (localhost only)
-      - "127.0.0.1:8085:8082"  # Sandbox framework API (localhost only)
+      - "127.0.0.1:8084:8080" # Sandbox API (localhost only)
+      - "127.0.0.1:8085:8082" # Sandbox framework API (localhost only)
     shm_size: '2g'
     security_opt:
       - no-new-privileges:true
@@ -175,7 +190,7 @@ services:
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome temp files and user data
+      - /tmp:size=1g,nosuid,nodev # 1GB for Chrome temp files and user data
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     ulimits:
       nofile:
@@ -186,13 +201,12 @@ services:
         limits:
           memory: 2G
           cpus: '1'
-          pids: 1024
         reservations:
           memory: 512M
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/health || exit 1" ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -202,8 +216,8 @@ services:
     image: minio/minio:latest
     container_name: pythinker-minio
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Console UI
+      - "9000:9000" # S3 API
+      - "9001:9001" # Console UI
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
@@ -214,7 +228,7 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -269,7 +283,7 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -278,8 +292,8 @@ services:
     image: qdrant/qdrant:v1.16.3
     container_name: pythinker-qdrant
     ports:
-      - "6333:6333"   # REST API
-      - "6334:6334"   # gRPC (2x faster)
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC (2x faster)
     volumes:
       - qdrant_data:/qdrant/storage
     environment:
@@ -288,7 +302,7 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      test: [ "CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -309,3 +323,6 @@ networks:
   pythinker-network:
     name: pythinker-network
     driver: bridge
+  traefik-public:
+    name: traefik-public
+    external: true
