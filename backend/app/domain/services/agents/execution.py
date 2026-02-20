@@ -581,12 +581,20 @@ class ExecutionAgent(BaseAgent):
             max_stream_continuations = 2 if delivery_integrity_enabled else 0
             stream_attempt = 0
 
+            # Use fast model for report streaming — long-form text generation doesn't need 80B.
+            # Falls back to the default model when FAST_MODEL is not configured.
+            from app.core.config import get_settings as _get_settings
+
+            _summarize_model: str | None = _get_settings().fast_model or None
+
             # Phase 1: Stream tokens live via StreamEvent
             while True:
                 stream_attempt += 1
                 attempt_text = ""
 
-                stream_iter = self.llm.ask_stream(stream_messages, tools=None, tool_choice=None)
+                stream_iter = self.llm.ask_stream(
+                    stream_messages, tools=None, tool_choice=None, model=_summarize_model
+                )
                 async with aclosing(stream_iter) as stream:
                     async for chunk in stream:
                         attempt_text += chunk
@@ -675,7 +683,9 @@ class ExecutionAgent(BaseAgent):
                     ]
                 )
                 retry_text = ""
-                retry_stream = self.llm.ask_stream(list(self.memory.get_messages()), tools=None, tool_choice=None)
+                retry_stream = self.llm.ask_stream(
+                    list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
+                )
                 async with aclosing(retry_stream) as stream:
                     async for chunk in stream:
                         retry_text += chunk
@@ -724,7 +734,9 @@ class ExecutionAgent(BaseAgent):
                     await self._ensure_within_token_limit()
 
                     retry_text = ""
-                    retry_stream = self.llm.ask_stream(list(self.memory.get_messages()), tools=None, tool_choice=None)
+                    retry_stream = self.llm.ask_stream(
+                        list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
+                    )
                     async with aclosing(retry_stream) as stream:
                         async for chunk in stream:
                             retry_text += chunk
@@ -783,7 +795,9 @@ class ExecutionAgent(BaseAgent):
                     await self._ensure_within_token_limit()
 
                     retry_text = ""
-                    retry_stream = self.llm.ask_stream(list(self.memory.get_messages()), tools=None, tool_choice=None)
+                    retry_stream = self.llm.ask_stream(
+                        list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
+                    )
                     async with aclosing(retry_stream) as stream:
                         async for chunk in stream:
                             retry_text += chunk
@@ -865,7 +879,9 @@ class ExecutionAgent(BaseAgent):
                         # Single continuation attempt for pattern-based detection
                         logger.info("Requesting continuation based on content patterns...")
                         continuation_text = ""
-                        continuation_iter = self.llm.ask_stream(continuation_messages, tools=None, tool_choice=None)
+                        continuation_iter = self.llm.ask_stream(
+                            continuation_messages, tools=None, tool_choice=None, model=_summarize_model
+                        )
                         async with aclosing(continuation_iter) as cont_stream:
                             async for chunk in cont_stream:
                                 continuation_text += chunk
