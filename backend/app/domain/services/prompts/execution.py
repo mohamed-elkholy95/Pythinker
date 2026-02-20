@@ -1226,7 +1226,7 @@ EXECUTION_SYSTEM_PROMPT = ENHANCED_EXECUTION_SYSTEM_PROMPT
 EXECUTION_PROMPT = ENHANCED_EXECUTION_PROMPT
 SUMMARIZE_PROMPT = ENHANCED_SUMMARIZE_PROMPT
 
-STREAMING_SUMMARIZE_PROMPT = """Deliver the completed result as a professional research report in Markdown.
+STREAMING_SUMMARIZE_PROMPT = """Write the research report NOW. Start your response with a # heading on the VERY FIRST LINE.
 
 REPORT STRUCTURE (follow this format exactly):
 
@@ -1264,23 +1264,27 @@ WRITING GUIDELINES:
 - Include numbered references at the end
 - Write in professional, direct tone
 
-FORBIDDEN:
+FORBIDDEN (your response will be REJECTED if it contains any of these):
+- Starting with "I'll create...", "I will write...", "Let me...", "Based on the research findings..."
 - "This report has been revised..."
 - "Changes Made:" sections
 - "IMPORTANT DISCLAIMER:"
-- Meta-commentary about the report itself
+- Meta-commentary about the report itself or the research process
 - Work-in-progress language
 - Excessive caveats or hedging
 - Tool call XML (e.g. <tool_call>, <function_call>) — you cannot call tools here
 - Generic boilerplate like "The requested work has been completed as summarized above"
 - "Artifact References" sections listing no artifacts
+- Excuses about token limits, context budget, or inability to generate the report
+- JSON objects with "success" keys — write Markdown, not JSON
+- Any text before the first # heading
 
-IMPORTANT: Write ONLY the Markdown report. No JSON wrapping, no prose before or after. Start directly with the # title heading. All information you need is already in the conversation — do NOT attempt to call tools or reproduce tool call syntax.
+CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete report using all available information from the conversation.
 """
 
 # Citation-aware summarization prompt (MindSearch-inspired)
 # Used when collected sources are available, instructs LLM to use inline [N] citations
-CITATION_AWARE_SUMMARIZE_PROMPT = """Based on the research findings and Q&A pairs collected, write a detailed and comprehensive final response as a professional research report in Markdown.
+CITATION_AWARE_SUMMARIZE_PROMPT = """Write the research report NOW. Start your response with a # heading on the VERY FIRST LINE. Do NOT start with any preamble, introduction, or statement about what you will do.
 
 CITATION REQUIREMENTS:
 - Each key claim MUST be marked with the source reference from the Available Sources list below.
@@ -1320,15 +1324,18 @@ WRITING GUIDELINES:
 - Use tables for structured comparisons
 - Write in professional, rigorous tone
 - Maintain consistent citation usage throughout
-- The final response should NOT include the raw Q&A pairs — synthesize them into coherent prose
+- Synthesize findings into coherent prose — do NOT include raw Q&A pairs
 
-FORBIDDEN:
+FORBIDDEN (your response will be REJECTED if it contains any of these):
+- Starting with "I'll create...", "I will write...", "Let me...", "Based on the research findings..."
 - Fabricated citations or source numbers not in the Available Sources list
-- Vague expressions like "based on the above content" or "according to research"
-- Meta-commentary about the report itself
+- Meta-commentary about the report itself or the research process
 - Tool call XML (e.g. <tool_call>, <function_call>)
+- Excuses about token limits, context budget, or inability to generate the report
+- JSON objects with "success" keys — write Markdown, not JSON
+- Any text before the first # heading
 
-IMPORTANT: Write ONLY the Markdown report. Start directly with the # title heading.
+CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete report using all available research findings.
 """
 
 # Confirmation summary prompt - emitted as a MessageEvent before the ReportEvent

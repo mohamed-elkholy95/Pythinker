@@ -92,31 +92,44 @@ class TokenManager:
         "overflow": 0.90,  # 90% - force summarization (raised from 0.85)
     }
 
-    # Default model context limits
+    # Default model context limits.
+    # IMPORTANT: Entries are matched via substring search in _get_model_limit().
+    # More-specific prefixes (e.g. "qwen3-coder") MUST appear before generic
+    # ones (e.g. "qwen") so they are matched first during iteration.
     MODEL_LIMITS: ClassVar[dict[str, int]] = {
-        "gpt-4": 8192,
+        # OpenAI
         "gpt-4-32k": 32768,
         "gpt-4-turbo": 128000,
-        "gpt-4o": 128000,
         "gpt-4o-mini": 128000,
-        "gpt-5": 128000,
-        "gpt-5.2": 128000,
+        "gpt-4o": 128000,
+        "gpt-4": 8192,
         "gpt-5-nano": 128000,
         "gpt-5-mini": 128000,
-        "o1": 128000,
+        "gpt-5.2": 128000,
+        "gpt-5": 128000,
         "o1-mini": 128000,
         "o3-mini": 128000,
+        "o1": 128000,
+        # Anthropic
         "claude-3": 200000,
         "claude-sonnet": 200000,
         "claude-opus": 200000,
+        # DeepSeek
         "deepseek": 128000,  # DeepSeek V3.2 supports 128K context
-        "gemini": 1000000,  # Gemini 2.5 Flash supports 1M tokens
+        # Google
         "gemini-flash": 1000000,
         "gemini-pro": 1000000,
-        "qwen": 32768,  # Qwen models typically support 32K
+        "gemini": 1000000,  # Gemini 2.5 Flash supports 1M tokens
+        # Qwen — specific models before generic fallback
+        "qwen3-coder": 262144,  # Qwen3-Coder-Next: 262K context (80B MoE)
+        "qwen2.5-coder": 131072,  # Qwen2.5-Coder: 128K context
+        "qwen2.5": 131072,  # Qwen2.5 family: 128K context
+        "qwen": 32768,  # Older Qwen models: 32K
+        # Meta / Mistral
         "llama": 128000,  # Llama 3 supports 128K
+        "mistral-large": 128000,  # Mistral Large: 128K
         "mistral": 32768,  # Mistral models
-        "default": 32768,  # Increased default for modern models
+        "default": 128000,  # Modern models generally support 128K
     }
 
     # Safety margin (reserve tokens for response) — ensures completion buffer for final answers
@@ -179,6 +192,11 @@ class TokenManager:
         self._prediction_horizon_steps = 3  # Predict 3 steps ahead
         self._default_growth_rate = 2000  # Default tokens per step if no history
 
+        # Validate that the resolved limit looks reasonable for the model.
+        # Catches configuration drift (e.g. model upgraded but MODEL_LIMITS
+        # not updated) — the root cause of the deep research report failure.
+        self._validate_model_limit(model_name, self._max_tokens)
+
         logger.info(
             f"TokenManager initialized for {model_name}: "
             f"max={self._max_tokens}, effective={self._effective_limit}, "
@@ -198,14 +216,50 @@ class TokenManager:
             return tiktoken.get_encoding("cl100k_base")
 
     def _get_model_limit(self, model_name: str) -> int:
-        """Get context limit for a model"""
+        """Get context limit for a model.
+
+        Uses longest-substring-first matching so that specific entries
+        (e.g. ``qwen3-coder``) take priority over generic ones (``qwen``).
+        """
         model_lower = model_name.lower()
 
-        for key, limit in self.MODEL_LIMITS.items():
+        # Sort candidates by key length descending so longer (more specific)
+        # prefixes are checked before shorter generic ones.
+        for key, limit in sorted(self.MODEL_LIMITS.items(), key=lambda kv: len(kv[0]), reverse=True):
             if key in model_lower:
                 return limit
 
         return self.MODEL_LIMITS["default"]
+
+    # Known model context sizes from provider documentation.  Used only for
+    # validation — _get_model_limit() does the actual lookup from MODEL_LIMITS.
+    _KNOWN_MODEL_CONTEXTS: ClassVar[dict[str, int]] = {
+        "qwen/qwen3-coder-next": 262144,
+        "qwen/qwen2.5-coder": 131072,
+        "claude-sonnet-4-20250514": 200000,
+        "claude-haiku-4-5-20251001": 200000,
+    }
+
+    def _validate_model_limit(self, model_name: str, resolved_limit: int) -> None:
+        """Warn if the resolved token limit looks wrong for the model.
+
+        Compares the resolved limit against known context sizes from provider
+        documentation.  A mismatch usually means MODEL_LIMITS needs updating.
+        """
+        model_lower = model_name.lower()
+        for known_model, known_limit in self._KNOWN_MODEL_CONTEXTS.items():
+            if known_model in model_lower or model_lower in known_model:
+                if resolved_limit < known_limit * 0.5:
+                    logger.warning(
+                        "TokenManager: resolved limit %d for '%s' is %.0f%% of known context %d. "
+                        "MODEL_LIMITS may need updating. This can cause premature memory trimming "
+                        "and degraded report quality.",
+                        resolved_limit,
+                        model_name,
+                        (resolved_limit / known_limit) * 100,
+                        known_limit,
+                    )
+                break
 
     def _get_content_hash(self, text: str) -> str:
         """Generate a hash for content to use as cache key."""

@@ -184,6 +184,11 @@ class ExecutionAgent(BaseAgent):
         # Phase 1/4: Request contract for entity fidelity (set by PlanActFlow)
         self._request_contract = None
 
+        # Pre-trim report cache: stores file_write content extracted from memory
+        # *before* token trimming, so summarization recovery can find it even
+        # after aggressive context pruning.
+        self._pre_trim_report_cache: str | None = None
+
     def set_request_contract(self, contract) -> None:
         """Set request contract for search fidelity and entity context (Phase 4)."""
         self._request_contract = contract
@@ -552,6 +557,18 @@ class ExecutionAgent(BaseAgent):
             )
 
         await self._add_to_memory([{"role": "user", "content": summarize_prompt}])
+
+        # Snapshot file_write content BEFORE token trimming.  If memory is
+        # aggressively pruned the original report markdown (written to the
+        # workspace via file_write) would be lost — caching it here allows
+        # _extract_report_from_file_write_memory to recover it.
+        self._pre_trim_report_cache = self._extract_report_from_file_write_memory()
+        if self._pre_trim_report_cache:
+            logger.info(
+                "Pre-trim report cache populated (%d chars) — will survive memory trimming",
+                len(self._pre_trim_report_cache),
+            )
+
         await self._ensure_within_token_limit()
 
         try:
@@ -666,6 +683,123 @@ class ExecutionAgent(BaseAgent):
 
                 yield StreamEvent(content="", is_final=True, phase="summarizing")
                 message_content = self._clean_report_content(retry_text.strip())
+
+            # Meta-commentary detection: the LLM described what it did instead
+            # of delivering the actual report content.  Recover from the
+            # pre-trim report cache or retry with an explicit prompt.
+            if message_content and self._is_meta_commentary(message_content):
+                logger.warning(
+                    "Summarization produced meta-commentary (%d chars) instead of report content: %.120s",
+                    len(message_content),
+                    message_content,
+                )
+                _metrics.record_counter(
+                    "pythinker_summarization_meta_commentary_total",
+                    labels={"recovery": "attempted"},
+                )
+
+                # Try pre-trim cache first (most reliable)
+                if self._pre_trim_report_cache and len(self._pre_trim_report_cache) > 200:
+                    logger.info(
+                        "Recovered full report from pre-trim cache (%d chars)",
+                        len(self._pre_trim_report_cache),
+                    )
+                    message_content = self._pre_trim_report_cache
+                else:
+                    # Retry with explicit anti-meta prompt
+                    retry_prompt = (
+                        "Your previous response was a brief description of the report instead of the "
+                        "report itself. You said: " + message_content[:200] + "\n\n"
+                        "This is NOT acceptable. You MUST write the FULL research report with actual "
+                        "data, findings, analysis, and citations. Start with a # heading and write "
+                        "the complete report content directly. Do NOT describe or summarize what "
+                        "you would write — write it."
+                    )
+                    await self._add_to_memory(
+                        [
+                            {"role": "assistant", "content": message_content},
+                            {"role": "user", "content": retry_prompt},
+                        ]
+                    )
+                    await self._ensure_within_token_limit()
+
+                    retry_text = ""
+                    retry_stream = self.llm.ask_stream(list(self.memory.get_messages()), tools=None, tool_choice=None)
+                    async with aclosing(retry_stream) as stream:
+                        async for chunk in stream:
+                            retry_text += chunk
+                            yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+
+                    yield StreamEvent(content="", is_final=True, phase="summarizing")
+                    retry_content = self._clean_report_content(retry_text.strip())
+
+                    # Accept retry only if it's longer and not meta-commentary again
+                    if (
+                        retry_content
+                        and len(retry_content) > len(message_content)
+                        and not self._is_meta_commentary(retry_content)
+                    ):
+                        message_content = retry_content
+                    elif self._pre_trim_report_cache:
+                        # Retry also failed, last resort: use cache even if short
+                        message_content = self._pre_trim_report_cache
+
+            # Structural quality gate: even if meta-commentary detection missed
+            # the pattern, catch degenerate outputs that lack report structure.
+            # A real report has markdown headings; a short excuse/refusal does not.
+            if message_content and self._is_low_quality_summary(message_content):
+                logger.warning(
+                    "Summarization output failed structural quality gate (%d chars, no headings): %.200s",
+                    len(message_content),
+                    message_content,
+                )
+                _metrics.record_counter(
+                    "pythinker_summarization_low_quality_total",
+                    labels={"recovery": "attempted"},
+                )
+
+                # Try pre-trim cache first (most reliable)
+                if self._pre_trim_report_cache and len(self._pre_trim_report_cache) > len(message_content):
+                    logger.info(
+                        "Replacing low-quality summary with pre-trim cache (%d chars)",
+                        len(self._pre_trim_report_cache),
+                    )
+                    message_content = self._pre_trim_report_cache
+                else:
+                    # Retry with explicit anti-degenerate prompt
+                    retry_prompt = (
+                        "Your previous response was only: " + message_content[:200] + "\n\n"
+                        "This is NOT a report — it is a preamble or meta-commentary. "
+                        "You MUST write the FULL research report with actual data, findings, "
+                        "analysis, and citations. Start IMMEDIATELY with a # heading on the "
+                        "first line. Do NOT describe what you will write — write it."
+                    )
+                    await self._add_to_memory(
+                        [
+                            {"role": "assistant", "content": message_content},
+                            {"role": "user", "content": retry_prompt},
+                        ]
+                    )
+                    await self._ensure_within_token_limit()
+
+                    retry_text = ""
+                    retry_stream = self.llm.ask_stream(list(self.memory.get_messages()), tools=None, tool_choice=None)
+                    async with aclosing(retry_stream) as stream:
+                        async for chunk in stream:
+                            retry_text += chunk
+                            yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+
+                    yield StreamEvent(content="", is_final=True, phase="summarizing")
+                    retry_content = self._clean_report_content(retry_text.strip())
+
+                    if (
+                        retry_content
+                        and len(retry_content) > len(message_content)
+                        and not self._is_low_quality_summary(retry_content)
+                    ):
+                        message_content = retry_content
+                    elif self._pre_trim_report_cache:
+                        message_content = self._pre_trim_report_cache
 
             if not message_content:
                 # Both attempts failed — extract fallback from conversation memory
@@ -1274,6 +1408,11 @@ class ExecutionAgent(BaseAgent):
     # cleaner but keeping them close to usage for clarity).
     _TOOL_CALL_RE = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL)
     _FUNCTION_CALL_RE = re.compile(r"<function_call>.*?</function_call>", re.DOTALL)
+
+    # Preamble: non-heading prose that appears before the first `#` heading.
+    # This catches prompt-echo text like "I'll create a comprehensive research
+    # report..." that precedes the actual report content.
+    _PREAMBLE_RE = re.compile(r"\A([^#]*?)(?=^#\s)", re.MULTILINE | re.DOTALL)
     _BOILERPLATE_FINAL_RESULT_RE = re.compile(
         r"##\s*Final Result\s*\n+"
         r"(?:The requested work has been completed[^\n]*\n*)+",
@@ -1288,6 +1427,110 @@ class ExecutionAgent(BaseAgent):
 
     # Pattern matching JSON tool result objects (possibly wrapped in ```json blocks)
     _JSON_CODEBLOCK_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\s*\n?```$", re.DOTALL)
+
+    # Meta-commentary detection: the LLM describes what it *would* write
+    # instead of writing the actual report, OR refuses/excuses itself from
+    # generating the actual content.  Short outputs (<800 chars) that match
+    # these patterns are almost certainly degenerate.
+    _META_COMMENTARY_RE = re.compile(
+        r"(?:^|\n)\s*(?:"
+        # Pattern group 1: "I've done X" self-congratulatory (past tense)
+        r"I(?:'ve| have) (?:created|produced|written|prepared|compiled|generated|delivered|completed)"
+        # Pattern group 2: "I'll / I will / I'm going to" (future tense — prompt echo)
+        r"|I(?:'ll| will| am going to|'m going to) (?:create|write|prepare|compile|generate|produce|deliver)"
+        # Pattern group 3: "Let me create..." (polite preamble)
+        r"|Let me (?:create|write|prepare|compile|generate|produce)"
+        # Pattern group 4: "The report has been/was..."
+        r"|(?:The|A) (?:comprehensive|detailed|complete|full|final) (?:research )?report (?:has been|was|is)"
+        # Pattern group 5: "Here is a summary of..."
+        r"|(?:Here is|Below is) (?:a |the )?(?:summary|overview) of (?:what|the)"
+        # Pattern group 6: "The report covers/includes..."
+        r"|The report (?:covers|includes|contains|addresses)"
+        # Pattern group 7: Task excuse — "Task requires X but Y"
+        r"|Task requires .+?(?:but|however)"
+        # Pattern group 8: Token/context budget excuses
+        r"|(?:exceeds|exceeded) (?:the )?(?:available )?(?:token|context) (?:budget|limit|window)"
+        r"|(?:additional|more) context processing (?:that )?(?:exceeds|is required|is needed)"
+        r"|(?:token|context) (?:budget|limit|window) (?:has been |is )?(?:exceeded|exhausted|insufficient)"
+        # Pattern group 9: Research gathered but can't compile
+        r"|Research findings have been gathered but"
+        r"|findings (?:have been |were )?(?:gathered|collected|compiled) but"
+        # Pattern group 10: Explicit refusal/inability
+        r"|(?:I am |I'm )?(?:unable|cannot|can't|couldn't) (?:to )?(?:generate|compile|produce|complete|write|create) (?:the |a )?(?:full |complete |comprehensive )?(?:report|response|document)"
+        r"|report (?:compilation|generation|creation) requires"
+        # Pattern group 11: Prompt-echo phrases from CITATION_AWARE_SUMMARIZE_PROMPT
+        r"|based on the (?:research |parallel )?(?:findings|search findings)"
+        r"|citing only the sources provided"
+        r")",
+        re.IGNORECASE,
+    )
+
+    def _is_meta_commentary(self, content: str) -> bool:
+        """Detect when the LLM produced meta-commentary instead of an actual report.
+
+        Short outputs (<800 chars) that describe what the agent *did* rather than
+        delivering the actual content, or that refuse to generate the report citing
+        token/context limitations, are almost certainly degenerate.  For example:
+
+            "I've created a comprehensive research report on AI debugging agents
+             with benchmark data, pricing information, and performance metrics."
+
+        Or:
+            "Task requires comprehensive research report... Research findings have
+             been gathered but report compilation requires additional context
+             processing that exceeds available token budget."
+
+        Returns ``True`` if the content appears to be meta-commentary.
+        """
+        if not content or len(content) > 800:
+            return False
+        return bool(self._META_COMMENTARY_RE.search(content))
+
+    # Keywords that indicate the LLM is making excuses instead of writing content.
+    _EXCUSE_KEYWORDS = frozenset(
+        {
+            "token budget",
+            "token limit",
+            "context budget",
+            "context limit",
+            "context window",
+            "exceeds available",
+            "insufficient context",
+            "unable to generate",
+            "unable to compile",
+            "cannot generate",
+            "cannot compile",
+            "additional context processing",
+        }
+    )
+
+    def _is_low_quality_summary(self, content: str) -> bool:
+        """Structural quality gate for summarization output.
+
+        Catches degenerate outputs that ``_is_meta_commentary`` may miss —
+        short text without markdown structure that contains excuse keywords.
+
+        A real research report has at least one markdown heading (``#``).
+        A short excuse/refusal does not.
+
+        Returns ``True`` if the content appears to be low-quality filler.
+        """
+        if not content or len(content) > 1200:
+            return False
+
+        # Must lack markdown headings — a real report has at least one
+        has_headings = bool(re.search(r"^#{1,3}\s+\S", content, re.MULTILINE))
+        if has_headings:
+            return False
+
+        # Check for excuse keywords (case-insensitive)
+        content_lower = content.lower()
+        has_excuse = any(kw in content_lower for kw in self._EXCUSE_KEYWORDS)
+        if has_excuse:
+            return True
+
+        # Very short content (<400 chars) without headings is suspicious
+        return len(content) < 400
 
     def _clean_report_content(self, content: str) -> str:
         """Strip hallucinated tool-call XML, JSON tool results, and boilerplate.
@@ -1328,7 +1571,19 @@ class ExecutionAgent(BaseAgent):
         cleaned = self._BOILERPLATE_FINAL_RESULT_RE.sub("", cleaned)
         cleaned = self._BOILERPLATE_ARTIFACT_REFS_RE.sub("", cleaned)
 
-        # 3. Collapse excess blank lines left by removals
+        # 3. Strip preamble prose before the first heading.
+        #    Catches prompt-echo text like "I'll create a comprehensive
+        #    research report..." that precedes the actual `# Title` line.
+        preamble_match = self._PREAMBLE_RE.match(cleaned)
+        if preamble_match and preamble_match.group(1).strip():
+            preamble = preamble_match.group(1).strip()
+            # Only strip if preamble is short (< 500 chars) — long preambles
+            # might be intentional introductory content.
+            if len(preamble) < 500:
+                logger.info("Stripped %d chars of preamble before first heading", len(preamble))
+                cleaned = cleaned[preamble_match.end(1) :]
+
+        # 4. Collapse excess blank lines left by removals
         cleaned = self._EXCESS_BLANK_LINES_RE.sub("\n\n", cleaned)
         cleaned = cleaned.strip()
 
@@ -1351,6 +1606,14 @@ class ExecutionAgent(BaseAgent):
         Returns:
             A string with fallback content, or empty string if nothing usable found.
         """
+        # Priority: pre-trim report cache (survives memory trimming)
+        if self._pre_trim_report_cache and len(self._pre_trim_report_cache) > 200:
+            logger.info(
+                "Using pre-trim report cache as fallback summary (%d chars)",
+                len(self._pre_trim_report_cache),
+            )
+            return self._pre_trim_report_cache
+
         if not self.memory:
             return ""
 
@@ -1413,9 +1676,10 @@ class ExecutionAgent(BaseAgent):
         if not isinstance(parsed, dict) or "success" not in parsed:
             return content
 
+        is_success = parsed.get("success", False)
         logger.warning(
             "Summarization output is a JSON tool result (success=%s), recovering actual report content",
-            parsed.get("success"),
+            is_success,
         )
 
         # Strategy 1: Search conversation memory for the file_write call that
@@ -1425,11 +1689,36 @@ class ExecutionAgent(BaseAgent):
         if report_from_memory:
             return report_from_memory
 
-        # Strategy 2: Use the ``result`` description string as fallback
-        result_text = parsed.get("result", "")
-        if isinstance(result_text, str) and len(result_text.strip()) > 30:
-            logger.info("Using tool result 'result' field as fallback report content")
-            return result_text.strip()
+        # Strategy 1b: Use the pre-trim report cache (populated before token
+        # trimming in summarize()).  Memory may have been pruned by the time
+        # we reach here, but the cache preserves the original file_write content.
+        if self._pre_trim_report_cache:
+            logger.info(
+                "Using pre-trim report cache as recovery (%d chars)",
+                len(self._pre_trim_report_cache),
+            )
+            return self._pre_trim_report_cache
+
+        # Strategy 2: Use the ``result`` description string as fallback — but
+        # ONLY when success=True.  When success=False the result/message field
+        # contains an error description or excuse ("exceeds available token
+        # budget"), NOT actual report content.
+        if is_success:
+            result_text = parsed.get("result", "")
+            if isinstance(result_text, str) and len(result_text.strip()) > 30:
+                logger.info("Using tool result 'result' field as fallback report content")
+                return result_text.strip()
+
+        # Strategy 2b: When success=False, check for a "message" field that
+        # might contain an error description.  Log it for diagnostics but do
+        # NOT use it as report content — it's almost always meta-commentary.
+        if not is_success:
+            error_msg = parsed.get("message") or parsed.get("result") or parsed.get("error", "")
+            if error_msg:
+                logger.warning(
+                    "JSON tool result has success=False with message: %.200s",
+                    error_msg,
+                )
 
         # Strategy 3: Return empty so the caller can handle the failure
         return ""
