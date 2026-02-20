@@ -125,34 +125,59 @@ const addReferenceAnchors = () => {
     }) ?? null;
   };
 
+  // Helper: extract a URL from plain text when no <a> tag is present
+  const extractUrlFromText = (text: string): string | null => {
+    const m = text.match(/https?:\/\/[^\s)<>]+/);
+    return m ? m[0] : null;
+  };
+
+  // Helper: build refMap entry from an anchor or bare-text URL
+  const extractRefMeta = (el: Element, num: string) => {
+    const anchor = findExternalAnchor(el);
+    if (anchor) {
+      try {
+        const domain = new URL(anchor.href).hostname.replace(/^www\./, '');
+        const title = (anchor.textContent?.trim() || domain).slice(0, 64);
+        refMap.set(num, { title, domain, url: anchor.href });
+        anchor.dataset.title = title;
+        anchor.dataset.domain = domain;
+        anchor.dataset.url = anchor.href;
+        anchor.classList.add('ref-list-anchor');
+      } catch { /* ignore malformed URLs */ }
+      return;
+    }
+    // Fallback: bare URL in text content (LLM didn't use markdown link syntax)
+    const bareUrl = extractUrlFromText(el.textContent ?? '');
+    if (bareUrl) {
+      try {
+        const domain = new URL(bareUrl).hostname.replace(/^www\./, '');
+        const title = domain.slice(0, 64);
+        refMap.set(num, { title, domain, url: bareUrl });
+      } catch { /* ignore */ }
+    }
+  };
+
   for (const heading of headings) {
     if (!refHeadingRe.test(heading.textContent?.trim() ?? '')) continue;
 
     let sibling = heading.nextElementSibling;
+    let nextNum = 1; // running counter for list items across split lists
     while (sibling) {
       if (/^H[1-4]$/.test(sibling.tagName)) break;
 
-      if (sibling.tagName === 'OL') {
-        sibling.querySelectorAll('li').forEach((item, index) => {
-          const num = String(index + 1);
+      // Ordered or unordered list — process all items
+      if (sibling.tagName === 'OL' || sibling.tagName === 'UL') {
+        const startAttr = sibling.getAttribute('start');
+        const startNum = startAttr ? parseInt(startAttr, 10) : nextNum;
+        sibling.querySelectorAll(':scope > li').forEach((item, index) => {
+          const num = String(startNum + index);
           item.setAttribute('id', `ref-${num}`);
-          const anchor = findExternalAnchor(item);
-          if (anchor) {
-            try {
-              const domain = new URL(anchor.href).hostname.replace(/^www\./, '');
-              const title = (anchor.textContent?.trim() || domain).slice(0, 64);
-              refMap.set(num, { title, domain, url: anchor.href });
-              // Stamp directly here — no secondary lookup needed
-              anchor.dataset.title = title;
-              anchor.dataset.domain = domain;
-              anchor.dataset.url = anchor.href;
-              anchor.classList.add('ref-list-anchor');
-            } catch {
-              // ignore malformed URLs
-            }
-          }
+          extractRefMeta(item, num);
         });
-        break;
+        nextNum = startNum + sibling.querySelectorAll(':scope > li').length;
+        // Continue scanning — references may span multiple lists
+        sibling = sibling.nextElementSibling;
+        continue;
       }
 
       // Bracket-style: "[N] [Title](URL)" rendered as a <p>
@@ -162,20 +187,8 @@ const addReferenceAnchors = () => {
         if (m) {
           const num = m[1];
           sibling.setAttribute('id', `ref-${num}`);
-          const anchor = findExternalAnchor(sibling);
-          if (anchor) {
-            try {
-              const domain = new URL(anchor.href).hostname.replace(/^www\./, '');
-              const title = (anchor.textContent?.trim() || domain).slice(0, 64);
-              refMap.set(num, { title, domain, url: anchor.href });
-              anchor.dataset.title = title;
-              anchor.dataset.domain = domain;
-              anchor.dataset.url = anchor.href;
-              anchor.classList.add('ref-list-anchor');
-            } catch {
-              // ignore malformed URLs
-            }
-          }
+          extractRefMeta(sibling, num);
+          nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
         }
       }
 
@@ -302,6 +315,19 @@ const _onBadgeOver = (e: MouseEvent) => {
             badge.dataset.domain = domain;
             badge.dataset.url = url;
           } catch { /* ignore malformed URLs */ }
+        } else {
+          // Last resort: extract bare URL from text content
+          const bareMatch = refEl.textContent?.match(/https?:\/\/[^\s)<>]+/);
+          if (bareMatch) {
+            try {
+              domain = new URL(bareMatch[0]).hostname.replace(/^www\./, '');
+              title = domain.slice(0, 64);
+              url = bareMatch[0];
+              badge.dataset.title = title;
+              badge.dataset.domain = domain;
+              badge.dataset.url = url;
+            } catch { /* ignore */ }
+          }
         }
       }
     }
