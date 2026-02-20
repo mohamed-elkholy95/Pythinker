@@ -8,7 +8,7 @@ Lazy imports ensure startup does not fail when raganything is not installed.
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -98,35 +98,54 @@ class RAGAnythingAdapter:
         except Exception as exc:
             raise KnowledgeBaseException(f"Failed to index document {file_path}: {exc}") from exc
 
-    async def query(self, kb_id: str, query: str, mode: str = "hybrid") -> str:
-        """Run a text query against a knowledge base."""
+    async def query(self, kb_id: str, query: str, mode: str = "hybrid") -> tuple[str, list[str]]:
+        """Run a text query and return normalized answer and source references."""
         if kb_id not in self._instances:
             raise KnowledgeBaseException(f"No RAGAnything instance for kb_id={kb_id!r}")
 
         instance = self._instances[kb_id]
         loop = asyncio.get_event_loop()
         try:
+
+            def _run_query() -> Any:
+                try:
+                    return instance.query(query, mode=mode, include_references=True)
+                except TypeError:
+                    # Backward compatibility with versions that do not support this kwarg.
+                    return instance.query(query, mode=mode)
+
             result = await loop.run_in_executor(
                 None,
-                lambda: instance.query(query, mode=mode),
+                _run_query,
             )
-            return str(result)
+            return self._normalize_query_response(result)
         except Exception as exc:
             raise KnowledgeBaseException(f"Query failed: {exc}") from exc
 
-    async def query_multimodal(self, kb_id: str, query: str, content: list[Any]) -> str:
-        """Run a multimodal query against a knowledge base."""
+    async def query_multimodal(self, kb_id: str, query: str, content: list[Any]) -> tuple[str, list[str]]:
+        """Run a multimodal query and return normalized answer and source references."""
         if kb_id not in self._instances:
             raise KnowledgeBaseException(f"No RAGAnything instance for kb_id={kb_id!r}")
 
         instance = self._instances[kb_id]
         loop = asyncio.get_event_loop()
         try:
+
+            def _run_multimodal_query() -> Any:
+                try:
+                    return instance.query_with_multimodal_content(
+                        query,
+                        content=content,
+                        include_references=True,
+                    )
+                except TypeError:
+                    return instance.query_with_multimodal_content(query, content=content)
+
             result = await loop.run_in_executor(
                 None,
-                lambda: instance.query_with_multimodal_content(query, content=content),
+                _run_multimodal_query,
             )
-            return str(result)
+            return self._normalize_query_response(result)
         except Exception as exc:
             raise KnowledgeBaseException(f"Multimodal query failed: {exc}") from exc
 
@@ -238,3 +257,77 @@ class RAGAnythingAdapter:
                 "LLM does not support embed_batch; cannot generate embeddings for knowledge base"
             )
         return await embed_batch(texts)
+
+    def _normalize_query_response(self, result: Any) -> tuple[str, list[str]]:
+        """Normalize diverse query response formats into (answer, sources)."""
+        if isinstance(result, str):
+            return result, []
+
+        answer: str | None = None
+        sources: list[str] = []
+
+        if isinstance(result, Mapping):
+            answer = self._extract_answer_from_mapping(result)
+            sources = self._normalize_sources(
+                result.get("sources")
+                or result.get("citations")
+                or result.get("references")
+                or result.get("retrieved_contexts")
+                or result.get("contexts")
+            )
+        else:
+            answer = self._extract_answer_from_object(result)
+            sources = self._normalize_sources(
+                getattr(result, "sources", None)
+                or getattr(result, "citations", None)
+                or getattr(result, "references", None)
+                or getattr(result, "retrieved_contexts", None)
+            )
+
+        if answer is None:
+            answer = str(result)
+        return answer, sources
+
+    def _extract_answer_from_mapping(self, result: Mapping[str, Any]) -> str | None:
+        for key in ("answer", "response", "result", "content", "text", "message"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
+
+    def _extract_answer_from_object(self, result: Any) -> str | None:
+        for attr in ("answer", "response", "result", "content", "text", "message"):
+            value = getattr(result, attr, None)
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
+
+    def _normalize_sources(self, raw_sources: Any) -> list[str]:
+        if raw_sources is None:
+            return []
+        if isinstance(raw_sources, str):
+            return [raw_sources]
+        if isinstance(raw_sources, Mapping):
+            source = self._source_item_to_string(raw_sources)
+            return [source] if source else []
+        if isinstance(raw_sources, Iterable):
+            normalized: list[str] = []
+            for item in raw_sources:
+                source = self._source_item_to_string(item)
+                if source:
+                    normalized.append(source)
+            return normalized
+        return [str(raw_sources)]
+
+    def _source_item_to_string(self, item: Any) -> str:
+        if isinstance(item, str):
+            return item
+        if isinstance(item, Mapping):
+            for key in ("source", "id", "title", "path", "file_path", "doc_id", "chunk_id", "content", "text"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+            return str(dict(item))
+        if item is None:
+            return ""
+        return str(item)

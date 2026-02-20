@@ -171,6 +171,11 @@ class KnowledgeBaseService:
         except Exception as exc:
             logger.error("Indexing failed for doc=%s: %s", doc.id, exc)
             await self._repo.update_document_status(doc.id, DocumentStatus.FAILED, error_message=str(exc))
+        finally:
+            # Upload handler passes temp files and indexing owns their lifecycle.
+            if os.path.exists(file_path):
+                with contextlib.suppress(OSError):
+                    os.unlink(file_path)
 
     async def _count_indexed_docs(self, kb_id: str) -> int:
         docs = await self._repo.list_documents(kb_id)
@@ -201,12 +206,12 @@ class KnowledgeBaseService:
         await self._adapter.get_or_create_instance(kb)
 
         start = time.monotonic()
-        answer = await self._adapter.query(kb_id, query, mode=mode)
+        answer, sources = await self._adapter.query(kb_id, query, mode=mode)
         elapsed_ms = (time.monotonic() - start) * 1000
 
         return KnowledgeQueryResult(
             answer=answer,
-            sources=[],
+            sources=sources,
             query_time_ms=elapsed_ms,
             mode=mode,
         )
@@ -224,12 +229,12 @@ class KnowledgeBaseService:
         await self._adapter.get_or_create_instance(kb)
 
         start = time.monotonic()
-        answer = await self._adapter.query_multimodal(kb_id, query, content)
+        answer, sources = await self._adapter.query_multimodal(kb_id, query, content)
         elapsed_ms = (time.monotonic() - start) * 1000
 
         return KnowledgeQueryResult(
             answer=answer,
-            sources=[],
+            sources=sources,
             query_time_ms=elapsed_ms,
             mode="multimodal",
         )
