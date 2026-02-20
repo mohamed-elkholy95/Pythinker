@@ -1119,20 +1119,20 @@ def main() -> int:
     try:
         input_data: dict[str, Any] = json.load(sys.stdin)
     except json.JSONDecodeError as exc:
-        print(_error_response(f"Invalid JSON input: {exc}"), file=sys.stderr)
+        print(_error_response(f"Invalid JSON input: {exc}"))
         return 1
 
     # --- Validate ---
     validation_error = _validate_input(input_data)
     if validation_error is not None:
-        print(_error_response(validation_error), file=sys.stderr)
+        print(_error_response(validation_error))
         return 1
 
     # --- Generate chart ---
     try:
         fig = _generate_chart(input_data)
     except Exception as exc:
-        print(_error_response(f"Chart generation failed: {exc}"), file=sys.stderr)
+        print(_error_response(f"Chart generation failed: {exc}"))
         return 2
 
     # --- Write HTML (CDN mode for small file size) ---
@@ -1146,10 +1146,10 @@ def main() -> int:
         html_size = Path(output_html).stat().st_size
         if html_size == 0:
             Path(output_html).unlink(missing_ok=True)
-            print(_error_response("HTML write produced 0-byte file"), file=sys.stderr)
+            print(_error_response("HTML write produced 0-byte file"))
             return 3
     except Exception as exc:
-        print(_error_response(f"HTML write failed: {exc}"), file=sys.stderr)
+        print(_error_response(f"HTML write failed: {exc}"))
         return 3
 
     # --- Write PNG (Kaleido renderer) ---
@@ -1160,14 +1160,13 @@ def main() -> int:
             Path(output_png).unlink(missing_ok=True)
             Path(output_html).unlink(missing_ok=True)
             print(
-                _error_response("PNG render produced 0-byte file (Kaleido rendering failed)"),
-                file=sys.stderr,
+                _error_response("PNG render produced 0-byte file (Kaleido rendering failed)")
             )
             return 3
     except Exception as exc:
         # Clean up HTML on PNG failure
         Path(output_html).unlink(missing_ok=True)
-        print(_error_response(f"PNG write failed: {exc}"), file=sys.stderr)
+        print(_error_response(f"PNG write failed: {exc}"))
         return 3
 
     # --- Success output ---
