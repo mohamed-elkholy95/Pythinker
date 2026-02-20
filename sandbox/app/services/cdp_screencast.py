@@ -149,6 +149,10 @@ class CDPScreencastService:
         self._last_invalidated_url: str | None = None
         self._rediscovery_counter: int = 0
 
+        # Tracks whether viewport has been set on the current page target.
+        # Reset when the connection changes (cache invalidation, reconnect).
+        self._viewport_set: bool = False
+
     # ------------------------------------------------------------------
     # Connection state
     # ------------------------------------------------------------------
@@ -218,6 +222,8 @@ class CDPScreencastService:
             self._last_invalidated_url = self._cached_ws_url
         self._cached_ws_url = None
         self._ws_url_cached_at = 0.0
+        # Reset viewport flag — the new page target will need it set
+        self._viewport_set = False
 
     async def _get_cached_ws_url(self) -> str | None:
         """Get WebSocket URL with caching to avoid repeated /json lookups.
@@ -431,7 +437,12 @@ class CDPScreencastService:
         frames render at the expected resolution (config.max_width × max_height)
         regardless of the actual browser window size.  This is critical for pages
         opened via /json/new or headless tabs that have tiny default viewports.
+
+        Skips the command if the viewport was already set on the current connection
+        (tracked via ``_viewport_set``).
         """
+        if self._viewport_set:
+            return
         if not self._ws or self._ws.closed:
             return
         result = await self._send_command(
@@ -444,6 +455,7 @@ class CDPScreencastService:
             },
         )
         if result and "error" not in result:
+            self._viewport_set = True
             logger.info(
                 "Set viewport to %dx%d via Emulation.setDeviceMetricsOverride",
                 self.config.max_width,
