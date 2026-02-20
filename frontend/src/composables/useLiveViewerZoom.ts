@@ -75,20 +75,22 @@ export function useLiveViewerZoom() {
   /**
    * Zoom to fit the frame within the given container dimensions.
    * Centers the frame with padding.
+   *
+   * Guards against zero or degenerate dimensions — returns false if
+   * fitting was not possible (caller should retry when dimensions settle).
    */
   function fitToScreen(
     containerWidth: number,
     containerHeight: number,
     frame: FrameDimensions,
-  ): void {
-    if (frame.width === 0 || frame.height === 0) {
-      resetZoom()
-      return
-    }
+  ): boolean {
+    // Guard: both container and frame must have valid positive dimensions
+    if (frame.width <= 0 || frame.height <= 0) return false
+    if (containerWidth <= 0 || containerHeight <= 0) return false
 
     const padding = 20 // px padding on each side
-    const availableW = containerWidth - padding * 2
-    const availableH = containerHeight - padding * 2
+    const availableW = Math.max(containerWidth - padding * 2, 1)
+    const availableH = Math.max(containerHeight - padding * 2, 1)
 
     const scaleX = availableW / frame.width
     const scaleY = availableH / frame.height
@@ -101,6 +103,7 @@ export function useLiveViewerZoom() {
     const scaledH = frame.height * fitZoom
     panX.value = (containerWidth - scaledW) / 2
     panY.value = (containerHeight - scaledH) / 2
+    return true
   }
 
   /**

@@ -70,7 +70,7 @@ export interface AgentAction {
   type: AgentActionType
   /** X coordinate in sandbox viewport space (0–1280) */
   x: number
-  /** Y coordinate in sandbox viewport space (0–1024) */
+  /** Y coordinate in sandbox viewport space (0–900) */
   y: number
   /** Timestamp when the action was received */
   timestamp: number
@@ -225,7 +225,7 @@ export interface LiveViewerState {
 // Sandbox viewport constants
 // ---------------------------------------------------------------------------
 
-/** Sandbox browser viewport width */
+/** Sandbox browser viewport width (matches Playwright DEFAULT_VIEWPORT) */
 export const SANDBOX_WIDTH = 1280
-/** Sandbox browser viewport height */
-export const SANDBOX_HEIGHT = 1024
+/** Sandbox browser viewport height (matches Playwright DEFAULT_VIEWPORT) */
+export const SANDBOX_HEIGHT = 900
