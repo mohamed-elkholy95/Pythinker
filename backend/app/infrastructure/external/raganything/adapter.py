@@ -272,7 +272,7 @@ class RAGAnythingAdapter:
 
         if isinstance(result, str):
             # LightRAG naive mode may return str(ChatCompletionMessage) in some versions,
-            # producing: "{'content': '...', 'role': 'assistant', ...}"
+            # producing a serialized message-like dictionary string.
             # Parse safely via json after normalising Python single-quote dicts.
             stripped = result.strip()
             if stripped.startswith("{") and "content" in stripped:
@@ -287,8 +287,8 @@ class RAGAnythingAdapter:
                         content = parsed.get("content")
                         if isinstance(content, str) and content.strip():
                             return content.strip(), []
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to parse serialized query response payload: %s", exc)
             return result, []
 
         answer: str | None = None
