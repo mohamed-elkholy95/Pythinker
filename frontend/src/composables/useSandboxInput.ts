@@ -7,6 +7,7 @@
  * and forwards them as individual CDP events via WebSocket.
  */
 import { shallowRef, onUnmounted } from 'vue'
+import { SANDBOX_WIDTH, SANDBOX_HEIGHT } from '@/types/liveViewer'
 
 // CDP Input Protocol - Chrome DevTools Protocol event types
 // https://chromedevtools.github.io/devtools-protocol/tot/Input/
@@ -53,9 +54,8 @@ const enum Modifiers {
   Shift = 8
 }
 
-// Sandbox viewport dimensions (should match sandbox browser settings)
-const SANDBOX_WIDTH = 1280
-const SANDBOX_HEIGHT = 1024
+// Sandbox viewport dimensions imported from '@/types/liveViewer' at top of file
+// to stay in sync with Playwright DEFAULT_VIEWPORT and CDP ScreencastConfig.
 
 // State (using shallowRef for primitive values per Vue 3 best practices)
 const isForwarding = shallowRef(false)

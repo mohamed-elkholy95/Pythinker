@@ -87,7 +87,7 @@
             :config="{
               x: 0,
               y: 0,
-              width: frameDimensions.width || 1280,
+              width: frameDimensions.width || SANDBOX_WIDTH,
               height: 4,
               fill: action.color,
               opacity: action.opacity,
@@ -226,6 +226,7 @@ import { useLiveViewerZoom } from '@/composables/useLiveViewerZoom'
 import { useAgentActionOverlay } from '@/composables/useAgentActionOverlay'
 import { useAnnotationLayer } from '@/composables/useAnnotationLayer'
 import type { ToolEventData } from '@/types/event'
+import { SANDBOX_WIDTH, SANDBOX_HEIGHT } from '@/types/liveViewer'
 
 // ---------------------------------------------------------------------------
 // Props & Emits
@@ -294,8 +295,8 @@ const stageConfig = computed(() => ({
 const screencastImageConfig = computed(() => ({
   x: 0,
   y: 0,
-  width: frameDimensions.value.width || 1280,
-  height: frameDimensions.value.height || 1024,
+  width: frameDimensions.value.width || SANDBOX_WIDTH,
+  height: frameDimensions.value.height || SANDBOX_HEIGHT,
   // Image source is set imperatively via bindImageNode
 }))
 
@@ -434,9 +435,10 @@ function processToolEvent(event: ToolEventData): void {
 
 /**
  * Fit the view to show the entire screencast frame.
+ * Returns false if fitting was not possible (degenerate dimensions).
  */
-function fitToScreen(): void {
-  zoomCtrl.fitToScreen(
+function fitToScreen(): boolean {
+  return zoomCtrl.fitToScreen(
     containerWidth.value,
     containerHeight.value,
     frameDimensions.value,
@@ -445,9 +447,12 @@ function fitToScreen(): void {
 
 /**
  * Reset screencast state (e.g., on reconnect).
+ * Also resets zoom/pan so auto-fit triggers properly for the new stream.
  */
 function resetScreencast(): void {
   screencast.reset()
+  zoomCtrl.resetZoom()
+  _userHasManuallyZoomed = false
 }
 
 /**
@@ -526,13 +531,78 @@ onBeforeUnmount(() => {
   screencast.unbindImageNode()
   agentOverlay.unbindLayer()
   annotationLayer.unbind()
+  if (_fitRetryTimer) clearTimeout(_fitRetryTimer)
+  if (_resizeDebounce) clearTimeout(_resizeDebounce)
 })
 
-// Auto-fit on first frame (pass ref directly, not a getter returning .value)
-watch(screencast.hasFrame, (hasFrame) => {
-  if (hasFrame && zoomCtrl.zoom.value === 1 && zoomCtrl.panX.value === 0) {
-    nextTick(() => fitToScreen())
+// ---------------------------------------------------------------------------
+// Auto-fit logic — ensures the screencast image fills the container properly
+// across all lifecycle states: initial load, reconnect, container resize,
+// frame dimension changes, and panel layout changes during active sessions.
+// ---------------------------------------------------------------------------
+
+/** Whether the user has manually zoomed/panned (disables auto-fit) */
+let _userHasManuallyZoomed = false
+
+/** Retry handle for deferred auto-fit when container is zero-sized */
+let _fitRetryTimer: ReturnType<typeof setTimeout> | null = null
+const _FIT_RETRY_INTERVAL = 100 // ms
+const _FIT_MAX_RETRIES = 20 // 2s total
+
+// Track user-initiated zoom/pan (wheel zoom or drag) to suppress auto-fit.
+// Only set by the event handlers — fitToScreen() changes don't count.
+let _suppressAutoFitTracker = false
+watch([zoomCtrl.zoom, zoomCtrl.panX, zoomCtrl.panY], () => {
+  if (_suppressAutoFitTracker) return
+  _userHasManuallyZoomed = true
+})
+
+// Wrap fitToScreen to prevent the zoom watcher from misinterpreting auto-fit
+// changes as user-initiated.
+function _autoFit(): boolean {
+  _suppressAutoFitTracker = true
+  const ok = fitToScreen()
+  nextTick(() => { _suppressAutoFitTracker = false })
+  return ok
+}
+
+function _autoFitWithRetry(retries = 0): void {
+  if (_fitRetryTimer) {
+    clearTimeout(_fitRetryTimer)
+    _fitRetryTimer = null
   }
+  _suppressAutoFitTracker = true
+  const ok = fitToScreen()
+  nextTick(() => { _suppressAutoFitTracker = false })
+  if (!ok && retries < _FIT_MAX_RETRIES) {
+    _fitRetryTimer = setTimeout(() => _autoFitWithRetry(retries + 1), _FIT_RETRY_INTERVAL)
+  }
+}
+
+// 1. Auto-fit on first frame arrival
+watch(screencast.hasFrame, (hasFrame) => {
+  if (hasFrame) {
+    _userHasManuallyZoomed = false
+    nextTick(() => _autoFitWithRetry())
+  }
+})
+
+// 2. Auto-fit on container resize (unless user has manually zoomed)
+let _resizeDebounce: ReturnType<typeof setTimeout> | null = null
+watch([containerWidth, containerHeight], () => {
+  if (!screencast.hasFrame.value || _userHasManuallyZoomed) return
+  if (_resizeDebounce) clearTimeout(_resizeDebounce)
+  _resizeDebounce = setTimeout(() => {
+    _autoFit()
+  }, 50)
+})
+
+// 3. Auto-fit on frame dimension change (new resolution from CDP)
+watch(frameDimensions, (newDims, oldDims) => {
+  if (!screencast.hasFrame.value) return
+  if (newDims.width === oldDims.width && newDims.height === oldDims.height) return
+  if (_userHasManuallyZoomed) return
+  nextTick(() => _autoFit())
 })
 
 // ---------------------------------------------------------------------------
