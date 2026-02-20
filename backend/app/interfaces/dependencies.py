@@ -240,6 +240,31 @@ def get_session_repository() -> MongoSessionRepository:
     return MongoSessionRepository()
 
 
+@lru_cache
+def get_knowledge_base_service():
+    """Get knowledge base service, or None if disabled / raganything not installed."""
+    settings = get_settings()
+    if not settings.knowledge_base_enabled:
+        return None
+
+    try:
+        from app.domain.services.knowledge_base_service import KnowledgeBaseService
+        from app.infrastructure.external.raganything.adapter import RAGAnythingAdapter
+        from app.infrastructure.repositories.mongo_knowledge_repository import MongoKnowledgeRepository
+
+        llm = _get_llm_instance()
+        adapter = RAGAnythingAdapter(settings=settings, llm=llm)
+        mongodb_db = get_mongodb().client[settings.mongodb_database]
+        repository = MongoKnowledgeRepository(db=mongodb_db)
+        return KnowledgeBaseService(repository=repository, adapter=adapter, settings=settings)
+    except ImportError:
+        logger.warning("raganything not installed; knowledge base feature disabled")
+        return None
+    except Exception as exc:
+        logger.warning("Failed to create KnowledgeBaseService (graceful degradation): %s", exc)
+        return None
+
+
 def increment_rating_unauthorized_attempts() -> None:
     """Record unauthorized rating attempts via observability adapter."""
     from app.core.prometheus_metrics import rating_unauthorized_attempts_total

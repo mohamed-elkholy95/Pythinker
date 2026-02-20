@@ -294,6 +294,13 @@ class ImageGenerationException(IntegrationException):
         super().__init__(message, service="image_generation")
 
 
+class KnowledgeBaseException(IntegrationException):
+    """Raised when knowledge base (RAG-Anything) operations fail."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, service="knowledge_base")
+
+
 # ── Workflow / Flow ───────────────────────────────────────────────────
 
 

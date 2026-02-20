@@ -605,6 +605,13 @@ async def lifespan(app: FastAPI):
         await system_integrator.initialize()
         logger.info("Enhanced system components initialized")
 
+        # Initialize knowledge base storage directory
+        if settings.knowledge_base_enabled:
+            import os as _os
+
+            _os.makedirs(settings.knowledge_base_storage_dir, exist_ok=True)
+            logger.info("Knowledge base storage ready: %s", settings.knowledge_base_storage_dir)
+
         # Mark as ready
         _health_state["ready"] = True
         logger.info("Application startup complete - all services initialized")
