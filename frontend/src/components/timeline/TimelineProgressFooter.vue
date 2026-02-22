@@ -157,7 +157,7 @@ const getStepIconClass = (status: string) => {
     case 'failed':
       return 'text-red-500'
     default:
-      return 'text-gray-400'
+      return 'text-[var(--text-tertiary)]'
   }
 }
 </script>
