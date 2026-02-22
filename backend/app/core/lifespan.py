@@ -26,6 +26,10 @@ from app.infrastructure.models.documents import (
     UsageDocument,
     UserDocument,
 )
+from app.infrastructure.models.prompt_optimization_documents import (
+    OptimizationRunDocument,
+    PromptProfileDocument,
+)
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.qdrant import get_qdrant
 from app.infrastructure.storage.redis import get_cache_redis, get_redis
@@ -44,6 +48,7 @@ _health_state = {
     "sandbox_pool": False,
     "ready": False,
 }
+
 
 def get_health_state() -> dict:
     """Get current health state for health check endpoint"""
@@ -115,6 +120,12 @@ async def lifespan(app: FastAPI):
 
     system_integrator = get_system_integrator()
 
+    # Declare background task handles before try block to prevent NameError
+    # in the finally/shutdown block if startup fails partway through.
+    periodic_cleanup_task = None
+    reconciliation_task = None
+    memory_cleanup_task = None
+
     try:
         # Initialize observability (OTEL, metrics)
         _initialize_observability()
@@ -138,6 +149,8 @@ async def lifespan(app: FastAPI):
                 CanvasProjectDocument,
                 CanvasVersionDocument,
                 ConnectorDocument,
+                OptimizationRunDocument,
+                PromptProfileDocument,
                 RatingDocument,
                 ScreenshotDocument,
                 SessionDocument,
@@ -180,7 +193,6 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Failed to seed connectors (non-critical): {e}")
 
         # Cleanup stale running sessions from previous crashes/restarts
-        periodic_cleanup_task = None
         try:
             from app.application.services.maintenance_service import MaintenanceService
 
@@ -343,7 +355,6 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Sync worker startup failed (non-critical): {e}")
 
         # Phase 2: Start reconciliation job background task
-        reconciliation_task = None
         if _health_state["qdrant"]:
             try:
                 from app.domain.services.reconciliation_job import ReconciliationJob, set_reconciliation_job
@@ -382,7 +393,6 @@ async def lifespan(app: FastAPI):
             logger.info("Reconciliation background task started")
 
         # Start background memory cleanup task (Phase 7)
-        memory_cleanup_task = None
         if _health_state["qdrant"]:
 
             async def _memory_cleanup_loop():
