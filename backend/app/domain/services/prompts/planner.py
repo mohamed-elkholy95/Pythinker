@@ -382,8 +382,6 @@ def build_create_plan_prompt(
 
     # Inject DSPy-optimized profile patch if present (PR-5: prompt optimization)
     if profile_patch_text:
-        base_prompt = (
-            f"{base_prompt}\n\n<!-- profile_patch -->\n{profile_patch_text}\n<!-- /profile_patch -->"
-        )
+        base_prompt = f"{base_prompt}\n\n<!-- profile_patch -->\n{profile_patch_text}\n<!-- /profile_patch -->"
 
     return base_prompt

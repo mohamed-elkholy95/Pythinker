@@ -343,9 +343,7 @@ class PlannerAgent(BaseAgent):
         # Save original system prompt so skill context doesn't bleed across messages
         original_system_prompt = self.system_prompt
         try:
-            async for event in self._create_plan_inner(
-                message, replan_context, profile_patch_text=profile_patch_text
-            ):
+            async for event in self._create_plan_inner(message, replan_context, profile_patch_text=profile_patch_text):
                 yield event
         finally:
             self.system_prompt = original_system_prompt

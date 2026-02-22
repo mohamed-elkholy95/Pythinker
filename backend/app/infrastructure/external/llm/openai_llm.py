@@ -1313,8 +1313,15 @@ To extract data from a webpage:
                     )
                     # Retry with next key
                     return await self.ask(
-                        messages, tools, response_format, tool_choice, enable_caching,
-                        model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
+                        messages,
+                        tools,
+                        response_format,
+                        tool_choice,
+                        enable_caching,
+                        model=model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        _attempt=_attempt + 1,
                     )
                 raise
 
@@ -1331,8 +1338,15 @@ To extract data from a webpage:
                         )
                         # Retry with next key
                         return await self.ask(
-                            messages, tools, response_format, tool_choice, enable_caching,
-                            model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
+                            messages,
+                            tools,
+                            response_format,
+                            tool_choice,
+                            enable_caching,
+                            model=model,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            _attempt=_attempt + 1,
                         )
                     raise
                 error_msg = str(e).lower()
@@ -1939,8 +1953,15 @@ To extract data from a webpage:
         # MLX mode doesn't support streaming well, fall back to regular ask
         if self._is_mlx_mode:
             result = await self.ask(
-                base_messages, tools, response_format, tool_choice, enable_caching,
-                model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt,
+                base_messages,
+                tools,
+                response_format,
+                tool_choice,
+                enable_caching,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                _attempt=_attempt,
             )
             content = result.get("content", "")
             finish_reason = result.get("_finish_reason")
@@ -2080,8 +2101,15 @@ To extract data from a webpage:
                     )
                     # Retry with next key (recursively yield from new attempt)
                     async for chunk in self.ask_stream(
-                        messages, tools, response_format, tool_choice, enable_caching,
-                        model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
+                        messages,
+                        tools,
+                        response_format,
+                        tool_choice,
+                        enable_caching,
+                        model=model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        _attempt=_attempt + 1,
                     ):
                         yield chunk
                     return
@@ -2106,8 +2134,15 @@ To extract data from a webpage:
                         )
                         # Retry with next key (recursively yield from new attempt)
                         async for chunk in self.ask_stream(
-                            messages, tools, response_format, tool_choice, enable_caching,
-                            model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
+                            messages,
+                            tools,
+                            response_format,
+                            tool_choice,
+                            enable_caching,
+                            model=model,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            _attempt=_attempt + 1,
                         ):
                             yield chunk
                         return
