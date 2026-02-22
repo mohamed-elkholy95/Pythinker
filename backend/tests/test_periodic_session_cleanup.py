@@ -14,7 +14,7 @@ async def test_periodic_cleanup_task_calls_maintenance_service() -> None:
         return_value={"sessions_cleaned": 2, "sandboxes_destroyed": 1}
     )
 
-    from app.main import _run_periodic_session_cleanup
+    from app.core.lifespan import _run_periodic_session_cleanup
 
     task = asyncio.create_task(_run_periodic_session_cleanup(mock_maintenance, interval_seconds=0.01))
     await asyncio.sleep(0.05)

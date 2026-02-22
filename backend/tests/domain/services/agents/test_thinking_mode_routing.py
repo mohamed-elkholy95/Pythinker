@@ -185,6 +185,16 @@ class TestSelectModelDeepThinkMode:
 class TestSelectModelAutoMode:
     """None and 'auto' both use complexity-based routing via get_model_router()."""
 
+    @pytest.fixture(autouse=True)
+    def reset_model_router_singleton(self):
+        """Reset the ModelRouter singleton so each test gets a fresh instance with patched settings."""
+        import app.domain.services.agents.model_router as router_module
+
+        original = router_module._model_router
+        router_module._model_router = None
+        yield
+        router_module._model_router = original
+
     @patch(SETTINGS_PATH)
     @patch(METRICS_PATH)
     def test_none_mode_simple_task_routes_to_fast(self, _mock_metrics, mock_get_settings, executor):
@@ -249,6 +259,16 @@ class TestSelectModelAutoMode:
 
 class TestSelectModelErrorHandling:
     """_select_model_for_step() returns None on any ModelRouter exception."""
+
+    @pytest.fixture(autouse=True)
+    def reset_model_router_singleton(self):
+        """Reset the ModelRouter singleton so each test gets a fresh instance with patched settings."""
+        import app.domain.services.agents.model_router as router_module
+
+        original = router_module._model_router
+        router_module._model_router = None
+        yield
+        router_module._model_router = original
 
     @patch(SETTINGS_PATH)
     @patch(METRICS_PATH)
