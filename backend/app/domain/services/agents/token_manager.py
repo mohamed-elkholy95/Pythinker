@@ -246,6 +246,8 @@ class TokenManager:
         Compares the resolved limit against known context sizes from provider
         documentation.  A mismatch usually means MODEL_LIMITS needs updating.
         """
+        if not isinstance(model_name, str):
+            return
         model_lower = model_name.lower()
         for known_model, known_limit in self._KNOWN_MODEL_CONTEXTS.items():
             if known_model in model_lower or model_lower in known_model:

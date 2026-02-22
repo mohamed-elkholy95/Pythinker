@@ -317,7 +317,12 @@ class PlannerAgent(BaseAgent):
             logger.warning(f"Thinking stream failed, continuing with plan creation: {e}")
             # Don't yield error - just continue to plan creation
 
-    async def create_plan(self, message: Message, replan_context: str | None = None) -> AsyncGenerator[BaseEvent, None]:
+    async def create_plan(
+        self,
+        message: Message,
+        replan_context: str | None = None,
+        profile_patch_text: str | None = None,
+    ) -> AsyncGenerator[BaseEvent, None]:
         """Create an execution plan for the given message.
 
         Emits ProgressEvents for instant user feedback during planning:
@@ -329,6 +334,7 @@ class PlannerAgent(BaseAgent):
         Args:
             message: The user message to create a plan for
             replan_context: Optional feedback from verification for replanning
+            profile_patch_text: DSPy-optimized planner prompt patch (PR-5); None = baseline.
 
         Yields:
             ProgressEvent for instant feedback, StreamEvent during thinking,
@@ -337,13 +343,18 @@ class PlannerAgent(BaseAgent):
         # Save original system prompt so skill context doesn't bleed across messages
         original_system_prompt = self.system_prompt
         try:
-            async for event in self._create_plan_inner(message, replan_context):
+            async for event in self._create_plan_inner(
+                message, replan_context, profile_patch_text=profile_patch_text
+            ):
                 yield event
         finally:
             self.system_prompt = original_system_prompt
 
     async def _create_plan_inner(
-        self, message: Message, replan_context: str | None = None
+        self,
+        message: Message,
+        replan_context: str | None = None,
+        profile_patch_text: str | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """Inner implementation of create_plan, wrapped by try/finally for prompt restore."""
         from app.domain.models.event import PlanningPhase, ProgressEvent
@@ -508,6 +519,7 @@ class PlannerAgent(BaseAgent):
             attachments="\n".join(attachment_names) if attachment_names else "None",
             task_memory=task_memory,
             search_context=search_context,
+            profile_patch_text=profile_patch_text,
         )
 
         # Enrich prompt with ToT analysis if available

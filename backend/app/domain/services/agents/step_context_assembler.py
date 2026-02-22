@@ -64,6 +64,7 @@ class StepContextAssembler:
         pre_planning_search_context: str | None = None,
         conversation_context: str | None = None,
         request_contract: RequestContract | None = None,
+        profile_patch_text: str | None = None,
     ) -> StepExecutionContext:
         """Assemble all context for a step execution.
 
@@ -76,6 +77,7 @@ class StepContextAssembler:
             pre_planning_search_context: Search context from planning phase
             conversation_context: Qdrant conversation context (replaces _pending_conversation_context)
             request_contract: Entity fidelity contract
+            profile_patch_text: DSPy-optimized prompt patch (PR-5); None = baseline.
 
         Returns:
             Frozen StepExecutionContext ready for prompt building
@@ -121,6 +123,7 @@ class StepContextAssembler:
             error_pattern_signal=error_pattern_signal,
             locked_entity_reminder=locked_entity_reminder,
             signal_config=self._signal_config,
+            profile_patch_text=profile_patch_text,
         )
 
     def _get_task_state_signal(self) -> str | None:
