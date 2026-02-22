@@ -20,6 +20,7 @@ from app.domain.models.event import (
     ModeChangeEvent,
     ReportEvent,
     SuggestionEvent,
+    TitleEvent,
     ToolEvent,
     ToolStatus,
 )
@@ -106,6 +107,7 @@ class DiscussFlow(BaseFlow):
 
         self.status = DiscussStatus.IDLE
         self._mode_switch_task: str | None = None
+        self._title_emitted: bool = False
 
         # Initialize tools - limited set for discuss mode
         self._agent_mode_tool = AgentModeTool()
@@ -306,6 +308,14 @@ class DiscussFlow(BaseFlow):
         self.status = DiscussStatus.RESPONDING
 
         try:
+            # Emit TitleEvent on the first message so the sidebar shows a meaningful title
+            if not self._title_emitted:
+                raw = (message.message or "").strip()
+                if raw:
+                    fast_title = raw[:60].rstrip() + ("\u2026" if len(raw) > 60 else "")
+                    yield TitleEvent(title=fast_title)
+                self._title_emitted = True
+
             # Build the discuss prompt
             prompt = build_discuss_prompt(
                 message=message.message,
@@ -389,4 +399,5 @@ class DiscussFlow(BaseFlow):
         """Reset flow state for new conversation"""
         self.status = DiscussStatus.IDLE
         self._mode_switch_task = None
+        self._title_emitted = False
         self._agent_mode_tool.reset()
