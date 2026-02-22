@@ -499,7 +499,9 @@ Respond ONLY with the JSON object, no other text.""",
         try:
             for attempt in range(1, stream_retry_config.max_attempts + 1):
                 try:
-                    async for content in self._stream_ollama_response(ollama_messages, metadata, temperature=temperature, max_tokens=max_tokens):
+                    async for content in self._stream_ollama_response(
+                        ollama_messages, metadata, temperature=temperature, max_tokens=max_tokens
+                    ):
                         completion_parts.append(content)
                         yield content
 

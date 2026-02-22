@@ -502,8 +502,15 @@ class AnthropicLLM(LLM):
                 )
                 # Retry with next key
                 return await self.ask(
-                    messages, tools, response_format, tool_choice, enable_caching,
-                    model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
+                    messages,
+                    tools,
+                    response_format,
+                    tool_choice,
+                    enable_caching,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    _attempt=_attempt + 1,
                 )
             raise
 
@@ -517,8 +524,15 @@ class AnthropicLLM(LLM):
                 )
                 # Retry with next key
                 return await self.ask(
-                    messages, tools, response_format, tool_choice, enable_caching,
-                    model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
+                    messages,
+                    tools,
+                    response_format,
+                    tool_choice,
+                    enable_caching,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    _attempt=_attempt + 1,
                 )
             raise
 
@@ -760,8 +774,15 @@ class AnthropicLLM(LLM):
                 )
                 # Retry with next key (recursively yield from new attempt)
                 async for chunk in self.ask_stream(
-                    messages, tools, response_format, tool_choice, enable_caching,
-                    model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
+                    messages,
+                    tools,
+                    response_format,
+                    tool_choice,
+                    enable_caching,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    _attempt=_attempt + 1,
                 ):
                     yield chunk
                 return
@@ -783,8 +804,15 @@ class AnthropicLLM(LLM):
                 )
                 # Retry with next key (recursively yield from new attempt)
                 async for chunk in self.ask_stream(
-                    messages, tools, response_format, tool_choice, enable_caching,
-                    model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
+                    messages,
+                    tools,
+                    response_format,
+                    tool_choice,
+                    enable_caching,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    _attempt=_attempt + 1,
                 ):
                     yield chunk
                 return
