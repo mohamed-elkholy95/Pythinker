@@ -222,10 +222,14 @@ class PlanActFlow(BaseFlow):
         cancel_token: CancellationToken | None = None,
         research_mode: str = "deep_research",
         knowledge_base_service=None,
+        prompt_profile_repo=None,
     ):
         self._feature_flags = feature_flags
         self._research_mode = research_mode
         self._workspace_output_path: str | None = None  # Set during run() for deep_research
+        # PR-7: lazy PromptProfileResolver — built on first use if feature flags are active
+        self._profile_resolver: Any = None
+        self._prompt_profile_repo = prompt_profile_repo
         self._alert_port = alert_port
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -559,6 +563,89 @@ class PlanActFlow(BaseFlow):
         from app.core.alert_manager import get_alert_manager
 
         return get_alert_manager()
+
+    # ------------------------------------------------------------------
+    # PR-7: Prompt profile resolver helpers
+    # ------------------------------------------------------------------
+
+    def _get_profile_resolver(self) -> Any:
+        """Return the PromptProfileResolver, building it lazily if needed.
+
+        Returns None when both ``feature_prompt_profile_runtime`` and
+        ``feature_prompt_profile_shadow`` are disabled (fast path — zero overhead).
+        """
+        settings = get_settings()
+        runtime_enabled = getattr(settings, "feature_prompt_profile_runtime", False)
+        shadow_enabled = getattr(settings, "feature_prompt_profile_shadow", True)
+        if not runtime_enabled and not shadow_enabled:
+            return None
+        if self._profile_resolver is None:
+            try:
+                from app.domain.services.prompt_optimization.profile_resolver import (
+                    build_profile_resolver_from_settings,
+                )
+
+                # Use injected repository if available, otherwise build from settings only
+                repo = self._prompt_profile_repo
+                if repo is not None:
+                    self._profile_resolver = build_profile_resolver_from_settings(repo)
+                else:
+                    logger.debug("No prompt profile repository injected; profile resolver disabled")
+                    return None
+                logger.debug("PromptProfileResolver initialized for agent %s", self._agent_id)
+            except Exception as exc:
+                logger.warning("Failed to initialize PromptProfileResolver: %s", exc)
+                return None
+        return self._profile_resolver
+
+    async def _resolve_profile_patch(self, target: Any) -> str | None:
+        """Resolve the prompt profile patch text for ``target`` (PLANNER or EXECUTION).
+
+        Returns:
+            Patch text string when an active/canary profile applies.
+            None in baseline, shadow, or error cases (zero behavior change).
+        """
+        resolver = self._get_profile_resolver()
+        if resolver is None:
+            return None
+        try:
+            from app.core.prometheus_metrics import record_profile_selection
+            from app.domain.models.prompt_profile import ProfileSelectionMode
+
+            sel = await resolver.resolve(self._session_id, target=target)
+            record_profile_selection(
+                profile_id=sel.profile_id or "none",
+                target=target.value,
+                mode=sel.mode.value,
+            )
+            if sel.mode == ProfileSelectionMode.SHADOW:
+                logger.debug(
+                    "Profile resolver: shadow mode for target=%s profile=%s (not applied)",
+                    target.value,
+                    sel.profile_id,
+                )
+                return None
+            if sel.mode == ProfileSelectionMode.BASELINE:
+                return None
+            # ACTIVE or CANARY — extract patch text
+            if sel.profile is not None:
+                patch = sel.profile.get_patch(target)
+                if patch is not None:
+                    logger.info(
+                        "Applying profile patch %s/%s to %s prompt",
+                        sel.profile_id,
+                        patch.variant_id,
+                        target.value,
+                    )
+                    return patch.patch_text
+            return None
+        except Exception as exc:
+            logger.warning("Failed to resolve profile patch for %s: %s", target.value, exc)
+            with suppress(Exception):
+                from app.core.prometheus_metrics import record_profile_fallback
+
+                record_profile_fallback(reason=type(exc).__name__)
+            return None
 
     def _init_multi_agent_dispatch(self) -> None:
         """Initialize the multi-agent dispatch system."""
@@ -2501,6 +2588,11 @@ class PlanActFlow(BaseFlow):
                             except Exception as e:
                                 logger.debug("Role-scoped memory injection skipped: %s", e)
 
+                        # PR-7: Resolve planner prompt profile patch (shadow/active mode)
+                        from app.domain.models.prompt_profile import PromptTarget as _PromptTarget
+
+                        _planner_patch = await self._resolve_profile_patch(_PromptTarget.PLANNER)
+
                         # Deep Research: inject browser-first emphasis + workspace instructions
                         _saved_planner_prompt = self.planner.system_prompt
                         if self._research_mode == "deep_research":
@@ -2522,7 +2614,11 @@ class PlanActFlow(BaseFlow):
                                 "Your FINAL step must compile and deliver all workspace files to the user."
                             )
 
-                        async for event in self.planner.create_plan(message, replan_context=replan_context):
+                        async for event in self.planner.create_plan(
+                            message,
+                            replan_context=replan_context,
+                            profile_patch_text=_planner_patch,
+                        ):
                             await self._check_cancelled()
                             if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                                 self.plan = event.plan
@@ -2781,6 +2877,11 @@ class PlanActFlow(BaseFlow):
                         attempt = 0
                         backoff = retry.backoff_seconds
 
+                        # PR-7: Resolve execution prompt profile patch once before retry loop
+                        from app.domain.models.prompt_profile import PromptTarget as _PromptTarget
+
+                        _exec_patch = await self._resolve_profile_patch(_PromptTarget.EXECUTION)
+
                         for attempt in range(max_attempts):
                             await self._check_cancelled()
                             if attempt > 0:
@@ -2852,6 +2953,7 @@ class PlanActFlow(BaseFlow):
                                 step,
                                 message,
                                 conversation_context=conversation_context,
+                                profile_patch_text=_exec_patch,
                             ):
                                 await self._check_cancelled()
                                 # Phase 3: Track tool usage for proactive compaction
