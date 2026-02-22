@@ -18,8 +18,13 @@
  *   watch(() => resilience.isReachable, (ok) => { ... })
  */
 import { type App, type InjectionKey, inject, reactive, readonly } from 'vue'
-import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import { apiClient, _responseInterceptorId } from '@/api/client'
+import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
+import {
+  apiClient,
+  _responseInterceptorId,
+  _responseInterceptorFulfilled,
+  _responseInterceptorRejected,
+} from '@/api/client'
 
 // ────────────────────────────────────────────────────────────────────
 // Types
@@ -166,20 +171,10 @@ const apiResiliencePlugin = {
     // ── Re-order interceptors ─────────────────────────────────────
     // The retry interceptor must run BEFORE the auth/formatting
     // interceptor in client.ts so it receives raw AxiosErrors with
-    // access to error.config and error.code. We access the internal
-    // handlers array to retrieve the existing handler, eject it,
-    // register ours first, then re-register the original.
-    //
-    // Axios interceptor internals:
-    //   handlers[id] = { fulfilled, rejected } | null
-    //   forEach skips null entries; processing is FIFO.
-    type InterceptorHandler = {
-      fulfilled: ((value: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>) | null
-      rejected: ((error: unknown) => unknown) | null
-    }
-    const handlers = (apiClient.interceptors.response as unknown as { handlers: (InterceptorHandler | null)[] }).handlers
-    const existingHandler = handlers[_responseInterceptorId]
-
+    // access to error.config and error.code. We eject the existing
+    // interceptor by its exported ID, register the retry interceptor
+    // first, then re-register the original using the exported
+    // callback functions (no undocumented Axios internals needed).
     apiClient.interceptors.response.eject(_responseInterceptorId)
 
     // ── 1. Retry interceptor (runs first) ─────────────────────────
@@ -246,12 +241,10 @@ const apiResiliencePlugin = {
     )
 
     // ── 2. Re-register original auth/formatting interceptor ───────
-    if (existingHandler) {
-      apiClient.interceptors.response.use(
-        existingHandler.fulfilled ?? undefined,
-        existingHandler.rejected ?? undefined,
-      )
-    }
+    apiClient.interceptors.response.use(
+      _responseInterceptorFulfilled,
+      _responseInterceptorRejected,
+    )
   },
 }
 
