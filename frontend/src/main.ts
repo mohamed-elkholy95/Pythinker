@@ -1,101 +1,62 @@
 import { createApp } from 'vue'
-import { createRouter, createWebHistory } from 'vue-router'
 import VueKonva from 'vue-konva'
 import App from './App.vue'
 import './assets/global.css'
 import './assets/theme.css'
 import './utils/toast'
 import i18n from './composables/useI18n'
+import { router } from './router'
 import { getStoredToken, getCachedAuthProvider } from './api/auth'
 import autoFollowScrollPlugin from './plugins/autoFollowScroll'
 import apiResiliencePlugin from './plugins/apiResilience'
 import { configure } from "vue-gtag";
 
-// Route-level lazy loading keeps the bootstrap bundle small.
-const MainLayout = () => import('./pages/MainLayout.vue')
-const HomePage = () => import('./pages/HomePage.vue')
-const ChatPage = () => import('./pages/ChatPage.vue')
-const LoginPage = () => import('./pages/LoginPage.vue')
-const ShareLayout = () => import('./pages/ShareLayout.vue')
-const SharePage = () => import('./pages/SharePage.vue')
-const SessionHistoryPage = () => import('./pages/SessionHistoryPage.vue')
-const CanvasPage = () => import('./pages/CanvasPage.vue')
-
+// FOUC prevention — runs synchronously before Vue mounts.
+// useThemeMode() in App.vue takes over reactive management after mount.
 const canReadStorage = typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function'
 const storedTheme = canReadStorage ? localStorage.getItem('bolt_theme') : null
 const prefersDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
-const resolvedTheme = storedTheme ?? (prefersDark ? 'dark' : 'light')
+// Guard: only accept explicit 'dark'/'light' — ignore 'auto' or null (fall back to OS)
+const resolvedTheme = (storedTheme === 'dark' || storedTheme === 'light')
+  ? storedTheme
+  : (prefersDark ? 'dark' : 'light')
 if (typeof document !== 'undefined') {
   document.documentElement.setAttribute('data-theme', resolvedTheme)
   document.documentElement.classList.toggle('dark', resolvedTheme === 'dark')
 }
 
-configure({
-  tagId: 'G-XCRZ3HH31S' // Replace with your own Google Analytics tag ID
-})
-
-// Create router
-export const router = createRouter({
-  history: createWebHistory(),
-  routes: [
-    { 
-      path: '/chat', 
-      component: MainLayout,
-      meta: { requiresAuth: true },
-      children: [
-        {
-          path: '',
-          component: HomePage,
-          alias: ['/', '/home'],
-          meta: { requiresAuth: true }
-        },
-        {
-          path: 'history',
-          component: SessionHistoryPage,
-          meta: { requiresAuth: true }
-        },
-        {
-          path: 'canvas/:projectId?',
-          component: CanvasPage,
-          meta: { requiresAuth: true }
-        },
-        {
-          path: ':sessionId',
-          component: ChatPage,
-          meta: { requiresAuth: true }
-        }
-      ]
-    },
-    {
-      path: '/share',
-      component: ShareLayout,
-      children: [
-        {
-          path: ':sessionId',
-          component: SharePage,
-        }
-      ]
-    },
-    { 
-      path: '/login', 
-      component: LoginPage
-    }
-  ]
-})
+// Only enable Google Analytics when a tag ID is configured
+const gaTagId = import.meta.env.VITE_GA_TAG_ID
+if (gaTagId) {
+  configure({ tagId: gaTagId })
+}
 
 // Global route guard
 router.beforeEach(async (to, _, next) => {
   const requiresAuth = to.matched.some((record) => record.meta?.requiresAuth)
   const hasToken = !!getStoredToken()
-  
+
   if (requiresAuth) {
     const authProvider = await getCachedAuthProvider()
-    
+
+    // Bug #10 fix: when backend is unavailable (null), fail open for token holders
+    // and redirect to login for users without tokens
     if (authProvider === 'none') {
       next()
       return
     }
-    
+
+    if (authProvider === null) {
+      // Backend unavailable — allow token holders through (they'll get 401 later
+      // if the token is actually invalid), redirect others to login
+      if (hasToken) {
+        next()
+      } else {
+        next({ path: '/login', query: { redirect: to.fullPath } })
+      }
+      return
+    }
+
     if (!hasToken) {
       next({
         path: '/login',
@@ -104,7 +65,7 @@ router.beforeEach(async (to, _, next) => {
       return
     }
   }
-  
+
   if (to.path === '/login' && hasToken) {
     next('/')
   } else {
