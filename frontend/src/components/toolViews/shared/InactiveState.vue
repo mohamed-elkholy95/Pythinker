@@ -67,7 +67,7 @@ withDefaults(defineProps<{
 }
 
 :global(.dark) .inactive-state {
-  background: linear-gradient(to bottom, #0d1117, #161b22);
+  background: linear-gradient(to bottom, #141414, #1a1a1a);
 }
 
 .monitor {

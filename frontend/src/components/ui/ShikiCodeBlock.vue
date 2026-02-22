@@ -230,7 +230,7 @@ defineExpose({
 }
 
 :global(.dark) .filename {
-  color: #8b949e;
+  color: #b0b0b0;
 }
 
 .language-badge {
@@ -244,7 +244,7 @@ defineExpose({
 
 :global(.dark) .language-badge {
   background: rgba(255, 255, 255, 0.06);
-  color: #8b949e;
+  color: #b0b0b0;
 }
 
 /* Copy button */
@@ -269,7 +269,7 @@ defineExpose({
 
 :global(.dark) .copy-button:hover {
   background: rgba(255, 255, 255, 0.08);
-  color: #e6edf3;
+  color: #e8e0d8;
 }
 
 .copy-button.copied {
