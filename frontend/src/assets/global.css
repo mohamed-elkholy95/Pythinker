@@ -6,6 +6,11 @@
 
 @variant dark (&:where(.dark, .dark *));
 
+/* Inform the browser which color schemes are supported so native UI elements
+   (scrollbars, form controls, system backgrounds) match the active theme. */
+:root { color-scheme: light; }
+:root[data-theme='dark'], .dark { color-scheme: dark; }
+
 #app {
   display: contents;
 }
@@ -66,17 +71,17 @@ h3,
 
 .dark .modern-scrollbar,
 html[data-theme='dark'] .modern-scrollbar {
-  scrollbar-color: rgba(110, 118, 129, 0.5) transparent;
+  scrollbar-color: rgba(128, 128, 128, 0.45) transparent;
 }
 
 .dark .modern-scrollbar::-webkit-scrollbar-thumb,
 html[data-theme='dark'] .modern-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(110, 118, 129, 0.4);
+  background-color: rgba(128, 128, 128, 0.35);
 }
 
 .dark .modern-scrollbar::-webkit-scrollbar-thumb:hover,
 html[data-theme='dark'] .modern-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(110, 118, 129, 0.65);
+  background-color: rgba(128, 128, 128, 0.55);
 }
 
 /* ===== MINIMAL SCROLLBAR (for sidebars) ===== */
@@ -114,17 +119,17 @@ html[data-theme='dark'] .modern-scrollbar::-webkit-scrollbar-thumb:hover {
 
 .dark .minimal-scrollbar:hover,
 html[data-theme='dark'] .minimal-scrollbar:hover {
-  scrollbar-color: rgba(110, 118, 129, 0.35) transparent;
+  scrollbar-color: rgba(128, 128, 128, 0.3) transparent;
 }
 
 .dark .minimal-scrollbar:hover::-webkit-scrollbar-thumb,
 html[data-theme='dark'] .minimal-scrollbar:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(110, 118, 129, 0.35);
+  background-color: rgba(128, 128, 128, 0.3);
 }
 
 .dark .minimal-scrollbar::-webkit-scrollbar-thumb:hover,
 html[data-theme='dark'] .minimal-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(110, 118, 129, 0.55);
+  background-color: rgba(128, 128, 128, 0.45);
 }
 
 .clickable {
@@ -159,4 +164,35 @@ html[data-theme='dark'] .minimal-scrollbar::-webkit-scrollbar-thumb:hover {
   font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* ===== ACCESSIBILITY: FORCED COLORS (Windows High Contrast / forced-colors mode) ===== */
+@media (forced-colors: active) {
+  /* Keyboard focus must remain visible in high-contrast mode */
+  :focus-visible {
+    outline: 3px solid ButtonText;
+    outline-offset: 2px;
+  }
+
+  /* Status indicators using background color alone lose meaning — preserve them */
+  .bg-green-500,
+  .bg-blue-500,
+  .bg-red-500 {
+    forced-color-adjust: none;
+  }
+}
+
+/* ===== ACCESSIBILITY: HIGH CONTRAST PREFERENCE ===== */
+@media (prefers-contrast: more) {
+  /* Strengthen borders and tertiary text for improved legibility */
+  :root {
+    --bolt-elements-borderColor: rgba(15, 23, 42, 0.3);
+    --bolt-elements-textTertiary: #5a5f68;
+  }
+
+  :root[data-theme='dark'],
+  .dark {
+    --bolt-elements-borderColor: rgba(200, 200, 200, 0.9);
+    --bolt-elements-textTertiary: #a8a8a8;
+  }
 }
