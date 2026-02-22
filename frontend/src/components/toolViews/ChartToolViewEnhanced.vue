@@ -2,7 +2,7 @@
   <div class="flex-1 min-h-0 w-full flex flex-col">
     <!-- Creating Animation -->
     <div v-if="isCreating"
-      class="flex-1 overflow-y-auto flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#0d1117] dark:to-[#161b22] py-12">
+      class="flex-1 overflow-y-auto flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#141414] dark:to-[#1a1a1a] py-12">
       <div class="chart-animation">
         <!-- Animated chart bars -->
         <div class="chart-bars">
@@ -141,6 +141,7 @@ import { ToolContent } from '@/types/message';
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { ExternalLink, Download } from 'lucide-vue-next';
 import { fileApi } from '@/api/file';
+import { useThemeColors } from '@/utils/themeColors';
 
 type PlotlyApi = {
   react: (...args: unknown[]) => Promise<unknown> | unknown;
@@ -210,6 +211,11 @@ const pngLoadError = ref(false);
 // Plotly data and layout
 const plotlyData = ref<any[] | null>(null);
 const plotlyLayout = ref<any | null>(null);
+// Base layout as parsed from HTML — never mutated directly; theme is applied on top
+const originalPlotlyLayout = ref<any | null>(null);
+
+// Reactive theme mode — drives Plotly re-render on dark/light switch
+const { themeMode } = useThemeColors();
 
 // AbortController for cancelling in-flight fetch requests
 let fetchAbortController: AbortController | null = null;
@@ -269,10 +275,16 @@ const formatChartType = (type: string | undefined) => {
     .join(' ');
 };
 
-// Check if dark mode is active
-const isDarkMode = () => {
-  return document.documentElement.classList.contains('dark');
-};
+// Pure function: derives a dark-mode Plotly layout from a base layout.
+// Does not mutate its argument — safe to call repeatedly on theme switches.
+const buildDarkLayout = (base: any): any => ({
+  ...base,
+  paper_bgcolor: '#141414',
+  plot_bgcolor: '#141414',
+  font: { ...base.font, color: '#e8e0d8' },
+  xaxis: { ...base.xaxis, gridcolor: '#242424', color: '#e8e0d8' },
+  yaxis: { ...base.yaxis, gridcolor: '#242424', color: '#e8e0d8' },
+});
 
 // Load Plotly data from HTML file
 const loadPlotlyData = async () => {
@@ -309,35 +321,35 @@ const loadPlotlyData = async () => {
     const dataMatch = html.match(/Plotly\.newPlot\([^,]+,\s*(\[[\s\S]*?\])\s*,\s*({[\s\S]*?})\s*,/);
     if (dataMatch) {
       plotlyData.value = JSON.parse(dataMatch[1]);
-      plotlyLayout.value = JSON.parse(dataMatch[2]);
+      originalPlotlyLayout.value = JSON.parse(dataMatch[2]);
     } else {
       // Pattern 2: Plotly.newPlot(..., data, layout) without config
       const altMatch = html.match(/Plotly\.newPlot\([^,]+,\s*(\[[\s\S]*?\])\s*,\s*({[\s\S]*?})\s*\)/);
       if (altMatch) {
         plotlyData.value = JSON.parse(altMatch[1]);
-        plotlyLayout.value = JSON.parse(altMatch[2]);
+        originalPlotlyLayout.value = JSON.parse(altMatch[2]);
       } else {
         // Pattern 3: JSON script tag (some Plotly HTML exports use this)
         const scriptMatch = html.match(/<script id="plotly-data" type="application\/json">([\s\S]*?)<\/script>/);
         if (scriptMatch) {
           const jsonData = JSON.parse(scriptMatch[1]);
           plotlyData.value = jsonData.data;
-          plotlyLayout.value = jsonData.layout;
+          originalPlotlyLayout.value = jsonData.layout;
         }
       }
     }
 
     // If no pattern matched, fall back to static view
-    if (!plotlyData.value || !plotlyLayout.value) {
+    if (!plotlyData.value || !originalPlotlyLayout.value) {
       console.warn('Could not extract Plotly data from HTML — falling back to static view');
       plotlyLoadError.value = true;
       return;
     }
 
-    // Apply dark mode theming if needed
-    if (isDarkMode()) {
-      applyDarkModeTheme();
-    }
+    // Derive effective layout from base + current theme (never mutates originalPlotlyLayout)
+    plotlyLayout.value = themeMode.value === 'dark'
+      ? buildDarkLayout(originalPlotlyLayout.value)
+      : originalPlotlyLayout.value;
 
     // Render chart (only if not aborted during extraction)
     if (!signal.aborted) {
@@ -350,31 +362,6 @@ const loadPlotlyData = async () => {
     console.error('Failed to load Plotly data:', error);
     plotlyLoadError.value = true;
   }
-};
-
-// Apply dark mode theme to Plotly layout
-const applyDarkModeTheme = () => {
-  if (!plotlyLayout.value) return;
-
-  plotlyLayout.value = {
-    ...plotlyLayout.value,
-    paper_bgcolor: '#0d1117',
-    plot_bgcolor: '#0d1117',
-    font: {
-      ...plotlyLayout.value.font,
-      color: '#e6edf3',
-    },
-    xaxis: {
-      ...plotlyLayout.value.xaxis,
-      gridcolor: '#21262d',
-      color: '#e6edf3',
-    },
-    yaxis: {
-      ...plotlyLayout.value.yaxis,
-      gridcolor: '#21262d',
-      color: '#e6edf3',
-    },
-  };
 };
 
 // Render Plotly chart using native Plotly.js
@@ -480,6 +467,18 @@ watch(
     }
   }
 );
+
+// Re-theme Plotly chart when user switches dark/light mode.
+// Uses Plotly.react() for efficient diffing — only changed layout props are repainted.
+watch(themeMode, async (newMode) => {
+  if (!originalPlotlyLayout.value || !plotlyData.value) return;
+  plotlyLayout.value = newMode === 'dark'
+    ? buildDarkLayout(originalPlotlyLayout.value)
+    : originalPlotlyLayout.value;
+  if (plotlyReady.value) {
+    await renderPlotlyChart();
+  }
+});
 
 // Cleanup Plotly instance and abort in-flight fetches
 onBeforeUnmount(() => {
