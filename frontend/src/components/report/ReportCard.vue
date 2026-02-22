@@ -126,6 +126,7 @@
             :content="processedContent"
             :compact="true"
             :hideMainTitleInCompact="false"
+            :sources="report.sources"
           />
         </div>
         <div class="content-fade"></div>
@@ -585,6 +586,47 @@ const _handleSaveToOneDriveWork = () => {
 
 .suggestion-item:hover .suggestion-arrow {
   color: #8d9198;
+}
+
+/* ── Dark mode: suggestions section ── */
+:global(.dark) .suggestions-section,
+:global([data-theme='dark']) .suggestions-section {
+  border-top-color: var(--border-main);
+}
+
+:global(.dark) .suggestions-header,
+:global([data-theme='dark']) .suggestions-header {
+  color: var(--text-secondary);
+}
+
+:global(.dark) .suggestion-item,
+:global([data-theme='dark']) .suggestion-item {
+  border-bottom-color: var(--border-main);
+}
+
+:global(.dark) .suggestion-item:hover,
+:global([data-theme='dark']) .suggestion-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:global(.dark) .suggestion-text,
+:global([data-theme='dark']) .suggestion-text {
+  color: var(--text-primary);
+}
+
+:global(.dark) .suggestion-icon,
+:global([data-theme='dark']) .suggestion-icon {
+  color: var(--text-tertiary);
+}
+
+:global(.dark) .suggestion-arrow,
+:global([data-theme='dark']) .suggestion-arrow {
+  color: var(--text-tertiary);
+}
+
+:global(.dark) .suggestion-item:hover .suggestion-arrow,
+:global([data-theme='dark']) .suggestion-item:hover .suggestion-arrow {
+  color: var(--text-secondary);
 }
 
 @media (max-width: 900px) {

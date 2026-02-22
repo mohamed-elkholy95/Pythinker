@@ -6,8 +6,10 @@ const VERIFICATION_TAG_RE = /\[(?:unverified|verified|not verified)[^\]]*\]?/gi;
 // Matches [N] where N is 1–3 digits, not preceded by ^ (footnote) and not followed by ( or :
 // Note: [ is intentionally NOT excluded so consecutive citations [1][2][3] all get linkified
 const INLINE_CITATION_RE = /(?<!\^)\[(\d{1,3})\](?![(:])/g;
-// Detects a "references/sources/bibliography" section heading
+// Detects a "references/sources/bibliography" section heading (markdown heading)
 const REFERENCES_HEADING_RE = /^#{1,4}\s*(references?|sources?|bibliography|citations?)\s*$/i;
+// Detects bold-text reference headers: **Sources:** or **References** (common in chat messages)
+const BOLD_REFERENCES_RE = /^\*{2}(references?|sources?|bibliography|citations?):?\*{2}\s*$/i;
 // Ordered list item at the start of a line: "3. text"
 const ORDERED_LIST_RE = /^(\s*)(\d+)\.\s+/;
 // Bracket-style reference at the start of a line: "[3] text"
@@ -123,8 +125,8 @@ export const linkifyInlineCitations = (markdown: string): string => {
       }
       if (inCodeFence) return line;
 
-      // Detect references/sources/bibliography heading
-      if (REFERENCES_HEADING_RE.test(trimmed)) {
+      // Detect references/sources/bibliography heading (markdown heading or bold text)
+      if (REFERENCES_HEADING_RE.test(trimmed) || BOLD_REFERENCES_RE.test(trimmed)) {
         inReferencesSection = true;
         return line;
       }
@@ -133,6 +135,13 @@ export const linkifyInlineCitations = (markdown: string): string => {
       if (trimmed.startsWith('#')) {
         inReferencesSection = false;
         return line;
+      }
+
+      // A bold-text section header (with colon, e.g. "**Conclusion:**") exits the references section.
+      // Only match lines ending with ":**" to avoid false exits on bold content within references
+      // (e.g. "**Important**" used as emphasis within a reference entry).
+      if (inReferencesSection && /^\*{2}[^*]+:\*{2}\s*$/.test(trimmed) && !BOLD_REFERENCES_RE.test(trimmed)) {
+        inReferencesSection = false;
       }
 
       if (inReferencesSection) {
