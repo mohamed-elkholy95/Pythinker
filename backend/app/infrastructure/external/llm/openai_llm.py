@@ -135,6 +135,9 @@ class OpenAILLM(LLM):
         # Detect if using OpenRouter API — supports native json_schema structured outputs
         self._is_openrouter = self._detect_openrouter()
 
+        # Detect if using DeepSeek API — supports json_object, json_schema, and parallel tool calls
+        self._is_deepseek = self._detect_deepseek()
+
         # Initialize prompt cache manager for KV-cache optimization
         self._cache_manager = get_prompt_cache_manager(self._model_name)
 
@@ -146,6 +149,8 @@ class OpenAILLM(LLM):
             tags.append("[GLM API]")
         if self._is_openrouter:
             tags.append("[OpenRouter]")
+        if self._is_deepseek:
+            tags.append("[DeepSeek]")
         tag_str = " " + " ".join(tags) if tags else ""
         logger.info(
             f"Initialized OpenAI LLM with {len(key_configs)} API key(s) "
@@ -302,6 +307,64 @@ class OpenAILLM(LLM):
         if not self._api_base:
             return False
         return "openrouter" in self._api_base.lower()
+
+    def _detect_deepseek(self) -> bool:
+        """Detect if using DeepSeek API.
+
+        DeepSeek V3.2 (deepseek-chat) supports:
+        - response_format: json_object and json_schema
+        - Tool / function calling (including parallel tool calls)
+        - 128K context window with automatic prefix caching
+
+        Base URL: https://api.deepseek.com
+        """
+        if not self._api_base:
+            return False
+        return "api.deepseek.com" in self._api_base.lower()
+
+    def _resolve_model_override(self, model: str | None) -> str:
+        """Resolve a model override, falling back to default if incompatible with provider.
+
+        Single-provider APIs (DeepSeek, GLM, Kimi, Ollama) only serve their own models.
+        Multi-provider APIs (OpenRouter, OpenAI) can route any model name.
+        When a model override targets an incompatible provider, silently fall back
+        to self._model_name to prevent "Model Not Exist" errors.
+
+        Args:
+            model: Requested model override (from adaptive routing, fast_model, etc.)
+
+        Returns:
+            The effective model name to use for the API call.
+        """
+        if not model or model == self._model_name:
+            return self._model_name
+
+        # Multi-provider routers accept any model name
+        if getattr(self, "_is_openrouter", False):
+            return model
+
+        # Single-provider APIs: only accept their own model family
+        if getattr(self, "_is_deepseek", False) and not model.startswith("deepseek"):
+            logger.debug("Model override '%s' incompatible with DeepSeek API, using '%s'", model, self._model_name)
+            return self._model_name
+
+        if getattr(self, "_is_glm_api", False) and not model.startswith("glm"):
+            logger.debug("Model override '%s' incompatible with GLM API, using '%s'", model, self._model_name)
+            return self._model_name
+
+        if getattr(self, "_is_thinking_api", False) and "kimi" not in model:
+            logger.debug("Model override '%s' incompatible with Kimi API, using '%s'", model, self._model_name)
+            return self._model_name
+
+        # For standard OpenAI API (api.openai.com), reject non-OpenAI model names
+        base = (self._api_base or "").lower()
+        if "api.openai.com" in base:
+            openai_prefixes = ("gpt-", "o1", "o3", "o4", "chatgpt-", "ft:")
+            if not model.startswith(openai_prefixes):
+                logger.debug("Model override '%s' incompatible with OpenAI API, using '%s'", model, self._model_name)
+                return self._model_name
+
+        return model
 
     @staticmethod
     def _repair_tool_args_json(args_str: str) -> str:
@@ -1136,7 +1199,7 @@ To extract data from a webpage:
                     await asyncio.sleep(delay)
 
                 # Use overrides if provided (Unified Adaptive Routing)
-                effective_model = model or self._model_name
+                effective_model = self._resolve_model_override(model)
                 effective_temperature = temperature if temperature is not None else self._temperature
                 effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
 
@@ -1250,7 +1313,8 @@ To extract data from a webpage:
                     )
                     # Retry with next key
                     return await self.ask(
-                        messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                        messages, tools, response_format, tool_choice, enable_caching,
+                        model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
                     )
                 raise
 
@@ -1267,7 +1331,8 @@ To extract data from a webpage:
                         )
                         # Retry with next key
                         return await self.ask(
-                            messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                            messages, tools, response_format, tool_choice, enable_caching,
+                            model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
                         )
                     raise
                 error_msg = str(e).lower()
@@ -1489,7 +1554,7 @@ To extract data from a webpage:
         validation_recovery_attempted = False
 
         # Use model override if provided (DeepCode Phase 1: adaptive model selection)
-        effective_model = model or self._model_name
+        effective_model = self._resolve_model_override(model)
 
         for attempt in range(max_retries + 1):
             try:
@@ -1620,7 +1685,7 @@ To extract data from a webpage:
                                     result = response_model.model_validate(partial_parsed)
                                     logger.info(
                                         "Recovered truncated structured output via JSON repair (model=%s, schema=%s)",
-                                        self._model,
+                                        self._model_name,
                                         response_model.__name__,
                                     )
                                     return result
@@ -1768,6 +1833,9 @@ To extract data from a webpage:
         if not self._api_base:
             return False
         base = self._api_base.lower()
+        # DeepSeek V3.2 follows the OpenAI tool-calling spec and supports parallel calls
+        if getattr(self, "_is_deepseek", False):
+            return True
         return "api.openai.com" in base or "openai.azure.com" in base
 
     def _supports_json_object_format(self) -> bool:
@@ -1804,6 +1872,10 @@ To extract data from a webpage:
             logger.debug(f"DeepInfra NVIDIA model {self._model_name} doesn't support json_object format")
             return False
 
+        # DeepSeek API supports json_object response format
+        if getattr(self, "_is_deepseek", False):
+            return True
+
         # OpenRouter supports json_object/json_schema for most models natively.
         # Conservative default: False for unknown providers.
         return getattr(self, "_is_openrouter", False)
@@ -1816,6 +1888,8 @@ To extract data from a webpage:
         tool_choice: str | None = None,
         enable_caching: bool = True,
         model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         _attempt: int = 0,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from OpenAI API with automatic key rotation.
@@ -1864,7 +1938,10 @@ To extract data from a webpage:
 
         # MLX mode doesn't support streaming well, fall back to regular ask
         if self._is_mlx_mode:
-            result = await self.ask(base_messages, tools, response_format, tool_choice, enable_caching, _attempt)
+            result = await self.ask(
+                base_messages, tools, response_format, tool_choice, enable_caching,
+                model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt,
+            )
             content = result.get("content", "")
             finish_reason = result.get("_finish_reason")
             self._last_stream_metadata = {
@@ -1884,7 +1961,7 @@ To extract data from a webpage:
         validation_recovery_attempted = False
 
         # Use model override if provided (DeepCode Phase 1: adaptive model selection)
-        effective_model = model or self._model_name
+        effective_model = self._resolve_model_override(model)
 
         while True:
             is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
@@ -1896,11 +1973,13 @@ To extract data from a webpage:
             if self._supports_stream_usage:
                 params["stream_options"] = {"include_usage": True}
 
+            effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
+            effective_temperature = temperature if temperature is not None else self._temperature
             if is_new_model:
-                params["max_completion_tokens"] = self._max_tokens
+                params["max_completion_tokens"] = effective_max_tokens
             else:
-                params["max_tokens"] = self._max_tokens
-                params["temperature"] = self._temperature
+                params["max_tokens"] = effective_max_tokens
+                params["temperature"] = effective_temperature
 
             # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
             if self._is_thinking_api:
@@ -2001,7 +2080,8 @@ To extract data from a webpage:
                     )
                     # Retry with next key (recursively yield from new attempt)
                     async for chunk in self.ask_stream(
-                        messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                        messages, tools, response_format, tool_choice, enable_caching,
+                        model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
                     ):
                         yield chunk
                     return
@@ -2026,7 +2106,8 @@ To extract data from a webpage:
                         )
                         # Retry with next key (recursively yield from new attempt)
                         async for chunk in self.ask_stream(
-                            messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                            messages, tools, response_format, tool_choice, enable_caching,
+                            model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
                         ):
                             yield chunk
                         return

@@ -42,6 +42,7 @@ from app.core.config_features import (
     FeatureFlagsSettingsMixin,
     MultiAgentSettingsMixin,
     ObservabilitySettingsMixin,
+    PromptOptimizationSettingsMixin,
     ResearchSettingsMixin,
     SearchSettingsMixin,
     TimelineSettingsMixin,
@@ -98,6 +99,7 @@ class Settings(
     FeatureFlagsSettingsMixin,
     ResearchSettingsMixin,
     TypoCorrectionSettingsMixin,
+    PromptOptimizationSettingsMixin,
     KnowledgeBaseSettingsMixin,
     # BaseSettings must come last
     BaseSettings,

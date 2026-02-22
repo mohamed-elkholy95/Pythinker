@@ -409,7 +409,7 @@ class UniversalLLM:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        async for chunk in await gen:
+        async for chunk in gen:
             yield chunk
         # Capture final metadata
         self._last_stream_metadata = self._backend.last_stream_metadata
