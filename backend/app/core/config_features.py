@@ -249,6 +249,34 @@ class ResearchSettingsMixin:
     parallel_research_llm_decomposition: bool = True  # Use LLM to decompose queries (vs plan-step extraction)
 
 
+class PromptOptimizationSettingsMixin:
+    """DSPy/GEPA prompt optimization feature flags and runtime policy.
+
+    All flags default to safe values (no behavioral change in production).
+    """
+
+    # Master pipeline flag: allows running offline optimization jobs.
+    feature_prompt_optimization_pipeline: bool = False
+
+    # Runtime flag: allows applying optimized profile patches to prompts.
+    # When False, optimization runs offline but patches are never applied.
+    feature_prompt_profile_runtime: bool = False
+
+    # Shadow mode flag: compute optimization deltas without applying patches.
+    # Emits pythinker_prompt_shadow_delta metrics for monitoring.
+    feature_prompt_profile_shadow: bool = True
+
+    # Canary rollout: fraction (0-100) of sessions to receive profile patches.
+    # 0 = apply to all sessions when runtime is enabled.
+    prompt_profile_canary_percent: int = 0
+
+    # Explicit active profile ID (overrides DB-active flag when set).
+    prompt_profile_active_id: str | None = None
+
+    # Minimum cases required before optimization is allowed to run.
+    prompt_optimization_min_cases: int = 100
+
+
 class TypoCorrectionSettingsMixin:
     """Typo correction (PromptQuickValidator) configuration."""
 

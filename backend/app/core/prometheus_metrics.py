@@ -1750,6 +1750,81 @@ def update_http_pool_connections(client_name: str, count: int) -> None:
     http_pool_connections_total.set({"client_name": client_name}, count)
 
 
+# ---------------------------------------------------------------------------
+# PR-7: Prompt Optimization Metrics
+# ---------------------------------------------------------------------------
+
+prompt_profile_selection_total = Counter(
+    name="pythinker_prompt_profile_selection_total",
+    help_text="Number of prompt profile selection events",
+    labels=["profile_id", "target", "mode"],
+)
+
+prompt_profile_fallback_total = Counter(
+    name="pythinker_prompt_profile_fallback_total",
+    help_text="Number of times the profile resolver fell back to baseline due to an error",
+    labels=["reason"],
+)
+
+prompt_optimization_run_duration_seconds = Histogram(
+    name="pythinker_prompt_optimization_run_duration_seconds",
+    help_text="Duration of an offline prompt optimization run in seconds",
+    labels=["optimizer"],
+    buckets=[60, 300, 600, 1800, 3600, 7200],
+)
+
+prompt_optimization_score = Gauge(
+    name="pythinker_prompt_optimization_score",
+    help_text="Optimization score for a profile and target (0..1)",
+    labels=["profile_id", "target", "metric"],
+)
+
+prompt_shadow_delta = Gauge(
+    name="pythinker_prompt_shadow_delta",
+    help_text="Delta metric computed in shadow mode (optimized - baseline)",
+    labels=["metric", "target"],
+)
+
+_metrics_registry.extend(
+    [
+        prompt_profile_selection_total,
+        prompt_profile_fallback_total,
+        prompt_optimization_run_duration_seconds,
+        prompt_optimization_score,
+        prompt_shadow_delta,
+    ]
+)
+
+
+def record_profile_selection(
+    profile_id: str,
+    target: str,
+    mode: str,
+) -> None:
+    """Record a prompt profile selection event."""
+    prompt_profile_selection_total.inc({"profile_id": profile_id, "target": target, "mode": mode})
+
+
+def record_profile_fallback(reason: str) -> None:
+    """Record a profile resolver fallback to baseline."""
+    prompt_profile_fallback_total.inc({"reason": reason})
+
+
+def record_optimization_run_duration(optimizer: str, duration_seconds: float) -> None:
+    """Record the wall-clock duration of an optimization run."""
+    prompt_optimization_run_duration_seconds.observe({"optimizer": optimizer}, duration_seconds)
+
+
+def record_optimization_score(profile_id: str, target: str, metric: str, score: float) -> None:
+    """Update the optimization score gauge for a profile/target."""
+    prompt_optimization_score.set({"profile_id": profile_id, "target": target, "metric": metric}, score)
+
+
+def record_shadow_delta(metric: str, target: str, delta: float) -> None:
+    """Record a shadow-mode delta (optimized - baseline) for a specific metric."""
+    prompt_shadow_delta.set({"metric": metric, "target": target}, delta)
+
+
 def collect_all_metrics() -> dict[str, Any]:
     """Collect all metrics for JSON export.
 
