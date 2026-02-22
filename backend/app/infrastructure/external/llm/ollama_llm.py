@@ -399,6 +399,8 @@ Respond ONLY with the JSON object, no other text.""",
         self,
         ollama_messages: list[dict[str, Any]],
         metadata: dict[str, Any],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream Ollama chat response. Updates metadata with usage_counts and finish_reason."""
         managed_client = await HTTPClientPool.get_client(
@@ -414,8 +416,8 @@ Respond ONLY with the JSON object, no other text.""",
                 "messages": ollama_messages,
                 "stream": True,
                 "options": {
-                    "temperature": self._temperature,
-                    "num_predict": self._max_tokens,
+                    "temperature": temperature if temperature is not None else self._temperature,
+                    "num_predict": max_tokens if max_tokens is not None else self._max_tokens,
                 },
             },
         ) as response:
@@ -455,6 +457,9 @@ Respond ONLY with the JSON object, no other text.""",
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Ollama API.
 
@@ -494,7 +499,7 @@ Respond ONLY with the JSON object, no other text.""",
         try:
             for attempt in range(1, stream_retry_config.max_attempts + 1):
                 try:
-                    async for content in self._stream_ollama_response(ollama_messages, metadata):
+                    async for content in self._stream_ollama_response(ollama_messages, metadata, temperature=temperature, max_tokens=max_tokens):
                         completion_parts.append(content)
                         yield content
 

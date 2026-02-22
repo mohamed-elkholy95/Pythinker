@@ -411,6 +411,9 @@ class AnthropicLLM(LLM):
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         _attempt: int = 0,
     ) -> dict[str, Any]:
         """Send chat request to Anthropic API with automatic key rotation.
@@ -421,6 +424,9 @@ class AnthropicLLM(LLM):
             response_format: Optional response format (limited support)
             tool_choice: Optional tool choice configuration
             enable_caching: Whether to enable prompt caching (up to 90% token savings)
+            model: Optional model override (unified adaptive routing)
+            temperature: Optional temperature override (unified adaptive routing)
+            max_tokens: Optional max_tokens override (unified adaptive routing)
             _attempt: Internal retry counter
 
         Returns:
@@ -446,15 +452,19 @@ class AnthropicLLM(LLM):
             # 2. tools (cached via cache_control on last tool)
             # 3. messages (dynamic, never cached)
             # This order maximizes Anthropic's prefix cache hit rate (ArXiv 2601.06007)
+            effective_model = model or self._model_name
+            effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
+            effective_temperature = temperature if temperature is not None else self._temperature
+
             params = {
-                "model": self._model_name,
-                "max_tokens": self._max_tokens,
+                "model": effective_model,
+                "max_tokens": effective_max_tokens,
                 "messages": anthropic_messages,
             }
 
             # Anthropic uses temperature differently - 0 to 1
-            if self._temperature is not None:
-                params["temperature"] = min(1.0, max(0.0, self._temperature))
+            if effective_temperature is not None:
+                params["temperature"] = min(1.0, max(0.0, effective_temperature))
 
             # Apply cache control to system prompt for token savings
             if system_prompt:
@@ -492,7 +502,8 @@ class AnthropicLLM(LLM):
                 )
                 # Retry with next key
                 return await self.ask(
-                    messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                    messages, tools, response_format, tool_choice, enable_caching,
+                    model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
                 )
             raise
 
@@ -506,7 +517,8 @@ class AnthropicLLM(LLM):
                 )
                 # Retry with next key
                 return await self.ask(
-                    messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                    messages, tools, response_format, tool_choice, enable_caching,
+                    model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
                 )
             raise
 
@@ -621,6 +633,9 @@ class AnthropicLLM(LLM):
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         _attempt: int = 0,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Anthropic API with automatic key rotation.
@@ -663,14 +678,17 @@ class AnthropicLLM(LLM):
         # Convert messages to Anthropic format
         system_prompt, anthropic_messages = self._convert_openai_messages_to_anthropic(messages)
 
+        effective_model = model or self._model_name
+        effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
+        effective_temperature = temperature if temperature is not None else self._temperature
         params = {
-            "model": self._model_name,
-            "max_tokens": self._max_tokens,
+            "model": effective_model,
+            "max_tokens": effective_max_tokens,
             "messages": anthropic_messages,
         }
 
-        if self._temperature is not None:
-            params["temperature"] = min(1.0, max(0.0, self._temperature))
+        if effective_temperature is not None:
+            params["temperature"] = min(1.0, max(0.0, effective_temperature))
 
         # Apply cache control to system prompt for token savings (same as ask())
         if system_prompt:
@@ -742,7 +760,8 @@ class AnthropicLLM(LLM):
                 )
                 # Retry with next key (recursively yield from new attempt)
                 async for chunk in self.ask_stream(
-                    messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                    messages, tools, response_format, tool_choice, enable_caching,
+                    model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
                 ):
                     yield chunk
                 return
@@ -764,7 +783,8 @@ class AnthropicLLM(LLM):
                 )
                 # Retry with next key (recursively yield from new attempt)
                 async for chunk in self.ask_stream(
-                    messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                    messages, tools, response_format, tool_choice, enable_caching,
+                    model=model, temperature=temperature, max_tokens=max_tokens, _attempt=_attempt + 1,
                 ):
                     yield chunk
                 return
