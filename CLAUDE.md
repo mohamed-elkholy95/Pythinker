@@ -291,11 +291,46 @@ For comprehensive coding standards, see:
 
 ---
 
+## Development Environment (macOS + OrbStack)
+
+### Docker Compose Watch (Primary Workflow)
+
+Development uses **Docker Compose Watch** for file sync + HMR. Compose Watch syncs files from
+the host into running containers via the Docker API (tar + cp), which **bypasses OrbStack's
+TCC/FDA bind-mount restriction** on `~/Desktop/Projects`. Files land on the container's native
+ext4 filesystem, so inotify events fire immediately — no polling required.
+
+```
+File edit → Docker Compose Watch (host-side) → tar+cp into container → Vite/uvicorn inotify → reload
+```
+
+**How it works**:
+- `sync` actions copy changed source files into running containers (Vite HMR, uvicorn --reload)
+- `rebuild` actions trigger full image rebuild when dependencies change (package.json, requirements.txt)
+- `sync+restart` actions copy files and restart the container process (config changes)
+
+### OrbStack TCC Note
+
+OrbStack lost macOS Full Disk Access (TCC) to `~/Desktop/Projects`. Runtime bind mounts from
+the project directory fail. Compose Watch bypasses this entirely (uses Docker API, not bind mounts).
+The `build: context:` directive still works (sends tarball, not a bind mount).
+
+**To restore direct bind mounts** (optional — Compose Watch is recommended regardless):
+1. System Settings → Privacy & Security → Full Disk Access → add OrbStack
+2. Add volume mounts back to docker-compose-development.yml if desired
+
+### Legacy rsync fallback
+
+`dev.sh sync` still exists for edge cases. See `dev.sh` header comments for details.
+
+---
+
 ## Development Commands
 
 ### Full Stack
 ```bash
-./dev.sh up -d              # Start dev stack
+./dev.sh watch              # Start stack with live file watch (recommended)
+./dev.sh up -d              # Start without watch (image has source from build)
 ./dev.sh down -v            # Stop and remove volumes
 ./dev.sh logs -f backend    # Follow logs
 ```
