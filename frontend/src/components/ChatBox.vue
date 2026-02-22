@@ -33,12 +33,9 @@
                         <button @click="uploadFile" class="chatbox-attach-btn">
                             <Paperclip :size="16" />
                         </button>
-                        <ConnectorButton />
-                        <SkillPicker />
-                        <AutonomyControl v-model="thinkingMode" />
                     </div>
                     <div class="chatbox-actions-right">
-                        <button v-if="!isRunning || sendEnabled"
+                        <button v-if="!isRunning"
                             class="chatbox-send-btn"
                             :class="{ 'disabled': !sendEnabled, 'enabled': sendEnabled }"
                             @click="handleSubmit">
@@ -50,7 +47,7 @@
                     </div>
                 </footer>
             </div>
-            <div v-if="showConnectorRow" class="chatbox-connector-row">
+            <div v-if="showConnectorRow" class="chatbox-connector-row hidden">
                 <ConnectorBanner :forceVisible="true" @close="handleConnectorBannerClose" />
             </div>
         </div>
@@ -63,10 +60,7 @@ import SendIcon from './icons/SendIcon.vue';
 import { useI18n } from 'vue-i18n';
 import ChatBoxFiles from './ChatBoxFiles.vue';
 import { Paperclip, Puzzle, X } from 'lucide-vue-next';
-import ConnectorButton from './connectors/ConnectorButton.vue';
 import ConnectorBanner from './connectors/ConnectorBanner.vue';
-import SkillPicker from './SkillPicker.vue';
-import AutonomyControl from './AutonomyControl.vue';
 import { useSkills } from '@/composables/useSkills';
 import { getCommandMap } from '@/api/skills';
 import type { FileInfo } from '../api/file';

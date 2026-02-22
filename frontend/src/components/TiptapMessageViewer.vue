@@ -67,6 +67,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { normalizeVerificationMarkers, linkifyInlineCitations } from './report/reportContentNormalizer';
 import { getFaviconUrl } from '@/utils/toolDisplay';
+import type { SourceCitation } from '@/types/message';
 
 // Fragment root (div + Teleport) — disable auto attr-inheritance so $attrs go to the real div
 defineOptions({ inheritAttrs: false });
@@ -76,6 +77,8 @@ const props = withDefaults(
     content: string;
     /** Render as compact (summary cards, etc.) */
     compact?: boolean;
+    /** Structured sources from backend — used as authoritative data for citation popups */
+    sources?: SourceCitation[];
   }>(),
   { compact: false }
 );
@@ -116,6 +119,19 @@ const addReferenceAnchors = () => {
   const headings = Array.from(proseMirror.querySelectorAll('h1, h2, h3, h4'));
   const refMap = new Map<string, { title: string; domain: string; url: string }>();
 
+  // Seed refMap from structured backend sources (authoritative, index-based).
+  // The backend assigns citation numbers sequentially (1-based), matching [N] in content.
+  if (props.sources?.length) {
+    for (let i = 0; i < props.sources.length; i++) {
+      const src = props.sources[i];
+      try {
+        const domain = new URL(src.url).hostname.replace(/^www\./, '');
+        const title = (src.title || domain).slice(0, 80);
+        refMap.set(String(i + 1), { title, domain, url: src.url });
+      } catch { /* malformed URL — skip, DOM scraping will fill the gap */ }
+    }
+  }
+
   // Helper: find the first anchor inside an element whose raw href is external
   const findExternalAnchor = (el: Element): HTMLAnchorElement | null => {
     const anchors = Array.from(el.querySelectorAll('a[href]')) as HTMLAnchorElement[];
@@ -131,8 +147,21 @@ const addReferenceAnchors = () => {
     return m ? m[0] : null;
   };
 
-  // Helper: build refMap entry from an anchor or bare-text URL
+  // Helper: build refMap entry from an anchor or bare-text URL.
+  // Skips if refMap already has an entry from structured sources (authoritative).
   const extractRefMeta = (el: Element, num: string) => {
+    if (refMap.has(num)) {
+      // Already populated from props.sources — still stamp the DOM anchor for styling
+      const anchor = findExternalAnchor(el);
+      if (anchor) {
+        const meta = refMap.get(num)!;
+        anchor.dataset.title = meta.title;
+        anchor.dataset.domain = meta.domain;
+        anchor.dataset.url = meta.url;
+        anchor.classList.add('ref-list-anchor');
+      }
+      return;
+    }
     const anchor = findExternalAnchor(el);
     if (anchor) {
       try {
@@ -156,6 +185,8 @@ const addReferenceAnchors = () => {
       } catch { /* ignore */ }
     }
   };
+
+  const refMapSizeBeforeHeadingScan = refMap.size;
 
   for (const heading of headings) {
     if (!refHeadingRe.test(heading.textContent?.trim() ?? '')) continue;
@@ -196,13 +227,67 @@ const addReferenceAnchors = () => {
     }
   }
 
+  // Fallback: scan for bold-text reference headers (e.g., "**Sources:**" or "**References:**").
+  // In chat messages, the LLM often uses bold text instead of proper markdown headings.
+  // Only run this scan if the heading-based scan above found nothing new.
+  const headingScanFound = refMap.size > refMapSizeBeforeHeadingScan;
+  if (!headingScanFound) {
+    const paragraphs = Array.from(proseMirror.querySelectorAll('p'));
+    for (const p of paragraphs) {
+      const strong = p.querySelector('strong');
+      if (!strong) continue;
+      const strongText = strong.textContent?.trim().replace(/:$/, '') ?? '';
+      if (!refHeadingRe.test(strongText)) continue;
+
+      // Found a bold reference header — process siblings just like heading scan
+      let sibling = p.nextElementSibling;
+      let nextNum = 1;
+      while (sibling) {
+        if (/^H[1-4]$/.test(sibling.tagName)) break;
+        // Stop if we hit another paragraph with bold text (likely a new section)
+        if (sibling.tagName === 'P' && sibling.querySelector('strong') && sibling !== p) {
+          const sibStrong = sibling.querySelector('strong')?.textContent?.trim().replace(/:$/, '') ?? '';
+          if (sibStrong.length > 2 && !sibStrong.match(/^\d/)) break;
+        }
+
+        if (sibling.tagName === 'OL' || sibling.tagName === 'UL') {
+          const startAttr = sibling.getAttribute('start');
+          const startNum = startAttr ? parseInt(startAttr, 10) : nextNum;
+          sibling.querySelectorAll(':scope > li').forEach((item, index) => {
+            const num = String(startNum + index);
+            item.setAttribute('id', `ref-${num}`);
+            extractRefMeta(item, num);
+          });
+          nextNum = startNum + sibling.querySelectorAll(':scope > li').length;
+          sibling = sibling.nextElementSibling;
+          continue;
+        }
+
+        if (sibling.tagName === 'P' || sibling.tagName === 'DIV') {
+          const text = sibling.textContent?.trimStart() ?? '';
+          const m = text.match(/^\[(\d{1,3})\]/);
+          if (m) {
+            const num = m[1];
+            sibling.setAttribute('id', `ref-${num}`);
+            extractRefMeta(sibling, num);
+            nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+          }
+        }
+
+        sibling = sibling.nextElementSibling;
+      }
+      break; // Only process the first bold reference header
+    }
+  }
+
   // Stamp data attributes onto inline citation badge anchors for popup card.
-  // Also remove target="_blank" / rel added by the Link extension — citation
-  // badges are internal fragment links and must scroll within the page.
+  // Also strip Link extension attributes/classes — citation badges have their own styling.
   proseMirror.querySelectorAll('a[href^="#ref-"]').forEach((badge) => {
     const el = badge as HTMLAnchorElement;
     el.removeAttribute('target');
     el.removeAttribute('rel');
+    // Strip TipTap Link extension classes — citation badges have their own styling
+    el.classList.remove('message-link', 'hover:underline', 'cursor-pointer');
     const raw = el.getAttribute('href');
     const num = raw?.replace('#ref-', '');
     if (num && refMap.has(num)) {
@@ -260,10 +345,18 @@ watch(
   () => props.content,
   () => {
     if (editor.value && htmlContent.value !== editor.value.getHTML()) {
-      editor.value.commands.setContent(htmlContent.value, false);
+      // emitUpdate: false avoids infinite loops, but onUpdate won't fire —
+      // so re-run addReferenceAnchors manually after the DOM settles.
+      editor.value.commands.setContent(htmlContent.value, { emitUpdate: false });
+      nextTick(addReferenceAnchors);
     }
   }
 );
+
+// Re-run anchoring when structured sources arrive (may come after content)
+watch(() => props.sources, () => {
+  nextTick(addReferenceAnchors);
+}, { deep: true });
 
 // ── Citation popup card handlers ───────────────────────────────────────────
 const keepCard = () => {
@@ -290,9 +383,30 @@ const _onBadgeOver = (e: MouseEvent) => {
   let domain = badge.dataset.domain ?? '';
   let url = badge.dataset.url ?? '';
 
-  // Fallback: resolve at hover time from the reference element in the DOM.
-  // Covers cases where addReferenceAnchors ran before the References section
-  // was rendered, or where no formal heading was detected.
+  // Fallback 1: resolve from props.sources (authoritative, index-based).
+  // Covers cases where addReferenceAnchors hasn't stamped this badge yet
+  // (e.g., sources arrived late, content updated, or timing issue).
+  if (!title && !domain) {
+    const rawHref = (badge as HTMLAnchorElement).getAttribute?.('href') ?? '';
+    const num = rawHref.replace('#ref-', '');
+    const srcIdx = parseInt(num, 10) - 1;
+    if (srcIdx >= 0 && props.sources?.[srcIdx]) {
+      const src = props.sources[srcIdx];
+      try {
+        domain = new URL(src.url).hostname.replace(/^www\./, '');
+        title = (src.title || domain).slice(0, 80);
+        url = src.url;
+        // Cache for future hovers
+        badge.dataset.title = title;
+        badge.dataset.domain = domain;
+        badge.dataset.url = url;
+      } catch { /* malformed URL — try DOM fallback */ }
+    }
+  }
+
+  // Fallback 2: resolve at hover time from the reference element in the DOM.
+  // Covers cases where the citation number doesn't map to props.sources
+  // (e.g., LLM used non-sequential numbering, or no structured sources).
   if (!title && !domain) {
     const rawHref = (badge as HTMLAnchorElement).getAttribute?.('href') ?? '';
     const refId = rawHref.startsWith('#') ? rawHref.slice(1) : '';
@@ -446,25 +560,25 @@ defineExpose({ contentRef });
   color: var(--text-secondary);
 }
 
-/* ── Links — matching report modal blue ──────────── */
-:deep(.tiptap a),
-:deep(.message-link) {
+/* ── Links — matching report modal blue (exclude citation badges) ── */
+:deep(.tiptap a:not([href^="#ref-"])),
+:deep(.message-link:not([href^="#ref-"])) {
   color: #1a73e8;
   text-decoration: none;
   transition: color 0.15s ease, text-decoration-color 0.15s ease;
 }
 
-:deep(.tiptap a:hover),
-:deep(.message-link:hover) {
+:deep(.tiptap a:not([href^="#ref-"]):hover),
+:deep(.message-link:not([href^="#ref-"]):hover) {
   text-decoration: underline;
   text-decoration-color: rgba(26, 115, 232, 0.5);
 }
 
-:global(.dark) :deep(.tiptap a),
-:global(.dark) :deep(.message-link),
-:global([data-theme='dark']) :deep(.tiptap a),
-:global([data-theme='dark']) :deep(.message-link) {
-  color: #58a6ff;
+:global(.dark) :deep(.tiptap a:not([href^="#ref-"])),
+:global(.dark) :deep(.message-link:not([href^="#ref-"])),
+:global([data-theme='dark']) :deep(.tiptap a:not([href^="#ref-"])),
+:global([data-theme='dark']) :deep(.message-link:not([href^="#ref-"])) {
+  color: #7cb3e0;
 }
 
 /* ── Headings — matching report modal hierarchy ───── */
@@ -709,8 +823,8 @@ defineExpose({ contentRef });
 
 :global(.dark) :deep(.ref-list-anchor:hover),
 :global([data-theme='dark']) :deep(.ref-list-anchor:hover) {
-  text-decoration-color: #58a6ff;
-  color: #58a6ff;
+  text-decoration-color: #7cb3e0;
+  color: #7cb3e0;
 }
 
 /* ── Verification markers ────────────────────────── */
@@ -764,18 +878,8 @@ defineExpose({ contentRef });
   text-decoration: none !important;
 }
 
-:global(.dark) :deep(a[href^="#ref-"]),
-:global([data-theme='dark']) :deep(a[href^="#ref-"]) {
-  border-color: rgba(255, 255, 255, 0.25);
-  color: rgba(255, 255, 255, 0.45);
-}
-
-:global(.dark) :deep(a[href^="#ref-"]:hover),
-:global([data-theme='dark']) :deep(a[href^="#ref-"]:hover) {
-  background: #e5e5e7;
-  border-color: #e5e5e7;
-  color: #1c1c1e;
-}
+/* Dark mode badge styles live in the unscoped <style> block below
+   to avoid Vue scoped CSS compilation issues with :global() + :deep() */
 </style>
 
 <!-- Global styles for the teleported citation card (no scoping — lives on <body>) -->
@@ -862,7 +966,7 @@ defineExpose({ contentRef });
 /* ── Dark mode ── */
 .dark .msg-cit-card,
 [data-theme='dark'] .msg-cit-card {
-  background: #1e1e20;
+  background: #222222;
   border-color: rgba(255, 255, 255, 0.09);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.04),
@@ -883,5 +987,25 @@ defineExpose({ contentRef });
 .dark .msg-cit-card-arrow,
 [data-theme='dark'] .msg-cit-card-arrow {
   color: rgba(240, 240, 240, 0.35);
+}
+
+/* ── Dark mode: inline citation badges ─────────────────────────────────
+   Uses .tiptap-message-viewer class for specificity (beats scoped [data-v] attrs).
+   Placed here (unscoped) because :global(.dark) :deep() in <style scoped> can be
+   unreliable across Vue SFC compiler versions. */
+.dark .tiptap-message-viewer a[href^="#ref-"],
+[data-theme='dark'] .tiptap-message-viewer a[href^="#ref-"] {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: none !important;
+}
+
+.dark .tiptap-message-viewer a[href^="#ref-"]:hover,
+[data-theme='dark'] .tiptap-message-viewer a[href^="#ref-"]:hover {
+  background: #e5e5e7;
+  border-color: #e5e5e7;
+  color: #1c1c1e;
+  text-decoration: none !important;
 }
 </style>
