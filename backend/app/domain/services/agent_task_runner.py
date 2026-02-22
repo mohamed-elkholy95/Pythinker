@@ -236,6 +236,14 @@ class AgentTaskRunner(TaskRunner):
         except Exception:
             self._knowledge_base_service = None
 
+        # Prompt profile repository for DSPy/GEPA optimization (None if feature disabled)
+        try:
+            from app.interfaces.dependencies import get_prompt_profile_repository
+
+            self._prompt_profile_repo = get_prompt_profile_repository()
+        except Exception:
+            self._prompt_profile_repo = None
+
         # Pythinker-style agent factory and components
         self._agent_factory: PythinkerAgentFactory | None = agent_factory
         self._manifest: StateManifest | None = None
@@ -372,6 +380,7 @@ class AgentTaskRunner(TaskRunner):
                 cancel_token=self._cancel_token,
                 research_mode=self._research_mode.value,
                 knowledge_base_service=self._knowledge_base_service,
+                prompt_profile_repo=self._prompt_profile_repo,
             )
             # Inject circuit breaker for tool-level failure protection
             try:

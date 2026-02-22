@@ -25,6 +25,7 @@ from app.domain.models.event import (
 )
 from app.domain.models.plan import ExecutionStatus
 from app.domain.models.search import SearchResultItem
+from app.domain.models.source_citation import SourceCitation
 from app.interfaces.schemas.file import FileInfoResponse
 
 
@@ -354,6 +355,7 @@ class ReportEventData(BaseEventData):
     title: str
     content: str
     attachments: list[FileInfoResponse] | None = None
+    sources: list[SourceCitation] | None = None
 
 
 class ReportSSEEvent(BaseSSEEvent):
@@ -377,6 +379,7 @@ class ReportSSEEvent(BaseSSEEvent):
                 title=event.title,
                 content=event.content,
                 attachments=attachments,
+                sources=event.sources,
             )
         )
 

@@ -782,9 +782,9 @@ class AgentService:
                             skipped_resume_events >= self.CHAT_RESUME_MAX_SKIPPED_EVENTS
                             or skip_elapsed_seconds >= self.CHAT_RESUME_MAX_SKIP_SECONDS
                         ):
-                            # Stale/expired cursor is a normal reconnect scenario (e.g. slow LLM, page
-                            # refresh after a long operation). Log and resume streaming silently — no
-                            # user-visible error event, which would falsely signal a failure.
+                            # Stale/expired cursor: resume cursor was not found within the threshold.
+                            # Notify the client with a gap warning so it can handle the discontinuity,
+                            # then resume streaming from the current event.
                             logger.warning(
                                 "Resume cursor %s not found for session %s after %d skipped events (%.2fs). "
                                 "Disabling skip mode to preserve forward progress.",
@@ -794,18 +794,32 @@ class AgentService:
                                 skip_elapsed_seconds,
                             )
                             skip_until_resume_point = False
-                            # Fall through: emit the current event immediately to avoid a synthetic gap.
+                            emitted_events += 1
+                            yield ErrorEvent(
+                                error=f"Stream gap detected: resume cursor not found after {skipped_resume_events} events",
+                                error_code="stream_gap_detected",
+                                severity="warning",
+                                recoverable=True,
+                            )
 
                         if skip_until_resume_point:
                             continue  # Still searching — skip this event.
                     else:
                         # Event has no event_id. Cannot safely skip without risking an infinite
                         # loop; disable skip mode so this and all subsequent events are emitted.
+                        # Notify the client with a gap warning before resuming.
                         logger.warning(
                             "Event without event_id during resumption: %s; disabling skip mode",
                             type(event).__name__,
                         )
                         skip_until_resume_point = False
+                        emitted_events += 1
+                        yield ErrorEvent(
+                            error="Stream gap detected: events have no IDs during resumption, resuming from current position",
+                            error_code="stream_gap_detected",
+                            severity="warning",
+                            recoverable=True,
+                        )
 
                 logger.debug(f"Received event: {event}")
                 emitted_events += 1
