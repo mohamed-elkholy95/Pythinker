@@ -42,10 +42,12 @@ export const i18n = createI18n({
   warnHtmlMessage: false          // Disable HTML in message warnings
 })
 
+// Shared locale ref — hoisted to module scope so all callers share the same state
+const currentLocale = ref(getStoredLocale())
+let localeWatcherRegistered = false
+
 // Create a composable to use in components
 export function useLocale() {
-  const currentLocale = ref(getStoredLocale())
-
   // Switch language
   const setLocale = (locale: Locale) => {
     i18n.global.locale.value = locale
@@ -56,10 +58,13 @@ export function useLocale() {
     document.querySelector('html')?.setAttribute('lang', locale)
   }
 
-  // Watch language change
-  watch(currentLocale, (val) => {
-    setLocale(val)
-  })
+  // Register watcher once (not per caller)
+  if (!localeWatcherRegistered) {
+    localeWatcherRegistered = true
+    watch(currentLocale, (val) => {
+      setLocale(val)
+    })
+  }
 
   return {
     currentLocale,

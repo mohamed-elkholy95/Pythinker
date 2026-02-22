@@ -90,6 +90,7 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
   let eventProcessor: EventProcessor | null = null
   let eventBatchQueue: AgentSSEEvent[] = []
   let batchFrameHandle: FrameHandle | null = null
+  let chunkTimeoutHandle: ReturnType<typeof setTimeout> | null = null
   let reconnectCoordinatorOptions: ReconnectCoordinatorOptions | null = null
   let autoRetryTimer: ReturnType<typeof setTimeout> | null = null
   let fallbackStatusPollTimer: ReturnType<typeof setTimeout> | null = null
@@ -112,6 +113,10 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     if (batchFrameHandle !== null) {
       cancelFrame(batchFrameHandle)
       batchFrameHandle = null
+    }
+    if (chunkTimeoutHandle !== null) {
+      clearTimeout(chunkTimeoutHandle)
+      chunkTimeoutHandle = null
     }
 
     if (eventBatchQueue.length === 0) {
@@ -140,13 +145,14 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
 
     let offset = 0
     const processChunk = () => {
+      chunkTimeoutHandle = null
       const end = Math.min(offset + YIELD_BATCH_SIZE, eventsToProcess.length)
       for (let i = offset; i < end; i += 1) {
         eventProcessor!(eventsToProcess[i])
       }
       offset = end
       if (offset < eventsToProcess.length) {
-        setTimeout(processChunk, 0)
+        chunkTimeoutHandle = setTimeout(processChunk, 0)
       }
     }
     processChunk()
@@ -156,6 +162,10 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
     if (batchFrameHandle !== null) {
       cancelFrame(batchFrameHandle)
       batchFrameHandle = null
+    }
+    if (chunkTimeoutHandle !== null) {
+      clearTimeout(chunkTimeoutHandle)
+      chunkTimeoutHandle = null
     }
     eventBatchQueue = []
   }

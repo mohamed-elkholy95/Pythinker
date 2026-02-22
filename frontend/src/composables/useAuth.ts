@@ -25,6 +25,8 @@ const currentUser = ref<User | null>(null)
 const isAuthenticated = ref<boolean>(false)
 const isLoading = ref<boolean>(false)
 const authError = ref<string | null>(null)
+let isInitializingAuth = false
+let hasAttemptedInit = false
 
 // Singleton listener for logout events from token refresh interceptor (registered once at module load)
 let _logoutListenerRegistered = false
@@ -34,29 +36,38 @@ export function useAuth() {
    * Initialize authentication state
    */
   const initAuth = async () => {
-    // Get auth provider configuration (cached after first call)
-    const authProvider = await getCachedAuthProvider()
-    
-    if (authProvider === 'none') {
-      // No authentication required, set as authenticated with anonymous user
-      currentUser.value = {
-        id: 'anonymous',
-        fullname: 'Anonymous User',
-        email: 'anonymous@localhost',
-        role: 'user',
-        is_active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+    // Prevent concurrent calls from multiple component mounts
+    if (isInitializingAuth) return
+    isInitializingAuth = true
+
+    try {
+      // Get auth provider configuration (cached after first call)
+      const authProvider = await getCachedAuthProvider()
+
+      if (authProvider === 'none') {
+        // No authentication required, set as authenticated with anonymous user
+        currentUser.value = {
+          id: 'anonymous',
+          fullname: 'Anonymous User',
+          email: 'anonymous@localhost',
+          role: 'user',
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+        isAuthenticated.value = true
+        return
       }
-      isAuthenticated.value = true
-      return
-    }
-    
-    // For other auth providers, check token
-    const token = getStoredToken()
-    if (token) {
-      setAuthToken(token)
-      await loadCurrentUser()
+
+      // For other auth providers, check token
+      const token = getStoredToken()
+      if (token) {
+        setAuthToken(token)
+        await loadCurrentUser()
+      }
+    } finally {
+      isInitializingAuth = false
+      hasAttemptedInit = true
     }
   }
 
@@ -226,8 +237,8 @@ export function useAuth() {
     _logoutListenerRegistered = true
   }
 
-  // Auto-initialize auth state when composable is first used
-  if (!isAuthenticated.value && !isLoading.value) {
+  // Auto-initialize auth state when composable is first used (once per app lifecycle)
+  if (!hasAttemptedInit && !isAuthenticated.value && !isLoading.value) {
     initAuth()
   }
 

@@ -5,6 +5,7 @@ import { collapseDuplicateReportBlocks } from '@/components/report/reportContent
 
 const isReportModalOpen = ref(false);
 const currentReport = ref<ReportData | null>(null);
+let closeReportTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Extract sections from markdown content for preview
@@ -121,7 +122,9 @@ export function useReport() {
   const closeReport = () => {
     isReportModalOpen.value = false;
     // Delay clearing the report to allow for close animation
-    setTimeout(() => {
+    if (closeReportTimer) clearTimeout(closeReportTimer);
+    closeReportTimer = setTimeout(() => {
+      closeReportTimer = null;
       currentReport.value = null;
     }, 300);
   };
