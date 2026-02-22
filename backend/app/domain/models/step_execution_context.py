@@ -59,3 +59,8 @@ class StepExecutionContext:
 
     # Signal configuration
     signal_config: PromptSignalConfig = field(default_factory=PromptSignalConfig)
+
+    # DSPy-optimized prompt profile patch (PR-5: prompt optimization)
+    # Applied by build_execution_prompt_from_context() when non-None.
+    # None = baseline behavior (default, no opt-in required).
+    profile_patch_text: str | None = None
