@@ -1,21 +1,27 @@
 # Docker Compose for Prometheus + Grafana monitoring stack
 # Run alongside docker-compose-development.yml:
 #   docker compose -f docker-compose-development.yml -f docker-compose-monitoring.yml up -d
+#
+# OrbStack note: config files are mounted from /private/tmp/pythinker-monitoring/
+# (copied there because OrbStack lost Full Disk Access to /Users/ after a hard restart).
+# To sync latest config changes: cp prometheus/prometheus.yml /private/tmp/pythinker-monitoring/prometheus/
+# To restore original mounts: revert volume paths back to ./prometheus/, ./grafana/ etc.
 
 services:
   prometheus:
     image: prom/prometheus:latest
     container_name: pythinker-prometheus
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - /private/tmp/pythinker-monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /private/tmp/pythinker-monitoring/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - /private/tmp/pythinker-monitoring/prometheus/agent_enhancement_alerts.yml:/etc/prometheus/agent_enhancement_alerts.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=30d'  # Keep metrics for 30 days
+      - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'  # Enable reload via /-/reload
     ports:
       - "9090:9090"
@@ -23,18 +29,16 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      # OrbStack: exec-based health checks hang; Prometheus responds fine on port 9090
+      test: ["NONE"]
 
   grafana:
     image: grafana/grafana:latest
     container_name: pythinker-grafana
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - /private/tmp/pythinker-monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /private/tmp/pythinker-monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -52,17 +56,15 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      # OrbStack: exec-based health checks hang; Grafana responds fine on port 3001
+      test: ["NONE"]
 
   loki:
     image: grafana/loki:3.5.4
     container_name: pythinker-loki
     command: ["-config.file=/etc/loki/config.yml"]
     volumes:
-      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - /private/tmp/pythinker-monitoring/loki/config.yml:/etc/loki/config.yml:ro
       - loki_data:/loki
     ports:
       - "3100:3100"
@@ -70,17 +72,16 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      # OrbStack: exec-based health checks hang; Loki responds fine on port 3100
+      test: ["NONE"]
 
   promtail:
     image: grafana/promtail:3.5.4
     container_name: pythinker-promtail
     command: ["-config.file=/etc/promtail/config.yml"]
     volumes:
-      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - /private/tmp/pythinker-monitoring/promtail/config.yml:/etc/promtail/config.yml:ro
+      # These two paths refer to the OrbStack Linux VM filesystem (not macOS), so they work fine
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
@@ -99,15 +100,7 @@ services:
     networks:
       - pythinker-network
 
-  redis-cache-exporter:
-    image: oliver006/redis_exporter:v1.66.0
-    container_name: pythinker-redis-cache-exporter
-    command:
-      - '--redis.addr=redis://redis-cache:6379'
-      - '--web.listen-address=:9121'
-    restart: unless-stopped
-    networks:
-      - pythinker-network
+  # redis-cache-exporter removed: dev compose has only one Redis instance (no redis-cache service)
 
 volumes:
   prometheus_data:

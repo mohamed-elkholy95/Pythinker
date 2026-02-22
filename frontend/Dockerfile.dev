@@ -18,8 +18,10 @@ RUN npm ci
 COPY dev-start.sh /usr/local/bin/dev-start.sh
 RUN chmod +x /usr/local/bin/dev-start.sh
 
-# The source code will be mounted as a volume
-# node_modules from the image will be used
+# Copy source code into image (compose watch syncs changes at runtime)
+COPY src/ ./src/
+COPY public/ ./public/
+COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json env.d.ts ./
 
 # Expose Vite dev server port
 EXPOSE 5174

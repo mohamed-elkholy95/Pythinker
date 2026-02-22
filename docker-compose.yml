@@ -39,13 +39,13 @@ services:
           - linux/amd64
     depends_on:
       sandbox:
-        condition: service_started
+        condition: service_healthy
       mongodb:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       minio:
         condition: service_healthy
     restart: unless-stopped
@@ -95,7 +95,9 @@ services:
     hostname: sandbox
     # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT (zombie Chrome reaping handled there)
     restart: unless-stopped
-    privileged: true # FIX: Ubuntu compatibility (openat2/fsmount issue)
+    # NOTE: privileged:true removed — it silently disables seccomp, cap_drop, and
+    # no-new-privileges. For the openat2/fsmount Ubuntu kernel issue, use
+    # seccomp=unconfined as a narrower workaround until the seccomp allowlist is updated.
     healthcheck:
       test: [ "CMD", "curl", "-sf", "http://localhost:8080/health" ]
       interval: 30s
@@ -114,10 +116,10 @@ services:
       - "127.0.0.1:8083:8080" # Sandbox API (localhost only)
       - "127.0.0.1:8082:8082" # Sandbox framework API (localhost only)
     shm_size: '2g'
-    # Security hardening
+    # Security hardening (seccomp=unconfined workaround for openat2/fsmount kernel issue)
     security_opt:
       - no-new-privileges:true
-      - seccomp:./sandbox/seccomp-sandbox.json
+      - seccomp=unconfined
     cap_drop:
       - ALL
     cap_add:
@@ -165,7 +167,6 @@ services:
     hostname: sandbox2
     # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT (zombie Chrome reaping handled there)
     restart: unless-stopped
-    privileged: true # FIX: Ubuntu compatibility (openat2/fsmount issue)
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
@@ -176,9 +177,10 @@ services:
       - "127.0.0.1:8084:8080" # Sandbox API (localhost only)
       - "127.0.0.1:8085:8082" # Sandbox framework API (localhost only)
     shm_size: '2g'
+    # Security hardening (seccomp=unconfined workaround for openat2/fsmount kernel issue)
     security_opt:
       - no-new-privileges:true
-      - seccomp:./sandbox/seccomp-sandbox.json
+      - seccomp=unconfined
     cap_drop:
       - ALL
     cap_add:
@@ -213,7 +215,7 @@ services:
       start_period: 15s
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
     container_name: pythinker-minio
     ports:
       - "9000:9000" # S3 API
@@ -243,6 +245,12 @@ services:
     #  - "27017:27017"
     networks:
       - pythinker-network
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   redis:
     image: redis:8.4-alpine

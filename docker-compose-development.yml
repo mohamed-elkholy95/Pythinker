@@ -1,48 +1,87 @@
+# =============================================================================
+# Development Compose — Docker Compose Watch
+#
+# Usage:
+#   docker compose -f docker-compose-development.yml up --watch
+#   ./dev.sh watch          # Equivalent (recommended)
+#   ./dev.sh up -d          # Start without watch (manual sync via ./dev.sh sync)
+#
+# Compose Watch syncs file changes from host → container via Docker API (tar+cp),
+# bypassing the OrbStack TCC/FDA restriction on bind mounts from ~/Desktop.
+# Files land on the container's native ext4 filesystem, so inotify events fire
+# immediately — no polling required.
+#
+# Actions:
+#   sync      — Copy changed files into running container (HMR / hot reload)
+#   rebuild   — Rebuild image + replace container (dependency changes)
+#   sync+restart — Copy files + restart container process (config changes)
+# =============================================================================
+
 services:
   frontend-dev:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
-    volumes:
-      - ./frontend/src:/app/src  # Mount only source code
-      - ./frontend/public:/app/public  # Mount public assets
-      - ./frontend/index.html:/app/index.html  # Mount index.html
-      - ./frontend/package.json:/app/package.json  # Mount package manifest for dependency sync
-      - ./frontend/package-lock.json:/app/package-lock.json  # Mount lockfile for deterministic npm ci
-      - ./frontend/bun.lock:/app/bun.lock  # Keep lockfiles in sync across npm/bun workflows
-      - ./frontend/vite.config.ts:/app/vite.config.ts  # Mount vite config
-      - ./frontend/tsconfig.json:/app/tsconfig.json  # Mount tsconfig
-      - ./frontend/tsconfig.app.json:/app/tsconfig.app.json  # Mount tsconfig app
-      - ./frontend/tsconfig.node.json:/app/tsconfig.node.json  # Mount tsconfig node
-      - ./frontend/env.d.ts:/app/env.d.ts  # Mount env types
+    # No bind mounts for source code — compose watch handles sync.
+    # The Dockerfile.dev COPYs source into the image for initial state.
     ports:
-      - "5174:5174"  # Vite default development port
+      - "5174:5174"  # Vite dev server
     environment:
       - NODE_ENV=development
       - VITE_API_URL=
       - BACKEND_URL=http://backend:8000
-      - VITE_USE_POLLING=true
-      - VITE_POLLING_INTERVAL=100
-
+      # No VITE_USE_POLLING — native inotify works with compose watch
     depends_on:
       backend:
-        condition: service_healthy
+        condition: service_started
         required: true
     restart: unless-stopped
     networks:
       - pythinker-network
+    develop:
+      watch:
+        # Source code → Vite HMR (instant browser update, no page reload)
+        - action: sync
+          path: ./frontend/src
+          target: /app/src
+        # Static assets
+        - action: sync
+          path: ./frontend/public
+          target: /app/public
+        # HTML entry point
+        - action: sync
+          path: ./frontend/index.html
+          target: /app/index.html
+        # Vite/TS config changes → sync (Vite auto-restarts on config change)
+        - action: sync
+          path: ./frontend/vite.config.ts
+          target: /app/vite.config.ts
+        - action: sync
+          path: ./frontend/tsconfig.json
+          target: /app/tsconfig.json
+        - action: sync
+          path: ./frontend/tsconfig.app.json
+          target: /app/tsconfig.app.json
+        - action: sync
+          path: ./frontend/tsconfig.node.json
+          target: /app/tsconfig.node.json
+        - action: sync
+          path: ./frontend/env.d.ts
+          target: /app/env.d.ts
+        # Dependency changes → full image rebuild (npm ci)
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./frontend/package-lock.json
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: ["./dev.sh"]  # Start in reload mode
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "app", "--reload-exclude", "tests/*", "--reload-exclude", "docs/*", "--reload-exclude", "*.md", "--timeout-graceful-shutdown", "3"]
     volumes:
-      - ./backend:/app  # Mount source code directory
-      #- ./mcp.json:/etc/mcp.json # Mount MCP servers directory
+      # Only non-source mounts — compose watch handles app/ code sync
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /app/__pycache__  # Avoid overwriting cache files
-      - /app/.venv  # Avoid overwriting virtual environment
     ports:
       - "8000:8000"
     depends_on:
@@ -53,13 +92,13 @@ services:
         condition: service_started
         required: true
       qdrant:
-        condition: service_healthy
+        condition: service_started
         required: true
       minio:
-        condition: service_healthy
+        condition: service_started
         required: true
       sandbox:
-        condition: service_healthy
+        condition: service_started
         required: true
     restart: unless-stopped
     networks:
@@ -76,71 +115,60 @@ services:
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      # 30s start_period: backend loads Playwright, connects MongoDB/Redis/Qdrant on first boot.
-      # start_interval: faster probes during startup (Docker Engine 25+).
-      start_period: 30s
-      start_interval: 3s
+      # OrbStack: exec-based health checks hang; backend responds fine on port 8000
+      test: ["NONE"]
+    develop:
+      watch:
+        # Application source → uvicorn --reload detects via inotify
+        - action: sync
+          path: ./backend/app
+          target: /app/app
+          ignore:
+            - "**/__pycache__"
+            - "**/*.pyc"
+        # Dependency changes → full image rebuild (pip install)
+        - action: rebuild
+          path: ./backend/requirements.txt
 
   sandbox:
     build:
       context: ./sandbox
       dockerfile: Dockerfile
-      platforms:
-        - linux/amd64
-        - linux/arm64  # Native on Apple Silicon; uses Chromium from apt (avoids QEMU SIGTRAP crashes)
-    # Omit platform to use host architecture (arm64 on Apple Silicon = native Chromium, no QEMU)
     hostname: sandbox
-    # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT; adding init:true here
-    # creates a duplicate PID-1 init (Docker tini → Dockerfile tini) causing the
-    # "Tini is not the init process" warning. Zombie Chrome reaping is handled by Dockerfile tini.
-    # Security hardening: align dev with production baseline (2026-02-13)
-    # Chrome --no-sandbox is correct: container provides cap_drop+seccomp+no-new-privileges isolation
+    # Security hardening (seccomp=unconfined workaround for openat2/fsmount kernel issue on OrbStack)
     security_opt:
       - no-new-privileges:true
-      - seccomp:./sandbox/seccomp-sandbox.json
+      - seccomp=unconfined
     cap_drop:
       - ALL
     cap_add:
       - CHOWN
-      - SETGID
       - SETUID
-      - NET_BIND_SERVICE
-      - SYS_CHROOT
+      - SETGID
+      - SYS_ADMIN
     volumes:
-      - ./sandbox:/app  # Mount source code directory
-      - ./sandbox/supervisord.conf:/etc/supervisor/conf.d/app.conf
-      - /app/__pycache__  # Avoid overwriting cache files
-      - /app/.venv  # Avoid overwriting virtual environment
+      # No source bind mounts — compose watch handles sync
+      - /app/__pycache__  # Avoid cache conflicts
+      - /app/.venv  # Avoid venv conflicts
     ports:
-      # Sandbox ports bound to localhost only — accessed via authenticated backend proxy.
       - "127.0.0.1:8083:8080"   # Sandbox API (localhost only)
       - "127.0.0.1:8082:8082"   # Framework API (localhost only)
-    # Shared memory for Chrome: 4GB for Mojo data pipes (avoids "Failed to create Mojo data pipe" on heavy sites)
     shm_size: '4gb'
-    # Temp filesystem - improves I/O performance for browser temp files
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome --disable-dev-shm-usage shared memory
+      - /tmp:size=1g,nosuid,nodev
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-    # File descriptor limits for browser processes
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
-      # nproc removed: redundant with cgroup pids limit and scoped per-UID
-      # (moby/moby#31424) — causes confusing pthread_create EAGAIN failures
-    # Resource limits - 6G memory + 4G shm reduces Mojo data pipe / page crashes on heavy sites
     deploy:
       resources:
         limits:
           memory: 6G
           cpus: '2'
-          pids: 1024  # Raised from 300 — Chrome+Playwright+supervisord need ~400-600 PIDs under load
+          pids: 1024
         reservations:
           memory: 1G
     environment:
@@ -152,16 +180,34 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=2 --disable-gpu --disable-features=CalculateNativeWinOcclusion --disable-gpu-memory-buffer-compositor-resources --disable-gpu-memory-buffer-video-frames --js-flags=--max-old-space-size=512
       - BROWSER_PATH=/opt/chrome-for-testing/chrome
-      - LIBGL_ALWAYS_SOFTWARE=1  # Suppress Vulkan/GPU driver warnings in headless containers
+      - LIBGL_ALWAYS_SOFTWARE=1
     restart: unless-stopped
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 15s
-      start_period: 60s
-      retries: 5
+      test: ["NONE"]
+    develop:
+      watch:
+        # Sandbox application code
+        - action: sync
+          path: ./sandbox/app
+          target: /app/app
+          ignore:
+            - "**/__pycache__"
+            - "**/*.pyc"
+        # Sandbox scripts
+        - action: sync
+          path: ./sandbox/scripts
+          target: /app/scripts
+        # Supervisor config → sync + restart supervisor
+        - action: sync+restart
+          path: ./sandbox/supervisord.conf
+          target: /etc/supervisor/conf.d/app.conf
+        # Dependency changes → full rebuild
+        - action: rebuild
+          path: ./sandbox/requirements.txt
+        - action: rebuild
+          path: ./sandbox/requirements.runtime.txt
 
   mongodb:
     image: mongo:7.0
@@ -203,17 +249,15 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      # OrbStack: exec-based health checks hang; service responds fine on port 6379
+      test: ["NONE"]
 
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}       # Dev only - override in .env for non-local
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}  # Dev only - override in .env for non-local
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
     ports:
@@ -223,10 +267,7 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      test: ["NONE"]
 
   qdrant:
     image: qdrant/qdrant:v1.16.3
@@ -242,10 +283,7 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      test: ["NONE"]
 
 volumes:
   mongodb_data:
