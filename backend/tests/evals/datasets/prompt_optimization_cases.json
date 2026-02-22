@@ -1,0 +1,307 @@
+{
+  "name": "prompt_optimization_cases",
+  "version": "1.0.0",
+  "description": "Curated planner and execution cases for DSPy+GEPA prompt optimization",
+  "cases": [
+    {
+      "id": "exec_0001",
+      "target": "execution",
+      "input": {
+        "user_request": "Research Python 3.13 features and summarize with sources",
+        "step_description": "Research latest Python 3.13 features from official sources",
+        "available_tools": ["info_search_web", "browser_navigate", "file_write"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["info_search_web"],
+        "must_contain": ["Python 3.13"],
+        "must_not_contain": ["fabricated"],
+        "min_citations": 2,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "exec_0002",
+      "target": "execution",
+      "input": {
+        "user_request": "Write a Python function to merge two sorted lists",
+        "step_description": "Write and test the merge function",
+        "available_tools": ["terminal_execute", "file_write", "file_read"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["file_write"],
+        "must_contain": ["def ", "return"],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "easy"}
+    },
+    {
+      "id": "exec_0003",
+      "target": "execution",
+      "input": {
+        "user_request": "Analyze the performance of a React app and suggest improvements",
+        "step_description": "Identify performance bottlenecks and create a recommendations report",
+        "available_tools": ["info_search_web", "file_write", "file_read"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["info_search_web", "file_write"],
+        "must_contain": ["performance", "React"],
+        "must_not_contain": ["I made up"],
+        "min_citations": 1,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "hard"}
+    },
+    {
+      "id": "exec_0004",
+      "target": "execution",
+      "input": {
+        "user_request": "Download and summarize the latest LLM benchmark results",
+        "step_description": "Search for and retrieve current LLM benchmark data",
+        "available_tools": ["info_search_web", "browser_navigate", "file_write"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["info_search_web"],
+        "must_contain": ["benchmark"],
+        "must_not_contain": [],
+        "min_citations": 2,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "exec_0005",
+      "target": "execution",
+      "input": {
+        "user_request": "Create a bar chart comparing programming language popularity in 2025",
+        "step_description": "Gather data and generate a visualization",
+        "available_tools": ["info_search_web", "generate_plotly_chart", "file_write"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["generate_plotly_chart"],
+        "must_contain": ["Python", "JavaScript"],
+        "must_not_contain": [],
+        "min_citations": 1,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "exec_0006",
+      "target": "execution",
+      "input": {
+        "user_request": "Fix the bug in this Python file where None is not handled",
+        "step_description": "Read the file, identify the bug, apply the fix, and verify",
+        "available_tools": ["file_read", "file_write", "terminal_execute"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["file_read", "file_write"],
+        "must_contain": ["None", "fix"],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "easy"}
+    },
+    {
+      "id": "plan_0001",
+      "target": "planner",
+      "input": {
+        "user_request": "Build a REST API with FastAPI that stores todo items in MongoDB",
+        "step_description": "",
+        "available_tools": ["terminal_execute", "file_write", "file_read", "info_search_web"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 3,
+        "max_steps": 10
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "plan_0002",
+      "target": "planner",
+      "input": {
+        "user_request": "Research the latest AI models released in 2025 and write a comparison report",
+        "step_description": "",
+        "available_tools": ["info_search_web", "browser_navigate", "file_write"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 2,
+        "max_steps": 8
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "plan_0003",
+      "target": "planner",
+      "input": {
+        "user_request": "Debug a slow database query and optimize it for production",
+        "step_description": "",
+        "available_tools": ["file_read", "file_write", "terminal_execute"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 2,
+        "max_steps": 7
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "hard"}
+    },
+    {
+      "id": "plan_0004",
+      "target": "planner",
+      "input": {
+        "user_request": "Set up a CI/CD pipeline for a Python project using GitHub Actions",
+        "step_description": "",
+        "available_tools": ["file_write", "file_read", "info_search_web"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 3,
+        "max_steps": 8
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "plan_0005",
+      "target": "planner",
+      "input": {
+        "user_request": "Create a data analysis pipeline that reads CSV files, cleans data, and produces charts",
+        "step_description": "",
+        "available_tools": ["file_read", "file_write", "terminal_execute", "generate_plotly_chart"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 3,
+        "max_steps": 7
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "easy"}
+    },
+    {
+      "id": "exec_0007",
+      "target": "execution",
+      "input": {
+        "user_request": "Implement a retry mechanism with exponential backoff in Python",
+        "step_description": "Write a decorator function for retry with exponential backoff",
+        "available_tools": ["file_write", "terminal_execute"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["file_write"],
+        "must_contain": ["def ", "retry", "backoff"],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "exec_0008",
+      "target": "execution",
+      "input": {
+        "user_request": "Summarize the key differences between PostgreSQL and MongoDB",
+        "step_description": "Research and write a comprehensive comparison",
+        "available_tools": ["info_search_web", "file_write"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["info_search_web"],
+        "must_contain": ["PostgreSQL", "MongoDB"],
+        "must_not_contain": [],
+        "min_citations": 2,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "easy"}
+    },
+    {
+      "id": "exec_0009",
+      "target": "execution",
+      "input": {
+        "user_request": "Deploy a FastAPI application to Docker and verify it runs",
+        "step_description": "Write Dockerfile, build image, and run container",
+        "available_tools": ["file_write", "terminal_execute", "file_read"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["file_write", "terminal_execute"],
+        "must_contain": ["Docker", "FROM"],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "exec_0010",
+      "target": "execution",
+      "input": {
+        "user_request": "Write comprehensive unit tests for a UserService class",
+        "step_description": "Read the existing UserService and write pytest tests covering edge cases",
+        "available_tools": ["file_read", "file_write", "terminal_execute"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": ["file_read", "file_write"],
+        "must_contain": ["def test_", "assert"],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 0,
+        "max_steps": 0
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    }
+  ]
+}
