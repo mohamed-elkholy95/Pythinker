@@ -9,7 +9,7 @@
             class="message-markdown markdown-content flex-1 min-w-0"
             :class="{ 'message-markdown-collapsed': shouldCollapseMessageContent }"
           >
-            <TiptapMessageViewer :content="messageContent.content ?? ''" />
+            <TiptapMessageViewer :content="messageContent.content ?? ''" :sources="props.sources" />
           </div>
           <span
             v-if="message.type === 'user' && messageContent?.agentModeUpgrade"
@@ -70,7 +70,7 @@
       </div>
 
       <div class="assistant-summary-card-content">
-        <TiptapMessageViewer :content="messageContent.content ?? ''" :compact="true" />
+        <TiptapMessageViewer :content="messageContent.content ?? ''" :compact="true" :sources="props.sources" />
       </div>
     </div>
     <div
@@ -114,6 +114,7 @@
             <TiptapMessageViewer
               :content="messageContent.content ?? ''"
               :compact="isAssistantSummaryCompact"
+              :sources="props.sources"
             />
           </div>
         </div>
@@ -277,7 +278,7 @@
 
 <script setup lang="ts">
 import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
-import { Message, MessageContent, AttachmentsContent, ReportContent, SkillDeliveryContent } from '../types/message';
+import { Message, MessageContent, AttachmentsContent, ReportContent, SkillDeliveryContent, type SourceCitation } from '../types/message';
 import ToolUse from './ToolUse.vue';
 import PhaseGroup from './PhaseGroup.vue';
 import { CheckIcon, Copy, Check, XIcon } from 'lucide-vue-next';
@@ -309,6 +310,8 @@ const props = defineProps<{
   showAssistantHeader?: boolean;
   renderAsSummaryCard?: boolean;
   showAssistantCompletionFooter?: boolean;
+  /** Citation sources from the nearest report — enables popup cards on [N] badges */
+  sources?: SourceCitation[];
 }>();
 
 const emit = defineEmits<{
@@ -386,7 +389,8 @@ const reportData = computed<ReportData>(() => {
     lastModified: content.lastModified,
     fileCount: content.fileCount,
     sections: content.sections,
-    attachments: content.attachments
+    attachments: content.attachments,
+    sources: content.sources,
   };
 });
 
