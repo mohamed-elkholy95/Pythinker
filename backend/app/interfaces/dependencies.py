@@ -241,6 +241,48 @@ def get_session_repository() -> MongoSessionRepository:
 
 
 @lru_cache
+def get_prompt_profile_repository():
+    """Get the shared MongoPromptProfileRepository singleton.
+
+    The same instance satisfies both the PromptProfileRepository and
+    OptimizationRunRepository protocols.
+    """
+    from app.infrastructure.repositories.mongo_prompt_profile_repository import (
+        MongoPromptProfileRepository,
+    )
+
+    return MongoPromptProfileRepository()
+
+
+@lru_cache
+def get_prompt_artifact_repository():
+    """Get the shared GridFSPromptArtifactRepository singleton."""
+    from app.infrastructure.repositories.gridfs_prompt_artifact_repository import (
+        GridFSPromptArtifactRepository,
+    )
+
+    return GridFSPromptArtifactRepository()
+
+
+@lru_cache
+def get_prompt_optimization_service():
+    """Get the shared PromptOptimizationService singleton.
+
+    Uses the same MongoPromptProfileRepository instance for both
+    PromptProfileRepository and OptimizationRunRepository protocols.
+    """
+    from app.application.services.prompt_optimization_service import PromptOptimizationService
+
+    repo = get_prompt_profile_repository()
+    artifact = get_prompt_artifact_repository()
+    return PromptOptimizationService(
+        profile_repo=repo,
+        run_repo=repo,
+        artifact_repo=artifact,
+    )
+
+
+@lru_cache
 def get_knowledge_base_service():
     """Get knowledge base service, or None if disabled / raganything not installed."""
     settings = get_settings()
