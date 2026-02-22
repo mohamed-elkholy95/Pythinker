@@ -290,6 +290,47 @@ class PromptOptimizer:
             self._variants[category][variant_id].is_active = False
             logger.info(f"Deactivated variant: {category}/{variant_id}")
 
+    def register_dspy_profile(
+        self,
+        profile_id: str,
+        target: str,
+        patch_text: str,
+        validation_score: float = 0.0,
+    ) -> PromptVariant:
+        """Register a DSPy-optimized prompt variant from an offline profile.
+
+        This is the bridge between the offline DSPy/GEPA optimization pipeline
+        and the runtime Thompson-sampling A/B framework.  After an optimization
+        run completes and is published as a PromptProfile, the application
+        service calls this method to seed the bandit with a high-quality
+        starting prior (alpha/beta biased toward the validation score).
+
+        Args:
+            profile_id: PromptProfile.id from the persistence layer.
+            target:     One of "planner" | "execution" | "system".
+            patch_text: The optimized prompt text from the profile patch.
+            validation_score: Validation score from the optimization run (0..1).
+        """
+        category = f"dspy_{target}"
+        # Bias the Beta prior toward the observed validation quality so the
+        # bandit starts with a meaningful signal rather than uniform (1, 1).
+        # 10 pseudo-observations: successes ≈ val_score * 10, failures = rest.
+        successes = max(1, int(validation_score * 10))
+        failures = max(1, 10 - successes)
+        variant = self.register_variant(
+            category=category,
+            variant_id=profile_id,
+            prompt_template=patch_text,
+            description=f"DSPy-optimized profile {profile_id} (val={validation_score:.3f})",
+        )
+        # Replace the default Beta(1,1) prior with the validation-informed prior
+        variant.alpha = float(successes)
+        variant.beta = float(failures)
+        logger.info(
+            f"Registered DSPy profile variant: {category}/{profile_id} (alpha={variant.alpha}, beta={variant.beta})"
+        )
+        return variant
+
     def _prune_worst_variant(self, category: str) -> None:
         """Remove the worst performing variant in a category."""
         if category not in self._variants:
