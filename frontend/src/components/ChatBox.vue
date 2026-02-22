@@ -106,7 +106,7 @@ const MAX_TEXTAREA_HEIGHT = 220;
 const ESTIMATED_LINE_HEIGHT = 24;
 const ESTIMATED_VERTICAL_PADDING = 20;
 
-const textareaStyle = ref({
+const textareaStyle = ref<{ height: string; overflowY: 'auto' | 'hidden' }>({
   height: `${MIN_TEXTAREA_HEIGHT}px`,
   overflowY: 'hidden',
 });
