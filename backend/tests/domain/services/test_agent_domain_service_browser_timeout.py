@@ -93,6 +93,7 @@ async def test_create_task_recycles_sandbox_on_browser_timeout():
         patch("app.core.config.get_settings", return_value=settings),
         patch("app.core.config.get_feature_flags", return_value=_SAFE_FEATURE_FLAGS),
         patch("app.domain.services.agents.agent_task_factory.asyncio.wait_for", side_effect=fake_wait_for),
+        patch("app.application.services.canvas_service.get_canvas_service", return_value=MagicMock()),
     ):
         result = await service._create_task(session)
 
@@ -170,6 +171,7 @@ async def test_create_task_recycles_sandbox_on_browser_readiness_failure():
         patch(
             "app.domain.services.agents.agent_task_factory.asyncio.wait_for", return_value=MagicMock()
         ) as wait_for_mock,
+        patch("app.application.services.canvas_service.get_canvas_service", return_value=MagicMock()),
     ):
         result = await service._create_task(session)
 
@@ -244,6 +246,7 @@ async def test_create_task_bypasses_sandbox_pool_when_static_addresses_configure
             "app.core.sandbox_pool.get_sandbox_pool",
             new=AsyncMock(side_effect=AssertionError("sandbox pool should not be used in static mode")),
         ),
+        patch("app.application.services.canvas_service.get_canvas_service", return_value=MagicMock()),
     ):
         result = await service._create_task(session)
 

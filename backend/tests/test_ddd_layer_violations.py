@@ -24,6 +24,7 @@ KNOWN_DOMAIN_EXCEPTIONS = {
     "sync_worker.py",  # Domain sync orchestration still constructs infra repositories directly
     "reconciliation_job.py",  # Reconciliation job currently depends on infra db/repo implementations
     "conversation_context_service.py",  # Uses embedding client + qdrant repo for vectorized context
+    "knowledge_base_service.py",  # Uses infra adapter + repository types under TYPE_CHECKING
 }
 
 
@@ -127,6 +128,7 @@ KNOWN_IFACE_EXCEPTIONS = {
     "exception_handlers.py",
     "skills_routes.py",
     "metrics_routes.py",
+    "knowledge_base_routes.py",  # Uses infra repository type under TYPE_CHECKING
 }
 
 
