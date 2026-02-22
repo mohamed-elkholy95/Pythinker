@@ -10,7 +10,7 @@
   <div class="flex-1 min-h-0 w-full overflow-y-auto">
     <!-- Creating Animation -->
     <div v-if="isCreating"
-      class="flex-1 h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#0d1117] dark:to-[#161b22] py-12">
+      class="flex-1 h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#141414] dark:to-[#1a1a1a] py-12">
       <div class="chart-animation">
         <!-- Animated chart bars -->
         <div class="chart-bars">

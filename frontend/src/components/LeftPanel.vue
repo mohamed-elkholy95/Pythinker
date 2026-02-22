@@ -92,10 +92,7 @@
             class="search-input"
             @keydown.escape="closeSearch"
           />
-          <button v-if="searchQuery" class="search-clear-btn" @click="searchQuery = ''">
-            <X :size="12" />
-          </button>
-          <button class="search-close-btn" @click="closeSearch">
+          <button class="search-close-btn" @click="searchQuery ? searchQuery = '' : closeSearch()">
             <X :size="14" />
           </button>
         </div>
@@ -134,7 +131,7 @@
                   <span class="truncate text-sm font-medium text-[var(--text-primary)]">
                     {{ currentUser?.fullname || t('Account') }}
                   </span>
-                  <span v-if="currentUser?.email" class="truncate text-xs text-[var(--text-tertiary)]">
+                  <span v-if="currentUser?.email" class="truncate text-xs text-[var(--text-secondary)]">
                     {{ currentUser?.email }}
                   </span>
                 </div>
@@ -698,14 +695,14 @@ watch(() => route.path, async (newPath, oldPath) => {
 }
 
 :global(.dark) .new-task-btn {
-  background: #2a2d34;
-  border-color: #3a3f49;
-  color: #ebf0f6;
+  background: #2a2a2a;
+  border-color: #3a3a3a;
+  color: #e8e0d8;
 }
 
 :global(.dark) .new-task-btn:hover {
-  background: #333843;
-  border-color: #4b5260;
+  background: #333333;
+  border-color: #4a4a4a;
 }
 
 :global(.dark) .new-task-shortcut {
