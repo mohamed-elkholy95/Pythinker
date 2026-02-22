@@ -181,9 +181,7 @@ watch(isOpen, (open) => {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  /* --bolt-elements-item-contentAccent: #000 light / #fff dark */
   background: var(--bolt-elements-item-contentAccent);
-  /* --text-onblack: #fff light / rgba(0,0,0,0.85) dark — always contrasts with contentAccent */
   color: var(--text-onblack);
   font-size: 10px;
   font-weight: 600;

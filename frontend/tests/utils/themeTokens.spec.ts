@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
   getCurrentThemeMode,
@@ -96,6 +96,10 @@ describe('getCurrentThemeMode()', () => {
 })
 
 describe('getThemeColors()', () => {
+  afterEach(() => {
+    document.documentElement.classList.remove('dark')
+  })
+
   it('returns the light palette when mode is "light"', () => {
     const colors = getThemeColors('light')
     expect(colors).toStrictEqual(THEME_COLORS.light)
