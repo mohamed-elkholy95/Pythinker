@@ -299,6 +299,9 @@ const loadPlotlyData = async () => {
   const { signal } = fetchAbortController;
 
   plotlyLoadError.value = false;
+  // Reset derived state so a stale layout cannot be re-used if this load fails mid-way
+  originalPlotlyLayout.value = null;
+  plotlyData.value = null;
 
   try {
     // Timeout wrapper: abort if fetch takes too long

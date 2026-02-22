@@ -15,10 +15,6 @@ import type { WritableComputedRef } from 'vue'
  */
 export function useThemeMode() {
   const isDark = useDark({
-    selector: 'html',
-    attribute: 'class',
-    valueDark: 'dark',
-    valueLight: '',
     storageKey: 'bolt_theme',
     onChanged(dark, defaultHandler, mode) {
       // Toggle .dark class on <html> (Tailwind dark: variant)
