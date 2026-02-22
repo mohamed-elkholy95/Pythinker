@@ -95,17 +95,17 @@ function handleClick() {
 
 .connector-card:hover {
   border-color: var(--border-dark);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 8px var(--shadow-XS);
   transform: translateY(-1px);
 }
 
 .connector-card--connected {
-  border-color: #22c55e40;
-  background: #22c55e08;
+  border-color: var(--function-success-border);
+  background: var(--function-success-tsp);
 }
 
 .connector-card--connected:hover {
-  border-color: #ef444440;
+  border-color: rgba(239, 68, 68, 0.35);
 }
 
 .connector-card-icon {
@@ -149,7 +149,7 @@ function handleClick() {
 }
 
 .connector-card-check {
-  color: #22c55e;
+  color: var(--function-success);
 }
 
 .connector-card-plus {
@@ -161,7 +161,7 @@ function handleClick() {
 }
 
 .connector-card--connected:hover .connector-card-check {
-  color: #ef4444;
+  color: var(--function-error);
 }
 
 .connector-card-spinner {
