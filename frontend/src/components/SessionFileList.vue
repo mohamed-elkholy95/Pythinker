@@ -168,12 +168,17 @@
 
                 <!-- Empty State -->
                 <div v-else class="flex-1 min-h-0 flex flex-col items-center justify-center gap-3">
-                    <div class="w-16 h-16 rounded-full bg-[var(--fill-tsp-white-main)] flex items-center justify-center">
-                        <FileQuestion class="size-8 text-[var(--icon-tertiary)]" />
+                    <div class="w-16 h-16 rounded-full bg-[var(--fill-tsp-gray-main)] flex items-center justify-center border border-[var(--border-light)] shadow-sm">
+                        <FileQuestion class="size-8 text-[var(--icon-secondary)]" />
                     </div>
-                    <p class="text-[var(--text-tertiary)] text-sm">
-                        {{ activeFilter === 'all' ? $t('No files yet') : $t('No files in this category') }}
-                    </p>
+                    <div class="text-center">
+                        <p class="text-[var(--text-primary)] text-sm font-medium mb-1">
+                            {{ activeFilter === 'all' ? $t('No files yet') : $t('No files in this category') }}
+                        </p>
+                        <p class="text-[var(--text-tertiary)] text-xs">
+                            {{ activeFilter === 'all' ? $t('Upload files to this task to see them here.') : $t('Try selecting a different filter.') }}
+                        </p>
+                    </div>
                 </div>
             </div>
         </DialogContent>
