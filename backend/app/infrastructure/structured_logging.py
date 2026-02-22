@@ -9,7 +9,7 @@ import logging
 import re
 import sys
 from contextlib import suppress
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from typing import Any
 
 import structlog
@@ -122,9 +122,9 @@ def redact_event_dict(logger: Any, method_name: str, event_dict: EventDict) -> E
         _in_redact.reset(token)
 
 
-def set_request_id(request_id: str) -> None:
-    """Set the current request ID for correlation."""
-    request_id_var.set(request_id)
+def set_request_id(request_id: str) -> Token[str | None]:
+    """Set the current request ID for correlation. Returns a token for resetting."""
+    return request_id_var.set(request_id)
 
 
 def get_request_id() -> str | None:

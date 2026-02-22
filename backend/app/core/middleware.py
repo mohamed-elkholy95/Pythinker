@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.infrastructure.storage.redis import get_redis
-from app.infrastructure.structured_logging import get_logger, set_request_id
+from app.infrastructure.structured_logging import get_logger, request_id_var, set_request_id
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -48,7 +48,7 @@ class RequestLoggingMiddleware:
         scope["state"]["request_id"] = request_id
 
         # Propagate request_id to structlog for correlation
-        set_request_id(request_id)
+        request_id_token = set_request_id(request_id)
 
         # Log request (sanitized)
         client_ip = request.client.host if request.client else "unknown"
@@ -76,6 +76,9 @@ class RequestLoggingMiddleware:
             duration_ms = (time.time() - start_time) * 1000
             log_level = logging.INFO if response_status < 400 else logging.WARNING
             logger.log(log_level, f"[{request_id}] {request.method} {path} - {response_status} ({duration_ms:.2f}ms)")
+            # Reset ContextVar to avoid request_id leaking into the next
+            # request processed by the same asyncio task.
+            request_id_var.reset(request_id_token)
 
 
 class RateLimitMiddleware:
@@ -108,7 +111,6 @@ class RateLimitMiddleware:
 
     def __init__(self, app: Callable):
         self.app = app
-        self._rate_limit_window_script = None
         # Initialize cleanup timestamp on first instantiation
         if RateLimitMiddleware._fallback_last_cleanup_time == 0.0:
             RateLimitMiddleware._fallback_last_cleanup_time = time.time()
@@ -117,13 +119,11 @@ class RateLimitMiddleware:
         """Atomically increment request counter and return (current_count, ttl_seconds)."""
         redis_client = get_redis()
         await redis_client.initialize()
-        if self._rate_limit_window_script is None:
-            self._rate_limit_window_script = redis_client.client.register_script(self._RATE_LIMIT_WINDOW_SCRIPT)
+        # Always re-register: redis-py Script objects are cheaply re-created
+        # and must be bound to the current client instance after reconnects.
+        script = redis_client.client.register_script(self._RATE_LIMIT_WINDOW_SCRIPT)
 
         async def _execute_script():
-            script = self._rate_limit_window_script
-            if script is None:
-                raise RuntimeError("Rate limit script not initialized")
             return await script(keys=[key], args=[window_seconds], client=redis_client.client)
 
         result = await redis_client.execute_with_retry(
@@ -139,13 +139,17 @@ class RateLimitMiddleware:
             ttl = window_seconds
         return current, ttl
 
-    def _cleanup_fallback_storage(self, window_seconds: int) -> None:
-        """Remove expired entries from fallback storage to prevent memory growth."""
+    def _cleanup_fallback_storage(self) -> None:
+        """Remove expired entries from fallback storage to prevent memory growth.
+
+        Each key stores its own window_seconds to avoid cross-bucket eviction
+        when auth and general endpoints use different rate-limit windows.
+        """
         current_time = time.time()
         expired_keys = [
             key
-            for key, (_, window_start) in self._fallback_storage.items()
-            if current_time - window_start > window_seconds
+            for key, (_, window_start, key_window) in self._fallback_storage.items()
+            if current_time - window_start > key_window
         ]
         for key in expired_keys:
             del self._fallback_storage[key]
@@ -167,24 +171,24 @@ class RateLimitMiddleware:
             or time_since_last_cleanup >= self._fallback_cleanup_time_interval
         )
         if should_cleanup:
-            self._cleanup_fallback_storage(window_seconds)
+            self._cleanup_fallback_storage()
             self._fallback_cleanup_counter = 0
             self._fallback_last_cleanup_time = current_time
 
         if key in self._fallback_storage:
-            count, window_start = self._fallback_storage[key]
+            count, window_start, _key_window = self._fallback_storage[key]
 
             # Check if window has expired
             if current_time - window_start > window_seconds:
                 # Start new window
-                self._fallback_storage[key] = (1, current_time)
+                self._fallback_storage[key] = (1, current_time, window_seconds)
                 return True, 1
             # Increment count in current window
             new_count = count + 1
-            self._fallback_storage[key] = (new_count, window_start)
+            self._fallback_storage[key] = (new_count, window_start, window_seconds)
             return new_count <= max_requests, new_count
         # New key, start window
-        self._fallback_storage[key] = (1, current_time)
+        self._fallback_storage[key] = (1, current_time, window_seconds)
         return True, 1
 
     async def __call__(self, scope, receive, send):
@@ -194,7 +198,7 @@ class RateLimitMiddleware:
 
         request = Request(scope, receive)
         path = request.url.path
-        method = scope.get("method", "GET")
+        method = request.method
 
         # Exempt health checks and auth status from rate limiting
         if path in self.EXEMPT_PATHS:
@@ -263,7 +267,7 @@ class RateLimitMiddleware:
                 rate_limit_exceeded = True
                 # In-memory: estimate remaining from window
                 if key in self._fallback_storage:
-                    _, window_start = self._fallback_storage[key]
+                    _, window_start, _key_window = self._fallback_storage[key]
                     retry_after_seconds = max(1, int(window_seconds - (time.time() - window_start)))
 
         if rate_limit_exceeded:
