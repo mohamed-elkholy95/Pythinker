@@ -140,9 +140,11 @@ const visibleFeatures: Feature[] = [
   }
 ];
 
-// Get first letter of user's fullname for avatar display
+// Get first letter of user's fullname for avatar display (fallback to email initial)
 const avatarLetter = computed(() => {
-  return currentUser.value?.fullname?.charAt(0)?.toUpperCase() || 'M';
+  return currentUser.value?.fullname?.charAt(0)?.toUpperCase()
+    || currentUser.value?.email?.charAt(0)?.toUpperCase()
+    || '?';
 });
 
 // User menu state
@@ -189,6 +191,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage as EventListener);
+  if (userMenuTimeout.value) {
+    clearTimeout(userMenuTimeout.value);
+    userMenuTimeout.value = null;
+  }
 });
 
 // Handle feature button click
@@ -207,23 +213,27 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
   if (isSubmitting.value) return;
   isSubmitting.value = true;
 
-  router.push({
-    path: '/chat/new',
-    state: {
-      pendingSessionCreate: true,
-      mode,
-      research_mode: 'deep_research' as ResearchMode,
-      message: initialMessage ?? '',
-      skills: [],
-      files: attachments.value.map((file: FileInfo) => ({
-        file_id: file.file_id,
-        filename: file.filename,
-        content_type: file.content_type,
-        size: file.size,
-        upload_date: file.upload_date
-      }))
-    }
-  });
+  try {
+    await router.push({
+      path: '/chat/new',
+      state: {
+        pendingSessionCreate: true,
+        mode,
+        research_mode: 'deep_research' as ResearchMode,
+        message: initialMessage ?? '',
+        skills: [],
+        files: attachments.value.map((file: FileInfo) => ({
+          file_id: file.file_id,
+          filename: file.filename,
+          content_type: file.content_type,
+          size: file.size,
+          upload_date: file.upload_date
+        }))
+      }
+    });
+  } finally {
+    isSubmitting.value = false;
+  }
 };
 
 const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: string[] = []) => {
@@ -247,24 +257,28 @@ const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: strin
       }
     }
 
-    router.push({
-      path: '/chat/new',
-      state: {
-        pendingSessionCreate: true,
-        mode: 'agent',
-        research_mode: 'deep_research' as ResearchMode,
-        message: submitMessage,
-        skills: skillIds,
-        thinking_mode: thinkingMode,
-        files: attachments.value.map((file: FileInfo) => ({
-          file_id: file.file_id,
-          filename: file.filename,
-          content_type: file.content_type,
-          size: file.size,
-          upload_date: file.upload_date
-        }))
-      }
-    });
+    try {
+      await router.push({
+        path: '/chat/new',
+        state: {
+          pendingSessionCreate: true,
+          mode: 'agent',
+          research_mode: 'deep_research' as ResearchMode,
+          message: submitMessage,
+          skills: skillIds,
+          thinking_mode: thinkingMode,
+          files: attachments.value.map((file: FileInfo) => ({
+            file_id: file.file_id,
+            filename: file.filename,
+            content_type: file.content_type,
+            size: file.size,
+            upload_date: file.upload_date
+          }))
+        }
+      });
+    } finally {
+      isSubmitting.value = false;
+    }
   }
 };
 </script>
@@ -297,19 +311,22 @@ const handleSubmit = async (thinkingMode: ThinkingMode = 'auto', skillIds: strin
 }
 
 .greeting-primary {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 500;
   line-height: 1.3;
   color: var(--text-secondary);
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 
 .greeting-secondary {
-  font-size: 32px;
-  font-weight: 400;
+  font-size: 36px;
+  font-weight: 600;
   line-height: 1.2;
   color: var(--text-primary);
   letter-spacing: -0.02em;
+  background: linear-gradient(90deg, var(--text-primary), var(--text-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* ===== CHAT INPUT WRAPPER ===== */

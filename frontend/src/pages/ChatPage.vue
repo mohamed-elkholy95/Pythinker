@@ -139,6 +139,7 @@
             :showAssistantHeader="shouldShowAssistantHeader(index)"
             :renderAsSummaryCard="shouldRenderSummaryCard(index)"
             :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id) && !canShowSuggestions"
+            :sources="sourcesForMessageMap.get(index)"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -436,7 +437,7 @@
 
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
-import { ref, computed, onMounted, watch, nextTick, onUnmounted, reactive, toRefs } from 'vue';
+import { ref, computed, onMounted, watch, nextTick, onUnmounted, reactive, toRefs, shallowRef, triggerRef } from 'vue';
 import { useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
 import { useDocumentVisibility } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
@@ -547,6 +548,9 @@ const {
 } = useResponsePhase()
 
 // SSE connection management with stale detection
+let staleReconnectTimer: ReturnType<typeof setTimeout> | null = null
+let linkCopiedTimer: ReturnType<typeof setTimeout> | null = null
+
 const handleStaleConnection = () => {
   console.warn('[SSE] Connection stale detected - attempting reconnection')
   logSseDiagnostics('ChatPage', 'stale:detected', {
@@ -559,7 +563,8 @@ const handleStaleConnection = () => {
     cancelCurrentChat.value()
     cancelCurrentChat.value = null
     // Reconnect by calling chat with empty message (resume stream)
-    setTimeout(() => {
+    staleReconnectTimer = setTimeout(() => {
+      staleReconnectTimer = null
       chat('', [], { skipOptimistic: true })
     }, 1000)
   }
@@ -715,6 +720,14 @@ const {
 // Buffer for tool_stream events that arrive before tool(calling)
 // Keyed by tool_call_id → { content, functionName, contentType }
 const streamingContentBuffer = new Map<string, { content: string; functionName: string; contentType: string }>();
+
+// Eagerly-extracted search sources keyed by tool_call_id.
+// Populated in handleToolEvent when a search tool completes (status='called'),
+// eliminating the need for lazy extraction during render (which has reactivity edge cases
+// with cross-message Object.assign mutations through deeply nested reactive proxies).
+// Uses shallowRef + triggerRef so individual .set() calls trigger a single notification
+// rather than deep-tracking every consumer (avoids N+1 re-renders during streaming).
+const searchSourcesCache = shallowRef(new Map<string, import('../types/message').SourceCitation[]>());
 
 let activeChatStreamTraceId: string | null = null;
 let activeStreamAttemptId = 0;
@@ -1199,6 +1212,10 @@ const initializePendingSession = async () => {
     transitionTo('error')
     isInitializing.value = false;
     pendingInitialMessage.value = null;
+    // Remove the optimistic user message that was added before createSession
+    if (pendingMessage || pendingFiles.length > 0) {
+      messages.value = [];
+    }
     showErrorToast(t('Failed to create session, please try again later'));
   }
 
@@ -1327,8 +1344,9 @@ const resetState = () => {
 
   researchWorkflow.reset();
 
-  // Clear streaming content buffer
+  // Clear streaming content buffer and search sources cache
   streamingContentBuffer.clear();
+  searchSourcesCache.value = new Map();
 
   // Reset session research mode
   sessionResearchMode.value = null;
@@ -1510,6 +1528,10 @@ onUnmounted(() => {
     clearInterval(staleCheckInterval);
     staleCheckInterval = null;
   }
+  if (staleReconnectTimer) {
+    clearTimeout(staleReconnectTimer);
+    staleReconnectTimer = null;
+  }
   stopHeartbeatBridge();
   stopFallbackStatusPolling();
   stopPlanningMessageCycle();
@@ -1559,6 +1581,79 @@ const shouldRenderSummaryCard = (messageIndex: number): boolean => {
   const assistantText = ((currentMessage.content as MessageContent).content || '').trim();
   return isStructuredSummaryAssistantMessage(assistantText);
 };
+
+// Resolve citation sources for assistant messages.
+// Strategy 1: forward-scan for the nearest report message (research mode — has structured sources).
+// Strategy 2: lookup eagerly-cached search sources from searchSourcesCache (populated in handleToolEvent).
+// Strategy 3 (fallback): backward-scan tool messages for search results in case cache was missed.
+// All scans stay within the same conversational turn (bounded by user messages).
+const SEARCH_TOOL_FUNCTIONS = new Set(['info_search_web', 'web_search', 'search', 'wide_research']);
+
+const extractSearchSourcesFromTool = (tool: ToolContent): import('../types/message').SourceCitation[] => {
+  const fn = (tool.function || tool.name || '').toLowerCase();
+  if (!SEARCH_TOOL_FUNCTIONS.has(fn)) return [];
+  const payload = tool.content as Record<string, unknown> | undefined;
+  const results = (payload?.results ?? payload?.data) as Array<{ title?: string; link?: string; url?: string; snippet?: string }> | undefined;
+  if (!Array.isArray(results)) return [];
+  return results
+    .filter((r) => !!(r.link || r.url))
+    .map((r) => ({
+      url: (r.link || r.url)!,
+      title: r.title || '',
+      snippet: r.snippet,
+      access_time: '',
+      source_type: 'search' as const,
+    }));
+};
+
+// Memoized Map of messageIndex → SourceCitation[] for assistant messages.
+// Recomputed only when messages or searchSourcesCache change (not per-message per-tick).
+const sourcesForMessageMap = computed(() => {
+  const map = new Map<number, import('../types/message').SourceCitation[]>();
+  const cache = searchSourcesCache.value;
+  const msgs = messages.value;
+
+  for (let idx = 0; idx < msgs.length; idx++) {
+    const current = msgs[idx];
+    if (!current || current.type !== 'assistant') continue;
+
+    // Strategy 1: forward-scan for a report message with structured sources
+    let found: import('../types/message').SourceCitation[] | undefined;
+    for (let i = idx + 1; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (m.type === 'user') break;
+      if (m.type === 'report') {
+        const sources = (m.content as ReportContent).sources;
+        if (sources?.length) { found = sources; break; }
+      }
+    }
+    if (found) { map.set(idx, found); continue; }
+
+    // Strategy 2: use eagerly-cached search sources (populated when tool events arrived).
+    // Strategy 3 (fallback): extract from tool content directly (covers cache miss / reconnection).
+    const collected: import('../types/message').SourceCitation[] = [];
+    for (let i = idx - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.type === 'user') break;
+
+      if (m.type === 'tool') {
+        const tool = m.content as ToolContent;
+        const cached = cache.get(tool.tool_call_id);
+        collected.push(...(cached ?? extractSearchSourcesFromTool(tool)));
+      }
+
+      if (m.type === 'step') {
+        const step = m.content as StepContent;
+        for (const tool of (step.tools ?? [])) {
+          const cached = cache.get(tool.tool_call_id);
+          collected.push(...(cached ?? extractSearchSourcesFromTool(tool)));
+        }
+      }
+    }
+    if (collected.length) map.set(idx, collected);
+  }
+  return map;
+});
 
 const addOptimisticUserMessage = (message: string, files: FileInfo[] = []) => {
   const normalizedMessage = message.trim();
@@ -2046,6 +2141,17 @@ const handleToolEvent = (toolData: ToolEventData) => {
         // Auto-open panel on first tool event (user hasn't dismissed it yet)
         toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
       }
+    }
+  }
+
+  // Eagerly extract and cache search sources when a search tool completes.
+  // This decouples source availability from reactive dependency tracking during render,
+  // matching the pattern used by the report flow (sources attached directly to the event).
+  if (toolContent.status === 'called') {
+    const sources = extractSearchSourcesFromTool(toolContent);
+    if (sources.length > 0) {
+      searchSourcesCache.value.set(toolContent.tool_call_id, sources);
+      triggerRef(searchSourcesCache);
     }
   }
 }
@@ -2720,9 +2826,13 @@ const processEvent = (event: AgentSSEEvent) => {
     || responsePhase.value === 'reconnecting'
     || responsePhase.value === 'degraded'
   ) {
-    // Clear stale error state from previous connection attempts
-    // to prevent old error banners from flickering on successful reconnect
-    lastError.value = null
+    // Clear transient/recoverable error state from previous connection attempts
+    // to prevent old error banners from flickering on successful reconnect.
+    // Preserve non-recoverable errors (rate limits, validation failures) so the
+    // user can see them even after an automatic retry delivers events.
+    if (lastError.value === null || lastError.value.recoverable) {
+      lastError.value = null
+    }
     timeoutReason.value = null
     transitionTo('streaming')
   }
@@ -3150,6 +3260,8 @@ onBeforeRouteUpdate(async (to, from, next) => {
     skipNextRouteReset.value = false;
     if (to.params.sessionId) {
       sessionId.value = String(to.params.sessionId);
+      // Clear stale search sources from previous session even when skipping full reset
+      searchSourcesCache.value = new Map();
     }
     next();
     return;
@@ -3279,6 +3391,10 @@ onUnmounted(() => {
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
+  }
+  if (linkCopiedTimer) {
+    clearTimeout(linkCopiedTimer);
+    linkCopiedTimer = null;
   }
   // Cancel any pending event batch processing
   streamController.clearPendingEvents();
@@ -3534,7 +3650,9 @@ const handleCopyLink = async () => {
     
     if (success) {
       linkCopied.value = true;
-      setTimeout(() => {
+      if (linkCopiedTimer) clearTimeout(linkCopiedTimer);
+      linkCopiedTimer = setTimeout(() => {
+        linkCopiedTimer = null;
         linkCopied.value = false;
       }, 3000);
       showSuccessToast(t('Link copied to clipboard'));
@@ -3679,11 +3797,11 @@ const handleCopyLink = async () => {
 .thinking-text-shimmer {
   background: linear-gradient(
     120deg,
-    #1f2937 0%,
-    #1f2937 40%,
-    #9ca3af 50%,
-    #1f2937 60%,
-    #1f2937 100%
+    #222222 0%,
+    #222222 40%,
+    #b0b0b0 50%,
+    #222222 60%,
+    #222222 100%
   );
   background-size: 300% 300%;
   -webkit-background-clip: text;
@@ -3782,8 +3900,8 @@ const handleCopyLink = async () => {
 
 :deep(.dark) .planning-progress-indicator,
 .dark .planning-progress-indicator {
-  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(180deg, #222222 0%, #1a1a1a 100%);
+  border: 1px solid rgba(128, 128, 128, 0.2);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
 }
 
