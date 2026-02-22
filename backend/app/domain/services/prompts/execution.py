@@ -1492,6 +1492,12 @@ def build_execution_prompt_from_context(
     if ctx.locked_entity_reminder:
         prompt = f"{prompt}{ctx.locked_entity_reminder}"
 
+    # Inject DSPy-optimized profile patch if present (PR-5: prompt optimization)
+    if getattr(ctx, "profile_patch_text", None):
+        prompt = (
+            f"{prompt}\n\n<!-- profile_patch -->\n{ctx.profile_patch_text}\n<!-- /profile_patch -->"
+        )
+
     return prompt
 
 

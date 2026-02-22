@@ -279,6 +279,7 @@ class ExecutionAgent(BaseAgent):
         message: Message,
         *,
         conversation_context: str | None = None,
+        profile_patch_text: str | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         # Store user request for critic context
         self._user_request = message.message
@@ -352,6 +353,7 @@ class ExecutionAgent(BaseAgent):
             pre_planning_search_context=self._pre_planning_search_context,
             conversation_context=conversation_context,
             request_contract=self._request_contract,
+            profile_patch_text=profile_patch_text,
         )
 
         # Build execution prompt from assembled context (includes all appendages)

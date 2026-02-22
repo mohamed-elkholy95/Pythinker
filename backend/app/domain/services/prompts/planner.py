@@ -351,6 +351,7 @@ def build_create_plan_prompt(
     task_memory: str | None = None,
     search_context: str | None = None,
     include_current_date: bool = True,
+    profile_patch_text: str | None = None,
 ) -> str:
     """Build create plan prompt with optional task memory and search context.
 
@@ -360,6 +361,7 @@ def build_create_plan_prompt(
         task_memory: Optional context from similar past tasks
         search_context: Optional real-time web search results from pre-planning search
         include_current_date: Include current date context (default: True)
+        profile_patch_text: Optional DSPy-optimized patch from an active PromptProfile.
 
     Returns:
         Formatted plan prompt with memory/search context if available
@@ -377,5 +379,11 @@ def build_create_plan_prompt(
     # Inject current date for temporal awareness
     if include_current_date:
         base_prompt = get_current_date_signal() + base_prompt
+
+    # Inject DSPy-optimized profile patch if present (PR-5: prompt optimization)
+    if profile_patch_text:
+        base_prompt = (
+            f"{base_prompt}\n\n<!-- profile_patch -->\n{profile_patch_text}\n<!-- /profile_patch -->"
+        )
 
     return base_prompt
