@@ -137,7 +137,7 @@ const handleToolClick = (tool: ToolContent) => {
           v-else-if="isSkipped"
           :size="14"
           :stroke-width="2.5"
-          class="text-gray-500"
+          class="text-[var(--text-tertiary)]"
         />
         <component
           :is="iconComponent"
