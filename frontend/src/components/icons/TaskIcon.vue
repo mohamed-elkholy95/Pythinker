@@ -219,6 +219,11 @@ const iconComponent = computed(() => {
   }
 
   // Default - use hash to select from variety of icons
+  // If the title is generic "New Chat", always return the same generic icon.
+  if (title === 'new chat' || title === 'new task' || title === '') {
+    return MessageSquare;
+  }
+
   // Use sessionId if available, otherwise use title for consistency
   const hashSource = props.sessionId || props.title || 'default';
   const index = hashString(hashSource) % defaultIcons.length;
