@@ -150,6 +150,7 @@
                 :content="viewerContent"
                 :compact="false"
                 :embedded="true"
+                :sources="report?.sources"
               />
             </div>
           </div>
@@ -781,7 +782,7 @@ watch(isOpen, (newVal) => {
 
 :global(.dark) .content-wrapper,
 :global([data-theme='dark']) .content-wrapper {
-  --toc-accent: #58a6ff;
+  --toc-accent: #7cb3e0;
 }
 
 .document-container {
@@ -853,7 +854,7 @@ watch(isOpen, (newVal) => {
 
 :global(.dark) .doc-body.prose,
 :global([data-theme='dark']) .doc-body.prose {
-  --tw-prose-links: #58a6ff;
+  --tw-prose-links: #7cb3e0;
 }
 
 /* `v-html` content is not scoped; use deep selectors for reliable dark-mode text colors */
@@ -930,10 +931,7 @@ watch(isOpen, (newVal) => {
   text-decoration: underline;
 }
 
-:global(.dark) .doc-body.prose :deep(a),
-:global([data-theme='dark']) .doc-body.prose :deep(a) {
-  color: #58a6ff;
-}
+/* Dark mode link color in unscoped <style> block below */
 
 .doc-body.prose ul,
 .doc-body.prose ol {
@@ -1067,18 +1065,7 @@ watch(isOpen, (newVal) => {
   text-decoration: none !important;
 }
 
-:global(.dark) .doc-body :deep(a[href^="#ref-"]),
-:global([data-theme='dark']) .doc-body :deep(a[href^="#ref-"]) {
-  border-color: rgba(255, 255, 255, 0.25);
-  color: rgba(255, 255, 255, 0.45);
-}
-
-:global(.dark) .doc-body :deep(a[href^="#ref-"]:hover),
-:global([data-theme='dark']) .doc-body :deep(a[href^="#ref-"]:hover) {
-  background: #e5e5e7;
-  border-color: #e5e5e7;
-  color: #1c1c1e;
-}
+/* Dark mode badge styles in unscoped <style> block below */
 
 /* Citation reference card is rendered by TiptapReportEditor via Teleport — no local styles needed */
 
@@ -1331,5 +1318,31 @@ watch(isOpen, (newVal) => {
     padding: 0;
     max-width: none;
   }
+}
+</style>
+
+<!-- Unscoped dark mode overrides — avoids :global() + :deep() Vue SFC compiler edge case -->
+<style>
+/* ── Dark mode: link color inside report modal ────────────────────────── */
+.dark .doc-body.prose a,
+[data-theme='dark'] .doc-body.prose a {
+  color: #7cb3e0;
+}
+
+/* ── Dark mode: inline citation badges ────────────────────────────────── */
+.dark .doc-body a[href^="#ref-"],
+[data-theme='dark'] .doc-body a[href^="#ref-"] {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: none !important;
+}
+
+.dark .doc-body a[href^="#ref-"]:hover,
+[data-theme='dark'] .doc-body a[href^="#ref-"]:hover {
+  background: #e5e5e7;
+  border-color: #e5e5e7;
+  color: #1c1c1e;
+  text-decoration: none !important;
 }
 </style>

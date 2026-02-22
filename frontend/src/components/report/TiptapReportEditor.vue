@@ -3,7 +3,7 @@
     v-bind="$attrs"
     ref="contentRef"
     :class="[
-      'bg-[var(--background-white-main)]',
+      'tiptap-report-editor bg-[var(--background-white-main)]',
       embedded ? 'overflow-visible' : compact ? 'overflow-hidden' : 'h-full overflow-y-auto px-8 py-6'
     ]"
     @scroll="$emit('scroll', $event)"
@@ -58,6 +58,7 @@ import DOMPurify from 'dompurify';
 import { normalizeVerificationMarkers, linkifyInlineCitations } from './reportContentNormalizer';
 import { createTiptapDocumentExtensions } from './tiptapDocumentExtensions';
 import { getFaviconUrl } from '@/utils/toolDisplay';
+import type { SourceCitation } from '@/types/message';
 
 // Fragment root (div + Teleport) — disable auto attr-inheritance so $attrs go to the real div
 defineOptions({ inheritAttrs: false });
@@ -68,6 +69,8 @@ const props = defineProps<{
   compact?: boolean;
   hideMainTitleInCompact?: boolean;
   embedded?: boolean;
+  /** Structured sources from backend — used as authoritative data for citation popups */
+  sources?: SourceCitation[];
 }>();
 
 const _emit = defineEmits<{
@@ -102,6 +105,19 @@ const addReferenceAnchors = () => {
   const headings = Array.from(proseMirror.querySelectorAll('h1, h2, h3, h4'));
   const refMap = new Map<string, { title: string; domain: string; url: string }>();
 
+  // Seed refMap from structured backend sources (authoritative, index-based).
+  // The backend assigns citation numbers sequentially (1-based), matching [N] in content.
+  if (props.sources?.length) {
+    for (let i = 0; i < props.sources.length; i++) {
+      const src = props.sources[i];
+      try {
+        const domain = new URL(src.url).hostname.replace(/^www\./, '');
+        const title = (src.title || domain).slice(0, 80);
+        refMap.set(String(i + 1), { title, domain, url: src.url });
+      } catch { /* malformed URL — skip, DOM scraping will fill the gap */ }
+    }
+  }
+
   // Helper: find the first anchor whose raw href is external (not a fragment)
   const findExternalAnchor = (el: Element): HTMLAnchorElement | null => {
     const anchors = Array.from(el.querySelectorAll('a[href]')) as HTMLAnchorElement[];
@@ -117,8 +133,21 @@ const addReferenceAnchors = () => {
     return m ? m[0] : null;
   };
 
-  // Helper: build refMap entry from an anchor or bare-text URL
+  // Helper: build refMap entry from an anchor or bare-text URL.
+  // Skips if refMap already has an entry from structured sources (authoritative).
   const extractRefMeta = (el: Element, num: string) => {
+    if (refMap.has(num)) {
+      // Already populated from props.sources — still stamp the DOM anchor for styling
+      const anchor = findExternalAnchor(el);
+      if (anchor) {
+        const meta = refMap.get(num)!;
+        anchor.dataset.title = meta.title;
+        anchor.dataset.domain = meta.domain;
+        anchor.dataset.url = meta.url;
+        anchor.classList.add('ref-list-anchor');
+      }
+      return;
+    }
     const anchor = findExternalAnchor(el);
     if (anchor) {
       try {
@@ -143,6 +172,8 @@ const addReferenceAnchors = () => {
       } catch { /* ignore */ }
     }
   };
+
+  const refMapSizeBeforeHeadingScan = refMap.size;
 
   for (const heading of headings) {
     if (!refHeadingRe.test(heading.textContent?.trim() ?? '')) continue;
@@ -183,6 +214,59 @@ const addReferenceAnchors = () => {
     }
   }
 
+  // Fallback: scan for bold-text reference headers (e.g., "**Sources:**" or "**References:**").
+  // LLMs often use bold text instead of proper markdown headings for reference sections.
+  // Only run this scan if the heading-based scan above found nothing new.
+  const headingScanFound = refMap.size > refMapSizeBeforeHeadingScan;
+  if (!headingScanFound) {
+    const paragraphs = Array.from(proseMirror.querySelectorAll('p'));
+    for (const p of paragraphs) {
+      const strong = p.querySelector('strong');
+      if (!strong) continue;
+      const strongText = strong.textContent?.trim().replace(/:$/, '') ?? '';
+      if (!refHeadingRe.test(strongText)) continue;
+
+      // Found a bold reference header — process siblings just like heading scan
+      let sibling = p.nextElementSibling;
+      let nextNum = 1;
+      while (sibling) {
+        if (/^H[1-4]$/.test(sibling.tagName)) break;
+        // Stop if we hit another paragraph with bold text (likely a new section)
+        if (sibling.tagName === 'P' && sibling.querySelector('strong') && sibling !== p) {
+          const sibStrong = sibling.querySelector('strong')?.textContent?.trim().replace(/:$/, '') ?? '';
+          if (sibStrong.length > 2 && !sibStrong.match(/^\d/)) break;
+        }
+
+        if (sibling.tagName === 'OL' || sibling.tagName === 'UL') {
+          const startAttr = sibling.getAttribute('start');
+          const startNum = startAttr ? parseInt(startAttr, 10) : nextNum;
+          sibling.querySelectorAll(':scope > li').forEach((item, index) => {
+            const num = String(startNum + index);
+            item.setAttribute('id', `ref-${num}`);
+            extractRefMeta(item, num);
+          });
+          nextNum = startNum + sibling.querySelectorAll(':scope > li').length;
+          sibling = sibling.nextElementSibling;
+          continue;
+        }
+
+        if (sibling.tagName === 'P' || sibling.tagName === 'DIV') {
+          const text = sibling.textContent?.trimStart() ?? '';
+          const m = text.match(/^\[(\d{1,3})\]/);
+          if (m) {
+            const num = m[1];
+            sibling.setAttribute('id', `ref-${num}`);
+            extractRefMeta(sibling, num);
+            nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+          }
+        }
+
+        sibling = sibling.nextElementSibling;
+      }
+      break; // Only process the first bold reference header
+    }
+  }
+
   // Stamp data attributes onto inline citation badge anchors for popup card.
   // Also remove target/_blank / rel added by the Link extension — citation
   // badges are internal fragment links and must scroll within the page.
@@ -190,6 +274,8 @@ const addReferenceAnchors = () => {
     const el = badge as HTMLAnchorElement;
     el.removeAttribute('target');
     el.removeAttribute('rel');
+    // Strip TipTap Link extension classes — citation badges have their own styling
+    el.classList.remove('report-link', 'hover:underline', 'cursor-pointer');
     const raw = el.getAttribute('href');
     const num = raw?.replace('#ref-', '');
     if (num && refMap.has(num)) {
@@ -217,9 +303,18 @@ const editor = useEditor({
 // Watch for content changes - convert markdown to HTML
 watch(() => props.content, () => {
   if (editor.value && htmlContent.value !== editor.value.getHTML()) {
-    editor.value.commands.setContent(htmlContent.value, false);
+    // emitUpdate: false avoids infinite loops, but onUpdate won't fire —
+    // so re-run addReferenceAnchors manually after the DOM settles.
+    editor.value.commands.setContent(htmlContent.value, { emitUpdate: false });
+    nextTick(addReferenceAnchors);
   }
 });
+
+// Watch for sources changes — sources may arrive after initial content render.
+// Re-stamp citation data attributes so all badges get popup data.
+watch(() => props.sources, () => {
+  nextTick(addReferenceAnchors);
+}, { deep: true });
 
 // Watch for editable changes
 watch(() => props.editable, (newEditable) => {
@@ -243,9 +338,30 @@ const _onBadgeOver = (e: MouseEvent) => {
   let domain = badge.dataset.domain ?? '';
   let url = badge.dataset.url ?? '';
 
-  // Fallback: resolve at hover time from the reference element in the DOM.
-  // Covers cases where addReferenceAnchors ran before the References section
-  // was rendered, or where no formal heading was detected.
+  // Fallback 1: resolve from props.sources (authoritative, index-based).
+  // Covers cases where addReferenceAnchors hasn't stamped this badge yet
+  // (e.g., sources arrived late, content updated, or timing issue).
+  if (!title && !domain) {
+    const rawHref = (badge as HTMLAnchorElement).getAttribute?.('href') ?? '';
+    const num = rawHref.replace('#ref-', '');
+    const srcIdx = parseInt(num, 10) - 1;
+    if (srcIdx >= 0 && props.sources?.[srcIdx]) {
+      const src = props.sources[srcIdx];
+      try {
+        domain = new URL(src.url).hostname.replace(/^www\./, '');
+        title = (src.title || domain).slice(0, 80);
+        url = src.url;
+        // Cache for future hovers
+        badge.dataset.title = title;
+        badge.dataset.domain = domain;
+        badge.dataset.url = url;
+      } catch { /* malformed URL — try DOM fallback */ }
+    }
+  }
+
+  // Fallback 2: resolve from the reference element in the DOM.
+  // Covers cases where the citation number doesn't map to props.sources
+  // (e.g., LLM used non-sequential numbering, or no structured sources).
   if (!title && !domain) {
     const rawHref = (badge as HTMLAnchorElement).getAttribute?.('href') ?? '';
     const refId = rawHref.startsWith('#') ? rawHref.slice(1) : '';
@@ -268,6 +384,19 @@ const _onBadgeOver = (e: MouseEvent) => {
             badge.dataset.domain = domain;
             badge.dataset.url = url;
           } catch { /* ignore malformed URLs */ }
+        } else {
+          // Last resort: extract bare URL from text content
+          const bareMatch = refEl.textContent?.match(/https?:\/\/[^\s)<>]+/);
+          if (bareMatch) {
+            try {
+              domain = new URL(bareMatch[0]).hostname.replace(/^www\./, '');
+              title = domain.slice(0, 64);
+              url = bareMatch[0];
+              badge.dataset.title = title;
+              badge.dataset.domain = domain;
+              badge.dataset.url = url;
+            } catch { /* ignore */ }
+          }
         }
       }
     }
@@ -292,14 +421,29 @@ const _onBadgeOut = (e: MouseEvent) => {
   if ((e.target as HTMLElement).closest('a[href^="#ref-"], .ref-list-anchor')) scheduleHideCard();
 };
 
+// Intercept clicks on citation badges (href="#ref-N") — scroll to the
+// reference element instead of triggering browser anchor navigation.
+const _onBadgeClick = (e: MouseEvent) => {
+  const anchor = (e.target as HTMLElement).closest('a[href^="#ref-"]') as HTMLAnchorElement | null;
+  if (!anchor) return;
+  e.preventDefault();
+  const refId = anchor.getAttribute('href')!.slice(1);
+  const refEl = contentRef.value?.querySelector(`#${refId}`);
+  if (refEl) {
+    refEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+};
+
 onMounted(() => {
   contentRef.value?.addEventListener('mouseover', _onBadgeOver);
   contentRef.value?.addEventListener('mouseout', _onBadgeOut);
+  contentRef.value?.addEventListener('click', _onBadgeClick);
 });
 
 onBeforeUnmount(() => {
   contentRef.value?.removeEventListener('mouseover', _onBadgeOver);
   contentRef.value?.removeEventListener('mouseout', _onBadgeOut);
+  contentRef.value?.removeEventListener('click', _onBadgeClick);
   if (_hideCardTimer) clearTimeout(_hideCardTimer);
   editor.value?.destroy();
 });
@@ -330,20 +474,12 @@ defineExpose({
   --tw-prose-td-borders: var(--border-light);
 }
 
-:global(.dark) :deep(.prose),
-:global([data-theme='dark']) :deep(.prose) {
-  --tw-prose-links: #58a6ff;
-}
+/* Dark mode prose + report-link overrides in unscoped <style> block below */
 
-/* Link styling — theme-aware for dark mode */
+/* Link styling */
 :deep(.report-link) {
   color: #1a73e8;
   transition: color 0.15s ease;
-}
-
-:global(.dark) :deep(.report-link),
-:global([data-theme='dark']) :deep(.report-link) {
-  color: #58a6ff;
 }
 
 :deep(.prose h1) {
@@ -500,17 +636,14 @@ defineExpose({
   text-decoration: none !important;
 }
 
-:global(.dark) :deep(a[href^="#ref-"]),
-:global([data-theme='dark']) :deep(a[href^="#ref-"]) {
-  border-color: rgba(255, 255, 255, 0.25);
-  color: rgba(255, 255, 255, 0.45);
-}
+/* Dark mode badge + report-link safety overrides live in the unscoped <style> block below
+   to avoid Vue scoped CSS compilation issues with :global() + :deep() */
 
-:global(.dark) :deep(a[href^="#ref-"]:hover),
-:global([data-theme='dark']) :deep(a[href^="#ref-"]:hover) {
-  background: #e5e5e7;
-  border-color: #e5e5e7;
-  color: #1c1c1e;
+/* Safety: override report-link styles if class persists on citation badges
+   (TipTap Link extension re-applies classes on every render cycle) */
+:deep(a.report-link[href^="#ref-"]) {
+  color: rgba(0, 0, 0, 0.45);
+  text-decoration: none !important;
 }
 
 /* ── Reference list anchors — hover shows popup card ─ */
@@ -527,11 +660,7 @@ defineExpose({
   color: #1a73e8;
 }
 
-:global(.dark) :deep(.ref-list-anchor:hover),
-:global([data-theme='dark']) :deep(.ref-list-anchor:hover) {
-  text-decoration-color: #58a6ff;
-  color: #58a6ff;
-}
+/* Dark mode .ref-list-anchor:hover in unscoped <style> block below */
 
 /* no pseudo-element tooltip — handled by .cit-card teleported to body */
 
@@ -785,7 +914,7 @@ defineExpose({
 /* ── Dark mode ── */
 .dark .cit-card,
 [data-theme='dark'] .cit-card {
-  background: #1e1e20;
+  background: #222222;
   border-color: rgba(255, 255, 255, 0.09);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.04),
@@ -806,5 +935,50 @@ defineExpose({
 .dark .cit-card-arrow,
 [data-theme='dark'] .cit-card-arrow {
   color: rgba(240, 240, 240, 0.35);
+}
+
+/* ── Dark mode: prose link variable ──────────────────────────────────── */
+.dark .tiptap-report-editor .prose,
+[data-theme='dark'] .tiptap-report-editor .prose {
+  --tw-prose-links: #7cb3e0;
+}
+
+/* ── Dark mode: report-link color ────────────────────────────────────── */
+.dark .tiptap-report-editor .report-link,
+[data-theme='dark'] .tiptap-report-editor .report-link {
+  color: #7cb3e0;
+}
+
+/* ── Dark mode: inline citation badges ───────────────────────────────
+   Uses .tiptap-report-editor class for specificity (beats scoped [data-v] attrs).
+   Placed here (unscoped) because :global(.dark) :deep() in <style scoped> can be
+   unreliable across Vue SFC compiler versions. */
+.dark .tiptap-report-editor a[href^="#ref-"],
+[data-theme='dark'] .tiptap-report-editor a[href^="#ref-"] {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: none !important;
+}
+
+.dark .tiptap-report-editor a[href^="#ref-"]:hover,
+[data-theme='dark'] .tiptap-report-editor a[href^="#ref-"]:hover {
+  background: #e5e5e7;
+  border-color: #e5e5e7;
+  color: #1c1c1e;
+  text-decoration: none !important;
+}
+
+/* ── Dark mode: report-link safety override for citation badges ────── */
+.dark .tiptap-report-editor a.report-link[href^="#ref-"],
+[data-theme='dark'] .tiptap-report-editor a.report-link[href^="#ref-"] {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ── Dark mode: reference list anchor hover ──────────────────────────── */
+.dark .tiptap-report-editor .ref-list-anchor:hover,
+[data-theme='dark'] .tiptap-report-editor .ref-list-anchor:hover {
+  text-decoration-color: #7cb3e0;
+  color: #7cb3e0;
 }
 </style>
