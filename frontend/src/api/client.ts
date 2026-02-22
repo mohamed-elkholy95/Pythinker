@@ -1,7 +1,7 @@
 // Backend API client configuration
 import axios, { AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios';
 import { fetchEventSource, EventSourceMessage } from '@microsoft/fetch-event-source';
-import { router } from '@/main';
+import { router } from '@/router';
 import { clearStoredTokens, getStoredToken, getStoredRefreshToken, storeToken } from './auth';
 import { getSseDiagnosticsHeaderValue, logSseDiagnostics } from '@/utils/sseDiagnostics';
 import { getSseCircuitBreaker } from '@/composables/useCircuitBreaker';
@@ -85,15 +85,12 @@ const processQueue = (error: unknown, token: string | null = null) => {
  */
 const redirectToLogin = () => {
   // Check if we're already on the login page
-  if (window.location.pathname === LOGIN_ROUTE ||
-    router.currentRoute.value.path === LOGIN_ROUTE) {
+  if (router.currentRoute.value.path === LOGIN_ROUTE) {
     return; // Already on login page, no need to redirect
   }
 
-  // Use Vue Router to navigate to login page
-  setTimeout(() => {
-    window.location.href = LOGIN_ROUTE;
-  }, 100);
+  // Use Vue Router to navigate to login page (preserves Vue state)
+  router.push(LOGIN_ROUTE);
 };
 
 /**
@@ -162,94 +159,100 @@ const refreshAuthToken = async (): Promise<string | null> => {
   }
 };
 
+// Response interceptor callbacks — extracted as named functions so plugins
+// can eject and re-register them without accessing undocumented Axios internals.
+export const _responseInterceptorFulfilled = (response: import('axios').AxiosResponse) => {
+  // Check backend response format
+  if (response.data && typeof response.data.code === 'number') {
+    // If it's a business logic error (code not 0), convert to error handling
+    if (response.data.code !== 0) {
+      const apiError: ApiError = {
+        code: response.data.code,
+        message: response.data.msg || 'Unknown error',
+        details: response.data
+      };
+      return Promise.reject(apiError);
+    }
+  }
+  return response;
+};
+
+export const _responseInterceptorRejected = async (error: AxiosError) => {
+  const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean; __isRefreshRequest?: boolean };
+
+  // Skip retry logic for refresh requests to prevent infinite loops
+  if (originalRequest.__isRefreshRequest) {
+    const apiError: ApiError = {
+      code: error.response?.status || 500,
+      message: 'Token refresh failed',
+      details: error.response?.data
+    };
+    console.error('Refresh token request failed:', apiError);
+    return Promise.reject(apiError);
+  }
+
+  // Handle 401 Unauthorized errors with token refresh
+  if (error.response?.status === 401 && !originalRequest._retry) {
+    originalRequest._retry = true;
+
+    try {
+      const newAccessToken = await refreshAuthToken();
+      if (newAccessToken) {
+        // Retry original request with new token
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return apiClient(originalRequest);
+      }
+    } catch (refreshError) {
+      // Token refresh failed, error already handled in refreshAuthToken
+      console.error('Token refresh failed:', refreshError);
+    }
+  }
+
+  // Detect stale session references — emit event so composables can clean up.
+  // Matches: /api/v1/sessions/<id>/... returning 404 (session deleted or server restarted).
+  if (error.response?.status === 404) {
+    const url = error.config?.url ?? '';
+    if (/\/api\/v1\/sessions\/[^/]+/.test(url)) {
+      window.dispatchEvent(new CustomEvent('session:invalidated', { detail: { url } }));
+    }
+  }
+
+  const apiError: ApiError = {
+    code: 500,
+    message: 'Request failed',
+  };
+
+  if (error.response) {
+    const status = error.response.status;
+    apiError.code = status;
+
+    // Try to extract detailed error information from response content
+    if (error.response.data && typeof error.response.data === 'object') {
+      const data = error.response.data as Record<string, unknown>;
+      if (typeof data.code === 'number' && typeof data.msg === 'string') {
+        apiError.code = data.code;
+        apiError.message = data.msg;
+      } else {
+        apiError.message = (typeof data.message === 'string' ? data.message : null) || error.response.statusText || 'Request failed';
+      }
+      apiError.details = data;
+    } else {
+      apiError.message = error.response.statusText || 'Request failed';
+    }
+  } else if (error.request) {
+    apiError.code = 503;
+    apiError.message = 'Network error, please check your connection';
+  }
+
+  console.error('API Error:', apiError);
+  return Promise.reject(apiError);
+};
+
 // Response interceptor, unified error handling and token refresh
 // Exported for plugins that need to re-order interceptor execution (e.g. apiResilience)
 export const _responseInterceptorId = apiClient.interceptors.response.use(
-  (response) => {
-    // Check backend response format
-    if (response.data && typeof response.data.code === 'number') {
-      // If it's a business logic error (code not 0), convert to error handling
-      if (response.data.code !== 0) {
-        const apiError: ApiError = {
-          code: response.data.code,
-          message: response.data.msg || 'Unknown error',
-          details: response.data
-        };
-        return Promise.reject(apiError);
-      }
-    }
-    return response;
-  },
-  async (error: AxiosError) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean; __isRefreshRequest?: boolean };
-
-    // Skip retry logic for refresh requests to prevent infinite loops
-    if (originalRequest.__isRefreshRequest) {
-      const apiError: ApiError = {
-        code: error.response?.status || 500,
-        message: 'Token refresh failed',
-        details: error.response?.data
-      };
-      console.error('Refresh token request failed:', apiError);
-      return Promise.reject(apiError);
-    }
-
-    // Handle 401 Unauthorized errors with token refresh
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-
-      try {
-        const newAccessToken = await refreshAuthToken();
-        if (newAccessToken) {
-          // Retry original request with new token
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-          return apiClient(originalRequest);
-        }
-      } catch (refreshError) {
-        // Token refresh failed, error already handled in refreshAuthToken
-        console.error('Token refresh failed:', refreshError);
-      }
-    }
-
-    // Detect stale session references — emit event so composables can clean up.
-    // Matches: /api/v1/sessions/<id>/... returning 404 (session deleted or server restarted).
-    if (error.response?.status === 404) {
-      const url = error.config?.url ?? '';
-      if (/\/api\/v1\/sessions\/[^/]+/.test(url)) {
-        window.dispatchEvent(new CustomEvent('session:invalidated', { detail: { url } }));
-      }
-    }
-
-    const apiError: ApiError = {
-      code: 500,
-      message: 'Request failed',
-    };
-
-    if (error.response) {
-      const status = error.response.status;
-      apiError.code = status;
-
-      // Try to extract detailed error information from response content
-      if (error.response.data && typeof error.response.data === 'object') {
-        const data = error.response.data as Record<string, unknown>;
-        if (typeof data.code === 'number' && typeof data.msg === 'string') {
-          apiError.code = data.code;
-          apiError.message = data.msg;
-        } else {
-          apiError.message = (typeof data.message === 'string' ? data.message : null) || error.response.statusText || 'Request failed';
-        }
-        apiError.details = data;
-      } else {
-        apiError.message = error.response.statusText || 'Request failed';
-      }
-    } else if (error.request) {
-      apiError.code = 503;
-      apiError.message = 'Network error, please check your connection';
-    }
-
-    console.error('API Error:', apiError);
-    return Promise.reject(apiError);
-  }
+  _responseInterceptorFulfilled,
+  _responseInterceptorRejected,
 );
 
 export interface SSECallbacks<T = unknown> {
@@ -329,6 +332,32 @@ const SSE_CONTROL_ERROR_MANUAL_RETRY = '__sse_manual_retry_scheduled__';
 const SSE_CONTROL_ERROR_FATAL_STOP = '__sse_fatal_stop__';
 const TERMINAL_STREAM_EVENTS = new Set(['done', 'complete', 'end', 'wait']);
 const NON_MEANINGFUL_PROGRESS_PHASES = new Set(['heartbeat', 'received']);
+
+/**
+ * Creates a deduplication tracker for SSE event IDs.
+ * Uses LRU-style trimming when the set exceeds maxSize.
+ */
+const makeEventIdTracker = (maxSize: number): ((eventId: string) => boolean) => {
+  const seen = new Set<string>();
+  return (eventId: string): boolean => {
+    if (seen.has(eventId)) {
+      return false;
+    }
+    seen.add(eventId);
+
+    if (seen.size > maxSize) {
+      const ids = Array.from(seen);
+      seen.clear();
+      const keepFrom = Math.max(0, ids.length - Math.floor(maxSize / 2));
+      for (let i = keepFrom; i < ids.length; i += 1) {
+        const id = ids[i];
+        if (id) seen.add(id);
+      }
+    }
+
+    return true;
+  };
+};
 
 export const isTerminalStreamEvent = (eventName: string): boolean => {
   return TERMINAL_STREAM_EVENTS.has(eventName);
@@ -617,7 +646,7 @@ export const createSSEConnection = async <T = unknown>(
   let onlineRetryHandler: (() => void) | null = null;
   let serverRequestedRetry = false;
   let serverRetryAfterMs: number | undefined;
-  const seenEventIds = new Set<string>();
+  const trackEventId = makeEventIdTracker(MAX_TRACKED_EVENT_IDS);
 
   // Guard against dual reconnection when both onclose and onerror fire
   // for the same disconnect event (fetch-event-source can call both)
@@ -635,25 +664,6 @@ export const createSSEConnection = async <T = unknown>(
       window.removeEventListener('online', onlineRetryHandler);
       onlineRetryHandler = null;
     }
-  };
-
-  const trackEventId = (eventId: string): boolean => {
-    if (seenEventIds.has(eventId)) {
-      return false;
-    }
-    seenEventIds.add(eventId);
-
-    if (seenEventIds.size > MAX_TRACKED_EVENT_IDS) {
-      const ids = Array.from(seenEventIds);
-      seenEventIds.clear();
-      const keepFrom = Math.max(0, ids.length - Math.floor(MAX_TRACKED_EVENT_IDS / 2));
-      for (let i = keepFrom; i < ids.length; i += 1) {
-        const id = ids[i];
-        if (id) seenEventIds.add(id);
-      }
-    }
-
-    return true;
   };
 
   const scheduleReconnect = (
@@ -762,7 +772,11 @@ export const createSSEConnection = async <T = unknown>(
         resumeEventId: lastReceivedEventId ?? null,
       });
 
-      // Reset disconnect handled flag for this new connection attempt
+      // Reset all per-attempt state immediately before starting the connection.
+      // Groups event tracking flags with the disconnect guard so reconnect
+      // handlers evaluate correctly against the new attempt's state.
+      receivedAnyEvents = false;
+      receivedMeaningfulEvents = false;
       isDisconnectHandled = false;
 
       const ssePromise = fetchEventSource(apiUrl, {
@@ -1213,7 +1227,8 @@ export const createEventSourceConnection = async <T = unknown>(
   const { query = {}, withCredentials = false, retryPolicy } = options;
 
   let streamCompleted = false;
-  const messageSent = false;
+  // Native EventSource is GET-only; message submission is not applicable.
+  const messageSent = false as const;
   let receivedAnyEvents = false;
   let receivedMeaningfulEvents = false;
   let retryCount = 0;
@@ -1221,7 +1236,7 @@ export const createEventSourceConnection = async <T = unknown>(
   let lastReceivedEventId: string | undefined =
     typeof query.event_id === 'string' ? query.event_id : undefined;
   const activeRetryPolicy = normalizeRetryPolicy(retryPolicy);
-  const seenEventIds = new Set<string>();
+  const trackEventId = makeEventIdTracker(MAX_TRACKED_EVENT_IDS);
 
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
@@ -1431,23 +1446,6 @@ export const createEventSourceConnection = async <T = unknown>(
     };
   };
 
-  const trackEventId = (eventId: string): boolean => {
-    if (seenEventIds.has(eventId)) {
-      return false;
-    }
-    seenEventIds.add(eventId);
-
-    if (seenEventIds.size > MAX_TRACKED_EVENT_IDS) {
-      const ids = Array.from(seenEventIds);
-      seenEventIds.clear();
-      const keepFrom = Math.max(0, ids.length - Math.floor(MAX_TRACKED_EVENT_IDS / 2));
-      for (let i = keepFrom; i < ids.length; i += 1) {
-        const id = ids[i];
-        if (id) seenEventIds.add(id);
-      }
-    }
-    return true;
-  };
 
   source.onopen = () => {
     retryCount = 0;

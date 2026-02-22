@@ -356,12 +356,14 @@ export function initializeAuth(): void {
   }
 }
 
-// Auth provider cache
+// Auth provider cache with in-flight promise deduplication
 let authProviderCache: string | null = null
 let isAuthProviderLoaded = false
+let pendingAuthProviderPromise: Promise<string | null> | null = null
 
 /**
- * Get auth provider configuration (cached after first call)
+ * Get auth provider configuration (cached after first call).
+ * Concurrent callers share a single in-flight request to avoid duplicate API calls.
  * @returns Auth provider string or null if failed to load
  */
 export async function getCachedAuthProvider(): Promise<string | null> {
@@ -369,16 +371,27 @@ export async function getCachedAuthProvider(): Promise<string | null> {
   if (isAuthProviderLoaded) {
     return authProviderCache
   }
-  
-  // Load auth provider configuration
-  try {
-    const authStatus = await getAuthStatus()
-    authProviderCache = authStatus.auth_provider
-    isAuthProviderLoaded = true
-    return authProviderCache
-  } catch (error) {
-    console.warn('Failed to load auth provider configuration:', error)
-    // Don't set isAuthProviderLoaded to true on error, allow retry
-    return null
+
+  // Return in-flight promise if a request is already pending
+  if (pendingAuthProviderPromise) {
+    return pendingAuthProviderPromise
   }
+
+  // Load auth provider configuration (deduplicated)
+  pendingAuthProviderPromise = getAuthStatus()
+    .then((authStatus) => {
+      authProviderCache = authStatus.auth_provider
+      isAuthProviderLoaded = true
+      return authProviderCache
+    })
+    .catch((error) => {
+      console.warn('Failed to load auth provider configuration:', error)
+      // Don't set isAuthProviderLoaded to true on error, allow retry
+      return null
+    })
+    .finally(() => {
+      pendingAuthProviderPromise = null
+    })
+
+  return pendingAuthProviderPromise
 } 
