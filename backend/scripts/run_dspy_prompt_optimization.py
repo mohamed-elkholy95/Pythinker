@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import pathlib
@@ -39,6 +40,55 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _extract_patch_text_from_artifact(artifact_bytes: bytes) -> str:
+    """Extract the optimized prompt instructions from a DSPy artifact.
+
+    DSPy's ``.save()`` produces JSON structured as::
+
+        {
+            "generate": {"signature": {"instructions": "...", "prefix": "..."}, "demos": [...], "lm": null},
+            "metadata": {"dependency_versions": {...}},
+        }
+
+    We extract ``signature.instructions`` which is the optimized prompt text.
+    Falls back to the raw decoded artifact if parsing fails.
+    """
+    raw = artifact_bytes.decode("utf-8", errors="replace")
+    try:
+        data = json.loads(raw)
+        # Walk top-level keys looking for signature.instructions
+        # DSPy programs may have different module names (e.g., "generate", "predict")
+        for module_name, module_data in data.items():
+            if module_name == "metadata" or not isinstance(module_data, dict):
+                continue
+            # Primary path: signature.instructions (DSPy >=2.4 save format)
+            signature = module_data.get("signature", {})
+            if isinstance(signature, dict) and "instructions" in signature:
+                instructions = signature["instructions"]
+                if isinstance(instructions, str) and instructions.strip():
+                    logger.info(
+                        "Extracted instructions from artifact module '%s' (%d chars)",
+                        module_name,
+                        len(instructions),
+                    )
+                    return instructions
+            # Fallback: instructions at module level (older DSPy versions)
+            if "instructions" in module_data:
+                instructions = module_data["instructions"]
+                if isinstance(instructions, str) and instructions.strip():
+                    logger.info(
+                        "Extracted instructions (legacy format) from module '%s' (%d chars)",
+                        module_name,
+                        len(instructions),
+                    )
+                    return instructions
+        # If no instructions found, fall back to raw
+        logger.warning("No 'instructions' key found in artifact — using raw artifact as patch text")
+    except (json.JSONDecodeError, TypeError) as exc:
+        logger.warning("Failed to parse artifact JSON (%s) — using raw artifact as patch text", exc)
+    return raw
 
 
 async def run_and_publish(
@@ -160,7 +210,7 @@ async def run_and_publish(
 
         # Optionally publish as PromptProfile
         if publish:
-            patch_text = result.artifact_bytes.decode("utf-8", errors="replace")
+            patch_text = _extract_patch_text_from_artifact(result.artifact_bytes)
             # Generate profile ID first so patches can reference it at construction
             profile_id = str(uuid.uuid4())
             profile = PromptProfile(
