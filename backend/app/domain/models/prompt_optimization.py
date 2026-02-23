@@ -68,9 +68,10 @@ class OptimizationCaseExpected(BaseModel):
 class OptimizationCase(BaseModel):
     """Normalized training/eval example for the optimizer.
 
-    Each case maps to a ``dspy.Example(...).with_inputs("request_payload")``
-    object.  The split field controls whether the case is used for training,
-    validation, or held-out testing.
+    Each case is converted to a ``dspy.Example`` with individual input fields
+    matching the program signature (``user_request``, ``available_tools``, etc.).
+    The split field controls whether the case is used for training, validation,
+    or held-out testing.
     """
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
