@@ -73,9 +73,10 @@ defineProps<{
 }
 
 /* ── Deep Research — full contrast + shimmer ── */
+/* Hardcoded so the icon looks identical in light and dark mode. */
 .badge-deep .badge-icon-wrap {
-  background: var(--bolt-elements-item-contentAccent);
-  color: var(--Button-primary-white);
+  background: #000;
+  color: #fff;
   animation: globe-spin 7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
@@ -109,7 +110,7 @@ defineProps<{
 }
 
 /* ── Dark theme ── */
-:global([data-theme='dark']) .badge-deep::after {
+:global(.dark) .badge-deep::after {
   background: linear-gradient(
     105deg,
     transparent 35%,
@@ -120,19 +121,12 @@ defineProps<{
   );
 }
 
-/* In dark mode --bolt-elements-item-contentAccent resolves to a muted grey
-   surface — replace with a vivid brand-aware fill so the globe reads clearly. */
-:global([data-theme='dark']) .badge-deep .badge-icon-wrap {
-  background: var(--text-brand);
-  color: #fff;
-}
-
-:global([data-theme='dark']) .badge-fast .badge-icon-wrap {
+:global(.dark) .badge-fast .badge-icon-wrap {
   background: rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.82);
 }
 
-:global([data-theme='dark']) .research-badge {
+:global(.dark) .research-badge {
   border-color: var(--border-light);
 }
 
