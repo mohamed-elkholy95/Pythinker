@@ -1462,7 +1462,7 @@ class AgentTaskRunner(TaskRunner):
                     )
                     event.tool_content = SearchToolContent(results=normalized_results)
                 elif event.tool_name == "chart":
-                    # Handle chart tool events - sync HTML and PNG to storage
+                    # Handle chart tool events - sync HTML/PNG + Plotly JSON contract to storage
                     if event.function_result and hasattr(event.function_result, "data"):
                         # Safely coerce data to dict (handles non-dict or None values)
                         raw_data = getattr(event.function_result, "data", None)
@@ -1472,62 +1472,68 @@ class AgentTaskRunner(TaskRunner):
 
                         html_path = data.get("html_path")
                         png_path = data.get("png_path")
+                        plotly_json_path = data.get("plotly_json_path")
 
-                        # Sync files independently (not requiring both to exist)
+                        # Sync files independently (not requiring all artifacts to exist)
                         html_info = None
                         png_info = None
+                        plotly_json_info = None
                         sync_errors: list[str] = []
+                        sync_warnings: list[str] = []
                         if not tool_success and tool_message:
                             # Preserve tool-level failures (e.g., script/runtime errors) so
                             # frontend shows a concrete cause instead of generic "unavailable".
                             sync_errors.append(tool_message)
-                        elif tool_success and not html_path and not png_path:
+                        elif tool_success and not html_path and not png_path and not plotly_json_path:
                             # Successful result with missing paths is still an error condition.
                             sync_errors.append("Chart generation returned no output files")
-                        sync_tasks = []
+                        sync_plan: list[tuple[str, str, str]] = []
 
-                        if html_path:
-                            sync_tasks.append(
-                                self._sync_file_to_storage_with_retry(
-                                    html_path,
-                                    content_type="text/html",
-                                    max_attempts=3,
-                                )
-                            )
-                        if png_path:
-                            sync_tasks.append(
-                                self._sync_file_to_storage_with_retry(
-                                    png_path,
-                                    content_type="image/png",
-                                    max_attempts=3,
-                                )
-                            )
+                        if isinstance(html_path, str) and html_path:
+                            sync_plan.append(("html", html_path, "text/html"))
+                        if isinstance(png_path, str) and png_path:
+                            sync_plan.append(("png", png_path, "image/png"))
+                        if isinstance(plotly_json_path, str) and plotly_json_path:
+                            sync_plan.append(("plotly_json", plotly_json_path, "application/json"))
 
                         # Execute syncs concurrently if any exist
-                        if sync_tasks:
+                        if sync_plan:
+                            sync_tasks = [
+                                self._sync_file_to_storage_with_retry(
+                                    artifact_path,
+                                    content_type=content_type,
+                                    max_attempts=3,
+                                )
+                                for _, artifact_path, content_type in sync_plan
+                            ]
                             results = await asyncio.gather(*sync_tasks, return_exceptions=True)
 
-                            # Map results back to html_info/png_info based on which paths were present
-                            result_idx = 0
-                            if html_path:
-                                if isinstance(results[result_idx], Exception):
-                                    sync_errors.append(f"HTML sync failed: {results[result_idx]}")
-                                    logger.warning(f"HTML sync failed: {results[result_idx]}")
-                                elif results[result_idx] is None:
-                                    sync_errors.append("HTML file missing or empty in sandbox")
-                                    logger.warning("HTML sync returned None for %s", html_path)
-                                else:
-                                    html_info = results[result_idx]
-                                result_idx += 1
-                            if png_path:
-                                if isinstance(results[result_idx], Exception):
-                                    sync_errors.append(f"PNG sync failed: {results[result_idx]}")
-                                    logger.warning(f"PNG sync failed: {results[result_idx]}")
-                                elif results[result_idx] is None:
-                                    sync_errors.append("PNG file missing or empty in sandbox")
-                                    logger.warning("PNG sync returned None for %s", png_path)
-                                else:
-                                    png_info = results[result_idx]
+                            for (artifact_kind, artifact_path, _), result in zip(sync_plan, results, strict=False):
+                                artifact_label = artifact_kind.replace("_", " ").upper()
+                                if isinstance(result, Exception):
+                                    message = f"{artifact_label} sync failed: {result}"
+                                    if artifact_kind == "plotly_json":
+                                        sync_warnings.append(message)
+                                    else:
+                                        sync_errors.append(message)
+                                    logger.warning("%s", message)
+                                    continue
+
+                                if result is None:
+                                    message = f"{artifact_label} file missing or empty in sandbox"
+                                    if artifact_kind == "plotly_json":
+                                        sync_warnings.append(message)
+                                    else:
+                                        sync_errors.append(message)
+                                    logger.warning("%s for %s", message, artifact_path)
+                                    continue
+
+                                if artifact_kind == "html":
+                                    html_info = result
+                                elif artifact_kind == "png":
+                                    png_info = result
+                                elif artifact_kind == "plotly_json":
+                                    plotly_json_info = result
 
                         # Build error message if any sync failed
                         chart_error = "; ".join(sync_errors) if sync_errors else None
@@ -1538,9 +1544,13 @@ class AgentTaskRunner(TaskRunner):
                             title=data.get("title", "Chart"),
                             html_file_id=html_info.file_id if html_info else None,
                             png_file_id=png_info.file_id if png_info else None,
+                            plotly_json_file_id=plotly_json_info.file_id if plotly_json_info else None,
                             html_filename=html_info.filename if html_info else None,
                             png_filename=png_info.filename if png_info else None,
+                            plotly_json_filename=plotly_json_info.filename if plotly_json_info else None,
                             html_size=data.get("html_size"),
+                            plotly_json_size=data.get("plotly_json_size"),
+                            render_contract_version=data.get("render_contract_version"),
                             data_points=data.get("data_points", 0),
                             series_count=data.get("series_count", 0),
                             error=chart_error,
@@ -1548,13 +1558,19 @@ class AgentTaskRunner(TaskRunner):
 
                         log_fn = logger.error if chart_error else logger.info
                         log_fn(
-                            "Chart created: type=%s title=%s data_points=%s series=%s html=%s png=%s error=%s",
+                            (
+                                "Chart created: type=%s title=%s data_points=%s series=%s "
+                                "html=%s png=%s plotly_json=%s contract=%s warnings=%s error=%s"
+                            ),
                             data.get("chart_type"),
                             data.get("title"),
                             data.get("data_points"),
                             data.get("series_count"),
                             "synced" if html_info else "missing/failed",
                             "synced" if png_info else "missing/failed",
+                            "synced" if plotly_json_info else "missing/failed",
+                            data.get("render_contract_version"),
+                            "; ".join(sync_warnings) if sync_warnings else None,
                             chart_error,
                         )
                 elif event.tool_name == "shell":
