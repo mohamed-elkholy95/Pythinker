@@ -101,6 +101,12 @@ SSE_RETRY_MAX_DELAY_MS = 45000
 SSE_RETRY_JITTER_RATIO = 0.25
 SSE_HEARTBEAT_INTERVAL_SECONDS = 30.0
 SSE_DISCONNECT_CANCELLATION_GRACE_SECONDS = 45.0
+SSE_TERMINAL_STATUS_CLOSE_REASONS: dict[str, str] = {
+    "completed": "session_terminal_completed",
+    "failed": "session_terminal_failed",
+    "cancelled": "session_terminal_cancelled",
+}
+SSE_NON_TERMINAL_STATUSES = {"pending", "initializing", "running", "waiting"}
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 _pending_disconnect_cancellations: dict[str, asyncio.Task[None]] = {}
@@ -177,6 +183,26 @@ def _event_phase_label(event: object) -> str:
 def _is_heartbeat_progress_event(event: object) -> bool:
     """Return True when the event is a transport heartbeat progress event."""
     return isinstance(event, ProgressEvent) and event.phase == PlanningPhase.HEARTBEAT
+
+
+def _normalize_session_status(status: object | None) -> str:
+    """Normalize session status into a lowercase string value."""
+    if status is None:
+        return "unknown"
+    raw_value = str(status.value) if hasattr(status, "value") else str(status)
+    normalized = raw_value.strip().lower()
+    return normalized or "unknown"
+
+
+def _resolve_stream_exhausted_close_reason(status: object | None) -> str:
+    """Map stream exhaustion to a bounded close-reason enum using session status."""
+    normalized_status = _normalize_session_status(status)
+    terminal_reason = SSE_TERMINAL_STATUS_CLOSE_REASONS.get(normalized_status)
+    if terminal_reason:
+        return terminal_reason
+    if normalized_status in SSE_NON_TERMINAL_STATUSES:
+        return "stream_exhausted_non_terminal"
+    return "stream_exhausted_unknown_state"
 
 
 def _build_sse_protocol_headers(heartbeat_interval_seconds: float = SSE_HEARTBEAT_INTERVAL_SECONDS) -> dict[str, str]:
@@ -517,6 +543,8 @@ async def chat(
         )
 
         replay_events: list[ServerSentEvent] = []
+        stale_resume_gap_event: ServerSentEvent | None = None
+        normalized_terminal_status = _normalize_session_status(session.status)
         if resume_cursor:
             session_events = getattr(session, "events", None) or []
             sse_events = await EventMapper.events_to_sse_events(session_events)
@@ -529,6 +557,7 @@ async def chat(
                 None,
             )
             if cursor_index is not None:
+                pm.record_sse_resume_cursor_state(endpoint="chat", state="found")
                 replay_events.extend(
                     ServerSentEvent(
                         event=sse_event.event,
@@ -537,15 +566,43 @@ async def chat(
                     for sse_event in sse_events[cursor_index + 1 :]
                 )
             else:
+                pm.record_sse_resume_cursor_state(endpoint="chat", state="stale")
+                pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="stale_cursor")
                 logger.info(
                     "Resume cursor %s not found in completed session %s; falling back to done-only response",
                     resume_cursor,
                     session_id,
                 )
+                stale_gap = ErrorEvent(
+                    error="Reconnect gap detected. Resume cursor not found; returning latest session state.",
+                    error_type="stream_gap",
+                    error_code="stream_gap_detected",
+                    error_category="transport",
+                    severity="warning",
+                    recoverable=True,
+                    can_resume=True,
+                    retry_hint="Session is terminal; refreshed state includes the latest available output.",
+                    details={
+                        "session_id": session_id,
+                        "resume_cursor": resume_cursor,
+                        "reason": "stale_cursor",
+                        "status": normalized_terminal_status,
+                    },
+                )
+                sse_gap = await EventMapper.event_to_sse_event(stale_gap)
+                if sse_gap:
+                    stale_resume_gap_event = ServerSentEvent(
+                        event=sse_gap.event,
+                        data=sse_gap.data.model_dump_json() if sse_gap.data else None,
+                    )
+        else:
+            pm.record_sse_resume_cursor_state(endpoint="chat", state="absent")
 
         if replay_events:
 
             async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
+                if stale_resume_gap_event:
+                    yield stale_resume_gap_event
                 for replay_event in replay_events:
                     yield replay_event
 
@@ -555,6 +612,8 @@ async def chat(
         sse_done = await EventMapper.event_to_sse_event(done_event)
 
         async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
+            if stale_resume_gap_event:
+                yield stale_resume_gap_event
             if sse_done:
                 yield ServerSentEvent(
                     event=sse_done.event,
@@ -927,8 +986,19 @@ async def chat(
         finally:
             disconnect_event.set()
             elapsed_seconds = asyncio.get_running_loop().time() - stream_started_at
-            if close_reason == "unknown":
-                close_reason = "stream_exhausted"
+            if close_reason in {"unknown", "stream_exhausted"}:
+                final_status: object | None = getattr(session, "status", None)
+                with contextlib.suppress(Exception):
+                    refreshed_session = await agent_service.get_session(session_id, current_user.id)
+                    if refreshed_session is not None:
+                        final_status = getattr(refreshed_session, "status", final_status)
+                close_reason = _resolve_stream_exhausted_close_reason(final_status)
+                if close_reason == "stream_exhausted_non_terminal":
+                    logger.warning(
+                        "SSE stream exhausted while session is non-terminal (session=%s status=%s)",
+                        session_id,
+                        _normalize_session_status(final_status),
+                    )
             if close_reason in {"client_disconnected", "generator_cancelled"}:
                 stream_metrics.record_cancellation()
             with contextlib.suppress(Exception):

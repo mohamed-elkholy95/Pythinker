@@ -11,12 +11,17 @@ import pytest
 from app.core.prometheus_metrics import (
     reset_all_metrics,
     sse_reconnect_first_non_heartbeat_seconds,
+    sse_resume_cursor_fallback_total,
+    sse_resume_cursor_state_total,
+    sse_stream_close_total,
     sse_stream_events_total,
 )
 from app.domain.models.event import DoneEvent, PlanningPhase, ProgressEvent, ReportEvent
 from app.interfaces.api.session_routes import (
     _cancel_pending_disconnect_cancellation,
     _event_phase_label,
+    _normalize_session_status,
+    _resolve_stream_exhausted_close_reason,
     _safe_exc_text,
     _schedule_disconnect_cancellation,
     chat,
@@ -59,6 +64,20 @@ def test_safe_exc_text_truncates_long_messages():
 def test_event_phase_label_handles_enum_and_missing_phase():
     assert _event_phase_label(ProgressEvent(phase=PlanningPhase.ANALYZING, message="a", progress_percent=10)) == "analyzing"
     assert _event_phase_label(DoneEvent(title="Done")) == "none"
+
+
+def test_normalize_session_status_handles_enum_strings_and_unknown():
+    assert _normalize_session_status(PlanningPhase.ANALYZING) == "analyzing"
+    assert _normalize_session_status("RUNNING") == "running"
+    assert _normalize_session_status(None) == "unknown"
+
+
+def test_resolve_stream_exhausted_close_reason_maps_terminal_and_non_terminal_statuses():
+    assert _resolve_stream_exhausted_close_reason("completed") == "session_terminal_completed"
+    assert _resolve_stream_exhausted_close_reason("failed") == "session_terminal_failed"
+    assert _resolve_stream_exhausted_close_reason("cancelled") == "session_terminal_cancelled"
+    assert _resolve_stream_exhausted_close_reason("running") == "stream_exhausted_non_terminal"
+    assert _resolve_stream_exhausted_close_reason("mystery") == "stream_exhausted_unknown_state"
 
 
 @pytest.mark.asyncio
@@ -251,6 +270,43 @@ async def test_chat_completed_session_with_resume_cursor_replays_tail_events():
     assert events[0]["data"]["event_id"] == "evt-report"
     assert events[0]["data"]["title"] == "Final Report"
     assert events[1]["data"]["event_id"] == "evt-done"
+    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "found"}) == 1.0
+    agent_service.chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_completed_session_with_stale_resume_cursor_emits_gap_then_done():
+    """Completed session + stale cursor should emit explicit gap diagnostics before done."""
+    session_id = "sess-stale-cursor"
+    done_event = DoneEvent(id="evt-done", title="Task completed")
+    session = _make_completed_session(
+        session_id=session_id,
+        title="Finished task",
+        events=[done_event],
+    )
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(return_value=session),
+        chat=AsyncMock(),  # Should NOT be called
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest(event_id="evt-missing")
+
+    response = await chat(
+        session_id=session_id,
+        request=request,
+        http_request=_make_http_request(),
+        current_user=current_user,
+        agent_service=agent_service,
+    )
+
+    events = await _collect_sse_events(response)
+
+    assert [event["event"] for event in events] == ["error", "done"]
+    assert events[0]["data"]["error_code"] == "stream_gap_detected"
+    assert events[0]["data"]["details"]["reason"] == "stale_cursor"
+    assert "event_id" in events[1]["data"]
+    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "stale"}) == 1.0
+    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "stale_cursor"}) == 1.0
     agent_service.chat.assert_not_awaited()
 
 
@@ -406,6 +462,69 @@ async def test_chat_reconnect_records_latency_and_phase_metrics():
     assert sse_stream_events_total.get({"endpoint": "chat", "event_type": "progress", "phase": "received"}) >= 1.0
     assert sse_stream_events_total.get({"endpoint": "chat", "event_type": "progress", "phase": "analyzing"}) >= 1.0
     assert sse_stream_events_total.get({"endpoint": "chat", "event_type": "done", "phase": "none"}) >= 1.0
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_exhausted_uses_terminal_close_reason_when_session_completed():
+    """Active stream exhaustion should map to terminal close reason when session is completed."""
+    session_id = "sess-close-terminal"
+    initial_session = SimpleNamespace(id=session_id, status="running", title="Active task")
+    terminal_session = SimpleNamespace(id=session_id, status="completed", title="Active task")
+
+    async def fake_chat(**_kwargs):
+        yield DoneEvent(title="done")
+
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(side_effect=[initial_session, terminal_session]),
+        chat=fake_chat,
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest(message="continue")
+
+    with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+        mock_settings.return_value = SimpleNamespace(feature_sse_v2=False)
+        response = await chat(
+            session_id=session_id,
+            request=request,
+            http_request=_make_http_request(),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+    events = await _collect_sse_events(response)
+    assert any(event["event"] == "done" for event in events)
+    assert sse_stream_close_total.get({"endpoint": "chat", "reason": "session_terminal_completed"}) == 1.0
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_exhausted_uses_non_terminal_close_reason_when_session_running():
+    """Stream exhaustion without terminal session state should not be reported as completed."""
+    session_id = "sess-close-nonterminal"
+    running_session = SimpleNamespace(id=session_id, status="running", title="Active task")
+
+    async def fake_chat(**_kwargs):
+        yield DoneEvent(title="done")
+
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(side_effect=[running_session, running_session]),
+        chat=fake_chat,
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest(message="continue")
+
+    with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+        mock_settings.return_value = SimpleNamespace(feature_sse_v2=False)
+        response = await chat(
+            session_id=session_id,
+            request=request,
+            http_request=_make_http_request(),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+    events = await _collect_sse_events(response)
+    assert any(event["event"] == "done" for event in events)
+    assert sse_stream_close_total.get({"endpoint": "chat", "reason": "stream_exhausted_non_terminal"}) == 1.0
 
 
 @pytest.mark.asyncio
