@@ -129,6 +129,7 @@
           class="flex flex-col w-full pb-[80px] pt-[24px] flex-1"
           :class="{
             'chat-messages-with-pinned-dock': shouldPinComposerToBottom,
+            'chat-messages-with-progress-dock': shouldPinComposerToBottom && showProgressDockSpacer && !showThumbnailDockSpacer,
             'chat-messages-with-thumbnail-dock': shouldPinComposerToBottom && showThumbnailDockSpacer,
           }"
         >
@@ -140,6 +141,7 @@
             :renderAsSummaryCard="shouldRenderSummaryCard(index)"
             :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id) && !canShowSuggestions"
             :sources="sourcesForMessageMap.get(index)"
+            :isFastSearchSession="sessionResearchMode === 'fast_search'"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -306,7 +308,7 @@
           <!-- Hide when timed_out to avoid flicker during auto-retry reconnect cycles -->
           <Transition name="planning-card">
             <PlanningCard
-              v-if="!showSessionWarmupMessage && !isToolPanelOpen && responsePhase !== 'timed_out' && planningProgress && (!plan || plan.steps.length === 0)"
+              v-if="!showSessionWarmupMessage && !isToolPanelOpen && responsePhase !== 'timed_out' && sessionResearchMode === 'deep_research' && planningProgress && (!plan || plan.steps.length === 0)"
               class="mb-2"
               :phase="planningProgress.phase"
               :message="planningProgress.message"
@@ -765,6 +767,13 @@ const createScopedTransportCallbacks = (
     onClose: (closeInfo) => {
       if (!isActiveStreamAttempt(attemptId)) return
       baseCallbacks.onClose?.(closeInfo)
+      // Post-stream reconciliation: when stream closes without a done event,
+      // poll the backend to detect if the session actually completed.
+      // This handles network drops, backend restarts, and other edge cases
+      // where the done event is lost before reaching the frontend.
+      if (!receivedDoneEvent.value && !isSessionComplete.value && sessionId.value) {
+        reconcileSessionStatus();
+      }
     },
     onError: (error) => {
       if (!isActiveStreamAttempt(attemptId)) return
@@ -1187,7 +1196,7 @@ const initializePendingSession = async () => {
   }
 
   try {
-    const session = await agentApi.createSession(mode, { research_mode: researchMode });
+    const session = await agentApi.createSession(mode, { research_mode: researchMode, sandbox_wait_seconds: 0 });
     sessionResearchMode.value = researchMode;
     sessionId.value = session.session_id;
     if (pendingMessage) {
@@ -1318,6 +1327,52 @@ const cleanupStreamingState = () => {
     cancelCurrentChat.value = null;
   }
   activeChatStreamTraceId = null;
+};
+
+/**
+ * Post-stream reconciliation: poll backend status after SSE closes without a done event.
+ * Handles network drops, backend restarts, and other edge cases where the done event
+ * is lost before reaching the frontend.
+ */
+const reconcileSessionStatus = async () => {
+  const sid = sessionId.value;
+  if (!sid) return;
+
+  // Brief delay to let any in-flight events flush
+  await new Promise((r) => setTimeout(r, 800));
+
+  // Re-check guards after await — session may have settled in the meantime
+  if (receivedDoneEvent.value || isSessionComplete.value) return;
+  if (sessionId.value !== sid) return; // navigated away
+
+  logChatSseDiagnostics('reconcile:start');
+
+  try {
+    const statusResp = await agentApi.getSessionStatus(sid);
+    const status = statusResp.status as SessionStatus;
+
+    if (sessionId.value !== sid) return; // guard again after async
+
+    if (
+      status === SessionStatus.COMPLETED ||
+      status === SessionStatus.FAILED ||
+      status === SessionStatus.CANCELLED
+    ) {
+      logChatSseDiagnostics('reconcile:settled', { status });
+      sessionStatus.value = status;
+      realTime.value = false;
+      receivedDoneEvent.value = true;
+      transitionTo('settled');
+      cleanupStreamingState();
+      emitStatusChange(sid, status);
+      replay.loadScreenshots();
+    } else {
+      logChatSseDiagnostics('reconcile:still_running', { status });
+    }
+  } catch (err) {
+    logChatSseDiagnostics('reconcile:error', { error: String(err) });
+    // Non-critical — don't propagate. User can always refresh.
+  }
 };
 
 const streamController = useSessionStreamController({
@@ -1743,6 +1798,12 @@ const showTaskProgressBar = computed(() =>
   (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
 );
 
+// Add extra bottom scroll room when task progress bar or planning card is visible (no thumbnail).
+const showProgressDockSpacer = computed(() =>
+  showTaskProgressBar.value ||
+  (!showSessionWarmupMessage.value && !isToolPanelOpen.value && planningProgress.value !== null && (!plan.value || plan.value.steps.length === 0))
+);
+
 // Add extra bottom scroll room when mini preview thumbnail is rendered with the task progress bar.
 const showThumbnailDockSpacer = computed(() => showTaskProgressBar.value && shouldShowThumbnail.value);
 
@@ -1820,7 +1881,11 @@ const toolTimelineCanStepForward = computed(() => {
 const toolTimelineCanStepBackward = computed(() => toolTimelineIndex.value > 0);
 
 const showTimelineControls = computed(() => {
-  return isScreenshotReplayMode.value || toolTimelineIndex.value >= 0
+  // Show timeline when replay mode is active, OR when there are any tool entries
+  // in the timeline (not just when the current panel tool is in it — the panel
+  // may be showing a non-computer tool like search/mcp while earlier browser/shell
+  // tools still exist in the timeline).
+  return isScreenshotReplayMode.value || toolTimeline.value.length > 0
 });
 
 // Effective timeline values — replay mode overrides tool timeline
@@ -3228,6 +3293,9 @@ const restoreSession = async () => {
       console.log('[RESTORE] Status re-check shows session is', freshStatus.status, '- not resuming');
       const statusMap: Record<string, SessionStatus> = { completed: SessionStatus.COMPLETED, failed: SessionStatus.FAILED, cancelled: SessionStatus.CANCELLED };
       sessionStatus.value = statusMap[freshStatus.status] ?? SessionStatus.FAILED;
+      realTime.value = false;
+      transitionTo('settled')
+      receivedDoneEvent.value = true;
       replay.loadScreenshots();
       return;
     }
@@ -3266,7 +3334,10 @@ const restoreSession = async () => {
     console.log('[RESTORE] No stop flag, auto-resuming session');
     await chat();
   } else if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED || sessionStatus.value === SessionStatus.CANCELLED) {
-    // Load screenshots for replay mode
+    // Session already finished — settle immediately and load replay data
+    realTime.value = false;
+    transitionTo('settled')
+    receivedDoneEvent.value = true;
     replay.loadScreenshots()
   }
   agentApi.clearUnreadMessageCount(sessionId.value);
@@ -3525,6 +3596,8 @@ const handleStop = async () => {
   cleanupStreamingState();
   // NO ensureCompletionSuggestions() — user intentionally stopped
   sessionStatus.value = SessionStatus.COMPLETED;
+  // Load screenshots so replay mode activates after stopping
+  replay.loadScreenshots();
 }
 
 const handleContinueAfterTimeout = () => {
@@ -3783,6 +3856,10 @@ const handleCopyLink = async () => {
   padding-bottom: calc(196px + env(safe-area-inset-bottom));
 }
 
+.chat-messages-with-progress-dock {
+  padding-bottom: calc(270px + env(safe-area-inset-bottom));
+}
+
 .chat-messages-with-thumbnail-dock {
   padding-bottom: calc(296px + env(safe-area-inset-bottom));
 }
@@ -3805,6 +3882,10 @@ const handleCopyLink = async () => {
 @media (max-width: 640px) {
   .chat-messages-with-pinned-dock {
     padding-bottom: calc(212px + env(safe-area-inset-bottom));
+  }
+
+  .chat-messages-with-progress-dock {
+    padding-bottom: calc(286px + env(safe-area-inset-bottom));
   }
 
   .chat-messages-with-thumbnail-dock {

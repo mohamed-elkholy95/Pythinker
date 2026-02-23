@@ -109,7 +109,23 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
     evictOldFrames()
   }
 
-  // Keep the current frame warm and prefetch the next frame for smoother stepping.
+  async function prefetchBehind(count = 2): Promise<void> {
+    const fetches: Promise<void>[] = []
+    for (let offset = 1; offset <= count; offset++) {
+      const idx = currentIndex.value - offset
+      if (idx < 0) break
+      const s = screenshots.value[idx]
+      if (!s || blobUrlCache.has(s.id)) continue
+      fetches.push(
+        fetchScreenshotBlob(s.id).then((url) => {
+          if (url) blobUrlCache.set(s.id, url)
+        })
+      )
+    }
+    await Promise.all(fetches)
+  }
+
+  // Keep the current frame warm and prefetch adjacent frames for smoother stepping.
   watch(currentScreenshot, async (screenshot) => {
     const requestVersion = ++renderRequestVersion
     if (!screenshot) {
@@ -122,6 +138,7 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
 
     currentBlobUrl.value = blobUrl
     void prefetchAhead(3)
+    void prefetchBehind(2)
   })
 
   watch(sessionId, (nextSessionId, previousSessionId) => {
