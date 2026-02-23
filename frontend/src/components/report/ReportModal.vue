@@ -780,8 +780,7 @@ watch(isOpen, (newVal) => {
   --toc-accent: #1a73e8;
 }
 
-:global(.dark) .content-wrapper,
-:global([data-theme='dark']) .content-wrapper {
+:global(.dark) .content-wrapper {
   --toc-accent: #7cb3e0;
 }
 
@@ -852,8 +851,7 @@ watch(isOpen, (newVal) => {
   --tw-prose-td-borders: var(--border-light);
 }
 
-:global(.dark) .doc-body.prose,
-:global([data-theme='dark']) .doc-body.prose {
+:global(.dark) .doc-body.prose {
   --tw-prose-links: #7cb3e0;
 }
 
@@ -1324,22 +1322,19 @@ watch(isOpen, (newVal) => {
 <!-- Unscoped dark mode overrides — avoids :global() + :deep() Vue SFC compiler edge case -->
 <style>
 /* ── Dark mode: link color inside report modal ────────────────────────── */
-.dark .doc-body.prose a,
-[data-theme='dark'] .doc-body.prose a {
+.dark .doc-body.prose a {
   color: #7cb3e0;
 }
 
 /* ── Dark mode: inline citation badges ────────────────────────────────── */
-.dark .doc-body a[href^="#ref-"],
-[data-theme='dark'] .doc-body a[href^="#ref-"] {
+.dark .doc-body a[href^="#ref-"] {
   background: transparent;
   border-color: rgba(255, 255, 255, 0.22);
   color: rgba(255, 255, 255, 0.5);
   text-decoration: none !important;
 }
 
-.dark .doc-body a[href^="#ref-"]:hover,
-[data-theme='dark'] .doc-body a[href^="#ref-"]:hover {
+.dark .doc-body a[href^="#ref-"]:hover {
   background: #e5e5e7;
   border-color: #e5e5e7;
   color: #1c1c1e;

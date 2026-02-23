@@ -1112,13 +1112,11 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, 0.15);
 }
 
-:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb,
-:global([data-theme='dark']) .custom-scrollbar::-webkit-scrollbar-thumb {
+:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
 }
 
-:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover,
-:global([data-theme='dark']) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.15);
 }
 
