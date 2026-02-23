@@ -110,7 +110,7 @@ async def test_chat_no_active_task_and_no_input_ends_without_done_or_teardown() 
 
 
 @pytest.mark.asyncio
-async def test_chat_cancellation_marks_session_failed() -> None:
+async def test_chat_cancellation_marks_session_cancelled() -> None:
     task = SimpleNamespace(
         id="task-id",
         output_stream=SimpleNamespace(get=AsyncMock()),
@@ -145,7 +145,7 @@ async def test_chat_cancellation_marks_session_failed() -> None:
     teardown.assert_awaited_once_with(
         session.id,
         session=session,
-        status=SessionStatus.FAILED,
+        status=SessionStatus.CANCELLED,
         destroy_sandbox=False,
     )
 
