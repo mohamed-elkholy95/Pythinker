@@ -655,6 +655,31 @@ sse_stream_active = Gauge(
     labels=["endpoint"],
 )
 
+sse_resume_cursor_state_total = Counter(
+    name="pythinker_sse_resume_cursor_state_total",
+    help_text="Resume cursor resolution state for SSE reconnect attempts",
+    labels=["endpoint", "state"],  # found, stale, format_mismatch, absent
+)
+
+sse_resume_cursor_fallback_total = Counter(
+    name="pythinker_sse_resume_cursor_fallback_total",
+    help_text="Resume cursor fallback occurrences by reason",
+    labels=["endpoint", "reason"],  # stale_cursor, format_mismatch, missing_event_id
+)
+
+sse_reconnect_first_non_heartbeat_seconds = Histogram(
+    name="pythinker_sse_reconnect_first_non_heartbeat_seconds",
+    help_text="Latency from reconnect to first non-heartbeat event",
+    labels=["endpoint"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)
+
+sse_stream_events_total = Counter(
+    name="pythinker_sse_stream_events_total",
+    help_text="Total streamed SSE events by type and phase",
+    labels=["endpoint", "event_type", "phase"],
+)
+
 # Orphaned Task Cleanup Metrics
 orphaned_task_cleanup_runs_total = Counter(
     name="pythinker_orphaned_task_cleanup_runs_total",
@@ -738,6 +763,10 @@ _metrics_registry = [
     sse_stream_retry_suggested_total,
     sse_stream_duration_seconds,
     sse_stream_active,
+    sse_resume_cursor_state_total,
+    sse_resume_cursor_fallback_total,
+    sse_reconnect_first_non_heartbeat_seconds,
+    sse_stream_events_total,
     # Orphaned Task Cleanup
     orphaned_task_cleanup_runs_total,
     orphaned_redis_streams_cleaned_total,
@@ -1531,6 +1560,47 @@ def record_sse_stream_retry_suggestion(endpoint: str = "chat", reason: str = "un
     normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
     normalized_reason = (reason or "").strip().lower() or "unknown"
     sse_stream_retry_suggested_total.inc({"endpoint": normalized_endpoint, "reason": normalized_reason})
+
+
+def record_sse_resume_cursor_state(endpoint: str = "chat", state: str = "absent") -> None:
+    """Record resume cursor state transitions for reconnect attempts."""
+    normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
+    normalized_state = (state or "").strip().lower() or "unknown"
+    if normalized_state not in {"found", "stale", "format_mismatch", "absent"}:
+        normalized_state = "unknown"
+    sse_resume_cursor_state_total.inc({"endpoint": normalized_endpoint, "state": normalized_state})
+
+
+def record_sse_resume_cursor_fallback(endpoint: str = "chat", reason: str = "stale_cursor") -> None:
+    """Record resume fallback reason when cursor-based replay cannot continue."""
+    normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
+    normalized_reason = (reason or "").strip().lower() or "unknown"
+    if normalized_reason not in {"stale_cursor", "format_mismatch", "missing_event_id"}:
+        normalized_reason = "unknown"
+    sse_resume_cursor_fallback_total.inc({"endpoint": normalized_endpoint, "reason": normalized_reason})
+
+
+def record_sse_reconnect_first_non_heartbeat(endpoint: str = "chat", latency_seconds: float = 0.0) -> None:
+    """Record reconnect latency until the first non-heartbeat event is emitted."""
+    normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
+    sse_reconnect_first_non_heartbeat_seconds.observe(
+        {"endpoint": normalized_endpoint},
+        max(0.0, float(latency_seconds)),
+    )
+
+
+def record_sse_stream_event(endpoint: str = "chat", event_type: str = "unknown", phase: str | None = None) -> None:
+    """Record each emitted SSE event for phase-aware event-rate queries."""
+    normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
+    normalized_event_type = str(event_type or "").strip().lower() or "unknown"
+    normalized_phase = str(phase or "").strip().lower() or "unknown"
+    sse_stream_events_total.inc(
+        {
+            "endpoint": normalized_endpoint,
+            "event_type": normalized_event_type,
+            "phase": normalized_phase,
+        }
+    )
 
 
 # Orphaned Task Cleanup Metric Functions
