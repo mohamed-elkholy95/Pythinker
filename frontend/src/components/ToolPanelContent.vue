@@ -170,14 +170,16 @@
               />
             </Transition>
 
-            <!-- URL bar overlay - shows current URL during browser operations -->
-            <div v-if="showLivePreviewUrlBar" class="live-preview-url-bar">
-              <div class="live-preview-url-status">
-                <Loader2 v-if="isActiveOperation" :size="12" class="live-preview-url-spinner" />
-                <Check v-else :size="12" />
+            <!-- URL bar overlay - bottom-anchored status bar, doesn't cover browser headers -->
+            <Transition name="url-bar">
+              <div v-if="showLivePreviewUrlBar" class="live-preview-url-bar">
+                <div class="live-preview-url-status">
+                  <Loader2 v-if="isActiveOperation" :size="10" class="live-preview-url-spinner" />
+                  <Check v-else :size="10" />
+                </div>
+                <span class="live-preview-url-text">{{ livePreviewUrlBarText }}</span>
               </div>
-              <span class="live-preview-url-text">{{ livePreviewUrlBarText }}</span>
-            </div>
+            </Transition>
 
             <!-- Take over button -->
             <button
@@ -1268,32 +1270,37 @@ const handleBrowseUrl = async (url: string) => {
   box-shadow: inset 0 1px 0 0 var(--border-white);
 }
 
+/* URL bar — bottom-anchored, auto-width. Does not cover browser nav headers. */
 .live-preview-url-bar {
   position: absolute;
-  top: 8px;
+  bottom: 8px;
   left: 8px;
   right: 8px;
   z-index: 5;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  width: fit-content;
+  max-width: calc(100% - 16px);
+  gap: 5px;
+  padding: 4px 9px 4px 7px;
+  border-radius: 6px;
+  background: rgba(15, 15, 18, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .live-preview-url-status {
   flex-shrink: 0;
-  color: white;
-  opacity: 0.7;
+  color: rgba(255, 255, 255, 0.55);
   display: flex;
   align-items: center;
+  line-height: 1;
 }
 
 .live-preview-url-spinner {
-  animation: live-preview-spin 1s linear infinite;
+  animation: live-preview-spin 0.9s linear infinite;
 }
 
 @keyframes live-preview-spin {
@@ -1302,11 +1309,28 @@ const handleBrowseUrl = async (url: string) => {
 }
 
 .live-preview-url-text {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.78);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-sans);
+  letter-spacing: 0.01em;
+}
+
+/* Slide-up / fade-down transition */
+.url-bar-enter-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.url-bar-leave-active {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+.url-bar-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.url-bar-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 </style>
