@@ -193,6 +193,8 @@ export interface ProgressEventData extends BaseEventData {
   message: string;
   estimated_steps?: number;
   progress_percent?: number;
+  estimated_duration_seconds?: number;
+  complexity_category?: 'simple' | 'medium' | 'complex';
 }
 
 // Wide Research types (parallel multi-source search)
