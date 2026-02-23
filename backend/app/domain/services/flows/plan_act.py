@@ -1222,220 +1222,6 @@ class PlanActFlow(BaseFlow):
 
         self.plan.phases = phases
 
-    # -----------------------------------------------------------------------
-    # Parallel Research (MindSearch-inspired)
-    # -----------------------------------------------------------------------
-
-    def _should_use_parallel_research(self) -> bool:
-        """Detect if the current plan should use parallel sub-question search.
-
-        Returns True when:
-        - Feature flag is enabled
-        - Thinking mode is NOT 'fast' (fast mode skips parallel research for speed)
-        - Plan has enough research-type steps (>= min_subquestions)
-        """
-        settings = get_settings()
-        if not settings.parallel_research_enabled:
-            return False
-
-        # Fast thinking mode opts out of parallel research — speed over coverage
-        if getattr(self, "_current_thinking_mode", None) == "fast":
-            return False
-
-        if not self.plan or not self.plan.steps:
-            return False
-
-        research_steps = self._get_research_steps()
-        return len(research_steps) >= settings.parallel_research_min_subquestions
-
-    def _get_research_steps(self) -> list[Step]:
-        """Identify steps that are search/research tasks.
-
-        Uses word-boundary matching to avoid false positives like
-        "find" matching "findings" or "explore" matching "exploratory".
-        Uses the same keyword set as _assign_phases_to_plan for consistency.
-        """
-        research_steps = []
-        for step in self.plan.steps:
-            if step.status != ExecutionStatus.PENDING:
-                continue
-            desc_lower = step.description.lower()
-            if any(pat.search(desc_lower) for pat in _RESEARCH_KEYWORD_PATTERNS):
-                research_steps.append(step)
-        return research_steps
-
-    def _partition_research_steps(self) -> tuple[list[Step], list[Step]]:
-        """Split plan steps into research steps (parallelizable) and remaining steps.
-
-        Returns:
-            (research_steps, remaining_steps) — both in original order.
-        """
-        research_ids = {s.id for s in self._get_research_steps()}
-        research = [s for s in self.plan.steps if s.id in research_ids]
-        remaining = [s for s in self.plan.steps if s.id not in research_ids]
-        return research, remaining
-
-    async def _execute_parallel_research_steps(
-        self,
-        research_steps: list[Step],
-        trace_ctx: Any,
-    ) -> AsyncGenerator[BaseEvent, None]:
-        """Execute research steps in parallel via WideResearchOrchestrator.
-
-        This is the core MindSearch-inspired enhancement: instead of executing
-        search steps one-at-a-time through the standard executor, we fan them
-        out concurrently and collect results.
-
-        Args:
-            research_steps: Steps identified as search/research tasks
-            trace_ctx: Tracing context for observability
-        """
-        from app.domain.services.agents.research_query_decomposer import ResearchQueryDecomposer
-        from app.domain.services.research.search_adapter import SearchToolAdapter
-        from app.domain.services.research.wide_research import WideResearchOrchestrator
-
-        settings = get_settings()
-
-        if not self._search_engine:
-            logger.warning("Parallel research skipped: no search engine available")
-            return
-
-        # ── Mark research steps as STARTED so UI shows them in-progress ──
-        for step in research_steps:
-            step.status = ExecutionStatus.RUNNING
-            yield StepEvent(step=step, status=StepStatus.STARTED)
-            await self._task_state_manager.update_step_status(str(step.id), "running")
-
-        # ── Query generation: LLM decomposition or step descriptions ────
-        if settings.parallel_research_llm_decomposition and self._llm:
-            # Combine all research step descriptions into a single question
-            combined_question = "; ".join(s.description for s in research_steps)
-            decomposer = ResearchQueryDecomposer()
-            queries = await decomposer.decompose(combined_question, self._llm)
-            logger.info(
-                f"Agent {self._agent_id} LLM decomposition produced "
-                f"{len(queries)} sub-questions from {len(research_steps)} steps"
-            )
-        else:
-            # Fallback: use step descriptions directly (Phase 1 behaviour)
-            queries = [step.description for step in research_steps]
-
-        logger.info(
-            f"Agent {self._agent_id} starting parallel research: "
-            f"{len(queries)} sub-questions, max_concurrency={settings.parallel_research_max_concurrency}"
-        )
-
-        # Emit initial progress event for parallel research
-        yield ProgressEvent(
-            phase=PlanningPhase.FINALIZING,
-            message=f"Running {len(queries)} parallel research queries...",
-        )
-
-        # Create orchestrator with search adapter
-        adapter = SearchToolAdapter(self._search_engine)
-        completed_count = 0
-
-        async def on_progress(task: Any) -> None:
-            """Track progress for event emission."""
-            nonlocal completed_count
-            if hasattr(task, "status") and task.status.value in ("completed", "failed"):
-                completed_count += 1
-
-        orchestrator = WideResearchOrchestrator(
-            session_id=self._session_id,
-            search_tool=adapter,
-            llm=None,  # Synthesis done by ExecutionAgent.summarize(), not here
-            max_concurrency=settings.parallel_research_max_concurrency,
-            on_progress=on_progress,
-        )
-
-        # Decompose and execute — with optional dependency ordering
-        with trace_ctx.span("parallel_research", "agent_step") as research_span:
-            research_span.set_attribute("research.query_count", len(queries))
-
-            tasks = await orchestrator.decompose(queries, parent_id=self._session_id)
-
-            # Check for inter-query dependencies via TaskDecomposer
-            from app.domain.services.agents.task_decomposer import TaskDecomposer
-
-            combined_text = "\n".join(queries)
-            decomposer = TaskDecomposer()
-            decomp_result = decomposer.decompose(combined_text)
-
-            if len(decomp_result.parallel_groups) > 1 and decomp_result.strategy.value != "atomic":
-                # Dependencies detected — execute level-by-level with context
-                # Map decomposer subtask indices → research task indices
-                parallel_groups: list[list[int]] = []
-                subtask_ids = [s.id for s in decomp_result.subtasks]
-                for group in decomp_result.parallel_groups:
-                    indices = []
-                    for sid in group:
-                        if sid in subtask_ids:
-                            idx = subtask_ids.index(sid)
-                            if idx < len(tasks):
-                                indices.append(idx)
-                    if indices:
-                        parallel_groups.append(indices)
-
-                if parallel_groups:
-                    logger.info(f"Dependency-aware execution: {len(parallel_groups)} levels")
-                    research_span.set_attribute("research.dependency_levels", len(parallel_groups))
-                    completed_tasks = await orchestrator.execute_with_dependencies(tasks, parallel_groups)
-                else:
-                    completed_tasks = await orchestrator.execute_parallel(tasks)
-            else:
-                # No dependencies — fully parallel (Phase 1 behaviour)
-                completed_tasks = await orchestrator.execute_parallel(tasks)
-
-            research_span.set_attribute(
-                "research.completed",
-                sum(1 for t in completed_tasks if t.status.value == "completed"),
-            )
-
-        # ── Map results back ──────────────────────────────────────────
-        # When LLM decomposition is used, the number of completed_tasks
-        # may differ from research_steps.  We collect ALL task results
-        # into the executor context, and mark original plan steps as
-        # completed so the sequential loop skips them.
-
-        accumulated_findings: list[str] = []
-        successful_tasks = 0
-
-        # Collect results and track sources from all completed tasks
-        for task in completed_tasks:
-            if task.status.value == "completed" and task.result:
-                successful_tasks += 1
-                accumulated_findings.append(f"## {task.query}\n{task.result}")
-
-                if task.sources:
-                    for source_url in task.sources:
-                        self.executor._track_parallel_research_source(url=source_url, query=task.query)
-
-        # Mark original plan research steps as completed
-        for step in research_steps:
-            step.status = ExecutionStatus.COMPLETED
-            step.success = successful_tasks > 0
-            step.result = f"Covered by parallel research ({successful_tasks} sub-queries)"
-            yield StepEvent(step=step, status=StepStatus.COMPLETED)
-            await self._task_state_manager.update_step_status(str(step.id), "completed")
-
-        # Emit completion progress event
-        yield ProgressEvent(
-            phase=PlanningPhase.FINALIZING,
-            message=f"Parallel research complete: {successful_tasks}/{len(queries)} queries succeeded",
-        )
-
-        if accumulated_findings:
-            research_context = "\n\n---\n\n".join(accumulated_findings)
-            self.executor._parallel_research_context = research_context
-            logger.info(
-                f"Parallel research complete: {len(accumulated_findings)} findings "
-                f"({len(research_context)} chars) injected into executor context"
-            )
-
-        # Update plan progress
-        yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
-
     def _transition_to(self, new_status: AgentStatus, *, force: bool = False, reason: str = "") -> None:
         """Transition to a new status with optional validation."""
         if self.status == new_status:
@@ -2497,11 +2283,8 @@ class PlanActFlow(BaseFlow):
         # in agent_domain_service.py — the "skill-creator" skill's system_prompt_addition
         # is injected via the normal skill context pipeline (execution.py/planner.py).
 
-        self._parallel_research_done = False
-
         # === THINKING MODE: propagate user model-tier override to executor ===
         # 'fast' -> FAST tier, 'deep_think' -> POWERFUL tier, None/'auto' -> complexity-based auto
-        self._current_thinking_mode = message.thinking_mode  # Store for parallel research gating
         if message.thinking_mode and message.thinking_mode != "auto":
             self.executor.set_thinking_mode(message.thinking_mode)
             logger.info(
@@ -2684,7 +2467,6 @@ class PlanActFlow(BaseFlow):
                             f"Agent {self._agent_id} replanning due to validation errors "
                             f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
                         )
-                        self._parallel_research_done = False  # Allow parallel research on new plan
                         continue
 
                     # Reset verification feedback after replanning
@@ -2797,38 +2579,9 @@ class PlanActFlow(BaseFlow):
                                 f"Agent {self._agent_id} plan failed validation before execution "
                                 f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
                             )
-                            self._parallel_research_done = False  # Allow parallel research on new plan
                             self._transition_to(AgentStatus.PLANNING, force=True, reason="plan validation failed")
                         continue
 
-                    # === PARALLEL RESEARCH (MindSearch-inspired) ===
-                    # Before entering the standard step-by-step loop, check if
-                    # this plan has multiple research steps that can be fanned
-                    # out concurrently for faster execution.
-                    if not getattr(self, "_parallel_research_done", False) and self._should_use_parallel_research():
-                        self._parallel_research_done = True  # Only run once per plan
-                        research_steps, _remaining = self._partition_research_steps()
-                        logger.info(
-                            f"Agent {self._agent_id} routing {len(research_steps)} research steps "
-                            f"to parallel execution (MindSearch mode)"
-                        )
-                        try:
-                            async for event in self._execute_parallel_research_steps(research_steps, trace_ctx):
-                                await self._check_cancelled()
-                                yield event
-                        except Exception as e:
-                            logger.warning(
-                                f"Parallel research failed, falling back to sequential: {e}",
-                                exc_info=True,
-                            )
-                            # Reset steps so they can be picked up by the normal loop
-                            for step in research_steps:
-                                if step.status != ExecutionStatus.COMPLETED:
-                                    step.status = ExecutionStatus.PENDING
-                                    step.success = False
-                                    step.result = None
-                                    step.error = None
-                        # === END PARALLEL RESEARCH ===
                     self.plan.status = ExecutionStatus.RUNNING
                     step = self.plan.get_next_step()
                     if not step:
