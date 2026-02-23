@@ -45,6 +45,14 @@ class FastAcknowledgmentRefiner:
                 metrics.record_histogram("fast_ack_refiner_latency_seconds", elapsed, labels={"status": "fallback"})
                 logger.info("Fast ack refiner fallback: empty response")
                 return fallback
+
+            if self._should_prefer_fallback(refined, fallback):
+                elapsed = time.perf_counter() - start_time
+                metrics.record_counter("fast_ack_refiner_total", labels={"status": "fallback", "reason": "low_quality"})
+                metrics.record_histogram("fast_ack_refiner_latency_seconds", elapsed, labels={"status": "fallback"})
+                logger.info("Fast ack refiner fallback: low_quality")
+                return fallback
+
             elapsed = time.perf_counter() - start_time
             metrics.record_counter("fast_ack_refiner_total", labels={"status": "success", "reason": "refined"})
             metrics.record_histogram("fast_ack_refiner_latency_seconds", elapsed, labels={"status": "success"})
@@ -138,6 +146,15 @@ class FastAcknowledgmentRefiner:
             if not normalized.endswith((".", "!", "?")):
                 normalized += "."
         return normalized
+
+    def _should_prefer_fallback(self, refined: str, fallback: str) -> bool:
+        """Use deterministic fallback when LLM output is too generic."""
+        if not self._is_generic_topics_ack(refined):
+            return False
+        return not self._is_generic_topics_ack(fallback)
+
+    def _is_generic_topics_ack(self, text: str) -> bool:
+        return bool(re.search(r"\bon the following (?:topics?|items?|sections?)\b", text, flags=re.IGNORECASE))
 
     def _should_sample_traceback(self) -> bool:
         """Sample traceback logging deterministically to reduce repetitive noise."""
