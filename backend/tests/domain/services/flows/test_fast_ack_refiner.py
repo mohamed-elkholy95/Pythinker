@@ -70,7 +70,24 @@ async def test_fast_ack_refiner_sanitizes_numbered_topic_suffix() -> None:
     )
     refiner = FastAcknowledgmentRefiner(llm=llm, fallback_generator=AcknowledgmentGenerator(), timeout_seconds=1.0)
 
-    result = await refiner.generate("Create a comprehensive research report with numbered requirements")
+    result = await refiner.generate("Create a comprehensive research report on the following topics")
     assert "on report that covers" not in result.lower()
     assert "following topics: 1" not in result.lower()
     assert "the following topics" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_fast_ack_refiner_prefers_specific_fallback_for_generic_topics_ack() -> None:
+    llm = _FakeLLM(content="Got it! I will create a comprehensive research report on the following topics.")
+    fallback_gen = AcknowledgmentGenerator()
+    refiner = FastAcknowledgmentRefiner(llm=llm, fallback_generator=fallback_gen, timeout_seconds=1.0)
+
+    user_message = (
+        "Create a comprehensive research report that covers the following topics: "
+        "1. LLM architecture. "
+        "2. Tokenizers used in LLMs."
+    )
+    result = await refiner.generate(user_message)
+    assert result == fallback_gen.generate(user_message)
+    assert "llm architecture" in result.lower()
+    assert "tokenizers used in llms" in result.lower()
