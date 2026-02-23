@@ -88,7 +88,7 @@ export function useLiveViewerZoom() {
     if (frame.width <= 0 || frame.height <= 0) return false
     if (containerWidth <= 0 || containerHeight <= 0) return false
 
-    const padding = 20 // px padding on each side
+    const padding = 4 // px padding on each side
     const availableW = Math.max(containerWidth - padding * 2, 1)
     const availableH = Math.max(containerHeight - padding * 2, 1)
 

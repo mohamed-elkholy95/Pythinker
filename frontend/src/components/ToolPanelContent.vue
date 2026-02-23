@@ -142,7 +142,7 @@
                and instantly available when switching back (no reconnection delay). -->
           <div
             v-if="showPersistentBrowser"
-            class="absolute inset-0 bg-[var(--background-white-main)] flex flex-col items-center overflow-hidden"
+            class="absolute inset-0 bg-[var(--background-white-main)] flex flex-col items-stretch overflow-hidden"
             style="z-index: -1"
           >
             <!-- URL bar - top-anchored status bar, pushed above browser to not cover headers -->
@@ -221,11 +221,13 @@
             />
           </div>
 
-          <!-- Replay mode: static screenshots — only when no richer native view exists.
-               Terminal/editor/search views have their own content that is more informative
-               than a CDP browser screenshot, so they fall through to their dedicated components. -->
+          <!-- Replay mode (user-navigated): when user stepped through the timeline
+               (!realTime), show the browser screenshot for browser-type tools or
+               unknown tools. Terminal, editor, search, and chart views show their
+               own dedicated content — the screenshot would incorrectly show the
+               browser state (e.g. Google) for a shell/terminal tool. -->
           <div
-            v-else-if="isReplayMode && !!replayScreenshotUrl && !hasRichNativeView"
+            v-else-if="isReplayMode && !realTime && !!replayScreenshotUrl && (currentViewType === 'live_preview' || !currentViewType)"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <ScreenshotReplayViewer
@@ -234,9 +236,10 @@
             />
           </div>
 
-          <!-- Replay mode loading: screenshots not yet fetched (only for browser views) -->
+          <!-- Replay mode loading (user-navigated): waiting for screenshot blob.
+               Only shown for browser-type or unknown tools (same guard as above). -->
           <div
-            v-else-if="isReplayMode && !replayScreenshotUrl && !hasRichNativeView"
+            v-else-if="isReplayMode && !realTime && !replayScreenshotUrl && (currentViewType === 'live_preview' || !currentViewType)"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <LoadingState
@@ -247,7 +250,19 @@
           </div>
 
           <!-- Live preview: persistent browser in background shows through (no overlay needed) -->
-          <template v-else-if="currentViewType === 'live_preview'" />
+          <template v-else-if="currentViewType === 'live_preview' && showPersistentBrowser" />
+
+          <!-- Live preview fallback: persistent browser gone but no replay yet — show last tool result -->
+          <div v-else-if="currentViewType === 'live_preview'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <GenericContentView
+              :tool-name="toolContent?.name"
+              :function-name="toolContent?.function"
+              :args="toolContent?.args"
+              :result="toolContent?.content?.result"
+              :content="toolContent?.content"
+              :is-executing="false"
+            />
+          </div>
 
           <!-- Terminal View -->
           <div v-else-if="currentViewType === 'terminal'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
@@ -311,6 +326,31 @@
             <WideResearchOverlay
               :state="wideResearchState"
               :always-show="true"
+            />
+          </div>
+
+          <!-- Replay mode (auto-settled): session ended and no tool overlay matched above.
+               This covers browser-type tools where the replay screenshot IS the content,
+               or when the panel has no tool-specific view to display. -->
+          <div
+            v-else-if="isReplayMode && !!replayScreenshotUrl"
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+          >
+            <ScreenshotReplayViewer
+              :src="replayScreenshotUrl || ''"
+              :metadata="replayMetadata || null"
+            />
+          </div>
+
+          <!-- Replay mode loading (auto-settled): waiting for screenshot blob -->
+          <div
+            v-else-if="isReplayMode && !replayScreenshotUrl"
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+          >
+            <LoadingState
+              label="Loading replay"
+              :is-active="true"
+              animation="globe"
             />
           </div>
 
@@ -669,7 +709,11 @@ const isSessionComplete = computed(() => !props.isLoading && !!props.replayScree
 
 const activityHeadline = computed(() => {
   if (isSummaryPhase.value) return streamingPresentation.headline.value;
-  if (toolDisplay.value?.displayName) return `Pythinker is using ${toolDisplay.value.displayName}`;
+  if (toolDisplay.value?.displayName) {
+    // Distinguish active vs completed tools so the headline reflects reality
+    if (isActiveOperation.value) return `Pythinker is using ${toolDisplay.value.displayName}`;
+    return `Used ${toolDisplay.value.displayName}`;
+  }
   if (props.isThinking) return streamingPresentation.headline.value;
   return '';
 });
@@ -720,20 +764,13 @@ const livePreviewPlaceholderDetail = computed(() => {
  * Tool-specific views (editor, terminal, etc.) overlay on top, so the
  * browser is instantly available when switching back — no reconnection. */
 const showPersistentBrowser = computed(() => {
-  return !!props.sessionId && !props.isReplayMode && !isSessionComplete.value
+  // Keep browser mounted until replay mode takes over.
+  // Previously this also checked !isSessionComplete — but that caused a blank flash
+  // between session completion and screenshot load (the persistent browser hid while
+  // the replay viewer wasn't ready yet). LiveViewer already handles the frozen state
+  // via its :is-session-complete prop.
+  return !!props.sessionId && !props.isReplayMode
 })
-
-// Whether the current tool has a rich native view (editor, terminal, search)
-// that is more informative than a browser screenshot replay.
-// When true, replay mode should fall through to the tool-specific component
-// instead of showing the ScreenshotReplayViewer (which always captures the browser viewport).
-const hasRichNativeView = computed(() => {
-  const vt = currentViewType.value;
-  if (vt === 'terminal' && terminalContent.value) return true;
-  if (vt === 'editor' && (editorContent.value || resolvedFilePath.value)) return true;
-  if (vt === 'search' && searchResults.value?.length) return true;
-  return false;
-});
 
 // ============ URL Bar Overlay ============
 const BROWSER_TOOL_PREFIXES = ['browser', 'playwright', 'browsing'];

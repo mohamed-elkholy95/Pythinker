@@ -593,7 +593,7 @@ defineExpose({
 }
 
 .sandbox-viewer-wrapper.interactive {
-  cursor: crosshair;
+  cursor: default;
 }
 
 .sandbox-content-inner {

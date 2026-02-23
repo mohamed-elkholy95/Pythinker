@@ -312,6 +312,8 @@ const props = defineProps<{
   showAssistantCompletionFooter?: boolean;
   /** Citation sources from the nearest report — enables popup cards on [N] badges */
   sources?: SourceCitation[];
+  /** True when the session is a fast search task (not deep research). Controls inline search results. */
+  isFastSearchSession?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -347,9 +349,10 @@ const handleSelectSuggestion = (suggestion: string) => {
   emit('selectSuggestion', suggestion);
 };
 
-/** Standalone tool messages: show fast-search inline only for info_search_web/web_search, not wide_research. */
+/** Standalone tool messages: show fast-search inline only for fast search sessions, not deep research. */
 const FAST_SEARCH_FUNCTIONS = new Set(['info_search_web', 'web_search']);
 function isStandaloneToolFastSearch(tool: ToolContent): boolean {
+  if (!props.isFastSearchSession) return false;
   const fn = (tool.function || '').toLowerCase();
   return FAST_SEARCH_FUNCTIONS.has(fn);
 }
