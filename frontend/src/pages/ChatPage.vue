@@ -248,6 +248,21 @@
             </button>
           </div>
 
+          <!-- Failed session banner — shown when session was loaded/restored as FAILED
+               but no structured lastError was captured. Gives user immediate visibility
+               that this task did not complete successfully (Issue #10). -->
+          <div
+            v-if="sessionStatus === 'failed' && !lastError && !isLoading"
+            class="flex items-center gap-3 px-4 py-3 mx-4 mb-2 rounded-xl border border-red-200 dark:border-red-800/40 bg-red-50 dark:bg-red-950/20 transition-all duration-300"
+            role="alert"
+          >
+            <div class="w-2.5 h-2.5 rounded-full bg-red-400 dark:bg-red-500 flex-shrink-0" aria-hidden="true"></div>
+            <div class="flex-1 min-w-0">
+              <span class="text-sm font-medium text-red-800 dark:text-red-300">{{ $t('This task encountered an error and did not complete successfully.') }}</span>
+              <span class="block mt-1 text-xs text-red-600 dark:text-red-400">{{ $t('You can start a new task or review the steps above for details.') }}</span>
+            </div>
+          </div>
+
           <!-- Task completed - green checkmark above suggestions when response is done -->
           <TaskCompletedFooter
             v-if="showGlobalTaskCompletedFooter"
@@ -2033,7 +2048,7 @@ const handleMessageEvent = (messageData: MessageEventData) => {
       if (messages.value[i].type === 'user') {
         const lastUserContent = messages.value[i].content as MessageContent;
         if ((lastUserContent.content || '').trim() === incomingContent) {
-          console.debug('Skipping duplicate user message:', messageData.content?.slice(0, 50));
+          // Expected during SSE reconnection replay — suppress silently
           return;
         }
         break; // Only check the most recent user message
