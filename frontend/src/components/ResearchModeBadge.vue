@@ -120,6 +120,22 @@ defineProps<{
   );
 }
 
+/* In dark mode --bolt-elements-item-contentAccent resolves to a muted grey
+   surface — replace with a vivid brand-aware fill so the globe reads clearly. */
+:global([data-theme='dark']) .badge-deep .badge-icon-wrap {
+  background: var(--text-brand);
+  color: #fff;
+}
+
+:global([data-theme='dark']) .badge-fast .badge-icon-wrap {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+:global([data-theme='dark']) .research-badge {
+  border-color: var(--border-light);
+}
+
 /* ── Label ── */
 .badge-label {
   position: relative;
