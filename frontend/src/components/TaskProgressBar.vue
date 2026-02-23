@@ -492,6 +492,9 @@ const currentActivityText = computed(() => {
   if (props.isLoading && !isAllCompleted.value) {
     return 'processing'
   }
+  if (isAllCompleted.value) {
+    return 'completed'
+  }
   return ''
 })
 
