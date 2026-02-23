@@ -41,6 +41,7 @@ export default defineConfig({
   server: {
     host: process.env.VITE_HOST === 'true' ? true : 'localhost',
     port: 5174,
+    allowedHosts: ['pythinker.pythought.com'],
     ...(usePolling && {
       watch: {
         usePolling: true,
