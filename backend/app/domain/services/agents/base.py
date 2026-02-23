@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
@@ -201,7 +202,7 @@ class BaseAgent:
         # Per-agent efficiency monitor (NOT a global singleton — prevents cross-session bleed)
         from app.domain.services.agents.tool_efficiency_monitor import ToolEfficiencyMonitor
 
-        self._efficiency_monitor = ToolEfficiencyMonitor(window_size=10, read_threshold=5, strong_threshold=7)
+        self._efficiency_monitor = ToolEfficiencyMonitor(window_size=10, read_threshold=5, strong_threshold=6)
         self._efficiency_nudges: list[dict] = []
 
         # Context manager for Pythinker-style attention manipulation (optional)
@@ -221,18 +222,10 @@ class BaseAgent:
 
         return get_feature_flags()
 
-    # Search/read tools blocked during hard-stop mode
-    _HARD_STOP_BLOCKED_TOOLS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "search",
-            "info_search_web",
-            "wide_research",
-            "browser_navigate",
-            "browser_get_content",
-            "browser_agent_extract",
-            "browser_view",
-        }
-    )
+    # Tool result compaction limits for memory writes
+    _TOOL_RESULT_MEMORY_MAX_CHARS: ClassVar[int] = 12000
+    _TOOL_RESULT_MESSAGE_PREVIEW_CHARS: ClassVar[int] = 2000
+    _TOOL_RESULT_DATA_PREVIEW_CHARS: ClassVar[int] = 7000
 
     def set_thinking_mode(self, thinking_mode: str | None) -> None:
         """Set user-requested thinking mode for model selection override.
@@ -262,7 +255,9 @@ class BaseAgent:
             and self._efficiency_monitor._consecutive_reads >= self._efficiency_monitor.strong_threshold
         ):
             available_tools = [
-                t for t in available_tools if t.get("function", {}).get("name", "") not in self._HARD_STOP_BLOCKED_TOOLS
+                t
+                for t in available_tools
+                if not self._efficiency_monitor._is_read_tool(t.get("function", {}).get("name", ""))
             ]
 
         return available_tools
@@ -829,6 +824,67 @@ class BaseAgent:
 
         return ToolResult(success=False, message=last_error)
 
+    @staticmethod
+    def _truncate_text(content: str, max_chars: int) -> str:
+        """Truncate text with a compact marker."""
+        if len(content) <= max_chars:
+            return content
+        truncated_chars = len(content) - max_chars
+        return f"{content[:max_chars]}\n\n... [truncated {truncated_chars:,} chars]"
+
+    def _tool_data_preview(self, data: Any, max_chars: int) -> str:
+        """Create a bounded preview string for tool result data."""
+        if hasattr(data, "model_dump"):
+            data = data.model_dump()
+
+        if isinstance(data, str):
+            return self._truncate_text(data, max_chars)
+
+        try:
+            serialized = json.dumps(data, ensure_ascii=False, default=str)
+        except Exception:
+            serialized = str(data)
+
+        return self._truncate_text(serialized, max_chars)
+
+    def _serialize_tool_result_for_memory(self, result: ToolResult) -> str:
+        """Serialize tool results with size guardrails to avoid memory bloat."""
+        raw = result.model_dump_json() if hasattr(result, "model_dump_json") else str(result)
+        if len(raw) <= self._TOOL_RESULT_MEMORY_MAX_CHARS:
+            return raw
+
+        compacted_data: dict[str, Any] = {
+            "_compacted": True,
+            "_original_size_chars": len(raw),
+        }
+        if result.data is not None:
+            compacted_data["_preview"] = self._tool_data_preview(result.data, self._TOOL_RESULT_DATA_PREVIEW_CHARS)
+
+        compacted = ToolResult(
+            success=result.success,
+            message=self._truncate_text(
+                result.message or "Tool output compacted for memory.",
+                self._TOOL_RESULT_MESSAGE_PREVIEW_CHARS,
+            ),
+            data=compacted_data,
+        ).model_dump_json()
+
+        if len(compacted) <= self._TOOL_RESULT_MEMORY_MAX_CHARS:
+            return compacted
+
+        # Final fallback for extreme payloads
+        return ToolResult(
+            success=result.success,
+            message=self._truncate_text(
+                result.message or "Tool output omitted from memory to control context size.",
+                1000,
+            ),
+            data={
+                "_compacted": True,
+                "_original_size_chars": len(raw),
+            },
+        ).model_dump_json()
+
     def _truncate_args_for_logging(self, arguments: dict[str, Any], max_len: int = 100) -> dict[str, str]:
         """Truncate large argument values for logging to prevent log bloat."""
         truncated = {}
@@ -1104,7 +1160,7 @@ class BaseAgent:
                             "role": "tool",
                             "function_name": function_name,
                             "tool_call_id": tool_call_id,
-                            "content": result.model_dump_json() if hasattr(result, "model_dump_json") else str(result),
+                            "content": self._serialize_tool_result_for_memory(result),
                         }
                     )
             else:
@@ -1192,7 +1248,7 @@ class BaseAgent:
                             "role": "tool",
                             "function_name": function_name,
                             "tool_call_id": tool_call_id,
-                            "content": result.model_dump_json(),
+                            "content": self._serialize_tool_result_for_memory(result),
                         }
                     )
 
