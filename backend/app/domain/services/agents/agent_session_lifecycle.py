@@ -99,7 +99,7 @@ class AgentSessionLifecycle:
             return
 
         # Idempotent early-exit: already stopped (no sandbox, terminal status)
-        terminal_statuses = (SessionStatus.COMPLETED, SessionStatus.FAILED)
+        terminal_statuses = (SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED)
         if not target_session.sandbox_id and target_session.status in terminal_statuses:
             self._task_creation_locks.pop(session_id, None)
             return

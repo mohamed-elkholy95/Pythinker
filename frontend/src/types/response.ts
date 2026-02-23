@@ -6,7 +6,8 @@ export enum SessionStatus {
     RUNNING = "running",
     WAITING = "waiting",
     COMPLETED = "completed",
-    FAILED = "failed"
+    FAILED = "failed",
+    CANCELLED = "cancelled"
 }
 
 export enum AgentMode {
