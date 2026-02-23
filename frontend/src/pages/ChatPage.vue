@@ -293,7 +293,7 @@
             <PlanningCard
               v-if="!showSessionWarmupMessage && !isToolPanelOpen && responsePhase !== 'timed_out' && planningProgress && (!plan || plan.steps.length === 0)"
               class="mb-2"
-              :phase="(planningProgress.phase as 'received' | 'analyzing' | 'planning' | 'finalizing')"
+              :phase="planningProgress.phase"
               :message="planningProgress.message"
               :progressPercent="planningProgress.percent"
               :estimatedDurationSeconds="planningProgress.estimatedDurationSeconds"
@@ -642,7 +642,7 @@ const createInitialState = () => ({
   toolTimeline: [] as ToolContent[],
   panelToolId: undefined as string | undefined,
   isInitializing: false, // True when starting up the sandbox environment
-  planningProgress: null as { phase: string; message: string; percent: number; estimatedDurationSeconds?: number; complexityCategory?: 'simple' | 'medium' | 'complex' } | null, // Planning progress
+  planningProgress: null as { phase: 'received' | 'analyzing' | 'planning' | 'finalizing'; message: string; percent: number; estimatedDurationSeconds?: number; complexityCategory?: 'simple' | 'medium' | 'complex' } | null, // Planning progress
   isWaitingForReply: false, // True when agent is waiting for user input
   followUpAnchorEventId: undefined as string | undefined, // Event ID to anchor follow-up context to
   pendingFollowUpSuggestion: undefined as string | undefined, // Suggestion waiting to be sent
@@ -2398,8 +2398,12 @@ const handleProgressEvent = (progressData: ProgressEventData) => {
   startPlanningMessageCycle();
 
   // Update planning progress for UI
+  const validPhases = ['received', 'analyzing', 'planning', 'finalizing'] as const;
+  const phase = validPhases.includes(progressData.phase as typeof validPhases[number])
+    ? progressData.phase as typeof validPhases[number]
+    : 'received';
   planningProgress.value = {
-    phase: progressData.phase,
+    phase,
     message: progressData.message,
     percent: progressData.progress_percent || 0,
     estimatedDurationSeconds: progressData.estimated_duration_seconds,
