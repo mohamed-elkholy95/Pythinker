@@ -63,7 +63,7 @@ class TestMonitorInitialization:
         monitor = ToolEfficiencyMonitor()
         assert monitor.window_size == 10
         assert monitor.read_threshold == 5
-        assert monitor.strong_threshold == 7  # Lowered from 10 for earlier intervention
+        assert monitor.strong_threshold == 6
         assert monitor._consecutive_reads == 0
 
     def test_init_with_custom_params(self):
@@ -89,7 +89,7 @@ class TestToolCategorization:
     def test_read_tools_identified(self):
         """Known read tools should be identified."""
         monitor = ToolEfficiencyMonitor()
-        read_tools = ["file_read", "file_list", "browser_view", "info_search_web"]
+        read_tools = ["file_read", "file_list", "file_find_by_name", "browser_view", "info_search_web"]
         for tool in read_tools:
             assert monitor._is_read_tool(tool) is True
 
