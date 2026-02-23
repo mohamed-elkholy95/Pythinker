@@ -496,6 +496,8 @@ class ProgressEventData(BaseEventData):
     message: str
     estimated_steps: int | None = None
     progress_percent: int | None = None
+    estimated_duration_seconds: int | None = None
+    complexity_category: str | None = None
 
 
 class ProgressSSEEvent(BaseSSEEvent):
@@ -511,6 +513,8 @@ class ProgressSSEEvent(BaseSSEEvent):
                 message=event.message,
                 estimated_steps=event.estimated_steps,
                 progress_percent=event.progress_percent,
+                estimated_duration_seconds=event.estimated_duration_seconds,
+                complexity_category=event.complexity_category,
             )
         )
 
