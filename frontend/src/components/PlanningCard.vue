@@ -232,7 +232,7 @@ const progressWidth = computed(() => `${Math.min(Math.max(props.progressPercent,
 
 /* ===== MESSAGE ROW ===== */
 .card-message {
-  padding: 0 2px;
+  padding: 0 2px 0 32px; /* 22px activity icon + 10px gap = align under stepper */
 }
 
 .message-shimmer {
