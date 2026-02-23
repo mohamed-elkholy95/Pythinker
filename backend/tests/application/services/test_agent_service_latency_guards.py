@@ -11,7 +11,7 @@ from app.core.prometheus_metrics import (
     sse_resume_cursor_fallback_total,
     sse_resume_cursor_state_total,
 )
-from app.domain.models.event import DoneEvent, ErrorEvent, MessageEvent
+from app.domain.models.event import DoneEvent, ErrorEvent, MessageEvent, PlanningPhase, ProgressEvent
 
 
 class DummyLLM:
@@ -133,6 +133,44 @@ async def test_chat_soft_timeout_does_not_abort_slow_stream(monkeypatch):
 
     assert len(events) == 1
     assert isinstance(events[0], DoneEvent)
+
+
+@pytest.mark.asyncio
+async def test_chat_emits_waiting_progress_beacon_during_long_idle(monkeypatch):
+    service = _build_service()
+    service.CHAT_EVENT_TIMEOUT_SECONDS = 2.0
+    service.CHAT_EVENT_HARD_TIMEOUT_SECONDS = 3.0
+    service.CHAT_WAIT_BEACON_INTERVAL_SECONDS = 0.05
+
+    async def _slow_then_done_chat(*_args, **_kwargs):
+        await asyncio.sleep(1.2)
+        yield DoneEvent()
+
+    service._agent_domain_service = SimpleNamespace(chat=_slow_then_done_chat)
+
+    fake_connector_service = SimpleNamespace(get_user_mcp_configs=AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "app.application.services.connector_service.get_connector_service",
+        lambda: fake_connector_service,
+    )
+
+    events = await asyncio.wait_for(
+        _collect_events(
+            service.chat(
+                session_id="session-1",
+                user_id="user-1",
+                message="run a long operation and report back",
+            )
+        ),
+        timeout=3.0,
+    )
+
+    waiting_events = [event for event in events if isinstance(event, ProgressEvent)]
+    assert waiting_events, "expected at least one waiting progress beacon before completion"
+    assert all(event.phase == PlanningPhase.WAITING for event in waiting_events)
+    assert all(event.wait_stage == "execution_wait" for event in waiting_events)
+    assert all(event.wait_elapsed_seconds is not None for event in waiting_events)
+    assert isinstance(events[-1], DoneEvent)
 
 
 @pytest.mark.asyncio

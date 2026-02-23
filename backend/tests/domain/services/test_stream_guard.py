@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 import app.domain.services.stream_guard as stream_guard_module
-from app.domain.models.event import MessageEvent
+from app.domain.models.event import MessageEvent, PlanningPhase, ProgressEvent
 from app.domain.services.stream_guard import (
     CancellationToken,
     StreamErrorCategory,
@@ -39,6 +39,8 @@ class TestStreamMetrics:
         assert metrics.events_sent == 0
         assert metrics.errors == []
         assert metrics.cancellation_count == 0
+        assert metrics.waiting_events == 0
+        assert metrics.waiting_stage_counts == {}
         assert metrics.duration_seconds >= 0
 
     def test_record_event(self):
@@ -96,6 +98,33 @@ class TestStreamMetrics:
         assert "error_count" in result
         assert result["session_id"] == "test-session"
         assert result["events_sent"] == 1
+
+    def test_record_waiting_progress_event_tracks_waiting_metrics(self):
+        """Waiting progress events should increment waiting counters and stage breakdown."""
+        metrics = StreamMetrics("test-session")
+
+        metrics.record_event(
+            ProgressEvent(
+                phase=PlanningPhase.WAITING,
+                message="Still working on your request...",
+                wait_stage="execution_wait",
+                wait_elapsed_seconds=12,
+            )
+        )
+        metrics.record_event(
+            ProgressEvent(
+                phase=PlanningPhase.WAITING,
+                message="Still working on your request...",
+                wait_stage="tool_wait",
+                wait_elapsed_seconds=24,
+            )
+        )
+        metrics.record_event(MessageEvent(message="done", role="assistant"))
+
+        assert metrics.events_sent == 3
+        assert metrics.waiting_events == 2
+        assert metrics.waiting_stage_counts["execution_wait"] == 1
+        assert metrics.waiting_stage_counts["tool_wait"] == 1
 
 
 class TestCancellationToken:
@@ -313,3 +342,33 @@ class TestStreamGuard:
         assert aggregate["latency_ms"]["p95"] is not None
         assert aggregate["latency_ms"]["p99"] is not None
         assert aggregate["error_count_by_category"].get("internal") == 1
+
+    @pytest.mark.asyncio
+    async def test_aggregate_metrics_includes_waiting_distribution(self):
+        metrics = StreamMetrics(session_id="session-wait", endpoint="chat")
+        metrics.record_event(
+            ProgressEvent(
+                phase=PlanningPhase.WAITING,
+                message="Still working on your request...",
+                wait_stage="execution_wait",
+                wait_elapsed_seconds=8,
+            )
+        )
+        metrics.record_event(
+            ProgressEvent(
+                phase=PlanningPhase.WAITING,
+                message="Still working on your request...",
+                wait_stage="tool_wait",
+                wait_elapsed_seconds=16,
+            )
+        )
+        metrics.record_event(MessageEvent(message="done", role="assistant"))
+        await record_stream_metrics(metrics)
+
+        aggregate = await get_aggregate_stream_metrics()
+
+        assert aggregate["waiting_events_total"] == 2
+        assert aggregate["avg_waiting_events_per_session"] == pytest.approx(2.0)
+        assert aggregate["waiting_event_ratio"] == pytest.approx(2 / 3)
+        assert aggregate["waiting_stage_counts"].get("execution_wait") == 1
+        assert aggregate["waiting_stage_counts"].get("tool_wait") == 1

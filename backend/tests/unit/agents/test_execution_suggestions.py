@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.external.observability import get_null_metrics
-from app.domain.models.event import ErrorEvent, ReportEvent, StepEvent, SuggestionEvent
+from app.domain.models.event import ErrorEvent, ReportEvent, StepEvent, StreamEvent, SuggestionEvent
 from app.domain.models.memory import Memory
 from app.domain.services.agents import execution as execution_module
 from app.domain.services.agents.execution import ExecutionAgent
@@ -209,6 +209,33 @@ class TestExecutionAgentSuggestionGeneration:
             isinstance(event, StepEvent) and event.step and event.step.id == "cove_verification" for event in events
         )
 
+    @pytest.mark.asyncio
+    async def test_summarize_coalesces_small_chunks_into_single_stream_event(self, executor, mock_llm):
+        """Small summarize chunks should be coalesced to reduce frontend event pressure."""
+        report = "# Summary\n\n## Final Result\n" + ("A" * 420)
+
+        async def chunked_stream(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield report[:140]
+            yield report[140:280]
+            yield report[280:]
+
+        mock_llm.ask_stream = chunked_stream
+        mock_llm.ask.return_value = {"content": '["Suggestion 1"]'}
+
+        events = [event async for event in executor.summarize()]
+
+        stream_events = [
+            event for event in events if isinstance(event, StreamEvent) and not event.is_final and event.content
+        ]
+        assert len(stream_events) == 1
+        assert stream_events[0].phase == "summarizing"
+        assert stream_events[0].content == report
+
 
 class TestExecutionAgentSuggestionAnchorExcerpt:
     """Test anchor_excerpt generation for SuggestionEvent."""
@@ -370,6 +397,10 @@ class TestExecutionAgentDeliveryIntegrityGate:
         assert call_count["value"] == 2
         assert any(isinstance(event, ReportEvent) for event in events)
         assert not any(isinstance(event, ErrorEvent) for event in events)
+        stream_phases = {
+            event.phase for event in events if isinstance(event, StreamEvent) and not event.is_final and event.content
+        }
+        assert stream_phases == {"summarizing"}
         assert self._has_counter_call(
             metrics_spy,
             "delivery_integrity_stream_truncation_total",

@@ -32,7 +32,7 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
 from app.domain.models.agent import Agent
-from app.domain.models.event import AgentEvent, DoneEvent, ErrorEvent, MessageEvent
+from app.domain.models.event import AgentEvent, DoneEvent, ErrorEvent, MessageEvent, PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, ResearchMode, Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
@@ -56,6 +56,7 @@ class AgentService:
     CHAT_RESUME_MAX_SKIPPED_EVENTS = 200  # Disable skip mode if resume cursor appears stale.
     CHAT_RESUME_MAX_SKIP_SECONDS = 60.0  # Upper bound to avoid infinite resume skipping (slow LLMs can take 120s+).
     CHAT_WARMUP_WAIT_SECONDS = 10.0
+    CHAT_WAIT_BEACON_INTERVAL_SECONDS = 20.0  # Emit non-heartbeat wait progress during long-running operations.
 
     def __init__(
         self,
@@ -739,6 +740,7 @@ class AgentService:
         cancel_task: asyncio.Task | None = None
         next_task: asyncio.Task | None = None
         last_event_at = time.monotonic()
+        wait_beacon_interval_seconds = max(1.0, self.CHAT_WAIT_BEACON_INTERVAL_SECONDS)
         try:
             next_task = asyncio.create_task(stream_iter.__anext__())
             cancel_task = asyncio.create_task(cancel_event.wait())
@@ -749,7 +751,9 @@ class AgentService:
                 done, _ = await asyncio.wait(
                     [next_task, cancel_task],
                     return_when=asyncio.FIRST_COMPLETED,
-                    timeout=event_timeout_seconds if event_timeout_seconds > 0 else None,
+                    timeout=min(event_timeout_seconds, wait_beacon_interval_seconds)
+                    if event_timeout_seconds > 0
+                    else wait_beacon_interval_seconds,
                 )
 
                 if not done:
@@ -759,6 +763,16 @@ class AgentService:
                         session_id,
                         idle_seconds,
                     )
+                    if idle_seconds >= wait_beacon_interval_seconds:
+                        emitted_events += 1
+                        yield ProgressEvent(
+                            phase=PlanningPhase.WAITING,
+                            message="Still working on your request...",
+                            progress_percent=None,
+                            estimated_duration_seconds=round(idle_seconds),
+                            wait_elapsed_seconds=round(idle_seconds),
+                            wait_stage="execution_wait",
+                        )
                     if hard_timeout_seconds > 0 and idle_seconds >= hard_timeout_seconds:
                         logger.warning(
                             "Chat stream hard timeout for session %s after %.2fs without progress",
@@ -814,7 +828,9 @@ class AgentService:
                             resume_state_recorded = True
                         pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="stale_cursor")
                         emitted_events += 1
-                        yield _build_resume_gap_warning(reason="stale_cursor", skip_elapsed_seconds=skip_elapsed_seconds)
+                        yield _build_resume_gap_warning(
+                            reason="stale_cursor", skip_elapsed_seconds=skip_elapsed_seconds
+                        )
                     break
 
                 last_event_at = time.monotonic()

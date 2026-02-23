@@ -189,7 +189,7 @@ export interface StreamEventData extends BaseEventData {
   phase_metadata?: Record<string, unknown>;
 }
 
-export type PlanningPhase = 'received' | 'analyzing' | 'planning' | 'finalizing';
+export type PlanningPhase = 'received' | 'analyzing' | 'planning' | 'finalizing' | 'waiting';
 
 export interface ProgressEventData extends BaseEventData {
   phase: PlanningPhase;
@@ -198,6 +198,8 @@ export interface ProgressEventData extends BaseEventData {
   progress_percent?: number;
   estimated_duration_seconds?: number;
   complexity_category?: 'simple' | 'medium' | 'complex';
+  wait_elapsed_seconds?: number;
+  wait_stage?: 'execution_wait' | 'verification_wait' | 'tool_wait' | string;
 }
 
 // Wide Research types (parallel multi-source search)

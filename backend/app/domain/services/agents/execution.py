@@ -86,6 +86,8 @@ class ExecutionAgent(BaseAgent):
     name: str = "execution"
     system_prompt: str = SYSTEM_PROMPT + EXECUTION_SYSTEM_PROMPT
     format: str = "json_object"
+    SUMMARY_STREAM_COALESCE_MAX_CHARS: int = 320
+    SUMMARY_STREAM_COALESCE_FLUSH_SECONDS: float = 0.05
 
     def __init__(
         self,
@@ -579,10 +581,9 @@ class ExecutionAgent(BaseAgent):
                 attempt_text = ""
 
                 stream_iter = self.llm.ask_stream(stream_messages, tools=None, tool_choice=None, model=_summarize_model)
-                async with aclosing(stream_iter) as stream:
-                    async for chunk in stream:
-                        attempt_text += chunk
-                        yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+                async for stream_event in self._iter_coalesced_stream_events(stream_iter, phase="summarizing"):
+                    attempt_text += stream_event.content
+                    yield stream_event
 
                 if stream_attempt == 1:
                     accumulated_text = attempt_text
@@ -620,10 +621,11 @@ class ExecutionAgent(BaseAgent):
                             stream_iter = self.llm.ask_stream(
                                 stream_messages, tools=None, tool_choice=None, model=_powerful_model
                             )
-                            async with aclosing(stream_iter) as stream:
-                                async for chunk in stream:
-                                    escalation_text += chunk
-                                    yield StreamEvent(content=chunk, is_final=False, phase="completing")
+                            async for stream_event in self._iter_coalesced_stream_events(
+                                stream_iter, phase="summarizing"
+                            ):
+                                escalation_text += stream_event.content
+                                yield stream_event
                             accumulated_text = self._merge_stream_continuation(accumulated_text, escalation_text)
                             escalation_meta = self._get_last_stream_metadata()
                             escalation_truncated = (
@@ -714,10 +716,9 @@ class ExecutionAgent(BaseAgent):
                 retry_stream = self.llm.ask_stream(
                     list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
                 )
-                async with aclosing(retry_stream) as stream:
-                    async for chunk in stream:
-                        retry_text += chunk
-                        yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+                async for stream_event in self._iter_coalesced_stream_events(retry_stream, phase="summarizing"):
+                    retry_text += stream_event.content
+                    yield stream_event
 
                 yield StreamEvent(content="", is_final=True, phase="summarizing")
                 message_content = self._clean_report_content(retry_text.strip())
@@ -765,10 +766,9 @@ class ExecutionAgent(BaseAgent):
                     retry_stream = self.llm.ask_stream(
                         list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
                     )
-                    async with aclosing(retry_stream) as stream:
-                        async for chunk in stream:
-                            retry_text += chunk
-                            yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+                    async for stream_event in self._iter_coalesced_stream_events(retry_stream, phase="summarizing"):
+                        retry_text += stream_event.content
+                        yield stream_event
 
                     yield StreamEvent(content="", is_final=True, phase="summarizing")
                     retry_content = self._clean_report_content(retry_text.strip())
@@ -826,10 +826,9 @@ class ExecutionAgent(BaseAgent):
                     retry_stream = self.llm.ask_stream(
                         list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
                     )
-                    async with aclosing(retry_stream) as stream:
-                        async for chunk in stream:
-                            retry_text += chunk
-                            yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+                    async for stream_event in self._iter_coalesced_stream_events(retry_stream, phase="summarizing"):
+                        retry_text += stream_event.content
+                        yield stream_event
 
                     yield StreamEvent(content="", is_final=True, phase="summarizing")
                     retry_content = self._clean_report_content(retry_text.strip())
@@ -910,10 +909,11 @@ class ExecutionAgent(BaseAgent):
                         continuation_iter = self.llm.ask_stream(
                             continuation_messages, tools=None, tool_choice=None, model=_summarize_model
                         )
-                        async with aclosing(continuation_iter) as cont_stream:
-                            async for chunk in cont_stream:
-                                continuation_text += chunk
-                                yield StreamEvent(content=chunk, is_final=False, phase="completing")
+                        async for stream_event in self._iter_coalesced_stream_events(
+                            continuation_iter, phase="summarizing"
+                        ):
+                            continuation_text += stream_event.content
+                            yield stream_event
 
                         accumulated_text = self._merge_stream_continuation(accumulated_text, continuation_text)
                         message_content = self._collapse_duplicate_report_payload(accumulated_text.strip())
@@ -1144,6 +1144,49 @@ class ExecutionAgent(BaseAgent):
         if isinstance(metadata, dict):
             return metadata
         return {}
+
+    async def _iter_coalesced_stream_events(
+        self,
+        stream_iter: AsyncGenerator[str, None],
+        *,
+        phase: str = "summarizing",
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Coalesce small LLM chunks into smoother StreamEvent payloads."""
+        max_chars = max(1, int(self.SUMMARY_STREAM_COALESCE_MAX_CHARS))
+        flush_seconds = max(0.0, float(self.SUMMARY_STREAM_COALESCE_FLUSH_SECONDS))
+        loop = asyncio.get_running_loop()
+
+        buffered_chunks: list[str] = []
+        buffered_chars = 0
+        last_flush_at = loop.time()
+
+        async with aclosing(stream_iter) as stream:
+            async for raw_chunk in stream:
+                chunk = raw_chunk or ""
+                if not chunk:
+                    continue
+
+                buffered_chunks.append(chunk)
+                buffered_chars += len(chunk)
+
+                now = loop.time()
+                should_flush = buffered_chars >= max_chars
+                if not should_flush and flush_seconds > 0:
+                    should_flush = (now - last_flush_at) >= flush_seconds
+                if not should_flush and chunk.endswith("\n"):
+                    should_flush = True
+
+                if not should_flush:
+                    continue
+
+                coalesced_chunk = "".join(buffered_chunks)
+                buffered_chunks.clear()
+                buffered_chars = 0
+                last_flush_at = now
+                yield StreamEvent(content=coalesced_chunk, is_final=False, phase=phase)
+
+            if buffered_chunks:
+                yield StreamEvent(content="".join(buffered_chunks), is_final=False, phase=phase)
 
     def _build_continuation_prompt(self) -> str:
         """Prompt used when stream truncation is detected."""
