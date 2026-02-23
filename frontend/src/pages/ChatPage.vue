@@ -287,27 +287,20 @@
           :class="{ 'chat-bottom-dock-fixed': shouldPinComposerToBottom }"
           :style="chatBottomDockStyle"
         >
-          <!-- Planning Progress Indicator - shows instant feedback before plan is ready -->
+          <!-- Planning Progress Card - shows instant feedback before plan is ready -->
           <!-- Hide when timed_out to avoid flicker during auto-retry reconnect cycles -->
-          <div
-            v-if="!showSessionWarmupMessage && !isToolPanelOpen && responsePhase !== 'timed_out' && planningProgress && (!plan || plan.steps.length === 0)"
-            class="planning-progress-indicator mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 shadow-sm"
-          >
-            <!-- Content row -->
-            <div class="flex items-center gap-3">
-              <div class="planning-thinking flex-shrink-0">
-                <ThinkingIndicator :showText="false" />
-              </div>
-              <div class="flex-1 min-w-0">
-                <span class="planning-text-shimmer text-[15px] font-medium">
-                  {{ currentPlanningMessage }}
-                </span>
-              </div>
-              <div class="flex-shrink-0">
-                <PlannerActivityIndicator />
-              </div>
-            </div>
-          </div>
+          <Transition name="planning-card">
+            <PlanningCard
+              v-if="!showSessionWarmupMessage && !isToolPanelOpen && responsePhase !== 'timed_out' && planningProgress && (!plan || plan.steps.length === 0)"
+              class="mb-2"
+              :phase="(planningProgress.phase as 'received' | 'analyzing' | 'planning' | 'finalizing')"
+              :message="planningProgress.message"
+              :progressPercent="planningProgress.percent"
+              :estimatedDurationSeconds="planningProgress.estimatedDurationSeconds"
+              :complexityCategory="planningProgress.complexityCategory"
+              :currentPlanningMessage="currentPlanningMessage"
+            />
+          </Transition>
 
           <!-- Task Progress Bar Container - shown above ChatBox when ToolPanel is closed -->
           <div v-if="showTaskProgressBar" class="relative mb-2">
@@ -492,7 +485,7 @@ import { collapseDuplicateReportBlocks, preparePlainTextForViewer } from '@/comp
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
-import PlannerActivityIndicator from '@/components/ui/PlannerActivityIndicator.vue';
+import PlanningCard from '@/components/PlanningCard.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 // WideResearchOverlay removed — absorbed into Deep Research mode
 import ConnectionStatusBanner from '@/components/ConnectionStatusBanner.vue';
@@ -649,7 +642,7 @@ const createInitialState = () => ({
   toolTimeline: [] as ToolContent[],
   panelToolId: undefined as string | undefined,
   isInitializing: false, // True when starting up the sandbox environment
-  planningProgress: null as { phase: string; message: string; percent: number } | null, // Planning progress
+  planningProgress: null as { phase: string; message: string; percent: number; estimatedDurationSeconds?: number; complexityCategory?: 'simple' | 'medium' | 'complex' } | null, // Planning progress
   isWaitingForReply: false, // True when agent is waiting for user input
   followUpAnchorEventId: undefined as string | undefined, // Event ID to anchor follow-up context to
   pendingFollowUpSuggestion: undefined as string | undefined, // Suggestion waiting to be sent
@@ -2408,7 +2401,9 @@ const handleProgressEvent = (progressData: ProgressEventData) => {
   planningProgress.value = {
     phase: progressData.phase,
     message: progressData.message,
-    percent: progressData.progress_percent || 0
+    percent: progressData.progress_percent || 0,
+    estimatedDurationSeconds: progressData.estimated_duration_seconds,
+    complexityCategory: progressData.complexity_category,
   };
 
   // Clear initialization state on first progress event
@@ -3836,85 +3831,23 @@ const handleCopyLink = async () => {
   }
 }
 
-/* ===== PLANNING PROGRESS SHIMMER ===== */
-.planning-progress-indicator {
-  transition: all 0.3s ease;
-  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+/* ===== PLANNING CARD TRANSITION ===== */
+.planning-card-enter-active {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
 }
 
-.planning-thinking :deep(.thinking-lamp) {
-  width: 20px;
-  height: 24px;
+.planning-card-leave-active {
+  transition: transform 0.25s ease, opacity 0.2s ease;
 }
 
-.planning-percent {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  height: 24px;
-  border-radius: 999px;
-  padding: 0 8px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
-  background: var(--fill-tsp-gray-main);
-  border: 1px solid var(--border-light);
+.planning-card-enter-from {
+  transform: translateY(8px) scale(0.97);
+  opacity: 0;
 }
 
-.planning-text-shimmer {
-  background: linear-gradient(
-    120deg,
-    #6b7280 0%,
-    #6b7280 35%,
-    #d1d5db 50%,
-    #6b7280 65%,
-    #6b7280 100%
-  );
-  background-size: 300% 300%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: planning-shimmer 2.5s ease-in-out infinite;
-}
-
-/* Dark mode - planning shimmer (silver) */
-:deep(.dark) .planning-text-shimmer,
-.dark .planning-text-shimmer {
-  background: linear-gradient(
-    120deg,
-    #9ca3af 0%,
-    #9ca3af 35%,
-    #f3f4f6 50%,
-    #9ca3af 65%,
-    #9ca3af 100%
-  );
-  background-size: 300% 300%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-:deep(.dark) .planning-progress-indicator,
-.dark .planning-progress-indicator {
-  background: linear-gradient(180deg, #222222 0%, #1a1a1a 100%);
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
-}
-
-@keyframes planning-shimmer {
-  0% {
-    background-position: 100% 50%;
-  }
-  50% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 100% 50%;
-  }
+.planning-card-leave-to {
+  transform: translateY(-6px) scale(0.98);
+  opacity: 0;
 }
 
 /* ===== STALE NOTICE (reassuring, not alarming) ===== */
