@@ -3,8 +3,14 @@
 Tests query classification and URL resolution for fast-path routing.
 """
 
+import socket
+from types import SimpleNamespace
+
 import pytest
 
+from app.domain.models.event import DoneEvent, ErrorEvent, ToolEvent, ToolStatus
+from app.domain.models.search import SearchResultItem, SearchResults
+from app.domain.models.tool_result import ToolResult
 from app.domain.services.flows.fast_path import (
     URL_KNOWLEDGE_BASE,
     FastPathRouter,
@@ -132,6 +138,41 @@ class TestURLResolution:
         assert "duckduckgo.com" in result, "Should fall back to DuckDuckGo search URL"
         assert "some%20random%20thing" in result or "some+random+thing" in result
 
+    def test_single_character_alias_does_not_match_substrings(self):
+        """Single-letter aliases should not match inside regular words."""
+        result = self.router.resolve_target_to_url("and exttract all info from glimmerofpersia")
+        assert "x.com" not in result
+
+    def test_single_character_alias_matches_standalone_token(self):
+        """Single-letter aliases should still work when explicitly requested."""
+        assert self.router.resolve_target_to_url("x") == URL_KNOWLEDGE_BASE["x"]
+
+    def test_site_hint_inference_from_task_like_phrase(self, monkeypatch):
+        """Task-like phrases with 'from <site>' should infer a direct website URL."""
+        monkeypatch.setattr(
+            "app.domain.services.flows.fast_path.socket.getaddrinfo",
+            lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 443))],
+        )
+        result = self.router.resolve_target_to_url("and exttract all info from glimmerofpersia")
+        assert result == "https://glimmerofpersia.com"
+
+    def test_knowledge_base_still_overrides_site_hint(self):
+        """Known sites should use curated URLs before generic site-hint inference."""
+        result = self.router.resolve_target_to_url("collect info from wikipedia")
+        assert result == URL_KNOWLEDGE_BASE["wikipedia"]
+
+    def test_site_hint_dns_failure_falls_back_to_search(self, monkeypatch):
+        """Unresolvable inferred domains should gracefully fall back to search."""
+
+        def _raise_dns(*args, **kwargs):
+            raise socket.gaierror("dns failure")
+
+        monkeypatch.setattr("app.domain.services.flows.fast_path.socket.getaddrinfo", _raise_dns)
+        result = self.router.resolve_target_to_url("and exttract all info from glimmerofpersia")
+        assert "duckduckgo.com" in result
+        assert "glimmerofpersia" in result
+        assert "exttract%20all%20info" not in result
+
 
 class TestKnowledgeBase:
     """Tests for the URL knowledge base."""
@@ -244,3 +285,188 @@ class TestSuggestionClickMetadataDetection:
 
         # Should bypass fast path due to regex fallback
         assert should_use_fast_path(message_text, follow_up_source=None) is False
+
+
+class TestFastPathEntryPolicy:
+    """Tests for policy-level fast-path entry gating."""
+
+    def test_browse_intent_bypasses_fast_path(self):
+        """Browse requests should use full workflow."""
+        assert should_use_fast_path("open glimmerofpersia website") is False
+
+    def test_web_search_intent_bypasses_fast_path(self):
+        """Search requests should use full workflow."""
+        assert should_use_fast_path("search for glimmerofpersia website") is False
+
+
+class TestFastBrowseInitialization:
+    """Regression tests for fast browse browser warm-up behavior."""
+
+    @pytest.mark.asyncio
+    async def test_fast_browse_initializes_browser_before_failing_health(self):
+        """Fast browse should warm up a cold browser instead of failing immediately."""
+
+        class BrowserStub:
+            def __init__(self):
+                self.ensure_calls = 0
+                self.navigate_calls = 0
+                self._healthy = False
+
+            def is_healthy(self) -> bool:
+                return self._healthy
+
+            async def _ensure_browser(self) -> None:
+                self.ensure_calls += 1
+                self._healthy = True
+
+            async def navigate_fast(self, url: str):
+                self.navigate_calls += 1
+                return SimpleNamespace(success=True, data={"title": "Example"})
+
+        browser = BrowserStub()
+        router = FastPathRouter(browser=browser)
+
+        events = [event async for event in router.execute_fast_browse("example.com")]
+
+        assert browser.ensure_calls >= 1
+        assert browser.navigate_calls == 1
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+        assert any(isinstance(event, ToolEvent) and event.status == ToolStatus.CALLING for event in events)
+        assert isinstance(events[-1], DoneEvent)
+
+    @pytest.mark.asyncio
+    async def test_fast_browse_retries_browser_init_and_returns_timeout_error(self):
+        """Fast browse should retry browser initialization and return timeout error on failure."""
+
+        class BrowserTimeoutStub:
+            def __init__(self):
+                self.ensure_calls = 0
+
+            def is_healthy(self) -> bool:
+                return False
+
+            async def _ensure_browser(self) -> None:
+                self.ensure_calls += 1
+                raise TimeoutError("timed out")
+
+            async def navigate_fast(self, url: str):
+                return SimpleNamespace(success=True, data={"title": "Example"})
+
+        browser = BrowserTimeoutStub()
+        router = FastPathRouter(browser=browser)
+
+        events = [event async for event in router.execute_fast_browse("example.com")]
+
+        assert browser.ensure_calls == 2
+        assert any(isinstance(event, ErrorEvent) and "timeout" in event.error.lower() for event in events)
+        assert isinstance(events[-1], DoneEvent)
+
+
+class TestFastBrowseSearchAssistedResolution:
+    """Tests for search-first website identification in fast browse."""
+
+    @pytest.mark.asyncio
+    async def test_fast_browse_uses_search_api_to_open_identified_website(self):
+        """Ambiguous browse targets should resolve via search API before navigation."""
+
+        class BrowserStub:
+            def __init__(self):
+                self._healthy = False
+                self.last_url: str | None = None
+
+            def is_healthy(self) -> bool:
+                return self._healthy
+
+            async def _ensure_browser(self) -> None:
+                self._healthy = True
+
+            async def navigate_fast(self, url: str):
+                self.last_url = url
+                return SimpleNamespace(success=True, data={"title": "Glimmer Of Persia"})
+
+        class SearchEngineStub:
+            def __init__(self):
+                self.queries: list[str] = []
+
+            async def search(self, query: str, date_range: str | None = None):
+                self.queries.append(query)
+                return ToolResult.ok(
+                    data=SearchResults(
+                        query=query,
+                        total_results=1,
+                        results=[
+                            SearchResultItem(
+                                title="Glimmer Of Persia",
+                                link="https://www.glimmerofpersia.store",
+                                snippet="Official website",
+                            )
+                        ],
+                    )
+                )
+
+        browser = BrowserStub()
+        search_engine = SearchEngineStub()
+        FastPathRouter._search_cache.clear()
+        router = FastPathRouter(browser=browser, search_engine=search_engine)
+
+        events = [event async for event in router.execute_fast_browse("and exttract all info from glimmerofpersia")]
+
+        assert search_engine.queries == ["glimmerofpersia official website"]
+        assert browser.last_url == "https://www.glimmerofpersia.store"
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+        assert isinstance(events[-1], DoneEvent)
+
+    @pytest.mark.asyncio
+    async def test_fast_browse_falls_back_to_site_search_when_no_confident_search_match(self, monkeypatch):
+        """When search results lack a domain match, fallback should search by extracted site token."""
+
+        def _raise_dns(*args, **kwargs):
+            raise socket.gaierror("dns failure")
+
+        monkeypatch.setattr("app.domain.services.flows.fast_path.socket.getaddrinfo", _raise_dns)
+
+        class BrowserStub:
+            def __init__(self):
+                self._healthy = False
+                self.last_url: str | None = None
+
+            def is_healthy(self) -> bool:
+                return self._healthy
+
+            async def _ensure_browser(self) -> None:
+                self._healthy = True
+
+            async def navigate_fast(self, url: str):
+                self.last_url = url
+                return SimpleNamespace(success=True, data={"title": "Search"})
+
+        class SearchEngineStub:
+            async def search(self, query: str, date_range: str | None = None):
+                return ToolResult.ok(
+                    data=SearchResults(
+                        query=query,
+                        total_results=2,
+                        results=[
+                            SearchResultItem(
+                                title="DuckDuckGo",
+                                link="https://duckduckgo.com/?q=glimmerofpersia",
+                                snippet="Search results",
+                            ),
+                            SearchResultItem(
+                                title="Unrelated",
+                                link="https://example.org/page",
+                                snippet="Unrelated domain",
+                            ),
+                        ],
+                    )
+                )
+
+        browser = BrowserStub()
+        FastPathRouter._search_cache.clear()
+        router = FastPathRouter(browser=browser, search_engine=SearchEngineStub())
+
+        events = [event async for event in router.execute_fast_browse("and exttract all info from glimmerofpersia")]
+
+        assert browser.last_url == "https://duckduckgo.com/?q=glimmerofpersia"
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+        assert isinstance(events[-1], DoneEvent)
