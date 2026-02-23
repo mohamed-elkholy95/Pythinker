@@ -90,11 +90,12 @@ class AcknowledgmentGenerator:
         topic = self._normalize_subject(self._compact_subject(topic_source))
 
         if self._is_research_report_request(user_message):
-            list_summary = self._extract_numbered_topics_summary(user_message)
-            if list_summary:
-                return f"Got it! I will create a comprehensive research report on {list_summary}"
-
             report_topic = self._normalize_research_report_topic(topic, user_message)
+            if not report_topic or self._is_generic_list_placeholder(report_topic):
+                list_summary = self._extract_numbered_topics_summary(user_message)
+                if list_summary:
+                    report_topic = list_summary
+
             if report_topic:
                 return f"Got it! I will create a comprehensive research report on {report_topic}"
             return "Got it! I will create a comprehensive research report for your request"
@@ -183,8 +184,15 @@ class AcknowledgmentGenerator:
         if not normalized:
             return None
 
-        normalized = re.split(r",\s*(?:including|explaining|detailing|covering|with|that|which)\b", normalized, 1)[0]
-        normalized = re.split(r"\s+(?:including|explaining|detailing|covering)\b", normalized, 1)[0]
+        normalized = re.split(
+            r",\s*(?:including|explaining|detailing|covering|with|that|which)\b",
+            normalized,
+            1,
+            flags=re.IGNORECASE,
+        )[0]
+        normalized = re.split(r"\s+(?:including|explaining|detailing|covering)\b", normalized, 1, flags=re.IGNORECASE)[
+            0
+        ]
         normalized = re.split(r"[.;]\s*", normalized, 1)[0]
         normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
 
@@ -207,6 +215,11 @@ class AcknowledgmentGenerator:
         if len(subjects) == 2:
             return f"{subjects[0]} and {subjects[1]}"
         return f"{', '.join(subjects[:-1])}, and {subjects[-1]}"
+
+    def _is_generic_list_placeholder(self, text: str | None) -> bool:
+        if not text:
+            return False
+        return bool(re.search(r"\bthe following (?:topics?|items?|sections?)\b", text, flags=re.IGNORECASE))
 
     def _normalize_simple_research_topic(self, topic: str | None, user_message: str) -> str | None:
         if topic:
