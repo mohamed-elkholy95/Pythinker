@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Any
 from uuid import uuid4
 
-from app.domain.models.event import BaseEvent, ErrorEvent
+from app.domain.models.event import BaseEvent, ErrorEvent, PlanningPhase, ProgressEvent
 from app.domain.utils.cancellation import CancellationToken
 
 logger = logging.getLogger(__name__)
@@ -60,12 +60,18 @@ class StreamMetrics:
         self.events_sent = 0
         self.errors: list[dict[str, Any]] = []
         self.cancellation_count = 0
+        self.waiting_events = 0
+        self.waiting_stage_counts: Counter[str] = Counter()
         self.last_event_time: float | None = None
         self.event_latencies: list[float] = []
 
     def record_event(self, event: BaseEvent) -> None:
         """Record an event being sent."""
         self.events_sent += 1
+        if isinstance(event, ProgressEvent) and event.phase == PlanningPhase.WAITING:
+            self.waiting_events += 1
+            waiting_stage = (event.wait_stage or "unknown").strip().lower() or "unknown"
+            self.waiting_stage_counts[waiting_stage] += 1
         now = time.monotonic()
         if self.last_event_time is not None:
             self.event_latencies.append(now - self.last_event_time)
@@ -124,6 +130,8 @@ class StreamMetrics:
             "error_count": len(self.errors),
             "errors": self.errors,
             "cancellation_count": self.cancellation_count,
+            "waiting_events": self.waiting_events,
+            "waiting_stage_counts": dict(self.waiting_stage_counts),
         }
 
 
@@ -466,6 +474,7 @@ async def get_aggregate_stream_metrics() -> dict[str, Any]:
         total_events = sum(m.events_sent for m in all_metrics)
         total_errors = sum(len(m.errors) for m in all_metrics)
         total_cancellations = sum(m.cancellation_count for m in all_metrics)
+        total_waiting_events = sum(m.waiting_events for m in all_metrics)
         avg_events_per_second = sum(m.events_per_second for m in all_metrics) / len(all_metrics) if all_metrics else 0.0
 
         latency_samples_ms: list[float] = []
@@ -483,6 +492,9 @@ async def get_aggregate_stream_metrics() -> dict[str, Any]:
 
         active_by_endpoint = Counter(stream.endpoint for stream in _active_streams.values())
         reconnections_by_endpoint = Counter(endpoint for _, endpoint in _reconnection_events)
+        waiting_stage_counts: Counter[str] = Counter()
+        for metrics in all_metrics:
+            waiting_stage_counts.update(metrics.waiting_stage_counts)
 
         error_rate_by_category: dict[str, float] = {}
         if total_errors > 0:
@@ -501,6 +513,10 @@ async def get_aggregate_stream_metrics() -> dict[str, Any]:
             "error_count_by_category": dict(sorted(error_category_counts.items())),
             "error_rate_by_category": error_rate_by_category,
             "cancellation_rate": (total_cancellations / len(all_metrics)) if all_metrics else 0.0,
+            "waiting_events_total": total_waiting_events,
+            "avg_waiting_events_per_session": (total_waiting_events / len(all_metrics)) if all_metrics else 0.0,
+            "waiting_event_ratio": (total_waiting_events / total_events) if total_events > 0 else 0.0,
+            "waiting_stage_counts": dict(sorted(waiting_stage_counts.items())),
             "latency_ms": {
                 "avg": round(avg_latency_ms, 2) if avg_latency_ms is not None else None,
                 "p50": round(p50_latency_ms, 2) if p50_latency_ms is not None else None,

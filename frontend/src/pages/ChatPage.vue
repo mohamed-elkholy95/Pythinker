@@ -2482,7 +2482,7 @@ const handleProgressEvent = (progressData: ProgressEventData) => {
   startPlanningMessageCycle();
 
   // Update planning progress for UI
-  const validPhases = ['received', 'analyzing', 'planning', 'finalizing'] as const;
+  const validPhases = ['received', 'analyzing', 'planning', 'finalizing', 'waiting'] as const;
   const phase = validPhases.includes(progressData.phase as typeof validPhases[number])
     ? progressData.phase as typeof validPhases[number]
     : 'received';
