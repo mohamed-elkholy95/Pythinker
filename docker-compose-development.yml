@@ -30,7 +30,8 @@ services:
       - NODE_ENV=development
       - VITE_API_URL=
       - BACKEND_URL=http://backend:8000
-      # No VITE_USE_POLLING — native inotify works with compose watch
+      - VITE_HOST=true         # Bind Vite on 0.0.0.0 so HMR WebSocket reaches the browser
+      # No VITE_USE_POLLING — native inotify works with compose watch (no polling overhead)
     depends_on:
       backend:
         condition: service_started
