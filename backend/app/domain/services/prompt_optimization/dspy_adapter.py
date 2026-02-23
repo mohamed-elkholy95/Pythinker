@@ -13,6 +13,7 @@ Design constraints:
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -142,8 +143,13 @@ class ExecutionProgram:
 def cases_to_dspy_examples(cases: list[OptimizationCase]) -> list[Any]:
     """Convert OptimizationCase objects to ``dspy.Example`` objects.
 
-    Each example uses ``request_payload`` as the single input field,
-    carrying a dict of all input values.
+    Each example exposes individual input fields that match the DSPy
+    program ``forward()`` signatures:
+      - PLANNER:   ``.with_inputs("user_request", "available_tools")``
+      - EXECUTION: ``.with_inputs("user_request", "step_description", "available_tools")``
+
+    ``available_tools`` is joined into a comma-separated string to match
+    the ``dspy.InputField(desc="Comma-separated list ...")`` type.
 
     Returns an empty list if DSPy is not installed (graceful offline guard).
     """
@@ -152,11 +158,21 @@ def cases_to_dspy_examples(cases: list[OptimizationCase]) -> list[Any]:
 
     examples = []
     for case in cases:
-        payload = case.to_request_payload()
-        ex = dspy.Example(
-            request_payload=payload,
-            expected_constraints=case.expected.model_dump(),
-        ).with_inputs("request_payload")
+        tools_str = ", ".join(case.input.available_tools)
+        if case.target == PromptTarget.PLANNER:
+            ex = dspy.Example(
+                user_request=case.input.user_request,
+                available_tools=tools_str,
+                expected_constraints=case.expected.model_dump(),
+            ).with_inputs("user_request", "available_tools")
+        else:
+            # EXECUTION (and SYSTEM as execution proxy)
+            ex = dspy.Example(
+                user_request=case.input.user_request,
+                step_description=case.input.step_description,
+                available_tools=tools_str,
+                expected_constraints=case.expected.model_dump(),
+            ).with_inputs("user_request", "step_description", "available_tools")
         examples.append(ex)
     return examples
 
@@ -189,20 +205,23 @@ def build_gepa_metric(scorer: Any, target: PromptTarget) -> Any:
     def _metric(example: Any, prediction: Any, trace: Any = None) -> Any:
         """GEPA metric: returns dspy.Prediction(score=..., feedback=...)."""
         try:
-            # Build a synthetic OptimizationCase from the example
+            # Build a synthetic OptimizationCase from the example's individual fields
             from app.domain.models.prompt_optimization import (
                 OptimizationCase,
                 OptimizationCaseExpected,
                 OptimizationCaseInput,
             )
 
-            payload = example.request_payload
+            # Parse available_tools back from comma-separated string to list
+            tools_str = getattr(example, "available_tools", "")
+            available_tools = [t.strip() for t in tools_str.split(",") if t.strip()] if tools_str else []
+
             case = OptimizationCase(
                 target=target,
                 input=OptimizationCaseInput(
-                    user_request=payload.get("user_request", ""),
-                    step_description=payload.get("step_description", ""),
-                    available_tools=payload.get("available_tools", []),
+                    user_request=getattr(example, "user_request", ""),
+                    step_description=getattr(example, "step_description", ""),
+                    available_tools=available_tools,
                 ),
                 expected=OptimizationCaseExpected(
                     **{
@@ -216,7 +235,15 @@ def build_gepa_metric(scorer: Any, target: PromptTarget) -> Any:
             # Build output dict from prediction
             output: dict[str, Any] = {}
             if hasattr(prediction, "plan_json"):
-                output["steps"] = prediction.plan_json
+                # Fix 2: plan_json is a DSPy OutputField string — parse it
+                try:
+                    parsed_steps = json.loads(prediction.plan_json)
+                    if isinstance(parsed_steps, list):
+                        output["steps"] = parsed_steps
+                    else:
+                        output["steps"] = []
+                except (json.JSONDecodeError, TypeError):
+                    output["steps"] = []
             if hasattr(prediction, "response"):
                 output["response_text"] = prediction.response
             if hasattr(prediction, "tools_called"):
