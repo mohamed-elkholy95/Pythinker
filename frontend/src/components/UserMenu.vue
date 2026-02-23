@@ -51,6 +51,17 @@
                                 class="overflow-hidden flex-1 text-sm font-medium leading-5 whitespace-nowrap text-ellipsis">{{
                                 t('Usage') }}</span>
                         </div>
+                        <div
+                            class="flex gap-3 items-center p-2 rounded-lg cursor-pointer text-[var(--text-primary)] hover:bg-[var(--fill-tsp-white-main)]"
+                            @click="toggleTheme()">
+                            <div class="flex-shrink-0 w-5 h-5">
+                                <Moon v-if="!isDark" :size="20" />
+                                <Sun v-else :size="20" />
+                            </div>
+                            <span
+                                class="overflow-hidden flex-1 text-sm font-medium leading-5 whitespace-nowrap text-ellipsis">{{
+                                isDark ? t('Light Mode') : t('Dark Mode') }}</span>
+                        </div>
                         <div class="w-full h-[1px] my-1 bg-[var(--border-main)]"></div>
                         <div v-if="authProvider !== 'none'"
                             class="flex gap-3 items-center p-2 rounded-lg cursor-pointer hover:bg-[var(--fill-tsp-white-main)] text-[var(--function-error)]"
@@ -76,12 +87,14 @@ import { useI18n } from 'vue-i18n';
 import { useAuth } from '../composables/useAuth';
 import { useSettingsDialog } from '../composables/useSettingsDialog';
 import { getCachedAuthProvider } from '../api/auth';
-import { LogOut, User, Settings2, BarChart2 } from 'lucide-vue-next';
+import { LogOut, User, Settings2, BarChart2, Moon, Sun } from 'lucide-vue-next';
+import { useThemeMode } from '../composables/useThemeMode';
 
 const router = useRouter();
 const { t } = useI18n();
 const { currentUser, logout } = useAuth();
 const { openSettingsDialog } = useSettingsDialog();
+const { isDark, toggleTheme } = useThemeMode();
 const authProvider = ref<string | null>(null);
 
 // Get first letter of user's fullname for avatar display
