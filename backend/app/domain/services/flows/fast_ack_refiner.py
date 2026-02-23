@@ -110,6 +110,26 @@ class FastAcknowledgmentRefiner:
         if not normalized:
             return ""
 
+        # Remove common noisy phrasing artifacts from user list-style prompts.
+        normalized = re.sub(
+            r"\bon\s+report\s+that\s+covers\s+the\s+following\s+(topics?|items?|sections?)\b",
+            r"on the following \1",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        normalized = re.sub(
+            r"\b(following\s+(?:topics?|items?|sections?))\s*:\s*(?:\d+|[ivxlcdm]+|[a-zA-Z])(?:[.)])?\s*$",
+            r"\1",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        normalized = re.sub(
+            r"\bon\s+following\s+(topics?|items?|sections?)\b",
+            r"on the following \1",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+
         # Enforce required opener and concise length boundary.
         if not normalized.startswith("Got it!"):
             normalized = f"Got it! {normalized}"
