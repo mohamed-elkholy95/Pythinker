@@ -153,11 +153,17 @@ export interface ChartToolContent extends ToolContentBase {
   title: string;
   html_file_id?: string | null;
   png_file_id?: string | null;
+  plotly_json_file_id?: string | null;
   html_filename?: string | null;
   png_filename?: string | null;
+  plotly_json_filename?: string | null;
+  html_size?: number;
+  plotly_json_size?: number;
+  render_contract_version?: string | null;
   data_points?: number;
   series_count?: number;
   execution_time_ms?: number | null;
+  error?: string | null;
 }
 
 export type ToolContentPayload =

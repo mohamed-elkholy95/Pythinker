@@ -21,7 +21,8 @@ Input (JSON via stdin):
   "height": 600,
   "theme": "plotly_white",
   "output_html": "/home/ubuntu/chart-<id>.html",
-  "output_png": "/home/ubuntu/chart-<id>.png"
+  "output_png": "/home/ubuntu/chart-<id>.png",
+  "output_json": "/home/ubuntu/chart-<id>.plotly.json"
 }
 
 Output (JSON to stdout):
@@ -29,8 +30,11 @@ Output (JSON to stdout):
   "success": true,
   "html_path": "...",
   "png_path": "...",
+  "plotly_json_path": "...",
   "html_size": 48000,
   "png_size": 125000,
+  "plotly_json_size": 32000,
+  "render_contract_version": "plotly-json-v1",
   "chart_type": "bar",
   "data_points": 3,
   "series_count": 2
@@ -94,6 +98,7 @@ class ChartSpec(TypedDict, total=False):
     theme: str
     output_html: str
     output_png: str
+    output_json: str
 
 
 # ---------------------------------------------------------------------------
@@ -1085,6 +1090,8 @@ def _success_response(
     png_path: str,
     html_size: int,
     png_size: int,
+    plotly_json_path: str | None,
+    plotly_json_size: int | None,
     chart_type: str,
     data_points: int,
     series_count: int,
@@ -1097,6 +1104,9 @@ def _success_response(
             "png_path": png_path,
             "html_size": html_size,
             "png_size": png_size,
+            "plotly_json_path": plotly_json_path,
+            "plotly_json_size": plotly_json_size,
+            "render_contract_version": "plotly-json-v1",
             "chart_type": chart_type,
             "data_points": data_points,
             "series_count": series_count,
@@ -1138,8 +1148,13 @@ def main() -> int:
     # --- Write HTML (CDN mode for small file size) ---
     output_html: str = input_data["output_html"]
     output_png: str = input_data["output_png"]
+    output_json: str = input_data.get("output_json") or str(
+        Path(output_html).with_suffix(".plotly.json")
+    )
     width: int = input_data.get("width", 1000)
     height: int = input_data.get("height", 600)
+    plotly_json_size: int | None = None
+    plotly_json_path: str | None = None
 
     try:
         fig.write_html(output_html, include_plotlyjs="cdn")
@@ -1169,6 +1184,25 @@ def main() -> int:
         print(_error_response(f"PNG write failed: {exc}"))
         return 3
 
+    # --- Write Plotly JSON render contract (best effort) ---
+    # This provides a stable, parse-free interactive rendering contract for the frontend.
+    try:
+        figure_json = fig.to_plotly_json()
+        with Path(output_json).open("w", encoding="utf-8") as json_file:
+            json.dump(figure_json, json_file, separators=(",", ":"))
+        plotly_json_size = Path(output_json).stat().st_size
+        if plotly_json_size == 0:
+            Path(output_json).unlink(missing_ok=True)
+            plotly_json_size = None
+            plotly_json_path = None
+        else:
+            plotly_json_path = output_json
+    except Exception as exc:
+        # Do not fail the entire chart generation if JSON sidecar fails.
+        # HTML+PNG remain valid fallback artifacts.
+        print(f"WARNING: Plotly JSON write failed: {exc}", file=sys.stderr)
+        Path(output_json).unlink(missing_ok=True)
+
     # --- Success output ---
     print(
         _success_response(
@@ -1176,6 +1210,8 @@ def main() -> int:
             png_path=output_png,
             html_size=html_size,
             png_size=png_size,
+            plotly_json_path=plotly_json_path,
+            plotly_json_size=plotly_json_size,
             chart_type=input_data["chart_type"],
             data_points=len(input_data["labels"]),
             series_count=len(input_data["datasets"]),
