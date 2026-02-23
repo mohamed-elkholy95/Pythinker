@@ -154,7 +154,7 @@ def extract_cases_from_session_events(session_events: list[dict[str, Any]]) -> l
 
         elif ev_type == "step" and event.get("status") == "started":
             step_data = event.get("step", {})
-            current_step_desc = step_data.get("name", "")
+            current_step_desc = step_data.get("description", step_data.get("name", ""))
             tool_calls_in_step = []
 
         elif ev_type == "tool":
