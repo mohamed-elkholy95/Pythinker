@@ -282,12 +282,12 @@ onMounted(async () => {
     border-color: var(--border-dark);
 }
 
-:global([data-theme='dark']) .chatbox-container {
+:global(.dark) .chatbox-container {
     border-color: var(--border-main);
 }
 
-:global([data-theme='dark']) .chatbox-container:hover,
-:global([data-theme='dark']) .chatbox-container:focus-within {
+:global(.dark) .chatbox-container:hover,
+:global(.dark) .chatbox-container:focus-within {
     border-color: var(--border-dark);
 }
 
@@ -342,11 +342,11 @@ onMounted(async () => {
     background: rgba(0, 0, 0, 0.25);
 }
 
-:global([data-theme='dark']) .chatbox-textarea:hover::-webkit-scrollbar-thumb {
+:global(.dark) .chatbox-textarea:hover::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.15);
 }
 
-:global([data-theme='dark']) .chatbox-textarea::-webkit-scrollbar-thumb:hover {
+:global(.dark) .chatbox-textarea::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.25);
 }
 
@@ -360,7 +360,7 @@ onMounted(async () => {
     scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
 }
 
-:global([data-theme='dark']) .chatbox-textarea:hover {
+:global(.dark) .chatbox-textarea:hover {
     scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 
@@ -494,15 +494,10 @@ onMounted(async () => {
     border-bottom-color: var(--border-main);
 }
 
-:global([data-theme='dark']) .chatbox-connector-row {
-    background: rgba(255, 255, 255, 0.02);
-}
-
 :global(.dark) .chatbox-connector-row {
     background: rgba(255, 255, 255, 0.03);
 }
 
-:global([data-theme='dark']) .chatbox-connector-row:hover,
 :global(.dark) .chatbox-connector-row:hover {
     border-left-color: var(--border-dark);
     border-right-color: var(--border-dark);

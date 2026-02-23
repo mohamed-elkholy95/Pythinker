@@ -589,43 +589,35 @@ const _handleSaveToOneDriveWork = () => {
 }
 
 /* ── Dark mode: suggestions section ── */
-:global(.dark) .suggestions-section,
-:global([data-theme='dark']) .suggestions-section {
+:global(.dark) .suggestions-section {
   border-top-color: var(--border-main);
 }
 
-:global(.dark) .suggestions-header,
-:global([data-theme='dark']) .suggestions-header {
+:global(.dark) .suggestions-header {
   color: var(--text-secondary);
 }
 
-:global(.dark) .suggestion-item,
-:global([data-theme='dark']) .suggestion-item {
+:global(.dark) .suggestion-item {
   border-bottom-color: var(--border-main);
 }
 
-:global(.dark) .suggestion-item:hover,
-:global([data-theme='dark']) .suggestion-item:hover {
+:global(.dark) .suggestion-item:hover {
   background: rgba(255, 255, 255, 0.04);
 }
 
-:global(.dark) .suggestion-text,
-:global([data-theme='dark']) .suggestion-text {
+:global(.dark) .suggestion-text {
   color: var(--text-primary);
 }
 
-:global(.dark) .suggestion-icon,
-:global([data-theme='dark']) .suggestion-icon {
+:global(.dark) .suggestion-icon {
   color: var(--text-tertiary);
 }
 
-:global(.dark) .suggestion-arrow,
-:global([data-theme='dark']) .suggestion-arrow {
+:global(.dark) .suggestion-arrow {
   color: var(--text-tertiary);
 }
 
-:global(.dark) .suggestion-item:hover .suggestion-arrow,
-:global([data-theme='dark']) .suggestion-item:hover .suggestion-arrow {
+:global(.dark) .suggestion-item:hover .suggestion-arrow {
   color: var(--text-secondary);
 }
 
