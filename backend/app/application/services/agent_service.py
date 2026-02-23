@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import posixpath
+import re
 import shlex
 import time
 import uuid
@@ -690,6 +691,16 @@ class AgentService:
         if event_id:
             logger.info(f"Event resumption enabled: skipping events until event_id={event_id}")
 
+            # Validate cursor format: Redis stream IDs (e.g., "1771867510458-0")
+            # cannot match UUID-format domain event IDs.  Detect the mismatch
+            # early to avoid scanning 200 events before falling back.
+            if re.match(r"^\d+-\d+$", event_id):
+                logger.info(
+                    "Resume cursor %s is a Redis stream ID; domain events use UUID format — disabling skip mode",
+                    event_id,
+                )
+                skip_until_resume_point = False
+
         cancel_task: asyncio.Task | None = None
         next_task: asyncio.Task | None = None
         last_event_at = time.monotonic()
@@ -794,32 +805,20 @@ class AgentService:
                                 skip_elapsed_seconds,
                             )
                             skip_until_resume_point = False
-                            emitted_events += 1
-                            yield ErrorEvent(
-                                error=f"Stream gap detected: resume cursor not found after {skipped_resume_events} events",
-                                error_code="stream_gap_detected",
-                                severity="warning",
-                                recoverable=True,
-                            )
+                            # No ErrorEvent — stale cursors are expected on reconnect
+                            # and not user-facing errors.  The frontend deduplication
+                            # layer (5000 ID tracking) handles any duplicates.
 
                         if skip_until_resume_point:
                             continue  # Still searching — skip this event.
                     else:
                         # Event has no event_id. Cannot safely skip without risking an infinite
                         # loop; disable skip mode so this and all subsequent events are emitted.
-                        # Notify the client with a gap warning before resuming.
-                        logger.warning(
+                        logger.debug(
                             "Event without event_id during resumption: %s; disabling skip mode",
                             type(event).__name__,
                         )
                         skip_until_resume_point = False
-                        emitted_events += 1
-                        yield ErrorEvent(
-                            error="Stream gap detected: events have no IDs during resumption, resuming from current position",
-                            error_code="stream_gap_detected",
-                            severity="warning",
-                            recoverable=True,
-                        )
 
                 logger.debug(f"Received event: {event}")
                 emitted_events += 1
