@@ -11,11 +11,12 @@ These queries bypass the full plan-execute-reflect workflow for much faster resp
 import asyncio
 import logging
 import re
+import socket
 import time
 from collections.abc import AsyncGenerator
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from app.domain.exceptions.base import LLMKeysExhaustedError
 from app.domain.models.event import (
@@ -39,6 +40,14 @@ if TYPE_CHECKING:
     from app.domain.external.search import SearchEngine
 
 logger = logging.getLogger(__name__)
+
+
+SEARCH_RESULT_DOMAIN_BLOCKLIST = {
+    "duckduckgo.com",
+    "google.com",
+    "bing.com",
+    "search.brave.com",
+}
 
 
 class QueryIntent(Enum):
@@ -252,6 +261,131 @@ class FastPathRouter:
         """
         return f"https://duckduckgo.com/?q={quote(query)}"
 
+    @staticmethod
+    def _normalize_target_text(value: str) -> str:
+        """Normalize free-form target text for token matching."""
+        return re.sub(r"[^a-z0-9]+", " ", value.lower().strip()).strip()
+
+    @staticmethod
+    def _extract_site_hint(normalized_target: str) -> str | None:
+        """Extract likely site token from phrases like 'from <site>'."""
+        match = re.search(r"\bfrom\s+([a-z0-9][a-z0-9.-]{2,})\b", normalized_target)
+        if not match:
+            return None
+        site_hint = match.group(1).strip(".")
+        if site_hint in {"the", "this", "that", "here", "there"}:
+            return None
+        return site_hint
+
+    @staticmethod
+    def _normalize_domain(value: str) -> str:
+        """Return lowercase bare domain (without leading www)."""
+        domain = value.lower().strip()
+        if domain.startswith("www."):
+            return domain[4:]
+        return domain
+
+    @classmethod
+    def _is_blocklisted_search_domain(cls, domain: str) -> bool:
+        """Return True when domain belongs to a search engine results page."""
+        normalized = cls._normalize_domain(domain)
+        return any(
+            normalized == blocked or normalized.endswith(f".{blocked}") for blocked in SEARCH_RESULT_DOMAIN_BLOCKLIST
+        )
+
+    @classmethod
+    def _normalize_candidate_url(cls, link: str) -> tuple[str, str] | None:
+        """Normalize candidate link and return (url, domain) if valid."""
+        raw = (link or "").strip()
+        if not raw:
+            return None
+        if not raw.startswith(("http://", "https://")):
+            raw = f"https://{raw}"
+        parsed = urlparse(raw)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None
+        domain = cls._normalize_domain(parsed.netloc)
+        if cls._is_blocklisted_search_domain(domain):
+            return None
+        return raw, domain
+
+    @staticmethod
+    def _domain_matches_site_hint(domain: str, site_hint: str) -> bool:
+        """Check whether result domain aligns with inferred site hint token."""
+        hint_normalized = re.sub(r"[^a-z0-9]", "", site_hint.lower())
+        domain_normalized = re.sub(r"[^a-z0-9]", "", domain.lower())
+        return bool(hint_normalized and hint_normalized in domain_normalized)
+
+    def _build_website_search_query(self, target: str) -> str:
+        """Build a focused query for website discovery."""
+        normalized_target = self._normalize_target_text(target)
+        site_hint = self._extract_site_hint(normalized_target)
+        if site_hint:
+            return f"{site_hint} official website"
+        return normalized_target or target
+
+    def _select_best_website_result_url(self, target: str, search_result: Any) -> str | None:
+        """Select a high-confidence website URL from search API results."""
+        if (
+            not search_result
+            or not getattr(search_result, "success", False)
+            or not getattr(search_result, "data", None)
+            or not getattr(search_result.data, "results", None)
+        ):
+            return None
+
+        normalized_target = self._normalize_target_text(target)
+        site_hint = self._extract_site_hint(normalized_target)
+        candidates: list[tuple[str, str]] = []
+        for result in search_result.data.results:
+            normalized = self._normalize_candidate_url(getattr(result, "link", ""))
+            if normalized:
+                candidates.append(normalized)
+
+        if not candidates:
+            return None
+
+        if site_hint:
+            for candidate_url, candidate_domain in candidates:
+                if self._domain_matches_site_hint(candidate_domain, site_hint):
+                    return candidate_url
+            return None
+
+        return candidates[0][0]
+
+    async def _resolve_target_to_url_with_search(self, target: str) -> str | None:
+        """Try resolving a browse target to a concrete site URL via search API."""
+        if not self._search_engine:
+            return None
+
+        search_query = self._build_website_search_query(target)
+        if not search_query.strip():
+            return None
+
+        try:
+            cache_key = f"browse_target::{search_query.lower().strip()}"
+            cached = self._search_cache.get(cache_key)
+            if cached and (time.time() - cached[0]) < self._search_cache_ttl:
+                search_result = cached[1]
+            else:
+                search_result = await self._search_engine.search(search_query)
+                if getattr(search_result, "success", False):
+                    self._search_cache[cache_key] = (time.time(), search_result)
+
+            selected_url = self._select_best_website_result_url(target, search_result)
+            if selected_url:
+                logger.info(
+                    "Resolved '%s' via search API query '%s' to website URL: %s",
+                    target,
+                    search_query,
+                    selected_url,
+                )
+                return selected_url
+        except Exception as exc:
+            logger.warning("Search-assisted website resolution failed for '%s': %s", target, exc)
+
+        return None
+
     def classify(self, message: str) -> tuple[QueryIntent, dict[str, Any]]:
         """Classify query intent and extract relevant parameters.
 
@@ -352,14 +486,50 @@ class FastPathRouter:
             logger.info(f"Resolved '{target}' as domain: {url}")
             return url
 
-        # Check partial matches in knowledge base
+        # Check conservative partial matches in knowledge base.
+        # Single-character aliases (e.g., "x") must only match standalone tokens,
+        # otherwise normal words like "extract" can be misrouted to x.com.
+        normalized_target = self._normalize_target_text(target_lower)
+        target_tokens = normalized_target.split()
+        normalized_target_with_padding = f" {normalized_target} "
+
         for key, url in URL_KNOWLEDGE_BASE.items():
-            if target_lower in key or key in target_lower:
-                logger.info(f"Resolved '{target}' via partial match to: {url}")
+            normalized_key = re.sub(r"[^a-z0-9]+", " ", key.lower().strip()).strip()
+            if not normalized_key:
+                continue
+
+            if len(normalized_key) <= 2:
+                if normalized_key in target_tokens:
+                    logger.info(f"Resolved '{target}' via token alias match ('{key}') to: {url}")
+                    return url
+                continue
+
+            if f" {normalized_key} " in normalized_target_with_padding:
+                logger.info(f"Resolved '{target}' via partial phrase match ('{key}') to: {url}")
                 return url
 
+        # Heuristic: "from <site> website" style prompts often include task words
+        # around a bare site token; infer a direct domain to preserve live browse UX.
+        fallback_query = target
+        site_hint = self._extract_site_hint(normalized_target)
+        if site_hint:
+            inferred_host = site_hint if "." in site_hint else f"{site_hint}.com"
+            try:
+                socket.getaddrinfo(inferred_host, 443, type=socket.SOCK_STREAM)
+            except socket.gaierror:
+                logger.info(
+                    "Site hint '%s' did not resolve via DNS for target '%s'; falling back to search",
+                    inferred_host,
+                    target,
+                )
+                fallback_query = site_hint
+            else:
+                inferred_url = f"https://{inferred_host}"
+                logger.info(f"Resolved '{target}' via site hint inference to: {inferred_url}")
+                return inferred_url
+
         # Fall back to search for the target (use DuckDuckGo, not Google)
-        search_url = self._get_browser_search_url(target)
+        search_url = self._get_browser_search_url(fallback_query)
         logger.info(f"Resolved '{target}' to search URL: {search_url}")
         return search_url
 
@@ -384,30 +554,75 @@ class FastPathRouter:
             yield DoneEvent()
             return
 
-        # Check if browser is healthy and ready before proceeding
-        try:
-            # Check browser health
-            if hasattr(self._browser, "is_healthy") and not self._browser.is_healthy():
-                logger.warning("Browser not healthy, fast browse unavailable")
+        # Ensure browser is initialized before navigation.
+        # Fast-path browse is often the first browser action in a session, so
+        # initial "unhealthy" state should trigger warm-up, not immediate failure.
+        ensure_browser = getattr(self._browser, "_ensure_browser", None)
+        timeout_errors = (TimeoutError, asyncio.TimeoutError)
+        max_init_attempts = 2
+        init_timeout_seconds = 20.0
+        init_error: Exception | None = None
+
+        for attempt in range(max_init_attempts):
+            try:
+                if callable(ensure_browser):
+                    await asyncio.wait_for(ensure_browser(), timeout=init_timeout_seconds)
+
+                if hasattr(self._browser, "is_healthy") and not self._browser.is_healthy():
+                    raise RuntimeError("Browser health check failed after initialization")
+
+                init_error = None
+                break
+            except timeout_errors as exc:
+                init_error = exc
+                logger.warning(
+                    "Browser initialization timed out for fast browse (%s/%s)",
+                    attempt + 1,
+                    max_init_attempts,
+                )
+            except Exception as exc:
+                init_error = exc
+                logger.warning(
+                    "Browser initialization failed for fast browse (%s/%s): %s",
+                    attempt + 1,
+                    max_init_attempts,
+                    exc,
+                )
+
+            if attempt < max_init_attempts - 1:
+                await asyncio.sleep(0.75)
+
+        if init_error is not None:
+            if isinstance(init_error, timeout_errors):
+                yield ErrorEvent(error="Browser not ready (timeout) - please try again")
+            else:
                 yield ErrorEvent(error="Browser not ready - please try again")
-                yield DoneEvent()
-                return
-
-            # Try to ensure browser is connected - this will initialize if needed
-            if hasattr(self._browser, "_ensure_browser"):
-                await asyncio.wait_for(self._browser._ensure_browser(), timeout=15.0)
-        except TimeoutError:
-            logger.warning("Browser initialization timed out for fast browse")
-            yield ErrorEvent(error="Browser not ready (timeout) - please try again")
-            yield DoneEvent()
-            return
-        except Exception as e:
-            logger.warning(f"Browser initialization failed: {e}")
-            yield ErrorEvent(error="Browser not ready - please try again")
             yield DoneEvent()
             return
 
-        url = self.resolve_target_to_url(target)
+        # Prefer search-assisted website resolution for ambiguous natural-language targets.
+        target_lower = target.lower().strip()
+        is_explicit_target = (
+            target.startswith("http://")
+            or target.startswith("https://")
+            or ("." in target and " " not in target)
+            or target_lower in URL_KNOWLEDGE_BASE
+        )
+
+        resolved_from_search = False
+        url: str
+        if is_explicit_target:
+            url = self.resolve_target_to_url(target)
+        else:
+            search_resolved_url = await self._resolve_target_to_url_with_search(target)
+            if search_resolved_url:
+                url = search_resolved_url
+                resolved_from_search = True
+            else:
+                url = self.resolve_target_to_url(target)
+
+        if resolved_from_search:
+            logger.info("Fast browse using search-identified website URL: %s", url)
         tool_call_id = f"fast_browse_{uuid.uuid4().hex[:8]}"
 
         # Emit ToolEvent CALLING to trigger live preview in frontend
@@ -848,7 +1063,7 @@ def should_use_fast_path(message: str, follow_up_source: str | None = None) -> b
     if _classify_router is None:
         _classify_router = FastPathRouter()
     intent, _ = _classify_router.classify(message)
-    return intent != QueryIntent.TASK
+    return intent in (QueryIntent.GREETING, QueryIntent.KNOWLEDGE)
 
 
 def get_fast_path_router(
