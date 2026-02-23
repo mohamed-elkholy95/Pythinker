@@ -168,9 +168,6 @@ class ExecutionAgent(BaseAgent):
         self._citation_counter: int = 0
         self._url_to_citation: dict[str, int] = {}
 
-        # Parallel research context injected by PlanActFlow (MindSearch-inspired)
-        self._parallel_research_context: str | None = None
-
         # Multimodal information persistence (P5.2)
         # Per Pythinker pattern: persist key findings every 2 view operations
         self._view_operation_count: int = 0
@@ -543,19 +540,6 @@ class ExecutionAgent(BaseAgent):
         elif active_policy.mode == VerbosityMode.DETAILED:
             summarize_prompt += (
                 "\n\nProvide a detailed and well-structured response with clear reasoning, deliverables, and caveats."
-            )
-
-        # Inject parallel research findings into memory before summarization
-        if self._parallel_research_context:
-            await self._add_to_memory(
-                [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Here are the research findings from parallel search:\n\n" + self._parallel_research_context
-                        ),
-                    }
-                ]
             )
 
         await self._add_to_memory([{"role": "user", "content": summarize_prompt}])
@@ -2766,36 +2750,6 @@ class ExecutionAgent(BaseAgent):
             return md_h1_match.group(1).strip()[:200]
 
         return None
-
-    def _track_parallel_research_source(self, url: str, query: str) -> None:
-        """Track a source discovered during parallel research execution.
-
-        Called by PlanActFlow._execute_parallel_research_steps() to register
-        sources from the WideResearchOrchestrator into the executor's citation
-        index, so they appear in the final report.
-
-        Args:
-            url: Source URL
-            query: The search query that discovered this source
-        """
-        if not url or url in self._seen_urls or len(self._collected_sources) >= self._max_collected_sources:
-            return
-
-        self._seen_urls.add(url)
-
-        # Assign citation index
-        self._citation_counter += 1
-        self._url_to_citation[url] = self._citation_counter
-
-        self._collected_sources.append(
-            SourceCitation(
-                url=url,
-                title=query[:100],
-                snippet=None,
-                access_time=datetime.now(UTC),
-                source_type="search",
-            )
-        )
 
     def _build_numbered_source_list(self) -> str:
         """Build a numbered source list for citation-aware summarization.
