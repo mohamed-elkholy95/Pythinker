@@ -176,6 +176,20 @@ def get_step_limits(complexity: str) -> tuple:
     return COMPLEXITY_STEP_LIMITS.get(complexity, (DEFAULT_MIN_PLAN_STEPS, DEFAULT_MAX_PLAN_STEPS))
 
 
+# Duration estimates (low, high) in seconds for each complexity tier
+COMPLEXITY_DURATION_ESTIMATES: dict[str, tuple[int, int]] = {
+    "simple": (30, 60),
+    "medium": (60, 180),
+    "complex": (180, 480),
+}
+
+
+def estimate_task_duration(complexity: str) -> int:
+    """Return midpoint duration estimate in seconds for the given complexity."""
+    low, high = COMPLEXITY_DURATION_ESTIMATES.get(complexity, (60, 180))
+    return (low + high) // 2
+
+
 def _step_from_description(index: int, desc) -> Step:
     """Create a Step from a StepDescription, preserving phase metadata."""
 
@@ -410,10 +424,21 @@ class PlannerAgent(BaseAgent):
                 f"({len(self._current_requirements.must_haves)} must-haves)"
             )
 
+        # Compute complexity early so all ProgressEvents can include it
+        task_complexity: str | None = None
+        duration_estimate: int | None = None
+        if not replan_context:
+            task_complexity = get_task_complexity(message.message)
+            duration_estimate = estimate_task_duration(task_complexity)
+
         # Stream thinking phase for initial plans (skip on replans for speed)
         if not replan_context:
             yield ProgressEvent(
-                phase=PlanningPhase.ANALYZING, message="Analyzing task complexity...", progress_percent=20
+                phase=PlanningPhase.ANALYZING,
+                message="Analyzing task complexity...",
+                progress_percent=20,
+                complexity_category=task_complexity,
+                estimated_duration_seconds=duration_estimate,
             )
             async for event in self._stream_thinking(message.message):
                 yield event
@@ -421,7 +446,7 @@ class PlannerAgent(BaseAgent):
         # Tree-of-Thoughts exploration for complex tasks
         tot_context = None
         if self._thought_tree_explorer and not replan_context:
-            complexity = get_task_complexity(message.message)
+            complexity = task_complexity or get_task_complexity(message.message)
             if complexity == "complex":
                 try:
                     from app.domain.services.agents.reasoning.thought_tree import ExplorationMode
@@ -532,7 +557,13 @@ class PlannerAgent(BaseAgent):
             prompt = base_prompt
 
         # Progress: Starting plan generation
-        yield ProgressEvent(phase=PlanningPhase.PLANNING, message="Creating execution plan...", progress_percent=40)
+        yield ProgressEvent(
+            phase=PlanningPhase.PLANNING,
+            message="Creating execution plan...",
+            progress_percent=40,
+            complexity_category=task_complexity,
+            estimated_duration_seconds=duration_estimate,
+        )
 
         # Try structured output first for type-safe response
         # Phase 4: Use Tenacity retry with validation feedback when feature enabled
@@ -557,6 +588,8 @@ class PlannerAgent(BaseAgent):
                         message="Validating plan structure...",
                         estimated_steps=len(plan.steps),
                         progress_percent=80,
+                        complexity_category=task_complexity,
+                        estimated_duration_seconds=duration_estimate,
                     )
                     logger.info(f"Created plan using validated structured output: {plan.title}")
                     await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
@@ -567,6 +600,8 @@ class PlannerAgent(BaseAgent):
                         message=f"Ready to execute {len(plan.steps)} steps!",
                         estimated_steps=len(plan.steps),
                         progress_percent=95,
+                        complexity_category=task_complexity,
+                        estimated_duration_seconds=duration_estimate,
                     )
                     yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
                     return
@@ -584,6 +619,8 @@ class PlannerAgent(BaseAgent):
                         message="Finalizing plan...",
                         estimated_steps=len(plan_response.steps),
                         progress_percent=80,
+                        complexity_category=task_complexity,
+                        estimated_duration_seconds=duration_estimate,
                     )
 
                     # Convert to Plan model
@@ -604,6 +641,8 @@ class PlannerAgent(BaseAgent):
                         message=f"Ready to execute {len(plan.steps)} steps!",
                         estimated_steps=len(plan.steps),
                         progress_percent=95,
+                        complexity_category=task_complexity,
+                        estimated_duration_seconds=duration_estimate,
                     )
                     yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
                     return
@@ -624,6 +663,8 @@ class PlannerAgent(BaseAgent):
                     message=f"Ready to execute {len(plan.steps)} steps!",
                     estimated_steps=len(plan.steps),
                     progress_percent=95,
+                    complexity_category=task_complexity,
+                    estimated_duration_seconds=duration_estimate,
                 )
                 yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
             else:

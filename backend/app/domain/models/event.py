@@ -531,6 +531,8 @@ class ProgressEvent(BaseEvent):
     message: str  # User-friendly status message
     estimated_steps: int | None = None  # Estimated number of steps (if known)
     progress_percent: int | None = None  # 0-100 progress indicator
+    estimated_duration_seconds: int | None = None  # Rough time estimate for the task
+    complexity_category: str | None = None  # "simple", "medium", or "complex"
 
 
 class ComprehensionEvent(BaseEvent):
