@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 
+from app.core.config import get_settings
 from app.domain.models.prompt_optimization import OptimizationRun, OptimizerType
 from app.domain.models.prompt_profile import PromptProfile, PromptTarget
 from app.domain.repositories.prompt_profile_repository import (
@@ -52,11 +53,23 @@ class PromptOptimizationService:
         The actual optimization is run offline via the CLI script
         ``backend/scripts/run_dspy_prompt_optimization.py``.  This method
         creates the tracking record so the API can poll status.
+
+        Raises:
+            ValueError: If the prompt optimization pipeline feature flag is disabled.
         """
+        settings = get_settings()
+        if not settings.feature_prompt_optimization_pipeline:
+            raise ValueError(
+                "Prompt optimization pipeline is disabled. Set FEATURE_PROMPT_OPTIMIZATION_PIPELINE=true to enable."
+            )
+
+        run_config = config or {}
+        run_config["min_cases_policy"] = settings.prompt_optimization_min_cases
+
         run = OptimizationRun(
             target=target,
             optimizer=optimizer,
-            config=config or {},
+            config=run_config,
         )
         await self._run_repo.save_run(run)
         logger.info("Created optimization run %s for target=%s", run.id, target.value)
