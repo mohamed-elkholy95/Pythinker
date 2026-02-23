@@ -912,8 +912,7 @@ defineExpose({
 }
 
 /* ── Dark mode ── */
-.dark .cit-card,
-[data-theme='dark'] .cit-card {
+.dark .cit-card {
   background: #222222;
   border-color: rgba(255, 255, 255, 0.09);
   box-shadow:
@@ -922,47 +921,40 @@ defineExpose({
     0 12px 28px rgba(0, 0, 0, 0.4);
 }
 
-.dark .cit-card-title,
-[data-theme='dark'] .cit-card-title {
+.dark .cit-card-title {
   color: #f0f0f0;
 }
 
-.dark .cit-card-domain,
-[data-theme='dark'] .cit-card-domain {
+.dark .cit-card-domain {
   color: rgba(240, 240, 240, 0.45);
 }
 
-.dark .cit-card-arrow,
-[data-theme='dark'] .cit-card-arrow {
+.dark .cit-card-arrow {
   color: rgba(240, 240, 240, 0.35);
 }
 
 /* ── Dark mode: prose link variable ──────────────────────────────────── */
-.dark .tiptap-report-editor .prose,
-[data-theme='dark'] .tiptap-report-editor .prose {
+.dark .tiptap-report-editor .prose {
   --tw-prose-links: #7cb3e0;
 }
 
 /* ── Dark mode: report-link color ────────────────────────────────────── */
-.dark .tiptap-report-editor .report-link,
-[data-theme='dark'] .tiptap-report-editor .report-link {
+.dark .tiptap-report-editor .report-link {
   color: #7cb3e0;
 }
 
 /* ── Dark mode: inline citation badges ───────────────────────────────
    Uses .tiptap-report-editor class for specificity (beats scoped [data-v] attrs).
-   Placed here (unscoped) because :global(.dark) :deep() in <style scoped> can be
+   Placed here (unscoped) because .dark in <style scoped> can be
    unreliable across Vue SFC compiler versions. */
-.dark .tiptap-report-editor a[href^="#ref-"],
-[data-theme='dark'] .tiptap-report-editor a[href^="#ref-"] {
+.dark .tiptap-report-editor a[href^="#ref-"] {
   background: transparent;
   border-color: rgba(255, 255, 255, 0.22);
   color: rgba(255, 255, 255, 0.5);
   text-decoration: none !important;
 }
 
-.dark .tiptap-report-editor a[href^="#ref-"]:hover,
-[data-theme='dark'] .tiptap-report-editor a[href^="#ref-"]:hover {
+.dark .tiptap-report-editor a[href^="#ref-"]:hover {
   background: #e5e5e7;
   border-color: #e5e5e7;
   color: #1c1c1e;
@@ -970,14 +962,12 @@ defineExpose({
 }
 
 /* ── Dark mode: report-link safety override for citation badges ────── */
-.dark .tiptap-report-editor a.report-link[href^="#ref-"],
-[data-theme='dark'] .tiptap-report-editor a.report-link[href^="#ref-"] {
+.dark .tiptap-report-editor a.report-link[href^="#ref-"] {
   color: rgba(255, 255, 255, 0.5);
 }
 
 /* ── Dark mode: reference list anchor hover ──────────────────────────── */
-.dark .tiptap-report-editor .ref-list-anchor:hover,
-[data-theme='dark'] .tiptap-report-editor .ref-list-anchor:hover {
+.dark .tiptap-report-editor .ref-list-anchor:hover {
   text-decoration-color: #7cb3e0;
   color: #7cb3e0;
 }
