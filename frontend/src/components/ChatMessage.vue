@@ -555,12 +555,12 @@ watch(
 }
 
 .assistant-time {
-  opacity: 0.82;
+  opacity: 0;
   transition: opacity 0.15s ease;
 }
 
 .assistant-header-row:hover .assistant-time {
-  opacity: 1;
+  opacity: 0.82;
 }
 
 .assistant-message-text {
@@ -596,7 +596,7 @@ watch(
 }
 
 .assistant-header-summary .assistant-time {
-  opacity: 0.82;
+  opacity: 0;
 }
 
 .assistant-summary-compact {
