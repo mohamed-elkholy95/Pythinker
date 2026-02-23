@@ -139,7 +139,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Research keywords reused for parallel research detection (matches _assign_phases_to_plan)
+# Research keywords used by _assign_phases_to_plan to classify steps into phases
 # ---------------------------------------------------------------------------
 _RESEARCH_KEYWORDS = frozenset(
     {
@@ -1279,44 +1279,6 @@ class PlanActFlow(BaseFlow):
     async def _generate_acknowledgment(self, user_message: str) -> str:
         """Generate an acknowledgment message before starting to plan."""
         return await self._ack_refiner.generate(user_message)
-
-    def _extract_research_topic(self, user_message: str) -> str | None:
-        """Extract the research topic from the user's message."""
-        return self._ack_generator._extract_research_topic(user_message)
-
-    def _generate_research_queries(self, topic: str) -> list[str]:
-        """Generate search queries from a research topic.
-
-        Args:
-            topic: The research topic
-
-        Returns:
-            A list of search queries for comprehensive coverage
-        """
-        # Start with the topic itself
-        queries = [topic]
-
-        # Add variations for broader coverage
-        topic_lower = topic.lower()
-
-        # Add "best" query if not already present and topic doesn't start with an article
-        if "best" not in topic_lower and not topic_lower.startswith(("the ", "a ", "an ")):
-            queries.append(f"best {topic}")
-
-        # Add "comparison" query if not already present
-        if "comparison" not in topic_lower and "compare" not in topic_lower:
-            queries.append(f"{topic} comparison")
-
-        # Add "review" query for product/service topics
-        if "review" not in topic_lower:
-            queries.append(f"{topic} review")
-
-        # Add year if not present (for recency)
-        current_year = datetime.now(UTC).year
-        if str(current_year) not in topic and str(current_year - 1) not in topic:
-            queries.append(f"{topic} {current_year}")
-
-        return queries[:5]  # Limit to 5 queries
 
     def _validate_plan_before_execution(self) -> bool:
         """Validate plan before execution; returns True if safe to proceed."""
