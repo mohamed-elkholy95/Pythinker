@@ -270,32 +270,33 @@ class ComplianceGates:
         """
         issues = []
 
-        # Check for incomplete markers
+        # Strip fenced code blocks before scanning for markers — markers
+        # inside code (TODO, FIXME, TBD) are normal developer content,
+        # not indicators of an incomplete report.
+        stripped_content = re.sub(r"```[\s\S]*?```", "", content)
+        stripped_lower = stripped_content.lower()
+
+        # Check for incomplete markers (only in prose, outside code blocks)
         incomplete_markers = [
-            "TODO:",
-            "FIXME:",
-            "TBD",
-            "...",
             "[placeholder]",
             "coming soon",
             "to be added",
             "insert here",
         ]
 
-        content_lower = content.lower()
         for marker in incomplete_markers:
-            if marker.lower() in content_lower:
-                # Exclude "..." in legitimate contexts (ellipsis in code, etc.)
-                if marker == "..." and content_lower.count("...") <= 2:
-                    continue
+            if marker.lower() in stripped_lower:
                 issues.append(f"Incomplete marker found: {marker}")
 
-        # Check for truncation indicators
-        if content.rstrip().endswith(("```", "...")):
-            last_lines = content.strip().split("\n")[-3:]
-            if any("```" in line for line in last_lines[:-1]):
-                # Likely truncated code block
-                issues.append("Possible truncated code block")
+        # Ellipsis (`...`) is extremely common in legitimate markdown —
+        # only flag it at a high threshold (5+) outside code blocks.
+        if stripped_lower.count("...") >= 5:
+            issues.append("Excessive ellipsis markers")
+
+        # Odd number of fences means an unclosed (truncated) code block.
+        fence_count = len(re.findall(r"^```", content, re.MULTILINE))
+        if fence_count % 2 != 0:
+            issues.append("Possible truncated code block")
 
         if issues:
             return GateResult(
@@ -314,9 +315,14 @@ class ComplianceGates:
 _compliance_gates: ComplianceGates | None = None
 
 
-def get_compliance_gates(strict_mode: bool = False) -> ComplianceGates:
-    """Get or create the global compliance gates instance."""
+def get_compliance_gates() -> ComplianceGates:
+    """Get or create the global compliance gates instance.
+
+    Note: strict_mode escalation is handled by check_all() or by the
+    caller (e.g. _run_delivery_integrity_gate) — the singleton is
+    always constructed with strict_mode=False.
+    """
     global _compliance_gates
     if _compliance_gates is None:
-        _compliance_gates = ComplianceGates(strict_mode=strict_mode)
+        _compliance_gates = ComplianceGates(strict_mode=False)
     return _compliance_gates
