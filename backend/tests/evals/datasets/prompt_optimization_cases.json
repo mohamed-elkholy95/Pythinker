@@ -1,6 +1,6 @@
 {
   "name": "prompt_optimization_cases",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Curated planner and execution cases for DSPy+GEPA prompt optimization",
   "cases": [
     {
@@ -222,6 +222,146 @@
       },
       "labels": {"quality_score": 0.0, "success": null},
       "metadata": {"source": "curated", "difficulty": "easy"}
+    },
+    {
+      "id": "plan_0006",
+      "target": "planner",
+      "input": {
+        "user_request": "Scrape product prices from three e-commerce sites and create a comparison spreadsheet",
+        "step_description": "",
+        "available_tools": ["browser_navigate", "file_write", "terminal_execute"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 3,
+        "max_steps": 9
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "easy"}
+    },
+    {
+      "id": "plan_0007",
+      "target": "planner",
+      "input": {
+        "user_request": "Migrate a SQLite database to PostgreSQL including schema, data, and indexes",
+        "step_description": "",
+        "available_tools": ["file_read", "file_write", "terminal_execute"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 3,
+        "max_steps": 8
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "plan_0008",
+      "target": "planner",
+      "input": {
+        "user_request": "Implement end-to-end encryption for a chat application with key exchange",
+        "step_description": "",
+        "available_tools": ["file_write", "file_read", "terminal_execute", "info_search_web"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 4,
+        "max_steps": 12
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "hard"}
+    },
+    {
+      "id": "plan_0009",
+      "target": "planner",
+      "input": {
+        "user_request": "Write a Python script that monitors a folder for new CSV files and generates summary reports",
+        "step_description": "",
+        "available_tools": ["file_write", "file_read", "terminal_execute"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 2,
+        "max_steps": 6
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "easy"}
+    },
+    {
+      "id": "plan_0010",
+      "target": "planner",
+      "input": {
+        "user_request": "Build a web dashboard with Vue that displays real-time server metrics",
+        "step_description": "",
+        "available_tools": ["file_write", "file_read", "terminal_execute", "info_search_web"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 3,
+        "max_steps": 10
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
+    },
+    {
+      "id": "plan_0011",
+      "target": "planner",
+      "input": {
+        "user_request": "Design and implement a rate limiter middleware with Redis-backed sliding window",
+        "step_description": "",
+        "available_tools": ["file_write", "file_read", "terminal_execute", "info_search_web"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 3,
+        "max_steps": 8
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "hard"}
+    },
+    {
+      "id": "plan_0012",
+      "target": "planner",
+      "input": {
+        "user_request": "Set up automated testing with pytest including fixtures, mocking, and coverage reports",
+        "step_description": "",
+        "available_tools": ["file_write", "file_read", "terminal_execute"],
+        "attachments": []
+      },
+      "expected": {
+        "must_call_tools": [],
+        "must_contain": [],
+        "must_not_contain": [],
+        "min_citations": 0,
+        "min_steps": 3,
+        "max_steps": 8
+      },
+      "labels": {"quality_score": 0.0, "success": null},
+      "metadata": {"source": "curated", "difficulty": "medium"}
     },
     {
       "id": "exec_0007",
