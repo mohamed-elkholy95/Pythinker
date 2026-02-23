@@ -626,6 +626,10 @@ class PlanActFlow(BaseFlow):
                     target.value,
                     sel.profile_id,
                 )
+                with suppress(Exception):
+                    from app.core.prometheus_metrics import record_shadow_delta
+
+                    record_shadow_delta(metric="shadow_evaluated", target=target.value, delta=0.0)
                 return None
             if sel.mode == ProfileSelectionMode.BASELINE:
                 return None
@@ -2345,8 +2349,18 @@ class PlanActFlow(BaseFlow):
                             except Exception as e:
                                 logger.debug("Role-scoped memory injection skipped: %s", e)
 
-                        # PR-7: Resolve planner prompt profile patch (shadow/active mode)
+                        # PR-7: Resolve prompt profile patches (shadow/active mode)
                         from app.domain.models.prompt_profile import PromptTarget as _PromptTarget
+
+                        # Resolve SYSTEM patch early and apply to both planner and executor
+                        _system_patch = await self._resolve_profile_patch(_PromptTarget.SYSTEM)
+                        if _system_patch:
+                            self.planner.system_prompt += (
+                                f"\n<!-- profile_patch target=system -->\n{_system_patch}\n<!-- /profile_patch -->\n"
+                            )
+                            self.executor.system_prompt += (
+                                f"\n<!-- profile_patch target=system -->\n{_system_patch}\n<!-- /profile_patch -->\n"
+                            )
 
                         _planner_patch = await self._resolve_profile_patch(_PromptTarget.PLANNER)
 
