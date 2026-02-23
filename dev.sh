@@ -8,10 +8,20 @@
 # on the container's native ext4 filesystem, giving instant inotify events to
 # Vite and uvicorn --reload — no polling required.
 #
+# HMR flow:
+#   Edit file → Compose Watch (tar+cp to container) → inotify fires →
+#     Frontend: Vite HMR → instant browser update (no page reload)
+#     Backend:  uvicorn --reload → Python auto-restart (~1s)
+#     Sandbox:  uvicorn --reload → Python auto-restart (~1s)
+#
 # Commands:
-#   ./dev.sh                    Start stack with live file watch (DEFAULT)
+#   ./dev.sh                    Build + start stack + live watch (DEFAULT)
 #   ./dev.sh watch              Same as above (explicit)
-#   ./dev.sh [--monitoring] <compose-cmd>  Docker Compose passthrough
+#   ./dev.sh attach             Attach watch to ALREADY-RUNNING containers (no rebuild)
+#   ./dev.sh up -d              Start without watch (no HMR — manual use only)
+#   ./dev.sh logs -f backend    Follow backend logs
+#   ./dev.sh down -v            Stop + remove volumes
+#   ./dev.sh [--monitoring] <cmd>  Include Prometheus/Grafana stack
 #
 # Legacy (rsync fallback — only needed if compose watch doesn't work):
 #   ./dev.sh sync               One-shot rsync backend + frontend to /private/tmp
@@ -72,6 +82,10 @@ cmd_sync() {
 
 # ── Docker Compose helpers ────────────────────────────────────────────────────
 
+# Always run from project root so compose watch paths resolve correctly.
+# This allows calling ./dev.sh from any working directory (e.g., from an IDE terminal).
+cd "$PROJECT_DIR"
+
 if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
     COMPOSE="docker compose"
 elif command -v docker-compose &>/dev/null; then
@@ -95,12 +109,30 @@ CMD="${1:-watch}"
 case "$CMD" in
     watch)
         # Default dev workflow: build + start + live file sync via Docker Compose Watch
-        echo "Starting Docker Compose Watch — file changes auto-sync to containers"
-        echo "  Frontend: ./frontend/src → container /app/src  (Vite HMR)"
-        echo "  Backend:  ./backend/app  → container /app/app  (uvicorn --reload)"
-        echo "  Sandbox:  ./sandbox/app  → container /app/app  (uvicorn --reload)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Pythinker Dev — Docker Compose Watch"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Frontend : ./frontend/src → /app/src  [Vite HMR]"
+        echo "  Backend  : ./backend/app  → /app/app  [uvicorn --reload]"
+        echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
+        echo ""
+        echo "  Tip: containers already running? Use ./dev.sh attach instead."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         $COMPOSE $COMPOSE_FILES up --build --watch
+        ;;
+    attach)
+        # Attach Compose Watch to ALREADY-RUNNING containers (no rebuild, no restart)
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Pythinker Dev — Attaching Compose Watch"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Watching for file changes (containers already running)..."
+        echo "  Frontend : ./frontend/src → /app/src  [Vite HMR]"
+        echo "  Backend  : ./backend/app  → /app/app  [uvicorn --reload]"
+        echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        $COMPOSE $COMPOSE_FILES watch --no-up
         ;;
     sync)
         # Legacy: rsync to /private/tmp staging dirs
