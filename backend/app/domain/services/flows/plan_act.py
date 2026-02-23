@@ -2670,6 +2670,7 @@ class PlanActFlow(BaseFlow):
                             f"Agent {self._agent_id} replanning due to validation errors "
                             f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
                         )
+                        self._parallel_research_done = False  # Allow parallel research on new plan
                         continue
 
                     # Reset verification feedback after replanning
@@ -2777,7 +2778,14 @@ class PlanActFlow(BaseFlow):
                             self._transition_to(
                                 AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures"
                             )
-                            continue
+                        else:
+                            logger.info(
+                                f"Agent {self._agent_id} plan failed validation before execution "
+                                f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
+                            )
+                            self._parallel_research_done = False  # Allow parallel research on new plan
+                            self._transition_to(AgentStatus.PLANNING, force=True, reason="plan validation failed")
+                        continue
 
                     # === PARALLEL RESEARCH (MindSearch-inspired) ===
                     # Before entering the standard step-by-step loop, check if
@@ -2807,12 +2815,6 @@ class PlanActFlow(BaseFlow):
                                     step.result = None
                                     step.error = None
                         # === END PARALLEL RESEARCH ===
-                        logger.info(
-                            f"Agent {self._agent_id} plan failed validation before execution "
-                            f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
-                        )
-                        self._transition_to(AgentStatus.PLANNING, force=True, reason="plan validation failed")
-                        continue
                     self.plan.status = ExecutionStatus.RUNNING
                     step = self.plan.get_next_step()
                     if not step:
