@@ -16,7 +16,7 @@
         @refresh="handleRetryConnection"
         @dismiss="dismissConnectionBanner"
       />
-      <div ref="observerRef"
+      <div ref="_observerRef"
         class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 ps-[8px] pe-[8px] sm:ps-[16px] sm:pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
         <!-- Mobile sidebar toggle -->
         <button
@@ -297,7 +297,7 @@
         </div>
 
         <div
-          ref="chatBottomDockRef"
+          ref="_chatBottomDockRef"
           class="chat-bottom-dock flex flex-col sticky bottom-0"
           :class="{ 'chat-bottom-dock-fixed': shouldPinComposerToBottom }"
           :style="chatBottomDockStyle"
@@ -324,7 +324,7 @@
               @click="handleFollow"
               v-if="!follow"
               class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute end-0 z-30"
-              style="top: calc(-48px + 1.5in - 4.2cm)"
+              style="bottom: 2cm"
             >
               <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
             </button>
@@ -539,8 +539,7 @@ const researchWorkflow = useResearchWorkflow()
 useConnectorDialog()
 
 // Error boundary — catches unhandled errors from child components to prevent page crashes
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired for future error banner UI
-const { lastCapturedError, clearError } = useErrorBoundary()
+const { lastCapturedError: _lastCapturedError, clearError: _clearError } = useErrorBoundary()
 
 // Response phase state machine
 const {
@@ -634,7 +633,6 @@ const createInitialState = () => ({
   title: t('New Chat'),
   plan: undefined as PlanEventData | undefined,
   lastNoMessageTool: undefined as ToolContent | undefined,
-  lastMessageTool: undefined as ToolContent | undefined,
   lastTool: undefined as ToolContent | undefined,
   cancelCurrentChat: null as (() => void) | null,
   attachments: [] as FileInfo[],
@@ -835,7 +833,7 @@ const hasScreenshotReplay = computed(() => replay.hasScreenshots.value)
 
 const isSessionComplete = computed(() => {
   return !!sessionStatus.value &&
-    [SessionStatus.COMPLETED, SessionStatus.FAILED].includes(sessionStatus.value)
+    [SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED].includes(sessionStatus.value)
 })
 
 // Replay mode: session is completed/failed and has replay data
@@ -853,10 +851,10 @@ const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
 // Non-state refs that don't need reset
 const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
-const observerRef = ref<HTMLDivElement>();
+const _observerRef = ref<HTMLDivElement>();
 const chatSplitRef = ref<HTMLDivElement>();
 const chatContainerRef = ref<HTMLDivElement>();
-const chatBottomDockRef = ref<HTMLDivElement>();
+const _chatBottomDockRef = ref<HTMLDivElement>();
 const chatBottomDockStyle = ref<Record<string, string>>({});
 let chatContainerResizeObserver: ResizeObserver | null = null;
 const MOBILE_VIEWPORT_BREAKPOINT = 640;
@@ -1504,10 +1502,10 @@ const pollSessionStatusFallback = async (): Promise<'continue' | 'stop'> => {
   try {
     const statusResp = await agentApi.getSessionStatus(sessionId.value);
     const status = statusResp.status as SessionStatus;
-    if (status === SessionStatus.COMPLETED || status === SessionStatus.FAILED) {
+    if (status === SessionStatus.COMPLETED || status === SessionStatus.FAILED || status === SessionStatus.CANCELLED) {
       sessionStatus.value = status;
       emitStatusChange(sessionId.value, status);
-      if (status === SessionStatus.COMPLETED) {
+      if (status === SessionStatus.COMPLETED || status === SessionStatus.CANCELLED) {
         transitionTo('completing');
         await replay.loadScreenshots();
       } else {
@@ -1851,7 +1849,7 @@ const handleOpenPanel = () => {
       name: 'browser',
       function: 'browser_view',
       args: {},
-      status: 'completed',
+      status: 'called',
       timestamp: Math.floor(Date.now() / 1000),
     };
     toolPanel.value?.showToolPanel(placeholderTool, true);
@@ -2239,7 +2237,7 @@ const handleStepEvent = (stepData: StepEventData) => {
     }
 
     // Try to nest step inside its phase group
-    const phaseContent = findActivePhaseMessage(stepData.phase_id)
+    const phaseContent = findActivePhaseMessage(stepData.phase_id ?? undefined)
     if (phaseContent) {
       phaseContent.steps.push(stepContent)
     }
@@ -3153,7 +3151,7 @@ const chat = async (
         files.map((file: FileInfo) => ({
           file_id: file.file_id,
           filename: file.filename,
-          content_type: file.content_type,
+          content_type: file.content_type || '',
           size: file.size,
           upload_date: file.upload_date
         })),
@@ -3226,9 +3224,10 @@ const restoreSession = async () => {
     // server returned "running" AND events didn't include a DoneEvent (edge case),
     // do a lightweight status re-check to avoid restarting a completed task.
     const freshStatus = await agentApi.getSessionStatus(sessionId.value);
-    if (freshStatus && ['completed', 'failed'].includes(freshStatus.status)) {
+    if (freshStatus && ['completed', 'failed', 'cancelled'].includes(freshStatus.status)) {
       console.log('[RESTORE] Status re-check shows session is', freshStatus.status, '- not resuming');
-      sessionStatus.value = freshStatus.status === 'completed' ? SessionStatus.COMPLETED : SessionStatus.FAILED;
+      const statusMap: Record<string, SessionStatus> = { completed: SessionStatus.COMPLETED, failed: SessionStatus.FAILED, cancelled: SessionStatus.CANCELLED };
+      sessionStatus.value = statusMap[freshStatus.status] ?? SessionStatus.FAILED;
       replay.loadScreenshots();
       return;
     }
@@ -3266,7 +3265,7 @@ const restoreSession = async () => {
     // No stop flag - safe to auto-resume
     console.log('[RESTORE] No stop flag, auto-resuming session');
     await chat();
-  } else if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED) {
+  } else if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED || sessionStatus.value === SessionStatus.CANCELLED) {
     // Load screenshots for replay mode
     replay.loadScreenshots()
   }
@@ -3374,7 +3373,7 @@ watch(documentVisibility, async (newVisibility) => {
 
   // Only check if session was active when we left
   const activeStatuses = [SessionStatus.RUNNING, SessionStatus.INITIALIZING, SessionStatus.PENDING];
-  if (!activeStatuses.includes(sessionStatus.value)) return;
+  if (!sessionStatus.value || !activeStatuses.includes(sessionStatus.value)) return;
 
   try {
     const status = await agentApi.getSessionStatus(sessionId.value);
@@ -3383,7 +3382,7 @@ watch(documentVisibility, async (newVisibility) => {
       sessionStatus.value = status.status as SessionStatus;
 
       // If session completed/failed while tab was hidden, load final state
-      if (status.status === 'completed' || status.status === 'failed') {
+      if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
         replay.loadScreenshots();
       }
     }
@@ -3548,7 +3547,7 @@ const handleRetryConnection = async () => {
   try {
     const statusResp = await agentApi.getSessionStatus(sessionId.value);
     const status = statusResp.status as SessionStatus;
-    if (status === SessionStatus.COMPLETED || status === SessionStatus.FAILED) {
+    if (status === SessionStatus.COMPLETED || status === SessionStatus.FAILED || status === SessionStatus.CANCELLED) {
       sessionStatus.value = status;
       emitStatusChange(sessionId.value, status);
       transitionTo('completing');

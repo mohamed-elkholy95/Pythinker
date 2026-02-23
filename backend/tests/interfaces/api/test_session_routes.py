@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.domain.models.event import DoneEvent, PlanningPhase, ProgressEvent
+from app.domain.models.event import DoneEvent, PlanningPhase, ProgressEvent, ReportEvent
 from app.interfaces.api.session_routes import (
     _cancel_pending_disconnect_cancellation,
     _safe_exc_text,
@@ -118,15 +118,20 @@ async def test_get_shared_screenshot_image_sets_immutable_cache_header():
 # ---------------------------------------------------------------------------
 
 
-def _make_completed_session(session_id: str = "sess-1", title: str = "My Task") -> SimpleNamespace:
+def _make_completed_session(
+    session_id: str = "sess-1",
+    title: str = "My Task",
+    events: list | None = None,
+) -> SimpleNamespace:
     """Return a minimal session object that looks completed."""
-    return SimpleNamespace(id=session_id, status="completed", title=title)
+    return SimpleNamespace(id=session_id, status="completed", title=title, events=events or [])
 
 
 def _make_http_request() -> MagicMock:
     """Return a mock starlette Request with is_disconnected."""
     req = MagicMock()
     req.is_disconnected = AsyncMock(return_value=False)
+    req.headers = {"Last-Event-ID": None}
     return req
 
 
@@ -183,6 +188,51 @@ async def test_chat_completed_session_no_input_returns_done_event():
     assert "timestamp" in events[0]["data"]
 
     # agent_service.chat must NOT have been invoked
+    agent_service.chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_completed_session_with_resume_cursor_replays_tail_events():
+    """Completed session + resume cursor should replay missing report tail instead of done-only."""
+    session_id = "sess-resume-tail"
+    progress_event = ProgressEvent(
+        id="evt-progress",
+        phase=PlanningPhase.FINALIZING,
+        message="Wrapping up",
+        progress_percent=90,
+    )
+    report_event = ReportEvent(
+        id="evt-report",
+        title="Final Report",
+        content="# Final Report\n\nAll done.",
+    )
+    done_event = DoneEvent(id="evt-done", title="Task completed")
+    session = _make_completed_session(
+        session_id=session_id,
+        title="Finished task",
+        events=[progress_event, report_event, done_event],
+    )
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(return_value=session),
+        chat=AsyncMock(),  # Should NOT be called
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest(event_id="evt-progress")
+
+    response = await chat(
+        session_id=session_id,
+        request=request,
+        http_request=_make_http_request(),
+        current_user=current_user,
+        agent_service=agent_service,
+    )
+
+    events = await _collect_sse_events(response)
+
+    assert [event["event"] for event in events] == ["report", "done"]
+    assert events[0]["data"]["event_id"] == "evt-report"
+    assert events[0]["data"]["title"] == "Final Report"
+    assert events[1]["data"]["event_id"] == "evt-done"
     agent_service.chat.assert_not_awaited()
 
 

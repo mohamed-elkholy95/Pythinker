@@ -36,7 +36,8 @@ export type AgentSSEEvent = {
     | 'thought'
     | 'canvas_update'
     | 'workspace'
-    | 'research_mode';
+    | 'research_mode'
+    | 'phase';
   data:
     | ToolEventData
     | ToolStreamEventData
@@ -59,7 +60,9 @@ export type AgentSSEEvent = {
     | SkillActivationEventData
     | ThoughtEventData
     | CanvasUpdateEventData
-    | WorkspaceEventData;
+    | WorkspaceEventData
+    | AgentPhaseEventData
+    | ResearchModeEventData;
 }
 
 export interface BaseEventData {
@@ -283,4 +286,20 @@ export interface WorkspaceEventData extends BaseEventData {
   structure?: Record<string, string>;
   files_organized?: number;
   deliverables_count?: number;
+}
+
+export interface AgentPhaseEventData extends BaseEventData {
+  phase_id: string;
+  phase_type: string;
+  label: string;
+  status: 'started' | 'completed' | 'skipped';
+  order?: number;
+  icon?: string;
+  color?: string;
+  total_phases?: number;
+  skip_reason?: string;
+}
+
+export interface ResearchModeEventData extends BaseEventData {
+  research_mode: string;
 }

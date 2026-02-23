@@ -492,7 +492,48 @@ async def chat(
         or request.follow_up
     )
     if session.status in ("completed", "failed") and not has_fresh_input:
-        logger.info(f"Session {session_id} already {session.status} with no new input, emitting done event")
+        resume_cursor = request.event_id or http_request.headers.get("Last-Event-ID")
+        logger.info(
+            "Session %s already %s with no new input (resume_cursor=%s)",
+            session_id,
+            session.status,
+            resume_cursor,
+        )
+
+        replay_events: list[ServerSentEvent] = []
+        if resume_cursor:
+            session_events = getattr(session, "events", None) or []
+            sse_events = await EventMapper.events_to_sse_events(session_events)
+            cursor_index = next(
+                (
+                    index
+                    for index, sse_event in enumerate(sse_events)
+                    if sse_event.data and getattr(sse_event.data, "event_id", None) == resume_cursor
+                ),
+                None,
+            )
+            if cursor_index is not None:
+                replay_events.extend(
+                    ServerSentEvent(
+                        event=sse_event.event,
+                        data=sse_event.data.model_dump_json() if sse_event.data else None,
+                    )
+                    for sse_event in sse_events[cursor_index + 1 :]
+                )
+            else:
+                logger.info(
+                    "Resume cursor %s not found in completed session %s; falling back to done-only response",
+                    resume_cursor,
+                    session_id,
+                )
+
+        if replay_events:
+
+            async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
+                for replay_event in replay_events:
+                    yield replay_event
+
+            return EventSourceResponse(completed_generator(), headers=protocol_headers)
 
         done_event = DoneEvent(title=session.title or "Task completed")
         sse_done = await EventMapper.event_to_sse_event(done_event)

@@ -287,7 +287,7 @@ class AgentDomainService:
                     await self._teardown_session_runtime(
                         session_id,
                         session=session,
-                        status=SessionStatus.FAILED,
+                        status=SessionStatus.CANCELLED,
                         destroy_sandbox=False,
                     )
                 logger.info("Cancellation requested before processing session %s", session_id)
@@ -595,7 +595,7 @@ class AgentDomainService:
                 # Check for cancellation (SSE disconnect)
                 if cancel_token.is_cancelled():
                     task.cancel()
-                    await self._teardown_session_runtime(session_id, status=SessionStatus.FAILED, destroy_sandbox=False)
+                    await self._teardown_session_runtime(session_id, status=SessionStatus.CANCELLED, destroy_sandbox=False)
                     logger.info("Session %s cancelled during event loop", session_id)
                     return
 
