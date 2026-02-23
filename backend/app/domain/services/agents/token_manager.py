@@ -6,11 +6,15 @@ to stay within model context limits. Includes pressure monitoring
 for proactive context management.
 """
 
+import hashlib
 import logging
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from app.domain.models.pressure import PressureLevel
+
+if TYPE_CHECKING:
+    import tiktoken
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +164,7 @@ class TokenManager:
             session_id: Optional session ID for logging/metrics context
         """
         self._model_name = model_name
-        self._encoding = self._get_encoding(model_name)
+        self._encoding: tiktoken.Encoding | None = self._get_encoding(model_name)
 
         # Determine context limit
         self._max_tokens = max_context_tokens or self._get_model_limit(model_name)
@@ -181,6 +185,7 @@ class TokenManager:
         self._token_cache: dict[str, int] = {}
         self._cache_hits = 0
         self._cache_misses = 0
+        self._encode_failures = 0  # Track tiktoken encode errors for observability
 
         # Phase 4 P1: Graceful compaction control
         self._compaction_allowed = True  # Gate for compaction timing
@@ -265,13 +270,19 @@ class TokenManager:
 
     def _get_content_hash(self, text: str) -> str:
         """Generate a hash for content to use as cache key."""
-        import hashlib
-
         return hashlib.md5(text.encode()).hexdigest()  # noqa: S324 - MD5 used for non-security cache key, not cryptographic
+
+    def _approximate_tokens(self, text: str) -> int:
+        """Fallback character-based token estimation."""
+        return len(text) // self.CHARS_PER_TOKEN
 
     def count_tokens(self, text: str) -> int:
         """
         Count tokens in a text string.
+
+        Uses tiktoken for accurate counting with graceful fallback to character-
+        based estimation on ANY failure. Handles special tokens (``<|endoftext|>``,
+        ``<|fim_prefix|>``, etc.) that open-source LLMs sometimes emit verbatim.
 
         Uses LRU-style caching to avoid recounting identical content.
 
@@ -279,12 +290,13 @@ class TokenManager:
             text: Text to count tokens for
 
         Returns:
-            Token count
+            Token count (always non-negative, never raises)
         """
         if not text:
             return 0
 
         # Check cache first
+        cache_key: str | None = None
         if self._enable_cache:
             cache_key = self._get_content_hash(text)
             if cache_key in self._token_cache:
@@ -294,11 +306,34 @@ class TokenManager:
                 return self._token_cache[cache_key]
             self._cache_misses += 1
 
-        # Count tokens
-        count = len(self._encoding.encode(text)) if self._encoding else len(text) // self.CHARS_PER_TOKEN
+        # Count tokens with tiktoken (guarded) or fallback to approximation.
+        #
+        # disallowed_special=() tells tiktoken to treat ALL special tokens
+        # (<|endoftext|>, <|fim_prefix|>, etc.) as normal text rather than
+        # raising ValueError. Required because LLM responses from providers
+        # like GLM-5, DeepSeek, and Qwen may echo these tokens verbatim.
+        #
+        # The outer try/except catches ANY remaining failure (corrupted
+        # encoding state, malformed surrogate pairs, memory errors) so
+        # token counting never crashes the agent loop.
+        if self._encoding:
+            try:
+                count = len(self._encoding.encode(text, disallowed_special=()))
+            except Exception:
+                self._encode_failures += 1
+                # Log on first failure and then every 100th to avoid log spam
+                if self._encode_failures == 1 or self._encode_failures % 100 == 0:
+                    logger.warning(
+                        "tiktoken encode failed (count=%d), using approximation",
+                        self._encode_failures,
+                        exc_info=self._encode_failures == 1,  # Full traceback only on first
+                    )
+                count = self._approximate_tokens(text)
+        else:
+            count = self._approximate_tokens(text)
 
         # Store in cache
-        if self._enable_cache:
+        if self._enable_cache and cache_key is not None:
             self._token_cache[cache_key] = count
             # Evict single oldest entry (LRU) when cache is full
             if len(self._token_cache) > self.TOKEN_CACHE_MAX_SIZE:
@@ -672,6 +707,7 @@ class TokenManager:
             "safety_margin": self._safety_margin,
             "effective_limit": self._effective_limit,
             "tiktoken_available": TIKTOKEN_AVAILABLE,
+            "encode_failures": self._encode_failures,
             "cache": {
                 "enabled": self._enable_cache,
                 "size": len(self._token_cache),
@@ -683,7 +719,7 @@ class TokenManager:
         }
 
     def clear_cache(self) -> int:
-        """Clear the token count cache.
+        """Clear the token count cache and reset counters.
 
         Returns:
             Number of entries cleared
@@ -692,6 +728,7 @@ class TokenManager:
         self._token_cache.clear()
         self._cache_hits = 0
         self._cache_misses = 0
+        self._encode_failures = 0
         logger.debug(f"Token cache cleared ({count} entries)")
         return count
 
