@@ -2235,6 +2235,12 @@ const handleStepEvent = (stepData: StepEventData) => {
       type: 'step',
       content: stepContent,
     });
+
+    // Sync running/started status into plan.value so TaskProgressBar shows in-progress indicator
+    if (plan.value?.steps) {
+      const planStep = plan.value.steps.find(s => s.id === stepData.id)
+      if (planStep) planStep.status = 'running'
+    }
   } else if (stepData.status === 'completed' || stepData.status === 'failed' || stepData.status === 'blocked' || stepData.status === 'skipped') {
     // Find the matching step by ID and update its status
     const matchingStep = messages.value
