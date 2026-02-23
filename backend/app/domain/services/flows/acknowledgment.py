@@ -187,13 +187,16 @@ class AcknowledgmentGenerator:
         normalized = re.split(
             r",\s*(?:including|explaining|detailing|covering|with|that|which)\b",
             normalized,
-            1,
+            maxsplit=1,
             flags=re.IGNORECASE,
         )[0]
-        normalized = re.split(r"\s+(?:including|explaining|detailing|covering)\b", normalized, 1, flags=re.IGNORECASE)[
-            0
-        ]
-        normalized = re.split(r"[.;]\s*", normalized, 1)[0]
+        normalized = re.split(
+            r"\s+(?:including|explaining|detailing|covering)\b",
+            normalized,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0]
+        normalized = re.split(r"[.;]\s*", normalized, maxsplit=1)[0]
         normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
 
         max_words = 11
