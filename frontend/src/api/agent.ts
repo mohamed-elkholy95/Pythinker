@@ -1,7 +1,7 @@
 // Backend API service
 import { apiClient, API_CONFIG, ApiResponse, createEventSourceConnection, createSSEConnection, SSECallbacks } from './client';
 import { AgentSSEEvent, FollowUp } from '../types/event';
-import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse, StreamingMode } from '../types/response';
+import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse, StreamingMode, SessionStatus } from '../types/response';
 import type { FileInfo } from './file';
 
 
@@ -84,7 +84,7 @@ export async function stopSession(sessionId: string): Promise<void> {
 
 export interface SessionStatusResponse {
   session_id: string
-  status: string
+  status: SessionStatus
   sandbox_id: string | null
   streaming_mode: StreamingMode | null
   created_at: number | null

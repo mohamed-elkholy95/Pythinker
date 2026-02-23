@@ -1,7 +1,7 @@
 import type { FileInfo } from '../api/file';
 import type { ToolContentPayload } from './toolContent';
 
-export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments" | "report" | "skill_delivery" | "thought";
+export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments" | "report" | "skill_delivery" | "thought" | "phase";
 
 // Step item types for interleaved tools and thoughts
 export type StepItemType = 'tool' | 'thought';
@@ -88,6 +88,19 @@ export interface StepContent extends BaseContent {
   step_type?: string | null;
   items?: StepItem[];  // Interleaved tools + thoughts for Pythinker-style rendering
   sub_stage_history?: string[];  // Previous descriptions for progressive finalization steps
+}
+
+export interface PhaseContent extends BaseContent {
+  phase_id: string;
+  phase_type: string;
+  label: string;
+  status: 'started' | 'completed' | 'skipped';
+  order?: number;
+  icon?: string;
+  color?: string;
+  total_phases?: number;
+  skip_reason?: string;
+  steps: StepContent[];
 }
 
 export interface AttachmentsContent extends BaseContent {
