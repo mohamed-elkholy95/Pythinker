@@ -74,7 +74,7 @@
         </div>
         <div class="nav-section">
           <div class="nav-section-title">{{ t('Projects') }}</div>
-          <button class="nav-item nav-item-muted" type="button" aria-disabled="true" title="Coming soon">
+          <button class="nav-item nav-item-muted" type="button" disabled aria-disabled="true" title="Coming soon" @click.stop.prevent>
             <FolderPlus class="nav-icon" />
             <span>{{ t('New project') }}</span>
           </button>
@@ -351,6 +351,7 @@ const fetchSessions = async () => {
 }
 
 const handleNewTaskClick = async () => {
+  closeSearch()
   // Stop current running session to release sandbox/browser resources
   const currentSessionId = route.params.sessionId as string | undefined;
   if (currentSessionId) {
@@ -368,6 +369,7 @@ const handleNewTaskClick = async () => {
 }
 
 const handleLibraryClick = () => {
+  closeSearch()
   router.push('/chat/history')
 }
 
@@ -619,6 +621,9 @@ watch(() => route.path, async (newPath, oldPath) => {
 
 .nav-item-muted {
   color: var(--text-secondary);
+  cursor: not-allowed;
+  pointer-events: none;
+  opacity: 0.6;
 }
 
 .nav-icon {
