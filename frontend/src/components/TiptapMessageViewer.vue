@@ -575,9 +575,7 @@ defineExpose({ contentRef });
 }
 
 :global(.dark) :deep(.tiptap a:not([href^="#ref-"])),
-:global(.dark) :deep(.message-link:not([href^="#ref-"])),
-:global([data-theme='dark']) :deep(.tiptap a:not([href^="#ref-"])),
-:global([data-theme='dark']) :deep(.message-link:not([href^="#ref-"])) {
+:global(.dark) :deep(.message-link:not([href^="#ref-"])) {
   color: #7cb3e0;
 }
 
@@ -821,8 +819,7 @@ defineExpose({ contentRef });
   color: #1a73e8;
 }
 
-:global(.dark) :deep(.ref-list-anchor:hover),
-:global([data-theme='dark']) :deep(.ref-list-anchor:hover) {
+:global(.dark) :deep(.ref-list-anchor:hover) {
   text-decoration-color: #7cb3e0;
   color: #7cb3e0;
 }
@@ -964,8 +961,7 @@ defineExpose({ contentRef });
 }
 
 /* ── Dark mode ── */
-.dark .msg-cit-card,
-[data-theme='dark'] .msg-cit-card {
+.dark .msg-cit-card {
   background: #222222;
   border-color: rgba(255, 255, 255, 0.09);
   box-shadow:
@@ -974,18 +970,15 @@ defineExpose({ contentRef });
     0 12px 28px rgba(0, 0, 0, 0.4);
 }
 
-.dark .msg-cit-card-title,
-[data-theme='dark'] .msg-cit-card-title {
+.dark .msg-cit-card-title {
   color: #f0f0f0;
 }
 
-.dark .msg-cit-card-domain,
-[data-theme='dark'] .msg-cit-card-domain {
+.dark .msg-cit-card-domain {
   color: rgba(240, 240, 240, 0.45);
 }
 
-.dark .msg-cit-card-arrow,
-[data-theme='dark'] .msg-cit-card-arrow {
+.dark .msg-cit-card-arrow {
   color: rgba(240, 240, 240, 0.35);
 }
 
@@ -993,16 +986,14 @@ defineExpose({ contentRef });
    Uses .tiptap-message-viewer class for specificity (beats scoped [data-v] attrs).
    Placed here (unscoped) because :global(.dark) :deep() in <style scoped> can be
    unreliable across Vue SFC compiler versions. */
-.dark .tiptap-message-viewer a[href^="#ref-"],
-[data-theme='dark'] .tiptap-message-viewer a[href^="#ref-"] {
+.dark .tiptap-message-viewer a[href^="#ref-"] {
   background: transparent;
   border-color: rgba(255, 255, 255, 0.22);
   color: rgba(255, 255, 255, 0.5);
   text-decoration: none !important;
 }
 
-.dark .tiptap-message-viewer a[href^="#ref-"]:hover,
-[data-theme='dark'] .tiptap-message-viewer a[href^="#ref-"]:hover {
+.dark .tiptap-message-viewer a[href^="#ref-"]:hover {
   background: #e5e5e7;
   border-color: #e5e5e7;
   color: #1c1c1e;
