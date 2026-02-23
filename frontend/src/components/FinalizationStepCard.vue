@@ -123,17 +123,35 @@ interface Stage {
   status: 'completed' | 'running' | 'failed';
 }
 
+/**
+ * Map raw backend stage descriptions to polished, user-friendly labels.
+ * Keeps unknown descriptions as-is for forward-compatibility.
+ */
+const STAGE_LABEL_MAP: Record<string, string> = {
+  'Composing report...': 'Composing report',
+  'Verifying factual claims...': 'Verifying sources',
+  'Fact-checking sources...': 'Verifying sources',
+  'Verification complete': 'Sources verified',
+  'Report finalized': 'Report ready',
+  'Summary failed delivery integrity checks': 'Quality check issue',
+  'Summary contained no usable content': 'Generation issue',
+};
+
+const humanizeDescription = (raw: string): string => {
+  return STAGE_LABEL_MAP[raw] ?? raw.replace(/\.{2,}$/, '');
+};
+
 const stages = computed((): Stage[] => {
   const history = props.step.sub_stage_history ?? [];
   const isTerminal = isCompleted.value || isFailed.value;
 
   const completedStages: Stage[] = history.map(desc => ({
-    description: desc,
+    description: humanizeDescription(desc),
     status: 'completed',
   }));
 
   const currentStage: Stage = {
-    description: props.step.description,
+    description: humanizeDescription(props.step.description),
     status: isTerminal
       ? (isFailed.value ? 'failed' : 'completed')
       : 'running',

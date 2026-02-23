@@ -284,9 +284,9 @@ class ComplianceGates:
             "insert here",
         ]
 
-        for marker in incomplete_markers:
-            if marker.lower() in stripped_lower:
-                issues.append(f"Incomplete marker found: {marker}")
+        issues.extend(
+            f"Incomplete marker found: {marker}" for marker in incomplete_markers if marker.lower() in stripped_lower
+        )
 
         # Ellipsis (`...`) is extremely common in legitimate markdown —
         # only flag it at a high threshold (5+) outside code blocks.
