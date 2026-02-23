@@ -73,8 +73,10 @@
           <div class="text-[var(--text-tertiary)] text-sm text-center">
             Failed to load interactive chart —
             <button @click="activeViewMode = 'static'" class="text-blue-500 hover:text-blue-600 underline">view static image</button>
-            or
-            <button @click="openInteractive" class="text-blue-500 hover:text-blue-600 underline">open in new tab</button>
+            <template v-if="chartContent.content?.html_file_id">
+              or
+              <button @click="openInteractive" class="text-blue-500 hover:text-blue-600 underline">open in new tab</button>
+            </template>
           </div>
         </div>
         <div v-else-if="!plotlyReady" class="p-8 flex items-center justify-center">
@@ -141,6 +143,7 @@ import { ToolContent } from '@/types/message';
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { ExternalLink, Download } from 'lucide-vue-next';
 import { fileApi } from '@/api/file';
+import { extractPlotlyFigureFromHtml, parsePlotlyFigureContract, type PlotlyFigureContract } from '@/utils/plotlyFigureContract';
 import { useThemeColors } from '@/utils/themeColors';
 
 type PlotlyApi = {
@@ -209,10 +212,11 @@ const plotlyLoadError = ref(false);
 const pngLoadError = ref(false);
 
 // Plotly data and layout
-const plotlyData = ref<any[] | null>(null);
-const plotlyLayout = ref<any | null>(null);
+const plotlyData = ref<Array<Record<string, unknown>> | null>(null);
+const plotlyLayout = ref<Record<string, unknown> | null>(null);
+const plotlyConfig = ref<Record<string, unknown> | null>(null);
 // Base layout as parsed from HTML — never mutated directly; theme is applied on top
-const originalPlotlyLayout = ref<any | null>(null);
+const originalPlotlyLayout = ref<Record<string, unknown> | null>(null);
 
 // Reactive theme mode — drives Plotly re-render on dark/light switch
 const { themeMode } = useThemeColors();
@@ -228,9 +232,9 @@ const isCreating = computed(() => {
   return props.chartContent?.status === 'calling';
 });
 
-// Can show interactive chart (HTML file available)
+// Can show interactive chart (JSON contract or HTML fallback available)
 const canShowInteractive = computed(() => {
-  return !!props.chartContent?.content?.html_file_id;
+  return !!props.chartContent?.content?.plotly_json_file_id || !!props.chartContent?.content?.html_file_id;
 });
 
 // Get PNG preview URL
@@ -277,74 +281,102 @@ const formatChartType = (type: string | undefined) => {
 
 // Pure function: derives a dark-mode Plotly layout from a base layout.
 // Does not mutate its argument — safe to call repeatedly on theme switches.
-const buildDarkLayout = (base: any): any => ({
+const buildDarkLayout = (base: Record<string, unknown>): Record<string, unknown> => ({
   ...base,
   paper_bgcolor: '#141414',
   plot_bgcolor: '#141414',
-  font: { ...base.font, color: '#e8e0d8' },
-  xaxis: { ...base.xaxis, gridcolor: '#242424', color: '#e8e0d8' },
-  yaxis: { ...base.yaxis, gridcolor: '#242424', color: '#e8e0d8' },
+  font: { ...(base.font as Record<string, unknown> | undefined), color: '#e8e0d8' },
+  xaxis: { ...(base.xaxis as Record<string, unknown> | undefined), gridcolor: '#242424', color: '#e8e0d8' },
+  yaxis: { ...(base.yaxis as Record<string, unknown> | undefined), gridcolor: '#242424', color: '#e8e0d8' },
 });
 
-// Load Plotly data from HTML file
+const applyParsedFigure = (figure: PlotlyFigureContract): void => {
+  plotlyData.value = figure.data;
+  originalPlotlyLayout.value = figure.layout;
+  plotlyConfig.value = figure.config ?? null;
+};
+
+const loadPlotlyDataFromJsonContract = async (jsonFileId: string, signal: AbortSignal): Promise<boolean> => {
+  const response = await fetch(fileApi.getFileUrl(jsonFileId), { signal });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const payload: unknown = await response.json();
+  if (signal.aborted) return false;
+
+  const parsed = parsePlotlyFigureContract(payload);
+  if (!parsed) {
+    throw new Error('Invalid Plotly JSON contract');
+  }
+  applyParsedFigure(parsed);
+  return true;
+};
+
+const loadPlotlyDataFromHtml = async (htmlFileId: string, signal: AbortSignal): Promise<boolean> => {
+  const response = await fetch(fileApi.getFileUrl(htmlFileId), { signal });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const html = await response.text();
+  if (signal.aborted) return false;
+
+  const parsed = extractPlotlyFigureFromHtml(html);
+  if (!parsed) {
+    return false;
+  }
+
+  applyParsedFigure(parsed);
+  return true;
+};
+
+// Load Plotly data from JSON contract first, then HTML fallback
 const loadPlotlyData = async () => {
   const htmlFileId = props.chartContent?.content?.html_file_id;
-  if (!htmlFileId) return;
+  const jsonFileId = props.chartContent?.content?.plotly_json_file_id;
+  if (!htmlFileId && !jsonFileId) return;
 
   // Cancel any in-flight fetch to prevent race conditions
   if (fetchAbortController) {
     fetchAbortController.abort();
   }
-  fetchAbortController = new AbortController();
-  const { signal } = fetchAbortController;
+  const localAbortController = new AbortController();
+  fetchAbortController = localAbortController;
+  const { signal } = localAbortController;
+  const timeoutId = window.setTimeout(() => localAbortController.abort(), FETCH_TIMEOUT_MS);
 
   plotlyLoadError.value = false;
+  plotlyReady.value = false;
   // Reset derived state so a stale layout cannot be re-used if this load fails mid-way
   originalPlotlyLayout.value = null;
+  plotlyLayout.value = null;
   plotlyData.value = null;
+  plotlyConfig.value = null;
 
   try {
-    // Timeout wrapper: abort if fetch takes too long
-    const timeoutId = setTimeout(() => fetchAbortController?.abort(), FETCH_TIMEOUT_MS);
+    let loaded = false;
 
-    const response = await fetch(fileApi.getFileUrl(htmlFileId), { signal });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const html = await response.text();
-
-    // Guard: if this request was aborted while reading body, bail out
-    if (signal.aborted) return;
-
-    // Extract Plotly data from HTML - try multiple patterns
-    // Pattern 1: Plotly.newPlot(..., data, layout, config)
-    const dataMatch = html.match(/Plotly\.newPlot\([^,]+,\s*(\[[\s\S]*?\])\s*,\s*({[\s\S]*?})\s*,/);
-    if (dataMatch) {
-      plotlyData.value = JSON.parse(dataMatch[1]);
-      originalPlotlyLayout.value = JSON.parse(dataMatch[2]);
-    } else {
-      // Pattern 2: Plotly.newPlot(..., data, layout) without config
-      const altMatch = html.match(/Plotly\.newPlot\([^,]+,\s*(\[[\s\S]*?\])\s*,\s*({[\s\S]*?})\s*\)/);
-      if (altMatch) {
-        plotlyData.value = JSON.parse(altMatch[1]);
-        originalPlotlyLayout.value = JSON.parse(altMatch[2]);
-      } else {
-        // Pattern 3: JSON script tag (some Plotly HTML exports use this)
-        const scriptMatch = html.match(/<script id="plotly-data" type="application\/json">([\s\S]*?)<\/script>/);
-        if (scriptMatch) {
-          const jsonData = JSON.parse(scriptMatch[1]);
-          plotlyData.value = jsonData.data;
-          originalPlotlyLayout.value = jsonData.layout;
+    // Preferred source: explicit Plotly JSON contract generated by backend
+    if (jsonFileId) {
+      try {
+        loaded = await loadPlotlyDataFromJsonContract(jsonFileId, signal);
+      } catch (jsonError: unknown) {
+        if (!(jsonError instanceof DOMException && jsonError.name === 'AbortError')) {
+          console.warn('Failed to load Plotly JSON contract, falling back to HTML parsing:', jsonError);
+        } else {
+          throw jsonError;
         }
       }
     }
 
-    // If no pattern matched, fall back to static view
-    if (!plotlyData.value || !originalPlotlyLayout.value) {
-      console.warn('Could not extract Plotly data from HTML — falling back to static view');
+    // Backward compatibility: older charts without JSON contract
+    if (!loaded && htmlFileId) {
+      loaded = await loadPlotlyDataFromHtml(htmlFileId, signal);
+    }
+
+    if (!loaded || !plotlyData.value || !originalPlotlyLayout.value) {
+      console.warn('Could not load interactive Plotly payload — falling back to static view');
       plotlyLoadError.value = true;
       return;
     }
@@ -364,6 +396,11 @@ const loadPlotlyData = async () => {
     if (error instanceof DOMException && error.name === 'AbortError') return;
     console.error('Failed to load Plotly data:', error);
     plotlyLoadError.value = true;
+  } finally {
+    window.clearTimeout(timeoutId);
+    if (fetchAbortController === localAbortController) {
+      fetchAbortController = null;
+    }
   }
 };
 
@@ -386,6 +423,7 @@ const renderPlotlyChart = async () => {
         width: 1200,
         scale: 2,
       },
+      ...(plotlyConfig.value || {}),
     };
 
     // Use Plotly.react for declarative updates (intelligently diffs state)
@@ -419,17 +457,20 @@ const downloadPng = () => {
 // Load Plotly data when component mounts or chart content changes
 onMounted(() => {
   if (canShowInteractive.value && activeViewMode.value === 'interactive') {
-    loadPlotlyData();
+    void loadPlotlyData();
   }
 });
 
-watch(() => props.chartContent?.content?.html_file_id, () => {
-  if (canShowInteractive.value && activeViewMode.value === 'interactive') {
-    plotlyReady.value = false;
-    plotlyLoadError.value = false;
-    loadPlotlyData();
+watch(
+  () => [props.chartContent?.content?.html_file_id, props.chartContent?.content?.plotly_json_file_id],
+  () => {
+    if (canShowInteractive.value && activeViewMode.value === 'interactive') {
+      plotlyReady.value = false;
+      plotlyLoadError.value = false;
+      void loadPlotlyData();
+    }
   }
-});
+);
 
 // Reset PNG error when png_file_id changes (e.g., chart regenerated)
 watch(() => props.chartContent?.content?.png_file_id, () => {
@@ -450,14 +491,14 @@ watch(
 watch(activeViewMode, async (newMode) => {
   if (newMode === 'interactive' && canShowInteractive.value) {
     plotlyLoadError.value = false;
-    if (plotlyData.value) {
+    if (plotlyData.value && originalPlotlyLayout.value) {
       plotlyReady.value = false;
       await nextTick();
       await renderPlotlyChart();
     } else {
       // Data not loaded yet — trigger full load
       plotlyReady.value = false;
-      loadPlotlyData();
+      void loadPlotlyData();
     }
   }
 });
