@@ -1981,7 +1981,8 @@ class PlanActFlow(BaseFlow):
         # === FAST PATH: Check if this is a simple query that can skip planning ===
         # Always classify messages to detect greetings/simple queries
         # Greetings and knowledge queries work regardless of session status
-        # Browser-dependent queries (browse/search) need session to be PENDING or COMPLETED
+        # Browser/search intents are intentionally routed through full workflow
+        # to ensure the agent performs full browsing/page traversal.
         logger.info(f"Fast path check: session.status={session.status}, message={message.message[:50]}")
 
         try:
@@ -2021,15 +2022,9 @@ class PlanActFlow(BaseFlow):
                 # Knowledge queries don't need browser - always safe, even during init
                 use_fast_path = True
             elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
-                # Browser queries need session to be ready (not INITIALIZING)
-                if session.status in (SessionStatus.PENDING, SessionStatus.COMPLETED):
-                    browser_ready = await self._verify_browser_ready(session)
-                    if browser_ready:
-                        use_fast_path = True
-                    else:
-                        skip_reason = "browser not ready"
-                else:
-                    skip_reason = f"browser queries need initialized session (status={session.status.value})"
+                # Policy: always use full workflow for browse/search so the agent
+                # can run search->open->multi-page browsing steps when needed.
+                skip_reason = f"{intent.value} uses full workflow by policy"
             else:
                 skip_reason = "TASK intent requires full workflow"
 
