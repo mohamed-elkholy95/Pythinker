@@ -156,6 +156,10 @@ _RESEARCH_KEYWORDS = frozenset(
     }
 )
 
+# Pre-compiled word-boundary patterns to avoid false positives
+# e.g. "find" should match "find information" but NOT "findings"
+_RESEARCH_KEYWORD_PATTERNS = [re.compile(rf"\b{re.escape(kw)}\b") for kw in _RESEARCH_KEYWORDS]
+
 
 def should_bypass_fast_path_for_suggestion(message: Message, has_recent_assistant_reply: bool) -> bool:
     """Determine if message should bypass fast path due to being a suggestion follow-up.
@@ -1155,14 +1159,14 @@ class PlanActFlow(BaseFlow):
         analysis_ids: list[str] = []
         report_ids: list[str] = []
 
-        research_keywords = {"search", "find", "gather", "collect", "browse", "explore", "research", "investigate"}
-        report_keywords = {"write", "create", "compile", "draft", "generate", "report", "summarize", "compose"}
+        report_patterns = [re.compile(rf"\b{re.escape(kw)}\b") for kw in
+            ("write", "create", "compile", "draft", "generate", "report", "summarize", "compose")]
 
         for step in self.plan.steps:
             desc_lower = step.description.lower()
-            if any(kw in desc_lower for kw in research_keywords):
+            if any(pat.search(desc_lower) for pat in _RESEARCH_KEYWORD_PATTERNS):
                 research_ids.append(step.id)
-            elif any(kw in desc_lower for kw in report_keywords):
+            elif any(pat.search(desc_lower) for pat in report_patterns):
                 report_ids.append(step.id)
             else:
                 analysis_ids.append(step.id)
@@ -1245,6 +1249,8 @@ class PlanActFlow(BaseFlow):
     def _get_research_steps(self) -> list[Step]:
         """Identify steps that are search/research tasks.
 
+        Uses word-boundary matching to avoid false positives like
+        "find" matching "findings" or "explore" matching "exploratory".
         Uses the same keyword set as _assign_phases_to_plan for consistency.
         """
         research_steps = []
@@ -1252,7 +1258,7 @@ class PlanActFlow(BaseFlow):
             if step.status != ExecutionStatus.PENDING:
                 continue
             desc_lower = step.description.lower()
-            if any(kw in desc_lower for kw in _RESEARCH_KEYWORDS):
+            if any(pat.search(desc_lower) for pat in _RESEARCH_KEYWORD_PATTERNS):
                 research_steps.append(step)
         return research_steps
 
@@ -1291,6 +1297,12 @@ class PlanActFlow(BaseFlow):
         if not self._search_engine:
             logger.warning("Parallel research skipped: no search engine available")
             return
+
+        # ── Mark research steps as STARTED so UI shows them in-progress ──
+        for step in research_steps:
+            step.status = ExecutionStatus.RUNNING
+            yield StepEvent(step=step, status=StepStatus.STARTED)
+            await self._task_state_manager.update_step_status(str(step.id), "running")
 
         # ── Query generation: LLM decomposition or step descriptions ────
         if settings.parallel_research_llm_decomposition and self._llm:
