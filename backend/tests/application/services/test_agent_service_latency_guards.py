@@ -6,6 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.services.agent_service import AgentService
+from app.core.prometheus_metrics import (
+    reset_all_metrics,
+    sse_resume_cursor_fallback_total,
+    sse_resume_cursor_state_total,
+)
 from app.domain.models.event import DoneEvent, ErrorEvent, MessageEvent
 
 
@@ -30,6 +35,13 @@ class FakeSessionRepository:
 
     async def find_by_user_id(self, _user_id: str):
         return []
+
+
+@pytest.fixture(autouse=True)
+def _reset_metrics() -> None:
+    reset_all_metrics()
+    yield
+    reset_all_metrics()
 
 
 def _build_service() -> AgentService:
@@ -346,9 +358,12 @@ async def test_chat_resumption_emits_idless_events_instead_of_skipping_forever(m
     assert len(events) == 3
     assert isinstance(events[0], ErrorEvent)
     assert events[0].error_code == "stream_gap_detected"
+    assert events[0].details and events[0].details.get("reason") == "missing_event_id"
     assert isinstance(events[1], MessageEvent)
     assert events[1].message == "quick response"
     assert isinstance(events[2], DoneEvent)
+    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "stale"}) == 1.0
+    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "missing_event_id"}) == 1.0
 
 
 @pytest.mark.asyncio
@@ -393,8 +408,51 @@ async def test_chat_resumption_disables_skip_mode_when_cursor_is_stale(monkeypat
     assert len(events) == 4
     assert isinstance(events[0], ErrorEvent)
     assert events[0].error_code == "stream_gap_detected"
+    assert events[0].details and events[0].details.get("reason") == "stale_cursor"
     assert isinstance(events[1], MessageEvent)
     assert events[1].message == "second event"
     assert isinstance(events[2], MessageEvent)
     assert events[2].message == "third event"
     assert isinstance(events[3], DoneEvent)
+    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "stale"}) == 1.0
+    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "stale_cursor"}) == 1.0
+
+
+@pytest.mark.asyncio
+async def test_chat_resumption_emits_gap_when_cursor_format_mismatches(monkeypatch):
+    service = _build_service()
+
+    async def _domain_chat_with_events(*_args, **_kwargs):
+        first = MessageEvent(role="assistant", message="first event")
+        first.id = "evt-1"
+        done = DoneEvent(title="Done", summary="Completed")
+        done.id = "evt-2"
+        yield first
+        yield done
+
+    service._agent_domain_service = SimpleNamespace(chat=_domain_chat_with_events)
+
+    fake_connector_service = SimpleNamespace(get_user_mcp_configs=AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "app.application.services.connector_service.get_connector_service",
+        lambda: fake_connector_service,
+    )
+
+    events = await _collect_events(
+        service.chat(
+            session_id="session-1",
+            user_id="user-1",
+            message="resume from header cursor",
+            event_id="1771867510458-0",
+        )
+    )
+
+    assert len(events) == 3
+    assert isinstance(events[0], ErrorEvent)
+    assert events[0].error_code == "stream_gap_detected"
+    assert events[0].details and events[0].details.get("reason") == "format_mismatch"
+    assert isinstance(events[1], MessageEvent)
+    assert events[1].message == "first event"
+    assert isinstance(events[2], DoneEvent)
+    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "format_mismatch"}) == 1.0
+    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "format_mismatch"}) == 1.0

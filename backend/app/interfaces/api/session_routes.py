@@ -163,6 +163,22 @@ def _is_truthy_header(value: object | None) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _event_phase_label(event: object) -> str:
+    """Extract a low-cardinality phase label from an event object."""
+    phase = getattr(event, "phase", None)
+    if phase is None:
+        return "none"
+
+    raw_value = str(phase.value) if hasattr(phase, "value") else str(phase)
+    normalized = raw_value.strip().lower()
+    return normalized or "none"
+
+
+def _is_heartbeat_progress_event(event: object) -> bool:
+    """Return True when the event is a transport heartbeat progress event."""
+    return isinstance(event, ProgressEvent) and event.phase == PlanningPhase.HEARTBEAT
+
+
 def _build_sse_protocol_headers(heartbeat_interval_seconds: float = SSE_HEARTBEAT_INTERVAL_SECONDS) -> dict[str, str]:
     """Build protocol headers so clients can adapt retry and liveness policies."""
     expose_headers = [
@@ -577,15 +593,15 @@ async def chat(
     # Heartbeat interval: keep connection alive and prevent "stuck" feeling during long ops
     # Set to 30s to prevent SSE timeout during browser recovery (can take >120s)
     heartbeat_interval_seconds = SSE_HEARTBEAT_INTERVAL_SECONDS
+    resume_cursor = request.event_id or http_request.headers.get("Last-Event-ID")
     log_sse_diag(
         "stream_config",
         use_sse_v2=use_sse_v2,
         send_timeout=send_timeout,
         heartbeat_interval_seconds=heartbeat_interval_seconds,
-        resume_event_id=request.event_id,
+        resume_event_id=resume_cursor,
         has_message=bool(request.message and request.message.strip()),
     )
-    resume_cursor = request.event_id or http_request.headers.get("Last-Event-ID")
     if resume_cursor:
         await record_stream_reconnection(session_id=session_id, endpoint="chat")
         log_sse_diag("resume_cursor_detected", resume_cursor=resume_cursor)
@@ -596,6 +612,7 @@ async def chat(
         heartbeat_count = 0
         close_reason = "unknown"
         last_emitted_event_id: str | None = None  # Updated to UUID as real events are sent.
+        reconnect_first_non_heartbeat_seconds: float | None = None
         disconnect_event = asyncio.Event()
         cancel_token = CancellationToken(event=disconnect_event, session_id=session_id)
         guard = StreamGuard(
@@ -623,6 +640,11 @@ async def chat(
                 yield payload
                 stream_event_count += 1
                 stream_metrics.record_event(instant_ack)
+                pm.record_sse_stream_event(
+                    endpoint="chat",
+                    event_type=instant_ack.type,
+                    phase=_event_phase_label(instant_ack),
+                )
                 ack_event_id = getattr(sse_event.data, "event_id", None) if sse_event.data else None
                 if ack_event_id:
                     last_emitted_event_id = str(ack_event_id)
@@ -658,7 +680,7 @@ async def chat(
                 user_id=current_user.id,
                 message=request.message,
                 timestamp=datetime.fromtimestamp(request.timestamp, tz=UTC) if request.timestamp else None,
-                event_id=request.event_id,
+                event_id=resume_cursor,
                 attachments=request.attachments,
                 skills=request.skills,
                 thinking_mode=request.thinking_mode,
@@ -697,6 +719,11 @@ async def chat(
                     stream_event_count += 1
                     stream_metrics.record_event(heartbeat)
                     pm.record_sse_stream_heartbeat(endpoint="chat")
+                    pm.record_sse_stream_event(
+                        endpoint="chat",
+                        event_type=heartbeat.type,
+                        phase=_event_phase_label(heartbeat),
+                    )
                     log_sse_diag(
                         "heartbeat_sent",
                         heartbeat_count=heartbeat_count,
@@ -741,6 +768,18 @@ async def chat(
                         raise
 
                     logger.debug(f"Received event from chat: {event}")
+                    if (
+                        resume_cursor
+                        and reconnect_first_non_heartbeat_seconds is None
+                        and not _is_heartbeat_progress_event(event)
+                    ):
+                        reconnect_first_non_heartbeat_seconds = (
+                            asyncio.get_running_loop().time() - stream_started_at
+                        )
+                        pm.record_sse_reconnect_first_non_heartbeat(
+                            endpoint="chat",
+                            latency_seconds=reconnect_first_non_heartbeat_seconds,
+                        )
                     sse_event = await EventMapper.event_to_sse_event(event)
                     logger.debug(f"Received event: {sse_event}")
                     if sse_event:
@@ -763,6 +802,11 @@ async def chat(
                                 async with asyncio.timeout(send_timeout):
                                     yield sse_payload
                                 stream_event_count += 1
+                                pm.record_sse_stream_event(
+                                    endpoint="chat",
+                                    event_type=getattr(event, "type", "unknown"),
+                                    phase=_event_phase_label(event),
+                                )
                             except TimeoutError:
                                 logger.warning(f"SSE send timeout for session {session_id}")
                                 close_reason = "send_timeout"
@@ -785,6 +829,11 @@ async def chat(
                         else:
                             yield sse_payload
                             stream_event_count += 1
+                            pm.record_sse_stream_event(
+                                endpoint="chat",
+                                event_type=getattr(event, "type", "unknown"),
+                                phase=_event_phase_label(event),
+                            )
 
                     next_event_task = asyncio.create_task(stream_iter.__anext__())
                     heartbeat_task = asyncio.create_task(asyncio.sleep(heartbeat_interval_seconds))
@@ -870,11 +919,16 @@ async def chat(
                 )
                 stream_event_count += 1
                 stream_metrics.record_event(error_event)
+                pm.record_sse_stream_event(
+                    endpoint="chat",
+                    event_type=error_event.type,
+                    phase=_event_phase_label(error_event),
+                )
         finally:
             disconnect_event.set()
             elapsed_seconds = asyncio.get_running_loop().time() - stream_started_at
             if close_reason == "unknown":
-                close_reason = "completed_without_explicit_reason"
+                close_reason = "stream_exhausted"
             if close_reason in {"client_disconnected", "generator_cancelled"}:
                 stream_metrics.record_cancellation()
             with contextlib.suppress(Exception):
