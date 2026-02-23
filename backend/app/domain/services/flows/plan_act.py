@@ -2046,7 +2046,7 @@ class PlanActFlow(BaseFlow):
                     yield event
 
                 # For GREETING, keep session PENDING (waiting for actual task)
-                # For other fast paths (BROWSE, SEARCH, KNOWLEDGE), mark as COMPLETED
+                # For other fast paths (currently KNOWLEDGE), mark as COMPLETED
                 if intent == QueryIntent.GREETING:
                     await self._session_repository.update_status(self._session_id, SessionStatus.PENDING)
                     logger.info(f"Greeting fast path completed, session {self._session_id} waiting for task")
