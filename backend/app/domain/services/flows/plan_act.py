@@ -1316,6 +1316,22 @@ class PlanActFlow(BaseFlow):
             logger.info(f"Plan validation warnings: {', '.join(validation.warnings[:3])}")
         return True
 
+    def _route_after_revision_needed(self) -> tuple[AgentStatus, str]:
+        """Determine next status when verifier requests plan revision.
+
+        The workflow should never execute an unrevised plan after a revision request.
+        """
+        if self._verification_loops < self._max_verification_loops:
+            return AgentStatus.PLANNING, "verification requested plan revision"
+
+        self._plan_validation_failures += 1
+        if self._plan_validation_failures >= self._max_plan_validation_failures:
+            return AgentStatus.SUMMARIZING, "max verification revisions reached without a valid plan"
+
+        # Reset loop counter so a forced replan can complete one fresh verification cycle.
+        self._verification_loops = 0
+        return AgentStatus.PLANNING, "max verification loops reached; forcing replanning"
+
     def _run_compliance_gates(self, content: str, attachments: list[Any] | None = None) -> ComplianceReport:
         """Run compliance gates on final output content."""
         artifacts: list[dict[str, Any]] = []
@@ -2503,23 +2519,22 @@ class PlanActFlow(BaseFlow):
                         else:
                             self._transition_to(AgentStatus.EXECUTING)
                     elif self._verification_verdict == "revise":
-                        if self._verification_loops >= self._max_verification_loops:
+                        next_status, transition_reason = self._route_after_revision_needed()
+                        if next_status == AgentStatus.SUMMARIZING:
                             logger.warning(
-                                f"Agent {self._agent_id} max verification loops reached, proceeding with execution"
+                                f"Agent {self._agent_id} max verification revisions reached, summarizing "
+                                "instead of executing unrevised plan"
                             )
-                            if not self._validate_plan_before_execution():
-                                # After max verification loops, don't loop back to PLANNING — summarize
-                                logger.warning(
-                                    f"Agent {self._agent_id} plan invalid after max verifications, summarizing"
-                                )
-                                self._transition_to(
-                                    AgentStatus.SUMMARIZING, force=True, reason="plan invalid after max verifications"
-                                )
-                            else:
-                                self._transition_to(AgentStatus.EXECUTING)
+                            self._transition_to(AgentStatus.SUMMARIZING, force=True, reason=transition_reason)
+                        elif "forcing replanning" in transition_reason:
+                            logger.warning(
+                                f"Agent {self._agent_id} max verification loops reached, forcing replanning "
+                                f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
+                            )
+                            self._transition_to(AgentStatus.PLANNING, reason=transition_reason)
                         else:
                             logger.info(f"Agent {self._agent_id} plan needs revision, returning to planning")
-                            self._transition_to(AgentStatus.PLANNING)
+                            self._transition_to(AgentStatus.PLANNING, reason=transition_reason)
                     elif self._verification_verdict == "fail":
                         logger.info(f"Agent {self._agent_id} plan verification failed, summarizing")
                         self._transition_to(AgentStatus.SUMMARIZING)
