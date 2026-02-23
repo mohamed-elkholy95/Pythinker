@@ -76,3 +76,19 @@ def test_extract_request_focus_trims_boilerplate() -> None:
     focus = gen._extract_request_focus("Please can you create an API health check endpoint")
 
     assert focus == "an API health check endpoint"
+
+
+def test_research_acknowledgment_removes_numbered_list_suffix_from_topic() -> None:
+    gen = _make_generator()
+
+    message = (
+        "Create a comprehensive research report that covers the following topics: "
+        "1. Large Language Model (LLM) architecture. "
+        "2. Tokenizers used in LLMs."
+    )
+    acknowledgment = gen.generate(message)
+
+    assert acknowledgment.startswith("Got it! I will create a comprehensive research report on")
+    assert "on report that covers" not in acknowledgment.lower()
+    assert "following topics: 1" not in acknowledgment.lower()
+    assert "the following topics" in acknowledgment.lower()

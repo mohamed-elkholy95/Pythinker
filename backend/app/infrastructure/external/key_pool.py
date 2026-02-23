@@ -335,12 +335,19 @@ class APIKeyPool:
         After TTL expires, key becomes healthy again.
 
         Uses in-memory state as fallback when Redis unavailable.
+        Deduplicates: if the key is already marked exhausted, skips the
+        update to prevent log spam from concurrent callers hitting 429.
 
         Args:
             key: API key to mark as exhausted
             ttl_seconds: Time-to-live in seconds (e.g., 3600 for 1 hour)
         """
         key_hash = self._hash_key(key)
+
+        # Skip if already marked exhausted (prevents log spam from concurrent callers)
+        if key_hash in self._memory_exhausted and self._memory_exhausted[key_hash] > time.time():
+            return
+
         expiry_time = time.time() + ttl_seconds
 
         # Always update in-memory state

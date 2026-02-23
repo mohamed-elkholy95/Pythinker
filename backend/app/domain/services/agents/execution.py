@@ -599,17 +599,61 @@ class ExecutionAgent(BaseAgent):
                     break
 
                 if stream_attempt > max_stream_continuations:
+                    # --- Escalation: try ONE final continuation with the powerful model ---
+                    _powerful_model: str | None = _get_settings().powerful_model or None
+                    _can_escalate = _powerful_model and _summarize_model and _powerful_model != _summarize_model
+                    if _can_escalate:
+                        logger.info(
+                            "Delivery integrity: fast model exhausted after %d attempts, "
+                            "escalating to powerful model (%s) for final continuation",
+                            max_stream_continuations,
+                            _powerful_model,
+                        )
+                        assistant_fragment = attempt_text.strip() or accumulated_text[-4000:]
+                        if assistant_fragment.strip():
+                            stream_messages = [
+                                *stream_messages,
+                                {"role": "assistant", "content": assistant_fragment},
+                                {"role": "user", "content": self._build_continuation_prompt()},
+                            ]
+                            escalation_text = ""
+                            stream_iter = self.llm.ask_stream(
+                                stream_messages, tools=None, tool_choice=None, model=_powerful_model
+                            )
+                            async with aclosing(stream_iter) as stream:
+                                async for chunk in stream:
+                                    escalation_text += chunk
+                                    yield StreamEvent(content=chunk, is_final=False, phase="completing")
+                            accumulated_text = self._merge_stream_continuation(accumulated_text, escalation_text)
+                            escalation_meta = self._get_last_stream_metadata()
+                            escalation_truncated = (
+                                bool(escalation_meta.get("truncated"))
+                                or escalation_meta.get("finish_reason") == "length"
+                            )
+                            if not escalation_truncated:
+                                self._record_stream_truncation_metric(
+                                    stream_metadata=escalation_meta, outcome="recovered_escalation"
+                                )
+                                # Recovered via escalation — skip exhaustion path
+                                break
+                            self._record_stream_truncation_metric(
+                                stream_metadata=escalation_meta, outcome="unresolved_after_escalation"
+                            )
+
                     truncation_exhausted = True
                     logger.warning(
-                        "Delivery integrity: stream remained truncated after %d continuation attempts",
+                        "Delivery integrity: stream remained truncated after %d continuation attempts"
+                        + (" + escalation" if _can_escalate else ""),
                         max_stream_continuations,
                     )
                     self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="unresolved")
                     break
 
                 logger.warning(
-                    "Delivery integrity: stream truncation detected (finish_reason=%s), requesting continuation (%d/%d)",
+                    "Delivery integrity: stream truncation detected (finish_reason=%s, model=%s), "
+                    "requesting continuation (%d/%d)",
                     stream_metadata.get("finish_reason"),
+                    _summarize_model or "default",
                     stream_attempt,
                     max_stream_continuations,
                 )
