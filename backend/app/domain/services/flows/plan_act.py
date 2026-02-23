@@ -211,8 +211,6 @@ class PlanActFlow(BaseFlow):
         cdp_url: str | None = None,
         enable_verification: bool = True,
         enable_multi_agent: bool = True,
-        enable_parallel_execution: bool = False,
-        parallel_max_concurrency: int = 3,
         memory_service: Optional["MemoryService"] = None,
         user_id: str | None = None,
         file_sweep_callback: Callable[[], Coroutine[Any, Any, None]] | None = None,

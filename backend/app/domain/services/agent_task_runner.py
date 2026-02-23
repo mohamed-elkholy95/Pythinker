@@ -366,8 +366,6 @@ class AgentTaskRunner(TaskRunner):
                 cdp_url=self._sandbox.cdp_url,
                 enable_verification=settings.enable_plan_verification,
                 enable_multi_agent=self._enable_multi_agent,
-                enable_parallel_execution=settings.enable_parallel_execution,
-                parallel_max_concurrency=settings.parallel_max_concurrency,
                 memory_service=self._memory_service,
                 user_id=self._user_id,
                 file_sweep_callback=self._sweep_workspace_files,
@@ -393,7 +391,7 @@ class AgentTaskRunner(TaskRunner):
             logger.debug(
                 f"Initialized PlanActFlow for agent {self._agent_id} "
                 f"(verification={settings.enable_plan_verification}, multi_agent={self._enable_multi_agent}, "
-                f"parallel={settings.enable_parallel_execution}, memory_service={'enabled' if self._memory_service else 'disabled'})"
+                f"memory_service={'enabled' if self._memory_service else 'disabled'})"
             )
 
     def _init_coordinator_flow(self) -> None:
