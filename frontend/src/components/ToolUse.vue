@@ -30,7 +30,7 @@
           <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
         </div>
       </div>
-      <div class="hidden sm:block ml-auto pl-2 text-right whitespace-nowrap flex-shrink-0 transition text-[11px] text-[var(--text-tertiary)]">
+      <div class="hidden sm:block sm:opacity-0 sm:group-hover:opacity-100 ml-auto pl-2 text-right whitespace-nowrap flex-shrink-0 transition text-[11px] text-[var(--text-tertiary)]">
         {{ relativeTime(tool.timestamp) }}
       </div>
     </div>
@@ -68,7 +68,7 @@
         <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
       </div>
     </div>
-    <div class="hidden sm:block ml-auto pl-2 text-right whitespace-nowrap flex-shrink-0 transition text-[11px] text-[var(--text-tertiary)]">
+    <div class="hidden sm:block sm:opacity-0 sm:group-hover:opacity-100 ml-auto pl-2 text-right whitespace-nowrap flex-shrink-0 transition text-[11px] text-[var(--text-tertiary)]">
       {{ relativeTime(tool.timestamp) }}
     </div>
   </div>

@@ -374,7 +374,7 @@ import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
-import { getToolDisplay } from '@/utils/toolDisplay';
+import { getToolDisplay, extractToolUrl } from '@/utils/toolDisplay';
 import { viewFile, viewShellSession, browseUrl } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
@@ -737,13 +737,32 @@ const BROWSER_TOOL_PREFIXES = ['browser', 'playwright', 'browsing'];
 const isBrowserTool = (name: string) =>
   BROWSER_TOOL_PREFIXES.some(prefix => name.startsWith(prefix));
 
+const resolvedBrowserUrl = computed(() => {
+  // Prefer explicit URL from tool args (e.g. go_to_url → args.url)
+  const explicitUrl = extractToolUrl(props.toolContent?.args);
+  if (explicitUrl) return explicitUrl;
+  // Fall back to resourceLabel only if it looks like a URL (not a bare number/index)
+  const label = toolDisplay.value?.resourceLabel || '';
+  if (label && /[./]/.test(label)) return label;
+  return '';
+});
+
 const showLivePreviewUrlBar = computed(() => {
   if (showLivePreviewPlaceholder.value) return false;
-  return isBrowserTool(toolName.value) && !!toolDisplay.value?.resourceLabel;
+  return isBrowserTool(toolName.value) && !!resolvedBrowserUrl.value;
 });
 
 const livePreviewUrlBarText = computed(() => {
-  return toolDisplay.value?.resourceLabel || '';
+  const url = resolvedBrowserUrl.value;
+  if (!url) return '';
+  // Format the URL for display (strip protocol, truncate)
+  try {
+    const u = new URL(url);
+    const display = `${u.hostname}${u.pathname}`;
+    return display.length > 60 ? `${display.slice(0, 60)}...` : display;
+  } catch {
+    return url.length > 60 ? `${url.slice(0, 60)}...` : url;
+  }
 });
 
 // ============ Terminal Content ============
