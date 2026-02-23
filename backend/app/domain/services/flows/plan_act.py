@@ -1159,8 +1159,10 @@ class PlanActFlow(BaseFlow):
         analysis_ids: list[str] = []
         report_ids: list[str] = []
 
-        report_patterns = [re.compile(rf"\b{re.escape(kw)}\b") for kw in
-            ("write", "create", "compile", "draft", "generate", "report", "summarize", "compose")]
+        report_patterns = [
+            re.compile(rf"\b{re.escape(kw)}\b")
+            for kw in ("write", "create", "compile", "draft", "generate", "report", "summarize", "compose")
+        ]
 
         for step in self.plan.steps:
             desc_lower = step.description.lower()
