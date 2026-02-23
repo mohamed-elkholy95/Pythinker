@@ -221,9 +221,14 @@ class PrePlanningSearchExecutor:
 
         start = time.monotonic()
 
-        # Fire all searches concurrently with a global timeout
-        async def _safe_search(query: str) -> list[tuple[str, str, str]]:
+        # Fire all searches concurrently with a global timeout.
+        # Stagger launches by 100ms to prevent key stampede: the first search
+        # may hit 429 and mark the key exhausted before the next search starts,
+        # so subsequent searches get a different (healthy) key.
+        async def _safe_search(query: str, delay: float = 0.0) -> list[tuple[str, str, str]]:
             """Run a single search, returning list of (title, url, snippet)."""
+            if delay > 0:
+                await asyncio.sleep(delay)
             try:
                 result = await asyncio.wait_for(
                     self._search_engine.search(query, date_range="past_month"),
@@ -237,7 +242,7 @@ class PrePlanningSearchExecutor:
                 logger.warning(f"Pre-planning search failed for query: {query}", exc_info=True)
             return []
 
-        all_results = await asyncio.gather(*[_safe_search(q) for q in queries])
+        all_results = await asyncio.gather(*[_safe_search(q, delay=i * 0.1) for i, q in enumerate(queries)])
 
         # Flatten and deduplicate by URL
         seen_urls: set[str] = set()

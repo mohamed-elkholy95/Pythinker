@@ -61,3 +61,16 @@ async def test_fast_ack_refiner_falls_back_on_error() -> None:
     user_message = "research online best code review tools"
     result = await refiner.generate(user_message)
     assert result == fallback_gen.generate(user_message)
+
+
+@pytest.mark.asyncio
+async def test_fast_ack_refiner_sanitizes_numbered_topic_suffix() -> None:
+    llm = _FakeLLM(
+        content="Got it! I will create a comprehensive research report on report that covers the following topics: 1"
+    )
+    refiner = FastAcknowledgmentRefiner(llm=llm, fallback_generator=AcknowledgmentGenerator(), timeout_seconds=1.0)
+
+    result = await refiner.generate("Create a comprehensive research report with numbered requirements")
+    assert "on report that covers" not in result.lower()
+    assert "following topics: 1" not in result.lower()
+    assert "the following topics" in result.lower()

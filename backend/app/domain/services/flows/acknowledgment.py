@@ -84,9 +84,16 @@ class AcknowledgmentGenerator:
     def _ack_research(self, user_message: str, request_focus: str, is_large_prompt: bool) -> str:
         """Generate acknowledgment for research requests."""
         topic_source = self._extract_research_topic(user_message) if is_large_prompt else request_focus
+        if is_large_prompt and not topic_source:
+            # Fall back to extracted focus so we can still produce a specific but compact topic.
+            topic_source = request_focus
         topic = self._normalize_subject(self._compact_subject(topic_source))
 
         if self._is_research_report_request(user_message):
+            list_summary = self._extract_numbered_topics_summary(user_message)
+            if list_summary:
+                return f"Got it! I will create a comprehensive research report on {list_summary}"
+
             report_topic = self._normalize_research_report_topic(topic, user_message)
             if report_topic:
                 return f"Got it! I will create a comprehensive research report on {report_topic}"
@@ -136,6 +143,70 @@ class AcknowledgmentGenerator:
         normalized = re.sub(r"^build\b", "building", normalized, flags=re.IGNORECASE)
         normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
         return normalized or None
+
+    def _extract_numbered_topics_summary(self, user_message: str, max_items: int = 3) -> str | None:
+        """Build a concise summary from numbered list prompts."""
+        if not user_message:
+            return None
+
+        matches = re.findall(
+            r"(?:^|\n|\s)(\d+)\.\s+(.+?)(?=(?:\n|\s)\d+\.\s+|$)",
+            user_message,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if len(matches) < 2:
+            return None
+
+        topics: list[str] = []
+        for _index, raw_item in matches:
+            cleaned = self._clean_numbered_topic_item(raw_item)
+            if not cleaned:
+                continue
+
+            cleaned_lower = cleaned.lower()
+            if cleaned_lower.startswith(("ensure ", "include ", "provide ", "add ")):
+                continue
+            if cleaned_lower in {existing.lower() for existing in topics}:
+                continue
+
+            topics.append(cleaned)
+            if len(topics) >= max_items:
+                break
+
+        if len(topics) < 2:
+            return None
+        return self._join_subjects(topics)
+
+    def _clean_numbered_topic_item(self, item: str) -> str | None:
+        """Trim numbered-list item text into a compact topic phrase."""
+        normalized = re.sub(r"\s+", " ", (item or "")).strip(" .,:;")
+        if not normalized:
+            return None
+
+        normalized = re.split(r",\s*(?:including|explaining|detailing|covering|with|that|which)\b", normalized, 1)[0]
+        normalized = re.split(r"\s+(?:including|explaining|detailing|covering)\b", normalized, 1)[0]
+        normalized = re.split(r"[.;]\s*", normalized, 1)[0]
+        normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
+
+        max_words = 11
+        max_chars = 90
+        words = normalized.split()
+        if len(words) > max_words:
+            normalized = " ".join(words[:max_words]).rstrip(",:;")
+        if len(normalized) > max_chars:
+            normalized = normalized[:max_chars].rstrip(" ,:;")
+
+        return normalized or None
+
+    def _join_subjects(self, subjects: list[str]) -> str:
+        """Join subject phrases using natural language punctuation."""
+        if not subjects:
+            return ""
+        if len(subjects) == 1:
+            return subjects[0]
+        if len(subjects) == 2:
+            return f"{subjects[0]} and {subjects[1]}"
+        return f"{', '.join(subjects[:-1])}, and {subjects[-1]}"
 
     def _normalize_simple_research_topic(self, topic: str | None, user_message: str) -> str | None:
         if topic:
@@ -209,6 +280,12 @@ class AcknowledgmentGenerator:
         normalized = re.split(r"[;\n]", normalized, maxsplit=1)[0].strip()
         normalized = re.split(r"\.\s+", normalized, maxsplit=1)[0].strip()
         normalized = re.sub(r"\s+the report should include.*$", "", normalized, flags=re.IGNORECASE).strip()
+        normalized = re.sub(
+            r"\s*:\s*(?:\d+|[ivxlcdm]+|[a-zA-Z])(?:[.)])?\s*$",
+            "",
+            normalized,
+            flags=re.IGNORECASE,
+        ).strip()
 
         max_words = 14
         max_chars = 110
@@ -236,7 +313,31 @@ class AcknowledgmentGenerator:
             normalized,
             flags=re.IGNORECASE,
         )
+        normalized = re.sub(
+            r"^(?:a\s+)?(?:comprehensive\s+)?research\s+report\s+(?:that\s+)?(?:covers|covering)\s+",
+            "",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        normalized = re.sub(
+            r"^report\s+(?:that\s+)?(?:covers|covering)\s+",
+            "",
+            normalized,
+            flags=re.IGNORECASE,
+        )
         normalized = re.sub(r"^(?:on|about)\s*[:\-]?\s*", "", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(
+            r"\b(following\s+(?:topics?|items?|sections?))\s*:\s*(?:\d+|[ivxlcdm]+|[a-zA-Z])(?:[.)])?\s*$",
+            r"\1",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        normalized = re.sub(
+            r"^following\s+(topics?|items?|sections?)\b",
+            r"the following \1",
+            normalized,
+            flags=re.IGNORECASE,
+        )
         normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
 
         # Correct common typos in short research/model prompts.
@@ -318,7 +419,7 @@ class AcknowledgmentGenerator:
             r"research\s+report\s+analy(?:zing|sing)[:\s]+(.+?)(?:\.|$)",
             r"comprehensive\s+research\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
             r"research\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
-            r"(?:^|\s)research[:\s]+(.+?)(?:\.|$)",
+            r"(?:^|\s)research(?!\s+report)\s*[:\s]+(.+?)(?:\.|$)",
             r"investigate[:\s]+(.+?)(?:\.|$)",
             r"find\s+(?:information|info|details)\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
             r"look\s+into[:\s]+(.+?)(?:\.|$)",
