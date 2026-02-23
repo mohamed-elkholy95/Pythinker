@@ -922,12 +922,23 @@ class ExecutionAgent(BaseAgent):
                     status=StepStatus.RUNNING,
                     step=Step(
                         id="finalization",
-                        description="Verifying factual claims...",
+                        description="Fact-checking sources...",
                         status=ExecutionStatus.RUNNING,
                         step_type=StepType.FINALIZATION,
                     ),
                 )
                 message_content = await self._apply_hallucination_verification(message_content, self._user_request)
+
+                # Emit verification complete so the frontend shows it as done
+                yield StepEvent(
+                    status=StepStatus.RUNNING,
+                    step=Step(
+                        id="finalization",
+                        description="Verification complete",
+                        status=ExecutionStatus.RUNNING,
+                        step_type=StepType.FINALIZATION,
+                    ),
+                )
 
             # Critic revision loop disabled — the 5-check framework produces
             # unreliable results with the current LLM (unknown check names, excessive
@@ -1219,10 +1230,10 @@ class ExecutionAgent(BaseAgent):
 
         completeness_result = get_compliance_gates().check_content_completeness(content)
         if completeness_result.status == GateStatus.WARNING:
-            if strict_mode:
-                issues.append("content_completeness_warning")
-            else:
-                warnings.append("content_completeness_warning")
+            # Content completeness warnings should never block delivery.
+            # Markers like ellipsis or placeholder text are common in
+            # legitimate reports (especially those containing code).
+            warnings.append("content_completeness_warning")
 
         if not getattr(coverage_result, "is_valid", True):
             missing = getattr(coverage_result, "missing_requirements", [])
@@ -1283,11 +1294,19 @@ class ExecutionAgent(BaseAgent):
             return False
         if any(issue == "stream_truncation_unresolved" for issue in issues):
             return False
-        if not all(issue.startswith("coverage_missing:") for issue in issues):
+
+        # Defensive: content_completeness_warning is routed to `warnings` by
+        # _run_delivery_integrity_gate and should never appear in `issues`,
+        # but filter it out as a safety net in case routing changes.
+        actionable_issues = [i for i in issues if i != "content_completeness_warning"]
+        if not actionable_issues:
+            return True  # Only completeness warnings — nothing to repair
+
+        if not all(issue.startswith("coverage_missing:") for issue in actionable_issues):
             return False
 
         reparable_requirements = {"final result", "artifact references", "key caveat", "next step"}
-        missing = self._extract_missing_coverage_requirements(issues)
+        missing = self._extract_missing_coverage_requirements(actionable_issues)
         return bool(missing) and missing.issubset(reparable_requirements)
 
     def _extract_missing_coverage_requirements(self, issues: list[str]) -> set[str]:
