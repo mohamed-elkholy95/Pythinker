@@ -498,6 +498,8 @@ class ProgressEventData(BaseEventData):
     progress_percent: int | None = None
     estimated_duration_seconds: int | None = None
     complexity_category: str | None = None
+    wait_elapsed_seconds: int | None = None
+    wait_stage: str | None = None
 
 
 class ProgressSSEEvent(BaseSSEEvent):
@@ -515,6 +517,8 @@ class ProgressSSEEvent(BaseSSEEvent):
                 progress_percent=event.progress_percent,
                 estimated_duration_seconds=event.estimated_duration_seconds,
                 complexity_category=event.complexity_category,
+                wait_elapsed_seconds=event.wait_elapsed_seconds,
+                wait_stage=event.wait_stage,
             )
         )
 
