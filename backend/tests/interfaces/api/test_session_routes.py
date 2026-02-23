@@ -8,9 +8,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.prometheus_metrics import (
+    reset_all_metrics,
+    sse_reconnect_first_non_heartbeat_seconds,
+    sse_stream_events_total,
+)
 from app.domain.models.event import DoneEvent, PlanningPhase, ProgressEvent, ReportEvent
 from app.interfaces.api.session_routes import (
     _cancel_pending_disconnect_cancellation,
+    _event_phase_label,
     _safe_exc_text,
     _schedule_disconnect_cancellation,
     chat,
@@ -21,6 +27,13 @@ from app.interfaces.api.session_routes import (
     stop_session,
 )
 from app.interfaces.schemas.session import ChatRequest, FollowUpContext
+
+
+@pytest.fixture(autouse=True)
+def _reset_metrics() -> None:
+    reset_all_metrics()
+    yield
+    reset_all_metrics()
 
 
 class _UnprintableError(Exception):
@@ -41,6 +54,11 @@ def test_safe_exc_text_handles_unprintable_exception():
 def test_safe_exc_text_truncates_long_messages():
     error = RuntimeError("x" * 400)
     assert len(_safe_exc_text(error)) == 240
+
+
+def test_event_phase_label_handles_enum_and_missing_phase():
+    assert _event_phase_label(ProgressEvent(phase=PlanningPhase.ANALYZING, message="a", progress_percent=10)) == "analyzing"
+    assert _event_phase_label(DoneEvent(title="Done")) == "none"
 
 
 @pytest.mark.asyncio
@@ -305,6 +323,89 @@ async def test_chat_completed_session_with_follow_up_proceeds_to_agent_chat():
     events = await _collect_sse_events(response)
     event_names = [e["event"] for e in events]
     assert "done" in event_names, "Follow-up should reach agent_service.chat()"
+
+
+@pytest.mark.asyncio
+async def test_chat_forwards_last_event_id_header_when_request_event_id_missing():
+    """Running session + Last-Event-ID header should propagate cursor to agent_service.chat()."""
+    session_id = "sess-header-resume"
+    session = SimpleNamespace(id=session_id, status="running", title="Active task")
+    captured_kwargs: dict[str, object] = {}
+
+    async def fake_chat(**kwargs):
+        captured_kwargs.update(kwargs)
+        yield DoneEvent(title="done")
+
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(return_value=session),
+        chat=fake_chat,
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest(message="continue")
+    http_request = _make_http_request()
+    http_request.headers = {"Last-Event-ID": "evt-header-123"}
+
+    with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+        mock_settings.return_value = SimpleNamespace(feature_sse_v2=False)
+        response = await chat(
+            session_id=session_id,
+            request=request,
+            http_request=http_request,
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+    events = await _collect_sse_events(response)
+    event_names = [e["event"] for e in events]
+    assert "done" in event_names
+    assert captured_kwargs["event_id"] == "evt-header-123"
+
+
+@pytest.mark.asyncio
+async def test_chat_reconnect_records_latency_and_phase_metrics():
+    """Reconnect streams should record first real-event latency and phase-tagged event counts."""
+    session_id = "sess-metrics"
+    session = SimpleNamespace(id=session_id, status="running", title="Active task")
+
+    async def fake_chat(**_kwargs):
+        yield ProgressEvent(
+            phase=PlanningPhase.ANALYZING,
+            message="Analyzing",
+            progress_percent=15,
+        )
+        yield DoneEvent(title="done")
+
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(return_value=session),
+        chat=fake_chat,
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest(message="continue", event_id="evt-prev")
+
+    with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+        mock_settings.return_value = SimpleNamespace(feature_sse_v2=False)
+        response = await chat(
+            session_id=session_id,
+            request=request,
+            http_request=_make_http_request(),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+    events = await _collect_sse_events(response)
+    event_names = [e["event"] for e in events]
+    assert "done" in event_names
+
+    reconnect_latency_observations = sse_reconnect_first_non_heartbeat_seconds.collect()
+    reconnect_latency_chat = next(
+        observation for observation in reconnect_latency_observations if observation["labels"].get("endpoint") == "chat"
+    )
+    assert reconnect_latency_chat["count"] == 1
+    assert reconnect_latency_chat["sum"] >= 0.0
+
+    assert sse_stream_events_total.get({"endpoint": "chat", "event_type": "progress", "phase": "received"}) >= 1.0
+    assert sse_stream_events_total.get({"endpoint": "chat", "event_type": "progress", "phase": "analyzing"}) >= 1.0
+    assert sse_stream_events_total.get({"endpoint": "chat", "event_type": "done", "phase": "none"}) >= 1.0
 
 
 @pytest.mark.asyncio

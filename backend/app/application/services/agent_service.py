@@ -22,6 +22,7 @@ from app.application.schemas.workspace import (
 )
 from app.application.services.settings_service import get_settings_service
 from app.application.services.usage_service import get_usage_service
+from app.core import prometheus_metrics as pm
 from app.core.config import get_settings
 from app.core.sandbox_pool import get_sandbox_pool
 from app.domain.exceptions.base import SecurityViolation
@@ -688,6 +689,32 @@ class AgentService:
         skip_until_resume_point = bool(event_id)
         skipped_resume_events = 0
         resume_skip_started_at = time.monotonic() if skip_until_resume_point else None
+        resume_state_recorded = False
+
+        def _build_resume_gap_warning(
+            reason: str,
+            checkpoint_event_id: str | None = None,
+            skip_elapsed_seconds: float = 0.0,
+        ) -> ErrorEvent:
+            return ErrorEvent(
+                error="Reconnect gap detected. Resuming from the latest available event.",
+                error_type="stream_gap",
+                error_code="stream_gap_detected",
+                error_category="transport",
+                severity="warning",
+                recoverable=True,
+                can_resume=True,
+                retry_hint="Reconnected successfully. Some previously streamed updates may be skipped or repeated.",
+                checkpoint_event_id=checkpoint_event_id,
+                details={
+                    "session_id": session_id,
+                    "resume_cursor": event_id,
+                    "reason": reason,
+                    "skipped_events": skipped_resume_events,
+                    "skip_elapsed_seconds": round(skip_elapsed_seconds, 3),
+                },
+            )
+
         if event_id:
             logger.info(f"Event resumption enabled: skipping events until event_id={event_id}")
 
@@ -700,6 +727,14 @@ class AgentService:
                     event_id,
                 )
                 skip_until_resume_point = False
+                resume_state_recorded = True
+                pm.record_sse_resume_cursor_state(endpoint="chat", state="format_mismatch")
+                pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="format_mismatch")
+                emitted_events += 1
+                yield _build_resume_gap_warning(reason="format_mismatch")
+        else:
+            resume_state_recorded = True
+            pm.record_sse_resume_cursor_state(endpoint="chat", state="absent")
 
         cancel_task: asyncio.Task | None = None
         next_task: asyncio.Task | None = None
@@ -770,6 +805,16 @@ class AgentService:
                 try:
                     event = next_task.result()
                 except StopAsyncIteration:
+                    if skip_until_resume_point and event_id:
+                        skip_elapsed_seconds = (
+                            time.monotonic() - resume_skip_started_at if resume_skip_started_at is not None else 0.0
+                        )
+                        if not resume_state_recorded:
+                            pm.record_sse_resume_cursor_state(endpoint="chat", state="stale")
+                            resume_state_recorded = True
+                        pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="stale_cursor")
+                        emitted_events += 1
+                        yield _build_resume_gap_warning(reason="stale_cursor", skip_elapsed_seconds=skip_elapsed_seconds)
                     break
 
                 last_event_at = time.monotonic()
@@ -783,6 +828,9 @@ class AgentService:
                             # Found the resume point - start sending events AFTER this one
                             logger.info(f"Resume point found at event_id={event_id}, starting fresh event stream")
                             skip_until_resume_point = False
+                            if not resume_state_recorded:
+                                pm.record_sse_resume_cursor_state(endpoint="chat", state="found")
+                                resume_state_recorded = True
                             continue  # Skip the resume-point event itself
 
                         skipped_resume_events += 1
@@ -805,9 +853,16 @@ class AgentService:
                                 skip_elapsed_seconds,
                             )
                             skip_until_resume_point = False
-                            # No ErrorEvent — stale cursors are expected on reconnect
-                            # and not user-facing errors.  The frontend deduplication
-                            # layer (5000 ID tracking) handles any duplicates.
+                            if not resume_state_recorded:
+                                pm.record_sse_resume_cursor_state(endpoint="chat", state="stale")
+                                resume_state_recorded = True
+                            pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="stale_cursor")
+                            emitted_events += 1
+                            yield _build_resume_gap_warning(
+                                reason="stale_cursor",
+                                checkpoint_event_id=str(current_event_id),
+                                skip_elapsed_seconds=skip_elapsed_seconds,
+                            )
 
                         if skip_until_resume_point:
                             continue  # Still searching — skip this event.
@@ -819,6 +874,12 @@ class AgentService:
                             type(event).__name__,
                         )
                         skip_until_resume_point = False
+                        if not resume_state_recorded:
+                            pm.record_sse_resume_cursor_state(endpoint="chat", state="stale")
+                            resume_state_recorded = True
+                        pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="missing_event_id")
+                        emitted_events += 1
+                        yield _build_resume_gap_warning(reason="missing_event_id")
 
                 logger.debug(f"Received event: {event}")
                 emitted_events += 1
