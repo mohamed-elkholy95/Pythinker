@@ -587,6 +587,7 @@ def build_system_prompt(
     available_tools: list[str] | None = None,
     task_context: str | None = None,
     skill_context: str | None = None,
+    profile_patch_text: str | None = None,
 ) -> str:
     """Build system prompt dynamically based on task context and available tools.
 
@@ -609,6 +610,7 @@ def build_system_prompt(
         available_tools: List of available tool names for dynamic section selection
         task_context: Optional task-specific context to append
         skill_context: Optional skill-based context from enabled skills (from skill_context.py)
+        profile_patch_text: Optional DSPy-optimized patch text from PromptProfile (SYSTEM target)
 
     Returns:
         Assembled system prompt string
@@ -687,6 +689,10 @@ def build_system_prompt(
     # Add task-specific context if provided
     if task_context:
         prompt += f"\n\n---\nTask Context:\n{task_context}\n---\n"
+
+    # Append DSPy-optimized system prompt patch (from PromptProfile SYSTEM target)
+    if profile_patch_text:
+        prompt += f"\n<!-- profile_patch target=system -->\n{profile_patch_text}\n<!-- /profile_patch -->\n"
 
     return prompt
 
