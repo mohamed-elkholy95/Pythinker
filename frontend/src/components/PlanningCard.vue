@@ -431,14 +431,4 @@ const progressWidth = computed(() => `${Math.min(Math.max(props.progressPercent,
   border-color: rgba(251, 191, 36, 0.25);
 }
 
-@keyframes dot-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(196, 138, 80, 0.35);
-    transform: scale(1);
-  }
-  50% {
-    box-shadow: 0 0 0 4px rgba(196, 138, 80, 0);
-    transform: scale(1.1);
-  }
-}
 </style>
