@@ -188,7 +188,7 @@ Acceptance:
 | Phase | Status | Outcome |
 |---|---|---|
 | Phase 0: Baseline + Incident Fixture Capture | In Progress | Metrics baseline, reproducible reconnect/stale-cursor fixture |
-| Phase 1: Resume/Close Semantics | Not Started | Deterministic cursor and close-reason behavior |
+| Phase 1: Resume/Close Semantics | In Progress | Deterministic cursor and close-reason behavior |
 | Phase 2: Progress Visibility + Event Rate Control | Not Started | No heartbeat-only stalls, reduced event flood |
 | Phase 3: Efficiency Enforcement + Completion Integrity | Not Started | Reliable write transition and complete report delivery |
 | Phase 4: Frontend Reconciliation + Rollout | Not Started | Stable user experience under reconnect/load |
@@ -267,4 +267,3 @@ All of the following must be true:
 4. Stream event volume is controlled without losing content fidelity.
 5. Efficiency controls reliably drive write/progress behavior.
 6. Completion emits validated report and artifact references with consistent close semantics.
-
