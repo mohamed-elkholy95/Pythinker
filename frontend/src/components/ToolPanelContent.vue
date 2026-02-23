@@ -142,35 +142,10 @@
                and instantly available when switching back (no reconnection delay). -->
           <div
             v-if="showPersistentBrowser"
-            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+            class="absolute inset-0 bg-[var(--background-white-main)] flex flex-col items-center overflow-hidden"
             style="z-index: -1"
           >
-            <LiveViewer
-              :key="'live-preview-persistent-' + (sessionId || 'none')"
-              :session-id="sessionId || ''"
-              :enabled="true"
-              :view-only="true"
-              :is-canvas-mode="isCanvasMode"
-              :show-controls="showBrowserControls"
-              :is-session-complete="isSessionComplete"
-              :replay-screenshot-url="props.replayScreenshotUrl || ''"
-              @connected="onLivePreviewConnected"
-              @disconnected="onLivePreviewDisconnected"
-            />
-
-            <!-- Reconnecting overlay -->
-            <Transition name="fade">
-              <LoadingState
-                v-if="livePreviewDisconnected && !!sessionId"
-                class="absolute inset-0 z-10 bg-[var(--background-white-main)]/90"
-                :label="livePreviewPlaceholderLabel || 'Reconnecting'"
-                :detail="livePreviewPlaceholderDetail"
-                :is-active="true"
-                animation="globe"
-              />
-            </Transition>
-
-            <!-- URL bar overlay - bottom-anchored status bar, doesn't cover browser headers -->
+            <!-- URL bar - top-anchored status bar, pushed above browser to not cover headers -->
             <Transition name="url-bar">
               <div v-if="showLivePreviewUrlBar" class="live-preview-url-bar">
                 <div class="live-preview-url-status">
@@ -180,6 +155,33 @@
                 <span class="live-preview-url-text">{{ livePreviewUrlBarText }}</span>
               </div>
             </Transition>
+
+            <div class="flex-1 w-full min-h-0 relative">
+              <LiveViewer
+                :key="'live-preview-persistent-' + (sessionId || 'none')"
+                :session-id="sessionId || ''"
+                :enabled="true"
+                :view-only="true"
+                :is-canvas-mode="isCanvasMode"
+                :show-controls="showBrowserControls"
+                :is-session-complete="isSessionComplete"
+                :replay-screenshot-url="props.replayScreenshotUrl || ''"
+                @connected="onLivePreviewConnected"
+                @disconnected="onLivePreviewDisconnected"
+              />
+
+              <!-- Reconnecting overlay -->
+              <Transition name="fade">
+                <LoadingState
+                  v-if="livePreviewDisconnected && !!sessionId"
+                  class="absolute inset-0 z-10 bg-[var(--background-white-main)]/90"
+                  :label="livePreviewPlaceholderLabel || 'Reconnecting'"
+                  :detail="livePreviewPlaceholderDetail"
+                  :is-active="true"
+                  animation="globe"
+                />
+              </Transition>
+            </div>
 
             <!-- Take over button -->
             <button
@@ -1270,12 +1272,10 @@ const handleBrowseUrl = async (url: string) => {
   box-shadow: inset 0 1px 0 0 var(--border-white);
 }
 
-/* URL bar — bottom-anchored, auto-width. Does not cover browser nav headers. */
+/* URL bar — top-anchored, pill style that pushes browser down. */
 .live-preview-url-bar {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  right: 8px;
+  margin: 10px auto;
+  flex-shrink: 0;
   z-index: 5;
   display: inline-flex;
   align-items: center;
@@ -1318,19 +1318,16 @@ const handleBrowseUrl = async (url: string) => {
   letter-spacing: 0.01em;
 }
 
-/* Slide-up / fade-down transition */
+/* Slide-down / fade-up transition */
 .url-bar-enter-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity 0.18s ease, transform 0.18s ease, margin-top 0.18s ease;
 }
 .url-bar-leave-active {
-  transition: opacity 0.14s ease, transform 0.14s ease;
+  transition: opacity 0.14s ease, transform 0.14s ease, margin-top 0.14s ease;
 }
-.url-bar-enter-from {
-  opacity: 0;
-  transform: translateY(6px);
-}
+.url-bar-enter-from,
 .url-bar-leave-to {
   opacity: 0;
-  transform: translateY(4px);
+  margin-top: -30px;
 }
 </style>
