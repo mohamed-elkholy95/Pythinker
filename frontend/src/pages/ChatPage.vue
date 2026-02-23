@@ -308,7 +308,7 @@
           <!-- Hide when timed_out to avoid flicker during auto-retry reconnect cycles -->
           <Transition name="planning-card">
             <PlanningCard
-              v-if="!showSessionWarmupMessage && !isToolPanelOpen && responsePhase !== 'timed_out' && sessionResearchMode === 'deep_research' && planningProgress && (!plan || plan.steps.length === 0)"
+              v-if="!showSessionWarmupMessage && !isToolPanelOpen && !isTaskCompleted && responsePhase !== 'timed_out' && sessionResearchMode === 'deep_research' && planningProgress && (!plan || plan.steps.length === 0)"
               class="mb-2"
               :phase="planningProgress.phase"
               :message="planningProgress.message"
@@ -1792,16 +1792,21 @@ const showFloatingThinkingIndicator = computed(() => {
   return true;
 });
 
+const isTaskCompleted = computed(() =>
+  receivedDoneEvent.value || sessionStatus.value === SessionStatus.COMPLETED
+);
+
 const showTaskProgressBar = computed(() =>
   !showSessionWarmupMessage.value &&
   !isToolPanelOpen.value &&
+  !isTaskCompleted.value &&
   (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
 );
 
 // Add extra bottom scroll room when task progress bar or planning card is visible (no thumbnail).
 const showProgressDockSpacer = computed(() =>
   showTaskProgressBar.value ||
-  (!showSessionWarmupMessage.value && !isToolPanelOpen.value && planningProgress.value !== null && (!plan.value || plan.value.steps.length === 0))
+  (!showSessionWarmupMessage.value && !isToolPanelOpen.value && !isTaskCompleted.value && planningProgress.value !== null && (!plan.value || plan.value.steps.length === 0))
 );
 
 // Add extra bottom scroll room when mini preview thumbnail is rendered with the task progress bar.
@@ -2469,6 +2474,13 @@ const stopPlanningMessageCycle = () => {
   }
 };
 
+// Task completion should immediately stop and hide planner progress UI.
+watch(isTaskCompleted, (completed) => {
+  if (!completed) return;
+  planningProgress.value = null;
+  stopPlanningMessageCycle();
+});
+
 // Computed: current planning message (cycles through interesting phrases)
 const currentPlanningMessage = computed(() => {
   return PLANNING_MESSAGES[planningMessageIndex.value];
@@ -2478,6 +2490,13 @@ const currentPlanningMessage = computed(() => {
 // Note: heartbeat progress events never reach here — client.ts filters them
 // and dispatches sse:heartbeat custom events instead (handled by startHeartbeatBridge).
 const handleProgressEvent = (progressData: ProgressEventData) => {
+  // Ignore late progress events after completion (can occur during stream tailing).
+  if (isTaskCompleted.value) {
+    planningProgress.value = null;
+    stopPlanningMessageCycle();
+    return;
+  }
+
   // Start message cycling if not already running
   startPlanningMessageCycle();
 
@@ -2939,6 +2958,8 @@ const processEvent = (event: AgentSSEEvent) => {
       queuedAfterDone: streamController.getPendingEventCount(),
     })
     receivedDoneEvent.value = true;
+    planningProgress.value = null;
+    stopPlanningMessageCycle();
     ensureCompletionSuggestions();
     markShortAssistantCompletion();
     isWaitingForReply.value = false;
