@@ -80,7 +80,7 @@
 
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
-import { ref, onMounted, computed, onUnmounted } from 'vue';
+import { ref, onMounted, computed, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
 import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
@@ -150,6 +150,38 @@ const avatarLetter = computed(() => {
 // User menu state
 const showUserMenu = ref(false);
 const userMenuTimeout = ref<number | null>(null);
+let chatPreloadPromise: Promise<unknown> | null = null;
+let chatPreloadIdleHandle: number | null = null;
+let chatPreloadTimeoutHandle: number | null = null;
+
+const preloadChatRoute = () => {
+  if (chatPreloadPromise) return chatPreloadPromise;
+  chatPreloadPromise = import('./ChatPage.vue');
+  return chatPreloadPromise;
+};
+
+const scheduleChatRoutePreload = () => {
+  if (chatPreloadPromise || chatPreloadIdleHandle !== null || chatPreloadTimeoutHandle !== null) {
+    return;
+  }
+
+  const runPreload = () => {
+    chatPreloadIdleHandle = null;
+    chatPreloadTimeoutHandle = null;
+    void preloadChatRoute();
+  };
+
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    const idleCallback = window.requestIdleCallback as (
+      callback: IdleRequestCallback,
+      options?: IdleRequestOptions,
+    ) => number;
+    chatPreloadIdleHandle = idleCallback(() => runPreload(), { timeout: 1200 });
+    return;
+  }
+
+  chatPreloadTimeoutHandle = window.setTimeout(runPreload, 300);
+};
 
 
 
@@ -185,12 +217,28 @@ const handleInsertMessage = (event: Event) => {
 
 onMounted(() => {
   hideFilePanel();
+  scheduleChatRoutePreload();
   // Listen for message insert event from settings dialog
   window.addEventListener('pythinker:insert-chat-message', handleInsertMessage as EventListener);
 });
 
+watch(message, (value) => {
+  if (value.trim().length > 0) {
+    void preloadChatRoute();
+  }
+});
+
 onUnmounted(() => {
   window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage as EventListener);
+  if (chatPreloadIdleHandle !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+    const cancelIdleCallback = window.cancelIdleCallback as (handle: number) => void;
+    cancelIdleCallback(chatPreloadIdleHandle);
+    chatPreloadIdleHandle = null;
+  }
+  if (chatPreloadTimeoutHandle !== null) {
+    clearTimeout(chatPreloadTimeoutHandle);
+    chatPreloadTimeoutHandle = null;
+  }
   if (userMenuTimeout.value) {
     clearTimeout(userMenuTimeout.value);
     userMenuTimeout.value = null;
