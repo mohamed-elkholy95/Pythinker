@@ -40,7 +40,7 @@ class ToolEfficiencyMonitor:
 
     Tracks sliding window of recent tool calls and detects patterns:
     - 5+ consecutive reads without writes → nudge to take action
-    - 10+ consecutive reads → strong nudge
+    - 6+ consecutive reads → hard stop
 
     Context7 validated: Sliding window pattern, threshold-based detection.
     """
@@ -53,6 +53,8 @@ class ToolEfficiencyMonitor:
         "file_list_directory",
         "file_search",
         "file_find",
+        "file_find_by_name",
+        "file_find_in_content",
         "file_view",
         # Browser read operations
         "browser_view",
@@ -105,7 +107,7 @@ class ToolEfficiencyMonitor:
         self,
         window_size: int = 10,
         read_threshold: int = 5,
-        strong_threshold: int = 7,
+        strong_threshold: int = 6,
     ):
         """Initialize tool efficiency monitor.
 
@@ -244,6 +246,7 @@ _efficiency_monitor: ToolEfficiencyMonitor | None = None
 def get_efficiency_monitor(
     window_size: int = 10,
     read_threshold: int = 5,
+    strong_threshold: int = 6,
 ) -> ToolEfficiencyMonitor:
     """Get or create the global tool efficiency monitor.
 
@@ -261,5 +264,6 @@ def get_efficiency_monitor(
         _efficiency_monitor = ToolEfficiencyMonitor(
             window_size=window_size,
             read_threshold=read_threshold,
+            strong_threshold=strong_threshold,
         )
     return _efficiency_monitor
