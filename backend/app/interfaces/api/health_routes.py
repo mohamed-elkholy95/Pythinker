@@ -106,6 +106,10 @@ async def streaming_health(
             "error_count_by_category": aggregate_metrics.get("error_count_by_category", {}),
             "error_rate_by_category": error_rate_by_category,
             "cancellation_rate": round(aggregate_metrics["cancellation_rate"], 4),
+            "waiting_events_total": aggregate_metrics.get("waiting_events_total", 0),
+            "avg_waiting_events_per_session": round(aggregate_metrics.get("avg_waiting_events_per_session", 0.0), 2),
+            "waiting_event_ratio": round(aggregate_metrics.get("waiting_event_ratio", 0.0), 4),
+            "waiting_stage_counts": aggregate_metrics.get("waiting_stage_counts", {}),
             "reconnections_last_5m": aggregate_metrics.get("reconnections_last_5m", 0),
             "reconnection_rate_per_min": aggregate_metrics.get("reconnection_rate_per_min", 0.0),
             "reconnections_last_5m_by_endpoint": aggregate_metrics.get("reconnections_last_5m_by_endpoint", {}),
@@ -176,6 +180,7 @@ def _get_recommendations(metrics: dict[str, Any], health_score: int) -> list[str
     events_per_second = metrics.get("avg_events_per_second", 0)
     reconnections_per_min = metrics.get("reconnection_rate_per_min", 0.0)
     p95_latency = metrics.get("latency_ms", {}).get("p95")
+    waiting_event_ratio = metrics.get("waiting_event_ratio", 0.0)
 
     if error_rate > 0.2:
         recommendations.append("High error rate detected. Check backend logs for errors.")
@@ -191,6 +196,9 @@ def _get_recommendations(metrics: dict[str, Any], health_score: int) -> list[str
 
     if reconnections_per_min > 5:
         recommendations.append("Frequent reconnects detected. Check SSE transport stability and proxy settings.")
+
+    if waiting_event_ratio > 0.5:
+        recommendations.append("High execution-wait beacon ratio detected. Investigate slow tools/LLM calls.")
 
     if health_score < 40:
         recommendations.append("System health is degraded. Consider scaling or investigating issues.")

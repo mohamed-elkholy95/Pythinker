@@ -521,6 +521,7 @@ class PlanningPhase(str, Enum):
     PLANNING = "planning"  # Generating plan with LLM
     FINALIZING = "finalizing"  # Parsing and validating plan
     HEARTBEAT = "heartbeat"  # Keep-alive during long agent operations (no UI change)
+    WAITING = "waiting"  # Long-running execution wait beacon (non-transport heartbeat)
 
 
 class ProgressEvent(BaseEvent):
@@ -537,6 +538,8 @@ class ProgressEvent(BaseEvent):
     progress_percent: int | None = None  # 0-100 progress indicator
     estimated_duration_seconds: int | None = None  # Rough time estimate for the task
     complexity_category: str | None = None  # "simple", "medium", or "complex"
+    wait_elapsed_seconds: int | None = None  # Elapsed wait time for long-running execution
+    wait_stage: str | None = None  # execution_wait | verification_wait | tool_wait
 
 
 class ComprehensionEvent(BaseEvent):
