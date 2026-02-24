@@ -486,7 +486,22 @@ class ExecutionAgent(BaseAgent):
                             step.result = "Waiting for user input"
                             # Emit StepEvent so it's persisted for session resume
                             yield StepEvent(status=StepStatus.COMPLETED, step=step)
-                            yield WaitEvent()
+                            raw_wait_reason = event.function_args.get("wait_reason")
+                            wait_reason = (
+                                raw_wait_reason.strip()
+                                if isinstance(raw_wait_reason, str) and raw_wait_reason.strip()
+                                else "user_input"
+                            )
+                            raw_takeover = event.function_args.get("suggest_user_takeover")
+                            suggest_user_takeover = (
+                                raw_takeover.strip()
+                                if isinstance(raw_takeover, str) and raw_takeover.strip()
+                                else "none"
+                            )
+                            yield WaitEvent(
+                                wait_reason=wait_reason,
+                                suggest_user_takeover=suggest_user_takeover,
+                            )
                             return
                         continue
                 yield event
