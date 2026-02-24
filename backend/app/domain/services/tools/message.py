@@ -51,11 +51,20 @@ class MessageTool(BaseTool):
                 "enum": ["none", "browser"],
                 "description": "(Optional) Suggested operation for user takeover",
             },
+            "wait_reason": {
+                "type": "string",
+                "enum": ["user_input", "captcha", "login", "2fa", "payment", "verification", "other"],
+                "description": "(Optional) Structured reason this prompt requires user intervention",
+            },
         },
         required=["text"],
     )
     async def message_ask_user(
-        self, text: str, attachments: str | list[str] | None = None, suggest_user_takeover: str | None = None
+        self,
+        text: str,
+        attachments: str | list[str] | None = None,
+        suggest_user_takeover: str | None = None,
+        wait_reason: str | None = None,
     ) -> ToolResult:
         """Ask user a question and wait for response
 
@@ -63,6 +72,7 @@ class MessageTool(BaseTool):
             text: Question text to present to user
             attachments: List of question-related files or reference materials
             suggest_user_takeover: Suggested operation for user takeover
+            wait_reason: Structured reason for waiting on user interaction
 
         Returns:
             Question asking result with user response

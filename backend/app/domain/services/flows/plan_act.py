@@ -2166,7 +2166,7 @@ class PlanActFlow(BaseFlow):
                 ],
             )
             yield MessageEvent(message=clarification_question)
-            yield WaitEvent()
+            yield WaitEvent(wait_reason="user_input", suggest_user_takeover="none")
             return
 
         if shadow_mode:
