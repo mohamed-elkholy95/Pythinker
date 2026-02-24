@@ -10,8 +10,9 @@
         <div class="flex items-center gap-1">
           <button
             v-if="!!props.sessionId"
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
+            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)] disabled:opacity-40 disabled:cursor-not-allowed"
             @click="takeOver"
+            :disabled="takeoverLoading"
             aria-label="Open takeover"
           >
             <MonitorUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
@@ -187,7 +188,8 @@
             <button
               v-if="!isShare && !!props.sessionId"
               @click="takeOver"
-              class="takeover-btn absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-[var(--text-onblack)] group transition-all duration-300"
+              :disabled="takeoverLoading"
+              class="takeover-btn absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-[var(--text-onblack)] group transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <TakeOverIcon />
               <span class="text-sm max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:ml-1">
