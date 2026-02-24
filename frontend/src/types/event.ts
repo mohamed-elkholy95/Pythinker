@@ -152,6 +152,8 @@ export interface DoneEventData extends BaseEventData {
 }
 
 export interface WaitEventData extends BaseEventData {
+  wait_reason?: 'user_input' | 'captcha' | 'login' | '2fa' | 'payment' | 'verification' | 'other' | string;
+  suggest_user_takeover?: 'none' | 'browser' | string;
 }
 
 export interface TitleEventData extends BaseEventData {
