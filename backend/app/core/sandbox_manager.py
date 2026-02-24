@@ -47,7 +47,7 @@ class SandboxHealth:
 
     api_responsive: bool = False
     browser_responsive: bool = False
-    last_check: datetime = None
+    last_check: datetime | None = None
 
     @property
     def is_healthy(self) -> bool:
@@ -165,9 +165,9 @@ class EnhancedSandboxManager:
                 is_healthy = await sandbox.health_check()
 
                 if not is_healthy:
-                    sandbox.health.health_check_failures += 1
+                    sandbox.metrics.health_check_failures += 1
 
-                    if sandbox.health.health_check_failures >= 3:
+                    if sandbox.metrics.health_check_failures >= 3:
                         sandbox.state = SandboxState.UNHEALTHY
                         logger.warning(f"Sandbox {sandbox.session_id} marked as unhealthy")
 
@@ -175,7 +175,7 @@ class EnhancedSandboxManager:
                         await self._recover_sandbox(sandbox)
                 else:
                     # Reset failure count on successful health check
-                    sandbox.health.health_check_failures = 0
+                    sandbox.metrics.health_check_failures = 0
                     if sandbox.state == SandboxState.UNHEALTHY:
                         sandbox.state = SandboxState.HEALTHY
                         logger.info(f"Sandbox {sandbox.session_id} recovered to healthy state")
@@ -261,17 +261,17 @@ class ManagedSandbox:
 
             self.container_name = f"{self.manager.settings.sandbox_name_prefix}-{str(uuid.uuid4())[:8]}"
 
-            # Create Docker client
-            docker_client = docker.from_env()
-
-            # Container configuration
+            # Container configuration (built before thread to capture state)
             container_config = self._get_container_config()
 
-            # Create and start container
-            self.container = docker_client.containers.run(**container_config)
+            # Run blocking Docker SDK calls in a thread to avoid blocking the event loop
+            def _create_container():
+                client = docker.from_env()
+                container = client.containers.run(**container_config)
+                container.reload()
+                return container
 
-            # Get IP address
-            self.container.reload()
+            self.container = await asyncio.to_thread(_create_container)
             self.ip_address = self._get_container_ip()
 
             # Initialize API client via connection pool
@@ -424,8 +424,9 @@ class ManagedSandbox:
     async def _restart_services(self) -> bool:
         """Restart sandbox services"""
         try:
-            # Restart container
-            self.container.restart()
+            # Restart container (blocking SDK call → thread pool)
+            container = self.container
+            await asyncio.to_thread(container.restart)
             await asyncio.sleep(10)  # Wait for restart
 
             # Wait for services
@@ -459,8 +460,9 @@ class ManagedSandbox:
             self.api_client = None
 
             if self.container:
-                self.container.stop(timeout=10)
-                self.container.remove(force=True)
+                container = self.container
+                await asyncio.to_thread(container.stop, timeout=10)
+                await asyncio.to_thread(container.remove, force=True)
 
         except Exception as e:
             logger.warning(f"Error during sandbox destruction for {self.session_id}: {e}")
