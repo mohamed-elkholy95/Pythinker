@@ -135,6 +135,108 @@ export async function resumeSession(sessionId: string, options?: ResumeSessionOp
   await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/resume`, options || {});
 }
 
+// ============================================================================
+// Takeover API (Phase 0: Pause-first browser takeover)
+// ============================================================================
+
+/**
+ * Takeover status response from the backend
+ */
+export interface TakeoverStatusResponse {
+  session_id: string;
+  takeover_state: 'idle' | 'takeover_requested' | 'takeover_active' | 'resuming';
+  reason: string | null;
+}
+
+/**
+ * Options for ending a takeover
+ */
+export interface TakeoverEndOptions {
+  context?: string;
+  persist_login_state?: boolean;
+  resume_agent?: boolean;
+}
+
+export type TakeoverNavigationAction = 'back' | 'forward' | 'reload' | 'stop';
+
+export interface TakeoverNavigationResponse {
+  ok: boolean;
+  action: TakeoverNavigationAction;
+  message?: string;
+}
+
+export interface TakeoverNavigationHistoryEntry {
+  id: number;
+  url: string;
+  title: string;
+}
+
+export interface TakeoverNavigationHistoryResponse {
+  current_index: number;
+  entries: TakeoverNavigationHistoryEntry[];
+}
+
+/**
+ * Start browser takeover for a session.
+ * Pauses the agent first, then transitions to takeover_active state.
+ * @param sessionId Session ID to take over
+ * @param reason Reason for takeover (manual|captcha|login|2fa|payment|verification)
+ * @returns Takeover status after the operation
+ */
+export async function startTakeover(sessionId: string, reason: string = 'manual'): Promise<TakeoverStatusResponse> {
+  const response = await apiClient.post<ApiResponse<TakeoverStatusResponse>>(
+    `/sessions/${sessionId}/takeover/start`,
+    { reason }
+  );
+  return response.data.data;
+}
+
+/**
+ * End browser takeover for a session.
+ * Optionally resumes the agent, injects context, and persists login state.
+ * @param sessionId Session ID to end takeover for
+ * @param options Optional context, persist_login_state, and resume_agent settings
+ * @returns Takeover status after the operation
+ */
+export async function endTakeover(sessionId: string, options?: TakeoverEndOptions): Promise<TakeoverStatusResponse> {
+  const response = await apiClient.post<ApiResponse<TakeoverStatusResponse>>(
+    `/sessions/${sessionId}/takeover/end`,
+    options || {}
+  );
+  return response.data.data;
+}
+
+/**
+ * Get the current takeover state for a session.
+ * @param sessionId Session ID to check
+ * @returns Current takeover status
+ */
+export async function getTakeoverStatus(sessionId: string): Promise<TakeoverStatusResponse> {
+  const response = await apiClient.get<ApiResponse<TakeoverStatusResponse>>(
+    `/sessions/${sessionId}/takeover/status`
+  );
+  return response.data.data;
+}
+
+export async function takeoverNavigate(
+  sessionId: string,
+  action: TakeoverNavigationAction
+): Promise<TakeoverNavigationResponse> {
+  const response = await apiClient.post<ApiResponse<TakeoverNavigationResponse>>(
+    `/sessions/${sessionId}/takeover/navigation/${action}`,
+  );
+  return response.data.data;
+}
+
+export async function getTakeoverNavigationHistory(
+  sessionId: string
+): Promise<TakeoverNavigationHistoryResponse> {
+  const response = await apiClient.get<ApiResponse<TakeoverNavigationHistoryResponse>>(
+    `/sessions/${sessionId}/takeover/navigation/history`,
+  );
+  return response.data.data;
+}
+
 export async function renameSession(sessionId: string, title: string): Promise<void> {
   await apiClient.patch<ApiResponse<void>>(`/sessions/${sessionId}/rename`, { title });
 }
