@@ -7,6 +7,15 @@
       animation="file"
     />
     <ErrorState v-else-if="error" :error="error" />
+
+    <!-- HTML Preview mode -->
+    <HtmlPreviewView
+      v-else-if="viewMode === 'preview' && isHtmlFile"
+      :content="content"
+      :is-live="isWriting"
+    />
+
+    <!-- Code editor mode (default) -->
     <section v-else class="editor-body">
       <MonacoEditor
         :value="content"
@@ -25,6 +34,7 @@
 
 <script setup lang="ts">
 import MonacoEditor from '@/components/ui/MonacoEditor.vue';
+import HtmlPreviewView from '@/components/toolViews/HtmlPreviewView.vue';
 import { computed } from 'vue';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import ErrorState from '@/components/toolViews/shared/ErrorState.vue';
@@ -36,9 +46,15 @@ const props = withDefaults(defineProps<{
   isWriting?: boolean;
   isLoading?: boolean;
   error?: string;
+  /** 'code' shows Monaco editor, 'preview' shows rendered HTML (only for HTML files) */
+  viewMode?: 'code' | 'preview';
+  /** Whether the current file is an HTML file that supports preview */
+  isHtmlFile?: boolean;
 }>(), {
   isLoading: false,
-  error: ''
+  error: '',
+  viewMode: 'code',
+  isHtmlFile: false,
 });
 
 const loadingLabel = computed(() => (props.filename ? 'Loading file' : 'Loading content'));
@@ -80,3 +96,4 @@ const isWritingActive = computed(() => !!props.isWriting && !props.isLoading && 
   }
 }
 </style>
+
