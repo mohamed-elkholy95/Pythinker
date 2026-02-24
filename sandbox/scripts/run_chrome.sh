@@ -30,6 +30,12 @@ sleep 1
 # ── Chrome binary and flags ──────────────────────────────────────────
 CHROME="${BROWSER_PATH:-/opt/chrome-for-testing/chrome}"
 
+# Auto-detect browser version for a realistic user-agent string.
+# Falls back to the major version only (e.g. "128.0.0.0") when the binary is unavailable.
+_CHROME_RAW_VER=$("$CHROME" --version 2>/dev/null | grep -oP '[\d]+\.[\d]+\.[\d]+\.[\d]+' | head -1)
+_CHROME_MAJOR=${_CHROME_RAW_VER%%.*}
+CHROME_UA_VERSION="${_CHROME_RAW_VER:-${_CHROME_MAJOR:-0}.0.0.0}"
+
 CHROME_FLAGS=(
     --headless=new
     --no-sandbox
@@ -79,7 +85,7 @@ CHROME_FLAGS=(
     --force-color-profile=srgb
     --force-device-scale-factor=1
     --disable-blink-features=AutomationControlled
-    "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_UA_VERSION} Safari/537.36"
     --lang=en-US
     --remote-debugging-address=0.0.0.0
     --remote-debugging-port=8222
