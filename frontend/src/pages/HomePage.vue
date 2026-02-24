@@ -144,7 +144,7 @@ const visibleFeatures: Feature[] = [
     id: 'chat',
     label: 'Chat Mode',
     icon: MessageSquare,
-    mode: 'discuss',
+    mode: 'agent',
     prompt: ''
   }
 ];
@@ -257,8 +257,8 @@ onUnmounted(() => {
 // Handle feature button click
 const handleFeatureClick = async (feature: Feature) => {
   if (feature.id === 'chat') {
-    // Chat mode - create session with discuss mode directly
-    await createSessionWithMode('discuss');
+    // Chat mode - create agent session with a greeting so fast path sends a welcome bubble
+    await createSessionWithMode('agent', 'Hello');
   } else if (feature.prompt) {
     // Set the prompt in the message input
     message.value = feature.prompt;
@@ -277,6 +277,7 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
         pendingSessionCreate: true,
         mode,
         research_mode: 'deep_research' as ResearchMode,
+        chat_mode: mode === 'agent' && !!initialMessage,
         message: initialMessage ?? '',
         skills: [],
         files: attachments.value.map((file: FileInfo) => ({

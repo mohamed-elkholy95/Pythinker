@@ -170,17 +170,17 @@
           }"
         >
           <ChatMessage v-for="(message, index) in messages" :key="message.id" :message="message"
-            :activeThinkingStepId="activeThinkingStepId"
-            :showStepLeadingConnector="shouldShowStepLeadingConnector(index)"
-            :showStepConnector="shouldShowStepConnector(index)"
+            :activeThinkingStepId="isChatMode ? undefined : activeThinkingStepId"
+            :showStepLeadingConnector="!isChatMode && shouldShowStepLeadingConnector(index)"
+            :showStepConnector="!isChatMode && shouldShowStepConnector(index)"
             :showAssistantHeader="shouldShowAssistantHeader(index)"
             :renderAsSummaryCard="shouldRenderSummaryCard(index)"
             :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id) && !canShowSuggestions"
             :sources="sourcesForMessageMap.get(index)"
             :isFastSearchSession="sessionResearchMode === 'fast_search'"
-            :activeReasoningState="message.id === activeAssistantMessageId ? activeReasoningState : undefined"
+            :activeReasoningState="!isChatMode && message.id === activeAssistantMessageId ? activeReasoningState : undefined"
             :thinkingText="message.id === activeAssistantMessageId ? thinkingText : undefined"
-            :liveActivity="message.id === activeAssistantMessageId ? liveActivity : undefined"
+            :liveActivity="!isChatMode && message.id === activeAssistantMessageId ? liveActivity : undefined"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -357,7 +357,7 @@
 
         <div
           ref="_chatBottomDockRef"
-          class="chat-bottom-dock flex flex-col sticky bottom-0"
+          class="chat-bottom-dock flex flex-col sticky bottom-0 mt-auto"
           :class="{ 'chat-bottom-dock-fixed': shouldPinComposerToBottom }"
           :style="chatBottomDockStyle"
         >
@@ -365,7 +365,7 @@
           <!-- Hide when timed_out to avoid flicker during auto-retry reconnect cycles -->
           <Transition name="planning-card">
             <PlanningCard
-              v-if="!showSessionWarmupMessage && !isToolPanelOpen && !isTaskCompleted && responsePhase !== 'timed_out' && sessionResearchMode === 'deep_research' && planningProgress && (!plan || plan.steps.length === 0)"
+              v-if="!isChatMode && !showSessionWarmupMessage && !isToolPanelOpen && !isTaskCompleted && responsePhase !== 'timed_out' && sessionResearchMode === 'deep_research' && planningProgress && (!plan || plan.steps.length === 0)"
               class="mb-2"
               :phase="planningProgress.phase"
               :message="planningProgress.message"
@@ -899,6 +899,9 @@ const showToolPanelIfAllowed = (tool: ToolContent, isLive: boolean) => {
 const handleChatViewModeChange = (mode: 'chat' | 'reasoning') => {
   chatViewMode.value = mode;
   if (mode === 'reasoning') {
+    // Disable auto-follow BEFORE the DOM swap so the MutationObserver-triggered
+    // auto-scroll (requestAnimationFrame) doesn't race against scrollToTop.
+    follow.value = false;
     toolPanel.value?.hideToolPanel(false);
     panelToolId.value = undefined;
     nextTick(() => {
@@ -1091,12 +1094,24 @@ const isWaitingForSessionReady = ref(false);
 const pendingInitialMessage = ref<{ message: string; files: FileInfo[]; thinkingMode: ThinkingMode } | null>(null);
 const currentThinkingMode = ref<ThinkingMode>('auto');
 const sessionInitTimedOut = ref(false);
+const isChatModeOverride = ref<boolean | null>(null);
+const isChatMode = computed(() => {
+  // Manual override from Chat Mode button
+  if (isChatModeOverride.value !== null) return isChatModeOverride.value;
+  // Auto-detect: if first user message is a simple greeting, treat as chat mode
+  const firstUserMsg = messages.value.find(m => m.type === 'user');
+  if (!firstUserMsg) return false;
+  const text = ((firstUserMsg as any).message || '').trim().toLowerCase();
+  const greetings = ['hello', 'hi', 'hey', 'howdy', 'hola', 'greetings', 'yo', 'sup', 'good morning', 'good afternoon', 'good evening'];
+  return greetings.includes(text);
+});
 const skipNextRouteReset = ref(false);
 
 interface PendingSessionCreateState {
   pendingSessionCreate: boolean;
   mode?: 'agent' | 'discuss';
   research_mode?: agentApi.ResearchMode;
+  chat_mode?: boolean;
   message?: string;
   skills?: string[];
   files?: FileInfo[];
@@ -1371,6 +1386,11 @@ const initializePendingSession = async () => {
   const mode = pendingState.mode === 'discuss' ? 'discuss' : 'agent';
   const researchMode = pendingState.research_mode || 'deep_research';
 
+  // Track chat mode to suppress planning UI — persist to sessionStorage
+  if (pendingState.chat_mode) {
+    isChatModeOverride.value = true;
+  }
+
   // Show immediate chat view feedback while backend session is being created.
   if (pendingMessage || pendingFiles.length > 0) {
     addOptimisticUserMessage(pendingMessage, pendingFiles);
@@ -1392,6 +1412,11 @@ const initializePendingSession = async () => {
 
     skipNextRouteReset.value = true;
     await router.replace({ path: `/chat/${session.session_id}` });
+
+    // Persist chat mode flag AFTER session ID is known
+    if (isChatMode.value) {
+      try { sessionStorage.setItem(`chatMode:${session.session_id}`, '1'); } catch {}
+    }
 
     if (pendingMessage || pendingFiles.length > 0) {
       // Apply selected skills right before sending the first message.
@@ -1595,6 +1620,7 @@ const resetState = () => {
 
   // Reset session research mode
   sessionResearchMode.value = null;
+  isChatModeOverride.value = null;
 
   // Reset reactive state to initial values
   Object.assign(state, createInitialState());
@@ -1991,6 +2017,7 @@ const isTaskCompleted = computed(() =>
 );
 
 const showTaskProgressBar = computed(() =>
+  !isChatMode.value &&
   !showSessionWarmupMessage.value &&
   !isToolPanelOpen.value &&
   (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
@@ -3794,6 +3821,8 @@ onMounted(async () => {
     }
     // If sessionId is included in URL, use it directly
     sessionId.value = String(routeParams.sessionId) as string;
+    // Restore chat mode flag from sessionStorage
+    try { if (sessionStorage.getItem(`chatMode:${sessionId.value}`)) isChatModeOverride.value = true; } catch {}
     // Do not auto-send messages from history.state on existing sessions.
     // Pending initial prompts are handled exclusively via /chat/new bootstrap flow.
     if ((history.state as PendingSessionCreateState | null)?.pendingSessionCreate) {
@@ -4141,7 +4170,8 @@ const handleCopyLink = async () => {
   flex: 1;
   min-width: 0;
   width: 100%;
-  height: 100%;
+  min-height: 100%;
+  align-self: stretch;
 }
 
 .chat-live-splitter {
