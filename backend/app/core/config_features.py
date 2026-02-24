@@ -209,6 +209,10 @@ class FeatureFlagsSettingsMixin:
     conversation_context_cross_session_min_score: float = 0.4  # Higher threshold for cross-session
     conversation_context_retrieval_timeout_seconds: float = 2.0  # Retrieval timeout (returns empty)
 
+    # Incremental memory extraction during sessions (Phase 5)
+    incremental_memory_enabled: bool = True  # Extract memories mid-session (every N turns)
+    incremental_memory_interval: int = 5  # Extract every N conversation turns
+
     # Advanced reasoning features (disabled by default, enable per-use-case)
     feature_tree_of_thoughts: bool = False  # Use ToT exploration for complex planning
     feature_self_consistency: bool = False  # Use self-consistency checks during verification
