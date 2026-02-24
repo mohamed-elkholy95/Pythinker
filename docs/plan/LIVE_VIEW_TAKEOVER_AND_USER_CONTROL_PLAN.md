@@ -44,20 +44,12 @@ The implementation is grounded in current code behavior and validated against:
 
 ### 2.2 Gaps requiring implementation
 
-1. **Pause/result semantics are unsafe in lifecycle logic**:
-   - `start_takeover()` marks session `takeover_active` even when `pause_session()` returns `False`.
-2. **`resume_agent=false` behavior is incorrect**:
-   - `end_takeover()` still calls `resume_session()` when context/persist values exist.
-3. **State transition can report success while not actually resumed**:
-   - `end_takeover()` sets takeover state back to `idle` even when resume result is `False`.
-4. `persist_login_state` is still metadata-only and not yet wired to Playwright `storageState` restore.
-5. Takeover navigation controls (`back`/`forward`) are still stubs in UI and lack backend/sandbox control API.
-6. Frontend still does not consume `suggest_user_takeover` for explicit wait-to-takeover CTA.
-7. Input target selection can diverge from screencast target in multi-page/tab conditions.
-8. WebSocket hardening is still pending:
+1. Input target selection can diverge from screencast target in multi-page/tab conditions.
+2. WebSocket hardening is still pending:
    - explicit origin allowlist checks
    - secret/query redaction for proxy logging paths
-9. Test coverage for takeover lifecycle and new routes is not yet in place.
+3. Test coverage for takeover lifecycle and new routes is still partial and needs expansion.
+4. Persisted login-state implementation now stores/restores Playwright storage snapshots, but still needs end-to-end validation under reconnect/crash scenarios.
 
 ---
 
@@ -178,14 +170,19 @@ Completed:
 4. Frontend takeover API client methods added.
 5. Frontend takeover entry points switched to `startTakeover(...)`.
 6. Takeover onboarding copy updated to pause-first wording.
+7. Takeover lifecycle semantics fixed for pause/resume false-return paths.
+8. `resume_agent=false` takeover end now honors contract.
+9. Wait metadata contract (`wait_reason`, `suggest_user_takeover`) is wired backend -> frontend CTA.
+10. Takeover navigation controls are API-backed (`back`/`forward`/`reload`/`stop`).
+11. `persist_login_state` now snapshots/restores Playwright storage state with file-backed retention.
+12. Secret/query redaction added for websocket error/logging paths.
 
 In Progress:
-1. Correct takeover lifecycle semantics for pause/resume false-return paths.
-2. Align `resume_agent=false` behavior with API contract.
+1. Dedicated takeover lifecycle and route test coverage expansion.
 
 Not Started:
-1. Wait/CTA metadata wiring in `ChatPage.vue`.
-2. Dedicated takeover lifecycle test coverage.
+1. Input/screencast target-affinity hardening for multi-tab scenarios.
+2. WebSocket origin allowlist enforcement.
 
 ### Backend
 
