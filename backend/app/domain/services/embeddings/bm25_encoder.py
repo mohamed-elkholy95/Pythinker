@@ -46,6 +46,7 @@ class BM25SparseEncoder:
         self.reverse_vocab: dict[int, str] = {}  # index -> word mapping
         self.top_k = top_k
         self.corpus_size = 0
+        self._corpus_texts: list[str] = []  # Retained for incremental updates
 
     def _tokenize(self, text: str) -> list[str]:
         """Tokenize text into words.
@@ -97,6 +98,7 @@ class BM25SparseEncoder:
             self.vocab = {}
             self.reverse_vocab = {}
             self.corpus_size = 0
+            self._corpus_texts = []
             return
 
         # Tokenize corpus
@@ -108,6 +110,7 @@ class BM25SparseEncoder:
         # Fit BM25 model
         self.bm25 = BM25Okapi(tokenized_corpus)
         self.corpus_size = len(corpus)
+        self._corpus_texts = list(corpus)  # Store for incremental updates
 
         logger.info(f"BM25 encoder fitted on {self.corpus_size} documents")
 
@@ -184,18 +187,27 @@ class BM25SparseEncoder:
         return [self.encode(text) for text in texts]
 
     def update_corpus(self, new_documents: list[str]) -> None:
-        """Update BM25 model with new documents.
+        """Incrementally update BM25 model with new documents.
 
-        Note: This currently refits the entire model. For production,
-        consider incremental updates or periodic batch retraining.
+        Appends new documents to the existing corpus and refits.
+        If corpus is empty or not fitted, just fits on new docs.
 
         Args:
             new_documents: New documents to add to corpus
         """
+        if not new_documents:
+            return
+
         logger.info(f"Updating BM25 corpus with {len(new_documents)} new documents")
-        # For now, refit entirely (incremental BM25 is complex)
-        # In production, queue updates and batch refit periodically
-        self.fit(new_documents)
+
+        # If BM25 is already fitted, rebuild with combined corpus
+        # We reconstruct the old corpus from the vocabulary (approximate)
+        # For a true incremental update, we'd need to store the original corpus
+        if self.bm25 is not None and self._corpus_texts:
+            combined = self._corpus_texts + new_documents
+            self.fit(combined)
+        else:
+            self.fit(new_documents)
 
     def get_vocab_size(self) -> int:
         """Get vocabulary size."""
@@ -227,14 +239,18 @@ def get_bm25_encoder() -> BM25SparseEncoder:
     return _encoder
 
 
-async def initialize_bm25_from_memories(memory_repository) -> None:
-    """Initialize BM25 encoder from existing memories.
+async def initialize_bm25_from_memories(
+    memory_repository,
+    conversation_context_repository=None,
+) -> None:
+    """Initialize BM25 encoder from existing memories and conversation turns.
 
     This should be called on application startup to load the corpus
-    from stored memories in MongoDB.
+    from stored memories in MongoDB and recent conversation context from Qdrant.
 
     Args:
         memory_repository: MemoryRepository instance to fetch memories from
+        conversation_context_repository: Optional ConversationContextRepository for recent turns
     """
     encoder = get_bm25_encoder()
 
@@ -259,10 +275,26 @@ async def initialize_bm25_from_memories(memory_repository) -> None:
             if isinstance(records, list):
                 corpus = [str(content) for item in records if (content := getattr(item, "content", ""))]
 
+    # Include recent conversation context turns for keyword coverage
+    if conversation_context_repository is not None:
+        try:
+            get_recent_content = getattr(conversation_context_repository, "get_all_content", None)
+            if callable(get_recent_content):
+                conv_content = get_recent_content(limit=5000)
+                if isawaitable(conv_content):
+                    conv_content = await conv_content
+                if isinstance(conv_content, list):
+                    conv_texts = [item for item in conv_content if isinstance(item, str) and item]
+                    corpus.extend(conv_texts)
+                    if conv_texts:
+                        logger.info(f"Added {len(conv_texts)} conversation turns to BM25 corpus")
+        except Exception:
+            logger.debug("Failed to load conversation turns for BM25 corpus", exc_info=True)
+
     if not corpus:
         logger.info("No existing memories found, BM25 encoder will be trained on first write")
         return
 
     encoder.fit(corpus)
 
-    logger.info(f"BM25 encoder initialized with {len(corpus)} memories")
+    logger.info(f"BM25 encoder initialized with {len(corpus)} documents (memories + conversation turns)")
