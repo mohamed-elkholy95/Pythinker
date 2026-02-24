@@ -9,6 +9,7 @@ import logging
 import re
 from collections.abc import AsyncGenerator
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from app.domain.external.llm import LLM
 from app.domain.external.search import SearchEngine
@@ -38,6 +39,10 @@ from app.domain.services.tools.agent_mode import AgentModeTool
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.utils.json_parser import JsonParser
+
+if TYPE_CHECKING:
+    from app.domain.services.conversation_context_service import ConversationContextService
+    from app.domain.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +101,9 @@ class DiscussFlow(BaseFlow):
         json_parser: JsonParser,
         search_engine: SearchEngine | None = None,
         default_language: str = "en",
+        memory_service: "MemoryService | None" = None,
+        conversation_context_service: "ConversationContextService | None" = None,
+        user_id: str = "",
     ):
         self._default_language = default_language
         self._agent_id = agent_id
@@ -104,6 +112,9 @@ class DiscussFlow(BaseFlow):
         self._session_repository = session_repository
         self._llm = llm
         self._json_parser = json_parser
+        self._memory_service = memory_service
+        self._conversation_context_service = conversation_context_service
+        self._user_id = user_id
 
         self.status = DiscussStatus.IDLE
         self._mode_switch_task: str | None = None
@@ -316,11 +327,44 @@ class DiscussFlow(BaseFlow):
                     yield TitleEvent(title=fast_title)
                 self._title_emitted = True
 
+            # Retrieve conversation context and long-term memories
+            context_parts: list[str] = []
+            try:
+                if self._conversation_context_service and self._user_id:
+                    conv_ctx = await self._conversation_context_service.retrieve_context(
+                        user_id=self._user_id,
+                        session_id=self._session_id,
+                        query=message.message,
+                        current_turn_number=self._conversation_context_service._turn_counter,
+                    )
+                    formatted = conv_ctx.format_for_injection()
+                    if formatted:
+                        context_parts.append(formatted)
+            except Exception:
+                logger.debug("Failed to retrieve conversation context for discuss", exc_info=True)
+
+            try:
+                if self._memory_service and self._user_id:
+                    memories = await self._memory_service.retrieve_for_task(
+                        user_id=self._user_id,
+                        task_description=message.message,
+                        limit=3,
+                    )
+                    if memories:
+                        mem_lines = ["[Long-term memories]"]
+                        mem_lines.extend(f"- {m.memory.content}" for m in memories)
+                        context_parts.append("\n".join(mem_lines))
+            except Exception:
+                logger.debug("Failed to retrieve long-term memories for discuss", exc_info=True)
+
+            context_str = "\n\n".join(context_parts)
+
             # Build the discuss prompt
             prompt = build_discuss_prompt(
                 message=message.message,
                 attachments="\n".join(message.attachments) if message.attachments else "",
                 language=self._default_language,
+                context=context_str,
             )
 
             # Execute through the agent
