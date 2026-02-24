@@ -164,7 +164,8 @@ function cubicBezier(t: number, p0: number, p1: number, p2: number, p3: number):
   return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3
 }
 
-function particlePos(p: Particle): { x: number; y: number } | null {
+function particlePos(p: Particle | undefined | null): { x: number; y: number } | null {
+  if (!p) return null
   const pos = getPositions()
   const from = pos[p.fromIdx]
   const to   = pos[p.toIdx]
@@ -193,6 +194,7 @@ function spawnParticle() {
 
 function tick() {
   particles.value = particles.value
+    .filter((p): p is Particle => !!p && typeof p.fromIdx === 'number')
     .map(p => ({ ...p, progress: p.progress + p.speed }))
     .filter(p => p.progress < 1.08)
   raf = requestAnimationFrame(tick)
@@ -337,7 +339,7 @@ const progressPct = computed(() =>
                   :cx="particlePos(p)!.x"
                   :cy="particlePos(p)!.y"
                   :r="p.size"
-                  :fill="NODES[p.fromIdx].color"
+                  :fill="NODES[p.fromIdx]?.color ?? '#6366f1'"
                   :opacity="p.opacity * (1 - p.progress * 0.6)"
                   filter="url(#c-glow)"
                 />
@@ -458,7 +460,7 @@ const progressPct = computed(() =>
                     :cx="particlePos(p)!.x"
                     :cy="particlePos(p)!.y"
                     :r="p.size + 0.5"
-                    :fill="NODES[p.fromIdx].color"
+                    :fill="NODES[p.fromIdx]?.color ?? '#6366f1'"
                     :opacity="p.opacity * (1 - p.progress * 0.55)"
                     filter="url(#e-node-glow)"
                   />
