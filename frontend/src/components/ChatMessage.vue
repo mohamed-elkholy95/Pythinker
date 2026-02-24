@@ -128,7 +128,7 @@
         v-if="props.activeReasoningState && props.activeReasoningState !== 'idle' && props.activeReasoningState !== 'completed' && !isAssistantSummaryCompact"
         :currentStage="props.activeReasoningState"
         :thinkingText="props.thinkingText"
-        class="mb-2 mt-1"
+        :liveActivity="props.liveActivity"
       />
 
       <div
@@ -363,6 +363,8 @@ const props = defineProps<{
   activeReasoningState?: ReasoningStage;
   /** Live streaming thinking text from the agent */
   thinkingText?: string;
+  /** Live tool/step activity from the agent */
+  liveActivity?: import('@/components/ReasoningPipeline.vue').LiveActivity;
 }>();
 
 const emit = defineEmits<{
