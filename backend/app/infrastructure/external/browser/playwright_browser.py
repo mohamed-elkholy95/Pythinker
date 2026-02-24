@@ -1149,9 +1149,7 @@ class PlaywrightBrowser:
             if self._connection_healthy:
                 logger.info(f"Proactive reconnect succeeded (CDP: {self.cdp_url})")
         except Exception as e:
-            logger.warning(
-                f"Proactive reconnect failed (CDP: {self.cdp_url}): {e} — will retry on next operation"
-            )
+            logger.warning(f"Proactive reconnect failed (CDP: {self.cdp_url}): {e} — will retry on next operation")
 
     def is_healthy(self) -> bool:
         """Synchronous health check for fast-path routing.
