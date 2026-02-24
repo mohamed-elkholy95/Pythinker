@@ -2,8 +2,15 @@
   <SimpleBar>
     <div
       class="flex flex-col h-full flex-1 min-w-0 mx-auto w-full sm:min-w-[390px] px-5 justify-start items-start gap-2 relative max-w-full sm:max-w-full">
-      <!-- Minimal header - logo and user avatar, blended into background -->
-      <div class="w-full pt-4 pb-4 ps-[8px] pe-[8px] sm:ps-5 sm:pe-5 sticky top-0 z-10">
+
+      <!-- Ambient background glow -->
+      <div class="ambient-glow" aria-hidden="true" />
+
+      <!-- Center dot-grid decoration -->
+      <div class="center-grid" aria-hidden="true" />
+
+      <!-- Header -->
+      <div class="home-header w-full sticky top-0 z-10">
         <div class="flex justify-between items-center w-full">
           <div class="flex items-center gap-1 flex-shrink-0">
             <button
@@ -21,11 +28,10 @@
           <div class="flex items-center gap-2 ml-auto">
             <div class="relative flex items-center" aria-expanded="false" aria-haspopup="dialog"
               @mouseenter="handleUserMenuEnter" @mouseleave="handleUserMenuLeave">
-              <div class="relative flex items-center justify-center font-bold cursor-pointer flex-shrink-0">
-                <div
-                  class="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden bg-gray-800 dark:bg-gray-600 text-white"
-                  style="width: 32px; height: 32px; font-size: 16px;">
-                  {{ avatarLetter }}</div>
+              <div class="avatar-ring cursor-pointer flex-shrink-0">
+                <div class="avatar-inner">
+                  {{ avatarLetter }}
+                </div>
               </div>
               <!-- User Menu -->
               <div v-if="showUserMenu" @mouseenter="handleUserMenuEnter" @mouseleave="handleUserMenuLeave"
@@ -36,15 +42,16 @@
           </div>
         </div>
       </div>
+
       <div class="home-content">
         <!-- Greeting -->
         <div class="greeting-section">
-          <h1 class="greeting-primary">
-            {{ $t('Hello') }}, {{ currentUser?.fullname }}
-          </h1>
-          <p class="greeting-secondary">
-            {{ $t('What can I do for you?') }}
+          <p class="greeting-eyebrow">
+            {{ $t('Hello') }}, {{ currentUser?.fullname }} 👋
           </p>
+          <h1 class="greeting-headline">
+            Ask anything. <span class="greeting-headline-accent">I'll figure it out.</span>
+          </h1>
         </div>
 
         <!-- Chat Input -->
@@ -66,9 +73,11 @@
             v-for="feature in visibleFeatures"
             :key="feature.id"
             @click="handleFeatureClick(feature)"
-            class="feature-btn"
+            :class="['feature-btn', `feature-btn--${feature.id}`]"
           >
-            <component :is="feature.icon" :size="17" class="feature-icon" />
+            <span class="feature-btn-icon-wrap">
+              <component :is="feature.icon" :size="15" class="feature-icon" />
+            </span>
             <span>{{ $t(feature.label) }}</span>
           </button>
         </div>
@@ -335,14 +344,107 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode, detailLevel?
 </script>
 
 <style scoped>
+/* ===== AMBIENT GLOW ===== */
+.ambient-glow {
+  position: fixed;
+  top: -20%;
+  left: 50%;
+  translate: -50% 0;
+  width: 680px;
+  height: 480px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center,
+    color-mix(in srgb, var(--text-brand) 8%, transparent) 0%,
+    transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(40px);
+}
+
+/* ===== CENTER DOT GRID ===== */
+
+/* CSS variable for dot color — set per theme using :global so scoping doesn't break it */
+:global(:root) {
+  --grid-dot-color: rgba(0, 0, 0, 0.45);
+}
+:global(:root[data-theme="dark"]),
+:global(.dark) {
+  --grid-dot-color: rgba(255, 255, 255, 0.38);
+}
+
+.center-grid {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+
+  /* Dot pattern using the theme-aware variable */
+  background-image: radial-gradient(circle, var(--grid-dot-color) 1px, transparent 1px);
+  background-size: 52px 52px;
+
+  /* Fade out toward all edges — bright center only */
+  mask-image: radial-gradient(ellipse 55% 55% at 50% 50%, black 0%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 55% 55% at 50% 50%, black 0%, transparent 100%);
+
+  animation: gridBreath 5s ease-in-out infinite;
+}
+
+@keyframes gridBreath {
+  0%, 100% { opacity: 0.75; }
+  50%       { opacity: 1; }
+}
+
+/* ===== HEADER ===== */
+.home-header {
+  padding: 16px 8px 14px;
+}
+
+@media (min-width: 640px) {
+  .home-header {
+    padding: 16px 20px 14px;
+  }
+}
+
+/* ===== AVATAR ===== */
+.avatar-ring {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  padding: 1.5px;
+  background: linear-gradient(135deg, var(--border-main), var(--border-dark));
+  transition: background 0.2s ease;
+}
+
+.avatar-ring:hover {
+  background: linear-gradient(135deg, var(--text-brand), color-mix(in srgb, var(--text-brand) 50%, var(--border-dark)));
+}
+
+.avatar-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--background-card);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 /* ===== CONTENT AREA ===== */
 .home-content {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  max-width: 860px;
+  max-width: 720px;
   min-width: 390px;
   margin: 0 auto;
-  /* Position content centered vertically */
-  padding-top: 18vh;
+  padding-top: 16vh;
   padding-bottom: 100px;
 }
 
@@ -350,7 +452,7 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode, detailLevel?
   .home-content {
     max-width: 100%;
     min-width: 0;
-    padding-top: 12vh;
+    padding-top: 10vh;
   }
 }
 
@@ -358,36 +460,43 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode, detailLevel?
 .greeting-section {
   padding: 0 16px;
   margin-bottom: 28px;
-  text-align: center;
+  text-align: left;
 }
 
-.greeting-primary {
-  font-size: 20px;
+.greeting-eyebrow {
+  font-size: 14px;
   font-weight: 500;
-  line-height: 1.3;
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+  letter-spacing: 0.01em;
 }
 
-.greeting-secondary {
-  font-size: 36px;
-  font-weight: 600;
-  line-height: 1.2;
+.greeting-headline {
+  font-size: 40px;
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
-  background: linear-gradient(90deg, var(--text-primary), var(--text-secondary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+}
+
+.greeting-headline-accent {
+  font-weight: 500;
+  color: var(--text-brand, #6366f1);
+}
+
+@media (max-width: 640px) {
+  .greeting-headline {
+    font-size: 28px;
+  }
 }
 
 /* ===== CHAT INPUT WRAPPER ===== */
 .chat-input-wrapper {
   width: 100%;
-  margin-top: 8px;
+  margin-top: 4px;
   padding: 0 8px;
 }
 
-/* Home page chatbox uses ChatBox component visual system directly */
 :deep(.chat-input-wrapper .chatbox-shell) {
   background: transparent;
 }
@@ -420,45 +529,85 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode, detailLevel?
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  margin-top: 24px;
+  gap: 8px;
+  margin-top: 20px;
   padding: 0 16px;
 }
 
 .feature-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
+  gap: 7px;
+  padding: 8px 16px 8px 10px;
   border-radius: 999px;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.18s ease;
   background: var(--background-card);
   border: 1px solid var(--border-main);
-  color: var(--text-primary);
-  box-shadow: 0 1px 3px var(--shadow-XS);
+  color: var(--text-secondary);
+  box-shadow: 0 1px 2px var(--shadow-XS);
 }
 
 .feature-btn:hover {
   border-color: var(--border-dark);
   color: var(--text-primary);
-  box-shadow: 0 2px 8px var(--shadow-S);
+  box-shadow: 0 2px 10px var(--shadow-S);
+  transform: translateY(-1px);
 }
 
 .feature-btn:active {
-  transform: scale(0.98);
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 1px 2px var(--shadow-XS);
+}
+
+/* Icon container */
+.feature-btn-icon-wrap {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--fill-tsp-gray-main);
+  transition: background 0.18s ease;
+}
+
+.feature-btn:hover .feature-btn-icon-wrap {
+  background: color-mix(in srgb, var(--text-brand) 12%, transparent);
 }
 
 .feature-icon {
-  color: var(--text-secondary);
-  flex-shrink: 0;
-  transition: color 0.2s ease;
+  color: var(--icon-secondary);
+  transition: color 0.18s ease;
 }
 
 .feature-btn:hover .feature-icon {
-  color: var(--text-primary);
+  color: var(--text-brand);
+}
+
+/* Per-button accent colors on hover */
+.feature-btn--research:hover .feature-btn-icon-wrap {
+  background: color-mix(in srgb, #3b82f6 12%, transparent);
+}
+.feature-btn--research:hover .feature-icon {
+  color: #3b82f6;
+}
+
+.feature-btn--design:hover .feature-btn-icon-wrap {
+  background: color-mix(in srgb, #a855f7 12%, transparent);
+}
+.feature-btn--design:hover .feature-icon {
+  color: #a855f7;
+}
+
+.feature-btn--chat:hover .feature-btn-icon-wrap {
+  background: color-mix(in srgb, #22c55e 12%, transparent);
+}
+.feature-btn--chat:hover .feature-icon {
+  color: #22c55e;
 }
 
 .feature-btn:focus-visible {
