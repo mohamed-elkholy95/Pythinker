@@ -671,6 +671,8 @@ const fitToScreen = ref(false);
 const manualZoom = ref(1);
 const isCanvasPanning = ref(false);
 const suppressNodeClick = ref(false);
+// Suppress auto-scroll until scrollToTop() has been called after initial mount
+const autoScrollReady = ref(false);
 
 let panPointerId: number | null = null;
 let panStartX = 0;
@@ -695,6 +697,8 @@ onMounted(() => {
     updateViewportSize();
   });
   viewportResizeObserver.observe(canvasViewportRef.value);
+  // Reset scroll to top and enable auto-scroll after initial render
+  void scrollToTop();
 });
 
 onBeforeUnmount(() => {
@@ -831,7 +835,7 @@ watch(
 watch(
   selectedNodeId,
   (nodeId) => {
-    if (!fitToScreen.value) return;
+    if (!autoScrollReady.value) return;
     void scrollNodeIntoView(nodeId);
   },
 );
@@ -1035,6 +1039,18 @@ const handleNodeClick = (nodeId: string) => {
   if (suppressNodeClick.value) return;
   selectedNodeId.value = nodeId;
 };
+
+const scrollToTop = async () => {
+  autoScrollReady.value = false;
+  await nextTick();
+  if (canvasViewportRef.value) {
+    canvasViewportRef.value.scrollTop = 0;
+    canvasViewportRef.value.scrollLeft = 0;
+  }
+  autoScrollReady.value = true;
+};
+
+defineExpose({ scrollToTop });
 </script>
 
 <template>
