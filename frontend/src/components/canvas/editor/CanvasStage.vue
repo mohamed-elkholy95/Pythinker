@@ -4,6 +4,8 @@
       ref="stageRef"
       :config="stageConfig"
       @mousedown="handleStageMouseDown"
+      @dragmove="handleStageDragMove"
+      @dragend="handleStageDragEnd"
       @wheel="handleWheel"
     >
       <!-- Background layer (non-interactive) -->
@@ -77,6 +79,15 @@ interface Props {
   pageBackground: string
 }
 
+interface WheelPayload {
+  deltaY: number
+  ctrl: boolean
+  pointerX: number
+  pointerY: number
+  stageX: number
+  stageY: number
+}
+
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
@@ -84,7 +95,8 @@ const emit = defineEmits<{
   (e: 'element-move', elementId: string, x: number, y: number): void
   (e: 'element-transform', elementId: string, updates: Partial<CanvasElement>): void
   (e: 'stage-click'): void
-  (e: 'wheel', deltaY: number, ctrl: boolean): void
+  (e: 'wheel', payload: WheelPayload): void
+  (e: 'pan-change', x: number, y: number): void
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
@@ -271,6 +283,18 @@ function handleStageMouseDown(e: Konva.KonvaEventObject<MouseEvent>) {
   }
 }
 
+function handleStageDragMove(e: Konva.KonvaEventObject<DragEvent>) {
+  const stage = e.target.getStage()
+  if (!stage) return
+  emit('pan-change', stage.x(), stage.y())
+}
+
+function handleStageDragEnd(e: Konva.KonvaEventObject<DragEvent>) {
+  const stage = e.target.getStage()
+  if (!stage) return
+  emit('pan-change', stage.x(), stage.y())
+}
+
 function handleElementClick(e: Konva.KonvaEventObject<MouseEvent>, element: CanvasElement) {
   if (props.editorState.activeTool !== 'select') return
   e.cancelBubble = true
@@ -302,7 +326,16 @@ function handleTransformEnd(e: Konva.KonvaEventObject<Event>, element: CanvasEle
 function handleWheel(e: Konva.KonvaEventObject<WheelEvent>) {
   e.evt.preventDefault()
   const ctrl = e.evt.ctrlKey || e.evt.metaKey
-  emit('wheel', e.evt.deltaY, ctrl)
+  const stage = stageRef.value?.getNode()
+  const pointer = stage?.getPointerPosition()
+  emit('wheel', {
+    deltaY: e.evt.deltaY,
+    ctrl,
+    pointerX: pointer?.x ?? containerWidth.value / 2,
+    pointerY: pointer?.y ?? containerHeight.value / 2,
+    stageX: stage?.x() ?? props.editorState.panX,
+    stageY: stage?.y() ?? props.editorState.panY,
+  })
 }
 
 function updateTransformer() {
