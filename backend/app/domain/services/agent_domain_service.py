@@ -210,6 +210,25 @@ class AgentDomainService:
             session_id, context=context, persist_login_state=persist_login_state
         )
 
+    async def start_takeover(self, session_id: str, reason: str = "manual") -> bool:
+        """Start browser takeover (pauses agent first)."""
+        return await self._lifecycle.start_takeover(session_id, reason=reason)
+
+    async def end_takeover(
+        self,
+        session_id: str,
+        context: str | None = None,
+        persist_login_state: bool | None = None,
+        resume_agent: bool = True,
+    ) -> bool:
+        """End browser takeover and optionally resume the agent."""
+        return await self._lifecycle.end_takeover(
+            session_id,
+            context=context,
+            persist_login_state=persist_login_state,
+            resume_agent=resume_agent,
+        )
+
     async def enqueue_user_message(
         self,
         session_id: str,
