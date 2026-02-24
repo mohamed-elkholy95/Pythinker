@@ -13,7 +13,7 @@ from app.domain.models.file import FileInfo
 from app.domain.models.memory import Memory
 from app.domain.models.multi_task import MultiTaskChallenge
 from app.domain.models.screenshot import SessionScreenshot
-from app.domain.models.session import AgentMode, ResearchMode, Session, SessionStatus
+from app.domain.models.session import AgentMode, ResearchMode, Session, SessionStatus, TakeoverState
 from app.domain.models.skill import Skill, SkillCategory, SkillInvocationType, SkillSource
 from app.domain.models.usage import DailyUsageAggregate, UsageRecord, UsageType
 from app.domain.models.user import User, UserRole
@@ -227,6 +227,8 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
 
     # Browser takeover settings
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
+    takeover_state: TakeoverState = TakeoverState.IDLE  # Takeover lifecycle state
+    takeover_reason: str | None = None  # Reason for current takeover
 
     class Settings:
         name: ClassVar[str] = "sessions"

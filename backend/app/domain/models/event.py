@@ -460,6 +460,8 @@ class WaitEvent(BaseEvent):
     """Wait event"""
 
     type: Literal["wait"] = "wait"
+    wait_reason: str | None = None  # user_input|captcha|login|2fa|payment|verification|other
+    suggest_user_takeover: str | None = None  # none|browser
 
 
 class KnowledgeEvent(BaseEvent):
