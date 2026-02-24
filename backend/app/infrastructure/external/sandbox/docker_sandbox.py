@@ -442,6 +442,7 @@ class DockerSandbox(Sandbox):
         max_retry_delay = settings.sandbox_warmup_max_retry_delay
         backoff_multiplier = settings.sandbox_warmup_backoff_multiplier
         connection_failure_threshold = settings.sandbox_warmup_connection_failure_threshold
+        wall_clock_timeout = settings.sandbox_warmup_wall_clock_timeout  # 0 = disabled (IMPORTANT-6)
 
         # Record start time for warmup tracking
         start_time = time.time()
@@ -461,6 +462,17 @@ class DockerSandbox(Sandbox):
 
         for attempt in range(max_retries):
             elapsed = time.time() - start_time
+
+            # Enforce hard wall-clock budget when configured (IMPORTANT-6)
+            if wall_clock_timeout > 0 and elapsed >= wall_clock_timeout:
+                final_error_reason = "wall_clock_timeout"
+                logger.error(
+                    "Sandbox warmup exceeded wall-clock budget of %.1fs after %d attempt(s)",
+                    wall_clock_timeout,
+                    attempt,
+                )
+                break
+
             in_warmup_window = elapsed < 10.0  # More tolerant during first 10 seconds
 
             try:
@@ -567,7 +579,7 @@ class DockerSandbox(Sandbox):
                 connection_failures += 1
                 final_error_reason = "refused"
 
-                if not self._container_exists_and_running():
+                if not await asyncio.to_thread(self._container_exists_and_running):
                     final_error_reason = "container_stopped"
                     elapsed = time.time() - start_time
                     logger.error("Sandbox container %s is no longer running", self._container_name)
@@ -1669,10 +1681,12 @@ class DockerSandbox(Sandbox):
             ip = await cls._resolve_hostname_to_ip(addresses[0])
             return DockerSandbox(ip=ip, container_name=id)
 
-        docker_client = docker.from_env()
-        container = docker_client.containers.get(id)
-        container.reload()
+        def _get_container_ip_sync() -> str:
+            dc = docker.from_env()
+            c = dc.containers.get(id)
+            c.reload()
+            return cls._get_container_ip(c)
 
-        ip_address = cls._get_container_ip(container)
+        ip_address = await asyncio.to_thread(_get_container_ip_sync)
         logger.info(f"IP address: {ip_address}")
         return DockerSandbox(ip=ip_address, container_name=id)
