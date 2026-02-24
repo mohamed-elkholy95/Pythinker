@@ -54,7 +54,7 @@ When using search:
 """
 
 DISCUSS_PROMPT = """
-User: {message}
+{context_block}User: {message}
 Attachments: {attachments}
 Language: {language}
 
@@ -70,7 +70,12 @@ and return exactly the requested output.
 """
 
 
-def build_discuss_prompt(message: str, attachments: str = "", language: str = "English") -> str:
+def build_discuss_prompt(
+    message: str,
+    attachments: str = "",
+    language: str = "English",
+    context: str = "",
+) -> str:
     """
     Build discuss mode prompt.
 
@@ -78,8 +83,17 @@ def build_discuss_prompt(message: str, attachments: str = "", language: str = "E
         message: User message
         attachments: User attachments (comma-separated paths)
         language: Working language
+        context: Retrieved conversation history and long-term memory context
 
     Returns:
         Formatted discuss prompt
     """
-    return DISCUSS_PROMPT.format(message=message, attachments=attachments or "None", language=language)
+    context_block = ""
+    if context:
+        context_block = f"<retrieved_context>\n{context}\n</retrieved_context>\n\n"
+    return DISCUSS_PROMPT.format(
+        message=message,
+        attachments=attachments or "None",
+        language=language,
+        context_block=context_block,
+    )
