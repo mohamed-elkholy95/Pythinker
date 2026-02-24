@@ -2,9 +2,13 @@ import asyncio
 import contextlib
 import hashlib
 import logging
+import re
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import httpx
 import websockets
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from sse_starlette.event import ServerSentEvent
@@ -66,6 +70,12 @@ from app.interfaces.schemas.session import (
     ShareSessionResponse,
     ShellViewRequest,
     ShellViewResponse,
+    TakeoverEndRequest,
+    TakeoverNavigationHistoryEntry,
+    TakeoverNavigationHistoryResponse,
+    TakeoverNavigationResponse,
+    TakeoverStartRequest,
+    TakeoverStatusResponse,
 )
 from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifestResponse
 
@@ -92,6 +102,36 @@ def _sandbox_ws_extra_headers() -> list[tuple[str, str]]:
     if settings.sandbox_api_secret:
         headers.append(("x-sandbox-secret", settings.sandbox_api_secret))
     return headers
+
+
+def _sandbox_http_headers() -> dict[str, str]:
+    """Build extra headers for backend→sandbox HTTP requests."""
+    settings = get_settings()
+    headers: dict[str, str] = {}
+    if settings.sandbox_api_secret:
+        headers["x-sandbox-secret"] = settings.sandbox_api_secret
+    return headers
+
+
+_SENSITIVE_QUERY_KEYS = {"secret", "signature", "uid"}
+
+
+def _redact_query_params(url: str, sensitive_keys: set[str] | None = None) -> str:
+    """Redact sensitive query parameter values in URLs before logging."""
+    keys = sensitive_keys or _SENSITIVE_QUERY_KEYS
+    try:
+        split = urlsplit(url)
+        if not split.query:
+            return url
+        redacted_pairs = []
+        for key, value in parse_qsl(split.query, keep_blank_values=True):
+            if key.lower() in keys:
+                redacted_pairs.append((key, "***"))
+            else:
+                redacted_pairs.append((key, value))
+        return urlunsplit((split.scheme, split.netloc, split.path, urlencode(redacted_pairs, doseq=True), split.fragment))
+    except Exception:
+        return url
 
 
 SSE_PROTOCOL_VERSION = "2"
@@ -158,6 +198,9 @@ def _safe_exc_text(exc: BaseException) -> str:
 
     if not message:
         message = exc.__class__.__name__
+
+    for key in _SENSITIVE_QUERY_KEYS:
+        message = re.sub(rf"({re.escape(key)}=)[^&\s]+", r"\1***", message, flags=re.IGNORECASE)
 
     # Keep WebSocket close reasons compact.
     return message[:240]
@@ -409,6 +452,182 @@ async def resume_session(
         session_id, current_user.id, context=request.context, persist_login_state=request.persist_login_state
     )
     return APIResponse.success()
+
+
+@router.post("/{session_id}/takeover/start", response_model=APIResponse[TakeoverStatusResponse])
+async def start_takeover(
+    session_id: str,
+    request: TakeoverStartRequest = TakeoverStartRequest(),
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[TakeoverStatusResponse]:
+    """Start browser takeover for a session.
+
+    Pauses the agent first, then transitions to takeover_active state.
+    Idempotent: returns current state if takeover already active.
+    """
+    await agent_service.start_takeover(session_id, current_user.id, reason=request.reason or "manual")
+    status = await agent_service.get_takeover_status(session_id, current_user.id)
+    return APIResponse.success(
+        TakeoverStatusResponse(
+            session_id=status["session_id"],
+            takeover_state=status["takeover_state"],
+            reason=status["reason"],
+        )
+    )
+
+
+@router.post("/{session_id}/takeover/end", response_model=APIResponse[TakeoverStatusResponse])
+async def end_takeover(
+    session_id: str,
+    request: TakeoverEndRequest = TakeoverEndRequest(),
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[TakeoverStatusResponse]:
+    """End browser takeover for a session.
+
+    Optionally resumes the agent, injects context, and persists login state.
+    Idempotent: returns idle state if takeover already ended.
+    """
+    await agent_service.end_takeover(
+        session_id,
+        current_user.id,
+        context=request.context,
+        persist_login_state=request.persist_login_state,
+        resume_agent=request.resume_agent,
+    )
+    status = await agent_service.get_takeover_status(session_id, current_user.id)
+    return APIResponse.success(
+        TakeoverStatusResponse(
+            session_id=status["session_id"],
+            takeover_state=status["takeover_state"],
+            reason=status["reason"],
+        )
+    )
+
+
+@router.get("/{session_id}/takeover/status", response_model=APIResponse[TakeoverStatusResponse])
+async def get_takeover_status(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[TakeoverStatusResponse]:
+    """Get the current takeover state for a session."""
+    status = await agent_service.get_takeover_status(session_id, current_user.id)
+    return APIResponse.success(
+        TakeoverStatusResponse(
+            session_id=status["session_id"],
+            takeover_state=status["takeover_state"],
+            reason=status["reason"],
+        )
+    )
+
+
+async def _resolve_user_sandbox_for_session(
+    session_id: str,
+    user_id: str,
+    agent_service: AgentService,
+    sandbox_cls: type[Sandbox],
+) -> Sandbox:
+    session = await agent_service.get_session(session_id, user_id)
+    if not session:
+        raise NotFoundError("Session not found")
+    if not session.sandbox_id:
+        raise NotFoundError("Session has no sandbox")
+    sandbox = await sandbox_cls.get(session.sandbox_id)
+    if not sandbox:
+        raise NotFoundError("Sandbox not found")
+    return sandbox
+
+
+@router.post(
+    "/{session_id}/takeover/navigation/{action}",
+    response_model=APIResponse[TakeoverNavigationResponse],
+)
+async def takeover_navigation_action(
+    session_id: str,
+    action: Literal["back", "forward", "reload", "stop"],
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+    sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
+) -> APIResponse[TakeoverNavigationResponse]:
+    """Execute browser navigation action during takeover."""
+    sandbox = await _resolve_user_sandbox_for_session(session_id, current_user.id, agent_service, sandbox_cls)
+    url = f"{sandbox.base_url}/api/v1/navigation/{action}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, headers=_sandbox_http_headers())
+        response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        logger.error("Sandbox navigation action failed: %s %s", action, _safe_exc_text(e))
+        raise HTTPException(status_code=502, detail=f"Sandbox navigation action failed: {action}") from e
+    except httpx.RequestError as e:
+        logger.error("Sandbox navigation unavailable for action %s: %s", action, _safe_exc_text(e))
+        raise HTTPException(status_code=502, detail="Sandbox navigation unavailable") from e
+
+    response_data = {}
+    with contextlib.suppress(Exception):
+        response_data = response.json()
+
+    return APIResponse.success(
+        TakeoverNavigationResponse(
+            ok=bool(response_data.get("ok", True)),
+            action=action,
+            message=response_data.get("message"),
+        )
+    )
+
+
+@router.get(
+    "/{session_id}/takeover/navigation/history",
+    response_model=APIResponse[TakeoverNavigationHistoryResponse],
+)
+async def takeover_navigation_history(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+    sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
+) -> APIResponse[TakeoverNavigationHistoryResponse]:
+    """Fetch browser navigation history for takeover URL-bar sync."""
+    sandbox = await _resolve_user_sandbox_for_session(session_id, current_user.id, agent_service, sandbox_cls)
+    url = f"{sandbox.base_url}/api/v1/navigation/history"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, headers=_sandbox_http_headers())
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPStatusError as e:
+        logger.error("Sandbox navigation history request failed: %s", _safe_exc_text(e))
+        raise HTTPException(status_code=502, detail="Sandbox navigation history failed") from e
+    except httpx.RequestError as e:
+        logger.error("Sandbox navigation history unavailable: %s", _safe_exc_text(e))
+        raise HTTPException(status_code=502, detail="Sandbox navigation history unavailable") from e
+    except Exception as e:
+        logger.error("Sandbox navigation history parse failure: %s", _safe_exc_text(e))
+        raise HTTPException(status_code=502, detail="Invalid sandbox navigation history response") from e
+
+    entries = payload.get("entries", []) if isinstance(payload, dict) else []
+    safe_entries: list[TakeoverNavigationHistoryEntry] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            safe_entries.append(
+                TakeoverNavigationHistoryEntry(
+                    id=int(entry.get("id", -1)),
+                    url=str(entry.get("url", "")),
+                    title=str(entry.get("title", "")),
+                )
+            )
+        except Exception:
+            continue
+
+    return APIResponse.success(
+        TakeoverNavigationHistoryResponse(
+            current_index=int(payload.get("current_index", 0)) if isinstance(payload, dict) else 0,
+            entries=safe_entries,
+        )
+    )
 
 
 @router.patch("/{session_id}/rename", response_model=APIResponse[None])
@@ -1361,14 +1580,15 @@ async def screencast_websocket(
 
             sandbox_ws_url = f"{sandbox_ws_url}&secret={quote(settings.sandbox_api_secret)}"
 
-        logger.info(f"Connecting to screencast at {sandbox_ws_url}")
+        redacted_sandbox_ws_url = _redact_query_params(sandbox_ws_url)
+        logger.info("Connecting to screencast at %s", redacted_sandbox_ws_url)
 
         async with websockets.connect(
             sandbox_ws_url,
             additional_headers=_sandbox_ws_extra_headers(),
             **SANDBOX_WS_CONNECT_KWARGS,
         ) as sandbox_ws:
-            logger.info(f"Connected to screencast at {sandbox_ws_url}")
+            logger.info("Connected to screencast at %s", redacted_sandbox_ws_url)
 
             async def forward_from_sandbox():
                 """Relay frames from sandbox → browser."""
