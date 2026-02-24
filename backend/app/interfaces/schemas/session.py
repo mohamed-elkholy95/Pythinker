@@ -63,6 +63,47 @@ class ResumeSessionRequest(BaseModel):
     persist_login_state: bool | None = None
 
 
+class TakeoverStartRequest(BaseModel):
+    """Start takeover request schema"""
+
+    reason: str | None = "manual"  # manual|captcha|login|2fa|payment|verification
+
+
+class TakeoverEndRequest(BaseModel):
+    """End takeover request schema"""
+
+    context: str | None = None
+    persist_login_state: bool | None = None
+    resume_agent: bool = True
+
+
+class TakeoverStatusResponse(BaseModel):
+    """Takeover status response schema"""
+
+    session_id: str
+    takeover_state: str
+    reason: str | None = None
+
+
+class TakeoverNavigationResponse(BaseModel):
+    """Takeover navigation command response schema."""
+
+    ok: bool = True
+    action: Literal["back", "forward", "reload", "stop"]
+    message: str | None = None
+
+
+class TakeoverNavigationHistoryEntry(BaseModel):
+    id: int
+    url: str
+    title: str
+
+
+class TakeoverNavigationHistoryResponse(BaseModel):
+    current_index: int
+    entries: list[TakeoverNavigationHistoryEntry] = Field(default_factory=list)
+
+
 class ShellViewRequest(BaseModel):
     """Shell view request schema"""
 
