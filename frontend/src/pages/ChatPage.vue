@@ -148,6 +148,7 @@
             :sources="sourcesForMessageMap.get(index)"
             :isFastSearchSession="sessionResearchMode === 'fast_search'"
             :activeReasoningState="message.id === activeAssistantMessageId ? activeReasoningState : undefined"
+            :thinkingText="message.id === activeAssistantMessageId ? thinkingText : undefined"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
