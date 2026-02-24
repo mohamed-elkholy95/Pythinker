@@ -116,6 +116,26 @@ def _sandbox_http_headers() -> dict[str, str]:
 _SENSITIVE_QUERY_KEYS = {"secret", "signature", "uid"}
 
 
+def _is_websocket_origin_allowed(websocket: WebSocket) -> bool:
+    """Return True if the WebSocket Origin header is in the configured CORS allowlist.
+
+    When no origins are configured (empty string), all origins are permitted to
+    preserve backward-compatible behaviour in development environments.
+    For production deployments, set ``cors_origins`` in settings to a comma-separated
+    list of allowed origins (e.g. ``http://localhost:5173,https://app.example.com``).
+    """
+    settings = get_settings()
+    raw_origins: str = getattr(settings, "cors_origins", "") or ""
+    if not raw_origins.strip():
+        # No allowlist configured — permissive (dev-mode default)
+        return True
+
+    allowed: set[str] = {o.strip().rstrip("/") for o in raw_origins.split(",") if o.strip()}
+    request_origin: str = (websocket.headers.get("origin") or "").rstrip("/")
+    return request_origin in allowed
+
+
+
 def _redact_query_params(url: str, sensitive_keys: set[str] | None = None) -> str:
     """Redact sensitive query parameter values in URLs before logging."""
     keys = sensitive_keys or _SENSITIVE_QUERY_KEYS
@@ -1549,6 +1569,15 @@ async def screencast_websocket(
         return
     logger.info(f"Accepted screencast WebSocket for session {session_id}")
 
+    if not _is_websocket_origin_allowed(websocket):
+        logger.warning(
+            "[SECURITY] Screencast WebSocket rejected: origin %r not in allowlist for session %s",
+            websocket.headers.get("origin"),
+            session_id,
+        )
+        await websocket.close(code=1008, reason="Origin not allowed")
+        return
+
     try:
         # Extract user_id from signed URL (uid parameter) for authorization
         from app.interfaces.dependencies import extract_user_id_from_signed_url
@@ -1690,6 +1719,15 @@ async def input_websocket(
         await websocket.accept()
     except RuntimeError as e:
         logger.warning(f"Input WebSocket accept failed (connection already closed or shutdown in progress): {e}")
+        return
+
+    if not _is_websocket_origin_allowed(websocket):
+        logger.warning(
+            "[SECURITY] Input WebSocket rejected: origin %r not in allowlist for session %s",
+            websocket.headers.get("origin"),
+            session_id,
+        )
+        await websocket.close(code=1008, reason="Origin not allowed")
         return
 
     try:
