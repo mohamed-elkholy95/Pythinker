@@ -74,7 +74,7 @@ class AgentDomainService:
         from app.domain.services.conversation_context_service import get_conversation_context_service
 
         self._conversation_context_service = get_conversation_context_service()
-        self._turn_counter = 0
+        self._turn_counters: dict[str, int] = {}  # per-session turn counters
 
         # Compose sub-services
         self._lifecycle = AgentSessionLifecycle(
@@ -382,7 +382,25 @@ class AgentDomainService:
                         )
 
                         if should_use_fast_path(message, follow_up_source=follow_up_source):
-                            fast_router = FastPathRouter(llm=self._llm, search_engine=self._search_engine)
+                            # Retrieve lightweight memory context for personalization
+                            memory_context: str | None = None
+                            if self._memory_service and user_id:
+                                try:
+                                    mem_results = await self._memory_service.retrieve_for_task(
+                                        user_id=user_id,
+                                        task_description=message,
+                                        limit=2,
+                                    )
+                                    if mem_results:
+                                        memory_context = "\n".join(f"- {m.memory.content}" for m in mem_results)
+                                except Exception:
+                                    logger.debug("Fast path memory retrieval failed", exc_info=True)
+
+                            fast_router = FastPathRouter(
+                                llm=self._llm,
+                                search_engine=self._search_engine,
+                                memory_context=memory_context,
+                            )
                             intent, params = fast_router.classify(message)
 
                             if intent in (QueryIntent.GREETING, QueryIntent.KNOWLEDGE):
@@ -698,7 +716,7 @@ class AgentDomainService:
                 with contextlib.suppress(Exception):
                     await self._conversation_context_service.flush_remaining()
                     self._conversation_context_service.reset_session_state()
-                    self._turn_counter = 0
+                    self._turn_counters.pop(session_id, None)
             # Extract and store memories from session (fire-and-forget)
             if self._memory_service:
                 import contextlib
@@ -717,12 +735,30 @@ class AgentDomainService:
             return
 
         try:
-            turn = self._conversation_context_service.extract_turn_from_event(
-                event, session_id, user_id, self._turn_counter
-            )
+            turn_number = self._turn_counters.get(session_id, 0)
+            turn = self._conversation_context_service.extract_turn_from_event(event, session_id, user_id, turn_number)
             if turn:
-                self._turn_counter += 1
+                new_turn_number = turn_number + 1
+                self._turn_counters[session_id] = new_turn_number
                 _task = asyncio.create_task(self._conversation_context_service.record_turn(turn))  # noqa: RUF006 — fire-and-forget by design
+
+                # Incremental memory extraction every N turns (fire-and-forget)
+                if self._memory_service:
+                    from app.core.config import get_settings
+
+                    settings = get_settings()
+                    interval = settings.incremental_memory_interval
+                    if settings.incremental_memory_enabled and interval > 0 and new_turn_number % interval == 0:
+                        # Collect recent turn content from buffer for pattern extraction
+                        content = turn.content
+                        if content:
+                            _mem_task = asyncio.create_task(  # noqa: RUF006
+                                self._memory_service.extract_incremental(
+                                    user_id=user_id,
+                                    turns_content=[content],
+                                    session_id=session_id,
+                                )
+                            )
         except Exception:
             logger.debug("Failed to record conversation turn", exc_info=True)
 
