@@ -4,6 +4,7 @@ import type { ResearchMode } from '../api/agent';
 
 defineProps<{
   mode: ResearchMode | null;
+  compact?: boolean;
 }>();
 </script>
 
@@ -11,13 +12,16 @@ defineProps<{
   <span
     v-if="mode"
     class="research-badge"
-    :class="mode === 'fast_search' ? 'badge-fast' : 'badge-deep'"
+    :class="[
+      mode === 'fast_search' ? 'badge-fast' : 'badge-deep',
+      { 'badge-compact': compact }
+    ]"
   >
     <span class="badge-icon-wrap">
       <Zap v-if="mode === 'fast_search'" :size="12" :stroke-width="2.5" />
       <Globe v-else :size="12" :stroke-width="2" />
     </span>
-    <span class="badge-label">
+    <span v-if="!compact" class="badge-label">
       {{ mode === 'fast_search' ? 'Fast Search' : 'Research' }}
     </span>
   </span>
@@ -43,6 +47,11 @@ defineProps<{
   overflow: hidden;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.badge-compact {
+  padding: 4px 6px;
+  gap: 0;
 }
 
 .research-badge:hover {
