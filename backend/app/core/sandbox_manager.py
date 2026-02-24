@@ -76,6 +76,11 @@ class EnhancedSandboxManager:
         self._health_check_interval = 30  # seconds
         self._max_recovery_attempts = 3
         self._background_tasks: set[asyncio.Task] = set()
+        # Per-session locks prevent duplicate-sandbox races (HIGH-4).
+        # _session_locks and _locks_mutex are not used inside the lock itself,
+        # so there is no deadlock risk.
+        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._locks_mutex = asyncio.Lock()
 
     @error_handler(severity=ErrorSeverity.CRITICAL, category=ErrorCategory.SANDBOX, auto_recover=True)
     async def create_sandbox(self, session_id: str) -> Optional["ManagedSandbox"]:
@@ -120,21 +125,35 @@ class EnhancedSandboxManager:
                 logger.error(f"Failed to create sandbox for session {session_id}: {e}")
                 raise
 
-    async def get_sandbox(self, session_id: str) -> Optional["ManagedSandbox"]:
-        """Get existing sandbox or create new one"""
-        sandbox = self._sandboxes.get(session_id)
+    async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+        """Return (creating if necessary) the per-session lock for *session_id*."""
+        async with self._locks_mutex:
+            if session_id not in self._session_locks:
+                self._session_locks[session_id] = asyncio.Lock()
+            return self._session_locks[session_id]
 
-        if sandbox and sandbox.state == SandboxState.HEALTHY:
-            return sandbox
-        if sandbox and sandbox.state in [SandboxState.UNHEALTHY, SandboxState.FAILED]:
-            # Attempt recovery
-            if await self._recover_sandbox(sandbox):
+    async def get_sandbox(self, session_id: str) -> Optional["ManagedSandbox"]:
+        """Get existing sandbox or create new one.
+
+        A per-session lock ensures that concurrent callers for the same session
+        cannot both observe a missing/unhealthy sandbox and each create one,
+        which would result in duplicate containers (HIGH-4 race condition fix).
+        """
+        lock = await self._get_session_lock(session_id)
+        async with lock:
+            sandbox = self._sandboxes.get(session_id)
+
+            if sandbox and sandbox.state == SandboxState.HEALTHY:
                 return sandbox
-            # Create new sandbox if recovery fails
-            await self.destroy_sandbox(session_id)
+            if sandbox and sandbox.state in [SandboxState.UNHEALTHY, SandboxState.FAILED]:
+                # Attempt recovery
+                if await self._recover_sandbox(sandbox):
+                    return sandbox
+                # Create new sandbox if recovery fails
+                await self.destroy_sandbox(session_id)
+                return await self.create_sandbox(session_id)
+            # Create new sandbox
             return await self.create_sandbox(session_id)
-        # Create new sandbox
-        return await self.create_sandbox(session_id)
 
     @error_handler(severity=ErrorSeverity.MEDIUM, category=ErrorCategory.SANDBOX, auto_recover=False)
     async def destroy_sandbox(self, session_id: str) -> bool:
@@ -146,6 +165,9 @@ class EnhancedSandboxManager:
         try:
             await sandbox.destroy()
             self._sandboxes.pop(session_id, None)
+            # Evict the per-session lock so the lock map doesn't grow indefinitely
+            async with self._locks_mutex:
+                self._session_locks.pop(session_id, None)
             logger.info(f"Sandbox destroyed for session {session_id}")
             return True
         except Exception as e:
@@ -217,6 +239,22 @@ class EnhancedSandboxManager:
             logger.error(f"Recovery failed for sandbox {sandbox.session_id}: {e}")
             sandbox.state = SandboxState.FAILED
             return False
+
+    async def shutdown(self) -> None:
+        """Cancel and await all background health-monitor tasks (HIGH-3).
+
+        Must be called during application shutdown to prevent orphaned tasks
+        from running after the event loop is torn down.
+        """
+        tasks = list(self._background_tasks)
+        if not tasks:
+            return
+        logger.info("Shutting down %d sandbox health-monitor task(s)", len(tasks))
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._background_tasks.clear()
+        logger.info("Sandbox manager shutdown complete")
 
     def get_sandbox_stats(self) -> dict[str, Any]:
         """Get sandbox statistics"""
