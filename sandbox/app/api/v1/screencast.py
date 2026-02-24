@@ -32,6 +32,11 @@ from app.services.cdp_screencast import (
     get_screencast_service,
 )
 
+# Active service for the running WebSocket stream (distinct from the singleton
+# used by /frame). Tracked so preemption can close its CDP socket immediately,
+# waking any blocked receive() call instead of waiting the full frame timeout.
+_active_stream_service: CDPScreencastService | None = None
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -138,7 +143,7 @@ async def stream_frames_ws(
         - Client can send "pause" to pause, "resume" to resume
         - Server sends "ping" every 5 seconds, client should respond "pong"
     """
-    global _active_stop_event, _active_done_event
+    global _active_stop_event, _active_done_event, _active_stream_service
 
     await websocket.accept()
     logger.info(
@@ -150,6 +155,12 @@ async def stream_frames_ws(
         if _active_stop_event is not None:
             logger.info("[CDP Stream] Preempting existing stream for new connection")
             _active_stop_event.set()
+            # Close the old stream's CDP WebSocket immediately so its blocked
+            # receive() call raises instead of waiting the full frame timeout.
+            # This makes cleanup instantaneous rather than waiting up to
+            # _STREAM_FRAME_TIMEOUT (10s) for the next frame to arrive.
+            if _active_stream_service is not None:
+                asyncio.create_task(_active_stream_service.disconnect())
             if _active_done_event is not None:
                 try:
                     await asyncio.wait_for(
@@ -166,6 +177,7 @@ async def stream_frames_ws(
                     # and call done_event.set(), but we don't wait for it.
                     _active_stop_event = None
                     _active_done_event = None
+                    _active_stream_service = None
 
         # ── Register this stream ─────────────────────────────────────
         stop_event = asyncio.Event()
@@ -173,7 +185,13 @@ async def stream_frames_ws(
         _active_stop_event = stop_event
         _active_done_event = done_event
 
-    service = get_screencast_service(ScreencastConfig(format="jpeg", quality=quality))
+    # Create a fresh service instance per stream so streams never share a CDP
+    # WebSocket. The singleton (_service_instance) is reserved for the /frame
+    # endpoint's short-lived captures; streaming gets its own independent session.
+    service = CDPScreencastService(ScreencastConfig(format="jpeg", quality=quality))
+    # Register this stream's service so preemption can disconnect it if needed.
+    async with _slot_lock:
+        _active_stream_service = service
     min_frame_interval = 1.0 / max_fps
     paused = False
     frame_count = 0
@@ -418,6 +436,7 @@ async def stream_frames_ws(
             if _active_stop_event is stop_event:
                 _active_stop_event = None
                 _active_done_event = None
+                _active_stream_service = None
         logger.info(f"[CDP Stream] Session ended, sent {frame_count} frames")
 
 
@@ -442,7 +461,7 @@ async def stream_frames_mjpeg(
     logger.info(f"[CDP MJPEG] Stream started: quality={quality}, max_fps={max_fps}")
 
     async def generate_mjpeg():
-        service = get_screencast_service(ScreencastConfig(format="jpeg", quality=quality))
+        service = CDPScreencastService(ScreencastConfig(format="jpeg", quality=quality))
         min_frame_interval = 1.0 / max_fps
         last_frame_time = 0
 
