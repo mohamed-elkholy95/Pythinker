@@ -92,6 +92,7 @@
             @element-move="handleElementMove"
             @element-transform="handleElementTransform"
             @stage-click="clearSelection"
+            @pan-change="handlePanChange"
             @wheel="handleWheel"
           />
 
@@ -99,10 +100,10 @@
           <CanvasZoomControls
             :zoom="editorState.zoom"
             class="canvas-zoom-controls"
-            @zoom-in="zoomIn"
-            @zoom-out="zoomOut"
+            @zoom-in="handleZoomIn"
+            @zoom-out="handleZoomOut"
             @fit="handleFitToScreen"
-            @reset="resetZoom"
+            @reset="handleResetZoom"
           />
         </div>
 
@@ -154,7 +155,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Undo2, Redo2, Save, Download, ArrowLeft } from 'lucide-vue-next'
 import { useCanvasEditor } from '@/composables/useCanvasEditor'
@@ -171,7 +172,7 @@ import CanvasExportDialog from '@/components/canvas/editor/CanvasExportDialog.vu
 
 const route = useRoute()
 const router = useRouter()
-const projectId = route.params.projectId as string | undefined
+const routeProjectId = computed(() => route.params.projectId as string | undefined)
 
 const {
   project,
@@ -207,10 +208,28 @@ const { exportPNG, exportJSON } = useCanvasExport()
 const showExportDialog = ref(false)
 const projectName = ref('')
 const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
+const hasUserAdjustedViewport = ref(false)
+const isApplyingViewportTransform = ref(false)
 
 const pageWidth = computed(() => activePage.value?.width ?? project.value?.width ?? 1920)
 const pageHeight = computed(() => activePage.value?.height ?? project.value?.height ?? 1080)
 const pageBackground = computed(() => activePage.value?.background ?? project.value?.background ?? '#FFFFFF')
+
+interface Bounds {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+interface StageWheelPayload {
+  deltaY: number
+  ctrl: boolean
+  pointerX: number
+  pointerY: number
+  stageX: number
+  stageY: number
+}
 
 function generateId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -232,10 +251,11 @@ watch(
 
 // --- Lifecycle ---
 onMounted(async () => {
-  if (projectId) {
-    await loadProject(projectId)
+  if (routeProjectId.value) {
+    await loadProject(routeProjectId.value)
     if (project.value) {
       pushState(project.value.pages)
+      await fitViewportToContent({ force: true })
     }
   }
   window.addEventListener('keydown', handleKeydown)
@@ -244,6 +264,19 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
+
+watch(
+  () => routeProjectId.value,
+  async (projectId, previousProjectId) => {
+    if (!projectId || projectId === previousProjectId) return
+    await loadProject(projectId)
+    if (project.value) {
+      pushState(project.value.pages)
+      hasUserAdjustedViewport.value = false
+      await fitViewportToContent({ force: true })
+    }
+  },
+)
 
 // --- Navigation ---
 function handleBack() {
@@ -306,17 +339,22 @@ function handleAddElement(element: CanvasElement) {
 }
 
 function handleProjectUpdated(updatedProject: CanvasProject) {
+  if (!updatedProject) return
   if (project.value) {
     pushState(project.value.pages)
   }
   project.value = updatedProject
   editorState.value.selectedElementIds = []
   editorState.value.isDirty = false
+  void fitViewportToContent()
 }
 
-function handleImageGenerated(urls: string[]) {
-  if (!project.value || urls.length === 0) return
-  const url = urls[0]
+function handleImageGenerated(urls: string[] | null | undefined) {
+  const generatedUrls = Array.isArray(urls)
+    ? urls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+    : []
+  if (!project.value || generatedUrls.length === 0) return
+  const url = generatedUrls[0]
   const width = Math.min(512, pageWidth.value)
   const height = Math.min(512, pageHeight.value)
   const x = Math.max(0, Math.round((pageWidth.value - width) / 2))
@@ -372,24 +410,31 @@ function handleSendToBack(elementId: string) {
 }
 
 // --- Wheel zoom ---
-function handleWheel(deltaY: number) {
-  const scaleFactor = deltaY > 0 ? 0.9 : 1.1
-  setZoom(editorState.value.zoom * scaleFactor)
+function handlePanChange(x: number, y: number) {
+  if (isApplyingViewportTransform.value) return
+  hasUserAdjustedViewport.value = true
+  setPan(Math.round(x), Math.round(y))
 }
 
-function handleFitToScreen() {
-  if (!project.value) return
-  const stage = stageRef.value?.getStage()
-  if (!stage) return
-  const zoom = Math.min(
-    stage.width() / pageWidth.value,
-    stage.height() / pageHeight.value,
-  )
-  const clampedZoom = Math.max(0.1, Math.min(zoom, 5))
-  const offsetX = Math.round((stage.width() - pageWidth.value * clampedZoom) / 2)
-  const offsetY = Math.round((stage.height() - pageHeight.value * clampedZoom) / 2)
-  setZoom(clampedZoom)
-  setPan(offsetX, offsetY)
+function handleWheel(payload: StageWheelPayload) {
+  hasUserAdjustedViewport.value = true
+  const currentZoom = editorState.value.zoom
+  const scaleFactor = payload.deltaY > 0 ? 0.9 : 1.1
+  const nextZoom = Math.max(0.1, Math.min(currentZoom * scaleFactor, 5))
+  if (Math.abs(nextZoom - currentZoom) < 0.0001) return
+
+  const worldX = (payload.pointerX - payload.stageX) / currentZoom
+  const worldY = (payload.pointerY - payload.stageY) / currentZoom
+  const nextPanX = payload.pointerX - worldX * nextZoom
+  const nextPanY = payload.pointerY - worldY * nextZoom
+
+  setZoom(nextZoom)
+  setPan(Math.round(nextPanX), Math.round(nextPanY))
+}
+
+async function handleFitToScreen() {
+  hasUserAdjustedViewport.value = false
+  await fitViewportToContent({ force: true })
 }
 
 // --- Undo / Redo ---
@@ -409,6 +454,144 @@ function handleRedo() {
     project.value.pages = restored
     markDirty()
   }
+}
+
+function handleZoomIn() {
+  hasUserAdjustedViewport.value = true
+  zoomIn()
+}
+
+function handleZoomOut() {
+  hasUserAdjustedViewport.value = true
+  zoomOut()
+}
+
+function handleResetZoom() {
+  hasUserAdjustedViewport.value = true
+  resetZoom()
+}
+
+function getElementBounds(element: CanvasElement): Bounds | null {
+  if (!element.visible) return null
+
+  const scaleX = Math.abs(Number.isFinite(element.scale_x) ? element.scale_x : 1)
+  const scaleY = Math.abs(Number.isFinite(element.scale_y) ? element.scale_y : 1)
+
+  if ((element.type === 'line' || element.type === 'path') && Array.isArray(element.points) && element.points.length >= 2) {
+    let minPx = Number.POSITIVE_INFINITY
+    let minPy = Number.POSITIVE_INFINITY
+    let maxPx = Number.NEGATIVE_INFINITY
+    let maxPy = Number.NEGATIVE_INFINITY
+
+    for (let index = 0; index < element.points.length - 1; index += 2) {
+      const px = element.points[index]
+      const py = element.points[index + 1]
+      if (!Number.isFinite(px) || !Number.isFinite(py)) continue
+      minPx = Math.min(minPx, px)
+      minPy = Math.min(minPy, py)
+      maxPx = Math.max(maxPx, px)
+      maxPy = Math.max(maxPy, py)
+    }
+
+    if (!Number.isFinite(minPx) || !Number.isFinite(minPy) || !Number.isFinite(maxPx) || !Number.isFinite(maxPy)) {
+      return null
+    }
+
+    return {
+      minX: element.x + minPx * scaleX,
+      minY: element.y + minPy * scaleY,
+      maxX: element.x + maxPx * scaleX,
+      maxY: element.y + maxPy * scaleY,
+    }
+  }
+
+  const width = Math.max(1, Math.abs(element.width * scaleX))
+  const height = Math.max(1, Math.abs(element.height * scaleY))
+
+  return {
+    minX: element.x,
+    minY: element.y,
+    maxX: element.x + width,
+    maxY: element.y + height,
+  }
+}
+
+function getContentBounds(): Bounds | null {
+  if (elements.value.length === 0) return null
+  const visibleElements = elements.value.filter((element) => element.visible !== false)
+  if (visibleElements.length === 0) return null
+
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+
+  for (const element of visibleElements) {
+    const bounds = getElementBounds(element)
+    if (!bounds) continue
+    minX = Math.min(minX, bounds.minX)
+    minY = Math.min(minY, bounds.minY)
+    maxX = Math.max(maxX, bounds.maxX)
+    maxY = Math.max(maxY, bounds.maxY)
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return null
+  }
+
+  return { minX, minY, maxX, maxY }
+}
+
+async function waitForStageReady() {
+  await nextTick()
+  await new Promise<void>((resolve) => {
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      resolve()
+      return
+    }
+    window.requestAnimationFrame(() => resolve())
+  })
+}
+
+function applyViewportToBounds(bounds: Bounds, padding: number) {
+  const stage = stageRef.value?.getStage()
+  if (!stage) return
+
+  const stageWidth = stage.width()
+  const stageHeight = stage.height()
+  if (stageWidth <= 0 || stageHeight <= 0) return
+
+  const contentWidth = Math.max(1, bounds.maxX - bounds.minX)
+  const contentHeight = Math.max(1, bounds.maxY - bounds.minY)
+  const innerWidth = Math.max(1, stageWidth - padding * 2)
+  const innerHeight = Math.max(1, stageHeight - padding * 2)
+
+  const zoom = Math.max(0.1, Math.min(Math.min(innerWidth / contentWidth, innerHeight / contentHeight), 5))
+  const offsetX = Math.round((stageWidth - contentWidth * zoom) / 2 - bounds.minX * zoom)
+  const offsetY = Math.round((stageHeight - contentHeight * zoom) / 2 - bounds.minY * zoom)
+
+  isApplyingViewportTransform.value = true
+  setZoom(zoom)
+  setPan(offsetX, offsetY)
+  isApplyingViewportTransform.value = false
+}
+
+async function fitViewportToContent(options?: { force?: boolean }) {
+  if (!project.value) return
+  if (hasUserAdjustedViewport.value && !options?.force) return
+
+  await waitForStageReady()
+  const bounds = getContentBounds()
+
+  if (bounds) {
+    applyViewportToBounds(bounds, 72)
+    return
+  }
+
+  applyViewportToBounds(
+    { minX: 0, minY: 0, maxX: pageWidth.value, maxY: pageHeight.value },
+    36,
+  )
 }
 
 // --- Export ---

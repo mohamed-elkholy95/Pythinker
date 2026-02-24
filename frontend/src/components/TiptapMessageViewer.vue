@@ -159,6 +159,8 @@ const addReferenceAnchors = () => {
         anchor.dataset.domain = meta.domain;
         anchor.dataset.url = meta.url;
         anchor.classList.add('ref-list-anchor');
+        anchor.setAttribute('target', '_blank');
+        anchor.setAttribute('rel', 'noopener noreferrer');
       }
       return;
     }
@@ -172,6 +174,8 @@ const addReferenceAnchors = () => {
         anchor.dataset.domain = domain;
         anchor.dataset.url = anchor.href;
         anchor.classList.add('ref-list-anchor');
+        anchor.setAttribute('target', '_blank');
+        anchor.setAttribute('rel', 'noopener noreferrer');
       } catch { /* ignore malformed URLs */ }
       return;
     }
