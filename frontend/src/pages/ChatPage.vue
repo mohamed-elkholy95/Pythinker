@@ -400,6 +400,7 @@
         class="mx-auto w-full max-w-full px-5 sm:max-w-[1280px] flex flex-col flex-1 min-h-0 pb-3"
       >
         <ReasoningTreeView
+          ref="reasoningTreeRef"
           class="flex-1 min-h-0"
           :messages="messages"
           :activeReasoningState="activeReasoningState"
@@ -787,6 +788,7 @@ const {
 } = toRefs(state);
 
 const chatViewMode = ref<'chat' | 'reasoning'>('chat');
+const reasoningTreeRef = ref<InstanceType<typeof ReasoningTreeView> | null>(null);
 
 // Track latest running step description for NeuralFlow
 const lastStepDescription = ref<string | undefined>(undefined)
@@ -813,6 +815,10 @@ const handleChatViewModeChange = (mode: 'chat' | 'reasoning') => {
   if (mode === 'reasoning') {
     toolPanel.value?.hideToolPanel(false);
     panelToolId.value = undefined;
+    nextTick(() => {
+      simpleBarRef.value?.scrollToTop();
+      reasoningTreeRef.value?.scrollToTop();
+    });
   }
 };
 
