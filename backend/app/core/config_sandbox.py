@@ -51,6 +51,9 @@ class SandboxSettingsMixin:
     sandbox_warmup_max_retry_delay: float = 3.0  # Maximum delay between retries
     sandbox_warmup_backoff_multiplier: float = 1.5  # Exponential backoff multiplier
     sandbox_warmup_connection_failure_threshold: int = 12  # Max connection failures before giving up
+    # Hard wall-clock budget for the full ensure_sandbox warmup flow (IMPORTANT-6).
+    # 0 = disabled (retry-count is the only bound, matching legacy behaviour).
+    sandbox_warmup_wall_clock_timeout: float = 180.0  # Max total seconds before aborting warmup
 
 
 class SandboxPoolSettingsMixin:
