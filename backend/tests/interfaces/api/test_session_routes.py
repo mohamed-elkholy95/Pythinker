@@ -64,9 +64,7 @@ def test_safe_exc_text_truncates_long_messages():
 
 
 def test_safe_exc_text_redacts_sensitive_query_values():
-    error = RuntimeError(
-        "connect failed: ws://sandbox.local/stream?secret=abc123&signature=sig123&uid=user42"
-    )
+    error = RuntimeError("connect failed: ws://sandbox.local/stream?secret=abc123&signature=sig123&uid=user42")
     message = _safe_exc_text(error)
     assert "secret=***" in message
     assert "signature=***" in message
@@ -77,7 +75,10 @@ def test_safe_exc_text_redacts_sensitive_query_values():
 
 
 def test_event_phase_label_handles_enum_and_missing_phase():
-    assert _event_phase_label(ProgressEvent(phase=PlanningPhase.ANALYZING, message="a", progress_percent=10)) == "analyzing"
+    assert (
+        _event_phase_label(ProgressEvent(phase=PlanningPhase.ANALYZING, message="a", progress_percent=10))
+        == "analyzing"
+    )
     assert _event_phase_label(DoneEvent(title="Done")) == "none"
 
 

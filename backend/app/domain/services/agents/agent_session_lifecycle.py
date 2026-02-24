@@ -336,8 +336,7 @@ NOTE: The browser state may have changed. When you next use the browser:
 
         if session.takeover_state != TakeoverState.IDLE:
             logger.warning(
-                f"Session {session_id} takeover already in state {session.takeover_state.value}, "
-                f"treating as idempotent"
+                f"Session {session_id} takeover already in state {session.takeover_state.value}, treating as idempotent"
             )
             return session.takeover_state == TakeoverState.TAKEOVER_ACTIVE
 
@@ -406,8 +405,7 @@ NOTE: The browser state may have changed. When you next use the browser:
 
         if session.takeover_state not in (TakeoverState.TAKEOVER_ACTIVE, TakeoverState.RESUMING):
             logger.warning(
-                f"Session {session_id} in unexpected takeover state {session.takeover_state.value} "
-                f"for end_takeover"
+                f"Session {session_id} in unexpected takeover state {session.takeover_state.value} for end_takeover"
             )
 
         # Transition: takeover_active -> resuming
