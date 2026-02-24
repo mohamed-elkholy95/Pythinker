@@ -236,6 +236,12 @@ class ConversationContextService:
             conversation_context_flush_duration.observe({}, duration)
             logger.debug("Flushed %d conversation turns to Qdrant in %.3fs", len(turns), duration)
 
+            # Update BM25 corpus with flushed turn content (fire-and-forget)
+            try:
+                bm25_encoder.update_corpus(contents)
+            except Exception:
+                logger.debug("BM25 corpus update failed (non-critical)", exc_info=True)
+
         except Exception:
             conversation_context_embed_errors.inc({})
             logger.warning("Failed to flush conversation context buffer", exc_info=True)
