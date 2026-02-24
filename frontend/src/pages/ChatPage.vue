@@ -32,48 +32,54 @@
         <!-- Center content - matches chat content width -->
         <div class="max-w-full sm:max-w-[768px] sm:min-w-[400px] w-full flex items-center justify-between gap-3">
           <!-- Left: Title -->
-          <div class="flex items-center gap-2 flex-1 min-w-0">
-            <button class="chat-model-pill" type="button" aria-label="Current chat title">
-              <span class="chat-title-text">
+          <div class="flex items-center gap-2 flex-1 min-w-0 pr-2">
+            <button class="chat-model-pill min-w-0 shrink flex items-center gap-1" type="button" aria-label="Current chat title">
+              <span class="chat-title-text truncate">
                 {{ title }}
               </span>
-              <ChevronRight class="chat-title-chevron" :size="16" />
             </button>
-            <ResearchModeBadge :mode="sessionResearchMode" />
+            <ResearchModeBadge :mode="sessionResearchMode" :compact="isToolPanelOpen" />
           </div>
 	          <!-- Right: Buttons -->
 	          <div class="flex items-center gap-1 flex-shrink-0">
               <div class="chat-view-toggle" role="tablist" aria-label="Chat display mode">
                 <button
                   type="button"
-                  class="chat-view-toggle-btn"
+                  class="chat-view-toggle-btn sm:px-[10px] px-[8px]"
                   :class="{ 'chat-view-toggle-btn-active': chatViewMode === 'chat' }"
                   role="tab"
                   :aria-selected="chatViewMode === 'chat'"
                   @click="handleChatViewModeChange('chat')"
                 >
                   <MessageSquareText :size="14" />
-                  <span>Chat</span>
+                  <span class="hidden sm:inline">Chat</span>
                 </button>
                 <button
                   type="button"
-                  class="chat-view-toggle-btn"
+                  class="chat-view-toggle-btn sm:px-[10px] px-[8px]"
                   :class="{ 'chat-view-toggle-btn-active': chatViewMode === 'reasoning' }"
                   role="tab"
                   :aria-selected="chatViewMode === 'reasoning'"
                   @click="handleChatViewModeChange('reasoning')"
                 >
                   <GitBranch :size="14" />
-                  <span>Reasoning</span>
+                  <span class="hidden sm:inline">Reasoning</span>
                 </button>
               </div>
 	              <span class="relative flex-shrink-0" aria-expanded="false" aria-haspopup="dialog">
 	                <Popover>
 	                  <PopoverTrigger>
                     <button
-                      class="h-7 min-w-[56px] px-2 rounded-[8px] inline-flex items-center gap-1.5 clickable border border-[var(--border-main)] hover:border-[var(--border-dark)] hover:bg-[var(--fill-tsp-white-main)] transition-all">
+                      class="h-7 rounded-[8px] inline-flex items-center justify-center clickable border border-[var(--border-main)] hover:border-[var(--border-dark)] hover:bg-[var(--fill-tsp-white-main)] transition-all"
+                      :class="[isToolPanelOpen ? 'w-7 px-0 gap-0' : 'w-7 px-0 gap-0 sm:w-auto sm:min-w-[56px] sm:px-2 sm:gap-1.5']"
+                    >
                       <ShareIcon color="var(--icon-secondary)" />
-                      <span class="text-[var(--text-secondary)] text-[13px] font-medium leading-[18px]">{{ t('Share') }}</span>
+                      <span
+                        class="text-[var(--text-secondary)] text-[13px] font-medium leading-[18px]"
+                        :class="[isToolPanelOpen ? 'hidden' : 'hidden sm:inline']"
+                      >
+                        {{ t('Share') }}
+                      </span>
                     </button>
                   </PopoverTrigger>
                   <PopoverContent>
@@ -86,9 +92,9 @@
                           :class="{'pointer-events-none opacity-50': sharingLoading}"
                           class="flex items-center gap-[10px] px-[8px] -mx-[8px] py-[8px] rounded-[8px] clickable hover:bg-[var(--fill-tsp-white-main)]">
                           <div
-                            :class="shareMode === 'private' ? 'bg-[var(--Button-primary-black)]' : 'bg-[var(--fill-tsp-white-dark)]'"
+                            :class="shareMode === 'private' ? 'bg-[var(--Button-primary-black)] text-[var(--text-onblack)]' : 'bg-[var(--fill-tsp-gray-main)] text-[var(--icon-primary)]'"
                             class="w-[32px] h-[32px] rounded-[8px] flex items-center justify-center">
-                            <Lock :size="16" :stroke="shareMode === 'private' ? 'var(--text-onblack)' : 'var(--icon-primary)'" :stroke-width="2" /></div>
+                            <Lock :size="16" stroke="currentColor" :stroke-width="2" /></div>
                           <div class="flex flex-col flex-1 min-w-0">
                             <div class="text-sm font-medium text-[var(--text-primary)]">{{ t('Private Only') }}</div>
                             <div class="text-[13px] text-[var(--text-tertiary)]">{{ t('Only visible to you') }}</div>
@@ -99,9 +105,9 @@
                           :class="{'pointer-events-none opacity-50': sharingLoading}"
                           class="flex items-center gap-[10px] px-[8px] -mx-[8px] py-[8px] rounded-[8px] clickable hover:bg-[var(--fill-tsp-white-main)]">
                           <div
-                            :class="shareMode === 'public' ? 'bg-[var(--Button-primary-black)]' : 'bg-[var(--fill-tsp-white-dark)]'"
+                            :class="shareMode === 'public' ? 'bg-[var(--Button-primary-black)] text-[var(--text-onblack)]' : 'bg-[var(--fill-tsp-gray-main)] text-[var(--icon-primary)]'"
                             class="w-[32px] h-[32px] rounded-[8px] flex items-center justify-center">
-                            <Globe :size="16" :stroke="shareMode === 'public' ? 'var(--text-onblack)' : 'var(--icon-primary)'" :stroke-width="2" /></div>
+                            <Globe :size="16" stroke="currentColor" :stroke-width="2" /></div>
                           <div class="flex flex-col flex-1 min-w-0">
                             <div class="text-sm font-medium text-[var(--text-primary)]">{{ t('Public Access') }}</div>
                             <div class="text-[13px] text-[var(--text-tertiary)]">{{ t('Anyone with the link can view') }}</div>
