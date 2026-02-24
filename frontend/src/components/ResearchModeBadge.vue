@@ -16,6 +16,7 @@ defineProps<{
       mode === 'fast_search' ? 'badge-fast' : 'badge-deep',
       { 'badge-compact': compact }
     ]"
+    :aria-label="compact ? (mode === 'fast_search' ? 'Fast Search' : 'Research') : undefined"
   >
     <span class="badge-icon-wrap">
       <Zap v-if="mode === 'fast_search'" :size="12" :stroke-width="2.5" />
