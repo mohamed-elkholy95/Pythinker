@@ -203,3 +203,21 @@ class RedisCache:
             logger.error(f"Failed to clear keys with pattern {pattern}: {e!s}")
             self._initialized = False
             return 0
+
+    async def increment(self, key: str, ttl: int | None = None) -> int | None:
+        """Atomically increment a counter and optionally set TTL on first creation."""
+        if not self.available:
+            return None
+        try:
+            await self._ensure_initialized()
+
+            new_value: int = await self.redis_client.call("incr", key)
+            # Set TTL only when the key is first created (value == 1)
+            if new_value == 1 and ttl is not None:
+                await self.redis_client.call("expire", key, ttl)
+            return new_value
+
+        except Exception as e:
+            logger.error(f"Failed to increment cache key {key}: {e!s}")
+            self._initialized = False
+            return None

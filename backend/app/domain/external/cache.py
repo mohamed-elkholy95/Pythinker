@@ -83,6 +83,22 @@ class Cache(Protocol):
         """
         ...
 
+    async def increment(self, key: str, ttl: int | None = None) -> int | None:
+        """Atomically increment a counter key and return the new value.
+
+        If the key does not exist it is created with value 1.
+        When *ttl* is provided it is applied only on the first increment
+        (i.e. when the key is created), matching Redis INCR + EXPIRE semantics.
+
+        Args:
+            key: The counter key
+            ttl: Optional TTL in seconds to set when key is first created
+
+        Returns:
+            int: New counter value, or None on error
+        """
+        ...
+
 
 # ===== Null Implementation =====
 
@@ -113,6 +129,9 @@ class NullCache:
 
     async def clear_pattern(self, pattern: str) -> int:
         return 0
+
+    async def increment(self, key: str, ttl: int | None = None) -> int | None:
+        return None
 
 
 # ===== Module-level Cache Singleton =====
