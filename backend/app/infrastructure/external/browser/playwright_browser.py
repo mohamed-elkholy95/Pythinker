@@ -1237,6 +1237,89 @@ class PlaywrightBrowser:
         except Exception as e:
             logger.warning(f"Error during session clear: {e}")
 
+    async def export_storage_state(self) -> dict[str, Any] | None:
+        """Export current Playwright storage state (cookies + origin localStorage)."""
+        try:
+            await self._ensure_browser()
+            if not self.context:
+                return None
+            return await self.context.storage_state()
+        except Exception as e:
+            logger.warning("Failed to export browser storage state: %s", e)
+            return None
+
+    async def import_storage_state(self, storage_state: dict[str, Any]) -> bool:
+        """Restore cookies and origin localStorage from a Playwright storageState payload."""
+        if not storage_state:
+            return False
+
+        try:
+            await self._ensure_browser()
+            if not self.context:
+                return False
+
+            cookies = storage_state.get("cookies")
+            if isinstance(cookies, list):
+                with contextlib.suppress(Exception):
+                    await self.context.clear_cookies()
+                if cookies:
+                    await self.context.add_cookies(cookies)
+
+            origins = storage_state.get("origins")
+            if not isinstance(origins, list):
+                return True
+
+            page = self.page
+            if page is None or page.is_closed():
+                existing_pages = [p for p in self.context.pages if not p.is_closed()]
+                page = existing_pages[0] if existing_pages else None
+
+            if page is None:
+                # Cookies were restored, but no page exists to replay localStorage entries.
+                return True
+
+            for origin_state in origins:
+                if not isinstance(origin_state, dict):
+                    continue
+                origin_url = origin_state.get("origin")
+                raw_local_storage = origin_state.get("localStorage")
+                if not isinstance(origin_url, str) or not origin_url:
+                    continue
+                if not isinstance(raw_local_storage, list) or not raw_local_storage:
+                    continue
+
+                local_storage_entries = []
+                for item in raw_local_storage:
+                    if not isinstance(item, dict):
+                        continue
+                    key = item.get("name")
+                    if not isinstance(key, str) or not key:
+                        continue
+                    value = item.get("value")
+                    local_storage_entries.append({"name": key, "value": "" if value is None else str(value)})
+
+                if not local_storage_entries:
+                    continue
+
+                try:
+                    await page.goto(origin_url, wait_until="domcontentloaded", timeout=10000)
+                    await page.evaluate(
+                        """(entries) => {
+                            for (const entry of entries) {
+                                if (!entry || typeof entry.name !== 'string') continue;
+                                localStorage.setItem(entry.name, String(entry.value ?? ''));
+                            }
+                        }""",
+                        local_storage_entries,
+                    )
+                except Exception as e:
+                    logger.debug("Skipping localStorage restore for %s: %s", origin_url, e)
+
+            return True
+        except Exception as e:
+            logger.warning("Failed to import browser storage state: %s", e)
+            return False
+
     async def initialize(self, clear_existing: bool = False) -> bool:
         """Initialize browser connection with proper configuration
 
