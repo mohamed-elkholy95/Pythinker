@@ -14,8 +14,8 @@ defineProps<{
     :class="mode === 'fast_search' ? 'badge-fast' : 'badge-deep'"
   >
     <span class="badge-icon-wrap">
-      <Zap v-if="mode === 'fast_search'" :size="11" :stroke-width="2.5" />
-      <Globe v-else :size="11" :stroke-width="2" />
+      <Zap v-if="mode === 'fast_search'" :size="12" :stroke-width="2.5" />
+      <Globe v-else :size="12" :stroke-width="2" />
     </span>
     <span class="badge-label">
       {{ mode === 'fast_search' ? 'Fast Search' : 'Research' }}
@@ -28,25 +28,36 @@ defineProps<{
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 10px 3px 7px;
+  gap: 6px;
+  padding: 4px 12px 4px 6px;
   border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   white-space: nowrap;
   flex-shrink: 0;
   color: var(--text-primary);
   background: var(--fill-tsp-white-main);
   border: 1px solid var(--border-dark);
   overflow: hidden;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .research-badge:hover {
   background: var(--fill-tsp-white-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   border-color: var(--border-hover);
+}
+
+:global(.dark) .research-badge {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+:global(.dark) .research-badge:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 /* ── Icon container ── */
@@ -54,12 +65,13 @@ defineProps<{
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: var(--radius-full);
   background: var(--bolt-elements-item-backgroundAccent);
   color: var(--text-white);
   flex-shrink: 0;
+  transition: all 0.3s ease;
 }
 
 /* ── Fast Search — lighter weight ── */
@@ -70,14 +82,20 @@ defineProps<{
 .badge-fast .badge-icon-wrap {
   background: var(--fill-tsp-white-dark);
   color: var(--text-primary);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* ── Deep Research — full contrast + shimmer ── */
-/* Hardcoded so the icon looks identical in light and dark mode. */
+.badge-deep {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: linear-gradient(145deg, var(--fill-tsp-white-main), rgba(0, 0, 0, 0.03));
+}
+
 .badge-deep .badge-icon-wrap {
-  background: #000;
-  color: #fff;
+  background: linear-gradient(135deg, #27272a, #000000);
+  color: #ffffff;
   animation: globe-spin 7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 /* Spin 360deg in first ~2s, then hold still for ~5s */
@@ -95,7 +113,7 @@ defineProps<{
     105deg,
     transparent 35%,
     rgba(0, 0, 0, 0.04) 45%,
-    rgba(0, 0, 0, 0.06) 50%,
+    rgba(0, 0, 0, 0.08) 50%,
     rgba(0, 0, 0, 0.04) 55%,
     transparent 65%
   );
@@ -110,20 +128,32 @@ defineProps<{
 }
 
 /* ── Dark theme ── */
+:global(.dark) .badge-deep {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: linear-gradient(145deg, var(--fill-tsp-white-main), rgba(255, 255, 255, 0.05));
+}
+
 :global(.dark) .badge-deep::after {
   background: linear-gradient(
     105deg,
     transparent 35%,
-    rgba(255, 255, 255, 0.04) 45%,
-    rgba(255, 255, 255, 0.07) 50%,
-    rgba(255, 255, 255, 0.04) 55%,
+    rgba(255, 255, 255, 0.08) 45%,
+    rgba(255, 255, 255, 0.15) 50%,
+    rgba(255, 255, 255, 0.08) 55%,
     transparent 65%
   );
 }
 
 :global(.dark) .badge-fast .badge-icon-wrap {
   background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.82);
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.05);
+}
+
+:global(.dark) .badge-deep .badge-icon-wrap {
+  background: linear-gradient(135deg, #f4f4f5, #ffffff);
+  color: #000000;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
 }
 
 :global(.dark) .research-badge {
