@@ -405,6 +405,12 @@ class CDPScreencastService:
                 timeout=_CONNECT_TIMEOUT,
             )
             logger.info(f"Connected to CDP at {ws_url}")
+            # Reset viewport flag on every new WebSocket connection.
+            # Emulation.setDeviceMetricsOverride must be re-applied after any
+            # reconnect — even to the same page target — because the override
+            # is scoped to the CDP session, not the page. A new WebSocket to
+            # the same target is a new session with no inherited state.
+            self._viewport_set = False
             return True
         except asyncio.TimeoutError:
             logger.warning("CDP WebSocket connection timed out")
@@ -429,6 +435,10 @@ class CDPScreencastService:
             except Exception as e:
                 logger.debug("Ignoring error closing stale CDP session: %s", e)
             self._session = None
+        # Reset viewport flag so _ensure_viewport() always re-applies it on the
+        # next connection. Emulation.setDeviceMetricsOverride does not persist
+        # across Chrome restarts, new tab creation, or certain page navigations.
+        self._viewport_set = False
 
     async def _ensure_viewport(self) -> None:
         """Set viewport dimensions on the connected page via CDP.
