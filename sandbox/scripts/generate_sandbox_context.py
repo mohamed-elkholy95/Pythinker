@@ -65,6 +65,7 @@ class EnvironmentScanner:
             "version": self.run_command("python3 --version"),
             "path": self.run_command("which python3"),
             "pip_version": self.run_command("pip3 --version"),
+            "uv_version": self.run_command("uv --version"),
         }
 
         # Get installed packages
@@ -156,6 +157,8 @@ class EnvironmentScanner:
             "gcc": "gcc --version | head -n1",
             "make": "make --version | head -n1",
             "gh": "gh --version | head -n1",
+            "uv": "uv --version",
+            "code-server": "code-server --version 2>/dev/null | head -n1",
         }
         for tool, cmd in dev_tools.items():
             result = self.run_command(cmd)
