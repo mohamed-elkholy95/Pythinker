@@ -202,17 +202,12 @@ async def send_verification_code(
     if get_settings().auth_provider != "password":
         raise BadRequestError("Password reset is not available")
 
-    # Check if user exists with this email
+    # Silently verify user exists and is active; never disclose account state to callers
     user = await auth_service.user_repository.get_user_by_email(request.email)
-    if not user:
-        raise NotFoundError("User not found")
+    if user and user.is_active:
+        await email_service.send_verification_code(request.email)
 
-    if not user.is_active:
-        raise BadRequestError("User account is inactive")
-
-    # Send verification code
-    await email_service.send_verification_code(request.email)
-
+    # Always return success to prevent email/account-state enumeration
     return APIResponse.success({})
 
 
