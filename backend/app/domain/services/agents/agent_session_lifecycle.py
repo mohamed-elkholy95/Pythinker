@@ -7,12 +7,14 @@ Extracted from AgentDomainService to follow Single Responsibility Principle.
 import asyncio
 import contextlib
 import logging
+from typing import Any
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.task import Task
 from app.domain.models.event import MessageEvent
-from app.domain.models.session import Session, SessionStatus
+from app.domain.models.session import Session, SessionStatus, TakeoverState
 from app.domain.repositories.session_repository import SessionRepository
+from app.domain.services.browser_login_state_store import BrowserLoginStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ class AgentSessionLifecycle:
         self._session_repository = session_repository
         self._sandbox_cls = sandbox_cls
         self._task_cls = task_cls
+        self._login_state_store = BrowserLoginStateStore()
         # Session-level locks to prevent concurrent task creation for the same session
         self._task_creation_locks: dict[str, asyncio.Lock] = {}
         # Background tasks (prevents garbage collection of fire-and-forget tasks)
@@ -84,6 +87,39 @@ class AgentSessionLifecycle:
         if not task_id:
             return None
         return self._task_cls.get(task_id)
+
+    @staticmethod
+    def _extract_browser_from_task(task: Task | None) -> Any | None:
+        if task is None:
+            return None
+        browser = getattr(task, "_browser", None)
+        if browser is None:
+            browser = getattr(task, "browser", None)
+        return browser
+
+    async def _persist_login_state_snapshot(self, session: Session, task: Task | None) -> None:
+        """Persist browser storage state for a session when takeover requests it."""
+        browser = self._extract_browser_from_task(task)
+        if browser is None:
+            logger.warning("No active browser available for login-state snapshot (session=%s)", session.id)
+            return
+
+        export_storage_state = getattr(browser, "export_storage_state", None)
+        if not callable(export_storage_state):
+            logger.warning("Browser does not support storage-state export (session=%s)", session.id)
+            return
+
+        try:
+            storage_state = await export_storage_state()
+            if not isinstance(storage_state, dict) or not storage_state:
+                logger.warning("Storage-state snapshot returned empty payload (session=%s)", session.id)
+                return
+
+            persisted = self._login_state_store.save_state(session.user_id, session.id, storage_state)
+            if persisted:
+                logger.info("Persisted browser login-state snapshot (session=%s)", session.id)
+        except Exception as e:
+            logger.warning("Failed to snapshot browser login state for session %s: %s", session.id, e)
 
     async def _teardown_session_runtime(
         self,
@@ -241,6 +277,7 @@ class AgentSessionLifecycle:
         if not session:
             logger.error(f"Attempted to resume non-existent Session {session_id}")
             raise RuntimeError("Session not found")
+        task = await self._get_task(session)
 
         # If context is provided, inject it as a message event to inform the agent
         if context is not None:
@@ -259,20 +296,166 @@ NOTE: The browser state may have changed. When you next use the browser:
             logger.info(f"Injected user takeover context for session {session_id}")
 
             # Also put it in the task's input stream if task exists
-            task = await self._get_task(session)
             if task:
                 await task.input_stream.put(context_message.model_dump_json())
 
-        # Handle persist_login_state if provided (store in session metadata for future reference)
+        # Handle persist_login_state: metadata + optional storage-state snapshot/cleanup
         if persist_login_state is not None:
             session.persist_login_state = persist_login_state
             await self._session_repository.save(session)
             logger.info(f"Session {session_id} persist_login_state set to {persist_login_state}")
+            if persist_login_state:
+                await self._persist_login_state_snapshot(session, task)
+            else:
+                self._login_state_store.delete_state(session.user_id, session.id)
 
-        task = await self._get_task(session)
         if task:
             result = task.resume()
             if result:
                 logger.info(f"Session {session_id} resumed after user takeover")
             return result
         return False
+
+    async def start_takeover(self, session_id: str, reason: str = "manual") -> bool:
+        """Start browser takeover by pausing the agent first.
+
+        Transitions: idle -> takeover_requested -> takeover_active
+        On failure: rolls back to idle.
+
+        Args:
+            session_id: Session ID to take over
+            reason: Reason for takeover (manual|captcha|login|2fa|payment|verification)
+
+        Returns:
+            bool: True if takeover started successfully
+        """
+        session = await self._session_repository.find_by_id(session_id)
+        if not session:
+            logger.error(f"Attempted to start takeover for non-existent Session {session_id}")
+            raise RuntimeError("Session not found")
+
+        if session.takeover_state != TakeoverState.IDLE:
+            logger.warning(
+                f"Session {session_id} takeover already in state {session.takeover_state.value}, "
+                f"treating as idempotent"
+            )
+            return session.takeover_state == TakeoverState.TAKEOVER_ACTIVE
+
+        # Transition: idle -> takeover_requested
+        session.takeover_state = TakeoverState.TAKEOVER_REQUESTED
+        session.takeover_reason = reason
+        await self._session_repository.save(session)
+
+        # Attempt to pause the agent — must succeed before granting takeover
+        try:
+            paused = await self.pause_session(session_id)
+        except Exception as e:
+            logger.error(f"Failed to pause session {session_id} for takeover: {e}")
+            # Rollback to idle
+            session.takeover_state = TakeoverState.IDLE
+            session.takeover_reason = None
+            await self._session_repository.save(session)
+            raise
+
+        if not paused:
+            logger.error(
+                f"Session {session_id} pause returned False during takeover start; "
+                f"refusing to grant takeover while agent may still be running"
+            )
+            # Rollback to idle — do not allow takeover while agent may still be running
+            session.takeover_state = TakeoverState.IDLE
+            session.takeover_reason = None
+            await self._session_repository.save(session)
+            return False
+
+        # Transition: takeover_requested -> takeover_active
+        session.takeover_state = TakeoverState.TAKEOVER_ACTIVE
+        await self._session_repository.save(session)
+        logger.info(f"Session {session_id} takeover active (reason={reason})")
+        return True
+
+    async def end_takeover(
+        self,
+        session_id: str,
+        context: str | None = None,
+        persist_login_state: bool | None = None,
+        resume_agent: bool = True,
+    ) -> bool:
+        """End browser takeover and optionally resume the agent.
+
+        Transitions: takeover_active -> resuming -> idle
+        On resume failure: stays takeover_active so user can retry.
+
+        Args:
+            session_id: Session ID to end takeover for
+            context: Optional context about changes made during takeover
+            persist_login_state: Optional flag to persist browser login state
+            resume_agent: Whether to resume the agent after takeover
+
+        Returns:
+            bool: True if takeover ended and agent resumed successfully
+        """
+        session = await self._session_repository.find_by_id(session_id)
+        if not session:
+            logger.error(f"Attempted to end takeover for non-existent Session {session_id}")
+            raise RuntimeError("Session not found")
+
+        if session.takeover_state == TakeoverState.IDLE:
+            logger.info(f"Session {session_id} takeover already idle, treating as idempotent")
+            return True
+
+        if session.takeover_state not in (TakeoverState.TAKEOVER_ACTIVE, TakeoverState.RESUMING):
+            logger.warning(
+                f"Session {session_id} in unexpected takeover state {session.takeover_state.value} "
+                f"for end_takeover"
+            )
+
+        # Transition: takeover_active -> resuming
+        session.takeover_state = TakeoverState.RESUMING
+        await self._session_repository.save(session)
+
+        if not resume_agent and persist_login_state is not None:
+            session.persist_login_state = persist_login_state
+            await self._session_repository.save(session)
+            if persist_login_state:
+                task = await self._get_task(session)
+                await self._persist_login_state_snapshot(session, task)
+            else:
+                self._login_state_store.delete_state(session.user_id, session.id)
+
+        resumed = True
+        if resume_agent:
+            try:
+                resumed = await self.resume_session(
+                    session_id, context=context, persist_login_state=persist_login_state
+                )
+            except Exception as e:
+                logger.error(f"Failed to resume session {session_id} after takeover: {e}")
+                # Stay in takeover_active so user can retry
+                session.takeover_state = TakeoverState.TAKEOVER_ACTIVE
+                await self._session_repository.save(session)
+                raise
+
+            if not resumed:
+                logger.warning(
+                    f"Session {session_id} resume returned False after takeover; "
+                    f"staying in takeover_active so user can retry"
+                )
+                # Per plan (§4.1): Resume failure → remain takeover_active, surface retry
+                session = await self._session_repository.find_by_id(session_id)
+                if session:
+                    session.takeover_state = TakeoverState.TAKEOVER_ACTIVE
+                    await self._session_repository.save(session)
+                return False
+        # resume_agent=False: do not call resume_session at all — context/persist values
+        # are metadata only; caller must explicitly request agent resume when ready.
+
+        # Transition: resuming -> idle (only reached when resume succeeded or not requested)
+        session = await self._session_repository.find_by_id(session_id)
+        if session:
+            session.takeover_state = TakeoverState.IDLE
+            session.takeover_reason = None
+            await self._session_repository.save(session)
+
+        logger.info(f"Session {session_id} takeover ended (resumed={resumed})")
+        return resumed

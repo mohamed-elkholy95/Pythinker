@@ -189,6 +189,89 @@ class SessionLifecycleService:
             logger.info(f"Session {session_id} resumed successfully")
         return result
 
+    async def start_takeover(self, session_id: str, user_id: str, reason: str = "manual") -> bool:
+        """Start browser takeover, ensuring session belongs to the user.
+
+        Args:
+            session_id: Session ID to take over
+            user_id: User ID for ownership verification
+            reason: Reason for takeover
+
+        Returns:
+            True if takeover started successfully
+
+        Raises:
+            NotFoundError: If session not found or doesn't belong to user
+        """
+        logger.info(f"Starting takeover for session {session_id} for user {user_id} (reason={reason})")
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            raise NotFoundError("Session not found")
+
+        result = await self._agent_domain_service.start_takeover(session_id, reason=reason)
+        if result:
+            logger.info(f"Session {session_id} takeover started successfully")
+        return result
+
+    async def end_takeover(
+        self,
+        session_id: str,
+        user_id: str,
+        context: str | None = None,
+        persist_login_state: bool | None = None,
+        resume_agent: bool = True,
+    ) -> bool:
+        """End browser takeover, ensuring session belongs to the user.
+
+        Args:
+            session_id: Session ID to end takeover for
+            user_id: User ID for ownership verification
+            context: Optional context about changes made during takeover
+            persist_login_state: Optional flag to persist browser login state
+            resume_agent: Whether to resume the agent
+
+        Returns:
+            True if takeover ended successfully
+
+        Raises:
+            NotFoundError: If session not found or doesn't belong to user
+        """
+        logger.info(f"Ending takeover for session {session_id} for user {user_id}")
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            raise NotFoundError("Session not found")
+
+        result = await self._agent_domain_service.end_takeover(
+            session_id,
+            context=context,
+            persist_login_state=persist_login_state,
+            resume_agent=resume_agent,
+        )
+        if result:
+            logger.info(f"Session {session_id} takeover ended successfully")
+        return result
+
+    async def get_takeover_status(self, session_id: str, user_id: str) -> dict:
+        """Get takeover status for a session, ensuring it belongs to the user.
+
+        Returns:
+            Dict with session_id, takeover_state, and reason
+
+        Raises:
+            NotFoundError: If session not found or doesn't belong to user
+        """
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            raise NotFoundError("Session not found")
+
+        return {
+            "session_id": session_id,
+            "takeover_state": session.takeover_state.value if hasattr(session.takeover_state, 'value') else str(session.takeover_state),
+            "reason": session.takeover_reason,
+        }
+
     async def rename_session(self, session_id: str, user_id: str, title: str) -> None:
         """Rename a session, ensuring it belongs to the user.
 
