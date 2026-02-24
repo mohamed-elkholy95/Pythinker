@@ -262,6 +262,20 @@ onBeforeUnmount(() => { stopAnimation(); roCompact.value?.disconnect(); roExpand
 
 const progressPct = computed(() => Math.round((currentIndex.value / NODES.length) * 100))
 
+// ─── TOOL LABEL HELPER ────────────────────────────────────────────────────────
+function toolLabel(toolName: string, toolArgs: Record<string, unknown>): { detail: string } {
+  const name = toolName.toLowerCase()
+  const firstArg = Object.values(toolArgs)[0]
+  const argStr = typeof firstArg === 'string' ? firstArg.slice(0, 40) : ''
+
+  if (name.includes('search') || name.includes('web')) return { detail: argStr ? `Searching: ${argStr}` : 'Web search' }
+  if (name.includes('browser') || name.includes('navigate')) return { detail: argStr ? `Navigate: ${argStr}` : 'Browser' }
+  if (name.includes('read') || name.includes('file')) return { detail: argStr ? `File: ${argStr}` : 'Reading file' }
+  if (name.includes('write') || name.includes('edit')) return { detail: argStr ? `Writing: ${argStr}` : 'Editing file' }
+  if (name.includes('terminal') || name.includes('bash') || name.includes('exec')) return { detail: argStr ? `Run: ${argStr}` : 'Terminal' }
+  return { detail: argStr || toolName }
+}
+
 // ─── COMPACT INLINE LABEL ─────────────────────────────────────────────────────
 const compactLabel = computed(() => {
   const a = props.liveActivity
