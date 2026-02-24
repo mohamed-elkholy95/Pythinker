@@ -331,17 +331,17 @@ const progressPct = computed(() =>
 
             <!-- Particles -->
             <g v-if="compactPositions.length">
-              <circle
-                v-for="p in particles"
-                :key="p.id"
-                v-if="particlePos(p)"
-                :cx="particlePos(p)!.x"
-                :cy="particlePos(p)!.y"
-                :r="p.size"
-                :fill="NODES[p.fromIdx].color"
-                :opacity="p.opacity * (1 - p.progress * 0.6)"
-                filter="url(#c-glow)"
-              />
+              <template v-for="p in particles" :key="p.id">
+                <circle
+                  v-if="particlePos(p)"
+                  :cx="particlePos(p)!.x"
+                  :cy="particlePos(p)!.y"
+                  :r="p.size"
+                  :fill="NODES[p.fromIdx].color"
+                  :opacity="p.opacity * (1 - p.progress * 0.6)"
+                  filter="url(#c-glow)"
+                />
+              </template>
             </g>
 
             <!-- Nodes -->
@@ -452,17 +452,17 @@ const progressPct = computed(() =>
 
               <!-- Particles -->
               <g v-if="expandedPositions.length">
-                <circle
-                  v-for="p in particles"
-                  :key="p.id"
-                  v-if="particlePos(p)"
-                  :cx="particlePos(p)!.x"
-                  :cy="particlePos(p)!.y"
-                  :r="p.size + 0.5"
-                  :fill="NODES[p.fromIdx].color"
-                  :opacity="p.opacity * (1 - p.progress * 0.55)"
-                  filter="url(#e-node-glow)"
-                />
+                <template v-for="p in particles" :key="p.id">
+                  <circle
+                    v-if="particlePos(p)"
+                    :cx="particlePos(p)!.x"
+                    :cy="particlePos(p)!.y"
+                    :r="p.size + 0.5"
+                    :fill="NODES[p.fromIdx].color"
+                    :opacity="p.opacity * (1 - p.progress * 0.55)"
+                    filter="url(#e-node-glow)"
+                  />
+                </template>
               </g>
 
               <!-- Nodes (expanded, larger) -->
