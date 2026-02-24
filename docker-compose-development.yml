@@ -112,7 +112,7 @@ services:
       - SANDBOX_IMAGE=pythinker/pythinker-sandbox
       - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
-      - "LOCAL_AUTH_PASSWORD=admin*123"  # Override .env to handle special chars
+      - "LOCAL_AUTH_PASSWORD=AdminPy@2026!"
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
     healthcheck:
