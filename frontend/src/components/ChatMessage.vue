@@ -61,6 +61,18 @@
         </div>
         <div class="flex items-center gap-[2px]">
           <div
+            v-if="messageContent?.confidence"
+            class="flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold tracking-wide mr-2 opacity-80"
+            :class="{
+              'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300': messageContent.confidence === 'high',
+              'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400': messageContent.confidence === 'moderate',
+              'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400': messageContent.confidence === 'low'
+            }"
+            :title="`Confidence: ${messageContent.confidence.charAt(0).toUpperCase() + messageContent.confidence.slice(1)}`"
+          >
+            {{ messageContent.confidence.toUpperCase() }}
+          </div>
+          <div
             class="assistant-time transition text-[11px] text-[var(--text-tertiary)]"
             :title="formatTimestampTooltip(message.content.timestamp)"
           >
@@ -92,6 +104,18 @@
         </div>
         <div class="flex items-center gap-[2px]">
           <div
+            v-if="messageContent?.confidence"
+            class="flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold tracking-wide mr-2 opacity-80"
+            :class="{
+              'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300': messageContent.confidence === 'high',
+              'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400': messageContent.confidence === 'moderate',
+              'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400': messageContent.confidence === 'low'
+            }"
+            :title="`Confidence: ${messageContent.confidence.charAt(0).toUpperCase() + messageContent.confidence.slice(1)}`"
+          >
+            {{ messageContent.confidence.toUpperCase() }}
+          </div>
+          <div
             class="assistant-time transition text-[11px] text-[var(--text-tertiary)]"
             :title="formatTimestampTooltip(message.content.timestamp)"
           >
@@ -99,6 +123,14 @@
           </div>
         </div>
       </div>
+      
+      <ReasoningPipeline
+        v-if="props.activeReasoningState && props.activeReasoningState !== 'idle' && props.activeReasoningState !== 'completed' && !isAssistantSummaryCompact"
+        :currentStage="props.activeReasoningState"
+        :thinkingText="props.thinkingText"
+        class="mb-2 mt-1"
+      />
+
       <div
         class="assistant-message-content relative w-full max-w-full p-0 m-0 text-[15.5px] leading-[1.6] text-[var(--text-primary)] [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)]"
         :class="{ 'assistant-summary-shell': isAssistantSummaryCompact }"
@@ -112,10 +144,22 @@
             }"
           >
             <TiptapMessageViewer
-              :content="messageContent.content ?? ''"
+              :content="parsedAmbiguity.cleanedContent ?? ''"
               :compact="isAssistantSummaryCompact"
               :sources="props.sources"
             />
+            
+            <!-- Quick-Reply Chips for Ambiguity Resolution -->
+            <div v-if="parsedAmbiguity.chips.length > 0 && !isTaskRunning" class="mt-4 flex flex-wrap gap-2">
+              <button
+                v-for="chip in parsedAmbiguity.chips"
+                :key="chip"
+                class="inline-flex items-center justify-center rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-4 py-1.5 text-[13.5px] font-medium border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                @click="emit('selectSuggestion', chip)"
+              >
+                {{ chip }}
+              </button>
+            </div>
           </div>
         </div>
         <div v-if="showMessageExpandControl" class="message-collapse-overlay">
@@ -279,6 +323,7 @@
 <script setup lang="ts">
 import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
 import { Message, MessageContent, AttachmentsContent, ReportContent, SkillDeliveryContent, type SourceCitation } from '../types/message';
+import { useAmbiguityParser } from '../composables/useAmbiguityParser';
 import ToolUse from './ToolUse.vue';
 import PhaseGroup from './PhaseGroup.vue';
 import { CheckIcon, Copy, Check, XIcon } from 'lucide-vue-next';
@@ -289,6 +334,7 @@ import { Bot } from 'lucide-vue-next';
 import AttachmentsMessage from './AttachmentsMessage.vue';
 import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
 import TiptapMessageViewer from './TiptapMessageViewer.vue';
+import ReasoningPipeline, { type ReasoningStage } from '@/components/ReasoningPipeline.vue';
 import type { ReportData } from './report';
 import type { FileInfo } from '../api/file';
 import SkillDeliveryCard from './SkillDeliveryCard.vue';
@@ -314,6 +360,9 @@ const props = defineProps<{
   sources?: SourceCitation[];
   /** True when the session is a fast search task (not deep research). Controls inline search results. */
   isFastSearchSession?: boolean;
+  activeReasoningState?: ReasoningStage;
+  /** Live streaming thinking text from the agent */
+  thinkingText?: string;
 }>();
 
 const emit = defineEmits<{
@@ -360,6 +409,9 @@ function isStandaloneToolFastSearch(tool: ToolContent): boolean {
 // For backward compatibility, provide the original computed properties
 const stepContent = computed(() => props.message.content as StepContent);
 const messageContent = computed(() => props.message.content as MessageContent);
+
+const parsedAmbiguity = useAmbiguityParser(computed(() => messageContent.value?.content ?? ''));
+const isTaskRunning = computed(() => props.activeReasoningState && props.activeReasoningState !== 'idle' && props.activeReasoningState !== 'completed');
 const toolContent = computed(() => props.message.content as ToolContent);
 const attachmentsContent = computed(() => props.message.content as AttachmentsContent);
 const reportContent = computed(() => props.message.content as ReportContent);
@@ -504,7 +556,7 @@ watch(
 
 watch(
   () => [stepContent.value?.id, stepContent.value?.status, props.activeThinkingStepId] as const,
-  ([stepId, status, thinkingId]) => {
+  ([stepId, status, thinkingId]: readonly [string | undefined, string | undefined, string | undefined]) => {
     if (stepUserToggled.value) return;
     const isActiveStep = Boolean(stepId) && thinkingId === stepId;
     isStepExpanded.value = isActiveStep || status === 'running';
