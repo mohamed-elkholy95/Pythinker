@@ -113,8 +113,13 @@
                 </Popover>
               </span>
               <button @click="handleFileListShow"
-                class="h-8 w-8 flex items-center justify-center hover:bg-[var(--fill-tsp-gray-main)] rounded-lg cursor-pointer transition-colors">
+                class="hidden h-8 w-8 items-center justify-center hover:bg-[var(--fill-tsp-gray-main)] rounded-lg cursor-pointer transition-colors">
                 <FileSearch class="text-[var(--icon-secondary)]" :size="18" />
+              </button>
+              <button @click="isContextPanelOpen = true"
+                class="h-8 w-8 flex items-center justify-center hover:bg-[var(--fill-tsp-gray-main)] rounded-lg cursor-pointer transition-colors"
+                :aria-label="t('Show Context')">
+                <Database class="text-[var(--icon-secondary)]" :size="18" />
               </button>
           </div>
         </div>
@@ -142,6 +147,7 @@
             :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id) && !canShowSuggestions"
             :sources="sourcesForMessageMap.get(index)"
             :isFastSearchSession="sessionResearchMode === 'fast_search'"
+            :activeReasoningState="message.id === activeAssistantMessageId ? activeReasoningState : undefined"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -443,10 +449,22 @@
       />
     </DialogContent>
   </Dialog>
+
+  <!-- Side Panels -->
+  <ContextPanel
+    :isOpen="isContextPanelOpen"
+    :files="attachments"
+    :skillIds="sessionSkillIds"
+    :envKeys="activeEnvVars"
+    @close="isContextPanelOpen = false"
+  />
+
+  <CheckoutDialog :is-open="isCheckoutOpen" :insufficient-credits="insufficientCredits" @close="closeCheckoutDialog" />
 </template>
 
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
+import type { ReasoningStage } from '@/components/ReasoningPipeline.vue';
 import { ref, computed, onMounted, watch, nextTick, onUnmounted, reactive, toRefs, shallowRef, triggerRef } from 'vue';
 import { useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
 import { useDocumentVisibility } from '@vueuse/core';
@@ -481,7 +499,8 @@ import {
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
-import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight, Menu } from 'lucide-vue-next';
+import ContextPanel from '../components/ContextPanel.vue'
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight, Menu, Database } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import { downloadFile } from '../api/file';
@@ -671,6 +690,9 @@ const createInitialState = () => ({
   isFallbackStatusPolling: false,
   agentModeOriginalPrompt: null as string | null, // Tracks original prompt for agent-mode echo suppression
   timeoutReason: null as 'connection' | 'workflow_idle' | 'workflow_limit' | null, // Discriminates timeout source
+  activeReasoningState: 'idle' as ReasoningStage, // Reasoning pipeline state for active assistant message
+  sessionSkillIds: [] as string[], // Skill IDs active in the current session (for ContextPanel)
+  activeEnvVars: [] as string[], // Env var keys active in the current session (for ContextPanel)
 });
 
 // Create reactive state
@@ -723,6 +745,9 @@ const {
   isFallbackStatusPolling,
   agentModeOriginalPrompt,
   timeoutReason,
+  activeReasoningState,
+  sessionSkillIds,
+  activeEnvVars,
 } = toRefs(state);
 
 // Buffer for tool_stream events that arrive before tool(calling)
@@ -1792,6 +1817,16 @@ const showFloatingThinkingIndicator = computed(() => {
   return true;
 });
 
+// Compute the ID of the last assistant message
+const activeAssistantMessageId = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i].type === 'assistant') {
+      return messages.value[i].id;
+    }
+  }
+  return null;
+});
+
 const isTaskCompleted = computed(() =>
   receivedDoneEvent.value || sessionStatus.value === SessionStatus.COMPLETED
 );
@@ -2171,6 +2206,7 @@ const handleToolStreamEvent = (data: ToolStreamEventData) => {
 
 // Handle tool event
 const handleToolEvent = (toolData: ToolEventData) => {
+  activeReasoningState.value = 'retrieval';
   const lastStep = getLastStep();
   // Merge buffered streaming content into the tool content
   const buffered = streamingContentBuffer.get(toolData.tool_call_id);
@@ -2408,6 +2444,7 @@ const handlePlanEvent = (planData: PlanEventData) => {
 
 // Handle stream event (thinking text streaming or summary streaming)
 const handleStreamEvent = (streamData: StreamEventData) => {
+  activeReasoningState.value = 'generation';
   researchWorkflow.handleStreamEvent(streamData);
   const phase = streamData.phase || 'thinking';
 
@@ -2504,6 +2541,11 @@ const handleProgressEvent = (progressData: ProgressEventData) => {
   const phase = validPhases.includes(progressData.phase as typeof validPhases[number])
     ? progressData.phase as typeof validPhases[number]
     : 'received';
+    
+  if (phase === 'received') activeReasoningState.value = 'parsing';
+  else if (phase === 'analyzing') activeReasoningState.value = 'intent';
+  else if (phase === 'planning') activeReasoningState.value = 'planning';
+
   planningProgress.value = {
     phase,
     message: progressData.message,
@@ -2951,6 +2993,7 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'phase') {
     handlePhaseEvent(event.data as import('../types/event').AgentPhaseEventData);
   } else if (event.event === 'done') {
+    activeReasoningState.value = 'completed';
     dismissConnectionBanner();
     logChatSseDiagnostics('event:done_received', {
       eventId: eventId ?? null,
@@ -3056,9 +3099,9 @@ const handleEvent = (event: AgentSSEEvent) => {
   streamController.enqueueEvent(event);
 };
 
-const handleSubmit = (thinkingMode: ThinkingMode = 'auto') => {
-  currentThinkingMode.value = thinkingMode;
-  chat(inputMessage.value, attachments.value, { thinkingMode });
+const handleSubmit = (options: { thinkingMode?: ThinkingMode; detailLevel?: string } = {}) => {
+  currentThinkingMode.value = options.thinkingMode || 'auto';
+  chat(inputMessage.value, attachments.value, options);
 }
 
 const markLastUserMessageAsAgentModeUpgrade = () => {
@@ -3092,7 +3135,7 @@ let lastSentTime = 0;
 const chat = async (
   message: string = '',
   files: FileInfo[] = [],
-  options?: { skipOptimistic?: boolean; thinkingMode?: ThinkingMode }
+  options?: { skipOptimistic?: boolean; thinkingMode?: ThinkingMode; detailLevel?: string }
 ) => {
   const streamAttemptId = beginStreamAttempt();
   if (!sessionId.value) return;
@@ -3189,6 +3232,7 @@ const chat = async (
   isWaitingForReply.value = false;
   agentModeOriginalPrompt.value = null;
   timeoutReason.value = null;
+  activeReasoningState.value = 'idle';
   transitionTo('connecting')
   dismissConnectionBanner();
 
@@ -3207,6 +3251,11 @@ const chat = async (
 
   try {
     const effectiveSkillIds = getEffectiveSkillIds();
+    const chatOptions: agentApi.ChatOptions = {
+      thinking_mode: options?.thinkingMode,
+      detail_level: options?.detailLevel as agentApi.ChatOptions['detail_level']
+    };
+
     const shouldUseNativeEventSourceResume =
       isEventSourceResumeEnabled() &&
       normalizedMessage.length === 0 &&
@@ -3241,7 +3290,7 @@ const chat = async (
           upload_date: file.upload_date
         })),
         effectiveSkillIds, // session + per-message skills
-        { thinking_mode: options?.thinkingMode },
+        { thinking_mode: options?.thinkingMode, detail_level: options?.detailLevel },
         transportCallbacks,
         followUp
       );
