@@ -201,16 +201,6 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     apt-get update && apt-get install -y --no-install-recommends gh && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# code-server 4.104.3 — VS Code in the browser (matches reference sandbox §5)
-# Installed when ENABLE_SANDBOX_ADDONS=1; placed at /usr/local/bin/code-server.
-RUN if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
-        ARCH=$(dpkg --print-architecture) && \
-        curl -fOL "https://github.com/coder/code-server/releases/download/v4.104.3/code-server_4.104.3_${ARCH}.deb" \
-            -o /tmp/code-server.deb && \
-        dpkg -i /tmp/code-server.deb && \
-        rm /tmp/code-server.deb && \
-        echo "code-server 4.104.3 installed"; \
-    fi
 
 # Copy from builder (no dev tools); chrome-for-testing empty when USE_CHROMIUM=1
 COPY --from=builder /opt/chrome-for-testing /opt/chrome-for-testing
