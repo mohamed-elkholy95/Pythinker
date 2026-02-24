@@ -416,6 +416,16 @@ class AgentTaskRunner(TaskRunner):
         """Initialize DiscussFlow for Discuss mode"""
         if self._discuss_flow is None:
             settings = get_settings()
+
+            # Inject conversation context and memory services for cross-session recall
+            conversation_context_service = None
+            try:
+                from app.domain.services.conversation_context_service import get_conversation_context_service
+
+                conversation_context_service = get_conversation_context_service()
+            except Exception:
+                logger.debug("Conversation context service unavailable for DiscussFlow")
+
             self._discuss_flow = DiscussFlow(
                 self._agent_id,
                 self._repository,
@@ -425,6 +435,9 @@ class AgentTaskRunner(TaskRunner):
                 self._json_parser,
                 self._search_engine,
                 default_language=settings.default_language,
+                memory_service=self._memory_service,
+                conversation_context_service=conversation_context_service,
+                user_id=self._user_id,
             )
             logger.debug(f"Initialized DiscussFlow for agent {self._agent_id}")
 
