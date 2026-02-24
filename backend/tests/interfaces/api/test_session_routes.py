@@ -20,15 +20,19 @@ from app.domain.models.event import DoneEvent, PlanningPhase, ProgressEvent, Rep
 from app.interfaces.api.session_routes import (
     _cancel_pending_disconnect_cancellation,
     _event_phase_label,
+    _is_websocket_origin_allowed,
     _normalize_session_status,
     _resolve_stream_exhausted_close_reason,
     _safe_exc_text,
     _schedule_disconnect_cancellation,
     chat,
+    end_takeover,
     get_screenshot_image,
     get_shared_screenshot_image,
+    get_takeover_status,
     input_websocket,
     screencast_websocket,
+    start_takeover,
     stop_session,
     takeover_navigation_action,
     takeover_navigation_history,
@@ -737,10 +741,21 @@ async def test_reconnect_cancels_pending_disconnect_cancellation(monkeypatch: py
 # ---------------------------------------------------------------------------
 
 
-def _make_websocket(url: str = "ws://localhost/sessions/sess-1/input?signature=abc&uid=user-1") -> MagicMock:
-    """Create a mock WebSocket with a configurable URL."""
+def _make_websocket(
+    url: str = "ws://localhost/sessions/sess-1/input?signature=abc&uid=user-1",
+    origin: str = "http://localhost",
+) -> MagicMock:
+    """Create a mock WebSocket with a configurable URL.
+
+    ``ws.headers`` is a plain dict so that origin-allowlist logic
+    (``_is_websocket_origin_allowed``) receives a real string rather than an
+    auto-created MagicMock.  The default origin ``http://localhost`` passes the
+    allowlist check when ``cors_origins`` is empty (dev-permissive default) or
+    when ``http://localhost`` is explicitly listed.
+    """
     ws = MagicMock()
     ws.url = url
+    ws.headers = {"origin": origin}
     ws.accept = AsyncMock()
     ws.close = AsyncMock()
     ws.receive = AsyncMock(side_effect=Exception("should not be called"))
@@ -756,8 +771,25 @@ def _make_session(
     return SimpleNamespace(id=session_id, user_id=user_id, sandbox_id=sandbox_id)
 
 
+@pytest.fixture(autouse=False)
+def _permit_all_ws_origins(monkeypatch):
+    """Patch get_settings to clear cors_origins so origin check is permissive.
+
+    IDOR tests focus on uid/signature auth, not origin enforcement.
+    Origin-enforcement tests control their own settings via explicit patching.
+    """
+    monkeypatch.setattr(
+        "app.interfaces.api.session_routes.get_settings",
+        lambda: SimpleNamespace(cors_origins="", sandbox_api_secret=None),
+    )
+
+
 class TestInputWebSocketIDOR:
     """Tests for IDOR protection on the input_websocket endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def _allow_origins(self, _permit_all_ws_origins):  # noqa: PT019
+        """Ensure origin allowlist is not enforced for IDOR tests."""
 
     @pytest.mark.asyncio
     async def test_rejects_missing_user_id_in_signed_url(self):
@@ -860,8 +892,298 @@ class TestInputWebSocketIDOR:
         assert any("sess-target" in record.message for record in caplog.records)
 
 
+# ---------------------------------------------------------------------------
+# WebSocket Origin Allowlist Tests
+# ---------------------------------------------------------------------------
+
+
+def _make_ws_with_origin(origin: str | None, url: str = "ws://localhost/sessions/s/screencast") -> MagicMock:
+    ws = MagicMock()
+    ws.url = url
+    ws.accept = AsyncMock()
+    ws.close = AsyncMock()
+    headers: dict[str, str] = {}
+    if origin is not None:
+        headers["origin"] = origin
+    ws.headers = headers
+    return ws
+
+
+class TestWebSocketOriginAllowlist:
+    """Tests for _is_websocket_origin_allowed helper and WebSocket handler enforcement."""
+
+    def test_allows_all_when_no_cors_origins_configured(self):
+        ws = _make_ws_with_origin("https://evil.example.com")
+        with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+            mock_settings.return_value = SimpleNamespace(cors_origins="")
+            assert _is_websocket_origin_allowed(ws) is True
+
+    def test_allows_matching_origin(self):
+        ws = _make_ws_with_origin("http://localhost:5173")
+        with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+            mock_settings.return_value = SimpleNamespace(cors_origins="http://localhost:5173,https://app.example.com")
+            assert _is_websocket_origin_allowed(ws) is True
+
+    def test_rejects_unknown_origin(self):
+        ws = _make_ws_with_origin("https://evil.example.com")
+        with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+            mock_settings.return_value = SimpleNamespace(cors_origins="http://localhost:5173")
+            assert _is_websocket_origin_allowed(ws) is False
+
+    def test_rejects_missing_origin_when_allowlist_set(self):
+        ws = _make_ws_with_origin(None)
+        with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+            mock_settings.return_value = SimpleNamespace(cors_origins="http://localhost:5173")
+            assert _is_websocket_origin_allowed(ws) is False
+
+    def test_ignores_trailing_slash_in_origin(self):
+        ws = _make_ws_with_origin("http://localhost:5173/")
+        with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+            mock_settings.return_value = SimpleNamespace(cors_origins="http://localhost:5173")
+            assert _is_websocket_origin_allowed(ws) is True
+
+    @pytest.mark.asyncio
+    async def test_screencast_websocket_rejects_disallowed_origin(self, caplog: pytest.LogCaptureFixture):
+        ws = _make_ws_with_origin("https://evil.example.com")
+        ws.url = "ws://localhost/sessions/sess-1/screencast?signature=abc&uid=user-1"
+        agent_service = SimpleNamespace(get_session=AsyncMock())
+        sandbox_cls = MagicMock()
+
+        with (
+            patch("app.interfaces.api.session_routes.get_settings") as mock_settings,
+            caplog.at_level(logging.WARNING),
+        ):
+            mock_settings.return_value = SimpleNamespace(
+                cors_origins="http://localhost:5173",
+                sandbox_api_secret=None,
+            )
+            await screencast_websocket(
+                websocket=ws,
+                session_id="sess-1",
+                quality=70,
+                max_fps=15,
+                signature="abc",
+                agent_service=agent_service,
+                sandbox_cls=sandbox_cls,
+            )
+
+        # accept() must be called before close() so the WS handshake completes
+        # and the client receives the 1008 close frame rather than an HTTP 403.
+        ws.accept.assert_awaited_once()
+        ws.close.assert_awaited_once_with(code=1008, reason="Origin not allowed")
+        assert any("[SECURITY]" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_input_websocket_rejects_disallowed_origin(self, caplog: pytest.LogCaptureFixture):
+        ws = _make_ws_with_origin("https://evil.example.com")
+        ws.url = "ws://localhost/sessions/sess-1/input?signature=abc&uid=user-1"
+        agent_service = SimpleNamespace(get_session=AsyncMock())
+        sandbox_cls = MagicMock()
+
+        with (
+            patch("app.interfaces.api.session_routes.get_settings") as mock_settings,
+            caplog.at_level(logging.WARNING),
+        ):
+            mock_settings.return_value = SimpleNamespace(
+                cors_origins="http://localhost:5173",
+                sandbox_api_secret=None,
+            )
+            await input_websocket(
+                websocket=ws,
+                session_id="sess-1",
+                signature="abc",
+                agent_service=agent_service,
+                sandbox_cls=sandbox_cls,
+            )
+
+        # accept() must be called before close() so the WS handshake completes
+        # and the client receives the 1008 close frame rather than an HTTP 403.
+        ws.accept.assert_awaited_once()
+        ws.close.assert_awaited_once_with(code=1008, reason="Origin not allowed")
+        assert any("[SECURITY]" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Takeover Lifecycle Route Tests
+# ---------------------------------------------------------------------------
+
+
+def _make_takeover_status_response(
+    session_id: str = "sess-1",
+    state: str = "takeover_active",
+    reason: str = "manual",
+) -> dict:
+    return {"session_id": session_id, "takeover_state": state, "reason": reason}
+
+
+class TestTakeoverLifecycleRoutes:
+    """Tests for start_takeover, end_takeover, and get_takeover_status routes."""
+
+    @pytest.mark.asyncio
+    async def test_start_takeover_calls_service_and_returns_status(self):
+        from app.interfaces.schemas.session import TakeoverStartRequest
+
+        current_user = SimpleNamespace(id="user-1")
+        status = _make_takeover_status_response(state="takeover_active")
+        agent_service = SimpleNamespace(
+            start_takeover=AsyncMock(),
+            get_takeover_status=AsyncMock(return_value=status),
+        )
+
+        response = await start_takeover(
+            session_id="sess-1",
+            request=TakeoverStartRequest(reason="manual"),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+        agent_service.start_takeover.assert_awaited_once_with("sess-1", "user-1", reason="manual")
+        agent_service.get_takeover_status.assert_awaited_once_with("sess-1", "user-1")
+        assert response.code == 0
+        assert response.data.takeover_state == "takeover_active"
+        assert response.data.session_id == "sess-1"
+
+    @pytest.mark.asyncio
+    async def test_start_takeover_uses_manual_reason_as_default(self):
+        from app.interfaces.schemas.session import TakeoverStartRequest
+
+        current_user = SimpleNamespace(id="user-1")
+        status = _make_takeover_status_response()
+        agent_service = SimpleNamespace(
+            start_takeover=AsyncMock(),
+            get_takeover_status=AsyncMock(return_value=status),
+        )
+
+        await start_takeover(
+            session_id="sess-1",
+            request=TakeoverStartRequest(reason=None),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+        agent_service.start_takeover.assert_awaited_once_with("sess-1", "user-1", reason="manual")
+
+    @pytest.mark.asyncio
+    async def test_end_takeover_forwards_all_options_to_service(self):
+        from app.interfaces.schemas.session import TakeoverEndRequest
+
+        current_user = SimpleNamespace(id="user-1")
+        status = _make_takeover_status_response(state="idle")
+        agent_service = SimpleNamespace(
+            end_takeover=AsyncMock(),
+            get_takeover_status=AsyncMock(return_value=status),
+        )
+
+        response = await end_takeover(
+            session_id="sess-1",
+            request=TakeoverEndRequest(
+                context="user finished captcha",
+                persist_login_state=True,
+                resume_agent=True,
+            ),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+        agent_service.end_takeover.assert_awaited_once_with(
+            "sess-1",
+            "user-1",
+            context="user finished captcha",
+            persist_login_state=True,
+            resume_agent=True,
+        )
+        assert response.code == 0
+        assert response.data.takeover_state == "idle"
+
+    @pytest.mark.asyncio
+    async def test_end_takeover_resume_agent_false_is_forwarded(self):
+        """Ensure resume_agent=False is forwarded so the agent must not resume."""
+        from app.interfaces.schemas.session import TakeoverEndRequest
+
+        current_user = SimpleNamespace(id="user-1")
+        status = _make_takeover_status_response(state="takeover_active")
+        agent_service = SimpleNamespace(
+            end_takeover=AsyncMock(),
+            get_takeover_status=AsyncMock(return_value=status),
+        )
+
+        await end_takeover(
+            session_id="sess-1",
+            request=TakeoverEndRequest(resume_agent=False),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+        _, kwargs = agent_service.end_takeover.call_args
+        assert kwargs.get("resume_agent") is False
+
+    @pytest.mark.asyncio
+    async def test_get_takeover_status_returns_current_state(self):
+        current_user = SimpleNamespace(id="user-1")
+        status = _make_takeover_status_response(state="idle")
+        agent_service = SimpleNamespace(
+            get_takeover_status=AsyncMock(return_value=status),
+        )
+
+        response = await get_takeover_status(
+            session_id="sess-1",
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+        agent_service.get_takeover_status.assert_awaited_once_with("sess-1", "user-1")
+        assert response.code == 0
+        assert response.data.takeover_state == "idle"
+        assert response.data.session_id == "sess-1"
+
+    @pytest.mark.asyncio
+    async def test_start_takeover_is_idempotent_when_already_active(self):
+        """Calling start_takeover when already active returns current state without error."""
+        from app.interfaces.schemas.session import TakeoverStartRequest
+
+        current_user = SimpleNamespace(id="user-1")
+        status = _make_takeover_status_response(state="takeover_active")
+        agent_service = SimpleNamespace(
+            start_takeover=AsyncMock(),
+            get_takeover_status=AsyncMock(return_value=status),
+        )
+
+        response = await start_takeover(
+            session_id="sess-1",
+            request=TakeoverStartRequest(reason="captcha"),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+        assert response.data.takeover_state == "takeover_active"
+
+    @pytest.mark.asyncio
+    async def test_end_takeover_is_idempotent_when_already_idle(self):
+        """Calling end_takeover when already idle returns current state without error."""
+        from app.interfaces.schemas.session import TakeoverEndRequest
+
+        current_user = SimpleNamespace(id="user-1")
+        status = _make_takeover_status_response(state="idle")
+        agent_service = SimpleNamespace(
+            end_takeover=AsyncMock(),
+            get_takeover_status=AsyncMock(return_value=status),
+        )
+
+        response = await end_takeover(
+            session_id="sess-1",
+            request=TakeoverEndRequest(),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+        assert response.data.takeover_state == "idle"
+
 class TestScreencastWebSocketIDOR:
     """Tests for IDOR protection on the screencast_websocket endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def _allow_origins(self, _permit_all_ws_origins):  # noqa: PT019
+        """Ensure origin allowlist is not enforced for IDOR tests."""
 
     @pytest.mark.asyncio
     async def test_rejects_missing_user_id_in_signed_url(self):
