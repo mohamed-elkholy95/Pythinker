@@ -70,7 +70,7 @@
                     <div class="flex-1 min-w-0">
                         <h4 class="text-sm font-semibold text-[var(--text-primary)]">{{ t('You\'re in control!') }}</h4>
                         <p class="text-xs text-[var(--text-secondary)] mt-0.5">
-                            {{ t('You can interact directly with the browser. The agent continues working in the background.') }}
+                            {{ t('You can interact directly with the browser. The agent is paused while you\'re in control.') }}
                         </p>
                     </div>
                     <button
@@ -142,19 +142,27 @@
                     </div>
                 </div>
 
-                <DialogFooter class="px-6 pb-5">
-                    <button
-                        @click="showExitDialog = false"
-                        class="rounded-[10px] px-4 py-2 text-sm border border-[var(--border-btn-main)] bg-[var(--button-secondary)] text-[var(--text-primary)] hover:bg-[var(--fill-tsp-white-dark)] cursor-pointer transition-colors"
-                    >
-                        {{ t('Cancel') }}
-                    </button>
-                    <button
-                        @click="handleExitWithContext"
-                        class="rounded-[10px] px-4 py-2 text-sm border border-[var(--border-btn-primary)] bg-[var(--button-primary)] text-[var(--text-onblack)] hover:bg-[var(--button-primary-hover)] cursor-pointer transition-colors"
-                    >
-                        {{ t('Send and continue') }}
-                    </button>
+                <DialogFooter class="px-6 pb-5 flex-col gap-2">
+                    <p v-if="resumeFailed" class="text-xs text-[var(--function-error)] w-full text-center">
+                        {{ t('Failed to resume agent. Please try again.') }}
+                    </p>
+                    <div class="flex gap-2 justify-end w-full">
+                        <button
+                            @click="showExitDialog = false"
+                            :disabled="exitLoading"
+                            class="rounded-[10px] px-4 py-2 text-sm border border-[var(--border-btn-main)] bg-[var(--button-secondary)] text-[var(--text-primary)] hover:bg-[var(--fill-tsp-white-dark)] cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {{ t('Cancel') }}
+                        </button>
+                        <button
+                            @click="handleExitWithContext"
+                            :disabled="exitLoading"
+                            class="rounded-[10px] px-4 py-2 text-sm border border-[var(--border-btn-primary)] bg-[var(--button-primary)] text-[var(--text-onblack)] hover:bg-[var(--button-primary-hover)] cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                            <Loader2 v-if="exitLoading" :size="14" class="animate-spin" />
+                            {{ resumeFailed ? t('Retry') : t('Send and continue') }}
+                        </button>
+                    </div>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -167,7 +175,7 @@ import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { MousePointer, X, Monitor, ArrowLeft, ArrowRight, RotateCw, Globe, ExternalLink, Loader2 } from 'lucide-vue-next';
 import LiveViewer from './LiveViewer.vue';
-import { resumeSession, browseUrl } from '@/api/agent';
+import { browseUrl, endTakeover, getTakeoverNavigationHistory, takeoverNavigate } from '@/api/agent';
 import {
     Dialog,
     DialogContent,
@@ -247,6 +255,9 @@ const handleNavigate = () => {
 };
 
 const cancelNavigation = () => {
+    if (sessionId.value) {
+        void takeoverNavigate(sessionId.value, 'stop').catch(() => undefined);
+    }
     if (cancelNavigationFn) {
         cancelNavigationFn();
         cancelNavigationFn = null;
@@ -254,21 +265,42 @@ const cancelNavigation = () => {
     isNavigating.value = false;
 };
 
+const syncCurrentUrlFromHistory = async () => {
+    if (!sessionId.value) return;
+    try {
+        const history = await getTakeoverNavigationHistory(sessionId.value);
+        const current = history.entries[history.current_index];
+        if (current?.url) {
+            urlInput.value = current.url;
+        }
+    } catch {
+        // Best effort only
+    }
+};
+
 const navigateBack = () => {
-    // Navigate back via keyboard shortcut forwarded to sandbox
-    // Since we can't directly call CDP Page.goBack, we set the URL bar hint
-    // and let the user use the browser's native back (Alt+Left)
-    urlInput.value = '';
+    if (!sessionId.value) return;
+    void takeoverNavigate(sessionId.value, 'back')
+        .then(() => syncCurrentUrlFromHistory())
+        .catch(() => undefined);
 };
 
 const navigateForward = () => {
-    urlInput.value = '';
+    if (!sessionId.value) return;
+    void takeoverNavigate(sessionId.value, 'forward')
+        .then(() => syncCurrentUrlFromHistory())
+        .catch(() => undefined);
 };
 
 const reloadPage = () => {
-    if (urlInput.value && sessionId.value) {
-        handleNavigate();
-    }
+    if (!sessionId.value) return;
+    isNavigating.value = true;
+    void takeoverNavigate(sessionId.value, 'reload')
+        .then(() => syncCurrentUrlFromHistory())
+        .catch(() => undefined)
+        .finally(() => {
+            isNavigating.value = false;
+        });
 };
 
 const openExternal = () => {
@@ -288,6 +320,7 @@ const handleTakeOverEvent = (event: Event) => {
 // Live preview event handlers
 const onLivePreviewConnected = () => {
     // Live preview connection established
+    void syncCurrentUrlFromHistory();
 };
 
 const onLivePreviewDisconnected = (_reason?: string) => {
@@ -329,37 +362,55 @@ const handleExitClick = () => {
     showExitDialog.value = true;
 };
 
-// Handle dialog submission - exit and optionally notify agent of changes
+// Track exit-in-progress to show loading state on the submit button
+const exitLoading = ref(false);
+// Track resume failure so UI can offer a retry
+const resumeFailed = ref(false);
+
+// Handle dialog submission - exit and optionally resume agent
 const handleExitWithContext = async () => {
     const currentSession = sessionId.value;
+    if (!currentSession || exitLoading.value) return;
+
     const contextText = userContext.value || '';
     const persistLogin = persistLoginState.value;
 
-    // Close dialog first
-    showExitDialog.value = false;
+    exitLoading.value = true;
+    resumeFailed.value = false;
 
-    // Update local state
+    try {
+        // End takeover via API — must succeed before closing UI
+        const status = await endTakeover(currentSession, {
+            context: contextText.trim() || undefined,
+            persist_login_state: persistLogin || undefined,
+            resume_agent: true,
+        });
+
+        if (status.takeover_state !== 'idle') {
+            // Resume failed — backend stayed in takeover_active; surface retry
+            resumeFailed.value = true;
+            return;
+        }
+    } catch {
+        // Network/server error — surface retry rather than silently closing
+        resumeFailed.value = true;
+        return;
+    } finally {
+        exitLoading.value = false;
+    }
+
+    // Resume confirmed — close UI and notify parent
+    showExitDialog.value = false;
     takeOverActive.value = false;
     currentSessionId.value = '';
     window.dispatchEvent(new CustomEvent('takeover', {
         detail: { sessionId: currentSession, active: false }
     }));
 
-    // Notify agent of user's browser changes (context injection only, agent was never paused)
-    if (currentSession && (contextText.trim() || persistLogin)) {
-        try {
-            await resumeSession(currentSession, {
-                context: contextText || undefined,
-                persist_login_state: persistLogin || undefined
-            });
-        } catch {
-            // Context injection failed — agent continues regardless
-        }
-    }
-
     // Reset dialog state for next time
     userContext.value = '';
     persistLoginState.value = false;
+    resumeFailed.value = false;
 };
 
 // Expose sessionId for parent component to use
