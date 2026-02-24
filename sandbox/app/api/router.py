@@ -12,6 +12,7 @@ from app.api.v1 import (
     screenshot,
     screencast,
     input,
+    navigation,
 )
 
 api_router = APIRouter()
@@ -26,3 +27,4 @@ api_router.include_router(export.router, prefix="/export", tags=["export"])
 api_router.include_router(screenshot.router, prefix="/screenshot", tags=["screenshot"])
 api_router.include_router(screencast.router, prefix="/screencast", tags=["screencast"])
 api_router.include_router(input.router, prefix="/input", tags=["input"])
+api_router.include_router(navigation.router, prefix="/navigation", tags=["navigation"])
