@@ -22,6 +22,21 @@ class SessionStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class TakeoverState(str, Enum):
+    """Takeover lifecycle state for browser takeover control.
+
+    Transitions:
+        idle -> takeover_requested -> takeover_active -> resuming -> idle
+    Failure: takeover_requested -> idle (pause failed)
+    Failure: resuming stays takeover_active (resume failed, user can retry)
+    """
+
+    IDLE = "idle"
+    TAKEOVER_REQUESTED = "takeover_requested"
+    TAKEOVER_ACTIVE = "takeover_active"
+    RESUMING = "resuming"
+
+
 class AgentMode(str, Enum):
     """Agent mode enum - determines which flow to use"""
 
@@ -95,6 +110,8 @@ class Session(BaseModel):
 
     # Browser takeover settings
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
+    takeover_state: TakeoverState = TakeoverState.IDLE  # Takeover lifecycle state
+    takeover_reason: str | None = None  # Reason for current takeover (manual|captcha|login|2fa|payment|verification)
 
     def get_last_plan(self) -> Plan | None:
         """Get the last plan from the events"""
