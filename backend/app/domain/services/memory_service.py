@@ -687,6 +687,60 @@ class MemoryService:
         results.sort(key=score_key, reverse=True)
         return results[:limit]
 
+    async def extract_incremental(
+        self,
+        user_id: str,
+        turns_content: list[str],
+        session_id: str | None = None,
+    ) -> None:
+        """Extract and persist memories mid-session using pattern matching only.
+
+        Fast, non-blocking, no LLM call. Detects preferences, facts, and corrections
+        from recent conversation turns and stores them immediately.
+
+        Args:
+            user_id: User ID
+            turns_content: Recent turn content strings to scan
+            session_id: Optional session ID for tagging
+        """
+        if not turns_content:
+            return
+
+        extracted: list[tuple[str, MemoryType]] = []
+
+        for content in turns_content:
+            # Check preference patterns
+            for pattern in PREFERENCE_PATTERNS:
+                match = re.search(pattern, content)
+                if match:
+                    extracted.append((content.strip()[:500], MemoryType.PREFERENCE))
+                    break
+            else:
+                # Check fact patterns
+                for pattern in FACT_PATTERNS:
+                    match = re.search(pattern, content)
+                    if match:
+                        extracted.append((content.strip()[:500], MemoryType.FACT))
+                        break
+
+        if not extracted:
+            return
+
+        for content, mem_type in extracted:
+            try:
+                await self.store_memory(
+                    user_id=user_id,
+                    content=content,
+                    memory_type=mem_type,
+                    importance=MemoryImportance.MEDIUM,
+                    source=MemorySource.USER_INFERRED,
+                    session_id=session_id,
+                    generate_embedding=True,
+                )
+                logger.debug("Incremental memory stored: %s", content[:80])
+            except Exception:
+                logger.debug("Failed to store incremental memory", exc_info=True)
+
     async def extract_from_conversation(
         self, user_id: str, conversation: list[dict[str, str]], session_id: str | None = None
     ) -> list[ExtractedMemory]:
