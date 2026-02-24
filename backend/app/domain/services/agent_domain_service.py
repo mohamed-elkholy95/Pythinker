@@ -614,7 +614,9 @@ class AgentDomainService:
                 # Check for cancellation (SSE disconnect)
                 if cancel_token.is_cancelled():
                     task.cancel()
-                    await self._teardown_session_runtime(session_id, status=SessionStatus.CANCELLED, destroy_sandbox=False)
+                    await self._teardown_session_runtime(
+                        session_id, status=SessionStatus.CANCELLED, destroy_sandbox=False
+                    )
                     logger.info("Session %s cancelled during event loop", session_id)
                     return
 

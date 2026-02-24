@@ -268,7 +268,9 @@ class SessionLifecycleService:
 
         return {
             "session_id": session_id,
-            "takeover_state": session.takeover_state.value if hasattr(session.takeover_state, 'value') else str(session.takeover_state),
+            "takeover_state": session.takeover_state.value
+            if hasattr(session.takeover_state, "value")
+            else str(session.takeover_state),
             "reason": session.takeover_reason,
         }
 
