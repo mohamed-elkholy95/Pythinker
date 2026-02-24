@@ -1127,8 +1127,10 @@ async def chat(
                     # Retrieve result to suppress "Task exception was never retrieved"
                     with contextlib.suppress(Exception):
                         task.result()
-            with contextlib.suppress(Exception):
+            try:
                 await stream_iter.aclose()
+            except Exception as _aclose_exc:
+                logger.warning("stream_iter.aclose() raised for session %s: %s", session_id, _aclose_exc)
         except asyncio.CancelledError:
             # Client disconnected - log and gracefully terminate
             # CRITICAL FIX: Close the stream_iter to clean up orphaned agent_service.chat()
@@ -1140,8 +1142,10 @@ async def chat(
                             await task
                     with contextlib.suppress(Exception):
                         task.result()
-            with contextlib.suppress(Exception):
+            try:
                 await stream_iter.aclose()
+            except Exception as _aclose_exc:
+                logger.warning("stream_iter.aclose() raised for session %s: %s", session_id, _aclose_exc)
             logger.warning(f"Chat stream cancelled for session {session_id} (client disconnected)")
             disconnect_event.set()
             close_reason = "generator_cancelled"
