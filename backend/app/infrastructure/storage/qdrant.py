@@ -42,7 +42,15 @@ COLLECTION_INDEXES: dict[str, list[str]] = {
     "task_artifacts": ["user_id", "session_id", "artifact_type", "agent_role"],
     "tool_logs": ["user_id", "session_id", "tool_name", "outcome"],
     "semantic_cache": ["context_hash", "model"],
-    "conversation_context": ["session_id", "user_id", "role", "event_type", "turn_number", "created_at"],
+    "conversation_context": [
+        "session_id",
+        "user_id",
+        "role",
+        "event_type",
+        "turn_number",
+        "created_at",
+        "content_hash",
+    ],
 }
 
 # Fields that require INTEGER index type instead of KEYWORD
