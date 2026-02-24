@@ -129,7 +129,9 @@ def _redact_query_params(url: str, sensitive_keys: set[str] | None = None) -> st
                 redacted_pairs.append((key, "***"))
             else:
                 redacted_pairs.append((key, value))
-        return urlunsplit((split.scheme, split.netloc, split.path, urlencode(redacted_pairs, doseq=True), split.fragment))
+        return urlunsplit(
+            (split.scheme, split.netloc, split.path, urlencode(redacted_pairs, doseq=True), split.fragment)
+        )
     except Exception:
         return url
 
@@ -1052,9 +1054,7 @@ async def chat(
                         and reconnect_first_non_heartbeat_seconds is None
                         and not _is_heartbeat_progress_event(event)
                     ):
-                        reconnect_first_non_heartbeat_seconds = (
-                            asyncio.get_running_loop().time() - stream_started_at
-                        )
+                        reconnect_first_non_heartbeat_seconds = asyncio.get_running_loop().time() - stream_started_at
                         pm.record_sse_reconnect_first_non_heartbeat(
                             endpoint="chat",
                             latency_seconds=reconnect_first_non_heartbeat_seconds,
