@@ -1118,6 +1118,41 @@ class AgentService:
             logger.info(f"Session {session_id} resumed successfully")
         return result
 
+    async def start_takeover(self, session_id: str, user_id: str, reason: str = "manual") -> bool:
+        """Start browser takeover, pausing agent first.
+
+        Args:
+            session_id: Session ID to take over
+            user_id: User ID for ownership verification
+            reason: Reason for takeover (manual|captcha|login|2fa|payment|verification)
+        """
+        return await self._session_lifecycle_service.start_takeover(session_id, user_id, reason=reason)
+
+    async def end_takeover(
+        self,
+        session_id: str,
+        user_id: str,
+        context: str | None = None,
+        persist_login_state: bool | None = None,
+        resume_agent: bool = True,
+    ) -> bool:
+        """End browser takeover and optionally resume the agent.
+
+        Args:
+            session_id: Session ID to end takeover for
+            user_id: User ID for ownership verification
+            context: Optional context about changes made during takeover
+            persist_login_state: Optional flag to persist browser login state
+            resume_agent: Whether to resume the agent
+        """
+        return await self._session_lifecycle_service.end_takeover(
+            session_id, user_id, context=context, persist_login_state=persist_login_state, resume_agent=resume_agent
+        )
+
+    async def get_takeover_status(self, session_id: str, user_id: str) -> dict:
+        """Get takeover status for a session."""
+        return await self._session_lifecycle_service.get_takeover_status(session_id, user_id)
+
     async def rename_session(self, session_id: str, user_id: str, title: str) -> None:
         """Rename a session, ensuring it belongs to the user"""
         logger.info(f"Renaming session {session_id} for user {user_id} to '{title}'")
