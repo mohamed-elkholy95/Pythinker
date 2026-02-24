@@ -253,7 +253,17 @@ export function useErrorReporter() {
     try {
       const stored = sessionStorage.getItem(STORAGE_KEY)
       if (stored) {
-        errors.value = JSON.parse(stored)
+        const parsed: ErrorEntry[] = JSON.parse(stored)
+        // Drop persisted code-bug errors (ReferenceError / TypeError) — these are
+        // artefacts of old code that has since been fixed. Re-surfacing them after
+        // a deploy creates phantom banners that the user cannot dismiss permanently.
+        const isCodeBug = (e: ErrorEntry) =>
+          e.message.includes('is not a function') ||
+          e.message.includes('is not defined') ||
+          e.message.includes('Cannot read propert')
+        errors.value = parsed.filter(e => !isCodeBug(e))
+        // If we dropped anything, persist the cleaned list immediately
+        if (errors.value.length !== parsed.length) persistErrors()
       }
     } catch {
       // Invalid data, ignore
