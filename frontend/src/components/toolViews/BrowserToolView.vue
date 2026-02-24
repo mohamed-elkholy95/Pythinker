@@ -121,6 +121,7 @@ import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import LiveViewer from '@/components/LiveViewer.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import { getToolDisplay } from '@/utils/toolDisplay';
+import { startTakeover } from '@/api/agent';
 
 const props = defineProps<{
   sessionId: string;
@@ -327,10 +328,27 @@ watch(() => props.toolContent?.content?.screenshot, (screenshot) => {
 }, { immediate: true });
 
 // Take over
-const takeOver = () => {
-  window.dispatchEvent(new CustomEvent('takeover', {
-    detail: { sessionId: props.sessionId, active: true }
-  }));
+const takeoverLoading = ref(false);
+
+const takeOver = async () => {
+  if (!props.sessionId || takeoverLoading.value) return;
+
+  takeoverLoading.value = true;
+  try {
+    // Pause agent first via takeover API
+    const status = await startTakeover(props.sessionId, 'manual');
+
+    // Only enter takeover UI when backend confirms agent is paused
+    if (status.takeover_state !== 'takeover_active') return;
+
+    window.dispatchEvent(new CustomEvent('takeover', {
+      detail: { sessionId: props.sessionId, active: true }
+    }));
+  } catch {
+    // Takeover start failed — agent was not paused, don't enter takeover mode
+  } finally {
+    takeoverLoading.value = false;
+  }
 };
 </script>
 

@@ -415,7 +415,7 @@ import type { PlanEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { getToolDisplay, extractToolUrl } from '@/utils/toolDisplay';
-import { viewFile, viewShellSession, browseUrl } from '@/api/agent';
+import { viewFile, viewShellSession, browseUrl, startTakeover } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
@@ -1243,13 +1243,27 @@ const hide = () => {
   emit('hide');
 };
 
-const takeOver = () => {
-  if (!props.sessionId) return;
+const takeoverLoading = ref(false);
 
-  // Agent keeps working during takeover — no pause
-  window.dispatchEvent(new CustomEvent('takeover', {
-    detail: { sessionId: props.sessionId, active: true }
-  }));
+const takeOver = async () => {
+  if (!props.sessionId || takeoverLoading.value) return;
+
+  takeoverLoading.value = true;
+  try {
+    // Pause agent first via takeover API
+    const status = await startTakeover(props.sessionId, 'manual');
+
+    // Only enter takeover UI when backend confirms agent is paused
+    if (status.takeover_state !== 'takeover_active') return;
+
+    window.dispatchEvent(new CustomEvent('takeover', {
+      detail: { sessionId: props.sessionId, active: true }
+    }));
+  } catch {
+    // Takeover start failed — agent was not paused, don't enter takeover mode
+  } finally {
+    takeoverLoading.value = false;
+  }
 };
 
 const jumpToRealTime = () => {
