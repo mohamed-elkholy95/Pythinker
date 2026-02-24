@@ -1068,7 +1068,7 @@ class BaseAgent:
                             security_suggestions=security_assessment.suggestions,
                             confirmation_state=confirmation_state,
                         )
-                        yield WaitEvent()
+                        yield WaitEvent(wait_reason="user_input", suggest_user_takeover="none")
                         return
 
                     # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
@@ -1190,7 +1190,7 @@ class BaseAgent:
                             security_suggestions=security_assessment.suggestions,
                             confirmation_state=confirmation_state,
                         )
-                        yield WaitEvent()
+                        yield WaitEvent(wait_reason="user_input", suggest_user_takeover="none")
                         return
                     # ORPHANED TASK FIX: Check cancellation BEFORE emitting tool event
                     # Prevents tools from starting if SSE disconnect happened
