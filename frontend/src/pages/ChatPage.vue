@@ -41,11 +41,35 @@
             </button>
             <ResearchModeBadge :mode="sessionResearchMode" />
           </div>
-          <!-- Right: Buttons -->
-          <div class="flex items-center gap-1 flex-shrink-0">
-              <span class="relative flex-shrink-0" aria-expanded="false" aria-haspopup="dialog">
-                <Popover>
-                  <PopoverTrigger>
+	          <!-- Right: Buttons -->
+	          <div class="flex items-center gap-1 flex-shrink-0">
+              <div class="chat-view-toggle" role="tablist" aria-label="Chat display mode">
+                <button
+                  type="button"
+                  class="chat-view-toggle-btn"
+                  :class="{ 'chat-view-toggle-btn-active': chatViewMode === 'chat' }"
+                  role="tab"
+                  :aria-selected="chatViewMode === 'chat'"
+                  @click="handleChatViewModeChange('chat')"
+                >
+                  <MessageSquareText :size="14" />
+                  <span>Chat</span>
+                </button>
+                <button
+                  type="button"
+                  class="chat-view-toggle-btn"
+                  :class="{ 'chat-view-toggle-btn-active': chatViewMode === 'reasoning' }"
+                  role="tab"
+                  :aria-selected="chatViewMode === 'reasoning'"
+                  @click="handleChatViewModeChange('reasoning')"
+                >
+                  <GitBranch :size="14" />
+                  <span>Reasoning</span>
+                </button>
+              </div>
+	              <span class="relative flex-shrink-0" aria-expanded="false" aria-haspopup="dialog">
+	                <Popover>
+	                  <PopoverTrigger>
                     <button
                       class="h-7 min-w-[56px] px-2 rounded-[8px] inline-flex items-center gap-1.5 clickable border border-[var(--border-main)] hover:border-[var(--border-dark)] hover:bg-[var(--fill-tsp-white-main)] transition-all">
                       <ShareIcon color="var(--icon-secondary)" />
@@ -126,10 +150,11 @@
         <!-- Right side - spacer -->
         <div class="flex-1"></div>
       </div>
-      <div
-        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1"
-        :class="{ 'chat-content-with-pinned-dock': shouldPinComposerToBottom }"
-      >
+	      <div
+          v-if="chatViewMode === 'chat'"
+	        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1"
+	        :class="{ 'chat-content-with-pinned-dock': shouldPinComposerToBottom }"
+	      >
         <div
           class="flex flex-col w-full pb-[80px] pt-[24px] flex-1"
           :class="{
@@ -149,6 +174,7 @@
             :isFastSearchSession="sessionResearchMode === 'fast_search'"
             :activeReasoningState="message.id === activeAssistantMessageId ? activeReasoningState : undefined"
             :thinkingText="message.id === activeAssistantMessageId ? thinkingText : undefined"
+            :liveActivity="message.id === activeAssistantMessageId ? liveActivity : undefined"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -367,10 +393,21 @@
             @fileClick="handleAttachmentFileClick"
             expand-direction="up"
           />
-        </div>
+	        </div>
+	      </div>
+      <div
+        v-else
+        class="mx-auto w-full max-w-full px-5 sm:max-w-[1280px] flex flex-col flex-1 min-h-0 pb-3"
+      >
+        <ReasoningTreeView
+          class="flex-1 min-h-0"
+          :messages="messages"
+          :activeReasoningState="activeReasoningState"
+          :thinkingText="thinkingText"
+        />
       </div>
-      <!-- Wide Research UI removed — behavior absorbed into Deep Research mode -->
-      </div>
+	      <!-- Wide Research UI removed — behavior absorbed into Deep Research mode -->
+	      </div>
 
       <div v-if="isToolPanelOpen && !isMobileViewport" class="relative h-full w-[8px] flex-shrink-0">
         <div
@@ -465,17 +502,18 @@
 
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
-import type { ReasoningStage } from '@/components/ReasoningPipeline.vue';
+import type { ReasoningStage, LiveActivity } from '@/components/ReasoningPipeline.vue';
 import { ref, computed, onMounted, watch, nextTick, onUnmounted, reactive, toRefs, shallowRef, triggerRef } from 'vue';
 import { useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
 import { useDocumentVisibility } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
+import ReasoningTreeView from '@/components/reasoning/ReasoningTreeView.vue';
 import * as agentApi from '../api/agent';
 import type { ThinkingMode } from '../api/agent';
 import type { SSECallbacks, SSEGapInfo } from '../api/client';
-import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent } from '../types/message';
+import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent, ThoughtContent } from '../types/message';
 import { waitForSessionReady } from '@/utils/sessionReady';
 import {
   StepEventData,
@@ -497,11 +535,12 @@ import {
   CanvasUpdateEventData,
   ToolStreamEventData,
   WorkspaceEventData,
+  ThoughtEventData,
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
 import ContextPanel from '../components/ContextPanel.vue'
-import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight, Menu, Database } from 'lucide-vue-next';
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight, Menu, Database, MessageSquareText, GitBranch } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import { downloadFile } from '../api/file';
@@ -746,6 +785,36 @@ const {
   timeoutReason,
   activeReasoningState,
 } = toRefs(state);
+
+const chatViewMode = ref<'chat' | 'reasoning'>('chat');
+
+// Track latest running step description for NeuralFlow
+const lastStepDescription = ref<string | undefined>(undefined)
+
+// Build live activity object for NeuralFlow from the latest tool + planning state
+const liveActivity = computed<LiveActivity>(() => ({
+  toolName: lastTool.value?.name,
+  toolStatus: lastTool.value?.status,
+  toolArgs: lastTool.value?.args,
+  stepDescription: lastStepDescription.value,
+  progressMessage: planningProgress.value?.message,
+}))
+
+const canOpenLiveViewPanel = computed(() => chatViewMode.value !== 'reasoning');
+
+const showToolPanelIfAllowed = (tool: ToolContent, isLive: boolean) => {
+  if (!canOpenLiveViewPanel.value) return false;
+  toolPanel.value?.showToolPanel(tool, isLive);
+  return true;
+};
+
+const handleChatViewModeChange = (mode: 'chat' | 'reasoning') => {
+  chatViewMode.value = mode;
+  if (mode === 'reasoning') {
+    toolPanel.value?.hideToolPanel(false);
+    panelToolId.value = undefined;
+  }
+};
 
 // Buffer for tool_stream events that arrive before tool(calling)
 // Keyed by tool_call_id → { content, functionName, contentType }
@@ -1344,6 +1413,7 @@ const cleanupStreamingState = () => {
   allowStandaloneSummaryOnNextAssistant.value = false;
   isInitializing.value = false;
   planningProgress.value = null;
+  lastStepDescription.value = undefined;
   stopPlanningMessageCycle();
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value = null;
@@ -1940,9 +2010,11 @@ const effectiveCanStepBackward = computed(() =>
 
 // Handle opening the panel from TaskProgressBar
 const handleOpenPanel = () => {
+  if (!canOpenLiveViewPanel.value) return;
   if (lastNoMessageTool.value) {
-    toolPanel.value?.showToolPanel(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value));
-    panelToolId.value = lastNoMessageTool.value.tool_call_id;
+    if (showToolPanelIfAllowed(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value))) {
+      panelToolId.value = lastNoMessageTool.value.tool_call_id;
+    }
   } else if (sessionId.value) {
     // Allow opening panel even without tool content - show live sandbox view
     const placeholderTool: ToolContent = {
@@ -1953,8 +2025,9 @@ const handleOpenPanel = () => {
       status: 'called',
       timestamp: Math.floor(Date.now() / 1000),
     };
-    toolPanel.value?.showToolPanel(placeholderTool, true);
-    panelToolId.value = placeholderTool.tool_call_id;
+    if (showToolPanelIfAllowed(placeholderTool, true)) {
+      panelToolId.value = placeholderTool.tool_call_id;
+    }
   }
 };
 
@@ -2201,9 +2274,45 @@ const handleToolStreamEvent = (data: ToolStreamEventData) => {
   });
 }
 
+// Map tool function names → NeuralFlow reasoning stage
+const TOOL_STAGE_MAP: Record<string, ReasoningStage> = {
+  // Search / retrieval
+  web_search: 'retrieval',
+  search: 'retrieval',
+  tavily_search: 'retrieval',
+  serper_search: 'retrieval',
+  brave_search: 'retrieval',
+  duckduckgo_search: 'retrieval',
+  // Browser
+  browser_navigate: 'retrieval',
+  browser_click: 'retrieval',
+  browser_input: 'retrieval',
+  browser_screenshot: 'retrieval',
+  browser_agent: 'retrieval',
+  browser: 'retrieval',
+  // File ops
+  read_file: 'parsing',
+  write_file: 'generation',
+  list_files: 'parsing',
+  file_read: 'parsing',
+  file_write: 'generation',
+  // Terminal / code execution
+  terminal: 'planning',
+  run_terminal_cmd: 'planning',
+  execute_code: 'generation',
+  bash: 'generation',
+  python: 'generation',
+  // Memory / knowledge
+  remember: 'intent',
+  recall: 'intent',
+  memory_search: 'intent',
+};
+
 // Handle tool event
 const handleToolEvent = (toolData: ToolEventData) => {
-  activeReasoningState.value = 'retrieval';
+  const toolName = (toolData.function_name || '').toLowerCase();
+  const mappedStage = TOOL_STAGE_MAP[toolName];
+  activeReasoningState.value = mappedStage ?? 'retrieval';
   const lastStep = getLastStep();
   // Merge buffered streaming content into the tool content
   const buffered = streamingContentBuffer.get(toolData.tool_call_id);
@@ -2240,14 +2349,14 @@ const handleToolEvent = (toolData: ToolEventData) => {
   if (toolContent.name !== 'message') {
     lastNoMessageTool.value = toolContent;
     upsertToolTimeline(toolContent);
-    if (realTime.value) {
+    if (realTime.value && canOpenLiveViewPanel.value) {
       panelToolId.value = toolContent.tool_call_id;
       if (isToolPanelOpen.value) {
         // Auto-switch panel content when panel is open and new tool starts
-        toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
+        showToolPanelIfAllowed(toolContent, isLiveTool(toolContent));
       } else if (!userDismissedPanel.value) {
         // Auto-open panel on first tool event (user hasn't dismissed it yet)
-        toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
+        showToolPanelIfAllowed(toolContent, isLiveTool(toolContent));
       }
     }
   }
@@ -2264,8 +2373,26 @@ const handleToolEvent = (toolData: ToolEventData) => {
   }
 }
 
+// Map agent phase_type → NeuralFlow reasoning stage
+const PHASE_TYPE_STAGE_MAP: Partial<Record<string, ReasoningStage>> = {
+  planning:    'planning',
+  research:    'retrieval',
+  execution:   'generation',
+  verification:'quality_checking',
+  reflection:  'quality_checking',
+  search:      'retrieval',
+  browsing:    'retrieval',
+  coding:      'generation',
+  analysis:    'intent',
+  summarize:   'generation',
+};
+
 // Handle phase event - creates/updates phase message groups
 const handlePhaseEvent = (phaseData: import('../types/event').AgentPhaseEventData) => {
+  if (phaseData.status === 'started' && phaseData.phase_type) {
+    const mapped = PHASE_TYPE_STAGE_MAP[phaseData.phase_type.toLowerCase()];
+    if (mapped) activeReasoningState.value = mapped;
+  }
   if (phaseData.status === 'started') {
     messages.value.push({
       id: generateMessageId(),
@@ -2314,6 +2441,14 @@ const findActivePhaseMessage = (phaseId: string | undefined) => {
 
 // Handle step event
 const handleStepEvent = (stepData: StepEventData) => {
+  // Sync NeuralFlow with step lifecycle
+  if (stepData.status === 'running' || stepData.status === 'started') {
+    activeReasoningState.value = 'planning';
+    lastStepDescription.value = stepData.description
+  } else if (stepData.status === 'completed') {
+    activeReasoningState.value = 'quality_checking';
+    lastStepDescription.value = undefined
+  }
   const lastStep = getLastStep();
   if (stepData.status === 'running' || stepData.status === 'started') {
     // Check if a running step with the same ID already exists (progressive update pattern)
@@ -2391,6 +2526,69 @@ const handleStepEvent = (stepData: StepEventData) => {
       }
     }
   }
+}
+
+const THOUGHT_STAGE_MAP: Record<NonNullable<ThoughtEventData['thought_type']>, ReasoningStage> = {
+  observation: 'parsing',
+  analysis: 'intent',
+  hypothesis: 'planning',
+  conclusion: 'quality_checking',
+};
+
+const getLatestRunningStep = (): StepContent | undefined => {
+  return [...messages.value]
+    .reverse()
+    .filter((message) => message.type === 'step')
+    .map((message) => message.content as StepContent)
+    .find((step) => step.status === 'running' || step.status === 'started');
+};
+
+const handleThoughtEvent = (thoughtData: ThoughtEventData) => {
+  if (thoughtData.thought_type && THOUGHT_STAGE_MAP[thoughtData.thought_type]) {
+    activeReasoningState.value = THOUGHT_STAGE_MAP[thoughtData.thought_type];
+  }
+
+  if (thoughtData.status === 'chain_complete') {
+    activeReasoningState.value = 'quality_checking';
+  }
+
+  const thoughtText = thoughtData.content?.trim();
+  if (!thoughtText) {
+    return;
+  }
+
+  const thoughtContent: ThoughtContent = {
+    id: thoughtData.event_id || `thought-${Date.now()}`,
+    text: thoughtText,
+    thought_type: thoughtData.thought_type,
+    confidence: thoughtData.confidence,
+    timestamp: thoughtData.timestamp,
+  };
+
+  const runningStep = getLatestRunningStep();
+  if (!runningStep) {
+    return;
+  }
+
+  if (!runningStep.items) {
+    runningStep.items = [];
+  }
+
+  const thoughtAlreadyPresent = runningStep.items.some((item) => {
+    if (item.type !== 'thought') return false;
+    const existingThought = item.content as ThoughtContent;
+    return existingThought.id === thoughtContent.id || existingThought.text === thoughtContent.text;
+  });
+
+  if (thoughtAlreadyPresent) {
+    return;
+  }
+
+  runningStep.items.push({
+    type: 'thought',
+    timestamp: thoughtData.timestamp || Math.floor(Date.now() / 1000),
+    content: thoughtContent,
+  });
 }
 
 // Handle error event (backend-sent error with structured data)
@@ -2989,6 +3187,8 @@ const processEvent = (event: AgentSSEEvent) => {
     handleStepEvent(event.data as StepEventData);
   } else if (event.event === 'phase') {
     handlePhaseEvent(event.data as import('../types/event').AgentPhaseEventData);
+  } else if (event.event === 'thought') {
+    handleThoughtEvent(event.data as ThoughtEventData);
   } else if (event.event === 'done') {
     activeReasoningState.value = 'completed';
     dismissConnectionBanner();
@@ -3570,12 +3770,14 @@ const isLiveTool = (tool: ToolContent) => {
 
 const showToolFromTimeline = (index: number) => {
   if (toolTimeline.value.length === 0) return;
+  if (!canOpenLiveViewPanel.value) return;
   const clampedIndex = Math.max(0, Math.min(index, toolTimeline.value.length - 1));
   const tool = toolTimeline.value[clampedIndex];
   if (!tool) return;
   realTime.value = false;
-  panelToolId.value = tool.tool_call_id;
-  toolPanel.value?.showToolPanel(tool, isLiveTool(tool));
+  if (showToolPanelIfAllowed(tool, isLiveTool(tool))) {
+    panelToolId.value = tool.tool_call_id;
+  }
 }
 
 const handleTimelineStepForward = () => {
@@ -3600,17 +3802,21 @@ const handleTimelineSeek = (progress: number) => {
 
 const handleToolClick = (tool: ToolContent) => {
   realTime.value = false;
+  if (!canOpenLiveViewPanel.value) return;
   if (sessionId.value) {
-    toolPanel.value?.showToolPanel(tool, isLiveTool(tool));
-    panelToolId.value = tool.tool_call_id;
+    if (showToolPanelIfAllowed(tool, isLiveTool(tool))) {
+      panelToolId.value = tool.tool_call_id;
+    }
   }
 }
 
 const jumpToRealTime = () => {
   realTime.value = true;
+  if (!canOpenLiveViewPanel.value) return;
   if (lastNoMessageTool.value) {
-    toolPanel.value?.showToolPanel(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value));
-    panelToolId.value = lastNoMessageTool.value.tool_call_id;
+    if (showToolPanelIfAllowed(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value))) {
+      panelToolId.value = lastNoMessageTool.value.tool_call_id;
+    }
   }
 }
 
@@ -3885,6 +4091,41 @@ const handleCopyLink = async () => {
 
 .chat-model-pill:hover {
   background: var(--fill-tsp-white-main);
+}
+
+.chat-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--border-main);
+  background: var(--background-menu-white);
+}
+
+.chat-view-toggle-btn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.chat-view-toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--fill-tsp-white-main);
+}
+
+.chat-view-toggle-btn-active {
+  color: var(--text-primary);
+  border-color: var(--border-main);
+  background: var(--background-white-main);
 }
 
 .chat-title-text {

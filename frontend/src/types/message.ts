@@ -45,6 +45,8 @@ export interface MessageContent extends BaseContent {
   content: string;
   /** When true, user upgraded this message via "Use Agent Mode" CTA; show compact badge */
   agentModeUpgrade?: boolean;
+  /** Confidence tier based on internal evaluation (from report_12.md) */
+  confidence?: 'high' | 'moderate' | 'low';
 }
 
 export interface ToolContent extends BaseContent {
