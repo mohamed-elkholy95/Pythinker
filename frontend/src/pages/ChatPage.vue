@@ -1799,7 +1799,6 @@ const isTaskCompleted = computed(() =>
 const showTaskProgressBar = computed(() =>
   !showSessionWarmupMessage.value &&
   !isToolPanelOpen.value &&
-  !isTaskCompleted.value &&
   (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
 );
 
