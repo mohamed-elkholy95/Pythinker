@@ -201,6 +201,24 @@
 
           <!-- Waiting for user reply indicator -->
           <WaitingForReply v-if="isWaitingForReply" />
+          <div
+            v-if="isWaitingForReply && showTakeoverCta"
+            class="mt-2 mb-1 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 dark:border-blue-900/40 dark:bg-blue-950/20"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <p class="text-sm text-blue-800 dark:text-blue-300">
+                {{ takeoverCtaMessage }}
+              </p>
+              <button
+                type="button"
+                class="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="takeoverStarting"
+                @click="handleStartTakeoverFromCta"
+              >
+                {{ takeoverStarting ? 'Starting...' : 'Take over browser' }}
+              </button>
+            </div>
+          </div>
 
           <!-- Still working notice - heartbeats arriving but no real events -->
           <!-- Hide when warmup message is shown to avoid overlapping "taking longer" + "unstable" messages -->
@@ -543,11 +561,12 @@ import {
   ToolStreamEventData,
   WorkspaceEventData,
   ThoughtEventData,
+  WaitEventData,
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
 import ContextPanel from '../components/ContextPanel.vue'
-import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight, Menu, Database, MessageSquareText, GitBranch } from 'lucide-vue-next';
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check, Menu, Database, MessageSquareText, GitBranch } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import { downloadFile } from '../api/file';
@@ -725,6 +744,8 @@ const createInitialState = () => ({
   isInitializing: false, // True when starting up the sandbox environment
   planningProgress: null as { phase: 'received' | 'analyzing' | 'planning' | 'finalizing'; message: string; percent: number; estimatedDurationSeconds?: number; complexityCategory?: 'simple' | 'medium' | 'complex' } | null, // Planning progress
   isWaitingForReply: false, // True when agent is waiting for user input
+  showTakeoverCta: false, // Show one-click takeover CTA for captcha/login waits
+  takeoverCtaReason: undefined as string | undefined,
   followUpAnchorEventId: undefined as string | undefined, // Event ID to anchor follow-up context to
   pendingFollowUpSuggestion: undefined as string | undefined, // Suggestion waiting to be sent
   assistantCompletionFooterIds: new Set<string>(), // Assistant message IDs that should show green completion footer
@@ -778,6 +799,8 @@ const {
   isInitializing,
   planningProgress,
   isWaitingForReply,
+  showTakeoverCta,
+  takeoverCtaReason,
   followUpAnchorEventId,
   pendingFollowUpSuggestion,
   assistantCompletionFooterIds,
@@ -807,6 +830,63 @@ const liveActivity = computed<LiveActivity>(() => ({
   stepDescription: lastStepDescription.value,
   progressMessage: planningProgress.value?.message,
 }))
+
+const takeoverStarting = ref(false);
+const TAKEOVER_WAIT_REASONS = new Set(['captcha', 'login', '2fa', 'payment', 'verification']);
+
+const clearTakeoverCta = () => {
+  showTakeoverCta.value = false;
+  takeoverCtaReason.value = undefined;
+};
+
+const setTakeoverCtaFromMetadata = (waitReason?: string, takeoverSuggestion?: string) => {
+  const normalizedReason = (waitReason || '').trim().toLowerCase();
+  const normalizedSuggestion = (takeoverSuggestion || '').trim().toLowerCase();
+  const shouldShow = normalizedSuggestion === 'browser' || TAKEOVER_WAIT_REASONS.has(normalizedReason);
+
+  showTakeoverCta.value = shouldShow;
+  takeoverCtaReason.value = shouldShow && normalizedReason ? normalizedReason : undefined;
+};
+
+const takeoverCtaMessage = computed(() => {
+  switch ((takeoverCtaReason.value || '').toLowerCase()) {
+    case 'captcha':
+      return 'Captcha detected. Take over the browser to continue.';
+    case 'login':
+      return 'Login required. Take over the browser to continue.';
+    case '2fa':
+      return '2FA verification required. Take over the browser to continue.';
+    case 'payment':
+      return 'Payment verification required. Take over the browser to continue.';
+    case 'verification':
+      return 'Manual verification required. Take over the browser to continue.';
+    default:
+      return 'The agent is waiting for your browser input. Take over to continue.';
+  }
+});
+
+const handleStartTakeoverFromCta = async () => {
+  if (!sessionId.value || takeoverStarting.value) return;
+  takeoverStarting.value = true;
+  try {
+    const reason = takeoverCtaReason.value || 'manual';
+    const status = await agentApi.startTakeover(sessionId.value, reason);
+    if (status.takeover_state !== 'takeover_active') {
+      showErrorToast('Unable to start browser takeover. Please try again.');
+      return;
+    }
+    clearTakeoverCta();
+    window.dispatchEvent(
+      new CustomEvent('takeover', {
+        detail: { sessionId: sessionId.value, active: true },
+      }),
+    );
+  } catch {
+    showErrorToast('Unable to start browser takeover. Please try again.');
+  } finally {
+    takeoverStarting.value = false;
+  }
+};
 
 const canOpenLiveViewPanel = computed(() => chatViewMode.value !== 'reasoning');
 
@@ -2322,7 +2402,8 @@ const TOOL_STAGE_MAP: Record<string, ReasoningStage> = {
 
 // Handle tool event
 const handleToolEvent = (toolData: ToolEventData) => {
-  const toolName = (toolData.function_name || '').toLowerCase();
+  const functionName = (((toolData as unknown as Record<string, unknown>).function_name as string) || toolData.function || '').toLowerCase();
+  const toolName = functionName;
   const mappedStage = TOOL_STAGE_MAP[toolName];
   activeReasoningState.value = mappedStage ?? 'retrieval';
   const lastStep = getLastStep();
@@ -2382,6 +2463,14 @@ const handleToolEvent = (toolData: ToolEventData) => {
       searchSourcesCache.value.set(toolContent.tool_call_id, sources);
       triggerRef(searchSourcesCache);
     }
+  }
+
+  if (functionName === 'message_ask_user') {
+    const args = toolData.args || {};
+    const waitReason = typeof args.wait_reason === 'string' ? args.wait_reason : undefined;
+    const takeoverSuggestion =
+      typeof args.suggest_user_takeover === 'string' ? args.suggest_user_takeover : undefined;
+    setTakeoverCtaFromMetadata(waitReason, takeoverSuggestion);
   }
 }
 
@@ -3214,6 +3303,7 @@ const processEvent = (event: AgentSSEEvent) => {
     ensureCompletionSuggestions();
     markShortAssistantCompletion();
     isWaitingForReply.value = false;
+    clearTakeoverCta();
     transitionTo('completing') // → auto-settles to 'settled' after 300ms
     // Notify sidebar that session is no longer running
     if (sessionId.value) {
@@ -3227,8 +3317,11 @@ const processEvent = (event: AgentSSEEvent) => {
     // Agent is waiting for user input - show waiting indicator
     dismissConnectionBanner();
     isWaitingForReply.value = true;
+    const waitData = event.data as WaitEventData;
+    setTakeoverCtaFromMetadata(waitData.wait_reason, waitData.suggest_user_takeover);
     transitionTo('settled')
   } else if (event.event === 'error') {
+    clearTakeoverCta();
     const errorData = event.data as ErrorEventData;
     const isRecoverableTimeout = errorData.error_type === 'timeout' && (errorData.recoverable ?? true);
     const isRecoverableStreamGap = errorData.error_code === 'stream_gap_detected';
@@ -3363,6 +3456,7 @@ const chat = async (
     lastSentTime = now;
     showAgentGuidanceCta.value = false;
     agentGuidancePrompt.value = undefined;
+    clearTakeoverCta();
   }
 
   const bypassShortPathLock = bypassShortPathLockOnce.value;
@@ -3385,6 +3479,7 @@ const chat = async (
     clearSelectedSkills();
     suggestions.value = [];
     isWaitingForReply.value = false;
+    clearTakeoverCta();
     transitionTo('settled')
     showAgentGuidanceCta.value = true;
     agentGuidancePrompt.value = normalizedMessage;
@@ -3439,6 +3534,7 @@ const chat = async (
   receivedDoneEvent.value = false;
   lastHeartbeatAt.value = 0;
   isWaitingForReply.value = false;
+  clearTakeoverCta();
   agentModeOriginalPrompt.value = null;
   timeoutReason.value = null;
   activeReasoningState.value = 'idle';
@@ -3872,6 +3968,7 @@ const handleStop = async () => {
   transitionTo('stopped')
   isStale.value = false;
   isWaitingForReply.value = false;
+  clearTakeoverCta();
   cleanupStreamingState();
   // NO ensureCompletionSuggestions() — user intentionally stopped
   sessionStatus.value = SessionStatus.COMPLETED;
