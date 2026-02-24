@@ -691,8 +691,6 @@ const createInitialState = () => ({
   agentModeOriginalPrompt: null as string | null, // Tracks original prompt for agent-mode echo suppression
   timeoutReason: null as 'connection' | 'workflow_idle' | 'workflow_limit' | null, // Discriminates timeout source
   activeReasoningState: 'idle' as ReasoningStage, // Reasoning pipeline state for active assistant message
-  sessionSkillIds: [] as string[], // Skill IDs active in the current session (for ContextPanel)
-  activeEnvVars: [] as string[], // Env var keys active in the current session (for ContextPanel)
 });
 
 // Create reactive state
@@ -746,8 +744,6 @@ const {
   agentModeOriginalPrompt,
   timeoutReason,
   activeReasoningState,
-  sessionSkillIds,
-  activeEnvVars,
 } = toRefs(state);
 
 // Buffer for tool_stream events that arrive before tool(calling)
@@ -3251,11 +3247,6 @@ const chat = async (
 
   try {
     const effectiveSkillIds = getEffectiveSkillIds();
-    const chatOptions: agentApi.ChatOptions = {
-      thinking_mode: options?.thinkingMode,
-      detail_level: options?.detailLevel as agentApi.ChatOptions['detail_level']
-    };
-
     const shouldUseNativeEventSourceResume =
       isEventSourceResumeEnabled() &&
       normalizedMessage.length === 0 &&
