@@ -1,5 +1,6 @@
 """Application service for canvas project management."""
 
+import asyncio
 import json
 import logging
 import uuid
@@ -89,6 +90,17 @@ class CanvasService:
         from app.infrastructure.external.llm import get_llm
 
         self._llm = get_llm()
+        self._project_locks: dict[str, asyncio.Lock] = {}
+        self._project_locks_guard = asyncio.Lock()
+
+    async def _get_project_lock(self, project_id: str) -> asyncio.Lock:
+        """Return a shared async lock for a specific project ID."""
+        async with self._project_locks_guard:
+            lock = self._project_locks.get(project_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._project_locks[project_id] = lock
+            return lock
 
     # --- Project CRUD ---
 
@@ -129,29 +141,37 @@ class CanvasService:
 
     async def update_project(self, project_id: str, project: CanvasProject) -> CanvasProject | None:
         """Update a project (full state save). Auto-saves a version."""
-        existing = await self._repo.find_by_id(project_id)
-        if not existing:
-            return None
+        lock = await self._get_project_lock(project_id)
+        async with lock:
+            existing = await self._repo.find_by_id(project_id)
+            if not existing:
+                return None
 
-        # Auto-save version before overwriting
-        settings = get_settings()
-        version_count = await self._repo.count_versions(project_id)
-        if version_count < settings.canvas_max_versions:
-            version = CanvasVersion(
-                id=str(uuid.uuid4()),
-                project_id=project_id,
-                version=existing.version,
-                name=f"Auto-save v{existing.version}",
-                pages=existing.pages,
-            )
-            await self._repo.save_version(version)
+            # Auto-save version before overwriting
+            settings = get_settings()
+            version_count = await self._repo.count_versions(project_id)
+            if version_count < settings.canvas_max_versions:
+                version = CanvasVersion(
+                    id=str(uuid.uuid4()),
+                    project_id=project_id,
+                    version=existing.version,
+                    name=f"Auto-save v{existing.version}",
+                    pages=existing.pages,
+                )
+                await self._repo.save_version(version)
 
-        project.version = existing.version + 1
-        project.updated_at = datetime.now(UTC)
-        return await self._repo.update(project_id, project)
+            project.version = existing.version + 1
+            project.updated_at = datetime.now(UTC)
+            return await self._repo.update(project_id, project)
 
     async def delete_project(self, project_id: str) -> bool:
-        return await self._repo.delete(project_id)
+        lock = await self._get_project_lock(project_id)
+        async with lock:
+            deleted = await self._repo.delete(project_id)
+        if deleted:
+            async with self._project_locks_guard:
+                self._project_locks.pop(project_id, None)
+        return deleted
 
     # --- Version management ---
 
@@ -160,32 +180,34 @@ class CanvasService:
 
     async def restore_version(self, project_id: str, version: int) -> CanvasProject | None:
         """Restore a project to a previous version."""
-        project = await self._repo.find_by_id(project_id)
-        if not project:
-            return None
+        lock = await self._get_project_lock(project_id)
+        async with lock:
+            project = await self._repo.find_by_id(project_id)
+            if not project:
+                return None
 
-        version_obj = await self._repo.get_version(project_id, version)
-        if not version_obj:
-            return None
+            version_obj = await self._repo.get_version(project_id, version)
+            if not version_obj:
+                return None
 
-        # Save current state as a version first
-        settings = get_settings()
-        version_count = await self._repo.count_versions(project_id)
-        if version_count < settings.canvas_max_versions:
-            save_version = CanvasVersion(
-                id=str(uuid.uuid4()),
-                project_id=project_id,
-                version=project.version,
-                name=f"Before restore to v{version}",
-                pages=project.pages,
-            )
-            await self._repo.save_version(save_version)
+            # Save current state as a version first
+            settings = get_settings()
+            version_count = await self._repo.count_versions(project_id)
+            if version_count < settings.canvas_max_versions:
+                save_version = CanvasVersion(
+                    id=str(uuid.uuid4()),
+                    project_id=project_id,
+                    version=project.version,
+                    name=f"Before restore to v{version}",
+                    pages=project.pages,
+                )
+                await self._repo.save_version(save_version)
 
-        # Restore pages from version
-        project.pages = version_obj.pages
-        project.version = project.version + 1
-        project.updated_at = datetime.now(UTC)
-        return await self._repo.update(project_id, project)
+            # Restore pages from version
+            project.pages = version_obj.pages
+            project.version = project.version + 1
+            project.updated_at = datetime.now(UTC)
+            return await self._repo.update(project_id, project)
 
     # --- Element operations ---
 
@@ -196,17 +218,19 @@ class CanvasService:
         page_index: int = 0,
     ) -> CanvasProject | None:
         """Add an element to a page."""
-        project = await self._repo.find_by_id(project_id)
-        if not project or page_index >= len(project.pages):
-            return None
+        lock = await self._get_project_lock(project_id)
+        async with lock:
+            project = await self._repo.find_by_id(project_id)
+            if not project or page_index >= len(project.pages):
+                return None
 
-        settings = get_settings()
-        if len(project.pages[page_index].elements) >= settings.canvas_max_elements:
-            raise ResourceLimitExceeded(f"Maximum {settings.canvas_max_elements} elements per page")
+            settings = get_settings()
+            if len(project.pages[page_index].elements) >= settings.canvas_max_elements:
+                raise ResourceLimitExceeded(f"Maximum {settings.canvas_max_elements} elements per page")
 
-        project.pages[page_index].elements.append(element)
-        project.updated_at = datetime.now(UTC)
-        return await self._repo.update(project_id, project)
+            project.pages[page_index].elements.append(element)
+            project.updated_at = datetime.now(UTC)
+            return await self._repo.update(project_id, project)
 
     async def modify_element(
         self,
@@ -215,33 +239,37 @@ class CanvasService:
         updates: dict[str, Any],
     ) -> CanvasProject | None:
         """Modify element properties."""
-        project = await self._repo.find_by_id(project_id)
-        if not project:
+        lock = await self._get_project_lock(project_id)
+        async with lock:
+            project = await self._repo.find_by_id(project_id)
+            if not project:
+                return None
+
+            for page in project.pages:
+                for i, el in enumerate(page.elements):
+                    if el.id == element_id:
+                        el_dict = el.model_dump()
+                        el_dict.update(updates)
+                        page.elements[i] = CanvasElement.model_validate(el_dict)
+                        project.updated_at = datetime.now(UTC)
+                        return await self._repo.update(project_id, project)
+
             return None
-
-        for page in project.pages:
-            for i, el in enumerate(page.elements):
-                if el.id == element_id:
-                    el_dict = el.model_dump()
-                    el_dict.update(updates)
-                    page.elements[i] = CanvasElement.model_validate(el_dict)
-                    project.updated_at = datetime.now(UTC)
-                    return await self._repo.update(project_id, project)
-
-        return None
 
     async def delete_elements(self, project_id: str, element_ids: list[str]) -> CanvasProject | None:
         """Delete elements by IDs."""
-        project = await self._repo.find_by_id(project_id)
-        if not project:
-            return None
+        lock = await self._get_project_lock(project_id)
+        async with lock:
+            project = await self._repo.find_by_id(project_id)
+            if not project:
+                return None
 
-        ids_set = set(element_ids)
-        for page in project.pages:
-            page.elements = [el for el in page.elements if el.id not in ids_set]
+            ids_set = set(element_ids)
+            for page in project.pages:
+                page.elements = [el for el in page.elements if el.id not in ids_set]
 
-        project.updated_at = datetime.now(UTC)
-        return await self._repo.update(project_id, project)
+            project.updated_at = datetime.now(UTC)
+            return await self._repo.update(project_id, project)
 
     # --- AI operations ---
 
@@ -355,12 +383,18 @@ class CanvasService:
             logger.info("AI edit produced no operations for project %s", project_id)
             return project
 
-        applied = self._apply_edit_operations(project, plan.operations)
-        if not applied:
-            return project
+        lock = await self._get_project_lock(project_id)
+        async with lock:
+            latest_project = await self._repo.find_by_id(project_id)
+            if not latest_project:
+                return None
 
-        project.updated_at = datetime.now(UTC)
-        return await self._repo.update(project_id, project)
+            applied = self._apply_edit_operations(latest_project, plan.operations)
+            if not applied:
+                return latest_project
+
+            latest_project.updated_at = datetime.now(UTC)
+            return await self._repo.update(project_id, latest_project)
 
     def _apply_edit_operations(
         self,
