@@ -31,6 +31,7 @@
         :style="{ left: citCard.x + 'px', top: citCard.y + 'px' }"
         @mouseenter="keepCard"
         @mouseleave="scheduleHideCard"
+        @click="openCitCardUrl"
       >
         <p class="cit-card-title">{{ citCard.title }}</p>
         <div class="cit-card-footer">
@@ -328,6 +329,7 @@ watch(() => props.editable, (newEditable) => {
 });
 
 // ── Citation reference card handlers ──────────────────────────────────────
+const openCitCardUrl = () => { if (citCard.url) window.open(citCard.url, '_blank', 'noopener,noreferrer'); };
 const keepCard = () => { if (_hideCardTimer) { clearTimeout(_hideCardTimer); _hideCardTimer = null; } };
 const scheduleHideCard = () => { _hideCardTimer = setTimeout(() => { citCard.visible = false; }, 120); };
 
@@ -342,20 +344,20 @@ const _onBadgeOver = (e: MouseEvent) => {
   let domain = badge.dataset.domain ?? '';
   let url = badge.dataset.url ?? '';
 
+  const rawHref = (badge as HTMLAnchorElement).getAttribute?.('href') ?? '';
+  const num = rawHref.replace('#ref-', '');
+
   // Fallback 1: resolve from props.sources (authoritative, index-based).
-  // Covers cases where addReferenceAnchors hasn't stamped this badge yet
-  // (e.g., sources arrived late, content updated, or timing issue).
-  if (!title && !domain) {
-    const rawHref = (badge as HTMLAnchorElement).getAttribute?.('href') ?? '';
-    const num = rawHref.replace('#ref-', '');
+  // Runs when title/domain/url are missing — sources carry the full metadata.
+  if (!title || !url) {
     const srcIdx = parseInt(num, 10) - 1;
     if (srcIdx >= 0 && props.sources?.[srcIdx]) {
       const src = props.sources[srcIdx];
       try {
-        domain = new URL(src.url).hostname.replace(/^www\./, '');
-        title = (src.title || domain).slice(0, 80);
-        url = src.url;
-        // Cache for future hovers
+        const d = new URL(src.url).hostname.replace(/^www\./, '');
+        if (!title) title = (src.title || d).slice(0, 80);
+        if (!domain) domain = d;
+        if (!url) url = src.url;
         badge.dataset.title = title;
         badge.dataset.domain = domain;
         badge.dataset.url = url;
@@ -364,10 +366,8 @@ const _onBadgeOver = (e: MouseEvent) => {
   }
 
   // Fallback 2: resolve from the reference element in the DOM.
-  // Covers cases where the citation number doesn't map to props.sources
-  // (e.g., LLM used non-sequential numbering, or no structured sources).
-  if (!title && !domain) {
-    const rawHref = (badge as HTMLAnchorElement).getAttribute?.('href') ?? '';
+  // Runs when url is still missing after sources lookup.
+  if (!url) {
     const refId = rawHref.startsWith('#') ? rawHref.slice(1) : '';
     if (refId) {
       const proseMirror = contentRef.value?.querySelector('.ProseMirror');
@@ -380,10 +380,10 @@ const _onBadgeOver = (e: MouseEvent) => {
         });
         if (ext) {
           try {
-            domain = new URL(ext.href).hostname.replace(/^www\./, '');
-            title = (ext.textContent?.trim() || domain).slice(0, 64);
+            const d = new URL(ext.href).hostname.replace(/^www\./, '');
+            if (!title) title = (ext.textContent?.trim() || d).slice(0, 64);
+            if (!domain) domain = d;
             url = ext.href;
-            // Cache for future hovers
             badge.dataset.title = title;
             badge.dataset.domain = domain;
             badge.dataset.url = url;
@@ -393,8 +393,9 @@ const _onBadgeOver = (e: MouseEvent) => {
           const bareMatch = refEl.textContent?.match(/https?:\/\/[^\s)<>]+/);
           if (bareMatch) {
             try {
-              domain = new URL(bareMatch[0]).hostname.replace(/^www\./, '');
-              title = domain.slice(0, 64);
+              const d = new URL(bareMatch[0]).hostname.replace(/^www\./, '');
+              if (!title) title = d.slice(0, 64);
+              if (!domain) domain = d;
               url = bareMatch[0];
               badge.dataset.title = title;
               badge.dataset.domain = domain;
@@ -425,12 +426,18 @@ const _onBadgeOut = (e: MouseEvent) => {
   if ((e.target as HTMLElement).closest('a[href^="#ref-"], .ref-list-anchor')) scheduleHideCard();
 };
 
-// Intercept clicks on citation badges (href="#ref-N") — scroll to the
-// reference element instead of triggering browser anchor navigation.
+// Intercept clicks on citation badges (href="#ref-N").
+// If the badge has a resolved external URL, open it in a new tab.
+// Otherwise fall back to scrolling to the reference element.
 const _onBadgeClick = (e: MouseEvent) => {
   const anchor = (e.target as HTMLElement).closest('a[href^="#ref-"]') as HTMLAnchorElement | null;
   if (!anchor) return;
   e.preventDefault();
+  const externalUrl = anchor.dataset.url;
+  if (externalUrl) {
+    window.open(externalUrl, '_blank', 'noopener,noreferrer');
+    return;
+  }
   const refId = anchor.getAttribute('href')!.slice(1);
   const refEl = contentRef.value?.querySelector(`#${refId}`);
   if (refEl) {
