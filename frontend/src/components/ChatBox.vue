@@ -33,6 +33,7 @@
                         <button @click="uploadFile" class="chatbox-attach-btn">
                             <Paperclip :size="16" />
                         </button>
+                        <ExpertiseControl v-model="detailLevel" />
                     </div>
                     <div class="chatbox-actions-right">
                         <button v-if="!isRunning"
@@ -63,6 +64,7 @@ import { Paperclip, Puzzle, X } from 'lucide-vue-next';
 import ConnectorBanner from './connectors/ConnectorBanner.vue';
 import { useSkills } from '@/composables/useSkills';
 import { getCommandMap } from '@/api/skills';
+import ExpertiseControl, { type DetailLevel } from './ExpertiseControl.vue';
 import type { FileInfo } from '../api/file';
 import type { ThinkingMode } from '@/api/agent';
 import { showInfoToast } from '../utils/toast';
@@ -77,12 +79,13 @@ const isComposing = ref(false);
 const chatBoxFileListRef = ref();
 const textareaRef = ref<HTMLTextAreaElement>();
 const thinkingMode = ref<ThinkingMode>('auto');
+const detailLevel = ref<DetailLevel>('detailed');
 
 // Session skill chips: resolve skill IDs to name/id pairs for display
 const sessionSkillChips = computed(() => {
   return sessionSkillIds.value
-    .map((id) => {
-      const skill = availableSkills.value.find((s) => s.id === id);
+    .map((id: string) => {
+      const skill = availableSkills.value.find((s: any) => s.id === id);
       return skill ? { id: skill.id, name: skill.name } : { id, name: id };
     });
 });
@@ -135,7 +138,7 @@ const sendEnabled = computed(() => {
 
 const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void;
-    (e: 'submit', thinkingMode: ThinkingMode): void;
+    (e: 'submit', options: { thinkingMode: ThinkingMode, detailLevel: DetailLevel }): void;
     (e: 'stop'): void;
     (e: 'fileClick', file: FileInfo): void;
 }>();
@@ -155,12 +158,12 @@ const handleEnterKeydown = (event: KeyboardEvent) => {
 
 const handleSubmit = () => {
     if (!sendEnabled.value) return;
-    emit('submit', thinkingMode.value);
+    emit('submit', { thinkingMode: thinkingMode.value, detailLevel: detailLevel.value });
 };
 
 // Reset thinking mode to auto when agent finishes (falling edge of isRunning)
 // so the next task starts fresh on Auto, while preserving the selection during execution
-watch(() => props.isRunning, (running, wasRunning) => {
+watch(() => props.isRunning, (running: boolean, wasRunning: boolean) => {
     if (!running && wasRunning) {
         thinkingMode.value = 'auto';
     }
@@ -187,7 +190,7 @@ const handleConnectorBannerClose = () => {
 // Track which commands have already been auto-detected (prevent repeated toasts)
 const detectedCommands = ref<Set<string>>(new Set());
 
-watch(() => props.modelValue, (value) => {
+watch(() => props.modelValue, (value: string) => {
     hasTextInput.value = value.trim() !== '';
 
     // Reset detected commands when input is cleared (e.g. after send)
@@ -216,7 +219,7 @@ watch(() => props.modelValue, async () => {
 
 watch(
   () => props.showConnectorBanner,
-  (show) => {
+  (show: boolean | undefined) => {
     if (!show) {
       isConnectorBannerClosed.value = false;
     }
@@ -270,7 +273,7 @@ onMounted(async () => {
     border-radius: 22px;
     border: 1px solid var(--border-main);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.02);
-    overflow: hidden;
+    overflow: visible;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
