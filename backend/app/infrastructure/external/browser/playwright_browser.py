@@ -154,6 +154,8 @@ class PlaywrightBrowser:
         # Note: only protects navigate(); other page methods (click, type) rely on
         # SEQUENTIAL_ONLY_TOOLS enforcement in parallel_executor.py as primary safeguard.
         self._navigation_lock = asyncio.Lock()
+        # Keeps strong references to fire-and-forget background tasks (satisfies RUF006).
+        self._background_tasks: set[asyncio.Task] = set()
 
         # Extraction cache for performance (prevents duplicate extractions)
         self._extraction_cache: dict[str, Any] = {
@@ -1122,7 +1124,9 @@ class PlaywrightBrowser:
         self._connection_healthy = False
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._proactive_reconnect())
+            task = loop.create_task(self._proactive_reconnect())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         except RuntimeError:
             pass  # No running event loop; reconnect will happen lazily on next operation
 
