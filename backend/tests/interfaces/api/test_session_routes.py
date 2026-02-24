@@ -30,6 +30,8 @@ from app.interfaces.api.session_routes import (
     input_websocket,
     screencast_websocket,
     stop_session,
+    takeover_navigation_action,
+    takeover_navigation_history,
 )
 from app.interfaces.schemas.session import ChatRequest, FollowUpContext
 
@@ -59,6 +61,19 @@ def test_safe_exc_text_handles_unprintable_exception():
 def test_safe_exc_text_truncates_long_messages():
     error = RuntimeError("x" * 400)
     assert len(_safe_exc_text(error)) == 240
+
+
+def test_safe_exc_text_redacts_sensitive_query_values():
+    error = RuntimeError(
+        "connect failed: ws://sandbox.local/stream?secret=abc123&signature=sig123&uid=user42"
+    )
+    message = _safe_exc_text(error)
+    assert "secret=***" in message
+    assert "signature=***" in message
+    assert "uid=***" in message
+    assert "abc123" not in message
+    assert "sig123" not in message
+    assert "user42" not in message
 
 
 def test_event_phase_label_handles_enum_and_missing_phase():
@@ -148,6 +163,78 @@ async def test_get_shared_screenshot_image_sets_immutable_cache_header():
         screenshot_id=screenshot_id,
         thumbnail=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_takeover_navigation_action_proxies_to_sandbox():
+    session_id = "session-nav-1"
+    current_user = SimpleNamespace(id="user-1")
+    sandbox = SimpleNamespace(base_url="http://sandbox.local")
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(return_value=SimpleNamespace(id=session_id, sandbox_id="sandbox-1"))
+    )
+    sandbox_cls = SimpleNamespace(get=AsyncMock(return_value=sandbox))
+
+    response_mock = MagicMock()
+    response_mock.raise_for_status = MagicMock()
+    response_mock.json = MagicMock(return_value={"ok": True, "message": "Navigated back"})
+
+    client_ctx = AsyncMock()
+    client_ctx.__aenter__.return_value.post = AsyncMock(return_value=response_mock)
+    client_ctx.__aenter__.return_value.get = AsyncMock(return_value=response_mock)
+
+    with patch("app.interfaces.api.session_routes.httpx.AsyncClient", return_value=client_ctx):
+        response = await takeover_navigation_action(
+            session_id=session_id,
+            action="back",
+            current_user=current_user,
+            agent_service=agent_service,
+            sandbox_cls=sandbox_cls,
+        )
+
+    assert response.code == 0
+    assert response.data.action == "back"
+    assert response.data.ok is True
+    assert response.data.message == "Navigated back"
+
+
+@pytest.mark.asyncio
+async def test_takeover_navigation_history_returns_sanitized_payload():
+    session_id = "session-nav-2"
+    current_user = SimpleNamespace(id="user-2")
+    sandbox = SimpleNamespace(base_url="http://sandbox.local")
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(return_value=SimpleNamespace(id=session_id, sandbox_id="sandbox-2"))
+    )
+    sandbox_cls = SimpleNamespace(get=AsyncMock(return_value=sandbox))
+
+    response_mock = MagicMock()
+    response_mock.raise_for_status = MagicMock()
+    response_mock.json = MagicMock(
+        return_value={
+            "current_index": 1,
+            "entries": [
+                {"id": 101, "url": "https://example.com/login", "title": "Login"},
+                {"id": 102, "url": "https://example.com/app", "title": "App"},
+            ],
+        }
+    )
+
+    client_ctx = AsyncMock()
+    client_ctx.__aenter__.return_value.get = AsyncMock(return_value=response_mock)
+
+    with patch("app.interfaces.api.session_routes.httpx.AsyncClient", return_value=client_ctx):
+        response = await takeover_navigation_history(
+            session_id=session_id,
+            current_user=current_user,
+            agent_service=agent_service,
+            sandbox_cls=sandbox_cls,
+        )
+
+    assert response.code == 0
+    assert response.data.current_index == 1
+    assert len(response.data.entries) == 2
+    assert response.data.entries[0].url == "https://example.com/login"
 
 
 # ---------------------------------------------------------------------------
