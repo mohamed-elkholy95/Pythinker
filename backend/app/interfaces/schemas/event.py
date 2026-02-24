@@ -255,8 +255,14 @@ class DoneSSEEvent(BaseSSEEvent):
     event: Literal["done"] = "done"
 
 
+class WaitEventData(BaseEventData):
+    wait_reason: str | None = None
+    suggest_user_takeover: str | None = None
+
+
 class WaitSSEEvent(BaseSSEEvent):
     event: Literal["wait"] = "wait"
+    data: WaitEventData
 
 
 class ErrorEventData(BaseEventData):
