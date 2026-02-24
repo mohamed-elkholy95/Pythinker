@@ -39,6 +39,7 @@ from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_domain_service import AgentDomainService
+from app.domain.services.browser_login_state_store import BrowserLoginStateStore
 from app.domain.services.stream_guard import has_active_stream
 from app.domain.utils.json_parser import JsonParser
 
@@ -1057,6 +1058,12 @@ class AgentService:
 
         await self._session_repository.delete(session_id)
         logger.info(f"Session {session_id} deleted successfully")
+
+        # Clean up persisted login-state files to prevent orphaned auth snapshots
+        try:
+            BrowserLoginStateStore().delete_state(user_id, session_id)
+        except Exception as e:  # pragma: no cover — best-effort cleanup
+            logger.debug("Failed to clean up login state for session %s: %s", session_id, e)
 
     async def stop_session(self, session_id: str, user_id: str) -> None:
         """Stop a session, ensuring it belongs to the user.
