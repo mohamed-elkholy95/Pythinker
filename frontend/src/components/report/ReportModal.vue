@@ -11,6 +11,8 @@
           ? 'w-screen max-w-none h-screen max-h-none rounded-none'
           : 'w-[95vw] max-w-[1180px] h-[90vh] max-h-[900px]'
       )"
+      @interact-outside="onDialogInteractOutside"
+      @pointer-down-outside="onDialogInteractOutside"
     >
       <!-- Header Bar -->
       <div class="modal-header">
@@ -368,12 +370,28 @@ const scrollToTop = () => {
 
 // Intercept clicks on inline citation links (href="#ref-N") before TipTap's
 // openOnClick handler fires, then scroll to the corresponding reference item.
+// Prevent reka-ui Dialog from closing when the user clicks the cit-card popup,
+// which is teleported to <body> and therefore outside the dialog DOM tree.
+const onDialogInteractOutside = (e: Event) => {
+  const target = (e as CustomEvent).detail?.originalEvent?.target as HTMLElement | null
+  if (target?.closest('.cit-card, .msg-cit-card')) {
+    e.preventDefault()
+  }
+}
+
 const handleCitationClick = (e: MouseEvent) => {
   const anchor = (e.target as HTMLElement).closest('a[href^="#ref-"]') as HTMLAnchorElement | null;
   if (!anchor) return;
 
   e.preventDefault();
   e.stopPropagation();
+
+  // If badge has a resolved external URL, open it in a new tab.
+  const externalUrl = (anchor as HTMLAnchorElement).dataset.url;
+  if (externalUrl) {
+    window.open(externalUrl, '_blank', 'noopener,noreferrer');
+    return;
+  }
 
   const refId = anchor.getAttribute('href')!.slice(1); // strip leading '#'
   const refEl = documentContainerRef.value?.querySelector(`[id="${refId}"]`) as HTMLElement | null;
