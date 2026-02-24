@@ -24,7 +24,6 @@ from starlette.responses import Response
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -44,8 +43,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app: Callable):
         super().__init__(app)
+        # Resolve settings in __init__ (not at module import time) so that
+        # test overrides and runtime environment changes are always respected
+        # (IMPORTANT-1).
+        self._settings = get_settings()
         self._headers = self._build_security_headers()
-        logger.info(f"SecurityHeadersMiddleware initialized (environment: {settings.environment})")
+        logger.info(f"SecurityHeadersMiddleware initialized (environment: {self._settings.environment})")
 
     def _build_security_headers(self) -> dict[str, str]:
         """Build security headers based on environment configuration"""
@@ -54,13 +57,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # === HSTS (HTTP Strict Transport Security) ===
         # Force HTTPS for 1 year (31536000 seconds)
         # Context7: Enable only in production with HTTPS
-        if settings.is_production:
+        if self._settings.is_production:
             headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
 
         # === Content Security Policy (CSP) ===
         # Restrict resource loading to prevent XSS attacks
         # Context7: Strict policy for production, relaxed for development
-        if settings.is_production:
+        if self._settings.is_production:
             # Production: Strict CSP
             csp_directives = [
                 "default-src 'self'",
