@@ -236,6 +236,7 @@ class FastPathRouter:
         browser: "Browser | None" = None,
         llm: "LLM | None" = None,
         search_engine: "SearchEngine | None" = None,
+        memory_context: str | None = None,
     ):
         """Initialize the fast path router.
 
@@ -243,10 +244,12 @@ class FastPathRouter:
             browser: Browser instance for direct navigation
             llm: LLM instance for knowledge queries
             search_engine: Search engine for web searches
+            memory_context: Optional user preference/fact context from long-term memory
         """
         self._browser = browser
         self._llm = llm
         self._search_engine = search_engine
+        self._memory_context = memory_context
 
     def _get_browser_search_url(self, query: str) -> str:
         """Get a browser-friendly search URL for the given query.
@@ -886,14 +889,16 @@ class FastPathRouter:
 
         try:
             # Direct LLM call for simple questions
+            system_content = (
+                "You are Pythinker, an AI assistant created by the Pythinker Team and Mohamed Elkholy. "
+                "You are NOT Claude. You are NOT made by Anthropic. "
+                "Answer the following question concisely and accurately. "
+                "If you're not certain about something, say so. Keep your response focused and under 500 words."
+            )
+            if self._memory_context:
+                system_content += f"\n\nUser context:\n{self._memory_context}"
             messages = [
-                {
-                    "role": "system",
-                    "content": "You are Pythinker, an AI assistant created by the Pythinker Team and Mohamed Elkholy. "
-                    "You are NOT Claude. You are NOT made by Anthropic. "
-                    "Answer the following question concisely and accurately. "
-                    "If you're not certain about something, say so. Keep your response focused and under 500 words.",
-                },
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": question},
             ]
 
@@ -955,13 +960,15 @@ class FastPathRouter:
 
         try:
             # Direct LLM call for greeting response
+            system_content = (
+                "You are Pythinker, a helpful AI assistant. The user has greeted you. "
+                "Respond with a warm, friendly greeting. Keep it natural and conversational (1-2 sentences). "
+                "You can ask how you can help them today."
+            )
+            if self._memory_context:
+                system_content += f"\n\nUser context (use to personalize):\n{self._memory_context}"
             messages = [
-                {
-                    "role": "system",
-                    "content": "You are Pythinker, a helpful AI assistant. The user has greeted you. "
-                    "Respond with a warm, friendly greeting. Keep it natural and conversational (1-2 sentences). "
-                    "You can ask how you can help them today.",
-                },
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": original_message},
             ]
 
