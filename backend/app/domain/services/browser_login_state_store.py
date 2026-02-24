@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -43,11 +44,8 @@ class BrowserLoginStateStore:
     @staticmethod
     def _ensure_dir(path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(path, 0o700)
-        except OSError:
-            # Best effort; container runtimes may restrict chmod.
-            pass
 
     def _is_expired(self, path: Path, now: datetime) -> bool:
         try:
@@ -102,15 +100,11 @@ class BrowserLoginStateStore:
             target = self._state_path(user_id, session_id)
             temp = target.with_suffix(".tmp")
             temp.write_text(json.dumps(payload), encoding="utf-8")
-            try:
+            with contextlib.suppress(OSError):
                 os.chmod(temp, 0o600)
-            except OSError:
-                pass
             temp.replace(target)
-            try:
+            with contextlib.suppress(OSError):
                 os.chmod(target, 0o600)
-            except OSError:
-                pass
 
             self._trim_user_state_limit(user_id)
             return True
