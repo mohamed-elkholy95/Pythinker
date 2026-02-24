@@ -619,7 +619,8 @@ async def takeover_navigation_history(
                     title=str(entry.get("title", "")),
                 )
             )
-        except Exception:
+        except Exception as _entry_exc:
+            logger.debug("Skipping malformed navigation history entry: %s", _entry_exc)
             continue
 
     return APIResponse.success(
