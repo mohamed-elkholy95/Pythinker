@@ -1,4 +1,4 @@
-import { ref, computed, onUnmounted, getCurrentInstance } from 'vue'
+import { ref, computed, onScopeDispose } from 'vue'
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'degraded'
 
@@ -291,12 +291,12 @@ export function useSSEConnection(config: SSEConnectionConfig = {}) {
     stopStaleDetection()
   }
 
-  // Cleanup on unmount only when running inside component setup.
-  if (getCurrentInstance()) {
-    onUnmounted(() => {
-      stopStaleDetection()
-    })
-  }
+  // onScopeDispose runs in any reactive scope (component setup, effectScope,
+  // Pinia store), so heartbeat listeners are always cleaned up regardless of
+  // the call site (IMPORTANT-5). getCurrentInstance() guard is no longer needed.
+  onScopeDispose(() => {
+    stopStaleDetection()
+  })
 
   return {
     connectionState,
