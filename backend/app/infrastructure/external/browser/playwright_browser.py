@@ -1114,9 +1114,40 @@ class PlaywrightBrowser:
         Fires when browser application closes, crashes, or CDP connection drops.
         Different from page.on('crash') which only fires for renderer crashes.
         This catches browser process death (kill -9, OOM killer, supervisord restart).
+
+        Schedules a proactive reconnect so the browser is ready before the next
+        user operation rather than waiting for a lazy reconnect on demand.
         """
         logger.error(f"Browser disconnected (CDP: {self.cdp_url}) - marking connection unhealthy")
         self._connection_healthy = False
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._proactive_reconnect())
+        except RuntimeError:
+            pass  # No running event loop; reconnect will happen lazily on next operation
+
+    async def _proactive_reconnect(self, delay: float = 3.0) -> None:
+        """Reconnect after browser disconnect with a short delay.
+
+        Waits briefly for supervisord to restart the Chrome process, then
+        re-initializes the Playwright connection so the browser is ready
+        before the next user operation arrives.
+
+        Args:
+            delay: Seconds to wait before attempting reconnect (allows Chrome to restart).
+        """
+        await asyncio.sleep(delay)
+        if self._connection_healthy:
+            return  # Already recovered via a concurrent operation
+        logger.info(f"Proactive reconnect attempt after browser disconnect (CDP: {self.cdp_url})")
+        try:
+            await self._ensure_browser()
+            if self._connection_healthy:
+                logger.info(f"Proactive reconnect succeeded (CDP: {self.cdp_url})")
+        except Exception as e:
+            logger.warning(
+                f"Proactive reconnect failed (CDP: {self.cdp_url}): {e} — will retry on next operation"
+            )
 
     def is_healthy(self) -> bool:
         """Synchronous health check for fast-path routing.
