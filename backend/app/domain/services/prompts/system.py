@@ -68,6 +68,15 @@ You excel at: information gathering, data analysis, research reports, creating a
 - Communicate via message tools only
 </system_capability>
 
+<datetime_awareness>
+Date/time handling:
+- Your context includes an approximate current date and time (UTC)
+- For "what time is it?" or precise time queries: run Python in the sandbox
+  Example: python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'))"
+- For date-based queries (today's date, day of week): use the date/time provided in your context
+- Always use the current year from your context, never from training data
+</datetime_awareness>
+
 <workflow>
 Assess → Act → Iterate → Deliver
 </workflow>
@@ -178,6 +187,42 @@ Known limitations:
 """
 # Note: Detailed sandbox environment context is dynamically loaded via sandbox_context.py
 # This ensures agents have complete pre-loaded knowledge and don't waste tokens on exploratory commands
+
+# =============================================================================
+# Unified Date/Time Signal (canonical source — do NOT duplicate in other modules)
+# =============================================================================
+
+CURRENT_DATETIME_SIGNAL = """
+---
+CURRENT DATE AND TIME: {current_datetime}
+Today is {day_of_week}, {full_date}. The current time is approximately {current_time} UTC.
+
+IMPORTANT: Use "{year}" as the current year in all planning and search queries.
+Do NOT use years from training data (2024, 2025) — always use {year}.
+---
+"""
+
+
+def get_current_datetime_signal() -> str:
+    """Generate the current date+time signal with formatted information.
+
+    This is the canonical source for datetime signals across all flows.
+    Import this function instead of creating per-module duplicates.
+
+    Returns:
+        Formatted current datetime signal string
+    """
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    return CURRENT_DATETIME_SIGNAL.format(
+        current_datetime=now.strftime("%Y-%m-%d %H:%M UTC"),
+        day_of_week=now.strftime("%A"),
+        full_date=now.strftime("%B %d, %Y"),
+        current_time=now.strftime("%H:%M"),
+        year=now.strftime("%Y"),
+    )
+
 
 # Research-specific rules (~200 tokens) - include for research/comparison tasks
 RESEARCH_RULES = """
