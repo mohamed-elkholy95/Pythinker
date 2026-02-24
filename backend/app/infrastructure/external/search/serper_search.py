@@ -197,6 +197,14 @@ class SerperSearchEngine(SearchEngineBase):
                 query, date_range, f"All {len(self._key_pool.keys)} Serper API keys exhausted after {_attempt} attempts"
             )
 
+        # Sanitize query: reject empty queries, strip whitespace, cap length
+        query = query.strip()
+        if not query:
+            return self._create_error_result(query, date_range, "Serper bad request: empty search query")
+        if len(query) > 500:
+            logger.warning(f"Serper query truncated from {len(query)} to 500 chars")
+            query = query[:500]
+
         # Get healthy key from pool
         key = await self.api_key
         if not key:
