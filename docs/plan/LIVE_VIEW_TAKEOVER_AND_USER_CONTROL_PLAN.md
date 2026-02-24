@@ -1,9 +1,9 @@
 # Live View Takeover and User Control Plan
 
 **Created:** 2026-02-24  
-**Updated:** 2026-02-24 (Updated to reflect active implementation and review findings)  
+**Updated:** 2026-02-24 (Status/gap audit synced to current repository implementation)  
 **Scope:** Live browser view, user takeover control, captcha/login handoff, and login-state persistence  
-**Status:** In Progress (Phase 0 partially implemented)
+**Status:** In Progress (Core implementation landed; security/affinity/test hardening still pending)
 
 ---
 
@@ -41,15 +41,20 @@ The implementation is grounded in current code behavior and validated against:
    - frontend API methods: `startTakeover`, `endTakeover`, `getTakeoverStatus`.
 8. Takeover entry points now call `startTakeover(...)` before opening the takeover UI.
 9. Onboarding copy in `TakeOverView.vue` now matches pause-first behavior.
+10. Takeover navigation controls are wired end-to-end:
+   - sandbox service/route: `cdp_navigation.py` + `api/v1/navigation.py`
+   - backend proxy routes: takeover navigation action/history
+   - frontend takeover UI buttons call the navigation APIs.
+11. Login-state persistence now snapshots (`export_storage_state`) and restores (`import_storage_state`) Playwright storage state with file-backed retention (7-day TTL, max 5 states/user).
+12. Websocket proxy logging now redacts sensitive query params (`secret`, `signature`, `uid`) in URL/error logging paths.
 
 ### 2.2 Gaps requiring implementation
 
 1. Input target selection can diverge from screencast target in multi-page/tab conditions.
-2. WebSocket hardening is still pending:
-   - explicit origin allowlist checks
-   - secret/query redaction for proxy logging paths
-3. Test coverage for takeover lifecycle and new routes is still partial and needs expansion.
-4. Persisted login-state implementation now stores/restores Playwright storage snapshots, but still needs end-to-end validation under reconnect/crash scenarios.
+2. Pause-first arbitration is not fully enforced for all takeover entry paths: `TakeOverView.vue` can still render from route/query fallback (`preview=1`) without first calling `takeover/start`.
+3. WebSocket origin allowlist enforcement is still pending at backend proxy entrypoints.
+4. Test coverage for takeover lifecycle and new routes is still partial and needs expansion.
+5. Persisted login-state implementation stores/restores snapshots, but cleanup on session delete is still missing and reconnect/crash-path end-to-end validation is still pending.
 
 ---
 
@@ -138,7 +143,7 @@ Implement real browser controls via backend/sandbox commands:
 4. Stop loading: `Page.stopLoading`.
 
 > [!NOTE]
-> A new `cdp_navigation.py` service should be created in `sandbox/app/services/` alongside the existing `cdp_screencast.py` and `cdp_input.py`. A corresponding sandbox route at `sandbox/app/api/v1/navigation.py` will expose these as HTTP endpoints.
+> `cdp_navigation.py` and `sandbox/app/api/v1/navigation.py` are now implemented and wired through backend takeover navigation proxy routes.
 
 ### 4.7 Screencast/Input Target Affinity
 
@@ -179,10 +184,12 @@ Completed:
 
 In Progress:
 1. Dedicated takeover lifecycle and route test coverage expansion.
+2. Ensuring all takeover entry paths are pause-first (including route/query fallback behavior).
 
 Not Started:
 1. Input/screencast target-affinity hardening for multi-tab scenarios.
 2. WebSocket origin allowlist enforcement.
+3. Session-delete cleanup hook for persisted login-state files.
 
 ### Backend
 
@@ -221,26 +228,42 @@ Not Started:
 4. Existing chat/session flows remain backward compatible.
 5. Onboarding tooltip accurately describes the pause-first behavior.
 
+> [!NOTE]
+> Criterion #1 is not fully satisfied yet due to the current route/query takeover fallback path (`preview=1`) that can render takeover UI without first calling `takeover/start`.
+
 ---
 
 ## Phase 1: Captcha/Login Handoff + Persisted Auth (P1)
-**Status:** Not Started
+**Status:** In Progress
+
+### Progress Snapshot (2026-02-24)
+
+Completed:
+1. Wait metadata (`wait_reason`, `suggest_user_takeover`) is emitted and consumed.
+2. Chat UI renders explicit takeover CTA for login/captcha/2FA/payment/verification waits.
+3. `persist_login_state` end-to-end wiring exists for takeover exit -> snapshot -> later restore path.
+4. File-backed retention policy exists (7-day TTL, max 5 states/user, restrictive file permissions).
+
+In Progress:
+1. Reconnect/crash-path validation for restored login state.
+
+Not Started:
+1. Cleanup of persisted login-state files on session delete.
 
 ### Backend
 
-1. Add challenge reason classifier for tool outputs:
+1. Validate and tighten challenge reason classifier behavior for tool outputs:
    - `backend/app/domain/services/agents/execution.py`
    - `backend/app/domain/services/tools/playwright_tool.py` (metadata enrichment)
-2. Implement storageState snapshot/restore:
+2. Expand verification for existing storageState snapshot/restore implementation:
    - `backend/app/infrastructure/external/browser/playwright_browser.py`
    - relevant storage/service modules for persisted state files/records
-3. Wire `persist_login_state` from takeover end into restore path.
-4. Retention policy: 7-day TTL, max 5 states per user, cleaned up on session delete.
+3. Add cleanup-on-delete for persisted login state.
 
 ### Frontend
 
 1. Show explicit "Take over to finish login/captcha" prompt on wait reasons.
-2. Collect structured exit summary for handoff-sensitive reasons.
+2. Add/validate structured exit summary capture for handoff-sensitive reasons.
 
 ### Acceptance Criteria
 
@@ -251,23 +274,31 @@ Not Started:
 ---
 
 ## Phase 2: Browser Controls + Target Affinity + Security Hardening (P1)
-**Status:** Not Started
+**Status:** In Progress
+
+### Progress Snapshot (2026-02-24)
+
+Completed:
+1. `cdp_navigation.py` and sandbox navigation API routes are implemented.
+2. Backend takeover navigation proxy routes are implemented.
+3. Frontend takeover nav buttons call real navigation APIs (`back`/`forward`/`reload`/`stop`).
+4. Sensitive query-value redaction is implemented in websocket proxy logging paths.
+
+In Progress:
+1. Input/screencast target-affinity hardening for multi-tab scenarios.
+2. WebSocket origin allowlist enforcement.
 
 ### Sandbox/Backend
 
-1. Create `sandbox/app/services/cdp_navigation.py` for navigation commands:
-   - `go_back()`, `go_forward()`, `reload()`, `stop_loading()`
-   - `get_navigation_history()` for URL bar sync
-2. Add sandbox navigation route at `sandbox/app/api/v1/navigation.py`.
-3. Introduce shared active-target registry for screencast/input alignment.
-4. Add origin checks and sensitive log redaction:
+1. Introduce shared active-target registry for screencast/input alignment.
+2. Add origin checks at websocket proxy entrypoints:
    - `backend/app/interfaces/api/session_routes.py`
    - supporting middleware/dependency if centralized.
 
 ### Frontend
 
-1. Wire takeover nav buttons to real control APIs:
-   - `frontend/src/components/TakeOverView.vue` — replace stub `navigateBack()`, `navigateForward()`, `reloadPage()`
+1. Validate URL-bar/history sync behavior under reconnect and multi-tab transitions:
+   - `frontend/src/components/TakeOverView.vue`
 
 ### Acceptance Criteria
 
@@ -303,10 +334,11 @@ conda activate pythinker && cd backend && ruff check . && ruff format --check . 
 Focused tests to add/update:
 
 1. `backend/tests/interfaces/api/test_session_routes.py`
-   - takeover start/end authorization, idempotency, state transitions.
+   - takeover start/end/status authorization, idempotency, state transitions.
 2. `backend/tests/application/services/test_session_lifecycle_service.py`
    - pause/resume/takeover state transitions and context injection.
-3. New tests around event mapping metadata and login-state persistence path.
+3. New tests for `AgentSessionLifecycle` takeover transitions + resume failure behavior.
+4. New tests around event mapping metadata and login-state persistence path (including delete cleanup once added).
 
 ## Frontend
 
@@ -317,6 +349,7 @@ cd frontend && bun run lint && bun run type-check
 Focused tests to add/update:
 
 1. New tests for `TakeOverView` orchestration and `ChatPage` wait CTA behavior.
+2. New tests to prevent route/query fallback takeover bypass of pause-first arbitration.
 
 ## Sandbox
 
@@ -343,11 +376,8 @@ Mitigation: single target-selection component with tests; fail-safe fallback to 
 
 ## 8. Rollout Strategy
 
-1. Gate Phase 0 behind a single feature flag:
-   - `takeover_v2_enabled` — controls pause-first behavior vs. legacy overlay mode.
-2. Phase 1/2 features behind opt-in until integration tests stabilize:
-   - `persist_login_state_enabled`
-   - `ws_origin_enforcement`
+1. Current implementation is live-by-default; dedicated takeover feature flags (`takeover_v2_enabled`, `persist_login_state_enabled`, `ws_origin_enforcement`) are not currently defined in backend settings.
+2. If staged rollout is required, add explicit feature flags before enabling origin enforcement/affinity changes in production-like environments.
 3. Monitor:
    - takeover success rate
    - pause/resume failure rate
