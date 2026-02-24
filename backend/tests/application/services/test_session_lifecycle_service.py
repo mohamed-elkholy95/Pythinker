@@ -6,7 +6,7 @@ import pytest
 
 from app.application.errors.exceptions import NotFoundError
 from app.application.services.session_lifecycle_service import SessionLifecycleService
-from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.models.session import AgentMode, Session, SessionStatus, TakeoverState
 
 
 @pytest.fixture
@@ -30,6 +30,8 @@ def agent_domain_service():
     service.stop_session = AsyncMock()
     service.pause_session = AsyncMock(return_value=True)
     service.resume_session = AsyncMock(return_value=True)
+    service.start_takeover = AsyncMock(return_value=True)
+    service.end_takeover = AsyncMock(return_value=True)
     return service
 
 
@@ -144,3 +146,70 @@ class TestStopSession:
 
         with pytest.raises(NotFoundError, match="Session not found"):
             await service.stop_session("missing-session", "user-123")
+
+
+class TestTakeoverLifecycle:
+    """Test takeover lifecycle delegation and ownership checks."""
+
+    @pytest.mark.asyncio
+    async def test_start_takeover_delegates_when_session_belongs_to_user(
+        self, service, session_repository, agent_domain_service
+    ):
+        session_id = "session-1"
+        user_id = "user-1"
+        session = Session(agent_id="agent-1", user_id=user_id, mode=AgentMode.AGENT)
+        session.id = session_id
+        session_repository.find_by_id_and_user_id.return_value = session
+
+        result = await service.start_takeover(session_id, user_id, reason="login")
+
+        assert result is True
+        session_repository.find_by_id_and_user_id.assert_awaited_once_with(session_id, user_id)
+        agent_domain_service.start_takeover.assert_awaited_once_with(session_id, reason="login")
+
+    @pytest.mark.asyncio
+    async def test_start_takeover_raises_not_found_for_foreign_session(self, service, session_repository):
+        session_repository.find_by_id_and_user_id.return_value = None
+
+        with pytest.raises(NotFoundError, match="Session not found"):
+            await service.start_takeover("session-2", "user-2", reason="manual")
+
+    @pytest.mark.asyncio
+    async def test_end_takeover_passes_resume_options(self, service, session_repository, agent_domain_service):
+        session_id = "session-3"
+        user_id = "user-3"
+        session = Session(agent_id="agent-1", user_id=user_id, mode=AgentMode.AGENT)
+        session.id = session_id
+        session_repository.find_by_id_and_user_id.return_value = session
+
+        result = await service.end_takeover(
+            session_id,
+            user_id,
+            context="Solved login",
+            persist_login_state=True,
+            resume_agent=False,
+        )
+
+        assert result is True
+        agent_domain_service.end_takeover.assert_awaited_once_with(
+            session_id,
+            context="Solved login",
+            persist_login_state=True,
+            resume_agent=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_takeover_status_returns_session_state(self, service, session_repository):
+        session = Session(agent_id="agent-1", user_id="user-9", mode=AgentMode.AGENT)
+        session.id = "session-9"
+        session.takeover_state = TakeoverState.TAKEOVER_ACTIVE
+        session.takeover_reason = "captcha"
+        session_repository.find_by_id_and_user_id.return_value = session
+
+        status = await service.get_takeover_status("session-9", "user-9")
+
+        assert status == {
+            "session_id": "session-9",
+            "takeover_state": "takeover_active",
+            "reason": "captcha",
+        }
