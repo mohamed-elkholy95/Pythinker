@@ -89,7 +89,13 @@ class RateLimitMiddleware:
     """
 
     # Auth endpoints have stricter limits
-    AUTH_PATHS: ClassVar[set[str]] = {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh"}
+    AUTH_PATHS: ClassVar[set[str]] = {
+        "/api/v1/auth/login",
+        "/api/v1/auth/register",
+        "/api/v1/auth/refresh",
+        "/api/v1/auth/send-verification-code",
+        "/api/v1/auth/reset-password",
+    }
 
     # Exempt paths: SSE long-poll, health checks, lightweight status polls
     EXEMPT_PATHS: ClassVar[set[str]] = {"/api/v1/auth/status", "/health"}

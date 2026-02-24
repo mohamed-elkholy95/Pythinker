@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import secrets
@@ -44,38 +45,52 @@ class EmailService:
         await self.cache.set(key, code_data, ttl=self.VERIFICATION_CODE_EXPIRY_SECONDS)
 
     async def verify_code(self, email: str, code: str) -> bool:
-        """Verify if the provided code is valid for the email"""
+        """Verify if the provided code is valid for the email.
+
+        Uses an atomic Redis increment for the attempt counter to prevent
+        concurrent bypass of the 3-attempt limit.
+        """
         key = f"{self.VERIFICATION_CODE_PREFIX}{email}"
+        attempts_key = f"{key}:attempts"
 
         # Get stored data from cache
         stored_data = await self.cache.get(key)
         if not stored_data:
             return False
 
-        # Check if code has expired (cache TTL should handle this, but double-check)
+        # Check if code has expired (cache TTL handles this, but double-check)
         expires_at = datetime.fromisoformat(stored_data["expires_at"])
-        if datetime.now(UTC) > expires_at:
+        now = datetime.now(UTC)
+        if now > expires_at:
             await self.cache.delete(key)
             return False
 
-        # Check attempts limit (max 3 attempts)
-        if stored_data["attempts"] >= 3:
+        # Atomically increment the attempt counter before checking the code.
+        # This prevents concurrent requests from both seeing attempts < 3 and
+        # both being allowed a verification try (TOCTOU race condition).
+        remaining_ttl = int((expires_at - now).total_seconds())
+        new_attempts = await self.cache.increment(attempts_key, ttl=remaining_ttl if remaining_ttl > 0 else None)
+
+        # Fall back to non-atomic path when cache (e.g. NullCache) returns None
+        if new_attempts is None:
+            stored_attempts = stored_data.get("attempts", 0)
+            if stored_attempts >= 3:
+                await self.cache.delete(key)
+                return False
+            stored_data["attempts"] = stored_attempts + 1
+            if remaining_ttl > 0:
+                await self.cache.set(key, stored_data, ttl=remaining_ttl)
+            new_attempts = stored_data["attempts"]
+
+        if new_attempts > 3:
+            # Too many attempts — invalidate the code
             await self.cache.delete(key)
             return False
 
-        # Increment attempt count
-        stored_data["attempts"] += 1
-
-        # Check if code matches
-        if stored_data["code"] == code:
-            # Remove the code after successful verification
+        # Constant-time comparison to resist timing attacks
+        if secrets.compare_digest(stored_data["code"], code):
             await self.cache.delete(key)
             return True
-
-        # Update attempt count in cache
-        remaining_ttl = int((expires_at - datetime.now(UTC)).total_seconds())
-        if remaining_ttl > 0:
-            await self.cache.set(key, stored_data, ttl=remaining_ttl)
 
         return False
 
@@ -138,11 +153,9 @@ class EmailService:
 
         # Generate verification code
         code = self._generate_verification_code()
-        logger.debug(f"Generated verification code: {code}")
 
         # Create email message
         msg = self._create_verification_email(email, code)
-        logger.debug(f"Created email message: {msg}")
 
         # Send email using SMTP
         await self._send_smtp_email(msg, email)
@@ -153,24 +166,27 @@ class EmailService:
         logger.info(f"Verification code sent to {email}")
 
     async def _send_smtp_email(self, msg: MIMEMultipart, email: str) -> None:
-        """Send email using SMTP (runs in thread pool to avoid blocking)"""
-        logger.debug(f"Sending email to {email}")
-        server = None
-        try:
-            # Create SMTP server connection
-            logger.debug(f"Creating SMTP server connection to {self.settings.email_host}:{self.settings.email_port}")
-            server = smtplib.SMTP_SSL(self.settings.email_host, self.settings.email_port)
-            logger.debug(f"SMTP server created, {server}")
-            result = server.login(self.settings.email_username, self.settings.email_password)
-            logger.debug(f"SMTP server login result: {result}")
+        """Send email using SMTP via thread pool to avoid blocking the event loop."""
+        host = self.settings.email_host
+        port = self.settings.email_port
+        username = self.settings.email_username
+        password = self.settings.email_password
+        text = msg.as_string()
+        from_addr = msg["From"]
 
-            # Send email
-            text = msg.as_string()
-            result = server.sendmail(msg["From"], email, text)
-            logger.debug(f"SMTP server sendmail result: {result}")
-        finally:
-            if server:
-                server.quit()
+        def _smtp_send() -> None:
+            server = None
+            try:
+                logger.debug("Creating SMTP connection to %s:%s", host, port)
+                server = smtplib.SMTP_SSL(host, port, timeout=30)
+                server.login(username, password)
+                server.sendmail(from_addr, email, text)
+                logger.debug("SMTP email sent to %s", email)
+            finally:
+                if server:
+                    server.quit()
+
+        await asyncio.to_thread(_smtp_send)
 
     async def send_rating_email(
         self,
