@@ -22,6 +22,7 @@ from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_task_runner import AgentTaskRunner
+from app.domain.services.browser_login_state_store import BrowserLoginStateStore
 from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
@@ -65,6 +66,7 @@ class AgentTaskFactory:
         self._memory_service = memory_service
         self._usage_recorder = usage_recorder
         self._mongodb_db = mongodb_db
+        self._login_state_store = BrowserLoginStateStore()
 
     async def create_task(self, session: Session, extra_mcp_configs: dict[str, Any] | None = None) -> Task:
         """Create a new agent task.
@@ -296,6 +298,17 @@ class AgentTaskFactory:
         if not browser:
             logger.error(f"Failed to get browser for Sandbox {sandbox_id}")
             raise RuntimeError(f"Failed to get browser for Sandbox {sandbox_id}")
+
+        if should_clear_browser and session.persist_login_state:
+            stored_state = self._login_state_store.load_state(session.user_id, session.id)
+            if stored_state:
+                import_storage_state = getattr(browser, "import_storage_state", None)
+                if callable(import_storage_state):
+                    restored = await import_storage_state(stored_state)
+                    if restored:
+                        logger.info("Restored persisted login state for session %s", session.id)
+                else:
+                    logger.warning("Browser implementation does not support storage-state restore")
 
         await self._session_repository.save(session)
 

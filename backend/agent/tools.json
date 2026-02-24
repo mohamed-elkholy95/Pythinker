@@ -65,6 +65,19 @@
               "browser"
             ],
             "description": "(Optional) Suggested operation for user takeover"
+          },
+          "wait_reason": {
+            "type": "string",
+            "enum": [
+              "user_input",
+              "captcha",
+              "login",
+              "2fa",
+              "payment",
+              "verification",
+              "other"
+            ],
+            "description": "(Optional) Structured reason this prompt requires user intervention"
           }
         },
         "required": [
