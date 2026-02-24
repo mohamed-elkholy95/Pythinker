@@ -170,12 +170,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { MousePointer, X, Monitor, ArrowLeft, ArrowRight, RotateCw, Globe, ExternalLink, Loader2 } from 'lucide-vue-next';
 import LiveViewer from './LiveViewer.vue';
-import { browseUrl, endTakeover, getTakeoverNavigationHistory, takeoverNavigate } from '@/api/agent';
+import { browseUrl, endTakeover, getTakeoverNavigationHistory, startTakeover, takeoverNavigate } from '@/api/agent';
 import {
     Dialog,
     DialogContent,
@@ -329,14 +329,7 @@ const onLivePreviewDisconnected = (_reason?: string) => {
 
 // Calculate whether to show takeover view
 const shouldShow = computed(() => {
-    // Check component state first (from takeover event)
-    if (takeOverActive.value && currentSessionId.value) {
-        return true;
-    }
-
-    // Also check route parameters (for direct URL access or page refresh)
-    const { params: { sessionId }, query: { preview } } = route;
-    return !!sessionId && preview === '1';
+    return takeOverActive.value && !!currentSessionId.value;
 });
 
 // Add event listener when component is mounted
@@ -344,6 +337,24 @@ onMounted(() => {
     window.addEventListener('takeover', handleTakeOverEvent as EventListener);
     checkOnboardingStatus();
 });
+
+// Watch for ?preview=1 on every navigation (handles both initial load and SPA client-side navigation).
+// TakeOverView is mounted globally in MainLayout and never unmounts, so onMounted only fires once;
+// a watch is required to react to subsequent Vue Router navigations.
+watch(
+    () => ({ sessionId: route.params.sessionId, preview: route.query.preview }),
+    async ({ sessionId: routeSessionId, preview }) => {
+        if (routeSessionId && preview === '1' && !takeOverActive.value) {
+            const sid = routeSessionId as string;
+            const status = await startTakeover(sid, 'manual').catch(() => null);
+            if (status?.takeover_state === 'takeover_active') {
+                takeOverActive.value = true;
+                currentSessionId.value = sid;
+            }
+        }
+    },
+    { immediate: true },
+);
 
 
 
