@@ -104,6 +104,28 @@
             </button>
           </div>
 
+          <!-- Right: HTML Code/Preview tabs (inline in panel header) -->
+          <div v-else-if="currentViewType === 'editor' && isHtmlFile" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
+            <button
+              @click="editorViewMode = 'preview'"
+              class="px-2 py-1 text-xs rounded-md transition-colors"
+              :class="editorViewMode === 'preview'
+                ? 'bg-[var(--background-white-main)] text-[var(--text-primary)] shadow-sm'
+                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'"
+            >
+              Preview
+            </button>
+            <button
+              @click="editorViewMode = 'code'"
+              class="px-2 py-1 text-xs rounded-md transition-colors"
+              :class="editorViewMode === 'code'
+                ? 'bg-[var(--background-white-main)] text-[var(--text-primary)] shadow-sm'
+                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'"
+            >
+              Code
+            </button>
+          </div>
+
           <!-- Right: Chart mode controls (inline in panel header) -->
           <div v-else-if="currentViewType === 'chart'" class="absolute right-3 flex items-center gap-2">
             <div class="flex items-center gap-1 p-0.5 rounded-md bg-[var(--background-gray-light)]">
@@ -285,6 +307,8 @@
               :filename="fileName"
               :is-writing="isWriting"
               :is-loading="isEditorLoading"
+              :view-mode="isHtmlFile ? editorViewMode : 'code'"
+              :is-html-file="isHtmlFile"
             />
           </div>
 
@@ -528,6 +552,17 @@ const showBrowserControls = computed(() => {
 });
 const chartViewMode = ref<'interactive' | 'static'>('interactive');
 
+// HTML file detection and editor view mode (Code / Preview)
+const HTML_PREVIEW_EXTENSIONS = new Set(['.html', '.htm', '.svg']);
+const isHtmlFile = computed(() => {
+  const name = fileName.value.toLowerCase();
+  if (!name) return false;
+  const dotIdx = name.lastIndexOf('.');
+  if (dotIdx < 0) return false;
+  return HTML_PREVIEW_EXTENSIONS.has(name.slice(dotIdx));
+});
+const editorViewMode = ref<'code' | 'preview'>('preview');
+
 const chartPayload = computed(() => {
   return (props.toolContent?.content || {}) as Record<string, unknown>;
 });
@@ -654,6 +689,7 @@ watch(
   () => props.toolContent?.tool_call_id,
   () => {
     chartViewMode.value = 'interactive';
+    editorViewMode.value = 'preview';
   },
   { immediate: true }
 );
