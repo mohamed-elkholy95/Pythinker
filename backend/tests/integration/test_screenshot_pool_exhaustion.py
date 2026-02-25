@@ -26,6 +26,9 @@ def _build_screenshot_service(mock_sandbox: Mock) -> ScreenshotCaptureService:
         minio_storage=minio_storage,
     )
 
+    # Bypass startup readiness gate (tested separately in unit tests)
+    service._ready.set()
+
     # Keep integration behavior but make retries fast for deterministic tests.
     service._settings.screenshot_http_retry_delay = 0.01
     service._settings.screenshot_circuit_recovery_seconds = 1

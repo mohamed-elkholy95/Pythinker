@@ -138,6 +138,7 @@ async def test_screenshot_service_skips_capture_when_circuit_open():
     minio.store_thumbnail = AsyncMock(side_effect=lambda data, key, **kw: key)
 
     service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session", minio_storage=minio)
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
 
     # Open the circuit by recording failures
     if service._circuit_breaker:

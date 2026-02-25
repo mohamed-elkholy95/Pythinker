@@ -63,6 +63,7 @@ async def test_capture_records_success_metrics():
         repository=repository,
         minio_storage=minio,
     )
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
 
     screenshot = await service.capture(ScreenshotTrigger.TOOL_AFTER)
 
@@ -84,6 +85,7 @@ async def test_capture_records_error_metrics_when_image_is_empty():
         repository=repository,
         minio_storage=minio,
     )
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
 
     screenshot = await service.capture(ScreenshotTrigger.PERIODIC)
 
@@ -146,6 +148,7 @@ async def test_periodic_capture_stops_after_repeated_failures():
         repository=repository,
         minio_storage=minio,
     )
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
     service._max_periodic_failures = 2
 
     service._periodic_task = asyncio.create_task(asyncio.sleep(60))
@@ -167,6 +170,7 @@ async def test_periodic_capture_uses_tool_context_metadata():
         repository=repository,
         minio_storage=minio,
     )
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
     service.set_tool_context(
         tool_call_id="call-123",
         tool_name="browser",
