@@ -263,6 +263,10 @@ class PlanActFlow(BaseFlow):
         # WP-6: CheckpointManager for cross-restart workflow persistence
         self._checkpoint_manager = checkpoint_manager
 
+        # Phase 4: Track selected prompt variant so record_outcome() can close the bandit loop
+        self._selected_prompt_variant_id: str | None = None
+        self._planning_start_time: float | None = None
+
         # Conversation context: real-time retrieval for step execution
         from app.domain.services.conversation_context_service import get_conversation_context_service
 
@@ -455,6 +459,26 @@ class PlanActFlow(BaseFlow):
                 feature_flags=feature_flags,
             )
             logger.info(f"VerifierAgent enabled for Agent {agent_id}")
+
+        # Phase 3: ReflectionAgent for mid-execution course correction and memory write-back.
+        # Wired here so the default PlanActFlow path benefits from reflection — previously
+        # only the deprecated PlanActGraphFlow invoked the reflector.
+        self._reflection_agent = None
+        if flags.get("feature_meta_cognition_enabled", True):
+            try:
+                from app.domain.services.agents.reflection import ReflectionAgent
+
+                self._reflection_agent = ReflectionAgent(
+                    llm=llm,
+                    json_parser=json_parser,
+                    feature_flags=feature_flags,
+                    memory_service=memory_service,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+                logger.debug("ReflectionAgent initialized for PlanActFlow (default path)")
+            except Exception as _refl_err:
+                logger.warning("ReflectionAgent unavailable: %s", _refl_err)
 
         # Track background tasks for cleanup
         self._background_tasks: set = set()
@@ -2519,13 +2543,22 @@ class PlanActFlow(BaseFlow):
                                     base_prompt=self.planner.system_prompt,
                                     num_variants=3,
                                 )
-                                _best_variant = _optimizer.get_best_variant("planner")
+                                # Bootstrap phase: allow selection with 0 trials so the bandit
+                                # can accumulate outcomes before enforcing MIN_TRIALS filter.
+                                _best_variant = _optimizer.get_best_variant(
+                                    "planner", min_trials=0
+                                )
                                 if _best_variant and _best_variant.prompt_template:
                                     self.planner.system_prompt = _best_variant.prompt_template
+                                    # Track which variant was applied so record_outcome() can
+                                    # close the feedback loop at COMPLETED/ERROR state.
+                                    self._selected_prompt_variant_id = _best_variant.variant_id
+                                    self._planning_start_time = time.time()
                                     logger.debug(
-                                        "Phase 4: Applied prompt variant '%s' for planner (success_rate=%.2f)",
+                                        "Phase 4: Applied prompt variant '%s' for planner (success_rate=%.2f, trials=%d)",
                                         _best_variant.variant_id,
                                         _best_variant.success_rate,
+                                        _best_variant.total_trials,
                                     )
                             except Exception as _var_err:
                                 logger.debug(
@@ -2757,6 +2790,40 @@ class PlanActFlow(BaseFlow):
                             )
                             if last_completed_index >= 0:
                                 await self._write_checkpoint(last_completed_index, is_final=True)
+
+                        # Phase 3: Reflection memory write-back — wire ReflectionAgent into
+                        # the default PlanActFlow path so TASK_OUTCOME memories accumulate
+                        # for cross-session learning (previously only in deprecated PlanActGraphFlow).
+                        if self._reflection_agent is not None and self.plan is not None:
+                            try:
+                                from app.domain.models.reflection import (
+                                    ProgressMetrics as _ProgressMetrics,
+                                    ReflectionTriggerType as _ReflectionTriggerType,
+                                )
+
+                                _completed = [s for s in self.plan.steps if s.status == ExecutionStatus.COMPLETED]
+                                _failed = [s for s in self.plan.steps if not s.success and s.status != ExecutionStatus.BLOCKED]
+                                _progress = _ProgressMetrics(
+                                    steps_completed=len(_completed),
+                                    steps_remaining=0,
+                                    total_steps=len(self.plan.steps),
+                                    successful_actions=len(_completed),
+                                    failed_actions=len(_failed),
+                                    errors=[s.notes or "" for s in _failed if s.notes],
+                                )
+                                _trigger = self._reflection_agent.should_reflect(_progress)
+                                if _trigger is not None:
+                                    async for _refl_event in self._reflection_agent.reflect(
+                                        goal=message.message if hasattr(message, "message") else "",
+                                        plan=self.plan,
+                                        progress=_progress,
+                                        trigger_type=_trigger,
+                                    ):
+                                        await self._check_cancelled()
+                                        yield _refl_event
+                            except Exception as _refl_err:
+                                logger.debug("Reflection skipped (non-critical): %s", _refl_err)
+
                         self._transition_to(AgentStatus.SUMMARIZING)
                         continue
 
@@ -3380,6 +3447,35 @@ class PlanActFlow(BaseFlow):
                     logger.info(f"Agent {self._agent_id} plan has been completed")
                     yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)
 
+                    # Phase 4: Close the Thompson-sampling feedback loop by recording
+                    # a successful outcome for the variant used during planning.
+                    if self._selected_prompt_variant_id and settings.feature_prompt_profile_runtime:
+                        try:
+                            from app.domain.services.agents.learning.prompt_optimizer import (
+                                PromptOutcome,
+                                get_prompt_optimizer,
+                            )
+
+                            _latency_ms = (
+                                (time.time() - self._planning_start_time) * 1000
+                                if self._planning_start_time
+                                else None
+                            )
+                            get_prompt_optimizer().record_outcome(
+                                "planner",
+                                PromptOutcome(
+                                    variant_id=self._selected_prompt_variant_id,
+                                    success=True,
+                                    latency_ms=_latency_ms,
+                                ),
+                            )
+                            logger.debug(
+                                "Phase 4: Recorded successful outcome for prompt variant '%s'",
+                                self._selected_prompt_variant_id,
+                            )
+                        except Exception as _rec_err:
+                            logger.debug("Prompt outcome recording skipped (non-critical): %s", _rec_err)
+
                     # Cross-session learning: persist error patterns at session end
                     if self._memory_service:
                         try:
@@ -3419,6 +3515,25 @@ class PlanActFlow(BaseFlow):
                             )
                     except Exception as health_err:
                         logger.debug(f"Health assessment failed: {health_err}")
+
+                # Phase 4: Record failure outcome so the bandit learns from bad variants
+                if self._selected_prompt_variant_id and settings.feature_prompt_profile_runtime:
+                    try:
+                        from app.domain.services.agents.learning.prompt_optimizer import (
+                            PromptOutcome,
+                            get_prompt_optimizer,
+                        )
+
+                        get_prompt_optimizer().record_outcome(
+                            "planner",
+                            PromptOutcome(
+                                variant_id=self._selected_prompt_variant_id,
+                                success=False,
+                                error=str(e)[:200],
+                            ),
+                        )
+                    except Exception:
+                        pass
 
                 # If not recoverable, yield error and exit
                 if not self._error_context.recoverable:
