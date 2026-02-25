@@ -79,6 +79,12 @@
               <span class="text-xs text-blue-500 font-medium">Writing</span>
             </div>
           </div>
+          <div v-else-if="shellProgress" class="absolute left-3 flex items-center gap-2">
+            <div class="flex items-center gap-1.5">
+              <div class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+              <span class="text-xs text-emerald-600 font-medium">{{ shellProgress }}</span>
+            </div>
+          </div>
 
           <!-- Center: Operation label or resource -->
           <div class="text-[var(--text-tertiary)] text-sm font-medium max-w-[300px] flex items-center justify-center gap-1.5 min-w-0">
@@ -668,6 +674,19 @@ const isActiveOperation = computed(() => {
   return toolStatus.value === 'calling' || toolStatus.value === 'running';
 });
 
+// Shell execution progress badge (from ToolProgressEvent)
+const shellProgress = computed(() => {
+  if (!isActiveOperation.value) return '';
+  const tc = props.toolContent;
+  if (!tc?.elapsed_ms) return '';
+  const seconds = Math.round(tc.elapsed_ms / 1000);
+  const pct = tc.progress_percent;
+  if (pct !== undefined && pct > 0) {
+    return `Running ${seconds}s (${pct}%)`;
+  }
+  return `Running ${seconds}s`;
+});
+
 // File operations
 const isFileWriting = computed(() => {
   return toolFunction.value === 'file_write' && toolStatus.value === 'calling';
@@ -891,13 +910,14 @@ const terminalContent = computed(() => {
 
     const content = props.toolContent?.content;
     if (!content) {
+      // Live shell streaming: show command prefix + real-time output
+      if (isActiveOperation.value && props.toolContent?.streaming_content) {
+        const prefix = command ? `$ ${command}\n` : '';
+        return `${prefix}${props.toolContent.streaming_content}`;
+      }
       // During execution, show a message indicating the command is running
       if (isActiveOperation.value && command) {
         return `$ ${command}\n[executing...]`;
-      }
-      // For code execution, show streaming code preview if available
-      if (isActiveOperation.value && props.toolContent?.streaming_content) {
-        return props.toolContent.streaming_content;
       }
       return '';
     }
