@@ -61,6 +61,7 @@ from app.core.config_sandbox import (
     SandboxSettingsMixin,
     ScreenshotSettingsMixin,
 )
+from app.core.config_scraping import ScrapingSettingsMixin
 
 # Re-export enums for backward compatibility (existing code imports from config)
 __all__ = ["FlowMode", "Settings", "StreamingMode", "get_feature_flags", "get_settings"]
@@ -101,6 +102,7 @@ class Settings(
     TypoCorrectionSettingsMixin,
     PromptOptimizationSettingsMixin,
     KnowledgeBaseSettingsMixin,
+    ScrapingSettingsMixin,
     # BaseSettings must come last
     BaseSettings,
 ):
