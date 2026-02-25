@@ -39,6 +39,7 @@ from app.domain.services.agents.tool_stream_parser import (
 if TYPE_CHECKING:
     from app.domain.external.circuit_breaker import CircuitBreakerPort
     from app.domain.utils.cancellation import CancellationToken
+from app.domain.models.tool_name import ToolName
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.context_manager import SandboxContextManager
 from app.domain.services.tools.base import BaseTool
@@ -51,27 +52,11 @@ from app.domain.utils.json_parser import JsonParser
 logger = logging.getLogger(__name__)
 
 # Tools that are safe to execute in parallel (read-only, no side effects)
-SAFE_PARALLEL_TOOLS = {
-    # Search operations - excluded to run sequentially for better context
-    # "info_search_web",  # Run searches one-by-one so agent can react to each result
-    # File read operations
-    "file_read",
-    "file_search",
-    "file_list_directory",
-    # Browser read operations
-    # "search" removed — now navigates browser for live preview, must be sequential
-    "browser_view",
-    # Code executor read-only operations
-    "code_list_artifacts",
-    "code_read_artifact",
-    # MCP read-only tools (pattern matching)
-    "mcp_list_resources",
-    "mcp_read_resource",
-    "mcp_server_status",
-}
+# Canonical source: ToolName.safe_parallel_tools()
+SAFE_PARALLEL_TOOLS = ToolName.safe_parallel_tools()
 
 # MCP tool prefixes that are safe for parallel execution (read-only patterns)
-SAFE_MCP_PREFIXES = {"mcp_get_", "mcp_list_", "mcp_search_", "mcp_read_", "mcp_fetch_"}
+SAFE_MCP_PREFIXES = ToolName._SAFE_MCP_PREFIXES
 
 # Maximum number of concurrent tool executions (increased for better throughput)
 MAX_CONCURRENT_TOOLS = 5
@@ -98,45 +83,11 @@ class BaseAgent:
 
     # Phase-based tool filtering: keeps active tool count <20 per phase
     # to reduce hallucination (OpenAI guidance: accuracy drops above ~20 tools)
-    PHASE_TOOL_GROUPS: ClassVar[dict[str, set[str] | None]] = {
-        "planning": {
-            "file_read",
-            "file_list",
-            "file_list_directory",
-            "file_search",
-            "file_find",
-            "info_search_web",
-            "wide_research",
-            "browser_navigate",
-            "browser_view",
-            "browser_get_content",
-            "workspace_info",
-            "workspace_tree",
-            "shell_exec",
-            "shell_view",
-            "message_ask_user",
-            "message_notify_user",
-            "code_list_artifacts",
-            "code_read_artifact",
-        },
+    # Canonical source: ToolName.for_phase()
+    PHASE_TOOL_GROUPS: ClassVar[dict[str, frozenset[ToolName] | None]] = {
+        "planning": ToolName.for_phase("planning"),
         "executing": None,  # None = all tools available
-        "verifying": {
-            "file_read",
-            "file_list",
-            "file_list_directory",
-            "file_search",
-            "shell_exec",
-            "shell_view",
-            "browser_navigate",
-            "browser_view",
-            "browser_get_content",
-            "test_run",
-            "test_list",
-            "code_execute",
-            "code_list_artifacts",
-            "code_read_artifact",
-            "message_ask_user",
-        },
+        "verifying": ToolName.for_phase("verifying"),
     }
 
     def __init__(
@@ -214,6 +165,11 @@ class BaseAgent:
         # Flag set when stuck recovery is exhausted — signals callers to force-advance
         self._stuck_recovery_exhausted: bool = False
 
+        # Phase 2: Proactive token budget manager (feature-flagged)
+        self._token_budget: Any = None  # TokenBudget — set by orchestrator via set_token_budget()
+        self._token_budget_manager: Any = None  # TokenBudgetManager
+        self._sliding_window: Any = None  # SlidingWindowContextManager
+
     def _resolve_feature_flags(self) -> dict[str, bool]:
         """Return injected feature flags, falling back to core config."""
         if self._feature_flags is not None:
@@ -226,6 +182,22 @@ class BaseAgent:
     _TOOL_RESULT_MEMORY_MAX_CHARS: ClassVar[int] = 12000
     _TOOL_RESULT_MESSAGE_PREVIEW_CHARS: ClassVar[int] = 2000
     _TOOL_RESULT_DATA_PREVIEW_CHARS: ClassVar[int] = 7000
+
+    def set_token_budget(self, budget: Any) -> None:
+        """Inject a TokenBudget for proactive phase-level token management.
+
+        Called by the orchestrator (PlanActFlow) at flow start. When set,
+        _ensure_within_token_limit() will use budget-aware compression
+        instead of the reactive two-stage strategy.
+        """
+        self._token_budget = budget
+        # Lazily create budget manager + sliding window on first budget injection
+        if budget is not None and self._token_budget_manager is None:
+            from app.domain.services.agents.sliding_window_context import SlidingWindowContextManager
+            from app.domain.services.agents.token_budget_manager import TokenBudgetManager
+
+            self._token_budget_manager = TokenBudgetManager(self._token_manager)
+            self._sliding_window = SlidingWindowContextManager(self._token_manager)
 
     def set_thinking_mode(self, thinking_mode: str | None) -> None:
         """Set user-requested thinking mode for model selection override.
@@ -482,7 +454,7 @@ class BaseAgent:
 
         # Populate tool_content for search tools (Pythinker-style search results display)
         tool_content = kwargs.pop("tool_content", None)
-        search_functions = {"info_search_web", "web_search", "wide_research", "search"}
+        search_functions = ToolName.search_tools()
         if tool_content is None and status == ToolStatus.CALLED and function_name in search_functions:
             function_result = kwargs.get("function_result")
             # Extract search results from ToolResult.data if valid result with data
@@ -670,9 +642,7 @@ class BaseAgent:
                         )
                         try:
                             _tool_span.set_attribute("tool.success", result.success)
-                            _tool_span.set_attribute(
-                                "tool.result_size", len(str(result.message or ""))
-                            )
+                            _tool_span.set_attribute("tool.result_size", len(str(result.message or "")))
                         except Exception as _span_err:
                             logger.debug("Tool span attribute set failed (non-critical): %s", _span_err)
                 else:
@@ -1314,7 +1284,42 @@ class BaseAgent:
                     # Prevents execution if cancelled between emit and invoke
                     await self._cancel_token.check_cancelled()
 
-                    result = await self.invoke_tool(tool, function_name, function_args)
+                    # Live shell streaming: poll sandbox for real-time output
+                    flags = self._resolve_feature_flags()
+                    if flags.get("live_shell_streaming") and function_name == "shell_exec" and hasattr(tool, "sandbox"):
+                        from app.domain.services.tools.shell_output_poller import (
+                            ShellOutputPoller,
+                        )
+
+                        session_id = function_args.get("id", "")
+                        poll_interval = flags.get("live_shell_poll_interval_ms", 500)
+                        max_polls = flags.get("live_shell_max_polls", 600)
+                        poller = ShellOutputPoller(
+                            sandbox=tool.sandbox,
+                            session_id=session_id,
+                            tool_call_id=tool_call_id,
+                            tool_name=tool.name,
+                            function_name=function_name,
+                            poll_interval_ms=int(poll_interval) if poll_interval else 500,
+                            max_polls=int(max_polls) if max_polls else 600,
+                        )
+                        poll_task = asyncio.create_task(poller.start_polling())
+                        exec_task = asyncio.create_task(self.invoke_tool(tool, function_name, function_args))
+                        try:
+                            while not exec_task.done():
+                                await asyncio.sleep(0.3)
+                                async for ev in poller.drain_events():
+                                    yield ev
+                            result = exec_task.result()
+                        finally:
+                            poller.stop()
+                            if not poll_task.done():
+                                await poll_task
+                            # Drain any remaining events
+                            async for ev in poller.drain_events():
+                                yield ev
+                    else:
+                        result = await self.invoke_tool(tool, function_name, function_args)
 
                     # Generate event after tool call (reuse pre-execution security_assessment)
                     yield self._create_tool_event(
@@ -1603,14 +1608,47 @@ class BaseAgent:
     async def _ensure_within_token_limit(self) -> None:
         """Ensure memory is within token limits, trim if necessary.
 
-        Uses a two-stage strategy:
-        1. Proactive compaction at 60% utilization (collapses verbose tool outputs in-place,
-           preserving conversation history without discarding any turns).
-        2. Hard-limit trim only if still over after compaction (discards oldest turns).
+        When feature_token_budget_manager is enabled and a TokenBudget is set,
+        uses budget-aware sliding window compression. Otherwise falls back to
+        the legacy two-stage strategy (proactive compaction + hard trim).
         """
         await self._ensure_memory()
         current_messages = self.memory.get_messages()
 
+        # ── Budget-aware path (Phase 2) ──────────────────────────────
+        flags = self._resolve_feature_flags()
+        if (
+            flags.get("token_budget_manager")
+            and self._token_budget is not None
+            and self._token_budget_manager is not None
+        ):
+            from app.domain.services.agents.token_budget_manager import BudgetPhase
+
+            phase = self._active_phase or "execution"
+            budget_phase_map = {
+                "planning": BudgetPhase.PLANNING,
+                "executing": BudgetPhase.EXECUTION,
+                "verifying": BudgetPhase.EXECUTION,
+                "summarizing": BudgetPhase.SUMMARIZATION,
+            }
+            budget_phase = budget_phase_map.get(phase, BudgetPhase.EXECUTION)
+
+            ok, reason = self._token_budget_manager.check_before_call(
+                self._token_budget,
+                budget_phase,
+                current_messages,
+            )
+            if not ok:
+                logger.info("Token budget exceeded (%s), compressing to fit", reason)
+                compressed = self._token_budget_manager.compress_to_fit(
+                    self._token_budget,
+                    budget_phase,
+                    current_messages,
+                )
+                self.memory.messages = compressed
+            return
+
+        # ── Legacy path (reactive two-stage) ─────────────────────────
         # Stage 1: Proactive compaction before hitting the hard limit.
         # PRESSURE_THRESHOLDS["early_warning"] = 0.60 (defined in TokenManager).
         token_count = self._token_manager.count_messages_tokens(current_messages)
