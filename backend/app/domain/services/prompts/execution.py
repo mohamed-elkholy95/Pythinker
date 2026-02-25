@@ -6,6 +6,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from app.domain.services.prompts.system import get_current_datetime_signal
+
 if TYPE_CHECKING:
     from app.domain.models.step_execution_context import StepExecutionContext
 
@@ -216,17 +218,8 @@ Remember: You are a precision execution machine. Minimal words, maximum results.
 # SIGNAL TEMPLATES
 # ============================================================================
 
-CURRENT_DATE_SIGNAL = """
----
-CURRENT DATE: {current_date}
-Today is {day_of_week}, {full_date}.
-
-IMPORTANT: When writing reports or summaries:
-- Use "{year}" as the current year in all titles, headers, and references
-- Do NOT use years from your training data (2024, 2025) - use {year}
-- Search queries should include "{year}" for recent information
----
-"""
+# CURRENT_DATE_SIGNAL removed — use get_current_datetime_signal() from system.py
+# Backward-compat alias kept below (near the old get_current_date_signal location).
 
 CONTEXT_PRESSURE_SIGNAL = """
 ---
@@ -1064,19 +1057,8 @@ def extract_task_constraints(step_description: str) -> list[str]:
     return constraints[:5]  # Limit to 5 constraints
 
 
-def get_current_date_signal() -> str:
-    """Generate the current date signal with formatted date information.
-
-    Returns:
-        Formatted current date signal string
-    """
-    now = datetime.now(UTC)
-    return CURRENT_DATE_SIGNAL.format(
-        current_date=now.strftime("%Y-%m-%d"),
-        day_of_week=now.strftime("%A"),
-        full_date=now.strftime("%B %d, %Y"),
-        year=now.strftime("%Y"),
-    )
+# Canonical datetime signal lives in system.py (imported at top of file)
+get_current_date_signal = get_current_datetime_signal  # backward-compat alias
 
 
 # ============================================================================
