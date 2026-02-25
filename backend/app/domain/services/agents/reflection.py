@@ -105,6 +105,9 @@ class ReflectionAgent:
         json_parser: JsonParser,
         config: ReflectionConfig | None = None,
         feature_flags: dict[str, bool] | None = None,
+        memory_service: Any = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
     ):
         """Initialize the ReflectionAgent.
 
@@ -113,11 +116,19 @@ class ReflectionAgent:
             json_parser: Parser for structured responses
             config: Optional configuration
             feature_flags: Optional feature flags (injected by orchestrator)
+            memory_service: Optional MemoryService for cross-session learning write-back (Phase 3)
+            user_id: User identifier for memory storage (Phase 3)
+            session_id: Session identifier for memory metadata (Phase 3)
         """
         self.llm = llm
         self.json_parser = json_parser
         self.config = config or ReflectionConfig()
         self._feature_flags = feature_flags
+
+        # Phase 3: Memory write-back for cross-session learning
+        self._memory_service = memory_service
+        self._user_id = user_id
+        self._session_id = session_id
 
         # Track reflection history to prevent loops
         self._reflection_count = 0
@@ -234,6 +245,43 @@ class ReflectionAgent:
             # Update tracking
             self._reflection_count += 1
             self._last_reflection_step = progress.steps_completed
+
+            # Phase 3: Store reflection outcome in memory for cross-session learning
+            if self._memory_service and self._user_id:
+                try:
+                    from app.domain.models.long_term_memory import (
+                        MemoryImportance,
+                        MemorySource,
+                        MemoryType,
+                    )
+
+                    _reflection_content = (
+                        f"Reflection: {trigger_type.value} → {result.decision.value}. "
+                        f"{result.summary[:300] if result.summary else ''}"
+                    )
+                    await self._memory_service.store_memory(
+                        user_id=self._user_id,
+                        content=_reflection_content,
+                        memory_type=MemoryType.TASK_OUTCOME,
+                        importance=MemoryImportance.MEDIUM,
+                        source=MemorySource.SYSTEM,
+                        session_id=self._session_id,
+                        tags=["reflection", trigger_type.value, result.decision.value],
+                        metadata={
+                            "trigger": trigger_type.value,
+                            "decision": result.decision.value,
+                            "confidence": result.confidence,
+                            "session_id": self._session_id,
+                        },
+                        generate_embedding=False,
+                    )
+                    logger.debug(
+                        "Reflection outcome stored in memory (trigger=%s, decision=%s)",
+                        trigger_type.value,
+                        result.decision.value,
+                    )
+                except Exception as _mem_err:
+                    logger.debug("Reflection memory write-back skipped (non-critical): %s", _mem_err)
 
             # Emit completed event
             _record_reflection_decision(result.decision.value)

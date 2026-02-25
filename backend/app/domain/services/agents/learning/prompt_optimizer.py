@@ -331,6 +331,73 @@ class PromptOptimizer:
         )
         return variant
 
+    def auto_generate_variants(
+        self,
+        category: str,
+        base_prompt: str,
+        num_variants: int = 3,
+    ) -> list[PromptVariant]:
+        """Auto-generate prompt variants via simple structural perturbations.
+
+        Phase 4: Bootstraps the Thompson-sampling bandit with concrete variants
+        derived from the base prompt without requiring a DSPy optimization run.
+        Generates variants along three axes:
+        - Verbosity: concise vs. detailed
+        - Tone: direct vs. collaborative
+        - Structure: paragraphs vs. bullet points
+
+        Args:
+            category: Prompt category to register variants under (e.g., "planner")
+            base_prompt: The baseline system prompt text to perturb
+            num_variants: How many variants to generate (2-3 recommended)
+
+        Returns:
+            List of registered PromptVariant objects
+        """
+        if not base_prompt:
+            return []
+
+        # Perturbation recipes — each appends a brief style directive
+        perturbations = [
+            (
+                "concise",
+                "\n\n[Style: Be concise and direct. Prefer bullet points over prose. "
+                "Minimize redundant explanation.]",
+            ),
+            (
+                "detailed",
+                "\n\n[Style: Be thorough and comprehensive. Include reasoning behind "
+                "decisions. Anticipate edge cases.]",
+            ),
+            (
+                "collaborative",
+                "\n\n[Style: Use a collaborative tone. Explain your reasoning step-by-step. "
+                "Acknowledge uncertainty when present.]",
+            ),
+        ]
+
+        registered: list[PromptVariant] = []
+        for name, suffix in perturbations[:num_variants]:
+            variant_id = f"auto_{name}"
+            # Skip if already registered (idempotent)
+            if category in self._variants and variant_id in self._variants[category]:
+                registered.append(self._variants[category][variant_id])
+                continue
+            variant = self.register_variant(
+                category=category,
+                variant_id=variant_id,
+                prompt_template=base_prompt + suffix,
+                description=f"Auto-generated {name} variant",
+            )
+            registered.append(variant)
+
+        logger.info(
+            "auto_generate_variants: registered %d variants for category '%s'",
+            len(registered),
+            category,
+        )
+        return registered
+
     def _prune_worst_variant(self, category: str) -> None:
         """Remove the worst performing variant in a category."""
         if category not in self._variants:
