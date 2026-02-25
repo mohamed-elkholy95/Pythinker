@@ -889,12 +889,15 @@ class FastPathRouter:
 
         try:
             # Direct LLM call for simple questions
+            from app.domain.services.prompts.system import get_current_datetime_signal
+
             system_content = (
                 "You are Pythinker, an AI assistant created by the Pythinker Team and Mohamed Elkholy. "
                 "You are NOT Claude. You are NOT made by Anthropic. "
                 "Answer the following question concisely and accurately. "
                 "If you're not certain about something, say so. Keep your response focused and under 500 words."
             )
+            system_content += "\n" + get_current_datetime_signal()
             if self._memory_context:
                 system_content += f"\n\nUser context:\n{self._memory_context}"
             messages = [
@@ -960,11 +963,14 @@ class FastPathRouter:
 
         try:
             # Direct LLM call for greeting response
+            from app.domain.services.prompts.system import get_current_datetime_signal
+
             system_content = (
                 "You are Pythinker, a helpful AI assistant. The user has greeted you. "
                 "Respond with a warm, friendly greeting. Keep it natural and conversational (1-2 sentences). "
                 "You can ask how you can help them today."
             )
+            system_content += "\n" + get_current_datetime_signal()
             if self._memory_context:
                 system_content += f"\n\nUser context (use to personalize):\n{self._memory_context}"
             messages = [

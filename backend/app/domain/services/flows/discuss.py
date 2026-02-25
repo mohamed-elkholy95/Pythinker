@@ -367,6 +367,11 @@ class DiscussFlow(BaseFlow):
                 context=context_str,
             )
 
+            # Prepend current datetime signal so agent can answer time/date queries
+            from app.domain.services.prompts.system import get_current_datetime_signal
+
+            prompt = get_current_datetime_signal() + prompt
+
             # Execute through the agent
             async for event in self._agent.execute(prompt):
                 if isinstance(event, ToolEvent):
