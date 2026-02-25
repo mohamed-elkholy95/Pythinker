@@ -232,6 +232,27 @@ class ErrorIntegrationBridge:
         health.recommended_actions = recommendations
         health.details["issues"] = issues
 
+        # Phase 4: Uncertainty-aware risk score via MetaCognitionModule
+        try:
+            from app.domain.services.agents.reasoning.meta_cognition import get_meta_cognition
+
+            _meta = get_meta_cognition(tools=[])
+            _recent_error_rate = (
+                health.error_count_recent / 10.0 if health.error_count_recent else 0.0
+            )
+            _task_hint = health.details.get("task", "")
+            _uncertainty = _meta.compute_uncertainty_score(
+                task=_task_hint or "unknown",
+                is_stuck=health.is_stuck,
+                recent_error_rate=_recent_error_rate,
+            )
+            health.details["uncertainty_score"] = round(_uncertainty, 3)
+            if _uncertainty > 0.7:
+                issues.append(f"High uncertainty score: {_uncertainty:.2f}")
+                recommendations.append("Consider providing more context or breaking the task down")
+        except Exception as _unc_err:
+            logger.debug("Uncertainty score computation failed (non-critical): %s", _unc_err)
+
         # Failure prediction (shadow mode by default)
         flags = self._resolve_feature_flags()
         if flags.get("failure_prediction"):

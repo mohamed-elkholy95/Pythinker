@@ -599,6 +599,62 @@ class DynamicToolsetManager:
         finally:
             self._prefetch_in_progress[cache_key] = False
 
+    def validate_tool_contracts(self) -> list[str]:
+        """Validate tool parameter schemas and detect description overlap.
+
+        WP-7: Called at startup to catch tool contract violations early.
+        Checks:
+        1. Every registered tool has a non-empty description.
+        2. Every tool parameter has 'type' and 'description' fields.
+        3. No two tools have >80% Jaccard keyword overlap in their descriptions.
+
+        Returns:
+            List of violation messages (empty when all contracts are valid).
+        """
+        violations: list[str] = []
+        tool_list = list(self._tools.values())
+
+        # 1. Parameter schema compliance
+        for tool_info in tool_list:
+            func = tool_info.schema.get("function", {})
+            if not func.get("description"):
+                violations.append(f"Tool '{tool_info.name}' has no description")
+            params = func.get("parameters", {})
+            props = params.get("properties", {}) if isinstance(params, dict) else {}
+            for param_name, param_schema in props.items():
+                if not isinstance(param_schema, dict):
+                    continue
+                if "type" not in param_schema:
+                    violations.append(
+                        f"Tool '{tool_info.name}' parameter '{param_name}' missing 'type'"
+                    )
+                if "description" not in param_schema:
+                    violations.append(
+                        f"Tool '{tool_info.name}' parameter '{param_name}' missing 'description'"
+                    )
+
+        # 2. Description keyword overlap (Jaccard similarity > 80%)
+        for i in range(len(tool_list)):
+            for j in range(i + 1, len(tool_list)):
+                a, b = tool_list[i], tool_list[j]
+                if a.keywords and b.keywords:
+                    union = a.keywords | b.keywords
+                    if union:
+                        overlap_ratio = len(a.keywords & b.keywords) / len(union)
+                        if overlap_ratio > 0.8:
+                            violations.append(
+                                f"Tools '{a.name}' and '{b.name}' have "
+                                f"{overlap_ratio:.0%} keyword overlap — consider disambiguating descriptions"
+                            )
+
+        for v in violations:
+            logger.warning("Tool contract violation: %s", v)
+
+        if not violations:
+            logger.debug("WP-7 tool contract validation passed (%d tools checked)", len(tool_list))
+
+        return violations
+
     def warm_cache_for_common_tasks(self) -> None:
         """Pre-warm cache with tools for common task types.
 
@@ -617,6 +673,9 @@ class DynamicToolsetManager:
             logger.debug(f"Warmed cache for task type: {task_type}")
 
         logger.info(f"Cache warmed for {len(common_task_messages)} common task types")
+
+        # WP-7: Validate tool contracts at startup to detect schema violations early
+        self.validate_tool_contracts()
 
     def clear_cache(self) -> None:
         """Clear all cached tool prefetch data."""

@@ -618,16 +618,68 @@ class BaseAgent:
         result: ToolResult | None = None
         envelope.mark_started()
 
+        # WP-5: Capture trace context for per-tool distributed tracing spans.
+        # _trace_ctx is injected by PlanActFlow after agent construction when
+        # feature_tool_tracing is enabled.
+        _trace_ctx_for_tool = getattr(self, "_trace_ctx", None)
+
+        # Phase 4: HITL interrupt — block high-risk tool calls before execution
+        if flags.get("hitl_enabled"):
+            try:
+                from app.domain.services.flows.hitl_policy import get_hitl_policy
+
+                _hitl_assessment = get_hitl_policy().assess(function_name, arguments)
+                if _hitl_assessment.requires_approval:
+                    logger.warning(
+                        "HITL interrupt: tool=%s risk=%s level=%s — returning requires_approval",
+                        function_name,
+                        _hitl_assessment.reason,
+                        _hitl_assessment.risk_level,
+                    )
+                    return ToolResult(
+                        success=False,
+                        message=(
+                            f"[HITL] This action requires human approval before execution. "
+                            f"Risk: {_hitl_assessment.reason} (level={_hitl_assessment.risk_level}). "
+                            "Please confirm or cancel the action."
+                        ),
+                    )
+            except Exception as _hitl_err:
+                logger.debug("HITL policy check failed (non-critical): %s", _hitl_err)
+
         while retries <= self.max_retries:
             try:
                 # ORPHANED TASK FIX: Check cancellation BEFORE invoking function
                 # Prevents tool execution if cancelled during retry loop
                 await self._cancel_token.check_cancelled()
 
-                result = await asyncio.wait_for(
-                    tool.invoke_function(function_name, **arguments),
-                    timeout=120.0,
-                )
+                # WP-5: Wrap actual execution in a distributed-tracing span when enabled
+                if flags.get("tool_tracing") and _trace_ctx_for_tool:
+                    with _trace_ctx_for_tool.span(
+                        f"tool:{function_name}",
+                        "tool_execution",
+                        {
+                            "tool.name": function_name,
+                            "agent.id": getattr(self, "_agent_id", ""),
+                            "attempt": retries,
+                        },
+                    ) as _tool_span:
+                        result = await asyncio.wait_for(
+                            tool.invoke_function(function_name, **arguments),
+                            timeout=120.0,
+                        )
+                        try:
+                            _tool_span.set_attribute("tool.success", result.success)
+                            _tool_span.set_attribute(
+                                "tool.result_size", len(str(result.message or ""))
+                            )
+                        except Exception as _span_err:
+                            logger.debug("Tool span attribute set failed (non-critical): %s", _span_err)
+                else:
+                    result = await asyncio.wait_for(
+                        tool.invoke_function(function_name, **arguments),
+                        timeout=120.0,
+                    )
             except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
                 raise
             except TimeoutError:
@@ -896,8 +948,29 @@ class BaseAgent:
                 truncated[key] = str_value
         return truncated
 
+    def _to_tool_call(self, tc: dict) -> Any:
+        """Convert an LLM tool_call dict to a ParallelToolExecutor ToolCall.
+
+        Args:
+            tc: Raw tool_call dict from LLM response (has 'id' and 'function' keys)
+
+        Returns:
+            ToolCall dataclass for ParallelToolExecutor
+        """
+        from app.domain.services.agents.parallel_executor import ToolCall as ToolCallParallel
+
+        return ToolCallParallel(
+            id=tc.get("id", ""),
+            tool_name=tc.get("function", {}).get("name", ""),
+            arguments=tc.get("function", {}).get("arguments", {}),
+        )
+
     def _can_parallelize_tools(self, tool_calls: list[dict]) -> bool:
-        """Check if all tool calls in the list can be executed in parallel.
+        """Check if tool calls can be executed in parallel using dependency detection.
+
+        Uses ParallelToolExecutor.detect_dependencies() to catch data-flow
+        dependencies (e.g. write-then-read same file) that pure whitelist
+        checking would miss.
 
         Supports both explicit tool whitelist and MCP read-only patterns.
         Also checks SEQUENTIAL_ONLY_TOOLS blacklist from parallel_executor.
@@ -926,6 +999,20 @@ class BaseAgent:
 
             # Tool not in safe list
             return False
+
+        # WP-2: Dependency detection — if any data-flow dependency exists between
+        # these calls, they cannot safely run in parallel.
+        try:
+            executor = ParallelToolExecutor()
+            tool_call_objs = [self._to_tool_call(tc) for tc in tool_calls]
+            executor.add_calls(tool_call_objs)
+            executor.detect_dependencies()
+            # If any call has unresolvable dependencies, we must go sequential
+            for call in executor._pending_calls:
+                if call.depends_on:
+                    return False
+        except Exception as _dep_err:
+            logger.debug("Dependency detection failed (non-critical): %s", _dep_err)
 
         return True
 
