@@ -251,6 +251,23 @@
             />
           </div>
 
+          <!-- Pre-reply loading skeleton: shown for chart/generic and unknown views
+               while the tool is actively calling and has no streaming content yet. -->
+          <div
+            v-else-if="showLiveViewSkeleton"
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+          >
+            <div class="live-view-skeleton">
+              <div class="lv-skel-line lv-skel-line--xl" />
+              <div class="lv-skel-line lv-skel-line--lg" />
+              <div class="lv-skel-line lv-skel-line--sm" />
+              <div class="lv-skel-block" />
+              <div class="lv-skel-line lv-skel-line--md" />
+              <div class="lv-skel-line lv-skel-line--lg" />
+              <div class="lv-skel-line lv-skel-line--sm" />
+            </div>
+          </div>
+
           <!-- Replay mode (user-navigated): when user stepped through the timeline
                (!realTime), show the browser screenshot for browser-type tools or
                unknown tools. Terminal, editor, search, and chart views show their
@@ -672,6 +689,22 @@ const toolDisplay = computed(() => {
 // Activity detection
 const isActiveOperation = computed(() => {
   return toolStatus.value === 'calling' || toolStatus.value === 'running';
+});
+
+/**
+ * Show a pre-reply loading skeleton in the panel when the tool is actively
+ * being called but no streaming content is available yet.
+ * Excludes views that handle their own loading states or show live content.
+ */
+const showLiveViewSkeleton = computed(() => {
+  if (!props.live) return false;
+  if (!isActiveOperation.value) return false;
+  if (shouldShowUnifiedStreaming.value) return false;
+  if (isSummaryPhase.value || props.summaryStreamText) return false;
+  if (props.isReplayMode) return false;
+  // These views handle their own skeleton or show live content
+  const noSkeleton = new Set(['search', 'live_preview', 'wide_research', 'terminal', 'editor']);
+  return !noSkeleton.has(currentViewType.value ?? '');
 });
 
 // Shell execution progress badge (from ToolProgressEvent)
@@ -1397,6 +1430,40 @@ const handleBrowseUrl = async (url: string) => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* Pre-reply loading skeleton (chart, generic, and unknown views) */
+.live-view-skeleton {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lv-skel-line {
+  height: 11px;
+  border-radius: 6px;
+  background: var(--fill-tsp-gray-main);
+  animation: lv-pulse 1.5s ease-in-out infinite;
+}
+
+.lv-skel-line--xl   { width: 82%; }
+.lv-skel-line--lg   { width: 66%; animation-delay: 0.08s; }
+.lv-skel-line--md   { width: 48%; animation-delay: 0.16s; }
+.lv-skel-line--sm   { width: 32%; animation-delay: 0.12s; }
+
+.lv-skel-block {
+  height: 72px;
+  border-radius: 8px;
+  background: var(--fill-tsp-gray-main);
+  animation: lv-pulse 1.5s ease-in-out infinite;
+  animation-delay: 0.04s;
+  margin: 4px 0;
+}
+
+@keyframes lv-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 0.7; }
 }
 
 .panel-content-header {
