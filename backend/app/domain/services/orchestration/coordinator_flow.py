@@ -241,6 +241,27 @@ class CoordinatorFlow(BaseFlow):
         if sentence_count > 3:
             return TaskComplexity.MODERATE
 
+        # Phase 2: Meta-cognition capability assessment — upgrade complexity for missing capabilities
+        try:
+            from app.domain.services.agents.reasoning.meta_cognition import get_meta_cognition
+
+            meta = get_meta_cognition(tools=[])
+            capability = meta.assess_capabilities(task=message.message, tools=[])
+            if not capability.can_accomplish:
+                logger.debug(
+                    "Meta-cognition: task lacks required capabilities %s — upgrading to COMPLEX",
+                    capability.missing_capabilities,
+                )
+                return TaskComplexity.COMPLEX
+            if capability.capability_match_score < 0.6:
+                logger.debug(
+                    "Meta-cognition: low capability match (%.2f) — upgrading to MODERATE",
+                    capability.capability_match_score,
+                )
+                return TaskComplexity.MODERATE
+        except Exception as _meta_err:
+            logger.debug("Meta-cognition capability assessment failed (non-critical): %s", _meta_err)
+
         return TaskComplexity.SIMPLE
 
     def _should_use_swarm(self, message: Message) -> bool:
