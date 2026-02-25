@@ -362,18 +362,34 @@ class AgentTaskRunner(TaskRunner):
             except Exception as exc:
                 logger.debug("Scraping adapter unavailable: %s", exc)
 
-            # WP-6: CheckpointManager for cross-restart workflow persistence
+            # WP-6: CheckpointManager for cross-restart workflow persistence.
+            # Inject a real MongoDB collection so checkpoints survive process restarts.
+            # Falls back gracefully to in-memory storage when MongoDB is unavailable.
             _checkpoint_manager = None
             if settings.feature_workflow_checkpointing:
                 try:
                     from app.domain.services.flows.checkpoint_manager import CheckpointManager
+                    from app.infrastructure.storage.mongodb import get_mongodb
+
+                    _mongo_checkpoint_collection = None
+                    try:
+                        _mongo_checkpoint_collection = get_mongodb().database["workflow_checkpoints"]
+                    except Exception as _mc_err:
+                        logger.debug(
+                            "MongoDB checkpoint collection unavailable, using in-memory fallback: %s",
+                            _mc_err,
+                        )
 
                     _checkpoint_manager = CheckpointManager(
-                        mongodb_collection=None,  # Uses in-memory fallback; inject collection for full persistence
+                        mongodb_collection=_mongo_checkpoint_collection,
                         ttl_hours=24,
                         auto_cleanup=True,
                     )
-                    logger.debug("CheckpointManager initialized for session %s", self._session_id)
+                    logger.debug(
+                        "CheckpointManager initialized for session %s (persistent=%s)",
+                        self._session_id,
+                        _mongo_checkpoint_collection is not None,
+                    )
                 except Exception as exc:
                     logger.warning("CheckpointManager unavailable: %s", exc)
 
