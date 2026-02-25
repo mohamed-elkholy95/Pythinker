@@ -894,6 +894,19 @@ class ResearchModeEvent(BaseEvent):
     research_mode: str  # "fast_search" or "deep_research"
 
 
+class EvalMetricsEvent(BaseEvent):
+    """Emitted after summarization when eval gates are enabled (WP-3).
+
+    Contains Ragas-style quality metrics for the completed task response.
+    Enables observability dashboards to track hallucination rates and answer quality.
+    """
+
+    type: Literal["eval_metrics"] = "eval_metrics"
+    metrics: dict[str, Any]  # Serialized EvaluationBatch.to_dict()
+    hallucination_score: float = 0.0  # Convenience field for fast alerting
+    passed: bool = True  # True if no metric exceeded warning threshold
+
+
 # Discriminated union on 'type' field for efficient Pydantic v2 validation
 # Using Union[] syntax required for Annotated discriminator pattern
 AgentEvent = Annotated[
@@ -938,6 +951,7 @@ AgentEvent = Annotated[
         FlowTransitionEvent,
         ResearchModeEvent,
         PhaseEvent,
+        EvalMetricsEvent,
     ],
     Discriminator("type"),
 ]
