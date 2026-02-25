@@ -38,11 +38,11 @@ Example usage:
     assert report.pass_rate >= 0.9
 """
 
-from tests.evals.eval_runner import (
+from .eval_runner import (
     EvalRunner,
     run_evaluation,
 )
-from tests.evals.metrics import (
+from .metrics import (
     BaseMetric,
     ContainsMetric,
     ExactMatchMetric,
@@ -54,7 +54,7 @@ from tests.evals.metrics import (
     get_metric,
     register_metric,
 )
-from tests.evals.types import (
+from .types import (
     EvalCase,
     EvalConfig,
     EvalDataset,

@@ -14,27 +14,27 @@ agent outputs, including:
 Custom metrics can be registered using the register_metric function.
 """
 
-from tests.evals.metrics.base import (
+from .base import (
     BaseMetric,
     MetricScore,
     get_all_metrics,
     get_metric,
     register_metric,
 )
-from tests.evals.metrics.execution_metrics import (
+from .execution_metrics import (
     ResponseTimeMetric,
     TokenCountMetric,
     ToolCallMetric,
 )
-from tests.evals.metrics.semantic_metrics import (
+from .semantic_metrics import (
     KeywordCoverageMetric,
     SimilarityMetric,
 )
-from tests.evals.metrics.structured_metrics import (
+from .structured_metrics import (
     JsonFieldMetric,
     JsonSchemaMetric,
 )
-from tests.evals.metrics.text_metrics import (
+from .text_metrics import (
     ContainsMetric,
     ExactMatchMetric,
     NotContainsMetric,
