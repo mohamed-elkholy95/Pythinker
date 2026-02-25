@@ -2396,11 +2396,43 @@ const handleMessageEvent = (messageData: MessageEventData) => {
 
 // Handle tool_stream event — buffer partial content before tool(calling)
 const handleToolStreamEvent = (data: ToolStreamEventData) => {
-  streamingContentBuffer.set(data.tool_call_id, {
-    content: data.partial_content,
-    functionName: data.function_name,
-    contentType: data.content_type,
-  });
+  const existing = streamingContentBuffer.get(data.tool_call_id);
+  if (existing && data.content_type === 'terminal') {
+    // Terminal output: APPEND delta to existing buffer
+    existing.content += data.partial_content;
+  } else if (data.content_type === 'terminal') {
+    // First terminal chunk — create buffer
+    streamingContentBuffer.set(data.tool_call_id, {
+      content: data.partial_content,
+      functionName: data.function_name,
+      contentType: data.content_type,
+    });
+  } else {
+    // Non-terminal content: REPLACE (existing behavior for file content)
+    streamingContentBuffer.set(data.tool_call_id, {
+      content: data.partial_content,
+      functionName: data.function_name,
+      contentType: data.content_type,
+    });
+  }
+
+  // Live-update lastTool streaming_content for already-rendered tools
+  if (lastTool.value && lastTool.value.tool_call_id === data.tool_call_id) {
+    const buffered = streamingContentBuffer.get(data.tool_call_id);
+    if (buffered) {
+      lastTool.value.streaming_content = buffered.content;
+      lastTool.value.streaming_content_type = buffered.contentType;
+    }
+  }
+}
+
+// Handle tool_progress event — update progress on active tool
+const handleToolProgressEvent = (data: import('../types/event').ToolProgressEventData) => {
+  if (lastTool.value && lastTool.value.tool_call_id === data.tool_call_id) {
+    lastTool.value.progress_percent = data.progress_percent;
+    lastTool.value.current_step = data.current_step;
+    lastTool.value.elapsed_ms = data.elapsed_ms;
+  }
 }
 
 // Map tool function names → NeuralFlow reasoning stage
@@ -3321,6 +3353,8 @@ const processEvent = (event: AgentSSEEvent) => {
     handleToolEvent(event.data as ToolEventData);
   } else if (event.event === 'tool_stream') {
     handleToolStreamEvent(event.data as ToolStreamEventData);
+  } else if (event.event === 'tool_progress') {
+    handleToolProgressEvent(event.data as import('../types/event').ToolProgressEventData);
   } else if (event.event === 'step') {
     handleStepEvent(event.data as StepEventData);
   } else if (event.event === 'phase') {
