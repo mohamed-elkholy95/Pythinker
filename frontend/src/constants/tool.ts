@@ -813,6 +813,8 @@ export const FUNCTION_VIEW_OVERRIDES: Record<string, ViewMode> = {
   // Artifact operations - show editor preview
   code_save_artifact: 'secondary',
   code_read_artifact: 'secondary',
+  // File write - show editor immediately for live file creation visibility
+  file_write: 'primary',
 };
 
 /**
