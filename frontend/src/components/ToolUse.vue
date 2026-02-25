@@ -96,14 +96,6 @@ const INLINE_MESSAGE_TOOLS: ReadonlySet<string> = new Set([
   'system_note',
 ]);
 
-/** Fast search tools only – show inline results. Excludes wide_research (deep research). */
-const FAST_SEARCH_FUNCTIONS = new Set(['info_search_web', 'web_search']);
-
-function isFastSearchTool(tool: ToolContent): boolean {
-  const fn = (tool.function || '').toLowerCase();
-  return FAST_SEARCH_FUNCTIONS.has(fn);
-}
-
 function getSearchToolContent(tool: ToolContent): SearchToolContent | null {
   const content = tool.content;
   if (!content || typeof content !== 'object' || !('results' in content)) return null;
@@ -140,10 +132,14 @@ const shouldShimmer = computed(
 );
 
 const searchToolContent = computed(() => getSearchToolContent(props.tool));
+
+/** True for any tool that resolves to the 'search' toolKey (excludes wide_research). */
+const isFastSearchTool = computed(() => toolInfo.value?.toolKey === 'search');
+
 const isFastSearchWithResults = computed(() => {
   // Only show fast search inline UI (header, tabs) for fast-search answer, not agent research
   if (props.showFastSearchInline === false) return false;
-  if (!isFastSearchTool(props.tool)) return false;
+  if (!isFastSearchTool.value) return false;
   if (isRunning.value) return true; // Show fast-search during search (loading/skeleton)
   const sc = searchToolContent.value;
   if (sc === null) return false;
