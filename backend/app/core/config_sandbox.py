@@ -199,6 +199,12 @@ class ScreenshotSettingsMixin:
     screenshot_http_retry_attempts: int = 3  # Retry on failure
     screenshot_http_retry_delay: float = 2.0  # Initial retry delay (exponential backoff)
 
+    # Startup readiness gate (prevents ConnectError when sandbox screenshot handler
+    # hasn't fully initialized after ensure_sandbox() returns)
+    screenshot_startup_grace_seconds: float = 2.0  # Grace period before first probe
+    screenshot_startup_max_probes: int = 5  # Max probe attempts before giving up
+    screenshot_startup_probe_timeout: float = 30.0  # Hard timeout for the full probe sequence
+
     # Stuck Detection Configuration (P3.2/P3.3: faster loop detection)
     stuck_detection_window: int = 5  # Response window size (reduced from 10)
     stuck_detection_threshold: int = 3  # Threshold for stuck detection (reduced from 5)
