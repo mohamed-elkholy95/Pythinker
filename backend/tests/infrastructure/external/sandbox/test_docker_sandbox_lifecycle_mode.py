@@ -98,6 +98,7 @@ async def test_ensure_sandbox_fails_fast_when_container_missing_on_connect_error
                 sandbox_warmup_max_retry_delay=0.01,
                 sandbox_warmup_backoff_multiplier=1.0,
                 sandbox_warmup_connection_failure_threshold=12,
+                sandbox_warmup_wall_clock_timeout=0.0,
             ),
         ),
         patch.object(sandbox, "_container_exists_and_running", return_value=False),
