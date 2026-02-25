@@ -74,7 +74,7 @@ class MultiAgentSettingsMixin:
     multi_agent_max_parallel: int = 3  # Max concurrent agents in swarm mode
 
     # Parallel Step Execution configuration (Phase 4)
-    enable_parallel_execution: bool = False  # Execute independent steps in parallel
+    enable_parallel_execution: bool = True  # Execute independent steps in parallel
     parallel_max_concurrency: int = 3  # Max concurrent step executions
 
     # Plan Verification configuration (Performance optimization)
@@ -138,11 +138,11 @@ class FeatureFlagsSettingsMixin:
     feature_plan_validation_v2: bool = False
     feature_reflection_advanced: bool = False
     feature_context_optimization: bool = False
-    feature_tool_tracing: bool = False
+    feature_tool_tracing: bool = True
     feature_reward_hacking_detection: bool = False
     feature_failure_prediction: bool = False
     feature_circuit_breaker_adaptive: bool = False
-    feature_workflow_checkpointing: bool = False
+    feature_workflow_checkpointing: bool = True
     feature_shadow_mode: bool = True
 
     # Hallucination Prevention Feature Flags (Phase 1-6)
@@ -166,9 +166,9 @@ class FeatureFlagsSettingsMixin:
 
     # Agent Robustness Feature Flags (2026-02-13 plan)
     # Phase 0: Wire OutputGuardrails into PlanActFlow SUMMARIZING
-    enable_output_guardrails_in_flow: bool = False
+    enable_output_guardrails_in_flow: bool = True
     # Phase 1: Extract RequestContract at ingress
-    enable_request_contract: bool = False
+    enable_request_contract: bool = True
     # Phase 2: Use structured Step fields instead of free-form
     enable_structured_step_model: bool = False
     # Phase 3: Entity/relevance fidelity in delivery gate
@@ -217,6 +217,11 @@ class FeatureFlagsSettingsMixin:
     feature_tree_of_thoughts: bool = False  # Use ToT exploration for complex planning
     feature_self_consistency: bool = False  # Use self-consistency checks during verification
 
+    # GPT-5.3 Plan: Eval, Meta-Cognition, HITL gates (shadow mode by default)
+    enable_eval_gates: bool = True  # WP-3: Ragas eval gate at summarization
+    feature_meta_cognition_enabled: bool = True  # Phase 3: Gap-aware planning prompt injection
+    feature_hitl_enabled: bool = True  # Phase 4: HITL interrupt for high-risk tool calls
+
 
 class ResearchSettingsMixin:
     """Research quality, citation, and benchmark configuration."""
@@ -258,7 +263,7 @@ class PromptOptimizationSettingsMixin:
 
     # Runtime flag: allows applying optimized profile patches to prompts.
     # When False, optimization runs offline but patches are never applied.
-    feature_prompt_profile_runtime: bool = False
+    feature_prompt_profile_runtime: bool = True
 
     # Shadow mode flag: compute optimization deltas without applying patches.
     # Emits pythinker_prompt_shadow_delta metrics for monitoring.
