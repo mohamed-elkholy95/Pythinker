@@ -57,6 +57,20 @@ def _wait_for_backend(timeout: float = 30) -> bool:
     return False
 
 
+def _get_auth_provider() -> str | None:
+    """Best-effort detection of backend auth provider from /auth/status."""
+    try:
+        r = requests.get(f"{BASE_URL}/auth/status", timeout=5)
+        if r.status_code == 200:
+            data = r.json().get("data", {})
+            provider = data.get("auth_provider")
+            if isinstance(provider, str):
+                return provider
+    except requests.RequestException:
+        pass
+    return None
+
+
 def _parse_sse_events(
     response: requests.Response,
     max_events: int = 500,
@@ -292,6 +306,10 @@ def _is_ack_only_response(response_text: str) -> bool:
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(not _is_backend_available(), reason="Backend not available at localhost:8000"),
+    pytest.mark.skipif(
+        (_get_auth_provider() or "none") != "none",
+        reason="Auth is enabled for integration environment (requires AUTH_PROVIDER=none)",
+    ),
 ]
 
 

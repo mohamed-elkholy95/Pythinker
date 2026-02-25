@@ -1,6 +1,9 @@
 """Regression tests for plan-update skip heuristics in PlanActFlow."""
 
+from unittest.mock import MagicMock
+
 from app.domain.models.plan import Plan, Step
+from app.domain.services.flows.flow_step_executor import FlowStepExecutor
 from app.domain.services.flows.plan_act import PlanActFlow
 
 
@@ -8,6 +11,12 @@ def _make_flow(message: str = "", complexity: float | None = None) -> PlanActFlo
     flow = PlanActFlow.__new__(PlanActFlow)
     flow.plan = Plan(goal=message, message=message, steps=[])
     flow._cached_complexity = complexity
+    # FlowStepExecutor needs minimal stubs for its constructor deps
+    flow._flow_step_executor = FlowStepExecutor(
+        default_executor=MagicMock(),
+        phase_router=MagicMock(),
+        step_failure_handler=MagicMock(),
+    )
     return flow
 
 
