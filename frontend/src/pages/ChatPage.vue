@@ -2395,11 +2395,15 @@ const handleMessageEvent = (messageData: MessageEventData) => {
 }
 
 // Handle tool_stream event — buffer partial content before tool(calling)
+const TERMINAL_BUFFER_MAX = 50_000; // 50 KB — prevent memory pressure from long output
 const handleToolStreamEvent = (data: ToolStreamEventData) => {
   const existing = streamingContentBuffer.get(data.tool_call_id);
   if (existing && data.content_type === 'terminal') {
-    // Terminal output: APPEND delta to existing buffer
+    // Terminal output: APPEND delta to existing buffer (capped)
     existing.content += data.partial_content;
+    if (existing.content.length > TERMINAL_BUFFER_MAX) {
+      existing.content = existing.content.slice(-TERMINAL_BUFFER_MAX);
+    }
   } else if (data.content_type === 'terminal') {
     // First terminal chunk — create buffer
     streamingContentBuffer.set(data.tool_call_id, {

@@ -1188,7 +1188,7 @@ class PlanActFlow(BaseFlow):
         propagates it to the planner and executor agents.
         """
         flags = self._resolve_feature_flags()
-        if not flags.get("feature_token_budget_manager"):
+        if not flags.get("token_budget_manager"):
             return
 
         try:

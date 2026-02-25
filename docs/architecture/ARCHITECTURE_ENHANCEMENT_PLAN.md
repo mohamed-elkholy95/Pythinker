@@ -72,9 +72,9 @@ Sprint 5:
 | `backend/app/domain/services/agents/base.py` | Replace `SAFE_PARALLEL_TOOLS`, `PHASE_TOOL_GROUPS`, `search_functions` with `ToolName` enum methods | ✅ Done |
 | `backend/app/domain/services/agents/execution.py` | Replace string tool checks in `_track_sources_from_tool_event`, `_track_multimodal_findings` | ✅ Done |
 | `backend/app/domain/services/tools/dynamic_toolset.py` | Register tools using `ToolCapability` | ✅ Done |
-| `backend/app/domain/services/agents/tool_efficiency_monitor.py` | Use `ToolName.is_read_only()` instead of `_is_read_tool()` heuristic | ⬜ Pending |
+| `backend/app/domain/services/agents/tool_efficiency_monitor.py` | Use `ToolName.is_read_only()` instead of `_is_read_tool()` heuristic | ✅ Done |
 
-**Feature flag**: `feature_tool_registry_v2: bool = False`
+**Rollback**: Permanently enabled (no feature flag). ToolName enum is backward-compatible (`str` subclass).
 
 #### Key Design
 
@@ -118,13 +118,13 @@ class ToolName(str, Enum):
 
 | File | Change | Status |
 |------|--------|--------|
-| `backend/app/domain/services/agents/base.py` | Inject `TokenBudgetManager`, call `sliding_window.prepare_messages()` before every LLM call | ⬜ Pending |
-| `backend/app/domain/services/agents/execution.py` | Replace `_ensure_within_token_limit()` with `budget.check_before_call()` | ⬜ Pending |
-| `backend/app/domain/services/agents/step_context_assembler.py` | Accept `TokenBudget`, enforce phase budget during assembly | ⬜ Pending |
-| `backend/app/domain/services/flows/plan_act.py` | Create `TokenBudget` at flow start, pass through phases, call `rebalance()` at transitions | ⬜ Pending |
-| `backend/app/domain/services/agents/memory_manager.py` | Integrate with `TokenBudgetManager` for proactive compaction triggers | ⬜ Pending |
+| `backend/app/domain/services/agents/base.py` | Inject `TokenBudgetManager`, call `sliding_window.prepare_messages()` before every LLM call | ✅ Done |
+| `backend/app/domain/services/agents/execution.py` | Replace `_ensure_within_token_limit()` with `budget.check_before_call()` | ✅ Done |
+| `backend/app/domain/services/agents/step_context_assembler.py` | Accept `TokenBudget`, enforce phase budget during assembly | ✅ Done |
+| `backend/app/domain/services/flows/plan_act.py` | Create `TokenBudget` at flow start, pass through phases, call `rebalance()` at transitions | ✅ Done |
+| `backend/app/domain/services/agents/memory_manager.py` | Integrate with `TokenBudgetManager` for proactive compaction triggers | ✅ Done |
 
-**Feature flags**: `feature_token_budget_manager: bool = False`, `feature_sliding_window_context: bool = False`
+**Feature flag**: `feature_token_budget_manager: bool = False` (gates the budget-aware path; sliding window activates automatically with it)
 
 #### Key Design
 
@@ -185,7 +185,7 @@ class TokenBudgetManager:
 
 **Result**: `AgentTaskRunner` (~600 LOC).
 
-**Feature flag**: `feature_decomposed_agents_v2: bool = False`
+**Rollback**: Permanently enabled (no feature flag). Decomposed classes are unconditionally active and fully replace inline implementations.
 
 ---
 
