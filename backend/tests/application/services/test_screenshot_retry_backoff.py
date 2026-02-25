@@ -51,6 +51,7 @@ async def test_retry_succeeds_on_second_attempt():
     service = ScreenshotCaptureService(
         sandbox=mock_sandbox, session_id="test-session", repository=Mock(), minio_storage=minio
     )
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
 
     # Capture should succeed after retry
     await service.capture(ScreenshotTrigger.TOOL_AFTER)
@@ -81,6 +82,7 @@ async def test_retry_uses_exponential_backoff():
     minio.store_thumbnail = AsyncMock(side_effect=lambda data, key, **kw: key)
 
     service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session", minio_storage=minio)
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
 
     with (
         patch("asyncio.sleep", side_effect=track_sleep),
@@ -112,6 +114,7 @@ async def test_retry_respects_max_attempts():
     minio.store_thumbnail = AsyncMock(side_effect=lambda data, key, **kw: key)
 
     service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session", minio_storage=minio)
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
 
     call_count = 0
 
@@ -157,6 +160,7 @@ async def test_successful_retry_increments_metric():
     minio.store_thumbnail = AsyncMock(side_effect=lambda data, key, **kw: key)
 
     service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session", minio_storage=minio)
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
 
     # This would increment the metric (in full implementation with mocks)
     await service._get_screenshot_with_retry(quality=80, scale=1.0)
@@ -176,6 +180,7 @@ async def test_circuit_breaker_and_retry_work_together():
     minio.store_thumbnail = AsyncMock(side_effect=lambda data, key, **kw: key)
 
     service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session", minio_storage=minio)
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
 
     # Mock asyncio.sleep to avoid real delays (the test uses retry backoff which
     # would take ~30s with default settings of 3 retries x 2s initial delay)
