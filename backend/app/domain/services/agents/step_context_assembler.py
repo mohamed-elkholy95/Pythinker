@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.domain.models.plan import Plan, Step
     from app.domain.models.request_contract import RequestContract
     from app.domain.services.agents.context_manager import ContextManager
+    from app.domain.services.agents.token_budget_manager import TokenBudget
     from app.domain.services.agents.token_manager import TokenManager
     from app.domain.services.memory_service import MemoryService
     from app.domain.services.tools.base import BaseTool
@@ -46,12 +47,14 @@ class StepContextAssembler:
         memory_service: MemoryService | None = None,
         user_id: str | None = None,
         signal_config: PromptSignalConfig | None = None,
+        token_budget: TokenBudget | None = None,
     ) -> None:
         self._context_manager = context_manager
         self._token_manager = token_manager
         self._memory_service = memory_service
         self._user_id = user_id
         self._signal_config = signal_config or PromptSignalConfig()
+        self._token_budget = token_budget  # Phase 2: proactive budget enforcement
 
     async def assemble(
         self,
@@ -134,11 +137,28 @@ class StepContextAssembler:
         return task_state_manager.get_context_signal()
 
     def _get_pressure_signal(self, memory_messages: list | None) -> str | None:
-        """Get context pressure signal if memory is under pressure."""
+        """Get context pressure signal if memory is under pressure.
+
+        When a TokenBudget is available, also reports phase-level budget usage
+        for more granular pressure awareness.
+        """
         if not memory_messages:
             return None
+
         pressure = self._token_manager.get_context_pressure(memory_messages)
-        return pressure.to_context_signal()
+        base_signal = pressure.to_context_signal()
+
+        # Augment with budget-level signal when available
+        if self._token_budget is not None:
+            usage_ratio = self._token_budget.overall_usage_ratio
+            if usage_ratio > 0.85:
+                budget_signal = (
+                    f"[TOKEN BUDGET: {usage_ratio:.0%} of total budget used. "
+                    f"Remaining: {self._token_budget.total_remaining:,} tokens.]"
+                )
+                return f"{base_signal}\n{budget_signal}" if base_signal else budget_signal
+
+        return base_signal
 
     async def _get_memory_context(
         self,
