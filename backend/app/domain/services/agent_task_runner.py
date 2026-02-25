@@ -362,6 +362,21 @@ class AgentTaskRunner(TaskRunner):
             except Exception as exc:
                 logger.debug("Scraping adapter unavailable: %s", exc)
 
+            # WP-6: CheckpointManager for cross-restart workflow persistence
+            _checkpoint_manager = None
+            if settings.feature_workflow_checkpointing:
+                try:
+                    from app.domain.services.flows.checkpoint_manager import CheckpointManager
+
+                    _checkpoint_manager = CheckpointManager(
+                        mongodb_collection=None,  # Uses in-memory fallback; inject collection for full persistence
+                        ttl_hours=24,
+                        auto_cleanup=True,
+                    )
+                    logger.debug("CheckpointManager initialized for session %s", self._session_id)
+                except Exception as exc:
+                    logger.warning("CheckpointManager unavailable: %s", exc)
+
             self._plan_act_flow = PlanActFlow(
                 self._agent_id,
                 self._repository,
@@ -390,6 +405,7 @@ class AgentTaskRunner(TaskRunner):
                 knowledge_base_service=self._knowledge_base_service,
                 prompt_profile_repo=self._prompt_profile_repo,
                 scraper=_scraper,
+                checkpoint_manager=_checkpoint_manager,
             )
             # Inject circuit breaker for tool-level failure protection
             try:
