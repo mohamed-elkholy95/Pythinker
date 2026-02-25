@@ -10,7 +10,7 @@ Available datasets:
 - research: Research task tests
 """
 
-from tests.evals.types import EvalCase, EvalDataset
+from ..types import EvalCase, EvalDataset
 
 
 def get_basic_qa_dataset() -> EvalDataset:
