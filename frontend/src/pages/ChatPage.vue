@@ -178,9 +178,9 @@
             :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id) && !canShowSuggestions"
             :sources="sourcesForMessageMap.get(index)"
             :isFastSearchSession="sessionResearchMode === 'fast_search'"
-            :activeReasoningState="!isChatMode && !showTaskProgressBar && message.id === activeAssistantMessageId ? activeReasoningState : undefined"
+            :activeReasoningState="!isChatMode && !showTaskProgressBar && !showPlanningCard && message.id === activeAssistantMessageId ? activeReasoningState : undefined"
             :thinkingText="message.id === activeAssistantMessageId ? thinkingText : undefined"
-            :liveActivity="!isChatMode && !showTaskProgressBar && message.id === activeAssistantMessageId ? liveActivity : undefined"
+            :liveActivity="!isChatMode && !showTaskProgressBar && !showPlanningCard && message.id === activeAssistantMessageId ? liveActivity : undefined"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -365,7 +365,7 @@
           <!-- Hide when timed_out to avoid flicker during auto-retry reconnect cycles -->
           <Transition name="planning-card">
             <PlanningCard
-              v-if="!isChatMode && !showSessionWarmupMessage && !isToolPanelOpen && !isTaskCompleted && responsePhase !== 'timed_out' && sessionResearchMode === 'deep_research' && planningProgress && (!plan || plan.steps.length === 0)"
+              v-if="showPlanningCard"
               class="mb-2"
               :phase="planningProgress.phase"
               :message="planningProgress.message"
@@ -2023,10 +2023,20 @@ const showTaskProgressBar = computed(() =>
   (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
 );
 
+const showPlanningCard = computed(() =>
+  !isChatMode.value &&
+  !showSessionWarmupMessage.value &&
+  !isToolPanelOpen.value &&
+  !isTaskCompleted.value &&
+  responsePhase.value !== 'timed_out' &&
+  sessionResearchMode.value === 'deep_research' &&
+  !!planningProgress.value &&
+  (!plan.value || plan.value.steps.length === 0)
+);
+
 // Add extra bottom scroll room when task progress bar or planning card is visible (no thumbnail).
 const showProgressDockSpacer = computed(() =>
-  showTaskProgressBar.value ||
-  (!showSessionWarmupMessage.value && !isToolPanelOpen.value && !isTaskCompleted.value && planningProgress.value !== null && (!plan.value || plan.value.steps.length === 0))
+  showTaskProgressBar.value || showPlanningCard.value
 );
 
 // Add extra bottom scroll room when mini preview thumbnail is rendered with the task progress bar.
