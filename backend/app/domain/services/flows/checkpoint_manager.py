@@ -510,6 +510,70 @@ class CheckpointManager:
 
         return checkpoint.step_results.get(step_id)
 
+    async def save_plan_checkpoint(
+        self,
+        session_id: str,
+        plan_id: str,
+        completed_steps: list[str],
+        step_results: dict[str, Any],
+        stage_index: int,
+        metadata: dict[str, Any] | None = None,
+    ) -> "WorkflowCheckpoint | None":
+        """
+        Save a plan-level checkpoint without requiring a Workflow object.
+
+        Used by PlanActFlow to persist plan execution progress directly.
+        Creates a WorkflowCheckpoint from plan data and stores it via the
+        standard storage path (MongoDB or in-memory fallback).
+
+        Args:
+            session_id: Session identifier
+            plan_id: Plan identifier (used as workflow_id)
+            completed_steps: List of completed step IDs
+            step_results: Map of step_id → result string
+            stage_index: Current step index (0-based)
+            metadata: Additional metadata dict
+
+        Returns:
+            Created WorkflowCheckpoint or None on failure
+        """
+        from datetime import timedelta
+
+        try:
+            checkpoint = WorkflowCheckpoint(
+                workflow_id=plan_id,
+                session_id=session_id,
+                stage_index=stage_index,
+                completed_steps=completed_steps,
+                step_results=step_results,
+                status=CheckpointStatus.ACTIVE,
+                workflow_data={"plan_id": plan_id, "type": "plan"},
+                context={},
+                expires_at=datetime.now(UTC) + timedelta(hours=self._ttl_hours),
+                metadata=metadata or {},
+            )
+
+            key = self._get_key(plan_id, session_id)
+
+            if self._collection:
+                try:
+                    await self._collection.update_one(
+                        {"workflow_id": plan_id, "session_id": session_id},
+                        {"$set": checkpoint.to_dict()},
+                        upsert=True,
+                    )
+                    logger.debug("Saved plan checkpoint for session %s step %d", session_id, stage_index)
+                except Exception as mongo_err:
+                    logger.error("Failed to save plan checkpoint to MongoDB: %s", mongo_err)
+                    self._memory_storage[key] = checkpoint
+            else:
+                self._memory_storage[key] = checkpoint
+
+            return checkpoint
+        except Exception as e:
+            logger.error("save_plan_checkpoint failed: %s", e)
+            return None
+
 
 # Singleton instance
 _checkpoint_manager: CheckpointManager | None = None

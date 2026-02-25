@@ -23,6 +23,7 @@ class TestIncrementalCheckpointWrites:
         memory_service_mock.store_memory = AsyncMock(return_value=MagicMock())
 
         flow_mock = MagicMock(spec=PlanActFlow)
+        flow_mock._checkpoint_manager = None
         flow_mock._memory_service = memory_service_mock
         flow_mock._user_id = "user-123"
         flow_mock._session_id = "session-456"
@@ -64,6 +65,7 @@ class TestIncrementalCheckpointWrites:
         memory_service_mock.store_memory = AsyncMock(return_value=MagicMock())
 
         flow_mock = MagicMock(spec=PlanActFlow)
+        flow_mock._checkpoint_manager = None
         flow_mock._memory_service = memory_service_mock
         flow_mock._user_id = "user-123"
         flow_mock._session_id = "session-456"
@@ -88,6 +90,7 @@ class TestIncrementalCheckpointWrites:
         memory_service_mock.store_memory = AsyncMock(return_value=MagicMock())
 
         flow_mock = MagicMock(spec=PlanActFlow)
+        flow_mock._checkpoint_manager = None
         flow_mock._memory_service = memory_service_mock
         flow_mock._user_id = "user-123"
         flow_mock._session_id = "session-456"
@@ -111,6 +114,7 @@ class TestIncrementalCheckpointWrites:
         memory_service_mock.store_memory = AsyncMock(return_value=MagicMock())
 
         flow_mock = MagicMock(spec=PlanActFlow)
+        flow_mock._checkpoint_manager = None
         flow_mock._memory_service = memory_service_mock
         flow_mock._user_id = "user-123"
         flow_mock._session_id = "session-456"
@@ -147,6 +151,7 @@ class TestIncrementalCheckpointWrites:
         memory_service_mock.store_memory = AsyncMock(return_value=MagicMock())
 
         flow_mock = MagicMock(spec=PlanActFlow)
+        flow_mock._checkpoint_manager = None
         flow_mock._memory_service = memory_service_mock
         flow_mock._user_id = "user-123"
         flow_mock._session_id = "session-456"
@@ -183,6 +188,7 @@ class TestIncrementalCheckpointWrites:
         from app.domain.services.flows.plan_act import PlanActFlow
 
         flow_mock = MagicMock(spec=PlanActFlow)
+        flow_mock._checkpoint_manager = None
         flow_mock._memory_service = None  # No memory service
         flow_mock._user_id = "user-123"
         flow_mock.plan = Plan(title="Test", steps=[])
@@ -201,6 +207,7 @@ class TestIncrementalCheckpointWrites:
         memory_service_mock.store_memory = AsyncMock(side_effect=Exception("Storage error"))
 
         flow_mock = MagicMock(spec=PlanActFlow)
+        flow_mock._checkpoint_manager = None
         flow_mock._memory_service = memory_service_mock
         flow_mock._user_id = "user-123"
         flow_mock._session_id = "session-456"
@@ -220,6 +227,7 @@ class TestIncrementalCheckpointWrites:
         memory_service_mock.store_memory = AsyncMock(return_value=MagicMock())
 
         flow_mock = MagicMock(spec=PlanActFlow)
+        flow_mock._checkpoint_manager = None
         flow_mock._memory_service = memory_service_mock
         flow_mock._user_id = "user-123"
         flow_mock._session_id = "session-456"
