@@ -9,7 +9,7 @@ import re
 from collections import Counter
 from typing import Any, ClassVar
 
-from tests.evals.metrics.base import BaseMetric, MetricScore
+from .base import BaseMetric, MetricScore
 
 
 class SimilarityMetric(BaseMetric):
