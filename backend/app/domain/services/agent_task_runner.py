@@ -352,6 +352,16 @@ class AgentTaskRunner(TaskRunner):
             )
 
             typo_analytics = get_typo_correction_analytics()
+
+            # Scraper adapter — injected into flows so domain layer stays infra-free
+            _scraper = None
+            try:
+                from app.infrastructure.external.scraper import get_scraping_adapter
+
+                _scraper = get_scraping_adapter()
+            except Exception as exc:
+                logger.debug("Scraping adapter unavailable: %s", exc)
+
             self._plan_act_flow = PlanActFlow(
                 self._agent_id,
                 self._repository,
@@ -379,6 +389,7 @@ class AgentTaskRunner(TaskRunner):
                 research_mode=self._research_mode.value,
                 knowledge_base_service=self._knowledge_base_service,
                 prompt_profile_repo=self._prompt_profile_repo,
+                scraper=_scraper,
             )
             # Inject circuit breaker for tool-level failure protection
             try:
