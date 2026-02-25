@@ -21,6 +21,8 @@ from enum import Enum
 from functools import lru_cache
 from typing import Any
 
+from app.domain.models.tool_name import ToolName
+
 logger = logging.getLogger(__name__)
 
 
@@ -156,9 +158,9 @@ class ToolsetConfig:
     max_tools_per_request: int = 20  # Maximum tools to include
     always_include: set[str] = field(
         default_factory=lambda: {
-            "message_ask_user",  # Always need user communication
-            "file_read",  # Common operation
-            "file_write",  # Common operation
+            ToolName.MESSAGE_ASK_USER,  # Always need user communication
+            ToolName.FILE_READ,  # Common operation
+            ToolName.FILE_WRITE,  # Common operation
         }
     )
     keyword_similarity_threshold: float = 0.3
@@ -389,9 +391,7 @@ class DynamicToolsetManager:
 
         _total = len(self._tools)
         _reduction = (100 - len(result) * 100 // _total) if _total else 0
-        logger.info(
-            f"Dynamic toolset: {len(result)}/{_total} tools ({_reduction}% reduction)"
-        )
+        logger.info(f"Dynamic toolset: {len(result)}/{_total} tools ({_reduction}% reduction)")
 
         return result
 
@@ -626,13 +626,9 @@ class DynamicToolsetManager:
                 if not isinstance(param_schema, dict):
                     continue
                 if "type" not in param_schema:
-                    violations.append(
-                        f"Tool '{tool_info.name}' parameter '{param_name}' missing 'type'"
-                    )
+                    violations.append(f"Tool '{tool_info.name}' parameter '{param_name}' missing 'type'")
                 if "description" not in param_schema:
-                    violations.append(
-                        f"Tool '{tool_info.name}' parameter '{param_name}' missing 'description'"
-                    )
+                    violations.append(f"Tool '{tool_info.name}' parameter '{param_name}' missing 'description'")
 
         # 2. Description keyword overlap (Jaccard similarity > 80%)
         for i in range(len(tool_list)):

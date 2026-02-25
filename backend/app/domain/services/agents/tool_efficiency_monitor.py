@@ -17,6 +17,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import ClassVar
 
+from app.domain.models.tool_name import ToolName
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,63 +47,14 @@ class ToolEfficiencyMonitor:
     Context7 validated: Sliding window pattern, threshold-based detection.
     """
 
-    # Tool classification
-    READ_TOOLS: ClassVar[set[str]] = {
-        # File read operations
-        "file_read",
-        "file_list",
-        "file_list_directory",
-        "file_search",
-        "file_find",
-        "file_find_by_name",
-        "file_find_in_content",
-        "file_view",
-        # Browser read operations
-        "browser_view",
-        "browser_get_content",
-        "browser_navigate",
-        "browser_screenshot",
-        "browser_agent_extract",
-        # Search operations
-        "info_search_web",
-        "search",
-        "wide_research",
-        # Code read operations
-        "code_list_artifacts",
-        "code_read_artifact",
-        # Workspace read operations
-        "workspace_info",
-        "workspace_tree",
-        # Shell read operations
-        "shell_view",
-        # MCP read operations (pattern-based)
-        "mcp_list_resources",
-        "mcp_read_resource",
-    }
-
-    ACTION_TOOLS: ClassVar[set[str]] = {
-        # File write operations
-        "file_write",
-        "file_create",
-        "file_delete",
-        "file_rename",
-        "file_move",
-        # Browser action operations
-        "browser_click",
-        "browser_input",
-        "browser_agent",  # Autonomous browser agent
-        # Code execution
-        "code_execute",
-        "code_create_artifact",
-        "code_update_artifact",
-        # Shell execution
-        "shell_exec",
-        # User interaction
-        "message_ask_user",
-        "message_notify_user",
-        # Export operations
-        "export",
-    }
+    # Tool classification — delegated to canonical ToolName enum sets
+    # Backward-compatible: sets of str values (ToolName inherits from str)
+    READ_TOOLS: ClassVar[frozenset[str]] = frozenset(
+        t.value for t in ToolName.read_only_tools()
+    )
+    ACTION_TOOLS: ClassVar[frozenset[str]] = frozenset(
+        t.value for t in ToolName.action_tools()
+    )
 
     def __init__(
         self,
@@ -209,34 +162,18 @@ class ToolEfficiencyMonitor:
     def _is_read_tool(self, tool_name: str) -> bool:
         """Check if tool is a read operation.
 
-        Args:
-            tool_name: Tool name to check
-
-        Returns:
-            True if tool is a read operation
+        Delegates to ToolName.is_read_tool() which handles both enum members
+        and dynamic MCP tool names via prefix matching.
         """
-        # Direct match in READ_TOOLS
-        if tool_name in self.READ_TOOLS:
-            return True
-
-        # Pattern-based matching for MCP tools
-        return bool(tool_name.startswith(("mcp_get_", "mcp_list_", "mcp_search_", "mcp_read_", "mcp_fetch_")))
+        return ToolName.is_read_tool(tool_name)
 
     def _is_action_tool(self, tool_name: str) -> bool:
         """Check if tool is an action operation.
 
-        Args:
-            tool_name: Tool name to check
-
-        Returns:
-            True if tool is an action operation
+        Delegates to ToolName.is_action_tool_name() which handles both enum
+        members and dynamic MCP tool names via prefix matching.
         """
-        # Direct match in ACTION_TOOLS
-        if tool_name in self.ACTION_TOOLS:
-            return True
-
-        # Pattern-based matching for MCP tools
-        return bool(tool_name.startswith(("mcp_create_", "mcp_update_", "mcp_delete_", "mcp_write_", "mcp_execute_")))
+        return ToolName.is_action_tool_name(tool_name)
 
 
 # Singleton instance
