@@ -4,7 +4,7 @@ import re
 import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager, suppress
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import TypeAdapter
 
@@ -34,6 +34,7 @@ from app.domain.models.event import (
     ShellToolContent,
     TitleEvent,
     ToolEvent,
+    ToolProgressEvent,
     ToolStatus,
     ToolStreamEvent,
     WaitEvent,
@@ -48,6 +49,7 @@ from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.comparison_chart_generator import ComparisonChartGenerator
+from app.domain.services.file_sync_manager import EventWithAttachments, FileSyncManager
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.discuss import DiscussFlow
 from app.domain.services.flows.fast_search import FastSearchFlow
@@ -73,85 +75,6 @@ if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
-
-# Type alias for events that contain attachments requiring storage sync
-# Both MessageEvent and ReportEvent have an 'attachments' field of type Optional[List[FileInfo]]
-EventWithAttachments = MessageEvent | ReportEvent
-
-# File sweep constants — extensions worth delivering to users
-DELIVERABLE_EXTENSIONS = {
-    # Documents
-    ".md",
-    ".txt",
-    ".pdf",
-    ".docx",
-    ".doc",
-    ".rtf",
-    ".csv",
-    ".tsv",
-    # Code
-    ".py",
-    ".js",
-    ".ts",
-    ".jsx",
-    ".tsx",
-    ".html",
-    ".css",
-    ".scss",
-    ".java",
-    ".go",
-    ".rs",
-    ".c",
-    ".cpp",
-    ".h",
-    ".rb",
-    ".php",
-    ".swift",
-    ".kt",
-    ".scala",
-    ".sh",
-    ".bash",
-    ".zsh",
-    # Data
-    ".json",
-    ".yaml",
-    ".yml",
-    ".xml",
-    ".toml",
-    ".ini",
-    ".cfg",
-    ".env",
-    # Images
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".svg",
-    ".webp",
-    ".ico",
-    # Other
-    ".sql",
-    ".graphql",
-    ".proto",
-    ".dockerfile",
-    ".makefile",
-}
-SKIP_DIRECTORIES = {
-    "node_modules",
-    ".git",
-    "__pycache__",
-    ".venv",
-    "venv",
-    ".cache",
-    ".npm",
-    ".local",
-    ".config",
-    "snap",
-    ".pnpm-store",
-    ".pki",
-}
-MAX_SYNC_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-MAX_SWEEP_FILES = 50
 
 
 class AgentTaskRunner(TaskRunner):
@@ -270,6 +193,16 @@ class AgentTaskRunner(TaskRunner):
         self._comparison_chart_generator = ComparisonChartGenerator()
         # Phase 4: Plotly chart orchestrator (feature-flagged)
         self._plotly_chart_orchestrator = PlotlyChartOrchestrator(sandbox=self._sandbox, session_id=session_id)
+
+        # File sync manager — delegated from AgentTaskRunner (Phase 3C extraction)
+        self._file_sync_manager = FileSyncManager(
+            agent_id=agent_id,
+            session_id=session_id,
+            user_id=user_id,
+            sandbox=sandbox,
+            file_storage=file_storage,
+            session_repository=session_repository,
+        )
 
         # Initialize flows based on mode
         self._plan_act_flow: PlanActFlow | None = None
@@ -573,143 +506,15 @@ class AgentTaskRunner(TaskRunner):
         event.id = event_id
         return event
 
-    # Extension-based MIME type fallback map (Phase 1: MIME hardening)
-    _EXTENSION_MIME_MAP: ClassVar[dict[str, str]] = {
-        ".html": "text/html",
-        ".png": "image/png",
-        ".svg": "image/svg+xml",
-        ".pdf": "application/pdf",
-        ".md": "text/markdown",
-        ".json": "application/json",
-        ".csv": "text/csv",
-        ".txt": "text/plain",
-        ".xml": "application/xml",
-        ".yaml": "application/x-yaml",
-        ".yml": "application/x-yaml",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-        ".ico": "image/x-icon",
-    }
+    # ── File Sync (delegated to FileSyncManager — Phase 3C extraction) ──
 
     def _infer_content_type(self, file_path: str, existing_content_type: str | None = None) -> str | None:
-        """
-        Infer MIME type from file extension if not already known.
-
-        Args:
-            file_path: Path to file
-            existing_content_type: Already-known content type (from FileInfo metadata)
-
-        Returns:
-            Content type string, or None if cannot be determined
-        """
-        if existing_content_type:
-            return existing_content_type
-
-        # Try extension-based fallback
-        import os
-
-        _, ext = os.path.splitext(file_path.lower())
-        return self._EXTENSION_MIME_MAP.get(ext)
+        """Infer MIME type from file extension if not already known."""
+        return self._file_sync_manager.infer_content_type(file_path, existing_content_type)
 
     async def _sync_file_to_storage(self, file_path: str, content_type: str | None = None) -> FileInfo | None:
-        """
-        Download a file from the sandbox and upload it to storage (MinIO/GridFS).
-
-        This method:
-        1. Validates the file_path is not empty
-        2. Downloads the file content from the sandbox
-        3. Validates the content is not empty
-        4. Removes any existing file with the same path (to handle updates)
-        5. Infers content_type from extension if not provided (Phase 1: MIME hardening)
-        6. Uploads to storage with correct MIME type and registers with the session
-        7. Returns a fully populated FileInfo with file_id
-
-        Args:
-            file_path: The path to the file in the sandbox (e.g., /home/ubuntu/report.md)
-            content_type: Optional MIME type (if known from FileInfo metadata)
-
-        Returns:
-            FileInfo with valid file_id if successful, None if sync fails
-        """
-        # Validate input
-        if not file_path or not file_path.strip():
-            logger.warning(f"Agent {self._agent_id}: Cannot sync file with empty path")
-            return None
-
-        try:
-            # Check if file already exists in session
-            existing_file = await self._session_repository.get_file_by_path(self._session_id, file_path)
-
-            # Download file from sandbox
-            file_data = await self._sandbox.file_download(file_path)
-
-            # Validate file content
-            if file_data is None:
-                logger.warning(f"Agent {self._agent_id}: File download returned None for '{file_path}'")
-                return None
-
-            if file_data.getbuffer().nbytes == 0:
-                logger.warning(f"Agent {self._agent_id}: File '{file_path}' is empty (0 bytes)")
-                # Still allow empty files - some use cases may need them
-
-            # Remove existing file if present (to handle file updates)
-            if existing_file and existing_file.file_id:
-                logger.debug(
-                    f"Agent {self._agent_id}: Removing existing file for path '{file_path}' "
-                    f"(file_id={existing_file.file_id})"
-                )
-                await self._session_repository.remove_file(self._session_id, existing_file.file_id)
-
-            # Extract filename from path
-            file_name = file_path.split("/")[-1]
-            if not file_name:
-                file_name = "unnamed_file"
-                logger.warning(
-                    f"Agent {self._agent_id}: Could not extract filename from '{file_path}', using '{file_name}'"
-                )
-
-            # Infer content type if not provided (Phase 1: MIME hardening)
-            resolved_content_type = self._infer_content_type(file_path, content_type)
-            if resolved_content_type:
-                logger.debug(
-                    f"Agent {self._agent_id}: Uploading '{file_name}' with content_type='{resolved_content_type}'"
-                )
-
-            # Upload to storage with MIME type (Phase 1: MIME hardening fix)
-            file_info = await self._file_storage.upload_file(
-                file_data, file_name, self._user_id, content_type=resolved_content_type
-            )
-
-            # Validate upload result
-            if not file_info:
-                logger.error(f"Agent {self._agent_id}: File storage returned None for '{file_path}'")
-                return None
-
-            if not file_info.file_id:
-                logger.error(f"Agent {self._agent_id}: Uploaded file has no file_id for '{file_path}'")
-                return None
-
-            # Set the file_path for reference
-            file_info.file_path = file_path
-
-            # Register file with session
-            await self._session_repository.add_file(self._session_id, file_info)
-
-            logger.debug(
-                f"Agent {self._agent_id}: Successfully synced file '{file_path}' "
-                f"-> file_id={file_info.file_id}, size={file_data.getbuffer().nbytes} bytes"
-            )
-
-            return file_info
-
-        except FileNotFoundError as e:
-            logger.warning(f"Agent {self._agent_id}: File not found in sandbox: '{file_path}' - {e}")
-            return None
-        except Exception as e:
-            logger.exception(f"Agent {self._agent_id}: Failed to sync file '{file_path}': {e}")
-            return None
+        """Download a file from sandbox and upload to storage (delegated to FileSyncManager)."""
+        return await self._file_sync_manager.sync_file_to_storage(file_path, content_type)
 
     async def _sync_file_to_storage_with_retry(
         self,
@@ -718,199 +523,22 @@ class AgentTaskRunner(TaskRunner):
         max_attempts: int = 3,
         initial_delay_seconds: float = 0.2,
     ) -> FileInfo | None:
-        """Sync file to storage with short retries for sandbox-write race windows."""
-        if max_attempts < 1:
-            max_attempts = 1
-
-        delay = initial_delay_seconds
-        for attempt in range(1, max_attempts + 1):
-            file_info = await self._sync_file_to_storage(file_path, content_type=content_type)
-            if file_info is not None:
-                return file_info
-
-            if attempt < max_attempts:
-                logger.debug(
-                    "Agent %s: Retrying file sync for '%s' (attempt %s/%s after %.2fs)",
-                    self._agent_id,
-                    file_path,
-                    attempt + 1,
-                    max_attempts,
-                    delay,
-                )
-                await asyncio.sleep(delay)
-                delay *= 2
-
-        return None
+        """Sync file to storage with retries (delegated to FileSyncManager)."""
+        return await self._file_sync_manager.sync_file_to_storage_with_retry(
+            file_path, content_type, max_attempts, initial_delay_seconds
+        )
 
     async def _sync_file_to_sandbox(self, file_id: str) -> FileInfo | None:
-        """Download file from storage to sandbox"""
-        try:
-            file_data, file_info = await self._file_storage.download_file(file_id, self._user_id)
-            file_path = "/home/ubuntu/upload/" + file_info.filename
-            result = await self._sandbox.file_upload(file_data, file_path)
-            if result.success:
-                file_info.file_path = file_path
-                return file_info
-        except Exception as e:
-            logger.exception(f"Agent {self._agent_id} failed to sync file: {e}")
+        """Download file from storage to sandbox (delegated to FileSyncManager)."""
+        return await self._file_sync_manager.sync_file_to_sandbox(file_id)
 
     async def _sweep_workspace_files(self) -> list[FileInfo]:
-        """
-        Discover and sync deliverable files in the session workspace.
-
-        Runs a find command scoped to `/workspace/<session_id>` to avoid pulling
-        unrelated files from shared home directories (for example package caches).
-        Then syncs any files that are not already tracked in session.files.
-
-        Returns:
-            List of newly synced FileInfo objects.
-        """
-        try:
-            workspace_root = f"/workspace/{self._session_id}"
-
-            # Build find command: search only session workspace, filter by extension,
-            # skip junk dirs, limit size.
-            prune_clauses = " -o ".join(f'-name "{d}"' for d in sorted(SKIP_DIRECTORIES))
-            ext_clauses = " -o ".join(f'-name "*{ext}"' for ext in sorted(DELIVERABLE_EXTENSIONS))
-            find_cmd = (
-                f"find {workspace_root} "
-                f"\\( {prune_clauses} \\) -prune -o "
-                f"\\( -type f \\( {ext_clauses} \\) "
-                f"-size -{MAX_SYNC_FILE_SIZE}c -print \\) "
-                f"2>/dev/null | head -n {MAX_SWEEP_FILES}"
-            )
-
-            result = await self._sandbox.exec_command("sweep", workspace_root, find_cmd)
-            if not result.success:
-                logger.warning(f"Agent {self._agent_id}: File sweep find command failed: {result.message}")
-                return []
-
-            output = (result.data or {}).get("output", "")
-            if not output or not output.strip():
-                logger.debug(f"Agent {self._agent_id}: File sweep found no files")
-                return []
-
-            discovered_paths = [p.strip() for p in output.strip().split("\n") if p.strip()]
-            # Defense-in-depth: only keep files from this session workspace.
-            discovered_paths = [p for p in discovered_paths if p.startswith(f"{workspace_root}/")]
-            if not discovered_paths:
-                return []
-
-            # Get already-tracked files
-            session = await self._session_repository.find_by_id(self._session_id)
-            existing_paths: set[str] = set()
-            if session and session.files:
-                for f in session.files:
-                    if f.file_path:
-                        existing_paths.add(f.file_path)
-
-            # Filter to only untracked files
-            new_paths = [p for p in discovered_paths if p not in existing_paths]
-            if not new_paths:
-                logger.debug(f"Agent {self._agent_id}: File sweep — all {len(discovered_paths)} files already tracked")
-                return []
-
-            logger.info(
-                f"Agent {self._agent_id}: File sweep found {len(new_paths)} untracked files "
-                f"(of {len(discovered_paths)} total)"
-            )
-
-            # Sync untracked files concurrently (capped)
-            sync_tasks = [self._sync_file_to_storage(p) for p in new_paths[:MAX_SWEEP_FILES]]
-            results = await asyncio.gather(*sync_tasks, return_exceptions=True)
-
-            synced: list[FileInfo] = []
-            for i, res in enumerate(results):
-                if isinstance(res, Exception):
-                    logger.warning(f"Agent {self._agent_id}: Failed to sweep-sync '{new_paths[i]}': {res}")
-                elif res is not None:
-                    synced.append(res)
-
-            logger.info(f"Agent {self._agent_id}: File sweep synced {len(synced)}/{len(new_paths)} files")
-            return synced
-
-        except Exception as e:
-            logger.exception(f"Agent {self._agent_id}: File sweep failed: {e}")
-            return []
+        """Discover and sync deliverable files in workspace (delegated to FileSyncManager)."""
+        return await self._file_sync_manager.sweep_workspace_files()
 
     async def _sync_event_attachments_to_storage(self, event: EventWithAttachments) -> None:
-        """
-        Sync event attachments to storage and update the event with resolved FileInfo objects.
-
-        This method handles attachment syncing for any event type that has an attachments field
-        (MessageEvent, ReportEvent, etc.). It:
-        1. Filters out attachments with invalid/missing file_path
-        2. Syncs valid attachments to GridFS storage concurrently
-        3. Updates the event's attachments with fully resolved FileInfo objects (with file_id)
-        4. Logs warnings for failed syncs but continues processing other attachments
-
-        Args:
-            event: An event with an attachments field (MessageEvent or ReportEvent)
-        """
-        synced_attachments: list[FileInfo] = []
-        event_type = event.type
-
-        try:
-            if not event.attachments:
-                logger.debug(f"Agent {self._agent_id}: {event_type} event has no attachments to sync")
-                return
-
-            # Filter valid attachments - must have a non-empty file_path
-            valid_attachments = []
-            for attachment in event.attachments:
-                if attachment.file_path and attachment.file_path.strip():
-                    valid_attachments.append(attachment)
-                else:
-                    logger.warning(
-                        f"Agent {self._agent_id}: Skipping attachment with invalid file_path: "
-                        f"file_id={attachment.file_id}, filename={attachment.filename}"
-                    )
-
-            if not valid_attachments:
-                logger.debug(f"Agent {self._agent_id}: No valid attachments to sync for {event_type} event")
-                event.attachments = []
-                return
-
-            logger.info(
-                f"Agent {self._agent_id}: Syncing {len(valid_attachments)} attachments "
-                f"for {event_type} event to storage"
-            )
-
-            # Sync all valid attachments concurrently (Phase 1: pass content_type from metadata)
-            sync_tasks = [
-                self._sync_file_to_storage(attachment.file_path, content_type=attachment.content_type)
-                for attachment in valid_attachments
-            ]
-            results = await asyncio.gather(*sync_tasks, return_exceptions=True)
-
-            # Process results, collecting successfully synced attachments
-            for i, result in enumerate(results):
-                file_path = valid_attachments[i].file_path
-                if isinstance(result, Exception):
-                    logger.warning(f"Agent {self._agent_id}: Failed to sync attachment '{file_path}': {result}")
-                elif result is None:
-                    logger.warning(f"Agent {self._agent_id}: Sync returned None for attachment '{file_path}'")
-                elif not result.file_id:
-                    logger.warning(f"Agent {self._agent_id}: Synced attachment '{file_path}' has no file_id")
-                else:
-                    synced_attachments.append(result)
-                    logger.debug(
-                        f"Agent {self._agent_id}: Successfully synced attachment "
-                        f"'{file_path}' -> file_id={result.file_id}"
-                    )
-            logger.info(
-                f"Agent {self._agent_id}: Successfully synced {len(synced_attachments)}/{len(valid_attachments)} "
-                f"attachments for {event_type} event"
-            )
-
-        except Exception as e:
-            logger.exception(
-                f"Agent {self._agent_id}: Unexpected error syncing attachments for {event_type} event: {e}"
-            )
-
-        # Always update event attachments - either with synced files or empty list
-        # This ensures no null file_ids remain in the event
-        event.attachments = synced_attachments
+        """Sync event attachments to storage (delegated to FileSyncManager)."""
+        await self._file_sync_manager.sync_event_attachments_to_storage(event)
 
     async def _ensure_report_file(self, event: ReportEvent) -> None:
         """Persist report content as a file in the sandbox and attach it to the event."""
@@ -1324,30 +952,8 @@ class AgentTaskRunner(TaskRunner):
         )
 
     async def _sync_message_attachments_to_sandbox(self, event: MessageEvent) -> None:
-        """Sync message attachments concurrently and update event attachments"""
-        attachments: list[FileInfo] = []
-        try:
-            if event.attachments:
-                # Sync all attachments concurrently
-                sync_tasks = [self._sync_file_to_sandbox(attachment.file_id) for attachment in event.attachments]
-                results = await asyncio.gather(*sync_tasks, return_exceptions=True)
-
-                # Process results and add to session
-                add_file_tasks = []
-                for result in results:
-                    if isinstance(result, Exception):
-                        logger.warning(f"Sandbox sync failed: {result}")
-                    elif result:
-                        attachments.append(result)
-                        add_file_tasks.append(self._session_repository.add_file(self._session_id, result))
-
-                # Add files to session concurrently
-                if add_file_tasks:
-                    await asyncio.gather(*add_file_tasks, return_exceptions=True)
-
-            event.attachments = attachments
-        except Exception as e:
-            logger.exception(f"Agent {self._agent_id} failed to sync attachments to event: {e}")
+        """Sync message attachments to sandbox (delegated to FileSyncManager)."""
+        await self._file_sync_manager.sync_message_attachments_to_sandbox(event)
 
     @asynccontextmanager
     async def _usage_context(self):
@@ -1924,8 +1530,9 @@ class AgentTaskRunner(TaskRunner):
                         logger.debug(f"Agent {self._agent_id} paused, waiting for resume...")
                         await asyncio.sleep(0.5)
 
-                    # ToolStreamEvent is ephemeral (preview only) — send to SSE but skip persistence
-                    if isinstance(event, ToolStreamEvent):
+                    # ToolStreamEvent and ToolProgressEvent are ephemeral (preview only)
+                    # — send to SSE but skip persistence
+                    if isinstance(event, (ToolStreamEvent, ToolProgressEvent)):
                         await task.output_stream.put(event.model_dump_json())
                         continue
 
