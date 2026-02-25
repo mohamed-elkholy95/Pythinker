@@ -227,6 +227,7 @@ class PlanActFlow(BaseFlow):
         knowledge_base_service=None,
         prompt_profile_repo=None,
         scraper: Scraper | None = None,
+        checkpoint_manager=None,
     ):
         self._feature_flags = feature_flags
         self._research_mode = research_mode
@@ -258,6 +259,9 @@ class PlanActFlow(BaseFlow):
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
         self._user_id = user_id
+
+        # WP-6: CheckpointManager for cross-restart workflow persistence
+        self._checkpoint_manager = checkpoint_manager
 
         # Conversation context: real-time retrieval for step execution
         from app.domain.services.conversation_context_service import get_conversation_context_service
@@ -1102,6 +1106,66 @@ class PlanActFlow(BaseFlow):
             logger.info(f"Checkpoint written at step {step_index + 1} ({'final' if is_final else 'incremental'})")
         except Exception as e:
             logger.warning(f"Failed to write checkpoint: {e}")
+
+        # WP-6: Persist plan checkpoint to CheckpointManager for cross-restart recovery
+        if self._checkpoint_manager and self.plan:
+            try:
+                _settings = get_settings()
+                if _settings.feature_workflow_checkpointing:
+                    await self._checkpoint_manager.save_plan_checkpoint(
+                        session_id=self._session_id,
+                        plan_id=self.plan.id,
+                        completed_steps=[
+                            str(s.id)
+                            for s in self.plan.steps
+                            if s.status == ExecutionStatus.COMPLETED
+                        ],
+                        step_results={
+                            str(s.id): str(s.result or "")[:500]
+                            for s in self.plan.steps
+                            if s.status == ExecutionStatus.COMPLETED and s.result
+                        },
+                        stage_index=step_index,
+                        metadata={
+                            "step_index": step_index,
+                            "is_final": is_final,
+                            "session_id": self._session_id,
+                        },
+                    )
+            except Exception as _ckpt_err:
+                logger.debug("WP-6 CheckpointManager write failed (non-critical): %s", _ckpt_err)
+
+    def _apply_plan_checkpoint(self, checkpoint: Any) -> None:
+        """Apply a WorkflowCheckpoint to the current plan, marking completed steps as done.
+
+        WP-6: When a session resumes after an interruption, this method uses the
+        persisted checkpoint to skip steps already completed in the prior run,
+        complementing the existing StepEvent-based status restoration.
+
+        Args:
+            checkpoint: WorkflowCheckpoint with completed_steps and step_results
+        """
+        if not self.plan or not checkpoint or not checkpoint.completed_steps:
+            return
+
+        completed_set = set(checkpoint.completed_steps)
+        restored = 0
+        for step in self.plan.steps:
+            step_id = str(step.id)
+            if step_id in completed_set and step.status != ExecutionStatus.COMPLETED:
+                step.status = ExecutionStatus.COMPLETED
+                step.success = True
+                if step_id in (checkpoint.step_results or {}):
+                    step.result = str(checkpoint.step_results[step_id])
+                restored += 1
+
+        if restored > 0:
+            logger.info(
+                "WP-6 checkpoint applied: %d/%d steps marked completed for session %s",
+                restored,
+                len(self.plan.steps),
+                self._session_id,
+            )
 
     async def _load_progress_artifact(self) -> dict | None:
         """Load previously saved progress artifact from sandbox.
@@ -2237,6 +2301,17 @@ class PlanActFlow(BaseFlow):
                     step.status = step_statuses[step_id]
                     logger.debug(f"Restored step {step_id} status to {step.status}")
 
+            # WP-6: Augment with CheckpointManager data for steps missed by StepEvent restoration
+            if self._checkpoint_manager and settings.feature_workflow_checkpointing:
+                try:
+                    _ckpt_wf_id = await self._checkpoint_manager.has_resumable_checkpoint(self._session_id)
+                    if _ckpt_wf_id:
+                        _ckpt = await self._checkpoint_manager.load_checkpoint(_ckpt_wf_id, self._session_id)
+                        if _ckpt:
+                            self._apply_plan_checkpoint(_ckpt)
+                except Exception as _ckpt_err:
+                    logger.debug("WP-6 checkpoint restoration failed (non-critical): %s", _ckpt_err)
+
         # Reinitialize TaskStateManager when resuming with an existing plan
         if self.plan and self.plan.steps:
             # Get the original objective from the first user message event
@@ -2280,6 +2355,12 @@ class PlanActFlow(BaseFlow):
             )
         else:
             self.executor.set_thinking_mode(None)  # Reset to auto
+
+        # WP-5: Inject distributed trace context into executor/planner so that
+        # invoke_tool() can create per-tool child spans for observability.
+        if settings.feature_tool_tracing:
+            self.executor._trace_ctx = trace_ctx
+            self.planner._trace_ctx = trace_ctx
 
         step = None
         while True:
@@ -2371,6 +2452,44 @@ class PlanActFlow(BaseFlow):
                             except Exception as e:
                                 logger.debug("Role-scoped memory injection skipped: %s", e)
 
+                        # Phase 3: Meta-cognition knowledge boundary assessment
+                        if settings.feature_meta_cognition_enabled:
+                            try:
+                                from app.domain.services.agents.reasoning.meta_cognition import (
+                                    get_meta_cognition,
+                                )
+
+                                # Collect tool schemas for awareness
+                                _meta_tool_schemas: list[dict[str, Any]] = []
+                                for _t in getattr(self.executor, "tools", []):
+                                    with suppress(Exception):
+                                        _meta_tool_schemas.extend(_t.get_tools())
+
+                                meta = get_meta_cognition(tools=_meta_tool_schemas)
+                                assessment = meta.assess_knowledge_boundaries(
+                                    task=message.message,
+                                    context={"session_id": self._session_id},
+                                )
+                                if assessment.blocking_gaps:
+                                    _gap_lines = "\n".join(
+                                        f"- {g.description}" for g in assessment.blocking_gaps
+                                    )
+                                    _gap_suffix = f"\n\n## Known Knowledge Gaps\n{_gap_lines}"
+                                    replan_context = (
+                                        f"{replan_context}{_gap_suffix}"
+                                        if replan_context
+                                        else _gap_suffix
+                                    )
+                                    logger.debug(
+                                        "Meta-cognition: injected %d knowledge gaps into planning context",
+                                        len(assessment.blocking_gaps),
+                                    )
+                            except Exception as _meta_plan_err:
+                                logger.debug(
+                                    "Meta-cognition planning injection skipped (non-critical): %s",
+                                    _meta_plan_err,
+                                )
+
                         # PR-7: Resolve prompt profile patches (shadow/active mode)
                         from app.domain.models.prompt_profile import PromptTarget as _PromptTarget
 
@@ -2385,6 +2504,33 @@ class PlanActFlow(BaseFlow):
                             )
 
                         _planner_patch = await self._resolve_profile_patch(_PromptTarget.PLANNER)
+
+                        # Phase 4: Prompt variant selection via Thompson-sampling bandit
+                        if settings.feature_prompt_profile_runtime:
+                            try:
+                                from app.domain.services.agents.learning.prompt_optimizer import (
+                                    get_prompt_optimizer,
+                                )
+
+                                _optimizer = get_prompt_optimizer()
+                                # Lazily seed bandit with auto-generated planner variants
+                                _optimizer.auto_generate_variants(
+                                    category="planner",
+                                    base_prompt=self.planner.system_prompt,
+                                    num_variants=3,
+                                )
+                                _best_variant = _optimizer.get_best_variant("planner")
+                                if _best_variant and _best_variant.prompt_template:
+                                    self.planner.system_prompt = _best_variant.prompt_template
+                                    logger.debug(
+                                        "Phase 4: Applied prompt variant '%s' for planner (success_rate=%.2f)",
+                                        _best_variant.variant_id,
+                                        _best_variant.success_rate,
+                                    )
+                            except Exception as _var_err:
+                                logger.debug(
+                                    "Prompt variant selection skipped (non-critical): %s", _var_err
+                                )
 
                         # Deep Research: inject browser-first emphasis + workspace instructions
                         _saved_planner_prompt = self.planner.system_prompt
@@ -3002,6 +3148,7 @@ class PlanActFlow(BaseFlow):
 
                     summarization_start = time.perf_counter()
                     metrics_port = get_metrics()
+                    _eval_final_content = ""  # WP-3: capture last summary content for eval gate
                     with trace_ctx.span("summarizing", "agent_step") as summary_span:
                         async for event in self.executor.summarize(response_policy=self._response_policy):
                             await self._check_cancelled()
@@ -3024,6 +3171,7 @@ class PlanActFlow(BaseFlow):
                             if isinstance(event, (ReportEvent, MessageEvent)):
                                 content = event.content if isinstance(event, ReportEvent) else event.message
                                 content = content or ""
+                                _eval_final_content = content  # WP-3: track latest summary
 
                                 # Phase 0: OutputGuardrails analysis (gated by enable_output_guardrails_in_flow)
                                 settings = get_settings()
@@ -3169,6 +3317,55 @@ class PlanActFlow(BaseFlow):
                     )
                     if self.status == AgentStatus.ERROR:
                         continue
+
+                    # WP-3: Ragas eval gate — runs in shadow mode (enable_eval_gates=False by default).
+                    # When enabled, emits EvalMetricsEvent with hallucination/faithfulness scores
+                    # and logs a warning if hallucination_score > 0.5 for observability.
+                    if settings.enable_eval_gates and _eval_final_content:
+                        try:
+                            from app.domain.models.event import EvalMetricsEvent
+                            from app.domain.services.evaluation.ragas_metrics import RagasEvaluator
+
+                            _step_summaries = [
+                                s.result[:300] if s.result else s.description
+                                for s in (self.plan.steps if self.plan else [])
+                                if s.status == ExecutionStatus.COMPLETED
+                            ]
+                            _evaluator = RagasEvaluator(llm_client=self._llm)
+                            _eval_batch = await _evaluator.evaluate_all(
+                                question=message.message,
+                                answer=_eval_final_content,
+                                context=_step_summaries[:10],  # cap context size
+                            )
+                            _hallucination_result = next(
+                                (
+                                    r
+                                    for r in _eval_batch.results
+                                    if r.metric_type.value == "hallucination_score"
+                                ),
+                                None,
+                            )
+                            _hallucination_score = (
+                                _hallucination_result.score if _hallucination_result else 0.0
+                            )
+                            if _hallucination_score > 0.5:
+                                logger.warning(
+                                    "Eval gate: high hallucination score %.2f for session %s",
+                                    _hallucination_score,
+                                    self._session_id,
+                                )
+                            metrics_port.increment(
+                                "pythinker_eval_gate_runs_total",
+                                labels={"session": self._session_id[:8]},
+                            )
+                            yield EvalMetricsEvent(
+                                metrics=_eval_batch.to_dict(),
+                                hallucination_score=_hallucination_score,
+                                passed=_hallucination_score <= 0.5,
+                            )
+                        except Exception as _eval_err:
+                            logger.debug("Eval gate skipped (non-critical): %s", _eval_err)
+
                     logger.info(
                         f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}"
                     )
