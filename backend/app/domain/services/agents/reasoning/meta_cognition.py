@@ -529,6 +529,57 @@ class MetaCognitionModule:
 
         return workarounds
 
+    def compute_uncertainty_score(
+        self,
+        task: str,
+        is_stuck: bool = False,
+        recent_error_rate: float = 0.0,
+        context: dict[str, Any] | None = None,
+    ) -> float:
+        """Compute an aggregated uncertainty score for the current task state.
+
+        Phase 4: Combines three orthogonal uncertainty signals into a single
+        score in [0.0, 1.0] where 1.0 = maximum uncertainty.
+
+        Aggregation:
+        - Knowledge boundary confidence inverse (from assess_knowledge_boundaries)
+        - Stuck-detector contribution (+0.3 when stuck)
+        - Error-rate contribution (+0.2 when recent error rate > 50%)
+
+        The score is clamped to [0.0, 1.0].
+
+        Args:
+            task: The task description for knowledge boundary assessment.
+            is_stuck: Whether the stuck detector has flagged the agent.
+            recent_error_rate: Fraction of recent tool calls that failed (0-1).
+            context: Optional context dict for assess_knowledge_boundaries.
+
+        Returns:
+            Uncertainty score in [0.0, 1.0].
+        """
+        try:
+            assessment = self.assess_knowledge_boundaries(task, context=context)
+            # Invert confidence: high confidence → low uncertainty
+            base_uncertainty = 1.0 - assessment.overall_confidence
+        except Exception:
+            base_uncertainty = 0.5  # Default moderate uncertainty on error
+
+        # Stuck-detector contribution
+        stuck_penalty = 0.3 if is_stuck else 0.0
+
+        # Error-rate contribution
+        error_penalty = 0.2 if recent_error_rate > 0.5 else 0.0
+
+        score = min(1.0, max(0.0, base_uncertainty + stuck_penalty + error_penalty))
+        logger.debug(
+            "compute_uncertainty_score: base=%.2f stuck=%.2f error=%.2f → score=%.2f",
+            base_uncertainty,
+            stuck_penalty,
+            error_penalty,
+            score,
+        )
+        return score
+
 
 # Global instance
 _meta_cognition: MetaCognitionModule | None = None
