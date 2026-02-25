@@ -125,6 +125,7 @@ class TestSelectModelFastMode:
     def test_fast_mode_metrics_recorded(self, mock_metrics, mock_get_settings, executor):
         """Prometheus counter is incremented when fast mode routes."""
         mock_get_settings.return_value = _mock_settings()
+        executor._step_executor._metrics = mock_metrics  # Inject after construction
         executor.set_thinking_mode("fast")
 
         executor._select_model_for_step("list files")
@@ -168,6 +169,7 @@ class TestSelectModelDeepThinkMode:
     def test_deep_think_metrics_recorded(self, mock_metrics, mock_get_settings, executor):
         """Prometheus counter is incremented when deep_think mode routes."""
         mock_get_settings.return_value = _mock_settings()
+        executor._step_executor._metrics = mock_metrics  # Inject after construction
         executor.set_thinking_mode("deep_think")
 
         executor._select_model_for_step("analyze this")
