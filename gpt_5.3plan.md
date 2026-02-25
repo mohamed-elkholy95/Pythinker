@@ -24,25 +24,33 @@ After validating the referenced code paths and comparing against current best-pr
 
 ---
 
-## Implementation Progress (Updated 2026-02-24)
+## Implementation Progress (Updated 2026-02-25 — Accuracy-Corrected)
 
-### Completed Work Packages ✅
+> **Status label definitions (revised 2026-02-25):**
+> - ✅ **Completed** = all five maturity fields are ✅ (per WP-0 rule)
+> - ⚠️ **In Progress** = implemented but at least one maturity field is ⬜
+> - ⚠️ **Broken** = implemented but confirmed non-functional at runtime (constructor error or dead code path)
+> - **Not Started** = no implementation present
+>
+> Items previously labeled "Completed" that have unchecked E2E or CI fields have been corrected to ⚠️ per WP-0 enforcement (2026-02-25).
+
+### Work Packages — Verified Status
 
 | WP | Area | Key Changes | Tests |
 |----|------|-------------|-------|
 | WP-1 | Hybrid Retrieval | `memory_service.retrieve_relevant()` — hybrid search with BM25 sparse vectors | `test_memory_service_hybrid.py` (2) |
 | WP-2 | Parallel Scheduling | `base.py _can_parallelize_tools()` — `ParallelToolExecutor.detect_dependencies()` wired | `test_parallel_wiring.py` |
-| WP-3 | Eval Gates | `plan_act._summarize_and_deliver()` — `RagasEvaluator` eval gate call + `EvalMetricsEvent` | `test_eval_gates.py` |
+| WP-3 | Eval Gates ⚠️ | `plan_act._summarize_and_deliver()` — `RagasEvaluator` eval gate call + `EvalMetricsEvent` (code only; **CI pipeline has no threshold gate** — `test-and-lint.yml` runs only `pytest`) | `test_eval_gates.py` |
 | WP-5 | Tool Tracing | `base.py invoke_tool()` — per-tool spans when `feature_tool_tracing=True` | `test_tool_tracing_wiring.py` |
-| WP-6 | Checkpoint/Resume | `plan_act` + `agent_task_runner` — `CheckpointManager` DI, startup resumption hook | `test_checkpoint_resume.py` (2) |
-| WP-7 | Tool Contracts + Guardrails | `dynamic_toolset.validate_tool_contracts()` + 3 flags flipped ON | — |
+| WP-6 | Checkpoint/Resume ⚠️ | `plan_act` + `agent_task_runner` — `CheckpointManager` DI, startup resumption hook (**in-memory only**: `mongodb_collection=None` → no cross-restart durability) | `test_checkpoint_resume.py` (2) |
+| WP-7 | Tool Contracts + Guardrails ⚠️ | `dynamic_toolset.validate_tool_contracts()` implemented but **never called** (trapped inside `warm_cache_for_common_tasks()` which has no call site); 3 guardrail flags flipped ON | — |
 | Phase 2 | Handoff Hardening | `swarm._detect_handoff_request()` — JSON-first + regex fallback | — |
 | Phase 2 | Coordinator Intelligence | `coordinator_flow._analyze_task()` — meta-cognition capability upgrade | — |
 | Phase 3 | Agent Model | `agent.py` — `AgentPersona`, `AgentPerformanceState`, `AgentLearningState` | — |
 | Phase 3 | Meta-Cognition Wiring | `plan_act` planning phase — knowledge boundary gap injection | — |
-| Phase 3 | Reflection Memory Loop | `reflection.py reflect()` — `MemoryType.TASK_OUTCOME` write-back | — |
-| Phase 4 | Shared Blackboard | `swarm.py` — `StateManifest` shared across agents | — |
-| Phase 4 | Prompt Variants | `prompt_optimizer.auto_generate_variants()` + planner selection in `plan_act` | — |
+| Phase 3 | Reflection Memory Loop ⚠️ | `reflection.py reflect()` — `MemoryType.TASK_OUTCOME` write-back (**not active**: only wired in deprecated `PlanActGraphFlow`, not in default `PlanActFlow`) | — |
+| Phase 4 | Shared Blackboard ⚠️ | `swarm.py` — `StateManifest()` called without required `session_id` at line 200 → Pydantic `ValidationError` at `Swarm.__init__`; **broken** | — |
+| Phase 4 | Prompt Variants ⚠️ | `prompt_optimizer.auto_generate_variants()` + planner selection in `plan_act` (**non-functional**: `get_best_variant()` requires `MIN_TRIALS=5`; fresh variants return `None`; no `record_outcome()` call in `plan_act` so bandit never learns) | — |
 | Phase 4 | HITL Policy | `hitl_policy.py` (new) + `base.py invoke_tool()` HITL hook | — |
 | Phase 4 | Uncertainty Scoring | `meta_cognition.compute_uncertainty_score()` + `error_integration` health | — |
 
@@ -50,12 +58,17 @@ After validating the referenced code paths and comparing against current best-pr
 
 | Area | Notes |
 |------|-------|
-| CI gates for eval quality | E2E eval thresholds not gated in CI pipeline yet |
+| **[BROKEN] Shared blackboard `StateManifest`** | `Swarm.__init__` calls `StateManifest()` without required `session_id` → Pydantic `ValidationError`; feature crashes on instantiation |
+| **[BROKEN] Prompt optimizer feedback loop** | `get_best_variant()` requires `MIN_TRIALS=5`; fresh variants always return `None`. `plan_act` never calls `record_outcome()` so trial counts never increment; bandit is permanently idle |
+| **[DEAD CODE] Tool contract validation call site** | `validate_tool_contracts()` is reachable only via `warm_cache_for_common_tasks()`, which has no call site anywhere in the codebase; contract validation never runs |
+| **[DEAD CODE] Reflection loop in default path** | `ReflectionAgent` wired only in deprecated `PlanActGraphFlow` (marked "experimental and not used in production"); default `PlanActFlow` does not invoke reflection |
+| **[INFRA GAP] CheckpointManager persistence** | `agent_task_runner.py` passes `mongodb_collection=None` → in-memory fallback only; no cross-restart durability; requires MongoDB collection injection |
+| CI gates for eval quality | CI pipeline (`test-and-lint.yml`) runs only `pytest`; no eval threshold enforcement blocks merges |
 | Cross-user pattern generalization | Not started |
 | Episodic/procedural memory graph | Not started |
 | DSPy end-to-end eval loop | Components exist, operational integration incomplete |
 | Embedded tool selection model | Still heuristic-only; no affinity scoring |
-| Smoke tests for 7 completed WPs | `test_tool_contract_validation`, `test_handoff_structured_parsing`, `test_coordinator_complexity`, `test_reflection_memory_loop`, `test_swarm_blackboard`, `test_prompt_variant_generation`, `test_hitl_policy` |
+| Smoke tests for outstanding WPs | `test_tool_contract_validation`, `test_handoff_structured_parsing`, `test_coordinator_complexity`, `test_reflection_memory_loop`, `test_swarm_blackboard`, `test_prompt_variant_generation`, `test_hitl_policy` |
 
 ### Feature Flags Status (2026-02-24)
 
@@ -250,13 +263,13 @@ Legend:
 ## 4.1 Agent Core Architecture
 
 - Agent model extension (persona/capability/perf/learning state):
-  - Status: ✅ **Completed** (2026-02-24)
+  - Status: ⚠️ **In Progress** (2026-02-24)
   - Notes: `Agent` model extended with `AgentPersona`, `AgentPerformanceState`, `AgentLearningState`, `capabilities`, `metadata` fields.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
 - BaseAgent phase-based tool filtering:
   - Status: **Completed**
 - Dependency-aware parallel scheduling:
-  - Status: ✅ **Completed** (WP-2, 2026-02-24)
+  - Status: ⚠️ **In Progress** (WP-2, 2026-02-24)
   - Notes: `ParallelToolExecutor.detect_dependencies()` wired into `_can_parallelize_tools()`; `_to_tool_call()` adapter added; `enable_parallel_execution` defaulted to `True`.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
 - Token management and compaction:
@@ -267,7 +280,7 @@ Legend:
 - BM25 sparse vector generation:
   - Status: **Completed**
 - BM25 hybrid retrieval in main memory flow:
-  - Status: ✅ **Completed** (WP-1, 2026-02-24)
+  - Status: ⚠️ **In Progress** (WP-1, 2026-02-24)
   - Notes: `retrieve_relevant()` now calls `search_hybrid()` when `qdrant_use_hybrid_search=True` and sparse vector is non-empty; dense fallback preserved.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ✅ | CI gated ⬜
   - Test: `tests/domain/services/test_memory_service_hybrid.py` (2 tests)
@@ -284,32 +297,32 @@ Legend:
 ## 4.3 Reasoning and Intelligence
 
 - Meta-cognition module:
-  - Status: ✅ **Completed** (Phase 2 + Phase 3, 2026-02-24)
+  - Status: ⚠️ **In Progress** (Phase 2 + Phase 3, 2026-02-24)
   - Notes: `assess_capabilities()` wired into `coordinator_flow._analyze_task()`; `assess_knowledge_boundaries()` wired into `plan_act` planning phase with gap injection; `compute_uncertainty_score()` added and exposed via `error_integration.assess_agent_health()`.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ⬜ (shadow mode) | E2E tested ⬜ | CI gated ⬜
 - Bayesian uncertainty quantification:
-  - Status: ✅ **Completed** (2026-02-24)
+  - Status: ⚠️ **In Progress** (2026-02-24)
   - Notes: `compute_uncertainty_score()` aggregates knowledge-boundary confidence inverse + stuck penalty (0.3) + error-rate penalty (0.2); exposed in agent health status.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
 - Reflection trigger sophistication and learning loop:
-  - Status: ✅ **Completed** (Phase 3 memory loop, 2026-02-24)
-  - Notes: `ReflectionAgent.reflect()` now writes outcomes to `MemoryType.TASK_OUTCOME` via injected `memory_service` for cross-session learning.
-  - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
+  - Status: ⚠️ **In Progress** (Phase 3 memory loop, 2026-02-24)
+  - Notes: `ReflectionAgent.reflect()` writes to `MemoryType.TASK_OUTCOME` via injected `memory_service`. **Not active in default runtime**: wired only in deprecated `PlanActGraphFlow` (marked "experimental and not used in production" at line 4 of that file). Default `PlanActFlow` does not invoke `ReflectionAgent`.
+  - Maturity: Implemented ✅ | Wired ⬜ (deprecated path only) | Enabled by default ⬜ | E2E tested ⬜ | CI gated ⬜
 
 ## 4.4 Orchestration and Multi-Agent
 
 - Swarm dynamic pooling:
   - Status: **Completed**
 - Handoff detection robustness:
-  - Status: ✅ **Completed** (Phase 2, 2026-02-24)
+  - Status: ⚠️ **In Progress** (Phase 2, 2026-02-24)
   - Notes: JSON-first handoff parsing `{"handoff": {...}}`; regex marker `[HANDOFF]...[/HANDOFF]` retained as fallback; agent prompt updated to show both formats.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
 - Inter-agent shared state/blackboard:
-  - Status: ✅ **Completed** (Phase 4, 2026-02-24)
-  - Notes: `StateManifest` created in `Swarm.__init__`; injected into agents post-creation; blackboard snapshot included in handoff context.
-  - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
+  - Status: ⚠️ **Broken** (Phase 4, 2026-02-24)
+  - Notes: `StateManifest()` at `swarm.py:200` is called with no arguments. `session_id: str` is a required Pydantic field with no default. This raises `ValidationError` at `Swarm.__init__` runtime — the blackboard is non-functional. Fix: pass `session_id=task.session_id` (or equivalent) to the constructor.
+  - Maturity: Implemented ✅ | Wired ⚠️ (constructor raises `ValidationError`) | Enabled by default ⬜ | E2E tested ⬜ | CI gated ⬜
 - Coordinator complexity inference:
-  - Status: ✅ **Completed** (Phase 2, 2026-02-24)
+  - Status: ⚠️ **In Progress** (Phase 2, 2026-02-24)
   - Notes: `_analyze_task()` now calls `meta.assess_capabilities()` after keyword/length heuristics; upgrades to COMPLEX if `!can_accomplish`, MODERATE if `capability_match_score < 0.6`.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
 
@@ -321,23 +334,23 @@ Legend:
 - DAG/dependency scheduling:
   - Status: ✅ **Completed** (WP-2, 2026-02-24)
 - Tool contract quality (overlap/schema validation):
-  - Status: ✅ **Completed** (WP-7, 2026-02-24)
-  - Notes: `DynamicToolsetManager.validate_tool_contracts()` added; checks Jaccard keyword overlap >80% and parameter schema compliance; called at startup.
-  - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
+  - Status: ⚠️ **In Progress** (WP-7, 2026-02-24)
+  - Notes: `DynamicToolsetManager.validate_tool_contracts()` added; checks Jaccard keyword overlap >80% and parameter schema compliance. **Not startup-wired**: the only call to this method is inside `warm_cache_for_common_tasks()`, which itself has no call site anywhere in the codebase (grep confirms). Contract validation is dead code; it must be called directly at startup.
+  - Maturity: Implemented ✅ | Wired ⬜ (dead code path) | Enabled by default ⬜ | E2E tested ⬜ | CI gated ⬜
 - Tool failure prediction:
   - Status: **In Progress** (rule-based failure predictor; no learned model yet)
 
 ## 4.6 Learning and Adaptation
 
 - Prompt optimization with Thompson sampling:
-  - Status: ✅ **Completed** (Phase 4, 2026-02-24)
-  - Notes: `PromptOptimizer.auto_generate_variants()` generates 3 structural perturbations (concise, detailed, collaborative); `get_best_variant("planner")` wired into `plan_act` planning phase under feature flag.
-  - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ⬜ (shadow mode) | E2E tested ⬜ | CI gated ⬜
+  - Status: ⚠️ **In Progress** (Phase 4, 2026-02-24)
+  - Notes: `PromptOptimizer.auto_generate_variants()` generates 3 structural perturbations; `get_best_variant("planner")` is wired in `plan_act`. **Non-functional**: `get_best_variant()` requires `v.total_trials >= MIN_TRIALS (5)`; fresh auto-generated variants have 0 trials and are always filtered out, so the method always returns `None` and the prompt swap is silently skipped. Additionally, `plan_act` never calls `record_outcome()` on the optimizer, so trial counts never increment and the Thompson-sampling bandit cannot learn.
+  - Maturity: Implemented ✅ | Wired ⚠️ (selection always returns `None`) | Enabled by default ⬜ (shadow mode) | E2E tested ⬜ | CI gated ⬜
 - DSPy integration:
   - Status: **In Progress**
   - Notes: components are present, but end-to-end eval-gated operational use is incomplete.
 - Contextual prompt routing and automatic variant generation:
-  - Status: ✅ **Completed** (Phase 4, 2026-02-24)
+  - Status: ⚠️ **In Progress** (Phase 4, 2026-02-24) — same MIN_TRIALS/feedback-loop gaps as prompt optimization above; effective routing is blocked until those are resolved
 - Cross-user pattern generalization:
   - Status: **Not Started**
 - Pattern learner/knowledge transfer modules:
@@ -350,25 +363,25 @@ Legend:
 - Security assessor:
   - Status: **Completed (by design minimal in dev sandbox)**
 - Input/output guardrail policy layer:
-  - Status: ✅ **Completed** (WP-7, 2026-02-24)
+  - Status: ⚠️ **In Progress** (WP-7, 2026-02-24)
   - Notes: `enable_output_guardrails_in_flow` and `enable_request_contract` flipped to `True` (default-on).
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
 - Tracing/observability:
-  - Status: ✅ **Completed** (WP-5, 2026-02-24)
+  - Status: ⚠️ **In Progress** (WP-5, 2026-02-24)
   - Notes: `feature_tool_tracing` wired in `invoke_tool()`; spans created per-tool call with success/result-size attributes; trace context passed from `plan_act` to agent.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ⬜ (shadow mode) | E2E tested ✅ | CI gated ⬜
   - Test: `tests/domain/services/tools/test_tool_tracing_wiring.py`
 - Checkpoint/resume durability:
-  - Status: ✅ **Completed** (WP-6, 2026-02-24)
-  - Notes: `CheckpointManager` injected into `PlanActFlow` from `agent_task_runner.py`; `save_plan_checkpoint()` helper added; startup resumption hook added; `_write_checkpoint()` uses manager when flag is on.
-  - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ⬜ (shadow mode) | E2E tested ✅ | CI gated ⬜
+  - Status: ⚠️ **In Progress** (WP-6, 2026-02-24)
+  - Notes: `CheckpointManager` injected into `PlanActFlow`; wiring and resumption hook are present. **In-memory only**: `agent_task_runner.py` explicitly passes `mongodb_collection=None`, triggering the in-memory dict fallback (`self._memory_storage: dict`). Checkpoints do not survive process restarts. Cross-restart durability requires injecting a real MongoDB collection.
+  - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ⬜ (shadow mode, in-memory only) | E2E tested ✅ (in-memory path only) | CI gated ⬜
   - Test: `tests/domain/services/flows/test_checkpoint_resume.py`
 - Human-in-the-loop interrupt policy:
-  - Status: ✅ **Completed** (Phase 4, 2026-02-24)
+  - Status: ⚠️ **In Progress** (Phase 4, 2026-02-24)
   - Notes: `HitlPolicy` in `hitl_policy.py`; compiled regex patterns for destructive rm, recursive delete, direct shell exec, subprocess shell injection, eval+import, HTTP DELETE/PUT/POST to remote, sensitive file writes; wired in `invoke_tool()` when `hitl_enabled=True`.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ⬜ (shadow mode) | E2E tested ⬜ | CI gated ⬜
 - Uncertainty-aware risk scoring:
-  - Status: ✅ **Completed** (Phase 4, 2026-02-24)
+  - Status: ⚠️ **In Progress** (Phase 4, 2026-02-24)
   - Notes: `MetaCognitionModule.compute_uncertainty_score()` aggregates knowledge-boundary confidence inverse + stuck penalty + error-rate penalty; exposed in `AgentHealthStatus.details["uncertainty_score"]`; warning issued when score exceeds 0.7.
   - Maturity: Implemented ✅ | Wired ✅ | Enabled by default ✅ | E2E tested ⬜ | CI gated ⬜
 
@@ -458,8 +471,9 @@ Priority: **Critical**
    - Status: ✅ **Completed** (WP-2, 2026-02-24)
    - File: `base.py` `_can_parallelize_tools()`, `_to_tool_call()` | Test: `test_parallel_wiring.py`
 3. Eval-gated CI checks for agent quality dimensions
-   - Status: ✅ **Completed** (WP-3, 2026-02-24)
+   - Status: ⚠️ **In Progress** (WP-3, 2026-02-24)
    - File: `plan_act.py` `_summarize_and_deliver()` eval gate block | Test: `test_eval_gates.py`
+   - Gap: Eval gate logic and feature flag (`enable_eval_gates=True`) are present in code, but the CI pipeline (`test-and-lint.yml`) runs only `pytest` — no eval quality thresholds block merges.
 4. Instrument baseline dashboards from existing metrics
    - Status: **In Progress** (metrics modules exist; no enforced dashboard/gate baseline yet)
 5. Trace coverage and correlation enforcement
@@ -469,8 +483,9 @@ Priority: **Critical**
    - Status: ✅ **Completed** (WP-7, 2026-02-24)
    - `enable_output_guardrails_in_flow=True`, `enable_request_contract=True` (flipped to default-on)
 7. Checkpoint/resume reliability validation under forced failures
-   - Status: ✅ **Completed** (WP-6, 2026-02-24)
+   - Status: ⚠️ **In Progress** (WP-6, 2026-02-24)
    - File: `plan_act.py`, `checkpoint_manager.py`, `agent_task_runner.py` | Test: `test_checkpoint_resume.py`
+   - Gap: `CheckpointManager` instantiated with `mongodb_collection=None` → in-memory fallback only. Tests validate the in-memory path; cross-restart durability is untested and non-functional.
 
 Expected outcome:
 - Immediate quality, debuggability, and recovery improvements without architectural expansion.
@@ -488,8 +503,9 @@ Priority: **High**
 3. Integrate pattern learner/knowledge transfer into runtime decision points
    - Status: **In Progress** (component-level logic exists, orchestration usage incomplete)
 4. Tool contract quality enforcement (distinct purpose, clear args, low overlap)
-   - Status: ✅ **Completed** (WP-7, 2026-02-24)
+   - Status: ⚠️ **In Progress** (WP-7, 2026-02-24)
    - File: `dynamic_toolset.py` `validate_tool_contracts()` — Jaccard overlap detection + schema compliance
+   - Gap: `validate_tool_contracts()` is reachable only via `warm_cache_for_common_tasks()`, which has no call site in the codebase. Validation never runs; must be called directly at startup.
 
 Expected outcome:
 - Better orchestration reliability and fewer routing/tool errors.
@@ -505,8 +521,9 @@ Priority: **Medium**
    - Status: ✅ **Completed** (2026-02-24)
    - File: `meta_cognition.py` `compute_uncertainty_score()` + wired in `error_integration.py` health assessment
 3. Reflection outcome memory loop (learn from prior reflections)
-   - Status: ✅ **Completed** (2026-02-24)
+   - Status: ⚠️ **In Progress** (2026-02-24)
    - File: `reflection.py` `reflect()` writes to `MemoryType.TASK_OUTCOME` via injected `memory_service`
+   - Gap: `ReflectionAgent` is wired only in the deprecated `PlanActGraphFlow` (file header: "experimental and not used in production"). Default runtime (`PlanActFlow`) does not invoke the reflection loop.
 4. Meta-cognition knowledge boundary injection in planning phase
    - Status: ✅ **Completed** (2026-02-24)
    - File: `plan_act.py` planning phase — `assess_knowledge_boundaries()` called, gap context injected into planner prompt
@@ -519,11 +536,12 @@ Expected outcome:
 Priority: **Medium/Low**
 
 1. Blackboard/shared state for multi-agent collaboration
-   - Status: ✅ **Completed** (2026-02-24)
-   - File: `swarm.py` — `StateManifest` created, injected into agents, snapshot in handoff context
+   - Status: ⚠️ **Broken** (2026-02-24)
+   - File: `swarm.py` — `StateManifest()` called at line 200 without required `session_id` → Pydantic `ValidationError` at `Swarm.__init__`; feature is non-functional.
 2. Prompt variant generation and multi-objective optimization
-   - Status: ✅ **Completed** (2026-02-24)
+   - Status: ⚠️ **In Progress** (2026-02-24)
    - File: `prompt_optimizer.py` `auto_generate_variants()` + wired in `plan_act.py` planning
+   - Gap: `get_best_variant()` filters to `total_trials >= 5`; fresh variants always return `None`. `plan_act` never records outcomes back, so the bandit cannot learn. Variant selection is silently skipped on every run.
 3. Uncertainty-aware safety risk scoring
    - Status: ✅ **Completed** (2026-02-24)
    - File: `meta_cognition.py` `compute_uncertainty_score()` exposed via `error_integration.py`
@@ -551,7 +569,18 @@ Acceptance criteria:
   - `Enabled by default`
   - `E2E tested`
   - `CI gated`
-- No item may be labeled "Completed" unless all five fields are true.
+- No item may be labeled ✅ **Completed** unless all five fields are ✅.
+- Items with at least one ⬜ field must be labeled ⚠️ **In Progress**.
+- Items confirmed non-functional at runtime (constructor errors, dead code paths) must be labeled ⚠️ **Broken**.
+
+Status correction log (2026-02-25):
+- Shared Blackboard: Completed → **Broken** (`StateManifest()` missing required `session_id`)
+- Prompt Variants: Completed → **In Progress** (`get_best_variant()` always returns `None`; no feedback loop)
+- Tool Contract Validation (WP-7): Completed → **In Progress** (`validate_tool_contracts()` is dead code — no call site)
+- Reflection Memory Loop (Phase 3): Completed → **In Progress** (only in deprecated `PlanActGraphFlow`, not default path)
+- Checkpoint/Resume (WP-6): Completed → **In Progress** (`mongodb_collection=None` → in-memory only; no cross-restart durability)
+- Eval Gates (WP-3): Completed → **In Progress** (code exists; CI pipeline has no threshold enforcement)
+- All Phase 2–4 entries: relabeled from ✅ Completed to ⚠️ In Progress where E2E or CI fields are ⬜
 
 ## WP-1: Hybrid Retrieval Wiring
 
