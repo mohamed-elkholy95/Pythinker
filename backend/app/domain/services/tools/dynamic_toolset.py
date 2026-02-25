@@ -387,9 +387,10 @@ class DynamicToolsetManager:
             if tool_name in self._tools:
                 result.append(self._tools[tool_name].schema)
 
+        _total = len(self._tools)
+        _reduction = (100 - len(result) * 100 // _total) if _total else 0
         logger.info(
-            f"Dynamic toolset: {len(result)}/{len(self._tools)} tools "
-            f"({100 - len(result) * 100 // len(self._tools)}% reduction)"
+            f"Dynamic toolset: {len(result)}/{_total} tools ({_reduction}% reduction)"
         )
 
         return result
@@ -775,10 +776,19 @@ _warmup_manager: CacheWarmupManager | None = None
 
 
 def get_toolset_manager() -> DynamicToolsetManager:
-    """Get or create the global toolset manager."""
+    """Get or create the global toolset manager.
+
+    WP-7: Calls warm_cache_for_common_tasks() on first creation so that
+    validate_tool_contracts() runs at startup and logs any schema violations.
+    """
     global _toolset_manager
     if _toolset_manager is None:
         _toolset_manager = DynamicToolsetManager()
+        # Wire the previously dead-code path: warm cache + validate contracts on startup
+        try:
+            _toolset_manager.warm_cache_for_common_tasks()
+        except Exception as _wc_err:
+            logger.warning("Tool contract warm-up failed (non-critical): %s", _wc_err)
     return _toolset_manager
 
 
