@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 from app.domain.models.pressure import PressureLevel
+from app.domain.models.tool_name import ToolName
 from app.domain.services.agents.memory.importance_analyzer import ImportanceAnalyzer
 from app.domain.services.agents.memory.semantic_compressor import SemanticCompressor
 from app.domain.services.agents.memory.temporal_compressor import TemporalCompressor
@@ -103,13 +104,13 @@ class MemoryManager:
 
     # Functions whose outputs should be summarized, not just compacted
     SUMMARIZABLE_FUNCTIONS: ClassVar[dict[str, str]] = {
-        "browser_view": "browser content",
-        "browser_navigate": "navigation result",
-        "shell_exec": "command output",
-        "file_read": "file content",
-        "file_list": "directory listing",
-        "info_search_web": "search results",
-        "browser_get_content": "page content",
+        ToolName.BROWSER_VIEW: "browser content",
+        ToolName.BROWSER_NAVIGATE: "navigation result",
+        ToolName.SHELL_EXEC: "command output",
+        ToolName.FILE_READ: "file content",
+        ToolName.FILE_LIST: "directory listing",
+        ToolName.INFO_SEARCH_WEB: "search results",
+        ToolName.BROWSER_GET_CONTENT: "page content",
     }
 
     # Maximum tokens for a compacted summary
@@ -151,6 +152,13 @@ class MemoryManager:
         # Memory limits
         self._max_archive_size = max_archive_size
         self._archive_cleanup_batch = archive_cleanup_batch
+
+        # Phase 2: Optional token budget for proactive compaction triggers
+        self._token_budget: Any = None
+
+    def set_token_budget(self, budget: Any) -> None:
+        """Inject a TokenBudget for budget-aware compaction triggers."""
+        self._token_budget = budget
 
     def compact_message(
         self, message: dict[str, Any], preserve_summary: bool = True
@@ -563,7 +571,12 @@ class MemoryManager:
             return True, f"Token pressure at {pressure.level.value}"
 
         # Rule 2: Verbose tool output accumulation
-        verbose_tools = {"browser_view", "shell_exec", "file_read", "browser_get_content"}
+        verbose_tools = {
+            ToolName.BROWSER_VIEW,
+            ToolName.SHELL_EXEC,
+            ToolName.FILE_READ,
+            ToolName.BROWSER_GET_CONTENT,
+        }
         recent_verbose = sum(1 for t in recent_tools[-5:] if t in verbose_tools)
         if recent_verbose >= 3 and pressure.level == PressureLevel.WARNING:
             return True, "Multiple verbose tool outputs detected"
@@ -584,6 +597,10 @@ class MemoryManager:
             recent_trend = self._token_history[-1] - self._token_history[-3]
             if recent_trend > 2000:
                 return True, "Approaching threshold with upward trend"
+
+        # Rule 6: Token budget phase limit approaching (Phase 2 integration)
+        if self._token_budget is not None and self._token_budget.overall_usage_ratio > 0.85:
+            return True, f"Token budget at {self._token_budget.overall_usage_ratio:.0%} — proactive compaction"
 
         return False, ""
 
