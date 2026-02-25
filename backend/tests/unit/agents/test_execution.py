@@ -328,7 +328,7 @@ class TestSourceCitationTracking:
     def test_collected_sources_initially_empty(self, executor):
         """Collected sources should be empty initially."""
         assert executor._collected_sources == []
-        assert executor._seen_urls == set()
+        assert executor._source_tracker._seen_urls == set()
 
 
 class TestMultimodalPersistence:
