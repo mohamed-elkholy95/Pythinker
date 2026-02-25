@@ -89,6 +89,50 @@ class VectorMemoryRepository(ABC):
         """
         ...
 
+    async def search_hybrid(
+        self,
+        user_id: str,
+        query_text: str,
+        dense_vector: list[float],
+        sparse_vector: dict[str, float],
+        limit: int = 10,
+        min_score: float = 0.3,
+        memory_types: list["MemoryType"] | None = None,
+        min_importance: "MemoryImportance | None" = None,
+        tags: list[str] | None = None,
+    ) -> list[VectorSearchResult]:
+        """Hybrid (dense + sparse BM25) memory search using Reciprocal Rank Fusion.
+
+        Default implementation falls back to dense-only search so subclasses
+        that have not yet implemented hybrid search remain backward-compatible.
+        Subclasses (e.g. QdrantMemoryRepository) should override to run a
+        true RRF query.
+
+        Args:
+            user_id: Filter to this user's memories
+            query_text: Raw query text (for logging / fallback)
+            dense_vector: Dense query embedding
+            sparse_vector: BM25 sparse vector {str_index: score}
+            limit: Maximum results to return
+            min_score: Minimum relevance score
+            memory_types: Optional filter by memory types
+            min_importance: Optional minimum importance
+            tags: Optional filter by tags
+
+        Returns:
+            List of VectorSearchResult ordered by fused relevance
+        """
+        # Base implementation: fall through to dense-only search
+        return await self.search_similar(
+            user_id=user_id,
+            query_vector=dense_vector,
+            limit=limit,
+            min_score=min_score,
+            memory_types=memory_types,
+            min_importance=min_importance,
+            tags=tags,
+        )
+
     @abstractmethod
     async def delete_memory(self, memory_id: str) -> None:
         """Delete a memory from the vector store.
