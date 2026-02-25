@@ -15,6 +15,7 @@ from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.logging import get_agent_logger
 from app.domain.external.sandbox import Sandbox
+from app.domain.external.scraper import Scraper
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
     BaseEvent,
@@ -225,6 +226,7 @@ class PlanActFlow(BaseFlow):
         research_mode: str = "deep_research",
         knowledge_base_service=None,
         prompt_profile_repo=None,
+        scraper: Scraper | None = None,
     ):
         self._feature_flags = feature_flags
         self._research_mode = research_mode
@@ -299,7 +301,7 @@ class PlanActFlow(BaseFlow):
 
         tools = [
             ShellTool(sandbox),
-            BrowserTool(browser),
+            BrowserTool(browser, scraper=scraper),
             FileTool(sandbox, session_id=session_id),
             CodeExecutorTool(sandbox=sandbox, session_id=session_id),
             ChartTool(sandbox=sandbox, session_id=session_id),
@@ -311,7 +313,7 @@ class PlanActFlow(BaseFlow):
         # Only add search tool when search_engine is not None
         # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
         if search_engine:
-            self._search_tool = SearchTool(search_engine, browser=browser)
+            self._search_tool = SearchTool(search_engine, browser=browser, scraper=scraper)
             tools.append(self._search_tool)
 
         # Add browser agent tool when cdp_url is available, enabled, and browser_use is installed
@@ -321,6 +323,15 @@ class PlanActFlow(BaseFlow):
                 logger.info(f"Browser agent tool enabled for Agent {agent_id}")
             except ImportError as e:
                 logger.warning(f"Browser agent tool not available: {e}")
+
+        # Add ScrapingTool when enabled (structured extraction + stealth batch fetch)
+        if get_settings().scraping_tool_enabled and scraper:
+            from app.domain.services.tools.scraping import ScrapingTool
+
+            tools.append(
+                ScrapingTool(scraper=scraper, memory_service=memory_service, user_id=user_id)
+            )
+            logger.info(f"ScrapingTool enabled for Agent {agent_id}")
 
         # Add skill creator tools for custom skill creation (Phase 3: Custom Skills)
         # Pending events queue for skill delivery events from tools

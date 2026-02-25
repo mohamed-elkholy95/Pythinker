@@ -24,6 +24,7 @@ from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.observability import get_tracer
 from app.domain.external.sandbox import Sandbox
+from app.domain.external.scraper import Scraper
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
     BaseEvent,
@@ -86,6 +87,7 @@ class TreeOfThoughtsFlow(BaseFlow):
         cdp_url: str | None = None,
         config: TreeOfThoughtsConfig | None = None,
         browser_agent_enabled: bool = False,
+        scraper: Scraper | None = None,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -98,7 +100,7 @@ class TreeOfThoughtsFlow(BaseFlow):
         # Build tools
         tools = [
             ShellTool(sandbox),
-            BrowserTool(browser),
+            BrowserTool(browser, scraper=scraper),
             FileTool(sandbox, session_id=session_id),
             MessageTool(),
             IdleTool(),
@@ -107,12 +109,20 @@ class TreeOfThoughtsFlow(BaseFlow):
 
         # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
         if search_engine:
-            tools.append(SearchTool(search_engine, browser=browser))
+            tools.append(SearchTool(search_engine, browser=browser, scraper=scraper))
 
         if cdp_url and browser_agent_enabled:
             from app.domain.services.tools.browser_agent import BrowserAgentTool
 
             tools.append(BrowserAgentTool(cdp_url))
+
+        # Add ScrapingTool when enabled (structured extraction + stealth batch fetch)
+        from app.core.config import get_settings as _get_settings
+
+        if _get_settings().scraping_tool_enabled and scraper:
+            from app.domain.services.tools.scraping import ScrapingTool
+
+            tools.append(ScrapingTool(scraper=scraper))
 
         # Create agents
         self.planner = PlannerAgent(

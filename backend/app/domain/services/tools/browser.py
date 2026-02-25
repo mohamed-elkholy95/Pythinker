@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import aiohttp
 
 from app.domain.external.browser import Browser
+from app.domain.external.scraper import Scraper
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 from app.domain.services.tools.paywall_detector import PaywallDetector
@@ -195,15 +196,22 @@ class BrowserTool(BaseTool):
     _url_cache_ttl: ClassVar[int] = 300  # 5 minutes
     _url_cache_max: ClassVar[int] = 50
 
-    def __init__(self, browser: Browser, max_observe: int | None = None):
+    def __init__(
+        self,
+        browser: Browser,
+        max_observe: int | None = None,
+        scraper: Scraper | None = None,
+    ):
         """Initialize browser tool class
 
         Args:
             browser: Browser service
             max_observe: Optional custom observation limit (default: 10000)
+            scraper: Optional scraper service injected from composition root
         """
         super().__init__(max_observe=max_observe)
         self.browser = browser
+        self._scraper = scraper
         # Per-session URL visit counter to warn/reject repeated visits
         self._url_visit_counts: dict[str, int] = {}
 
@@ -376,71 +384,95 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
             nav_task = asyncio.create_task(self.browser.navigate_for_display(url))
 
         try:
-            session = await get_http_session()
-            async with session.get(url, allow_redirects=True) as response:
-                if response.status == 200:
-                    content_type = response.headers.get("Content-Type", "")
-                    if "text/html" in content_type or "text/plain" in content_type:
-                        html = await response.text()
-                        text = html_to_text(html)
-                        if len(text) > 500:  # Valid content threshold
-                            # Detect paywall (skip for known open-access domains)
-                            parsed_domain = urlparse(url).hostname or ""
-                            if any(parsed_domain.endswith(d) for d in OPEN_ACCESS_DOMAINS):
-                                paywall_result = type(
-                                    "PaywallResult",
-                                    (),
-                                    {"detected": False, "access_type": "full", "confidence": 0, "indicators": []},
-                                )()
-                            else:
-                                detector = get_paywall_detector()
-                                paywall_result = detector.detect(html, text, url)
+            # ── Fast fetch: Scrapling (enhanced) or legacy aiohttp ────────────
+            text: str = ""
+            html: str = ""
+            fetched_url: str = url
 
-                            # Determine access status
-                            if paywall_result.detected:
-                                access_status = "paywall" if paywall_result.access_type == "blocked" else "partial"
-                                access_message = detector.get_access_status_message(paywall_result)
-                            else:
-                                access_status = "full"
-                                access_message = "Full content accessible"
+            from app.core.config import get_settings as _get_settings
 
-                            # Apply focus extraction if specified
-                            if focus:
-                                text = self._extract_focused_content(text, focus, 100000)
+            _settings = _get_settings()
+            if _settings.scraping_enhanced_fetch and self._scraper:
+                # Scrapling path: TLS impersonation + three-tier escalation
+                _result = await self._scraper.fetch_with_escalation(url)
+                if _result.success and len(_result.text) > 500:
+                    text = _result.text
+                    html = _result.html or ""
+                    fetched_url = _result.url
+                    logger.debug(f"Scrapling resolved {url} via tier={_result.tier_used}")
+                else:
+                    raise RuntimeError(_result.error or "Scrapling returned no usable content")
+            else:
+                # Legacy aiohttp path (fallback when scraping_enhanced_fetch=false)
+                session = await get_http_session()
+                async with session.get(url, allow_redirects=True) as response:
+                    if response.status == 200:
+                        content_type = response.headers.get("Content-Type", "")
+                        if "text/html" in content_type or "text/plain" in content_type:
+                            html = await response.text()
+                            text = html_to_text(html)
+                            fetched_url = str(response.url)
+                        else:
+                            logger.debug(f"Content type {content_type} not suitable for fast fetch")
+                    # Non-200 or wrong content type: fall through to browser fallback
 
-                            message = f"Content fetched ({access_status}): {len(text)} chars. {access_message}"
-                            if focus:
-                                message = f"[FOCUSED: {focus}] {message}"
+            if len(text) > 500:  # Valid content threshold
+                # Detect paywall (skip for known open-access domains)
+                parsed_domain = urlparse(url).hostname or ""
+                if any(parsed_domain.endswith(d) for d in OPEN_ACCESS_DOMAINS):
+                    paywall_result = type(
+                        "PaywallResult",
+                        (),
+                        {"detected": False, "access_type": "full", "confidence": 0, "indicators": []},
+                    )()
+                else:
+                    detector = get_paywall_detector()
+                    paywall_result = detector.detect(html, text, url)
 
-                            # Cache the fetched content
-                            if len(self._url_cache) >= self._url_cache_max:
-                                oldest = min(self._url_cache, key=lambda k: self._url_cache[k][0])
-                                del self._url_cache[oldest]
-                            self._url_cache[url] = (time.time(), text)
+                # Determine access status
+                if paywall_result.detected:
+                    access_status = "paywall" if paywall_result.access_type == "blocked" else "partial"
+                    access_message = detector.get_access_status_message(paywall_result)
+                else:
+                    access_status = "full"
+                    access_message = "Full content accessible"
 
-                            # Wait for browser nav to complete (already running concurrently)
-                            if nav_task:
-                                try:
-                                    await nav_task
-                                except Exception as nav_err:
-                                    logger.debug(f"navigate_for_display task failed (non-critical): {nav_err}")
-                                nav_task = None
+                # Apply focus extraction if specified
+                if focus:
+                    text = self._extract_focused_content(text, focus, 100000)
 
-                            return ToolResult(
-                                success=True,
-                                message=message,
-                                data={
-                                    "content": text,
-                                    "url": str(response.url),
-                                    "access_status": access_status,
-                                    "focus": focus,
-                                    "paywall_confidence": paywall_result.confidence,
-                                    "paywall_indicators": paywall_result.indicators[:3]
-                                    if paywall_result.indicators
-                                    else [],
-                                },
-                            )
-                    logger.debug(f"Content type {content_type} not suitable for fast fetch")
+                message = f"Content fetched ({access_status}): {len(text)} chars. {access_message}"
+                if focus:
+                    message = f"[FOCUSED: {focus}] {message}"
+
+                # Cache the fetched content
+                if len(self._url_cache) >= self._url_cache_max:
+                    oldest = min(self._url_cache, key=lambda k: self._url_cache[k][0])
+                    del self._url_cache[oldest]
+                self._url_cache[url] = (time.time(), text)
+
+                # Wait for browser nav to complete (already running concurrently)
+                if nav_task:
+                    try:
+                        await nav_task
+                    except Exception as nav_err:
+                        logger.debug(f"navigate_for_display task failed (non-critical): {nav_err}")
+                    nav_task = None
+
+                return ToolResult(
+                    success=True,
+                    message=message,
+                    data={
+                        "content": text,
+                        "url": fetched_url,
+                        "access_status": access_status,
+                        "focus": focus,
+                        "paywall_confidence": paywall_result.confidence,
+                        "paywall_indicators": paywall_result.indicators[:3]
+                        if paywall_result.indicators
+                        else [],
+                    },
+                )
         except Exception as e:
             logger.debug(f"Fast fetch failed for {url}: {e}, falling back to browser")
             if nav_task and not nav_task.done():
