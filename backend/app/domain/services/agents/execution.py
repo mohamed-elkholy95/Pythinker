@@ -1,18 +1,13 @@
 import asyncio
-import json
 import logging
-import re
 import uuid
 from collections.abc import AsyncGenerator
-from contextlib import aclosing
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter
 
 from app.domain.external.llm import LLM
 from app.domain.external.observability import MetricsPort, get_null_metrics
-from app.domain.models.agent_response import ExecutionStepResult
 from app.domain.models.event import (
     BaseEvent,
     ErrorEvent,
@@ -30,22 +25,25 @@ from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Plan, Step, StepType
 from app.domain.models.source_citation import SourceCitation
+from app.domain.models.tool_name import ToolName
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.chain_of_verification import ChainOfVerification, CoVeResult
-from app.domain.services.agents.compliance_gates import GateStatus, get_compliance_gates
 from app.domain.services.agents.context_manager import ContextManager, InsightType
-from app.domain.services.agents.critic import CriticAgent, CriticConfig, CriticVerdict
+from app.domain.services.agents.critic import CriticAgent, CriticConfig
 from app.domain.services.agents.output_coverage_validator import OutputCoverageValidator
+from app.domain.services.agents.output_verifier import OutputVerifier
 from app.domain.services.agents.prompt_adapter import PromptAdapter
 from app.domain.services.agents.response_compressor import ResponseCompressor
+from app.domain.services.agents.response_generator import ResponseGenerator
 from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
 from app.domain.services.agents.reward_scoring import RewardScorer
+from app.domain.services.agents.source_tracker import SourceTracker
 from app.domain.services.agents.step_context_assembler import StepContextAssembler
+from app.domain.services.agents.step_executor import StepExecutor
 from app.domain.services.agents.task_state_manager import get_task_state_manager
 from app.domain.services.attention_injector import AttentionInjector
 from app.domain.services.prompts.execution import (
-    CONFIRMATION_SUMMARY_PROMPT,
     EXECUTION_SYSTEM_PROMPT,
     STREAMING_SUMMARIZE_PROMPT,
     build_execution_prompt_from_context,
@@ -161,20 +159,36 @@ class ExecutionAgent(BaseAgent):
         # LettuceDetect encoder-based hallucination verification (replaces CoVe)
         self._lettuce_enabled = True  # Configured via feature flags
 
-        # Source citation tracking for reports (capped to prevent unbounded growth)
-        self._max_collected_sources: int = 200
-        self._collected_sources: list[SourceCitation] = []
-        self._seen_urls: set[str] = set()
+        # Source citation tracking — delegated to SourceTracker (Phase 3A extraction)
+        # (OutputVerifier composed after SourceTracker below)
+        self._source_tracker = SourceTracker(max_sources=200)
+        # Backward-compatible alias: _collected_sources is a mutable list shared
+        # by reference so reads (if/for) in summarize/verifier remain valid.
+        self._collected_sources = self._source_tracker._collected_sources
 
-        # Citation index for inline references [1], [2] (Phase 2: MindSearch-inspired)
-        self._citation_counter: int = 0
-        self._url_to_citation: dict[str, int] = {}
+        # Output verification — delegated to OutputVerifier (Phase 3A extraction)
+        self._output_verifier = OutputVerifier(
+            llm=llm,
+            critic=self._critic,
+            cove=self._cove,
+            context_manager=self._context_manager,
+            source_tracker=self._source_tracker,
+            metrics=_metrics,
+            resolve_feature_flags_fn=self._resolve_feature_flags,
+            cove_enabled=self._cove_enabled,
+            lettuce_enabled=self._lettuce_enabled,
+        )
 
-        # Multimodal information persistence (P5.2)
-        # Per Pythinker pattern: persist key findings every 2 view operations
-        self._view_operation_count: int = 0
-        self._multimodal_findings: list[dict] = []
-        self._view_tools = {"file_view", "browser_view", "browser_get_content", "browser_agent_extract"}
+        # Step-level execution helpers — delegated to StepExecutor (Phase 3A extraction)
+        self._step_executor = StepExecutor(
+            context_manager=self._context_manager,
+            source_tracker=self._source_tracker,
+            metrics=_metrics,
+        )
+        # Backward-compatible aliases for test access
+        self._view_operation_count = self._step_executor._view_operation_count
+        self._multimodal_findings = self._step_executor._multimodal_findings
+        self._view_tools = self._step_executor._view_tools
 
         # Adaptive response policy controls
         self._response_policy: ResponsePolicy | None = None
@@ -182,6 +196,17 @@ class ExecutionAgent(BaseAgent):
         self._response_compressor = ResponseCompressor()
         # Phase 1/4: Request contract for entity fidelity (set by PlanActFlow)
         self._request_contract = None
+
+        # Response generation helpers — delegated to ResponseGenerator (Phase 3A extraction)
+        self._response_generator = ResponseGenerator(
+            llm=llm,
+            memory=self.memory,
+            source_tracker=self._source_tracker,
+            metrics=_metrics,
+            resolve_feature_flags_fn=self._resolve_feature_flags,
+            coalesce_max_chars=self.SUMMARY_STREAM_COALESCE_MAX_CHARS,
+            coalesce_flush_seconds=self.SUMMARY_STREAM_COALESCE_FLUSH_SECONDS,
+        )
 
         # Pre-trim report cache: stores file_write content extracted from memory
         # *before* token trimming, so summarization recovery can find it even
@@ -197,53 +222,11 @@ class ExecutionAgent(BaseAgent):
         self._response_policy = policy
 
     def _select_model_for_step(self, step_description: str) -> str | None:
-        """Select appropriate model for the current step using unified ModelRouter.
-
-        Unified Hybrid Approach:
-        - Uses ModelRouter for complexity-based routing
-        - Pulls configuration from Settings
-        - Includes Prometheus metrics
-        - Returns model name for LLM override
-
-        Args:
-            step_description: The step description to analyze
-
-        Returns:
-            Model name for the selected tier. When adaptive selection is
-            disabled, returns the balanced (default) model name.
-
-        Context7 validated: ModelRouter integration, Settings feature flag.
-        """
-        from app.domain.services.agents.model_router import ModelRouter, ModelTier, get_model_router
-
-        try:
-            # If user selected a non-auto thinking mode, force the tier
-            thinking_mode = getattr(self, "_user_thinking_mode", None)
-            if thinking_mode == "fast":
-                router: ModelRouter = ModelRouter(force_tier=ModelTier.FAST, metrics=_metrics)
-                config = router.route(step_description)
-                logger.debug(f"Model routing (forced fast): model={config.model_name}")
-                return config.model_name
-            if thinking_mode == "deep_think":
-                router = ModelRouter(force_tier=ModelTier.POWERFUL, metrics=_metrics)
-                config = router.route(step_description)
-                logger.debug(f"Model routing (forced deep_think): model={config.model_name}")
-                return config.model_name
-
-            # Default: auto — complexity-based routing via singleton
-            router = get_model_router(metrics=_metrics)
-            config = router.route(step_description)
-
-            logger.debug(
-                f"Model routing: tier={config.tier.value}, model={config.model_name}, "
-                f"temp={config.temperature}, max_tokens={config.max_tokens}"
-            )
-
-            return config.model_name
-
-        except Exception as e:
-            logger.warning(f"Model routing failed, using default: {e}")
-            return None
+        """Select model for the step (delegated to StepExecutor)."""
+        return self._step_executor.select_model_for_step(
+            step_description,
+            user_thinking_mode=getattr(self, "_user_thinking_mode", None),
+        )
 
     async def invoke_tool(
         self,
@@ -257,11 +240,7 @@ class ExecutionAgent(BaseAgent):
         from app.domain.services.agents.search_fidelity import check_search_fidelity
 
         settings = get_settings()
-        if (
-            settings.enable_search_fidelity_guardrail
-            and self._request_contract
-            and function_name in ("info_search_web", "search", "wide_research")
-        ):
+        if settings.enable_search_fidelity_guardrail and self._request_contract and function_name in ToolName._SEARCH:
             query = arguments.get("query", "")
             if isinstance(query, str) and query.strip():
                 passed, repaired = check_search_fidelity(query, self._request_contract)
@@ -1153,12 +1132,11 @@ class ExecutionAgent(BaseAgent):
             logger.error(f"Error during summarization: {e}")
             yield ErrorEvent(error=f"Failed to generate summary: {e!s}")
 
+    # ── Response generation helpers (delegated to ResponseGenerator) ──
+
     def _get_last_stream_metadata(self) -> dict[str, Any]:
-        """Safely read stream metadata from the LLM adapter."""
-        metadata = getattr(self.llm, "last_stream_metadata", None)
-        if isinstance(metadata, dict):
-            return metadata
-        return {}
+        """Safely read stream metadata (delegated to ResponseGenerator)."""
+        return self._response_generator.get_last_stream_metadata()
 
     async def _iter_coalesced_stream_events(
         self,
@@ -1166,129 +1144,21 @@ class ExecutionAgent(BaseAgent):
         *,
         phase: str = "summarizing",
     ) -> AsyncGenerator[StreamEvent, None]:
-        """Coalesce small LLM chunks into smoother StreamEvent payloads."""
-        max_chars = max(1, int(self.SUMMARY_STREAM_COALESCE_MAX_CHARS))
-        flush_seconds = max(0.0, float(self.SUMMARY_STREAM_COALESCE_FLUSH_SECONDS))
-        loop = asyncio.get_running_loop()
-
-        buffered_chunks: list[str] = []
-        buffered_chars = 0
-        last_flush_at = loop.time()
-
-        async with aclosing(stream_iter) as stream:
-            async for raw_chunk in stream:
-                chunk = raw_chunk or ""
-                if not chunk:
-                    continue
-
-                buffered_chunks.append(chunk)
-                buffered_chars += len(chunk)
-
-                now = loop.time()
-                should_flush = buffered_chars >= max_chars
-                if not should_flush and flush_seconds > 0:
-                    should_flush = (now - last_flush_at) >= flush_seconds
-                if not should_flush and chunk.endswith("\n"):
-                    should_flush = True
-
-                if not should_flush:
-                    continue
-
-                coalesced_chunk = "".join(buffered_chunks)
-                buffered_chunks.clear()
-                buffered_chars = 0
-                last_flush_at = now
-                yield StreamEvent(content=coalesced_chunk, is_final=False, phase=phase)
-
-            if buffered_chunks:
-                yield StreamEvent(content="".join(buffered_chunks), is_final=False, phase=phase)
+        """Coalesce small LLM chunks (delegated to ResponseGenerator)."""
+        async for event in self._response_generator.iter_coalesced_stream_events(stream_iter, phase=phase):
+            yield event
 
     def _build_continuation_prompt(self) -> str:
-        """Prompt used when stream truncation is detected."""
-        return (
-            "Your previous response was truncated by token limits. Continue exactly where you stopped, "
-            "without repeating prior sections. Complete any unfinished heading, list, or code block."
-        )
+        """Prompt used when stream truncation is detected (delegated)."""
+        return self._response_generator.build_continuation_prompt()
 
     def _merge_stream_continuation(self, base_text: str, continuation_text: str) -> str:
-        """Merge continuation output while avoiding duplicated overlap."""
-        base = base_text or ""
-        continuation = continuation_text or ""
-
-        if not continuation.strip():
-            return base
-        if not base.strip():
-            return continuation
-        if continuation in base:
-            return base
-        if base in continuation and len(continuation) >= int(len(base) * 0.8):
-            return continuation
-
-        base_tail = base[-4000:]
-        continuation_head = continuation[:4000]
-        max_overlap = min(len(base_tail), len(continuation_head), 1200)
-        min_overlap = 80
-
-        for overlap_size in range(max_overlap, min_overlap - 1, -1):
-            if base_tail[-overlap_size:] == continuation_head[:overlap_size]:
-                return base + continuation[overlap_size:]
-
-        if base.endswith("\n") or continuation.startswith("\n"):
-            return base + continuation
-        return base + "\n" + continuation
+        """Merge continuation output (delegated to ResponseGenerator)."""
+        return self._response_generator.merge_stream_continuation(base_text, continuation_text)
 
     def _collapse_duplicate_report_payload(self, content: str) -> str:
-        """Collapse duplicate full-report payloads caused by continuation retries."""
-        normalized = (content or "").strip()
-        if len(normalized) < 300:
-            return normalized
-
-        heading_matches = list(self._REPORT_H1_RE.finditer(normalized))
-        if len(heading_matches) < 2:
-            return normalized
-
-        first_heading = heading_matches[0]
-        first_title = first_heading.group(1).strip().lower()
-
-        duplicate_heading = None
-        for heading in heading_matches[1:]:
-            if heading.group(1).strip().lower() == first_title:
-                duplicate_heading = heading
-                break
-
-        if duplicate_heading is None:
-            return normalized
-
-        first_index = first_heading.start()
-        duplicate_index = duplicate_heading.start()
-        if duplicate_index <= first_index:
-            return normalized
-
-        first_block = normalized[first_index:duplicate_index].strip()
-        second_block = normalized[duplicate_index:].strip()
-        if len(second_block) < 200:
-            return normalized
-
-        first_score = self._report_quality_score(first_block)
-        second_score = self._report_quality_score(second_block)
-        chosen_block = second_block if (second_score < first_score) else first_block
-        if second_score == first_score and len(second_block) >= len(first_block):
-            chosen_block = second_block
-
-        prefix = normalized[:first_index].strip()
-        if prefix:
-            return f"{prefix}\n\n{chosen_block}".strip()
-        return chosen_block
-
-    def _report_quality_score(self, report_block: str) -> int:
-        """Score report quality; lower score is better."""
-        if not report_block:
-            return 10_000
-
-        marker_count = len(self._VERIFICATION_TAG_RE.findall(report_block))
-        dangling_brackets = abs(report_block.count("[") - report_block.count("]"))
-        short_penalty = 1 if len(report_block) < 500 else 0
-        return marker_count * 5 + dangling_brackets + short_penalty
+        """Collapse duplicate full-report payloads (delegated to ResponseGenerator)."""
+        return self._response_generator.collapse_duplicate_report_payload(content)
 
     def _run_delivery_integrity_gate(
         self,
@@ -1298,1225 +1168,107 @@ class ExecutionAgent(BaseAgent):
         stream_metadata: dict[str, Any],
         truncation_exhausted: bool,
     ) -> tuple[bool, list[str]]:
-        """Fail-closed delivery gate for truncation/completeness risks."""
-        flags = self._resolve_feature_flags()
-        if not flags.get("delivery_integrity_gate", False):
-            return True, []
-
-        strict_mode = self._is_integrity_strict_mode(content, response_policy)
-        issues: list[str] = []
-        warnings: list[str] = []
-
-        finish_reason = str(stream_metadata.get("finish_reason") or "")
-        is_stream_truncated = bool(stream_metadata.get("truncated")) or finish_reason == "length"
-        if truncation_exhausted:
-            issues.append("stream_truncation_unresolved")
-        elif is_stream_truncated:
-            warnings.append("stream_truncation_detected")
-
-        completeness_result = get_compliance_gates().check_content_completeness(content)
-        if completeness_result.status == GateStatus.WARNING:
-            # Content completeness warnings should never block delivery.
-            # Markers like ellipsis or placeholder text are common in
-            # legitimate reports (especially those containing code).
-            warnings.append("content_completeness_warning")
-
-        if not getattr(coverage_result, "is_valid", True):
-            missing = getattr(coverage_result, "missing_requirements", [])
-            if missing:
-                # "next step" is forward-looking boilerplate, not a completeness indicator.
-                # It should never block delivery — finalization steps have no next step.
-                non_blocking = {"next step"}
-                blocking_missing = [r for r in missing if r.lower() not in non_blocking]
-                warning_only = [r for r in missing if r.lower() in non_blocking]
-
-                if warning_only:
-                    warnings.append(f"coverage_missing:{', '.join(warning_only)}")
-
-                # When the stream finished normally (not truncated), coverage misses
-                # are likely false positives. Only block on coverage when truncated.
-                if blocking_missing:
-                    missing_text = ", ".join(blocking_missing)
-                    if strict_mode and is_stream_truncated:
-                        issues.append(f"coverage_missing:{missing_text}")
-                    else:
-                        warnings.append(f"coverage_missing:{missing_text}")
-            else:
-                # is_valid=False with no missing requirements means addresses_user_request
-                # failed.  Term-overlap heuristic has high false-positive rate — always warn.
-                warnings.append("coverage_relevance_low")
-
-        if warnings:
-            logger.warning("Delivery integrity warnings: %s", "; ".join(warnings))
-
-        self._record_delivery_integrity_gate_metrics(
-            stream_metadata=stream_metadata,
-            strict_mode=strict_mode,
-            warnings=warnings,
-            issues=issues,
-        )
-
-        if issues:
-            logger.warning(
-                "Delivery integrity gate blocked output (strict_mode=%s): %s",
-                strict_mode,
-                "; ".join(issues),
-            )
-            return False, issues
-
-        return True, []
-
-    def _is_integrity_strict_mode(self, content: str, response_policy: ResponsePolicy) -> bool:
-        """Enable strict integrity checks for report/evidence-heavy outputs."""
-        return (
-            response_policy.mode == VerbosityMode.DETAILED
-            or "artifact references" in response_policy.min_required_sections
-            or self._is_report_structure(content)
+        """Fail-closed delivery gate (delegated to ResponseGenerator)."""
+        self._response_generator._metrics = _metrics  # sync module-level metrics
+        return self._response_generator.run_delivery_integrity_gate(
+            content, response_policy, coverage_result, stream_metadata, truncation_exhausted
         )
 
     def _can_auto_repair_delivery_integrity(self, issues: list[str]) -> bool:
-        """Allow safe remediation for coverage-only misses with deterministic fallbacks."""
-        if not issues:
-            return False
-        if any(issue == "stream_truncation_unresolved" for issue in issues):
-            return False
-
-        # Defensive: content_completeness_warning is routed to `warnings` by
-        # _run_delivery_integrity_gate and should never appear in `issues`,
-        # but filter it out as a safety net in case routing changes.
-        actionable_issues = [i for i in issues if i != "content_completeness_warning"]
-        if not actionable_issues:
-            return True  # Only completeness warnings — nothing to repair
-
-        if not all(issue.startswith("coverage_missing:") for issue in actionable_issues):
-            return False
-
-        reparable_requirements = {"final result", "artifact references", "key caveat", "next step"}
-        missing = self._extract_missing_coverage_requirements(actionable_issues)
-        return bool(missing) and missing.issubset(reparable_requirements)
-
-    def _extract_missing_coverage_requirements(self, issues: list[str]) -> set[str]:
-        """Extract normalized missing requirement labels from gate issues."""
-        missing: set[str] = set()
-        for issue in issues:
-            if not issue.startswith("coverage_missing:"):
-                continue
-            raw_requirements = issue.split(":", 1)[1]
-            for item in raw_requirements.split(","):
-                normalized = item.strip().lower()
-                if normalized:
-                    missing.add(normalized)
-        return missing
+        """Allow safe remediation for coverage-only misses (delegated)."""
+        return self._response_generator.can_auto_repair_delivery_integrity(issues)
 
     def _append_delivery_integrity_fallback(self, content: str, issues: list[str]) -> str:
-        """Append deterministic fallback sections for reparable coverage misses."""
-        missing = self._extract_missing_coverage_requirements(issues)
-        sections: list[str] = []
-
-        if "final result" in missing:
-            sections.append("## Final Result\nThe requested work has been completed as summarized above.")
-        if "artifact references" in missing:
-            sections.append("## Artifact References\n- No file artifacts were created or referenced in this response.")
-        if "key caveat" in missing:
-            sections.append("## Key Caveat\n- Validate the output with targeted checks before relying on it.")
-        if "next step" in missing:
-            sections.append(
-                "## Next Step\n1. Execute the highest-priority remaining action, then verify the outcome with "
-                "targeted checks."
-            )
-
-        if not sections:
-            return content
-        return f"{content}\n\n" + "\n\n".join(sections) + "\n"
-
-    def _record_delivery_integrity_gate_metrics(
-        self,
-        stream_metadata: dict[str, Any],
-        strict_mode: bool,
-        warnings: list[str],
-        issues: list[str],
-    ) -> None:
-        """Record delivery-integrity gate outcomes with low-cardinality labels."""
-        provider = self._normalize_metric_label(
-            str(stream_metadata.get("provider") or getattr(self.llm, "provider", "unknown")),
-            fallback="unknown",
-        )
-        strict_label = "true" if strict_mode else "false"
-        result = "blocked" if issues else "passed"
-
-        _metrics.record_counter(
-            "delivery_integrity_gate_result_total",
-            labels={"provider": provider, "result": result, "strict_mode": strict_label},
-        )
-        for warning in warnings:
-            _metrics.record_counter(
-                "delivery_integrity_gate_warning_total",
-                labels={
-                    "provider": provider,
-                    "reason": self._normalize_integrity_reason(warning),
-                    "strict_mode": strict_label,
-                },
-            )
-        for issue in issues:
-            _metrics.record_counter(
-                "delivery_integrity_gate_block_reason_total",
-                labels={
-                    "provider": provider,
-                    "reason": self._normalize_integrity_reason(issue),
-                    "strict_mode": strict_label,
-                },
-            )
+        """Append deterministic fallback sections (delegated to ResponseGenerator)."""
+        return self._response_generator.append_delivery_integrity_fallback(content, issues)
 
     def _record_stream_truncation_metric(self, stream_metadata: dict[str, Any], outcome: str) -> None:
-        """Record stream truncation lifecycle events for tuning retries."""
-        provider = self._normalize_metric_label(
-            str(stream_metadata.get("provider") or getattr(self.llm, "provider", "unknown")),
-            fallback="unknown",
-        )
-        finish_reason = self._normalize_metric_label(str(stream_metadata.get("finish_reason") or "unknown"))
-        _metrics.record_counter(
-            "delivery_integrity_stream_truncation_total",
-            labels={"provider": provider, "finish_reason": finish_reason, "outcome": outcome},
-        )
-
-    def _normalize_integrity_reason(self, reason: str) -> str:
-        """Normalize a gate issue/warning reason for metric labels."""
-        base_reason = (reason or "").split(":", 1)[0]
-        return self._normalize_metric_label(base_reason, fallback="unknown")
-
-    def _normalize_metric_label(self, value: str, fallback: str = "unknown") -> str:
-        """Convert label values to predictable, low-cardinality token format."""
-        raw = (value or "").strip().lower()
-        if not raw:
-            return fallback
-
-        normalized_chars = [char if char.isalnum() else "_" for char in raw]
-        normalized = "".join(normalized_chars).strip("_")
-        while "__" in normalized:
-            normalized = normalized.replace("__", "_")
-        return normalized or fallback
+        """Record stream truncation metric (delegated to ResponseGenerator)."""
+        self._response_generator._metrics = _metrics  # sync module-level metrics
+        self._response_generator.record_stream_truncation_metric(stream_metadata, outcome)
 
     def _extract_title(self, content: str) -> str:
-        """Extract a title from markdown content."""
-        import re
+        """Extract a title from markdown content (delegated to ResponseGenerator)."""
+        return self._response_generator.extract_title(content)
 
-        lines = content.strip().split("\n")
-
-        # Try to find h1 heading
-        for line in lines[:10]:  # Check first 10 lines
-            h1_match = re.match(r"^#\s+(.+)$", line.strip())
-            if h1_match:
-                return h1_match.group(1).strip()
-
-        # Try to find h2 heading
-        for line in lines[:10]:
-            h2_match = re.match(r"^##\s+(.+)$", line.strip())
-            if h2_match:
-                return h2_match.group(1).strip()
-
-        # Fallback: use first non-empty line, truncated
-        for line in lines[:5]:
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                # Remove markdown formatting and truncate
-                clean = re.sub(r"\*\*(.+?)\*\*", r"\1", stripped)
-                clean = re.sub(r"\*(.+?)\*", r"\1", clean)
-                return clean[:80] + ("..." if len(clean) > 80 else "")
-
-        return "Task Report"
-
-    # Pre-compiled patterns for _clean_report_content (module-level would be
-    # cleaner but keeping them close to usage for clarity).
-    _TOOL_CALL_RE = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL)
-    _FUNCTION_CALL_RE = re.compile(r"<function_call>.*?</function_call>", re.DOTALL)
-
-    # Preamble: non-heading prose that appears before the first `#` heading.
-    # This catches prompt-echo text like "I'll create a comprehensive research
-    # report..." that precedes the actual report content.
-    _PREAMBLE_RE = re.compile(r"\A([^#]*?)(?=^#\s)", re.MULTILINE | re.DOTALL)
-    _BOILERPLATE_FINAL_RESULT_RE = re.compile(
-        r"##\s*Final Result\s*\n+"
-        r"(?:The requested work has been completed[^\n]*\n*)+",
-    )
-    _BOILERPLATE_ARTIFACT_REFS_RE = re.compile(
-        r"##\s*Artifact References?\s*\n+"
-        r"(?:-\s*No (?:file )?artifacts? (?:were |was )[^\n]*\n*)+",
-    )
-    _EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
-    _REPORT_H1_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
-    _VERIFICATION_TAG_RE = re.compile(r"\[(?:unverified|verified|not verified)[^\]]*\]?", re.IGNORECASE)
-
-    # Pattern matching JSON tool result objects (possibly wrapped in ```json blocks)
-    _JSON_CODEBLOCK_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\s*\n?```$", re.DOTALL)
-
-    # Meta-commentary detection: the LLM describes what it *would* write
-    # instead of writing the actual report, OR refuses/excuses itself from
-    # generating the actual content.  Short outputs (<800 chars) that match
-    # these patterns are almost certainly degenerate.
-    _META_COMMENTARY_RE = re.compile(
-        r"(?:^|\n)\s*(?:"
-        # Pattern group 1: "I've done X" self-congratulatory (past tense)
-        r"I(?:'ve| have) (?:created|produced|written|prepared|compiled|generated|delivered|completed)"
-        # Pattern group 2: "I'll / I will / I'm going to" (future tense — prompt echo)
-        r"|I(?:'ll| will| am going to|'m going to) (?:create|write|prepare|compile|generate|produce|deliver)"
-        # Pattern group 3: "Let me create..." (polite preamble)
-        r"|Let me (?:create|write|prepare|compile|generate|produce)"
-        # Pattern group 4: "The report has been/was..."
-        r"|(?:The|A) (?:comprehensive|detailed|complete|full|final) (?:research )?report (?:has been|was|is)"
-        # Pattern group 5: "Here is a summary of..."
-        r"|(?:Here is|Below is) (?:a |the )?(?:summary|overview) of (?:what|the)"
-        # Pattern group 6: "The report covers/includes..."
-        r"|The report (?:covers|includes|contains|addresses)"
-        # Pattern group 7: Task excuse — "Task requires X but Y"
-        r"|Task requires .+?(?:but|however)"
-        # Pattern group 8: Token/context budget excuses
-        r"|(?:exceeds|exceeded) (?:the )?(?:available )?(?:token|context) (?:budget|limit|window)"
-        r"|(?:additional|more) context processing (?:that )?(?:exceeds|is required|is needed)"
-        r"|(?:token|context) (?:budget|limit|window) (?:has been |is )?(?:exceeded|exhausted|insufficient)"
-        # Pattern group 9: Research gathered but can't compile
-        r"|Research findings have been gathered but"
-        r"|findings (?:have been |were )?(?:gathered|collected|compiled) but"
-        # Pattern group 10: Explicit refusal/inability
-        r"|(?:I am |I'm )?(?:unable|cannot|can't|couldn't) (?:to )?(?:generate|compile|produce|complete|write|create) (?:the |a )?(?:full |complete |comprehensive )?(?:report|response|document)"
-        r"|report (?:compilation|generation|creation) requires"
-        # Pattern group 11: Prompt-echo phrases from CITATION_AWARE_SUMMARIZE_PROMPT
-        r"|based on the (?:research |parallel )?(?:findings|search findings)"
-        r"|citing only the sources provided"
-        r")",
-        re.IGNORECASE,
+    # Backward-compatible class-level regex aliases (now in response_generator module)
+    from app.domain.services.agents.response_generator import (
+        _FUNCTION_CALL_RE,
+        _TOOL_CALL_RE,
     )
 
     def _is_meta_commentary(self, content: str) -> bool:
-        """Detect when the LLM produced meta-commentary instead of an actual report.
-
-        Short outputs (<800 chars) that describe what the agent *did* rather than
-        delivering the actual content, or that refuse to generate the report citing
-        token/context limitations, are almost certainly degenerate.  For example:
-
-            "I've created a comprehensive research report on AI debugging agents
-             with benchmark data, pricing information, and performance metrics."
-
-        Or:
-            "Task requires comprehensive research report... Research findings have
-             been gathered but report compilation requires additional context
-             processing that exceeds available token budget."
-
-        Returns ``True`` if the content appears to be meta-commentary.
-        """
-        if not content or len(content) > 800:
-            return False
-        return bool(self._META_COMMENTARY_RE.search(content))
-
-    # Keywords that indicate the LLM is making excuses instead of writing content.
-    _EXCUSE_KEYWORDS = frozenset(
-        {
-            "token budget",
-            "token limit",
-            "context budget",
-            "context limit",
-            "context window",
-            "exceeds available",
-            "insufficient context",
-            "unable to generate",
-            "unable to compile",
-            "cannot generate",
-            "cannot compile",
-            "additional context processing",
-        }
-    )
+        """Detect meta-commentary (delegated to ResponseGenerator)."""
+        return self._response_generator.is_meta_commentary(content)
 
     def _is_low_quality_summary(self, content: str) -> bool:
-        """Structural quality gate for summarization output.
-
-        Catches degenerate outputs that ``_is_meta_commentary`` may miss —
-        short text without markdown structure that contains excuse keywords.
-
-        A real research report has at least one markdown heading (``#``).
-        A short excuse/refusal does not.
-
-        Returns ``True`` if the content appears to be low-quality filler.
-        """
-        if not content or len(content) > 1200:
-            return False
-
-        # Must lack markdown headings — a real report has at least one
-        has_headings = bool(re.search(r"^#{1,3}\s+\S", content, re.MULTILINE))
-        if has_headings:
-            return False
-
-        # Check for excuse keywords (case-insensitive)
-        content_lower = content.lower()
-        has_excuse = any(kw in content_lower for kw in self._EXCUSE_KEYWORDS)
-        if has_excuse:
-            return True
-
-        # Very short content (<400 chars) without headings is suspicious
-        return len(content) < 400
+        """Structural quality gate (delegated to ResponseGenerator)."""
+        return self._response_generator.is_low_quality_summary(content)
 
     def _clean_report_content(self, content: str) -> str:
-        """Strip hallucinated tool-call XML, JSON tool results, and boilerplate.
-
-        During summarization the LLM sometimes reproduces tool-call XML from
-        earlier conversation history (e.g. ``<tool_call>file_read...</tool_call>``)
-        and appends boilerplate sections ("Final Result", "Artifact References")
-        instead of actual report content.
-
-        It may also echo raw JSON tool results (e.g. from file_write) like:
-        ``{"success": true, "result": "...", "attachments": [...]}``
-        This method detects that pattern and replaces it with actual report
-        content extracted from the agent's conversation memory.
-        """
-        if not content:
-            return content
-
-        original_len = len(content)
-
-        # 0. Detect JSON tool result objects echoed by the LLM during summarization.
-        #    If the entire content is a JSON tool result, recover the actual report
-        #    from the file_write tool call arguments in conversation memory.
-        cleaned = self._resolve_json_tool_result(content)
-        if cleaned != content:
-            logger.info(
-                "Resolved JSON tool result (%d chars) to actual report content (%d chars)",
-                len(content),
-                len(cleaned),
-            )
-            # Re-run remaining cleanup on the resolved content
-            content = cleaned
-
-        # 1. Strip <tool_call>...</tool_call> and <function_call>...</function_call> blocks
-        cleaned = self._TOOL_CALL_RE.sub("", content)
-        cleaned = self._FUNCTION_CALL_RE.sub("", cleaned)
-
-        # 2. Strip boilerplate sections with generic/empty content
-        cleaned = self._BOILERPLATE_FINAL_RESULT_RE.sub("", cleaned)
-        cleaned = self._BOILERPLATE_ARTIFACT_REFS_RE.sub("", cleaned)
-
-        # 3. Strip preamble prose before the first heading.
-        #    Catches prompt-echo text like "I'll create a comprehensive
-        #    research report..." that precedes the actual `# Title` line.
-        preamble_match = self._PREAMBLE_RE.match(cleaned)
-        if preamble_match and preamble_match.group(1).strip():
-            preamble = preamble_match.group(1).strip()
-            # Only strip if preamble is short (< 500 chars) — long preambles
-            # might be intentional introductory content.
-            if len(preamble) < 500:
-                logger.info("Stripped %d chars of preamble before first heading", len(preamble))
-                cleaned = cleaned[preamble_match.end(1) :]
-
-        # 4. Collapse excess blank lines left by removals
-        cleaned = self._EXCESS_BLANK_LINES_RE.sub("\n\n", cleaned)
-        cleaned = cleaned.strip()
-
-        removed = original_len - len(cleaned)
-        if removed > 0:
-            logger.info(
-                "Cleaned %d chars of hallucinated tool-call XML / boilerplate from report content",
-                removed,
-            )
-
-        return cleaned
+        """Strip hallucinated tool-call XML and boilerplate (delegated)."""
+        self._response_generator.set_pre_trim_report_cache(self._pre_trim_report_cache)
+        return self._response_generator.clean_report_content(content)
 
     def _extract_fallback_summary(self) -> str:
-        """Extract a fallback summary from the agent's conversation memory.
-
-        Scans assistant messages in reverse for substantive content that can
-        serve as a degraded-but-usable summary when the summarization LLM call
-        produces no usable output.
-
-        Returns:
-            A string with fallback content, or empty string if nothing usable found.
-        """
-        # Priority: pre-trim report cache (survives memory trimming)
-        if self._pre_trim_report_cache and len(self._pre_trim_report_cache) > 200:
-            logger.info(
-                "Using pre-trim report cache as fallback summary (%d chars)",
-                len(self._pre_trim_report_cache),
-            )
-            return self._pre_trim_report_cache
-
-        if not self.memory:
-            return ""
-
-        messages = self.memory.get_messages()
-        # Walk backwards through assistant messages looking for substantial content
-        for msg in reversed(messages):
-            if msg.get("role") != "assistant":
-                continue
-            content = msg.get("content", "")
-            if not content or len(content) < 50:
-                continue
-            # Skip messages that are just tool-call XML
-            cleaned = self._TOOL_CALL_RE.sub("", content)
-            cleaned = self._FUNCTION_CALL_RE.sub("", cleaned).strip()
-            if len(cleaned) >= 50:
-                logger.info(
-                    "Extracted fallback summary from conversation memory (%d chars)",
-                    len(cleaned),
-                )
-                return f"# Task Summary\n\n{cleaned}"
-
-        return ""
+        """Extract fallback summary from memory (delegated to ResponseGenerator)."""
+        self._response_generator.set_pre_trim_report_cache(self._pre_trim_report_cache)
+        return self._response_generator.extract_fallback_summary()
 
     def _resolve_json_tool_result(self, content: str) -> str:
-        """If content is a JSON tool result, recover the actual report content.
-
-        Some LLMs echo the raw tool result JSON during summarization instead of
-        writing a proper report. For example::
-
-            {
-                "success": true,
-                "result": "Delivered professional research report...",
-                "attachments": ["/workspace/report.md"],
-            }
-
-        This method detects that pattern and:
-        1. Searches conversation memory for the file_write tool call that produced
-           the result, extracting the actual markdown content from its arguments.
-        2. Falls back to the ``result`` description string if memory search fails.
-
-        Returns the original content unchanged if it's not a JSON tool result.
-        """
-        stripped = content.strip()
-
-        # Unwrap ```json ... ``` code blocks
-        codeblock_match = self._JSON_CODEBLOCK_RE.match(stripped)
-        if codeblock_match:
-            stripped = codeblock_match.group(1).strip()
-
-        # Quick check: must look like a JSON object
-        if not (stripped.startswith("{") and stripped.endswith("}")):
-            return content
-
-        try:
-            parsed = json.loads(stripped)
-        except (json.JSONDecodeError, ValueError):
-            return content
-
-        # Must be a tool result dict with "success" key
-        if not isinstance(parsed, dict) or "success" not in parsed:
-            return content
-
-        is_success = parsed.get("success", False)
-        logger.warning(
-            "Summarization output is a JSON tool result (success=%s), recovering actual report content",
-            is_success,
-        )
-
-        # Strategy 1: Search conversation memory for the file_write call that
-        # produced this result.  The actual report markdown is in the tool call's
-        # ``content`` argument.
-        report_from_memory = self._extract_report_from_file_write_memory()
-        if report_from_memory:
-            return report_from_memory
-
-        # Strategy 1b: Use the pre-trim report cache (populated before token
-        # trimming in summarize()).  Memory may have been pruned by the time
-        # we reach here, but the cache preserves the original file_write content.
-        if self._pre_trim_report_cache:
-            logger.info(
-                "Using pre-trim report cache as recovery (%d chars)",
-                len(self._pre_trim_report_cache),
-            )
-            return self._pre_trim_report_cache
-
-        # Strategy 2: Use the ``result`` description string as fallback — but
-        # ONLY when success=True.  When success=False the result/message field
-        # contains an error description or excuse ("exceeds available token
-        # budget"), NOT actual report content.
-        if is_success:
-            result_text = parsed.get("result", "")
-            if isinstance(result_text, str) and len(result_text.strip()) > 30:
-                logger.info("Using tool result 'result' field as fallback report content")
-                return result_text.strip()
-
-        # Strategy 2b: When success=False, check for a "message" field that
-        # might contain an error description.  Log it for diagnostics but do
-        # NOT use it as report content — it's almost always meta-commentary.
-        if not is_success:
-            error_msg = parsed.get("message") or parsed.get("result") or parsed.get("error", "")
-            if error_msg:
-                logger.warning(
-                    "JSON tool result has success=False with message: %.200s",
-                    error_msg,
-                )
-
-        # Strategy 3: Return empty so the caller can handle the failure
-        return ""
+        """Recover actual report from JSON tool result (delegated)."""
+        self._response_generator.set_pre_trim_report_cache(self._pre_trim_report_cache)
+        return self._response_generator.resolve_json_tool_result(content)
 
     def _extract_report_from_file_write_memory(self) -> str | None:
-        """Search conversation memory for the last file_write tool call with markdown content.
-
-        Scans messages in reverse order looking for an assistant message with a
-        ``file_write`` or ``file_create`` tool call whose arguments include a
-        ``content`` field containing substantial markdown (>200 chars).
-
-        Returns the extracted markdown content, or None if not found.
-        """
-        if not self.memory:
-            return None
-
-        messages = self.memory.get_messages()
-
-        # Walk messages in reverse to find the most recent file_write call
-        for msg in reversed(messages):
-            tool_calls = msg.get("tool_calls")
-            if not tool_calls or msg.get("role") != "assistant":
-                continue
-
-            for tc in tool_calls:
-                func = tc.get("function", {})
-                func_name = func.get("name", "")
-                if func_name not in ("file_write", "file_create"):
-                    continue
-
-                # Parse the arguments JSON
-                args_str = func.get("arguments", "")
-                if not args_str:
-                    continue
-
-                try:
-                    args = json.loads(args_str) if isinstance(args_str, str) else args_str
-                except (json.JSONDecodeError, ValueError):
-                    continue
-
-                file_content = args.get("content", "")
-                file_path = args.get("path", "")
-
-                # Only recover markdown files with substantial content
-                if (
-                    isinstance(file_content, str)
-                    and len(file_content.strip()) > 200
-                    and isinstance(file_path, str)
-                    and file_path.endswith(".md")
-                ):
-                    logger.info(
-                        "Recovered report content from file_write memory (path=%s, %d chars)",
-                        file_path,
-                        len(file_content),
-                    )
-                    return file_content.strip()
-
-        return None
+        """Search memory for file_write with markdown (delegated to ResponseGenerator)."""
+        return self._response_generator.extract_report_from_file_write_memory()
 
     async def _generate_confirmation_summary(self, report_content: str, title: str | None) -> str | None:
-        """Generate a brief confirmation message summarizing key findings.
-
-        Emitted as a MessageEvent before the ReportEvent so the user sees
-        a quick overview above the full report preview.
-        """
-        try:
-            # Use first ~2000 chars to keep the prompt small
-            excerpt = report_content[:2000]
-            prompt = CONFIRMATION_SUMMARY_PROMPT.format(report_content=excerpt)
-            response = await self.llm.ask(
-                [{"role": "user", "content": prompt}],
-                tools=None,
-                tool_choice=None,
-            )
-            confirmation = response.get("content", "")
-            if isinstance(confirmation, str) and len(confirmation.strip()) > 30:
-                return confirmation.strip()
-        except Exception as e:
-            logger.debug(f"Confirmation summary generation failed: {e}")
-        return None
+        """Generate brief confirmation message (delegated to ResponseGenerator)."""
+        return await self._response_generator.generate_confirmation_summary(report_content, title)
 
     async def _generate_follow_up_suggestions(self, title: str, content: str) -> list[str]:
-        """Generate follow-up suggestions grounded in session context.
-
-        Enriches suggestion generation with:
-        - Original user request
-        - Completion title
-        - Bounded content excerpt (first 500 chars)
-
-        Args:
-            title: Report title
-            content: Full report content
-
-        Returns:
-            List of 3 contextual suggestion strings
-        """
-        try:
-            # Build session-contextual prompt
-            user_request_context = f'User request: "{self._user_request}"\n' if self._user_request else ""
-            content_excerpt = content[:500] + ("..." if len(content) > 500 else "")
-            recent_session_context = self._build_recent_memory_context_excerpt()
-            recent_context_block = (
-                f"Recent session context:\n{recent_session_context}\n\n" if recent_session_context else ""
-            )
-
-            suggestion_response = await self.llm.ask(
-                [
-                    {
-                        "role": "user",
-                        "content": (
-                            f"{user_request_context}"
-                            f"{recent_context_block}"
-                            f'Completion title: "{title}"\n'
-                            f"Summary excerpt: {content_excerpt}\n\n"
-                            "Generate exactly 3 short follow-up questions (5-15 words each) that are grounded "
-                            "in the actual completion results and user's original request. "
-                            "Suggestions should help the user explore next steps or dive deeper into specific aspects. "
-                            'Return ONLY a JSON object in this format: {"suggestions": ["...", "...", "..."]}.'
-                        ),
-                    }
-                ],
-                tools=None,
-                response_format={"type": "json_object"},
-                tool_choice=None,
-            )
-            raw = suggestion_response.get("content", {"suggestions": []})
-            suggestions = self._parse_suggestions_payload(raw)
-            normalized = [str(s).strip() for s in suggestions if str(s).strip()]
-            if normalized:
-                return normalized[:3]
-        except Exception as e:
-            logger.debug(f"Suggestion generation failed, using fallback suggestions: {e}")
-
-        return self._default_follow_up_suggestions(title=title, content=content)
-
-    def _default_follow_up_suggestions(self, title: str, content: str) -> list[str]:
-        """Deterministic fallback suggestions used when LLM suggestion generation fails."""
-        combined = f"{title} {content}".lower()
-        if "pirate" in combined or "arrr" in combined:
-            return [
-                "Tell me a pirate story.",
-                "What's your favorite pirate saying?",
-                "How do pirates find treasure?",
-            ]
-
-        topic_hint = self._extract_topic_hint(f"{self._user_request or ''} {title} {content}")
-        if topic_hint:
-            return [
-                f"Can you expand on {topic_hint} with a concrete example?",
-                f"What should I prioritize next for {topic_hint}?",
-                f"What risks should I watch for with {topic_hint}?",
-            ]
-
-        return [
-            "Can you summarize this in three key points?",
-            "What should I prioritize as next steps?",
-            "Can you provide a practical example for this?",
-        ]
-
-    def _parse_suggestions_payload(self, payload: Any) -> list[str]:
-        """Parse suggestion payload from LLM output using strict validation first."""
-        if isinstance(payload, str):
-            try:
-                return _SuggestionPayload.model_validate_json(payload).suggestions
-            except ValidationError:
-                return _SUGGESTION_LIST_ADAPTER.validate_json(payload)
-
-        if isinstance(payload, dict):
-            return _SuggestionPayload.model_validate(payload).suggestions
-
-        if isinstance(payload, list):
-            return _SUGGESTION_LIST_ADAPTER.validate_python(payload)
-
-        raise TypeError("Unsupported suggestion payload type")
+        """Generate follow-up suggestions (delegated to ResponseGenerator)."""
+        self._response_generator.set_user_request(self._user_request)
+        self._response_generator._memory = self.memory  # sync in case test/caller replaced memory
+        return await self._response_generator.generate_follow_up_suggestions(title, content)
 
     def _apply_step_result_payload(self, step: Step, parsed_response: Any, raw_message: str) -> bool:
-        """Apply execution step payload with strict schema validation and safe fallback."""
-        try:
-            step_result = ExecutionStepResult.model_validate(parsed_response)
-            step.success = step_result.success
-            step.result = step_result.result or raw_message
-            step.attachments = list(step_result.attachments)
-            step.error = None if step_result.success else (step.error or "Step reported failure")
-            return True
-        except ValidationError as validation_err:
-            logger.warning(f"Step response validation failed: {validation_err}")
+        """Apply step result payload (delegated to StepExecutor)."""
+        return StepExecutor.apply_step_result_payload(step, parsed_response, raw_message)
 
-        # Best-effort extraction for partially structured payloads.
-        if isinstance(parsed_response, dict) and any(
-            key in parsed_response for key in ("success", "result", "attachments")
-        ):
-            success_value = parsed_response.get("success")
-            step.success = success_value if isinstance(success_value, bool) else False
-
-            result_value = parsed_response.get("result")
-            step.result = str(result_value) if result_value is not None else raw_message
-
-            attachments_value = parsed_response.get("attachments")
-            if isinstance(attachments_value, list):
-                step.attachments = [str(item) for item in attachments_value]
-            else:
-                step.attachments = []
-
-            if not step.success:
-                error_value = parsed_response.get("error")
-                step.error = str(error_value) if error_value else "Step payload validation failed"
-            return False
-
-        step.success = False
-        step.result = raw_message
-        step.attachments = []
-        step.error = "Step response did not match expected JSON schema"
-        return False
-
-    def _build_recent_memory_context_excerpt(self, max_messages: int = 6, max_chars: int = 900) -> str:
-        """Build a short user/assistant transcript excerpt from in-memory session messages."""
-        if not self.memory:
-            return ""
-
-        try:
-            messages = self.memory.get_messages()
-        except Exception:
-            return ""
-
-        if not messages:
-            return ""
-
-        lines: list[str] = []
-        for entry in reversed(messages):
-            if not isinstance(entry, dict):
-                continue
-
-            role = str(entry.get("role") or "").strip().lower()
-            if role not in {"user", "assistant"}:
-                continue
-
-            raw_content = entry.get("content")
-            if isinstance(raw_content, str):
-                text = raw_content.strip()
-            else:
-                text = str(raw_content).strip() if raw_content is not None else ""
-
-            if not text:
-                continue
-
-            speaker = "User" if role == "user" else "Assistant"
-            lines.append(f"{speaker}: {text[:220]}")
-            if len(lines) >= max_messages:
-                break
-
-        if not lines:
-            return ""
-
-        transcript = "\n".join(reversed(lines))
-        return transcript[:max_chars]
-
-    def _extract_topic_hint(self, text: str) -> str | None:
-        """Extract a compact topic hint from free text for fallback suggestion templates."""
-        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower())
-        tokens = [token for token in cleaned.split() if len(token) >= 4]
-        if not tokens:
-            return None
-
-        stopwords = {
-            "that",
-            "this",
-            "with",
-            "from",
-            "have",
-            "what",
-            "when",
-            "where",
-            "which",
-            "would",
-            "could",
-            "should",
-            "your",
-            "about",
-            "into",
-            "there",
-            "them",
-            "then",
-            "only",
-            "more",
-            "next",
-        }
-        filtered = [token for token in tokens if token not in stopwords]
-        candidates = filtered or tokens
-        return " ".join(candidates[:3]) if candidates else None
+    # ── Output verification helpers (delegated to OutputVerifier) ─────
 
     async def _apply_critic_revision(self, message_content: str, attachments: list[FileInfo]) -> str:
-        """Apply critic review with actual revision support.
-
-        This method implements a revision loop that actually improves the output
-        based on critic feedback, rather than just appending notes.
-
-        Args:
-            message_content: The original message content
-            attachments: List of file attachments
-
-        Returns:
-            Revised content (or original if approved/revision failed)
-        """
-        max_revisions = self._critic.config.max_revision_attempts
-        current_content = message_content
-        revision_count = 0
-
-        while revision_count < max_revisions:
-            try:
-                review = await self._critic.review_output(
-                    user_request=self._user_request,
-                    output=current_content,
-                    task_context="Task completion summary",
-                    files=[f.file_path for f in attachments] if attachments else None,
-                )
-
-                logger.info(
-                    f"Critic review (attempt {revision_count + 1}): {review.verdict.value} ({review.confidence:.2f})"
-                )
-
-                # If approved, return the current content
-                if review.verdict == CriticVerdict.APPROVE:
-                    logger.debug("Critic approved output")
-                    return current_content
-
-                # If rejected, log and return original (can't fix fundamental issues)
-                if review.verdict == CriticVerdict.REJECT:
-                    logger.warning(f"Critic rejected output: {review.summary}")
-                    return current_content
-
-                # If revision needed, actually revise the content
-                if review.verdict == CriticVerdict.REVISE and review.issues:
-                    revision_count += 1
-                    logger.info(f"Critic requested revision {revision_count}: {review.summary}")
-
-                    # Build revision prompt
-                    revision_guidance = await self._critic.get_revision_guidance(current_content, review)
-
-                    # Ask LLM to revise the content
-                    try:
-                        revision_messages = [
-                            {
-                                "role": "system",
-                                "content": (
-                                    "You are revising your previous output based on quality feedback. "
-                                    "Make the specific improvements requested while preserving the good parts. "
-                                    "Return the complete revised output in the same format."
-                                ),
-                            },
-                            {"role": "user", "content": revision_guidance},
-                        ]
-
-                        response = await self.llm.ask(revision_messages, tools=None, tool_choice=None)
-
-                        revised_content = response.get("content", "")
-                        if revised_content and len(revised_content) > 100:
-                            logger.info(
-                                f"Revision {revision_count} applied "
-                                f"(original: {len(current_content)} chars, "
-                                f"revised: {len(revised_content)} chars)"
-                            )
-                            current_content = revised_content
-                        else:
-                            logger.warning("Revision produced insufficient content, keeping original")
-                            break
-
-                    except Exception as e:
-                        logger.warning(f"Revision attempt failed: {e}")
-                        break
-                else:
-                    # No issues identified, accept current content
-                    break
-
-            except Exception as e:
-                logger.warning(f"Critic review failed (continuing with current content): {e}")
-                break
-
-        # If we exhausted revisions, add a note about best-effort improvement
-        if revision_count >= max_revisions:
-            logger.info(f"Max revisions ({max_revisions}) reached, delivering best version")
-
-        return current_content
+        """Apply critic review with revision loop (delegated to OutputVerifier)."""
+        self._output_verifier.set_user_request(self._user_request)
+        return await self._output_verifier.apply_critic_revision(message_content, attachments)
 
     async def _apply_hallucination_verification(self, content: str, query: str) -> str:
-        """Apply hallucination verification using LettuceDetect (or CoVe fallback).
-
-        LettuceDetect uses a ModernBERT encoder to classify each token in the
-        answer as supported or hallucinated, grounded against collected source
-        context. This runs in ~100ms with zero LLM calls.
-
-        Falls back to CoVe if LettuceDetect is disabled or unavailable.
-
-        Args:
-            content: The content to verify.
-            query: Original user query for context.
-
-        Returns:
-            Verified content (hallucinated spans redacted if detected).
-        """
-        flags = self._resolve_feature_flags()
-
-        # Try LettuceDetect first (preferred: fast, no LLM cost)
-        if self._lettuce_enabled and flags.get("lettuce_verification", True):
-            try:
-                from app.domain.services.agents.lettuce_verifier import get_lettuce_verifier
-
-                verifier = get_lettuce_verifier()
-
-                # Build grounding context from collected sources
-                source_context = self._build_source_context()
-
-                result = verifier.verify(
-                    context=source_context,
-                    question=query,
-                    answer=content,
-                )
-
-                if not result.skipped and result.has_hallucinations:
-                    logger.warning(
-                        "LettuceDetect: %d hallucinated span(s), confidence: %.2f, ratio: %.1f%%",
-                        len(result.hallucinated_spans),
-                        result.confidence_score,
-                        result.hallucination_ratio * 100,
-                    )
-                    self._context_manager.add_insight(
-                        insight_type=InsightType.ERROR_LEARNING,
-                        content=(
-                            f"LettuceDetect found {len(result.hallucinated_spans)} hallucinated span(s) "
-                            f"({result.hallucination_ratio:.1%} of text)"
-                        ),
-                        confidence=0.9,
-                        tags=["hallucination", "lettuce", "verification"],
-                    )
-
-                    # Record Prometheus metric
-                    _metrics.increment(
-                        "pythinker_hallucination_detections_total",
-                        labels={
-                            "method": "lettuce",
-                            "span_count": str(len(result.hallucinated_spans)),
-                        },
-                    )
-
-                    # Do NOT inline-replace with verification tags — that
-                    # breaks markdown tables, sentences, and structured output.
-                    # Instead, append a brief disclaimer when the hallucination
-                    # ratio is significant enough to warrant user notice.
-                    if result.hallucination_ratio > 0.2:
-                        disclaimer = (
-                            "\n\n> **Note:** Some information in this response "
-                            "could not be fully verified against available sources."
-                        )
-                        return content + disclaimer
-                    return content
-
-                if not result.skipped:
-                    logger.info("LettuceDetect: %s", result.get_summary())
-
-                return content
-
-            except Exception as e:
-                logger.warning("LettuceDetect failed, falling back to CoVe: %s", e)
-
-        # Fallback: CoVe (deprecated, disabled by default)
-        if self._cove_enabled and flags.get("chain_of_verification", False):
-            verified, _ = await self._apply_cove_verification(content, query)
-            return verified
-
-        return content
+        """Apply hallucination verification (delegated to OutputVerifier)."""
+        self._output_verifier._metrics = _metrics  # sync module-level metrics
+        return await self._output_verifier.apply_hallucination_verification(content, query)
 
     def _build_source_context(self) -> list[str]:
-        """Build grounding context from collected sources for hallucination verification.
-
-        Returns each source snippet as a separate list element — LettuceDetect's
-        predict() API expects list[str] where each item is an independent
-        context chunk. Truncation to 4K total chars is handled by LettuceVerifier.
-
-        Returns:
-            List of source context strings.
-        """
-        if not self._collected_sources:
-            return []
-
-        chunks: list[str] = []
-        for source in self._collected_sources:
-            snippet = source.snippet or ""
-            if snippet.strip():
-                chunks.append(snippet)
-
-        return chunks
+        """Build grounding context from collected sources (delegated to OutputVerifier)."""
+        return self._output_verifier.build_source_context()
 
     def _needs_verification(self, content: str, query: str) -> bool:
-        """Determine if content needs hallucination verification.
-
-        Delegates to _needs_cove_verification which contains the heuristic
-        for detecting research/factual/comparative content.
-        """
-        return self._needs_cove_verification(content, query)
+        """Determine if content needs hallucination verification (delegated)."""
+        return self._output_verifier.needs_verification(content, query)
 
     async def _apply_cove_verification(self, content: str, query: str) -> tuple[str, CoVeResult | None]:
-        """Apply Chain-of-Verification to reduce hallucinations in factual content.
-
-        CoVe works by:
-        1. Generating verification questions for key claims
-        2. Answering those questions independently (without seeing original)
-        3. Revising the response based on verification results
-
-        This is particularly effective for:
-        - Research tasks with specific metrics/benchmarks
-        - Comparative analyses (where data asymmetry often occurs)
-        - Factual summaries with dates, numbers, or statistics
-
-        Args:
-            content: The content to verify
-            query: Original user query for context
-
-        Returns:
-            Tuple of (verified_content, CoVeResult or None if skipped)
-        """
-        if not self._cove_enabled:
-            return content, None
-
-        # Check feature flags
-        flags = self._resolve_feature_flags()
-        if not flags.get("chain_of_verification", True):
-            return content, None
-
-        # Detect if this is a factual/research task that needs verification
-        if not self._needs_cove_verification(content, query):
-            logger.debug("CoVe: Skipping - content doesn't require verification")
-            return content, None
-
-        try:
-            logger.info("CoVe: Starting verification pipeline...")
-            result = await self._cove.verify_and_refine(
-                query=query,
-                response=content,
-                skip_if_short=True,
-            )
-
-            if result.has_contradictions:
-                logger.warning(
-                    f"CoVe: Found {result.claims_contradicted} contradictions, "
-                    f"confidence: {result.confidence_score:.2f}"
-                )
-                # Record insight about hallucination detection
-                self._context_manager.add_insight(
-                    insight_type=InsightType.ERROR_LEARNING,
-                    content=f"CoVe detected {result.claims_contradicted} contradicted claims",
-                    confidence=0.9,
-                    tags=["hallucination", "cove", "verification"],
-                )
-                return result.verified_response, result
-            if result.claims_uncertain > 0:
-                logger.info(
-                    f"CoVe: {result.claims_verified} verified, "
-                    f"{result.claims_uncertain} uncertain, "
-                    f"confidence: {result.confidence_score:.2f}"
-                )
-                # If many uncertain claims, still use refined response
-                if result.claims_uncertain > result.claims_verified:
-                    return result.verified_response, result
-            else:
-                logger.info(
-                    f"CoVe: All {result.claims_verified} claims verified, confidence: {result.confidence_score:.2f}"
-                )
-
-            return content, result
-
-        except Exception as e:
-            logger.warning(f"CoVe verification failed (continuing with original): {e}")
-            return content, None
+        """Apply Chain-of-Verification (delegated to OutputVerifier)."""
+        return await self._output_verifier.apply_cove_verification(content, query)
 
     def _needs_cove_verification(self, content: str, query: str) -> bool:
-        """Determine if content needs Chain-of-Verification.
-
-        We apply CoVe selectively to:
-        - Research/factual tasks (not creative writing)
-        - Content with specific metrics, benchmarks, or statistics
-        - Comparative analyses (high risk of data asymmetry)
-        - Content over a minimum length threshold
-
-        Args:
-            content: Content to potentially verify
-            query: Original query for context
-
-        Returns:
-            True if content should be verified
-        """
-        # Length threshold — lowered to catch hallucinations in shorter responses
-        if len(content) < 200:
-            return False
-
-        query_lower = query.lower() if query else ""
-        content_lower = content.lower()
-
-        # Research/factual task indicators
-        research_indicators = [
-            "research",
-            "analyze",
-            "compare",
-            "benchmark",
-            "statistics",
-            "study",
-            "report",
-            "data",
-            "metrics",
-            "performance",
-            "evaluate",
-            "assessment",
-            "findings",
-            "results",
-        ]
-
-        # Comparative task indicators (high hallucination risk)
-        comparison_indicators = [
-            "compare",
-            "comparison",
-            "versus",
-            " vs ",
-            " vs.",
-            "difference",
-            "better than",
-            "worse than",
-            "ranking",
-            "ranked",
-            "top ",
-        ]
-
-        # Metric/number patterns in content
-        import re
-
-        has_percentages = bool(re.search(r"\d+(\.\d+)?%", content))
-        has_benchmarks = any(
-            bench in content_lower for bench in ["mmlu", "humaneval", "gsm8k", "hellaswag", "arc", "winogrande"]
-        )
-        has_dates = bool(re.search(r"\b20\d{2}\b", content))
-
-        # Decision logic
-        is_research_task = any(ind in query_lower for ind in research_indicators)
-        is_comparison = any(ind in query_lower or ind in content_lower for ind in comparison_indicators)
-        has_factual_claims = has_percentages or has_benchmarks or has_dates
-
-        # Apply CoVe if:
-        # 1. It's a research task with factual claims, OR
-        # 2. It's a comparison (high data asymmetry risk), OR
-        # 3. It has benchmarks (often hallucinated)
-        should_verify = (is_research_task and has_factual_claims) or is_comparison or has_benchmarks
-
-        if should_verify:
-            logger.debug(
-                f"CoVe needed: research={is_research_task}, comparison={is_comparison}, "
-                f"factual={has_factual_claims}, benchmarks={has_benchmarks}"
-            )
-
-        return should_verify
+        """Heuristic gate for verification need (delegated to OutputVerifier)."""
+        return self._output_verifier._needs_cove_verification(content, query)
 
     def _is_report_structure(self, content: str) -> bool:
-        """Check if content has report-like structure (headings, sections)."""
-        import re
-
-        if not content:
-            return False
-
-        # Check for markdown headings (##, ###, etc.)
-        heading_count = len(re.findall(r"^#{1,4}\s+.+", content, re.MULTILINE))
-        if heading_count >= 2:
-            return True
-
-        # Check for bold section headers pattern (e.g., **Section:**)
-        bold_headers = len(re.findall(r"\*\*[^*]+:\*\*", content))
-        if bold_headers >= 2:
-            return True
-
-        # Check for numbered sections (1. Section, 2. Section)
-        numbered_sections = len(re.findall(r"^\d+\.\s+[A-Z]", content, re.MULTILINE))
-        return numbered_sections >= 2
+        """Check if content has report-like structure (delegated to ResponseGenerator)."""
+        return self._response_generator.is_report_structure(content)
 
     # Context Manager Integration (Phase 1)
     def get_context_manager(self) -> ContextManager:
@@ -2547,10 +1299,8 @@ class ExecutionAgent(BaseAgent):
     def clear_context(self) -> None:
         """Clear execution context (use between tasks)."""
         self._context_manager.clear()
-        self._collected_sources = []
-        self._seen_urls = set()
-        self._view_operation_count = 0
-        self._multimodal_findings = []
+        self._source_tracker.clear()
+        self._step_executor.clear()
         logger.debug("Cleared execution context")
 
     # Attention Injection (Pythinker AI Pattern)
@@ -2574,306 +1324,23 @@ class ExecutionAgent(BaseAgent):
 
     # Multimodal Information Persistence (P5.2 - Pythinker Pattern)
     def _track_multimodal_findings(self, event: ToolEvent) -> None:
-        """Track and persist key findings from view operations.
-
-        Per Pythinker pattern: save key findings every 2 view/browser operations.
-        This ensures important visual information is persisted and available
-        for later reference even if context is compressed.
-
-        Args:
-            event: ToolEvent from a view operation
-        """
-        if event.function_name not in self._view_tools:
-            return
-
-        if not event.function_result or not event.function_result.success:
-            return
-
-        # Increment view operation counter
-        self._view_operation_count += 1
-
-        # Extract key findings from the view result
-        finding = self._extract_multimodal_finding(event)
-        if finding:
-            self._multimodal_findings.append(finding)
-
-        # Persist every 2 operations (Pythinker pattern)
-        if self._view_operation_count >= 2:
-            self._persist_key_findings()
-            self._view_operation_count = 0
-
-    def _extract_multimodal_finding(self, event: ToolEvent) -> dict | None:
-        """Extract structured finding from a view operation.
-
-        Args:
-            event: ToolEvent containing view results
-
-        Returns:
-            Dict with finding data, or None if no significant finding
-        """
-        if not event.function_result:
-            return None
-
-        # ToolResult uses 'data' for the typed result and 'message' for text
-        # Handle both ToolResult and raw string/dict results
-        func_result = event.function_result
-        if hasattr(func_result, "data"):
-            data = func_result.data or {}
-            result = (
-                func_result.message
-                if hasattr(func_result, "message")
-                else str(func_result.data)
-                if func_result.data
-                else ""
-            )
-        elif hasattr(func_result, "result"):
-            # Legacy result format
-            result = func_result.result
-            data = {}
-        else:
-            # Raw result (string, dict, etc.)
-            result = str(func_result) if func_result else ""
-            data = func_result if isinstance(func_result, dict) else {}
-
-        # Build finding structure
-        finding = {
-            "tool": event.function_name,
-            "timestamp": event.started_at.isoformat() if event.started_at else None,
-            "source": event.function_args.get("file") or event.function_args.get("url", ""),
-        }
-
-        # Extract content based on tool type
-        if event.function_name == "file_view":
-            # File view findings
-            finding["type"] = "file_view"
-            finding["file_type"] = data.get("file_type", "unknown") if isinstance(data, dict) else "unknown"
-            finding["content_preview"] = result[:500] if result else ""
-
-            # Include extracted text for documents
-            if isinstance(data, dict) and data.get("extracted_text"):
-                finding["extracted_text"] = data["extracted_text"][:1000]
-
-        elif event.function_name in {"browser_view", "browser_get_content"}:
-            # Browser view findings
-            finding["type"] = "browser_view"
-            finding["url"] = event.function_args.get("url", "")
-            finding["content_preview"] = result[:500] if result else ""
-
-        elif event.function_name == "browser_agent_extract":
-            # Browser extraction findings
-            finding["type"] = "extraction"
-            finding["extraction_goal"] = event.function_args.get("goal", "")
-            finding["result"] = result[:1000] if result else ""
-
-        return finding if finding.get("content_preview") or finding.get("result") else None
-
-    def _persist_key_findings(self) -> None:
-        """Persist accumulated multimodal findings.
-
-        Adds findings to context manager for long-term availability
-        and optionally stores in memory service.
-        """
-        if not self._multimodal_findings:
-            return
-
-        # Format findings for context
-        findings_text = self._format_findings_for_context()
-
-        # Add to context manager as important observation
-        self._context_manager.add_observation(
-            observation_type="multimodal_findings",
-            content=findings_text,
-            importance=0.8,  # High importance for visual findings
-        )
-
-        # Clear findings after persistence
-        self._multimodal_findings = []
-        logger.debug("Persisted multimodal findings to context")
-
-    def _format_findings_for_context(self) -> str:
-        """Format multimodal findings as a context string.
-
-        Returns:
-            Formatted string of findings for context injection
-        """
-        if not self._multimodal_findings:
-            return ""
-
-        parts = ["## Key Visual Findings\n"]
-
-        for i, finding in enumerate(self._multimodal_findings, 1):
-            finding_type = finding.get("type", "view")
-            source = finding.get("source") or finding.get("url", "")
-
-            parts.append(f"### Finding {i}: {finding_type}")
-            if source:
-                parts.append(f"**Source:** {source}")
-
-            if finding.get("content_preview"):
-                parts.append(f"**Preview:** {finding['content_preview'][:300]}...")
-            elif finding.get("result"):
-                parts.append(f"**Result:** {finding['result'][:300]}...")
-
-            if finding.get("extracted_text"):
-                parts.append(f"**Text:** {finding['extracted_text'][:200]}...")
-
-            parts.append("")
-
-        return "\n".join(parts)
+        """Track multimodal findings (delegated to StepExecutor)."""
+        self._step_executor.track_multimodal_findings(event)
 
     def get_multimodal_findings(self) -> list[dict]:
-        """Get accumulated multimodal findings.
+        """Get accumulated multimodal findings (delegated to StepExecutor)."""
+        return self._step_executor.get_multimodal_findings()
 
-        Returns:
-            List of finding dictionaries
-        """
-        return self._multimodal_findings.copy()
+    # ── Source Citation Tracking (delegated to SourceTracker) ──────────
 
-    # Source Citation Tracking
     def _track_sources_from_tool_event(self, event: ToolEvent) -> None:
-        """Extract and track source citations from tool events.
-
-        Collects URLs and titles from search results and browser navigation
-        to build a bibliography for the final report.
-
-        Args:
-            event: ToolEvent that completed execution
-        """
-        if not event.function_result or not event.function_result.success:
-            return
-
-        access_time = event.started_at or datetime.now(UTC)
-
-        # Extract sources from search results
-        if event.function_name == "info_search_web":
-            self._extract_search_sources(event, access_time)
-
-        # Extract sources from browser navigation
-        elif event.function_name in ["browser_navigate", "browser_get_content", "browser_view"]:
-            self._extract_browser_source(event, access_time)
-
-    def _extract_search_sources(self, event: ToolEvent, access_time: datetime) -> None:
-        """Extract sources from search tool results.
-
-        Args:
-            event: Search tool event
-            access_time: When the search was performed
-        """
-        # Try to get results from tool_content (SearchToolContent)
-        results = []
-        if event.tool_content and hasattr(event.tool_content, "results"):
-            results = event.tool_content.results or []
-        # Fallback: try to parse from function_result
-        elif event.function_result and hasattr(event.function_result, "data"):
-            data = event.function_result.data
-            if isinstance(data, dict) and "results" in data:
-                results = data["results"]
-            elif isinstance(data, list):
-                results = data
-
-        for result in results:
-            # Handle both dict and SearchResultItem objects
-            if hasattr(result, "link"):
-                url = result.link
-                title = result.title
-                snippet = getattr(result, "snippet", None)
-            elif isinstance(result, dict):
-                url = result.get("link") or result.get("url", "")
-                title = result.get("title", "")
-                snippet = result.get("snippet")
-            else:
-                continue
-
-            if url and url not in self._seen_urls and len(self._collected_sources) < self._max_collected_sources:
-                self._seen_urls.add(url)
-                self._collected_sources.append(
-                    SourceCitation(
-                        url=url,
-                        title=title or url,
-                        snippet=snippet[:300] if snippet else None,
-                        access_time=access_time,
-                        source_type="search",
-                    )
-                )
-                # Assign citation index for inline references
-                self._citation_counter += 1
-                self._url_to_citation[url] = self._citation_counter
-                logger.debug(f"Tracked search source [{self._citation_counter}]: {title[:50] if title else url[:50]}")
-
-    def _extract_browser_source(self, event: ToolEvent, access_time: datetime) -> None:
-        """Extract source from browser navigation events.
-
-        Args:
-            event: Browser tool event
-            access_time: When the page was accessed
-        """
-        url = event.function_args.get("url", "")
-        if not url or url in self._seen_urls or len(self._collected_sources) >= self._max_collected_sources:
-            return
-
-        # Try to extract title from page content or result
-        title = url
-        if event.tool_content and hasattr(event.tool_content, "content"):
-            content = event.tool_content.content
-            if content:
-                # Try to extract title from HTML/content
-                title = self._extract_title_from_content(content) or url
-
-        self._seen_urls.add(url)
-        self._collected_sources.append(
-            SourceCitation(url=url, title=title, snippet=None, access_time=access_time, source_type="browser")
-        )
-        logger.debug(f"Tracked browser source: {title[:50]}")
-
-    def _extract_title_from_content(self, content: str) -> str | None:
-        """Extract page title from HTML or text content.
-
-        Args:
-            content: Page content (HTML or text)
-
-        Returns:
-            Extracted title or None
-        """
-        import re
-
-        # Try to find HTML title tag
-        title_match = re.search(r"<title[^>]*>([^<]+)</title>", content, re.IGNORECASE)
-        if title_match:
-            return title_match.group(1).strip()[:200]
-
-        # Try to find first h1 tag
-        h1_match = re.search(r"<h1[^>]*>([^<]+)</h1>", content, re.IGNORECASE)
-        if h1_match:
-            return h1_match.group(1).strip()[:200]
-
-        # Try to find first markdown h1
-        md_h1_match = re.match(r"^#\s+(.+)$", content, re.MULTILINE)
-        if md_h1_match:
-            return md_h1_match.group(1).strip()[:200]
-
-        return None
+        """Extract and track source citations from tool events."""
+        self._source_tracker.track_tool_event(event)
 
     def _build_numbered_source_list(self) -> str:
-        """Build a numbered source list for citation-aware summarization.
-
-        Returns:
-            Formatted string like:
-            [1] Title - URL
-            [2] Title - URL
-        """
-        lines = []
-        for i, source in enumerate(self._collected_sources, start=1):
-            title = source.title or source.url
-            lines.append(f"[{i}] {title} - {source.url}")
-            # Ensure url_to_citation mapping is up to date
-            if source.url not in self._url_to_citation:
-                self._url_to_citation[source.url] = i
-        return "\n".join(lines)
+        """Build a numbered source list for citation-aware summarization."""
+        return self._source_tracker.build_numbered_source_list()
 
     def get_collected_sources(self) -> list[SourceCitation]:
-        """Get all collected source citations.
-
-        Returns:
-            List of deduplicated source citations
-        """
-        return self._collected_sources.copy()
+        """Get all collected source citations."""
+        return self._source_tracker.get_collected_sources()
