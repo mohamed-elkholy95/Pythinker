@@ -102,6 +102,7 @@ async def test_submit_rating_with_feedback():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_override_deps")
 async def test_submit_rating_invalid_value_too_high():
     """Should reject rating values above 5."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -117,6 +118,7 @@ async def test_submit_rating_invalid_value_too_high():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_override_deps")
 async def test_submit_rating_invalid_value_too_low():
     """Should reject rating values below 1."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -132,6 +134,7 @@ async def test_submit_rating_invalid_value_too_low():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_override_deps")
 async def test_submit_rating_missing_session_id():
     """Should reject request without session_id."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -146,6 +149,7 @@ async def test_submit_rating_missing_session_id():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_override_deps")
 async def test_submit_rating_missing_report_id():
     """Should reject request without report_id."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
