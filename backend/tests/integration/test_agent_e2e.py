@@ -98,7 +98,9 @@ def _parse_sse_events(
 
                 # Check for terminal events
                 event_type = events[-1]["event"]
-                if event_type in ("done", "error", "wait"):
+                # "wait" can be emitted as an execution beacon and is not always terminal.
+                # Only treat hard terminal events as stream end.
+                if event_type in ("done", "error"):
                     break
 
                 if len(events) >= max_events:
@@ -157,7 +159,11 @@ def _send_chat(
                 timeout=timeout,
             )
             assert r.status_code == 200, f"Chat failed: {r.status_code} {r.text}"
-            return _parse_sse_events(r, timeout_seconds=collect_timeout)
+            # Keep collection budget safely below HTTP read timeout to avoid
+            # long-running hangs in streaming integration tests.
+            read_timeout_seconds = float(timeout)
+            effective_collect_timeout = min(collect_timeout, max(5.0, read_timeout_seconds - 5.0))
+            return _parse_sse_events(r, timeout_seconds=effective_collect_timeout)
         except (requests.ConnectionError, ConnectionResetError) as e:
             last_error = e
             if attempt < retries - 1:
@@ -236,6 +242,14 @@ def _extract_response_text(events: list[dict]) -> str:
 def _has_execution_signals(events: list[dict]) -> bool:
     """Return True when the workflow clearly reached execution/tooling stages."""
     categories = _categorize_events(events)
+    if categories.get("tool") or categories.get("step"):
+        return True
+
+    for transition in categories.get("flow_transition", []):
+        state = str(transition.get("data", {}).get("to_state", "")).lower()
+        if state in {"executing", "running", "acting"}:
+            return True
+
     phases = [str(pe["data"].get("phase", "")).lower() for pe in categories.get("progress", [])]
     execution_phase_markers = ("execut", "research", "tool", "search", "step")
     return any(any(marker in phase for marker in execution_phase_markers) for phase in phases)
@@ -665,7 +679,13 @@ class TestAgentBehavior:
             tool_events = categories.get("tool", [])
             progress_events = categories.get("progress", [])
 
-            tool_names = [te["data"].get("tool_name", te["data"].get("function_name", "")) for te in tool_events]
+            tool_names = [
+                te["data"].get("tool_name")
+                or te["data"].get("name")
+                or te["data"].get("function_name")
+                or te["data"].get("function", "")
+                for te in tool_events
+            ]
             print(f"\n  Tools used: {tool_names}")
             print(f"  Total events: {len(events)}")
             phases = [str(pe["data"].get("phase", "")).lower() for pe in progress_events]
@@ -987,7 +1007,7 @@ class TestHallucinationGrounding:
             print(f"  Total events: {len(events)}")
             for te in tool_events[:5]:
                 data = te["data"]
-                name = data.get("tool_name", data.get("function_name", ""))
+                name = data.get("tool_name") or data.get("name") or data.get("function_name") or data.get("function", "")
                 print(f"    {name}: {data.get('status', 'N/A')}")
 
             # Require tools only when execution/tool stages were actually reached.
