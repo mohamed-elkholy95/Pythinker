@@ -18,6 +18,7 @@ from app.domain.models.event import (
     ThoughtEvent,
     ToolContent,
     ToolEvent,
+    ToolProgressEvent,
     ToolStatus,
     ToolStreamEvent,
     WideResearchEvent,
@@ -247,6 +248,42 @@ class ToolStreamSSEEvent(BaseSSEEvent):
                 partial_content=event.partial_content,
                 content_type=event.content_type,
                 is_final=event.is_final,
+            )
+        )
+
+
+class ToolProgressEventData(BaseEventData):
+    """SSE data for tool execution progress updates."""
+
+    tool_call_id: str
+    tool_name: str
+    function_name: str
+    progress_percent: int  # 0-100
+    current_step: str
+    steps_completed: int = 0
+    steps_total: int | None = None
+    elapsed_ms: float = 0
+    estimated_remaining_ms: float | None = None
+
+
+class ToolProgressSSEEvent(BaseSSEEvent):
+    event: Literal["tool_progress"] = "tool_progress"
+    data: ToolProgressEventData
+
+    @classmethod
+    def from_event(cls, event: ToolProgressEvent) -> Self:
+        return cls(
+            data=ToolProgressEventData(
+                **BaseEventData.base_event_data(event),
+                tool_call_id=event.tool_call_id,
+                tool_name=event.tool_name,
+                function_name=event.function_name,
+                progress_percent=event.progress_percent,
+                current_step=event.current_step,
+                steps_completed=event.steps_completed,
+                steps_total=event.steps_total,
+                elapsed_ms=event.elapsed_ms,
+                estimated_remaining_ms=event.estimated_remaining_ms,
             )
         )
 
@@ -666,6 +703,7 @@ AgentSSEEvent = (
     | TitleSSEEvent
     | ToolSSEEvent
     | ToolStreamSSEEvent
+    | ToolProgressSSEEvent
     | StepSSEEvent
     | DoneSSEEvent
     | ErrorSSEEvent
