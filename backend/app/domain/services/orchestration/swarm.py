@@ -12,18 +12,20 @@ delegates tasks to specialized agents based on requirements.
 """
 
 import asyncio
+import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 from pydantic import BaseModel, Field
 
 from app.domain.exceptions.base import AgentNotFoundException, ResourceLimitExceeded
 from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent
+from app.domain.models.state_manifest import StateManifest
 from app.domain.services.orchestration.agent_types import (
     AgentCapability,
     AgentRegistry,
@@ -193,6 +195,10 @@ class Swarm:
         self._total_handoffs = 0
         self._total_errors = 0
 
+        # Phase 4: Shared StateManifest blackboard — enables agents to post and read
+        # shared findings without direct coupling (post_state/read_state API in BaseAgent)
+        self._shared_state = StateManifest()
+
     async def execute(
         self,
         task: SwarmTask,
@@ -360,6 +366,15 @@ class Swarm:
             original_request=task.original_request,
             current_progress="Handed off from previous agent",
         )
+
+        # Phase 4: Include shared blackboard snapshot so the receiving agent has full context
+        if self._shared_state:
+            try:
+                blackboard_snapshot = self._shared_state.to_context_string(max_entries=20)
+                if blackboard_snapshot:
+                    handoff_context.set_shared_resource("blackboard", blackboard_snapshot)
+            except Exception as _bb_err:
+                logger.debug("Failed to inject blackboard into handoff context: %s", _bb_err)
 
         # Execute with target agent
         try:
@@ -557,6 +572,10 @@ class Swarm:
         instance_id = str(uuid.uuid4())
         agent = await self._factory.create_agent(spec.agent_type, instance_id, spec)
 
+        # Phase 4: Inject shared StateManifest blackboard so agents can exchange findings
+        if hasattr(agent, "state_manifest"):
+            agent.state_manifest = self._shared_state
+
         instance = AgentInstance(
             id=instance_id,
             agent_type=spec.agent_type,
@@ -610,7 +629,14 @@ As coordinator, you can delegate subtasks to these specialized agents:
 - **Writer**: For content creation
 - **Verifier**: For output verification
 
-To delegate, include in your response:
+To delegate, use **either** format:
+
+**Structured JSON (preferred):**
+```json
+{"handoff": {"agent": "<agent_type>", "task": "<task description>", "expected_output": "<what you expect back>"}}
+```
+
+**Marker format (fallback):**
 ```
 [HANDOFF]
 agent: <agent_type>
@@ -624,12 +650,27 @@ You can delegate multiple tasks in parallel when they are independent.
 
         return "".join(parts)
 
+    # Phase 2: Agent name → AgentType mapping shared by both handoff parsers
+    _AGENT_TYPE_MAP: ClassVar[dict[str, Any]] = {
+        "researcher": AgentType.RESEARCHER,
+        "coder": AgentType.CODER,
+        "browser": AgentType.BROWSER,
+        "analyst": AgentType.ANALYST,
+        "writer": AgentType.WRITER,
+        "verifier": AgentType.VERIFIER,
+        "reviewer": AgentType.REVIEWER,
+        "summarizer": AgentType.SUMMARIZER,
+    }
+
     def _detect_handoff_request(
         self,
         message: str,
         task: SwarmTask,
     ) -> Handoff | None:
         """Detect if an agent is requesting a handoff.
+
+        Phase 2: Tries structured JSON parsing first for reliability, then
+        falls back to regex marker parsing for backward compatibility.
 
         Args:
             message: The agent's output message
@@ -640,16 +681,79 @@ You can delegate multiple tasks in parallel when they are independent.
         """
         import re
 
-        # Look for handoff markers
+        # Phase 2: Primary path — try structured JSON handoff format first
+        json_pattern = r'\{[^{}]*"handoff"[^{}]*\}'
+        json_match = re.search(json_pattern, message, re.DOTALL)
+        if json_match:
+            try:
+                data = json.loads(json_match.group(0))
+                result = self._parse_structured_handoff(data, task)
+                if result is not None:
+                    logger.debug("Handoff parsed via structured JSON path")
+                    return result
+            except (json.JSONDecodeError, KeyError, ValueError):
+                pass
+
+        # Fallback: regex marker parsing [HANDOFF]...[/HANDOFF]
+        return self._parse_regex_handoff(message, task)
+
+    def _parse_structured_handoff(self, data: dict[str, Any], task: SwarmTask) -> Handoff | None:
+        """Parse a handoff from a structured JSON dict.
+
+        Phase 2: Handles the structured format:
+        {"handoff": {"agent": "researcher", "task": "...", "expected_output": "..."}}
+
+        Args:
+            data: Parsed JSON dict containing handoff payload
+            task: The current task for context
+
+        Returns:
+            Handoff object or None if data is invalid
+        """
+        handoff_data = data.get("handoff", data)
+        agent_name = str(handoff_data.get("agent", "")).lower()
+        task_desc = str(handoff_data.get("task", task.description))
+        expected_output = str(handoff_data.get("expected_output", ""))
+
+        target_agent = self._AGENT_TYPE_MAP.get(agent_name)
+        if not target_agent:
+            logger.warning("Structured handoff: unknown agent type '%s'", agent_name)
+            return None
+
+        context = HandoffContext(
+            task_description=task_desc,
+            original_request=task.original_request,
+            current_progress=f"Coordinator delegated to {agent_name} (structured)",
+        )
+        return self._protocol.create_handoff(
+            source_agent=task.assigned_agent or AgentType.COORDINATOR,
+            target_agent=target_agent,
+            reason=HandoffReason.SPECIALIZATION,
+            context=context,
+            instructions=task_desc,
+            expected_output=expected_output,
+        )
+
+    def _parse_regex_handoff(self, message: str, task: SwarmTask) -> Handoff | None:
+        """Parse a handoff using [HANDOFF]...[/HANDOFF] regex markers.
+
+        Phase 2: Legacy/backward-compatible parsing path, now the fallback.
+
+        Args:
+            message: The agent's output message
+            task: The current task
+
+        Returns:
+            Handoff object or None if no marker found
+        """
+        import re
+
         pattern = r"\[HANDOFF\](.*?)\[/HANDOFF\]"
         match = re.search(pattern, message, re.DOTALL)
-
         if not match:
             return None
 
         handoff_text = match.group(1)
-
-        # Parse handoff details
         agent_match = re.search(r"agent:\s*(\w+)", handoff_text, re.IGNORECASE)
         task_match = re.search(r"task:\s*(.+?)(?=expected_output:|$)", handoff_text, re.IGNORECASE | re.DOTALL)
         output_match = re.search(r"expected_output:\s*(.+)", handoff_text, re.IGNORECASE | re.DOTALL)
@@ -658,32 +762,16 @@ You can delegate multiple tasks in parallel when they are independent.
             return None
 
         agent_name = agent_match.group(1).lower()
-
-        # Map agent name to AgentType
-        agent_map = {
-            "researcher": AgentType.RESEARCHER,
-            "coder": AgentType.CODER,
-            "browser": AgentType.BROWSER,
-            "analyst": AgentType.ANALYST,
-            "writer": AgentType.WRITER,
-            "verifier": AgentType.VERIFIER,
-            "reviewer": AgentType.REVIEWER,
-            "summarizer": AgentType.SUMMARIZER,
-        }
-
-        target_agent = agent_map.get(agent_name)
+        target_agent = self._AGENT_TYPE_MAP.get(agent_name)
         if not target_agent:
-            logger.warning(f"Unknown agent type in handoff: {agent_name}")
+            logger.warning("Regex handoff: unknown agent type '%s'", agent_name)
             return None
 
-        # Create handoff context
         context = HandoffContext(
             task_description=task_match.group(1).strip() if task_match else task.description,
             original_request=task.original_request,
             current_progress=f"Coordinator delegated to {agent_name}",
         )
-
-        # Create handoff
         return self._protocol.create_handoff(
             source_agent=task.assigned_agent or AgentType.COORDINATOR,
             target_agent=target_agent,
