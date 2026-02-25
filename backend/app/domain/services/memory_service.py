@@ -502,14 +502,37 @@ class MemoryService:
             try:
                 embedding = await self._generate_embedding(context)
 
-                # Use vector store for fast vector search (replaces 500-candidate MongoDB search)
-                vector_results = await vector_repo.search_similar(
-                    user_id=user_id,
-                    query_vector=embedding,
-                    limit=fetch_limit,
-                    min_score=min_relevance,
-                    memory_types=memory_types,
-                )
+                # WP-1: Hybrid retrieval — generate sparse BM25 vector when enabled.
+                # Falls back to dense-only when the encoder is unfitted or flag is off.
+                from app.core.config import get_settings as _get_settings
+
+                _settings = _get_settings()
+                sparse_vector: dict[str, float] | None = None
+                if _settings.qdrant_use_hybrid_search:
+                    try:
+                        sparse_vector = self._generate_sparse_vector(context)
+                    except Exception as _se:
+                        logger.debug("Sparse vector generation skipped: %s", _se)
+
+                # Choose search strategy: hybrid when sparse vector available, dense otherwise
+                if sparse_vector:
+                    vector_results = await vector_repo.search_hybrid(
+                        user_id=user_id,
+                        query_text=context,
+                        dense_vector=embedding,
+                        sparse_vector=sparse_vector,
+                        limit=fetch_limit,
+                        min_score=min_relevance,
+                        memory_types=memory_types,
+                    )
+                else:
+                    vector_results = await vector_repo.search_similar(
+                        user_id=user_id,
+                        query_vector=embedding,
+                        limit=fetch_limit,
+                        min_score=min_relevance,
+                        memory_types=memory_types,
+                    )
 
                 if vector_results:
                     # Fetch full documents from MongoDB
