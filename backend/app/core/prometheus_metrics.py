@@ -1865,6 +1865,26 @@ _metrics_registry.extend(
     ]
 )
 
+# Live Shell Streaming Metrics
+live_shell_polls_total = Counter(
+    name="pythinker_live_shell_polls_total",
+    help_text="Total live shell output polls",
+    labels=["status"],  # status: success, error, empty
+)
+
+live_stream_events_total = Counter(
+    name="pythinker_live_stream_events_total",
+    help_text="Total live streaming events emitted",
+    labels=["tool_name"],  # tool_name: shell, file_write, etc.
+)
+
+_metrics_registry.extend(
+    [
+        live_shell_polls_total,
+        live_stream_events_total,
+    ]
+)
+
 
 def record_profile_selection(
     profile_id: str,
