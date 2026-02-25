@@ -418,6 +418,14 @@ def get_feature_flags() -> dict[str, bool]:
             "delivery_integrity_gate": True,
             "adaptive_verbosity_shadow": False,
             "pre_planning_search": False,
+            # Live shell streaming
+            "live_shell_streaming": False,
+            "live_shell_poll_interval_ms": 500,
+            "live_shell_max_polls": 600,
+            # Architecture Enhancement Plan — Phase 2
+            "token_budget_manager": False,
+            # Live file streaming (future)
+            "live_file_streaming": False,
         }
     return {
         "tree_of_thoughts": settings.feature_tree_of_thoughts,
@@ -451,4 +459,12 @@ def get_feature_flags() -> dict[str, bool]:
         "delivery_integrity_gate": settings.feature_delivery_integrity_gate,
         "adaptive_verbosity_shadow": settings.feature_adaptive_verbosity_shadow,
         "pre_planning_search": settings.feature_pre_planning_search,
+        # Live shell streaming
+        "live_shell_streaming": settings.feature_live_shell_streaming,
+        "live_shell_poll_interval_ms": settings.live_shell_poll_interval_ms,
+        "live_shell_max_polls": settings.live_shell_max_polls,
+        # Architecture Enhancement Plan — Phase 2
+        "token_budget_manager": settings.feature_token_budget_manager,
+        # Live file streaming (future)
+        "live_file_streaming": settings.feature_live_file_streaming,
     }

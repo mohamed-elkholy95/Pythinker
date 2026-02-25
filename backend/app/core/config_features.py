@@ -222,6 +222,21 @@ class FeatureFlagsSettingsMixin:
     feature_meta_cognition_enabled: bool = True  # Phase 3: Gap-aware planning prompt injection
     feature_hitl_enabled: bool = True  # Phase 4: HITL interrupt for high-risk tool calls
 
+    # Live Shell & File Streaming (real-time terminal output + file creation visibility)
+    feature_live_shell_streaming: bool = False  # Poll sandbox for real-time shell output
+    live_shell_poll_interval_ms: int = 500  # Polling interval in milliseconds
+    live_shell_max_polls: int = 600  # Max polls before stopping (300s at 500ms)
+    feature_live_file_streaming: bool = False  # Emit incremental ToolStreamEvents for file_write
+
+    # Architecture Enhancement Plan — Phase 2: Token Budget Manager & Context Handler
+    feature_token_budget_manager: bool = False  # Proactive phase-level token budgeting
+
+    # NOTE: Phase 1 (ToolName enum) and Phase 3 (God Class Decomposition) are
+    # permanently enabled — no rollback flags needed. ToolName, StepExecutor,
+    # ResponseGenerator, OutputVerifier, SourceTracker, PhaseRouter,
+    # FlowStepExecutor, ErrorRecoveryHandler, FileSyncManager are unconditionally
+    # active and have fully replaced the inline implementations.
+
 
 class ResearchSettingsMixin:
     """Research quality, citation, and benchmark configuration."""
