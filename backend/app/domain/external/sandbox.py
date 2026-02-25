@@ -1,4 +1,5 @@
-from typing import BinaryIO, Protocol
+from collections.abc import AsyncGenerator
+from typing import Any, BinaryIO, Protocol
 
 from app.domain.external.browser import Browser
 from app.domain.models.tool_result import ToolResult
@@ -75,6 +76,24 @@ class Sandbox(Protocol):
             Termination result
         """
         ...
+
+    async def stream_shell_output(self, session_id: str) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
+        """Stream real-time shell output via push-based SSE.
+
+        Yields ``(event_type, data)`` tuples:
+          - ``("output", {"content": "<delta>"})``
+          - ``("complete", {"returncode": int})``
+          - ``("heartbeat", {})``
+          - ``("error", {"message": str})``
+
+        Implementations may raise ``httpx.HTTPStatusError`` (404) when the
+        sandbox image does not support the streaming endpoint.  Callers
+        should fall back to ``view_shell()`` polling in that case.
+        """
+        ...
+        # Make it a proper async generator at the protocol level
+        if False:
+            yield ("", {})
 
     async def file_write(
         self,
