@@ -176,11 +176,17 @@ class Swarm:
         config: SwarmConfig | None = None,
         registry: AgentRegistry | None = None,
         handoff_protocol: HandoffProtocol | None = None,
+        session_id: str | None = None,
     ):
         self._factory = agent_factory
         self._config = config or SwarmConfig()
         self._registry = registry or get_agent_registry()
         self._protocol = handoff_protocol or get_handoff_protocol()
+        # Swarm-level session identifier used for the shared blackboard.
+        # Callers should pass the user/task session_id for correlation; a
+        # random UUID is generated when none is provided so the constructor
+        # never raises a Pydantic ValidationError.
+        self._session_id: str = session_id or str(uuid.uuid4())
 
         # Active agents
         self._agents: dict[str, AgentInstance] = {}
@@ -197,7 +203,7 @@ class Swarm:
 
         # Phase 4: Shared StateManifest blackboard — enables agents to post and read
         # shared findings without direct coupling (post_state/read_state API in BaseAgent)
-        self._shared_state = StateManifest()
+        self._shared_state = StateManifest(session_id=self._session_id)
 
     async def execute(
         self,
@@ -679,18 +685,29 @@ You can delegate multiple tasks in parallel when they are independent.
         Returns:
             A Handoff object if a handoff was requested, None otherwise
         """
-        import re
-
-        # Phase 2: Primary path — try structured JSON handoff format first
-        json_pattern = r'\{[^{}]*"handoff"[^{}]*\}'
-        json_match = re.search(json_pattern, message, re.DOTALL)
-        if json_match:
+        # Phase 2: Primary path — try structured JSON handoff format first.
+        # Use brace-depth counting to extract the outermost JSON object so that
+        # nested payloads like {"handoff": {"agent": "...", "task": "..."}} are
+        # correctly matched (the old flat-regex [^{}]* could not match nested {}).
+        if '"handoff"' in message:
             try:
-                data = json.loads(json_match.group(0))
-                result = self._parse_structured_handoff(data, task)
-                if result is not None:
-                    logger.debug("Handoff parsed via structured JSON path")
-                    return result
+                _start = message.index("{")
+                _depth = 0
+                _end = -1
+                for _i, _ch in enumerate(message[_start:], _start):
+                    if _ch == "{":
+                        _depth += 1
+                    elif _ch == "}":
+                        _depth -= 1
+                        if _depth == 0:
+                            _end = _i + 1
+                            break
+                if _end != -1:
+                    data = json.loads(message[_start:_end])
+                    result = self._parse_structured_handoff(data, task)
+                    if result is not None:
+                        logger.debug("Handoff parsed via structured JSON path")
+                        return result
             except (json.JSONDecodeError, KeyError, ValueError):
                 pass
 
