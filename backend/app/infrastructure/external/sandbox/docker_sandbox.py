@@ -5,7 +5,7 @@ import logging
 import socket
 import threading
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any, BinaryIO, ClassVar
 
 import docker
@@ -730,6 +730,58 @@ class DockerSandbox(Sandbox):
         client = await self.get_client()
         response = await client.post(f"{self.base_url}/api/v1/shell/kill", json={"id": session_id})
         return self._parse_tool_result(response)
+
+    async def stream_shell_output(self, session_id: str) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
+        """Stream real-time shell output via SSE from the sandbox.
+
+        Connects to the sandbox's ``GET /api/v1/shell/stream/{session_id}``
+        SSE endpoint and yields parsed ``(event_type, data)`` tuples.
+
+        Event types:
+          - ``"output"``: ``{"content": "<delta text>"}``
+          - ``"complete"``: ``{"returncode": int}``
+          - ``"heartbeat"``: ``{}``
+          - ``"error"``: ``{"message": str}``
+
+        Falls back gracefully: caller should catch ``httpx.HTTPStatusError``
+        with status 404 to detect sandboxes that lack this endpoint.
+        """
+        import json as _json
+
+        url = f"{self.base_url}/api/v1/shell/stream/{session_id}"
+
+        # Build auth headers
+        settings = get_settings()
+        headers: dict[str, str] = {"Accept": "text/event-stream"}
+        if settings.sandbox_api_secret:
+            headers["x-sandbox-secret"] = settings.sandbox_api_secret
+
+        async with (
+            httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0)) as sse_client,
+            sse_client.stream("GET", url, headers=headers) as response,
+        ):
+            response.raise_for_status()
+
+            event_type = ""
+            data_buf = ""
+
+            async for raw_line in response.aiter_lines():
+                line = raw_line.rstrip("\n").rstrip("\r")
+
+                if line.startswith("event: "):
+                    event_type = line[7:]
+                elif line.startswith("data: "):
+                    data_buf = line[6:]
+                elif line == "":
+                    # Empty line = end of event
+                    if event_type and data_buf:
+                        try:
+                            parsed = _json.loads(data_buf)
+                        except _json.JSONDecodeError:
+                            parsed = {"raw": data_buf}
+                        yield (event_type, parsed)
+                    event_type = ""
+                    data_buf = ""
 
     async def file_write(
         self,
