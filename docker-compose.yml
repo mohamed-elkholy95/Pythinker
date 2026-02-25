@@ -105,7 +105,7 @@ services:
       start_period: 60s
       retries: 3
     environment:
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --js-flags=--max-old-space-size=512
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/opt/chrome-for-testing/chrome # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
@@ -168,7 +168,7 @@ services:
     # init: true removed — sandbox/Dockerfile already uses tini ENTRYPOINT (zombie Chrome reaping handled there)
     restart: unless-stopped
     environment:
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --js-flags=--max-old-space-size=512
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/opt/chrome-for-testing/chrome # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}

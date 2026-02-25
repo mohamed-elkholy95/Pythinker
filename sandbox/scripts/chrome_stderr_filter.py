@@ -33,8 +33,11 @@ SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"components/viz/service/main/viz_main_impl\.cc.*Exiting GPU process"),
     re.compile(r"^ERR: Display"),
     # Vulkan probe — Chrome probes Vulkan at startup before --disable-vulkan takes effect
-    re.compile(r"vkCreateInstance failed"),
+    re.compile(r"vkCreateInstance"),
     re.compile(r"VK_ERROR_INCOMPATIBLE_DRIVER"),
+    re.compile(r"CheckVkSuccessImpl"),
+    # GPU blocklist — no GPU adapter in headless containers
+    re.compile(r"gpu_blocklist\.cc.*Unable to get gpu adapter"),
     # Video capture / on-device model — no GPU/codec hardware in containers
     re.compile(r"Bind context provider failed"),
     re.compile(r"on_device_model.*service disconnect"),
