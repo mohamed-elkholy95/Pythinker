@@ -45,6 +45,8 @@ def _make_cache() -> AsyncMock:
     cache.get_ttl.return_value = None
     cache.keys.return_value = []
     cache.clear_pattern.return_value = 0
+    # Default to fallback path unless a specific test sets atomic increments.
+    cache.increment.return_value = None
     return cache
 
 
@@ -177,6 +179,37 @@ class TestVerifyCode:
         assert updated_data["attempts"] == 2
 
     @pytest.mark.asyncio
+    async def test_wrong_code_uses_atomic_increment_when_available(
+        self, service: EmailService, mock_cache: AsyncMock
+    ) -> None:
+        """When increment returns an int, service should use the atomic counter path."""
+        mock_cache.get.return_value = _stored_code_data("654321", attempts=0)
+        mock_cache.increment.return_value = 1
+
+        result = await service.verify_code(self.EMAIL, "000000")
+
+        assert result is False
+        mock_cache.increment.assert_awaited_once()
+        increment_call = mock_cache.increment.await_args
+        assert increment_call.args[0] == f"{self.KEY}:attempts"
+        assert isinstance(increment_call.kwargs["ttl"], int)
+        assert increment_call.kwargs["ttl"] > 0
+        mock_cache.set.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_atomic_increment_over_limit_invalidates_code(
+        self, service: EmailService, mock_cache: AsyncMock
+    ) -> None:
+        """Atomic counter >3 must invalidate stored verification code."""
+        mock_cache.get.return_value = _stored_code_data("654321", attempts=0)
+        mock_cache.increment.return_value = 4
+
+        result = await service.verify_code(self.EMAIL, "654321")
+
+        assert result is False
+        mock_cache.delete.assert_awaited_once_with(self.KEY)
+
+    @pytest.mark.asyncio
     async def test_expired_code_returns_false_and_deletes(self, service: EmailService, mock_cache: AsyncMock) -> None:
         mock_cache.get.return_value = _expired_code_data("654321")
 
@@ -298,7 +331,7 @@ class TestSendVerificationCode:
             await service.send_verification_code(self.EMAIL)
 
             # SMTP interactions
-            mock_smtp_cls.assert_called_once_with("smtp.example.com", 465)
+            mock_smtp_cls.assert_called_once_with("smtp.example.com", 465, timeout=30)
             mock_server.login.assert_called_once_with("user@example.com", "s3cret")
             mock_server.sendmail.assert_called_once()
             mock_server.quit.assert_called_once()
@@ -395,7 +428,7 @@ class TestSendRatingEmail:
 
             await service.send_rating_email(**self.COMMON_KWARGS)
 
-            mock_smtp_cls.assert_called_once_with("smtp.example.com", 465)
+            mock_smtp_cls.assert_called_once_with("smtp.example.com", 465, timeout=30)
             mock_server.login.assert_called_once()
             mock_server.sendmail.assert_called_once()
             # Verify it was sent to the rating target, not the user
