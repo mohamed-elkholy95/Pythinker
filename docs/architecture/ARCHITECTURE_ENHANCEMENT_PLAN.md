@@ -31,7 +31,7 @@ Sprint 1 (parallel — no dependencies):
   ✅ Phase 7: Pinia State Architecture
 
 Sprint 2 (depends on Sprint 1):
-  ⬜ Phase 3: God Class Decomposition (needs Phase 2)
+  ✅ Phase 3: God Class Decomposition (needs Phase 2)
   ⬜ Phase 8: ChatPage Decomposition (needs Phase 7)
 
 Sprint 3 (depends on Sprint 2):
@@ -280,25 +280,25 @@ class VerificationOrchestrator:
 
 **Problem**: No Pinia. State scattered across 50+ `ref()` in `ChatPage.vue` `createInitialState()` and module-level singletons in composables.
 
-**Status**: ✅ New files created (stores), ⬜ Composable wrappers pending
+**Status**: ✅ All stores created, Pinia installed and mounted. Composable wrappers pending.
 
 #### New Files (6)
 
 | File | State Domain | Status |
 |------|-------------|--------|
 | `frontend/src/stores/authStore.ts` | Auth: `currentUser`, `isAuthenticated`, `authError` | ✅ Created |
-| `frontend/src/stores/sessionStore.ts` | Session: `sessionId`, `messages[]`, `title`, `plan`, `agentMode`, ~30 more fields | ⬜ Pending |
-| `frontend/src/stores/toolStore.ts` | Tools: `lastTool`, `toolTimeline[]`, `panelToolId`, `streamingContentBuffer` | ⬜ Pending |
+| `frontend/src/stores/sessionStore.ts` | Session: `sessionId`, `messages[]`, `title`, `plan`, `agentMode`, ~30 more fields | ✅ Created |
+| `frontend/src/stores/toolStore.ts` | Tools: `lastTool`, `toolTimeline[]`, `panelToolId`, `streamingContentBuffer` | ✅ Created |
 | `frontend/src/stores/connectionStore.ts` | SSE: `responsePhase`, `lastEventId`, `lastHeartbeatAt`, `isStale`, `autoRetryCount` | ✅ Created |
 | `frontend/src/stores/uiStore.ts` | UI: `isLeftPanelShow`, `isRightPanelOpen`, `theme`, settings dialog, file preview | ✅ Created |
-| `frontend/src/stores/index.ts` | Re-exports | ⬜ Pending |
+| `frontend/src/stores/index.ts` | Re-exports | ✅ Created |
 
 #### Modified Files
 
 | File | Change | Status |
 |------|--------|--------|
-| `frontend/package.json` | Add `pinia` dependency | ⬜ Pending |
-| `frontend/src/main.ts` | Add `app.use(createPinia())` | ⬜ Pending |
+| `frontend/package.json` | Add `pinia` dependency | ✅ Done |
+| `frontend/src/main.ts` | Add `app.use(createPinia())` | ✅ Done |
 | `frontend/src/composables/useAuth.ts` | Thin wrapper → `useAuthStore()` | ⬜ Pending |
 | `frontend/src/composables/useLeftPanel.ts` | Wrapper → `useUIStore()` | ⬜ Pending |
 | `frontend/src/composables/useResponsePhase.ts` | Delegate → `useConnectionStore()` | ⬜ Pending |
@@ -407,13 +407,13 @@ Backward-compatible wrappers. Every composable becomes a thin facade returning c
 
 | Phase | Scope | Complexity | New Files | Modified Files | Status |
 |-------|-------|-----------|-----------|----------------|--------|
-| 1: Tool Registry | Backend | S (3d) | 2 | 4 | 🟡 New files done |
-| 2: Token Budget | Backend | L (7d) | 3 | 5 | 🟡 New files done |
-| 3: God Class Decomp | Backend | XL (14d) | 8 | 4 | ⬜ Blocked on P2 |
+| 1: Tool Registry | Backend | S (3d) | 2 | 4 | ✅ Complete (permanent) |
+| 2: Token Budget | Backend | L (7d) | 3 | 5 | ✅ Complete (flag-gated) |
+| 3: God Class Decomp | Backend | XL (14d) | 8 | 4 | ✅ Complete (permanent) |
 | 4: DDD Enforcement | Backend | L (7d) | 4 | 3 | ⬜ Blocked on P3 |
 | 5: Verification Pipeline | Backend | M (5d) | 3 | 3 | ⬜ Blocked on P3+P1 |
 | 6: DSPy Runtime | Backend | XL (14d) | 2 | 4 | ⬜ Blocked on P2+P3+P5 |
-| 7: Pinia Migration | Frontend | H (3d) | 6 | 6 | 🟡 3/6 stores done |
+| 7: Pinia Migration | Frontend | H (3d) | 6 | 6 | ✅ All 5 stores + index |
 | 8: ChatPage Decomp | Frontend | H (4d) | 6 | 2 | ⬜ Blocked on P7 |
 | 9: Performance | Frontend | M (3d) | 1 | 4 | ⬜ Blocked on P8 |
 | 10: Sandbox Enhancement | Infra | M (4d) | 3 | 4 | ⬜ Not started |
@@ -425,18 +425,13 @@ Backward-compatible wrappers. Every composable becomes a thin facade returning c
 
 ## Feature Flag Strategy
 
-All phases are gated behind feature flags in `config_features.py`. Each flag allows the old code path to remain active. Rollout: shadow mode → canary → full enablement.
+Phases are either permanently enabled (no rollback needed) or gated behind feature flags in `config_features.py`. Gated flags allow the old code path to remain active. Rollout: shadow mode → canary → full enablement.
 
 ```python
-# Phase 1
-feature_tool_registry_v2: bool = False
+# Phase 1: PERMANENTLY ENABLED (ToolName enum is backward-compatible str subclass)
 # Phase 2
-feature_token_budget_manager: bool = False
-feature_sliding_window_context: bool = False
-# Phase 3
-feature_decomposed_execution_agent: bool = False
-feature_decomposed_plan_act_flow: bool = False
-feature_decomposed_task_runner: bool = False
+feature_token_budget_manager: bool = False  # Gates budget-aware compression path
+# Phase 3: PERMANENTLY ENABLED (decomposed classes fully replace inline code)
 # Phase 4
 feature_ddd_value_objects: bool = False
 # Phase 5
@@ -490,7 +485,20 @@ Set all feature flags to `false` in `.env` and restart. Zero code change needed.
 - ✅ `backend/app/domain/services/agents/sliding_window_context.py` — `SlidingWindowContextManager`, `MessagePriority`, `PrioritizedMessage`
 - ✅ `backend/app/domain/services/agents/context_compression_pipeline.py` — `ContextCompressionPipeline`, three-stage: summarize → truncate → drop
 
+### Phase 3 (God Class Decomposition)
+- ✅ `backend/app/domain/services/agents/step_executor.py` — Adaptive model selection, result validation, multimodal tracking
+- ✅ `backend/app/domain/services/agents/response_generator.py` — Content cleaning, quality gates, stream coalescing, delivery integrity
+- ✅ `backend/app/domain/services/agents/output_verifier.py` — LettuceDetect + CoVe + Critic verification pipelines
+- ✅ `backend/app/domain/services/agents/source_tracker.py` — Citation collection, numbered source lists, URL deduplication
+- ✅ `backend/app/domain/services/flows/phase_router.py` — Heuristic step classification, dependency checking
+- ✅ `backend/app/domain/services/flows/flow_step_executor.py` — Multi-agent dispatch, skip/update heuristics
+- ✅ `backend/app/domain/services/flows/error_recovery_handler.py` — Error classification, recovery state machine
+- ✅ `backend/app/domain/services/file_sync_manager.py` — Sandbox ↔ storage sync, workspace sweep, attachment handling
+
 ### Phase 7 (Pinia)
 - ✅ `frontend/src/stores/authStore.ts` — Auth state, login/logout/refresh actions
-- ✅ `frontend/src/stores/uiStore.ts` — Left panel, right panel, settings dialog, file preview
+- ✅ `frontend/src/stores/sessionStore.ts` — Session state, messages, plan, steps, files
+- ✅ `frontend/src/stores/toolStore.ts` — Tool timeline, streaming buffer, active tool calls
 - ✅ `frontend/src/stores/connectionStore.ts` — Response phase FSM, SSE connection health, event cursor persistence
+- ✅ `frontend/src/stores/uiStore.ts` — Left panel, right panel, settings dialog, file preview
+- ✅ `frontend/src/stores/index.ts` — Barrel re-exports for all 5 stores
