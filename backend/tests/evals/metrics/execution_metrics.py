@@ -6,7 +6,7 @@ and other execution-related aspects.
 
 from typing import Any
 
-from tests.evals.metrics.base import BaseMetric, MetricScore
+from .base import BaseMetric, MetricScore
 
 
 class ToolCallMetric(BaseMetric):

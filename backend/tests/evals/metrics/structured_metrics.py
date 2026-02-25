@@ -8,7 +8,7 @@ import json
 import re
 from typing import Any
 
-from tests.evals.metrics.base import BaseMetric, MetricScore
+from .base import BaseMetric, MetricScore
 
 
 class JsonSchemaMetric(BaseMetric):

@@ -12,8 +12,8 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from tests.evals.metrics.base import get_metric
-from tests.evals.types import (
+from .metrics.base import get_metric
+from .types import (
     EvalCase,
     EvalConfig,
     EvalDataset,

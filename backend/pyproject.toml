@@ -118,6 +118,9 @@ minversion = "7.0"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
+# Add backend/ to sys.path before collection so `tests.evals.*` absolute imports resolve
+pythonpath = ["."]
+
 # Test discovery paths
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
