@@ -15,6 +15,7 @@ export type AgentSSEEvent = {
   event:
     | 'tool'
     | 'tool_stream'
+    | 'tool_progress'
     | 'step'
     | 'message'
     | 'error'
@@ -41,6 +42,7 @@ export type AgentSSEEvent = {
   data:
     | ToolEventData
     | ToolStreamEventData
+    | ToolProgressEventData
     | StepEventData
     | MessageEventData
     | ErrorEventData
@@ -89,6 +91,18 @@ export interface ToolStreamEventData extends BaseEventData {
   // Progress tracking
   progress_percent?: number;         // 0-100 for known-length operations
   elapsed_ms?: number;               // Execution time so far
+}
+
+export interface ToolProgressEventData extends BaseEventData {
+  tool_call_id: string;
+  tool_name: string;
+  function_name: string;
+  progress_percent: number;         // 0-100
+  current_step: string;
+  steps_completed: number;
+  steps_total?: number;
+  elapsed_ms: number;
+  estimated_remaining_ms?: number;
 }
 
 export interface ToolEventData extends BaseEventData {
