@@ -13,6 +13,7 @@ from app.domain.services.tools.base import BaseTool, tool
 
 if TYPE_CHECKING:
     from app.domain.external.browser import Browser
+    from app.domain.external.scraper import Scraper
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +283,7 @@ class SearchTool(BaseTool):
         browser: "Browser | None" = None,
         max_observe: int | None = None,
         search_prefer_browser: bool | None = None,
+        scraper: "Scraper | None" = None,
     ):
         """Initialize search tool class
 
@@ -289,11 +291,13 @@ class SearchTool(BaseTool):
             search_engine: Search engine service for API-based search
             browser: Optional browser instance for visual search (visible in live preview)
             max_observe: Optional custom observation limit (default: 8000)
+            scraper: Optional scraper for spider-based URL enrichment in wide_research
         """
         super().__init__(max_observe=max_observe)
         self.search_engine = search_engine
         self._browser = browser
         self._search_prefer_browser = search_prefer_browser
+        self._scraper = scraper
         # Instance-level cache with O(1) LRU eviction
         self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
 
@@ -931,6 +935,37 @@ wide_research(
             *[search_with_limit(q, st) for q, st in all_queries],
             return_exceptions=True,
         )
+
+        # Optional spider enrichment: fetch full page content for top-K URLs
+        if self._scraper and all_items:
+            from app.core.config import get_settings as _get_settings
+
+            _s = _get_settings()
+            if _s.scraping_spider_enabled:
+                top_k = _s.scraping_spider_top_k
+                top_urls = [item.link for item in all_items[:top_k] if item.link]
+                if top_urls:
+                    logger.info(
+                        "Spider-enriching %d URLs for wide_research on '%s'",
+                        len(top_urls),
+                        topic,
+                    )
+                    try:
+                        fetched = await self._scraper.fetch_batch(top_urls)
+                        url_to_content = {
+                            r.url: r for r in fetched if r.success and len(r.text) > 200
+                        }
+                        for item in all_items:
+                            if item.link in url_to_content:
+                                r = url_to_content[item.link]
+                                item.snippet = r.text[:2000]
+                                if r.title and not item.title:
+                                    item.title = r.title
+                        logger.info(
+                            "Spider enriched %d/%d URLs", len(url_to_content), len(top_urls)
+                        )
+                    except Exception as exc:
+                        logger.warning("Spider enrichment failed for '%s': %s", topic, exc)
 
         # Build SearchResults (same format as info_search_web) for SearchContentView display
         search_data = SearchResults(
