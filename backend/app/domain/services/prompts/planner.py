@@ -1,7 +1,7 @@
 # Enhanced Planner Prompt Implementation
 # Ready to replace backend/app/domain/services/prompts/planner.py
 
-from datetime import UTC, datetime
+from app.domain.services.prompts.system import get_current_datetime_signal
 
 # ============================================================================
 # ENHANCED PLANNER SYSTEM PROMPT
@@ -159,33 +159,11 @@ The "title" field is the only short summary — keep it 3-6 words.
 Remember: Your plan is a GPS route, not a travel diary. Steps should be concise, actionable, complete."""
 
 # ============================================================================
-# CURRENT DATE SIGNAL
+# CURRENT DATE SIGNAL — canonical source is system.py
 # ============================================================================
 
-CURRENT_DATE_SIGNAL = """
----
-CURRENT DATE: {current_date}
-Today is {day_of_week}, {full_date}.
-
-IMPORTANT: Use "{year}" as the current year in all planning and search queries.
-Do NOT use years from training data (2024, 2025) - always use {year}.
----
-"""
-
-
-def get_current_date_signal() -> str:
-    """Generate the current date signal with formatted date information.
-
-    Returns:
-        Formatted current date signal string
-    """
-    now = datetime.now(UTC)
-    return CURRENT_DATE_SIGNAL.format(
-        current_date=now.strftime("%Y-%m-%d"),
-        day_of_week=now.strftime("%A"),
-        full_date=now.strftime("%B %d, %Y"),
-        year=now.strftime("%Y"),
-    )
+# Canonical datetime signal lives in system.py (imported at top of file)
+get_current_date_signal = get_current_datetime_signal  # backward-compat alias
 
 
 # ============================================================================
