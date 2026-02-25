@@ -124,11 +124,18 @@ class TestExecutionAgentModelSelection:
     def test_select_model_returns_model_name(self, mock_metrics, mock_get_settings):
         """_select_model_for_step returns a model name string."""
         from app.domain.services.agents.execution import ExecutionAgent
+        from app.domain.services.agents.step_executor import StepExecutor
 
         mock_get_settings.return_value = _mock_settings()
 
         agent = MagicMock(spec=ExecutionAgent)
+        agent._step_executor = StepExecutor(
+            context_manager=MagicMock(),
+            source_tracker=MagicMock(),
+            metrics=mock_metrics,
+        )
         agent._select_model_for_step = ExecutionAgent._select_model_for_step.__get__(agent)
+        agent._user_thinking_mode = None
         agent.name = "execution"
 
         result = agent._select_model_for_step("Check status")

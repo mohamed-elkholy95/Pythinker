@@ -12,11 +12,11 @@ import pytest
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.agent_task_runner import (
+from app.domain.services.agent_task_runner import AgentTaskRunner
+from app.domain.services.file_sync_manager import (
     DELIVERABLE_EXTENSIONS,
     MAX_SWEEP_FILES,
     SKIP_DIRECTORIES,
-    AgentTaskRunner,
 )
 
 
