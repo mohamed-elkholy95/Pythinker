@@ -167,6 +167,12 @@ class ScreenshotCaptureService:
             self._circuit_breaker = None
         self._tool_context: ToolExecutionContext | None = None
 
+        # Startup readiness gate: prevents ConnectError when the sandbox
+        # screenshot handler hasn't fully initialized after ensure_sandbox().
+        # _ready is set once and never cleared — all subsequent captures skip the gate.
+        self._ready = asyncio.Event()
+        self._startup_lock = asyncio.Lock()
+
         # Initialize deduplication service
         self._dedup = None
         if self._settings.screenshot_dedup_enabled:
@@ -204,6 +210,84 @@ class ScreenshotCaptureService:
 
         self._tool_context = None
 
+    async def _ensure_endpoint_ready(self) -> None:
+        """One-time readiness gate for the screenshot endpoint.
+
+        Prevents ConnectError at session startup when the sandbox's screenshot
+        handler hasn't fully initialized after ensure_sandbox() returns.
+
+        Design: Uses asyncio.Lock to ensure exactly one coroutine runs the probe
+        sequence.  All other concurrent callers wait on the asyncio.Event.
+        Once set, the Event stays set forever — zero overhead on subsequent calls.
+        """
+        if self._ready.is_set():
+            return
+
+        async with self._startup_lock:
+            # Double-check after acquiring the lock (another coroutine may have finished)
+            if self._ready.is_set():
+                return
+
+            settings = self._settings
+            grace = settings.screenshot_startup_grace_seconds
+            max_probes = settings.screenshot_startup_max_probes
+            probe_timeout = settings.screenshot_startup_probe_timeout
+
+            # Grace period — let the sandbox connection pool and screenshot handler stabilize
+            if grace > 0:
+                logger.debug(
+                    "Screenshot startup grace: %.1fs before probing (session=%s)",
+                    grace,
+                    self._session_id,
+                )
+                await asyncio.sleep(grace)
+
+            start = time.monotonic()
+            delay = 1.0
+
+            for attempt in range(max_probes):
+                # Hard timeout guard
+                if (time.monotonic() - start) >= probe_timeout:
+                    break
+
+                try:
+                    # Lightweight probe — minimal quality/scale to keep payload small
+                    response = await self._sandbox.get_screenshot(quality=10, scale=0.1)
+                    if response and getattr(response, "content", None):
+                        elapsed = time.monotonic() - start + grace
+                        logger.info(
+                            "Screenshot endpoint ready after %d probe(s) (%.1fs incl. grace, session=%s)",
+                            attempt + 1,
+                            elapsed,
+                            self._session_id,
+                        )
+                        self._ready.set()
+                        return
+                except Exception as e:
+                    logger.debug(
+                        "Screenshot probe %d/%d failed (session=%s): %s",
+                        attempt + 1,
+                        max_probes,
+                        self._session_id,
+                        e,
+                    )
+
+                if attempt < max_probes - 1:
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 1.5, 5.0)  # Backoff: 1.0 → 1.5 → 2.25 → 3.375 → 5.0
+
+            # Probes exhausted — set ready anyway so captures aren't blocked forever.
+            # The capture method's own retry logic will handle any remaining transient issues.
+            total_elapsed = time.monotonic() - start + grace
+            logger.warning(
+                "Screenshot endpoint readiness not confirmed after %d probes (%.1fs). "
+                "Proceeding — capture retries will handle remaining instability (session=%s)",
+                max_probes,
+                total_elapsed,
+                self._session_id,
+            )
+            self._ready.set()
+
     async def capture(
         self,
         trigger: ScreenshotTrigger,
@@ -216,6 +300,17 @@ class ScreenshotCaptureService:
 
         Priority 2: Circuit breaker prevents cascading failures.
         """
+        # Startup readiness gate — blocks only until the first successful probe,
+        # then becomes a no-op (asyncio.Event.is_set() is O(1)).
+        try:
+            await asyncio.wait_for(self._ensure_endpoint_ready(), timeout=35.0)
+        except TimeoutError:
+            logger.warning(
+                "Screenshot readiness gate timed out (session=%s), attempting capture anyway",
+                self._session_id,
+            )
+            self._ready.set()  # Unblock any other waiters
+
         # Priority 2: Check circuit breaker before attempting capture
         if self._circuit_breaker and not self._circuit_breaker.is_allowed():
             logger.debug(
