@@ -246,7 +246,9 @@ class PromptOptimizer:
         if category not in self._variants:
             return None
 
-        min_trials = min_trials or self.MIN_TRIALS
+        # Use `is None` guard — `or` would coerce 0 to MIN_TRIALS because 0 is falsy.
+        # Callers that pass min_trials=0 for the bootstrap phase must not be silently ignored.
+        min_trials = self.MIN_TRIALS if min_trials is None else min_trials
         eligible = [v for v in self._variants[category].values() if v.total_trials >= min_trials and v.is_active]
 
         if not eligible:
