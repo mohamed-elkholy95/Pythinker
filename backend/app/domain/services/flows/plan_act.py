@@ -64,6 +64,7 @@ from app.domain.services.flows.fast_path import (
     QueryIntent,
     is_suggestion_follow_up_message,
 )
+from app.domain.services.flows.phase_router import PhaseRouter
 from app.domain.services.flows.prompt_quick_validator import (
     CorrectionEvent,
     PromptQuickValidator,
@@ -112,6 +113,8 @@ from app.domain.services.agents.response_policy import (
 )
 from app.domain.services.agents.task_state_manager import TaskStateManager
 from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
+from app.domain.services.flows.error_recovery_handler import ErrorRecoveryHandler
+from app.domain.services.flows.flow_step_executor import FlowStepExecutor
 from app.domain.services.orchestration.agent_factory import (
     DefaultAgentFactory,
     SpecializedAgentFactory,
@@ -119,9 +122,7 @@ from app.domain.services.orchestration.agent_factory import (
 
 # Import orchestration components for multi-agent dispatch
 from app.domain.services.orchestration.agent_types import (
-    AgentCapability,
     AgentRegistry,
-    AgentType,
     get_agent_registry,
 )
 from app.domain.services.prediction.failure_predictor import FailurePredictor
@@ -138,28 +139,6 @@ if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Research keywords used by _assign_phases_to_plan to classify steps into phases
-# ---------------------------------------------------------------------------
-_RESEARCH_KEYWORDS = frozenset(
-    {
-        "search",
-        "find",
-        "gather",
-        "collect",
-        "browse",
-        "explore",
-        "research",
-        "investigate",
-        "look up",
-        "discover",
-    }
-)
-
-# Pre-compiled word-boundary patterns to avoid false positives
-# e.g. "find" should match "find information" but NOT "findings"
-_RESEARCH_KEYWORD_PATTERNS = [re.compile(rf"\b{re.escape(kw)}\b") for kw in _RESEARCH_KEYWORDS]
 
 
 def should_bypass_fast_path_for_suggestion(message: Message, has_recent_assistant_reply: bool) -> bool:
@@ -288,14 +267,11 @@ class PlanActFlow(BaseFlow):
                 "reflector": RoleScopedMemory(memory_service, "reflector", user_id),
             }
 
-        # State management for error recovery
-        self._previous_status: AgentStatus | None = None
-        self._error_context: ErrorContext | None = None
-        self._error_handler = ErrorHandler()
-        self._max_error_recovery_attempts = 3
-        self._error_recovery_attempts = 0
-        self._total_error_count = 0  # Track total errors across all recovery cycles
-        self._max_total_errors = 10  # Absolute limit on errors per run
+        # State management for error recovery (delegated to ErrorRecoveryHandler)
+        self._error_recovery = ErrorRecoveryHandler(ErrorHandler())
+
+        # Backward-compatible aliases for callers that read these attributes
+        self._error_handler = self._error_recovery.error_handler
 
         # Verification state (Phase 1: Plan-Verify-Execute)
         self._verification_verdict: str | None = None
@@ -306,6 +282,9 @@ class PlanActFlow(BaseFlow):
         # Plan validation failure tracking
         self._plan_validation_failures = 0
         self._max_plan_validation_failures = 3
+
+        # Phase 2: Proactive token budget management (feature-flagged)
+        self._token_budget = None  # Created at flow start if flag enabled
 
         tools = [
             ShellTool(sandbox),
@@ -336,9 +315,7 @@ class PlanActFlow(BaseFlow):
         if get_settings().scraping_tool_enabled and scraper:
             from app.domain.services.tools.scraping import ScrapingTool
 
-            tools.append(
-                ScrapingTool(scraper=scraper, memory_service=memory_service, user_id=user_id)
-            )
+            tools.append(ScrapingTool(scraper=scraper, memory_service=memory_service, user_id=user_id))
             logger.info(f"ScrapingTool enabled for Agent {agent_id}")
 
         # Add skill creator tools for custom skill creation (Phase 3: Custom Skills)
@@ -528,6 +505,21 @@ class PlanActFlow(BaseFlow):
             feedback_lookup=feedback_lookup,
         )
         self._step_failure_handler = StepFailureHandler()
+        self._phase_router = PhaseRouter(self._step_failure_handler)
+
+        # Step-level orchestration — delegated to FlowStepExecutor (Phase 3B extraction)
+        self._flow_step_executor = FlowStepExecutor(
+            default_executor=self.executor,
+            phase_router=self._phase_router,
+            step_failure_handler=self._step_failure_handler,
+            agent_id=self._agent_id,
+            session_id=self._session_id,
+            enable_multi_agent=self._enable_multi_agent,
+            agent_registry=self._agent_registry,
+            agent_factory=self._agent_factory,
+        )
+        # Backward-compatible alias: _specialized_agents shared by reference
+        self._specialized_agents = self._flow_step_executor._specialized_agents
 
         # Workflow loop safety limits
         self._max_workflow_transitions = 300
@@ -821,111 +813,11 @@ class PlanActFlow(BaseFlow):
         )
         yield called_event
 
-    def _extract_agent_type(self, step_description: str) -> str | None:
-        """Extract [AGENT_TYPE] prefix from step description.
-
-        Example: "[RESEARCH] Find documentation on the topic" -> "research"
-        """
-        match = re.search(r"\[([A-Z_]+)\]", step_description)
-        if match:
-            return match.group(1).lower()
-        return None
-
-    def _infer_capabilities(self, step: Step) -> set[AgentCapability]:
-        """Infer required capabilities from step description."""
-        capabilities: set[AgentCapability] = set()
-        desc_lower = step.description.lower()
-
-        # Map keywords to capabilities
-        capability_keywords = {
-            AgentCapability.WEB_BROWSING: ["browse", "website", "page", "click", "navigate", "visit"],
-            AgentCapability.WEB_SEARCH: ["search", "find", "lookup", "query", "google"],
-            AgentCapability.CODE_WRITING: ["code", "implement", "write", "function", "class", "script", "program"],
-            AgentCapability.CODE_REVIEW: ["review", "check", "audit", "verify code", "find bugs"],
-            AgentCapability.FILE_OPERATIONS: ["file", "read", "write", "save", "create file", "modify"],
-            AgentCapability.SHELL_COMMANDS: ["run", "execute", "shell", "command", "terminal", "bash"],
-            AgentCapability.RESEARCH: ["research", "investigate", "study", "analyze", "gather"],
-            AgentCapability.SUMMARIZATION: ["summarize", "summary", "brief", "overview", "condense"],
-        }
-
-        for capability, keywords in capability_keywords.items():
-            for keyword in keywords:
-                if keyword in desc_lower:
-                    capabilities.add(capability)
-                    break
-
-        return capabilities
+    # ── Agent selection (delegated to FlowStepExecutor) ──────────────
 
     async def _get_executor_for_step(self, step: Step) -> BaseAgent:
-        """Select the appropriate executor for a step.
-
-        Uses the AgentRegistry to select a specialized agent based on:
-        1. Explicit [AGENT_TYPE] prefix in step description
-        2. Inferred capabilities from step description
-        3. Falls back to the default ExecutionAgent
-
-        Args:
-            step: The step to get an executor for
-
-        Returns:
-            A BaseAgent (specialized or default ExecutionAgent)
-        """
-        if not self._enable_multi_agent or not self._agent_registry:
-            return self.executor
-
-        # Check for explicit agent type in step
-        agent_type_hint = self._extract_agent_type(step.description)
-
-        # Check if step has agent_type set
-        if step.agent_type:
-            agent_type_hint = step.agent_type
-
-        # Try to match by type first
-        if agent_type_hint:
-            try:
-                agent_type = AgentType(agent_type_hint)
-                spec = self._agent_registry.get(agent_type)
-                if spec:
-                    # Check if we already have this agent created
-                    cache_key = f"{agent_type.value}_{self._agent_id}"
-                    if cache_key not in self._specialized_agents:
-                        agent = await self._agent_factory.create_agent(
-                            agent_type,
-                            f"{self._agent_id}_{agent_type.value}",
-                            spec,
-                        )
-                        self._specialized_agents[cache_key] = agent
-                        logger.info(f"Created specialized {agent_type.value} agent for step")
-                    return self._specialized_agents[cache_key]
-            except ValueError:
-                logger.debug(f"Unknown agent type hint: {agent_type_hint}")
-
-        # Try to match by inferred capabilities
-        capabilities = self._infer_capabilities(step)
-        if capabilities:
-            candidates = self._agent_registry.select_for_task(
-                task_description=step.description,
-                context={"session_id": self._session_id},
-                required_capabilities=capabilities,
-            )
-            if candidates:
-                best_spec = candidates[0]
-                cache_key = f"{best_spec.agent_type.value}_{self._agent_id}"
-                if cache_key not in self._specialized_agents:
-                    agent = await self._agent_factory.create_agent(
-                        best_spec.agent_type,
-                        f"{self._agent_id}_{best_spec.agent_type.value}",
-                        best_spec,
-                    )
-                    self._specialized_agents[cache_key] = agent
-                    logger.info(
-                        f"Selected specialized {best_spec.agent_type.value} agent "
-                        f"for step based on capabilities: {capabilities}"
-                    )
-                return self._specialized_agents[cache_key]
-
-        # Fall back to default executor
-        return self.executor
+        """Select the appropriate executor for a step (delegated to FlowStepExecutor)."""
+        return await self._flow_step_executor.get_executor_for_step(step)
 
     def _background_compact_memory(self, force: bool = False, reason: str = "") -> None:
         """Schedule memory compaction as a non-blocking background task with debouncing.
@@ -1139,11 +1031,7 @@ class PlanActFlow(BaseFlow):
                     await self._checkpoint_manager.save_plan_checkpoint(
                         session_id=self._session_id,
                         plan_id=self.plan.id,
-                        completed_steps=[
-                            str(s.id)
-                            for s in self.plan.steps
-                            if s.status == ExecutionStatus.COMPLETED
-                        ],
+                        completed_steps=[str(s.id) for s in self.plan.steps if s.status == ExecutionStatus.COMPLETED],
                         step_results={
                             str(s.id): str(s.result or "")[:500]
                             for s in self.plan.steps
@@ -1232,96 +1120,9 @@ class PlanActFlow(BaseFlow):
         return None
 
     def _assign_phases_to_plan(self) -> None:
-        """Assign phases to plan steps based on step descriptions.
-
-        Groups steps into logical phases (research, analysis, report, delivery)
-        for structured progress display in the frontend.
-        """
-        from app.domain.models.plan import Phase, PhaseType
-
-        if not self.plan or not self.plan.steps:
-            return
-
-        # For simple plans (<=3 steps), use a single execution phase
-        if len(self.plan.steps) <= 3:
-            self.plan.phases = [
-                Phase(
-                    phase_type=PhaseType.RESEARCH_FOUNDATION,
-                    label="Executing",
-                    description="Executing plan steps",
-                    order=0,
-                    step_ids=[s.id for s in self.plan.steps],
-                ),
-            ]
-            return
-
-        # For larger plans, group steps into phases heuristically
-        research_ids: list[str] = []
-        analysis_ids: list[str] = []
-        report_ids: list[str] = []
-
-        report_patterns = [
-            re.compile(rf"\b{re.escape(kw)}\b")
-            for kw in ("write", "create", "compile", "draft", "generate", "report", "summarize", "compose")
-        ]
-
-        for step in self.plan.steps:
-            desc_lower = step.description.lower()
-            if any(pat.search(desc_lower) for pat in _RESEARCH_KEYWORD_PATTERNS):
-                research_ids.append(step.id)
-            elif any(pat.search(desc_lower) for pat in report_patterns):
-                report_ids.append(step.id)
-            else:
-                analysis_ids.append(step.id)
-
-        phases: list[Phase] = []
-        order = 0
-        if research_ids:
-            phases.append(
-                Phase(
-                    phase_type=PhaseType.RESEARCH_FOUNDATION,
-                    label="Research",
-                    description="Gathering information",
-                    order=order,
-                    step_ids=research_ids,
-                )
-            )
-            order += 1
-        if analysis_ids:
-            phases.append(
-                Phase(
-                    phase_type=PhaseType.ANALYSIS_SYNTHESIS,
-                    label="Analysis",
-                    description="Analyzing findings",
-                    order=order,
-                    step_ids=analysis_ids,
-                )
-            )
-            order += 1
-        if report_ids:
-            phases.append(
-                Phase(
-                    phase_type=PhaseType.REPORT_GENERATION,
-                    label="Report",
-                    description="Generating output",
-                    order=order,
-                    step_ids=report_ids,
-                )
-            )
-
-        # Fallback: if all steps ended up in one bucket or none matched
-        if not phases:
-            phases = [
-                Phase(
-                    phase_type=PhaseType.RESEARCH_FOUNDATION,
-                    label="Executing",
-                    description="Executing plan steps",
-                    order=0,
-                    step_ids=[s.id for s in self.plan.steps],
-                ),
-            ]
-
-        self.plan.phases = phases
+        """Assign phases to plan steps (delegated to PhaseRouter)."""
+        if self.plan:
+            self._phase_router.assign_phases_to_plan(self.plan)
 
     def _transition_to(self, new_status: AgentStatus, *, force: bool = False, reason: str = "") -> None:
         """Transition to a new status with optional validation."""
@@ -1364,7 +1165,7 @@ class PlanActFlow(BaseFlow):
         # Reset per-phase counters on successful forward transitions
         if new_status == AgentStatus.EXECUTING:
             self._plan_validation_failures = 0
-            self._error_recovery_attempts = 0
+            self._error_recovery.reset_cycle_counter()
 
         # Set phase-based tool filtering on agents to reduce hallucination
         if new_status == AgentStatus.PLANNING:
@@ -1376,6 +1177,76 @@ class PlanActFlow(BaseFlow):
                 self.verifier._active_phase = "verifying"
         elif new_status == AgentStatus.SUMMARIZING:
             self.executor._active_phase = None  # All tools for summarization
+
+        # Phase 2: Rebalance token budget at phase transitions
+        self._rebalance_token_budget(old_status, new_status)
+
+    def _initialize_token_budget(self) -> None:
+        """Create a TokenBudget at flow start if the feature flag is enabled.
+
+        Called once at the beginning of the run loop. Creates a budget and
+        propagates it to the planner and executor agents.
+        """
+        flags = self._resolve_feature_flags()
+        if not flags.get("feature_token_budget_manager"):
+            return
+
+        try:
+            from app.domain.services.agents.token_budget_manager import TokenBudgetManager
+
+            budget_mgr = TokenBudgetManager(self.executor._token_manager)
+            self._token_budget = budget_mgr.create_budget()
+
+            # Propagate budget to all agents
+            self.planner.set_token_budget(self._token_budget)
+            self.executor.set_token_budget(self._token_budget)
+            if self.verifier and hasattr(self.verifier, "set_token_budget"):
+                self.verifier.set_token_budget(self._token_budget)
+
+            logger.info(
+                "Token budget initialized: %d effective tokens across %d phases",
+                self._token_budget.effective_limit,
+                len(self._token_budget.phases),
+            )
+        except Exception as e:
+            logger.warning("Failed to initialize token budget (non-critical): %s", e)
+            self._token_budget = None
+
+    def _rebalance_token_budget(self, old_status: AgentStatus, new_status: AgentStatus) -> None:
+        """Rebalance unused tokens from completed phase to next phase.
+
+        Called inside _transition_to() on every phase change. No-op when
+        the feature flag is disabled or no budget is set.
+        """
+        if self._token_budget is None:
+            return
+
+        try:
+            from app.domain.services.agents.token_budget_manager import (
+                BudgetPhase,
+                TokenBudgetManager,
+            )
+
+            phase_map = {
+                AgentStatus.PLANNING: BudgetPhase.PLANNING,
+                AgentStatus.EXECUTING: BudgetPhase.EXECUTION,
+                AgentStatus.SUMMARIZING: BudgetPhase.SUMMARIZATION,
+            }
+
+            completed_phase = phase_map.get(old_status)
+            next_phase = phase_map.get(new_status)
+
+            if completed_phase and next_phase and completed_phase != next_phase:
+                budget_mgr = TokenBudgetManager(self.executor._token_manager)
+                budget_mgr.rebalance(self._token_budget, completed_phase, next_phase)
+                logger.debug(
+                    "Token budget rebalanced: %s → %s (remaining: %d)",
+                    completed_phase.value,
+                    next_phase.value,
+                    self._token_budget.total_remaining,
+                )
+        except Exception as e:
+            logger.warning("Token budget rebalance failed (non-critical): %s", e)
 
     async def _generate_acknowledgment(self, user_message: str) -> str:
         """Generate an acknowledgment message before starting to plan."""
@@ -1513,227 +1384,37 @@ class PlanActFlow(BaseFlow):
         task = asyncio.create_task(_save())
         self._track_background_task(task)
 
+    # ── Step routing helpers (delegated to FlowStepExecutor) ──────────
+
     def _handle_step_failure(self, failed_step: Step) -> list[str]:
-        """Handle step failure by marking dependent steps as blocked."""
-        if not self.plan:
-            return []
-        return self._step_failure_handler.handle_failure(self.plan, failed_step)
+        """Handle step failure (delegated to FlowStepExecutor)."""
+        return self._flow_step_executor.handle_step_failure(self.plan, failed_step)
 
     def _should_skip_step(self, step: Step) -> tuple[bool, str]:
-        """Check if a step should be skipped."""
-        if not self.plan:
-            return False, ""
-        return self._step_failure_handler.should_skip_step(self.plan, step)
+        """Check if step should be skipped (delegated to FlowStepExecutor)."""
+        return self._flow_step_executor.should_skip_step(self.plan, step)
 
     def _check_and_skip_steps(self) -> list[str]:
-        """Check all pending steps and skip those that should be skipped."""
-        if not self.plan:
-            return []
-        return self._step_failure_handler.check_and_skip_steps(self.plan)
+        """Check all pending steps for skipping (delegated to FlowStepExecutor)."""
+        return self._flow_step_executor.check_and_skip_steps(self.plan)
 
     def _is_read_only_step(self, step: Step) -> bool:
-        """Check if a step is likely read-only (doesn't modify state).
-
-        Read-only steps don't require plan updates after completion since they
-        don't change the execution context significantly.
-
-        Args:
-            step: The step to check
-
-        Returns:
-            True if the step appears to be read-only
-        """
-        if not step or not step.description:
-            return False
-
-        desc_lower = step.description.lower()
-
-        # Research-style steps can discover new work and should keep plan updates enabled.
-        dynamic_research_patterns = [
-            "research",
-            "investigate",
-            "explore",
-            "analyze",
-            "review",
-            "compare",
-            "search",
-            "browse",
-            "fetch",
-            "retrieve",
-            "verify",
-            "validate",
-            "cross-check",
-            "benchmark",
-        ]
-        if any(pattern in desc_lower for pattern in dynamic_research_patterns):
-            return False
-
-        # Read-only action patterns
-        read_only_patterns = [
-            "read",
-            "view",
-            "list",
-            "check",
-            "inspect",
-            "show",
-            "display",
-            "print",
-            "understand",
-            "learn",
-        ]
-
-        # Write action patterns (if present, NOT read-only)
-        write_patterns = [
-            "write",
-            "create",
-            "modify",
-            "update",
-            "delete",
-            "remove",
-            "install",
-            "execute",
-            "run",
-            "build",
-            "compile",
-            "deploy",
-            "change",
-            "edit",
-            "save",
-            "store",
-            "set",
-            "configure",
-        ]
-
-        has_read_pattern = any(pattern in desc_lower for pattern in read_only_patterns)
-        has_write_pattern = any(pattern in desc_lower for pattern in write_patterns)
-
-        # Read-only if has read patterns but no write patterns
-        return has_read_pattern and not has_write_pattern
+        """Check if step is read-only (delegated to FlowStepExecutor)."""
+        return self._flow_step_executor.is_read_only_step(step)
 
     def _is_research_or_complex_task(self, step: Step | None = None) -> bool:
-        """Detect tasks where dynamic plan updates should remain enabled."""
-        try:
-            if (
-                hasattr(self, "_cached_complexity")
-                and self._cached_complexity is not None
-                and self._cached_complexity >= 0.45
-            ):
-                return True
-        except Exception:
-            logger.debug("Complexity probe failed while checking dynamic plan update eligibility", exc_info=True)
-
-        research_patterns = [
-            "research",
-            "investigate",
-            "explore",
-            "analyze",
-            "compare",
-            "multi-source",
-            "multiple sources",
-            "benchmark",
-            "report",
-            "citation",
-            "cross-check",
-            "verify findings",
-            "validate findings",
-        ]
-        texts_to_scan: list[str] = []
-        if step and step.description:
-            texts_to_scan.append(step.description)
-        if self.plan:
-            if self.plan.goal:
-                texts_to_scan.append(self.plan.goal)
-            if self.plan.message:
-                texts_to_scan.append(self.plan.message)
-
-        for text in texts_to_scan:
-            lowered = text.lower()
-            if any(pattern in lowered for pattern in research_patterns):
-                return True
-        return False
+        """Detect research/complex tasks (delegated to FlowStepExecutor)."""
+        return self._flow_step_executor.is_research_or_complex_task(self.plan, step, self._cached_complexity)
 
     def _should_skip_plan_update(self, step: Step, remaining_steps: int) -> tuple[bool, str]:
-        """Determine if plan update phase should be skipped for faster execution.
-
-        Skipping plan updates saves 2-5 seconds per step by avoiding an LLM call.
-        Safe to skip when the plan state is predictable.
-
-        Args:
-            step: The step that just completed
-            remaining_steps: Number of pending steps remaining
-
-        Returns:
-            Tuple of (should_skip, reason)
-        """
-        # No remaining work means there is nothing left to update.
-        if remaining_steps <= 0:
-            return True, "no remaining steps"
-
-        # Skip if step failed (will trigger replanning anyway)
-        if not step.success:
-            return True, "step failed"
-
-        # Keep dynamic updates enabled for research/complex tasks so the planner
-        # can add follow-up steps when discoveries require deeper investigation.
-        if self._is_research_or_complex_task(step):
-            return False, ""
-
-        # Skip for simple tasks (complexity-based optimization)
-        try:
-            # Use cached complexity score if available
-            if (
-                hasattr(self, "_cached_complexity")
-                and self._cached_complexity is not None
-                and self._cached_complexity < 0.4  # Simple task threshold
-            ):
-                return True, f"simple task (complexity={self._cached_complexity:.2f})"
-        except Exception as e:
-            logger.debug(f"Complexity check failed, continuing with verification: {e}")
-
-        # Skip for read-only steps (they don't change execution context)
-        if self._is_read_only_step(step) and remaining_steps <= 1:
-            return True, "read-only step"
-
-        # For non-research tasks, skip update on final pending step.
-        if remaining_steps == 1:
-            return True, "final pending step"
-
-        # Default: don't skip
-        return False, ""
+        """Determine if plan update should be skipped (delegated to FlowStepExecutor)."""
+        return self._flow_step_executor.should_skip_plan_update(
+            step, remaining_steps, self.plan, self._cached_complexity
+        )
 
     def _check_step_dependencies(self, step: Step) -> bool:
-        """Check if a step's dependencies are satisfied.
-
-        A step can execute if all its dependencies are either:
-        - Completed successfully
-        - Skipped (considered successful)
-
-        Args:
-            step: The step to check
-
-        Returns:
-            True if all dependencies are satisfied, False otherwise
-        """
-        if not self.plan or not step.dependencies:
-            return True
-
-        for dep_id in step.dependencies:
-            dep_step = next((s for s in self.plan.steps if s.id == dep_id), None)
-            if not dep_step:
-                # Dependency not found - treat as satisfied (might be external)
-                continue
-
-            if dep_step.status not in [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED]:
-                # Dependency not yet satisfied
-                if dep_step.status in [ExecutionStatus.FAILED, ExecutionStatus.BLOCKED]:
-                    # Dependency failed - this step should be blocked
-                    step.mark_blocked(f"Dependency {dep_id} failed", blocked_by=dep_id)
-                    return False
-                if dep_step.status in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
-                    # Dependency not yet complete - shouldn't happen if get_next_step works correctly
-                    return False
-
-        return True
+        """Check step dependencies (delegated to FlowStepExecutor)."""
+        return self._flow_step_executor.check_step_dependencies(self.plan, step)
 
     @asynccontextmanager
     async def state_context(self, new_status: AgentStatus):
@@ -1778,8 +1459,7 @@ class PlanActFlow(BaseFlow):
                 try:
                     yield
                 except Exception as e:
-                    self._previous_status = old_status
-                    self._error_context = self._error_handler.classify_error(e)
+                    self._error_recovery.record_error(e, old_status)
                     self._transition_to(AgentStatus.ERROR, force=True, reason="state context error")
 
                     span.set_status("error", str(e))
@@ -1797,57 +1477,31 @@ class PlanActFlow(BaseFlow):
             try:
                 yield
             except Exception as e:
-                self._previous_status = old_status
-                self._error_context = self._error_handler.classify_error(e)
+                self._error_recovery.record_error(e, old_status)
                 self._transition_to(AgentStatus.ERROR, force=True, reason="state context error")
                 logger.error(f"Agent {self._agent_id} error in state {new_status}: {e}")
                 raise
 
     async def handle_error_state(self) -> bool:
-        """
-        Handle ERROR state with recovery attempts.
+        """Handle ERROR state with recovery attempts (delegated to ErrorRecoveryHandler).
 
         Returns:
-            True if recovery successful and can continue, False otherwise
+            True if recovery successful and can continue, False otherwise.
         """
-        if self.status != AgentStatus.ERROR:
-            return True
+        # Build the optional recovery-prompt injection callback
+        inject_fn = None
+        if hasattr(self, "executor") and self.executor and hasattr(self.executor, "memory") and self.executor.memory:
 
-        if not self._error_context:
-            logger.error("No error context available for recovery")
-            return False
+            def _inject(prompt: str) -> None:
+                self.executor.memory.add_message({"role": "system", "content": prompt})
 
-        # Track total errors across all recovery cycles (prevents slow infinite loops)
-        self._total_error_count += 1
-        if self._total_error_count >= self._max_total_errors:
-            logger.error(f"Max total errors ({self._max_total_errors}) reached across all recovery cycles")
-            return False
+            inject_fn = _inject
 
-        if self._error_recovery_attempts >= self._max_error_recovery_attempts:
-            logger.error(f"Max recovery attempts ({self._max_error_recovery_attempts}) reached")
-            return False
-
-        self._error_recovery_attempts += 1
-        logger.info(f"Attempting error recovery ({self._error_recovery_attempts}/{self._max_error_recovery_attempts})")
-
-        # Try to recover based on error type - restore previous status if recoverable
-        if self._error_context.recoverable and self._previous_status:
-            # Generate recovery prompt so the agent knows what went wrong
-            recovery_prompt = self._error_handler.get_recovery_prompt(self._error_context)
-            if recovery_prompt and hasattr(self, "executor") and self.executor:
-                try:
-                    if hasattr(self.executor, "memory") and self.executor.memory:
-                        self.executor.memory.add_message({"role": "system", "content": recovery_prompt})
-                        logger.info(f"Injected recovery prompt for {self._error_context.error_type.value}")
-                except Exception as e:
-                    logger.debug(f"Could not inject recovery prompt: {e}")
-
-            self._transition_to(self._previous_status, force=True, reason="error recovery")
-            self._previous_status = None
-            logger.info(f"Recovered to previous state: {self.status}")
-            return True
-
-        return False
+        return await self._error_recovery.attempt_recovery(
+            current_flow_status=self.status,
+            transition_fn=self._transition_to,
+            inject_recovery_fn=inject_fn,
+        )
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         tracer = get_tracer()
@@ -1916,6 +1570,9 @@ class PlanActFlow(BaseFlow):
     async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:
         """Internal run method with tracing."""
         await self._check_cancelled()
+
+        # Phase 2: Initialize proactive token budget at flow start
+        self._initialize_token_budget()
 
         # Emit research mode event so frontend can adapt layout (e.g., auto-open browser panel)
         yield ResearchModeEvent(research_mode=self._research_mode)
@@ -2408,8 +2065,9 @@ class PlanActFlow(BaseFlow):
                         continue
                     else:
                         # Cannot recover, yield error and exit
-                        error_msg = self._error_context.message if self._error_context else "Unknown error"
-                        error_type = self._error_context.error_type.value if self._error_context else "unknown"
+                        _ec = self._error_recovery.error_context
+                        error_msg = _ec.message if _ec else "Unknown error"
+                        error_type = _ec.error_type.value if _ec else "unknown"
                         yield ErrorEvent(
                             error=f"Agent failed after recovery attempts: {error_msg}",
                             error_type=error_type,
@@ -2495,15 +2153,9 @@ class PlanActFlow(BaseFlow):
                                     context={"session_id": self._session_id},
                                 )
                                 if assessment.blocking_gaps:
-                                    _gap_lines = "\n".join(
-                                        f"- {g.description}" for g in assessment.blocking_gaps
-                                    )
+                                    _gap_lines = "\n".join(f"- {g.description}" for g in assessment.blocking_gaps)
                                     _gap_suffix = f"\n\n## Known Knowledge Gaps\n{_gap_lines}"
-                                    replan_context = (
-                                        f"{replan_context}{_gap_suffix}"
-                                        if replan_context
-                                        else _gap_suffix
-                                    )
+                                    replan_context = f"{replan_context}{_gap_suffix}" if replan_context else _gap_suffix
                                     logger.debug(
                                         "Meta-cognition: injected %d knowledge gaps into planning context",
                                         len(assessment.blocking_gaps),
@@ -2545,9 +2197,7 @@ class PlanActFlow(BaseFlow):
                                 )
                                 # Bootstrap phase: allow selection with 0 trials so the bandit
                                 # can accumulate outcomes before enforcing MIN_TRIALS filter.
-                                _best_variant = _optimizer.get_best_variant(
-                                    "planner", min_trials=0
-                                )
+                                _best_variant = _optimizer.get_best_variant("planner", min_trials=0)
                                 if _best_variant and _best_variant.prompt_template:
                                     self.planner.system_prompt = _best_variant.prompt_template
                                     # Track which variant was applied so record_outcome() can
@@ -2561,9 +2211,7 @@ class PlanActFlow(BaseFlow):
                                         _best_variant.total_trials,
                                     )
                             except Exception as _var_err:
-                                logger.debug(
-                                    "Prompt variant selection skipped (non-critical): %s", _var_err
-                                )
+                                logger.debug("Prompt variant selection skipped (non-critical): %s", _var_err)
 
                         # Deep Research: inject browser-first emphasis + workspace instructions
                         _saved_planner_prompt = self.planner.system_prompt
@@ -2798,11 +2446,12 @@ class PlanActFlow(BaseFlow):
                             try:
                                 from app.domain.models.reflection import (
                                     ProgressMetrics as _ProgressMetrics,
-                                    ReflectionTriggerType as _ReflectionTriggerType,
                                 )
 
                                 _completed = [s for s in self.plan.steps if s.status == ExecutionStatus.COMPLETED]
-                                _failed = [s for s in self.plan.steps if not s.success and s.status != ExecutionStatus.BLOCKED]
+                                _failed = [
+                                    s for s in self.plan.steps if not s.success and s.status != ExecutionStatus.BLOCKED
+                                ]
                                 _progress = _ProgressMetrics(
                                     steps_completed=len(_completed),
                                     steps_remaining=0,
@@ -3224,14 +2873,16 @@ class PlanActFlow(BaseFlow):
                                 yield event
                                 # Bridge ErrorEvent → ErrorContext so handle_error_state() can recover.
                                 # ErrorEvents bypass state_context's except block (they aren't Exceptions),
-                                # so we must populate _error_context manually.
-                                self._error_context = ErrorContext(
-                                    error_type=ErrorType.TOOL_EXECUTION,
-                                    message=f"Summarization failed: {event.error}",
-                                    recoverable=True,
-                                    recovery_strategy="Retry summarization with relaxed coverage requirements",
+                                # so we must populate _error_context via ErrorRecoveryHandler.
+                                self._error_recovery.record_error_context(
+                                    ErrorContext(
+                                        error_type=ErrorType.TOOL_EXECUTION,
+                                        message=f"Summarization failed: {event.error}",
+                                        recoverable=True,
+                                        recovery_strategy="Retry summarization with relaxed coverage requirements",
+                                    ),
+                                    status=AgentStatus.SUMMARIZING,
                                 )
-                                self._previous_status = AgentStatus.SUMMARIZING
                                 self._transition_to(AgentStatus.ERROR, force=True, reason="summarization failed")
                                 break
 
@@ -3405,16 +3056,10 @@ class PlanActFlow(BaseFlow):
                                 context=_step_summaries[:10],  # cap context size
                             )
                             _hallucination_result = next(
-                                (
-                                    r
-                                    for r in _eval_batch.results
-                                    if r.metric_type.value == "hallucination_score"
-                                ),
+                                (r for r in _eval_batch.results if r.metric_type.value == "hallucination_score"),
                                 None,
                             )
-                            _hallucination_score = (
-                                _hallucination_result.score if _hallucination_result else 0.0
-                            )
+                            _hallucination_score = _hallucination_result.score if _hallucination_result else 0.0
                             if _hallucination_score > 0.5:
                                 logger.warning(
                                     "Eval gate: high hallucination score %.2f for session %s",
@@ -3457,9 +3102,7 @@ class PlanActFlow(BaseFlow):
                             )
 
                             _latency_ms = (
-                                (time.time() - self._planning_start_time) * 1000
-                                if self._planning_start_time
-                                else None
+                                (time.time() - self._planning_start_time) * 1000 if self._planning_start_time else None
                             )
                             get_prompt_optimizer().record_outcome(
                                 "planner",
@@ -3487,9 +3130,8 @@ class PlanActFlow(BaseFlow):
                     break
 
             except Exception as e:
-                # Classify and handle error with tracing
-                self._error_context = self._error_handler.classify_error(e)
-                self._previous_status = self.status
+                # Classify and handle error via ErrorRecoveryHandler
+                err_ctx = self._error_recovery.record_error(e, self.status)
                 self._transition_to(AgentStatus.ERROR, force=True, reason="exception handler")
 
                 if isinstance(e, LLMKeysExhaustedError):
@@ -3499,8 +3141,8 @@ class PlanActFlow(BaseFlow):
 
                 # Add error span with health assessment
                 with trace_ctx.span("error", "error_recovery") as error_span:
-                    error_span.set_attribute("error.type", str(self._error_context.error_type))
-                    error_span.set_attribute("error.recoverable", self._error_context.recoverable)
+                    error_span.set_attribute("error.type", str(err_ctx.error_type))
+                    error_span.set_attribute("error.recoverable", err_ctx.recoverable)
                     error_span.set_attribute("error.message", str(e)[:200])
 
                     # Use error bridge for health assessment
@@ -3533,11 +3175,11 @@ class PlanActFlow(BaseFlow):
                             ),
                         )
                     except Exception:
-                        pass
+                        logger.debug("prompt_optimizer.record_outcome failed (non-critical)")
 
                 # If not recoverable, yield error and exit
-                if not self._error_context.recoverable:
-                    yield ErrorEvent(error=f"Unrecoverable error: {self._error_context.message}")
+                if not err_ctx.recoverable:
+                    yield ErrorEvent(error=f"Unrecoverable error: {err_ctx.message}")
                     break
 
         yield DoneEvent()
