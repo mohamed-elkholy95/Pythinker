@@ -12,6 +12,7 @@ Uses APIKeyPool for production-grade multi-key management:
 """
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -196,8 +197,9 @@ class SerperSearchEngine(SearchEngineBase):
                 query, date_range, f"All {len(self._key_pool.keys)} Serper API keys exhausted after {_attempt} attempts"
             )
 
-        # Sanitize query: reject empty queries, strip whitespace, cap length
-        query = query.strip()
+        # Sanitize query: collapse newlines/control chars (HTTP 400 from Serper), strip, cap length
+        query = re.sub(r"[\r\n\t\x00-\x1f\x7f]+", " ", query).strip()
+        query = re.sub(r" {2,}", " ", query)
         if not query:
             return self._create_error_result(query, date_range, "Serper bad request: empty search query")
         if len(query) > 500:
