@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 import time
 import uuid
 from functools import lru_cache
@@ -40,6 +41,9 @@ from app.domain.models.conversation_context import (
 )
 
 if TYPE_CHECKING:
+    from app.domain.models.conversation_context import (
+        ConversationContextResult,
+    )
     from app.domain.models.event import (
         BaseEvent,
     )
@@ -48,6 +52,62 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+# Stop-words excluded from topic-coherence keyword extraction
+_STOP_WORDS: frozenset[str] = frozenset([
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+    "should", "may", "might", "can", "could", "and", "or", "but", "not",
+    "no", "nor", "so", "yet", "for", "of", "in", "on", "at", "to", "from",
+    "by", "with", "about", "into", "through", "during", "before", "after",
+    "above", "below", "between", "out", "off", "over", "under", "again",
+    "further", "then", "once", "here", "there", "when", "where", "why",
+    "how", "all", "each", "every", "both", "few", "more", "most", "other",
+    "some", "such", "only", "own", "same", "than", "too", "very", "just",
+    "also", "now", "what", "which", "who", "whom", "this", "that", "these",
+    "those", "i", "me", "my", "we", "our", "you", "your", "he", "him",
+    "his", "she", "her", "it", "its", "they", "them", "their",
+])
+
+
+def _extract_keywords(text: str, min_length: int = 3) -> set[str]:
+    """Extract meaningful lowercase keywords from text, excluding stop-words."""
+    tokens = re.findall(r"[a-zA-Z]+", text.lower())
+    return {t for t in tokens if len(t) >= min_length and t not in _STOP_WORDS}
+
+
+def _filter_by_topic_coherence(
+    query: str,
+    turns: list[ConversationContextResult],
+    min_overlap: int = 2,
+) -> list[ConversationContextResult]:
+    """Drop cross-session turns that share fewer than min_overlap keywords with query.
+
+    This prevents embedding-similar but topically unrelated content (e.g., a discussion
+    about 'qwen3 model benefits' appearing in a query about 'ashwagandha health benefits')
+    from leaking across sessions. Embedding models measure structural similarity, not
+    topical coherence — this keyword gate adds a lightweight topical filter.
+    """
+    if not turns:
+        return turns
+
+    query_keywords = _extract_keywords(query)
+    if not query_keywords:
+        return turns  # Can't filter if no keywords extracted
+
+    filtered: list[ConversationContextResult] = []
+    for turn in turns:
+        turn_keywords = _extract_keywords(turn.content)
+        overlap = query_keywords & turn_keywords
+        if len(overlap) >= min_overlap:
+            filtered.append(turn)
+        else:
+            logger.debug(
+                "Cross-session turn dropped (low topic coherence): overlap=%d keywords=%s",
+                len(overlap),
+                overlap,
+            )
+    return filtered
 
 
 def _content_hash(content: str) -> str:
@@ -360,6 +420,9 @@ class ConversationContextService:
             )
 
         # Phase C: Cross-session recall (reuse same embedding)
+        # NOTE: Disabled by default (cross_session_top_k=0) to prevent context
+        # leakage between unrelated sessions. When enabled, a topic-coherence
+        # filter ensures only genuinely related cross-session turns are injected.
         if self._cross_session_top_k > 0:
             start_time = time.time()
             try:
@@ -371,6 +434,8 @@ class ConversationContextService:
                     limit=self._cross_session_top_k,
                     min_score=self._cross_session_min_score,
                 )
+                # Topic-coherence filter: drop results with no keyword overlap
+                cross_turns = _filter_by_topic_coherence(query, cross_turns)
                 context.cross_session_turns = cross_turns
             except Exception:
                 logger.debug("Cross-session search failed", exc_info=True)
