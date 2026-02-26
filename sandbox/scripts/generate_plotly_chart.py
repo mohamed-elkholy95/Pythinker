@@ -72,6 +72,12 @@ class ChartType(StrEnum):
     GROUPED_BAR = "grouped_bar"
     STACKED_BAR = "stacked_bar"
     BOX = "box"
+    DONUT = "donut"
+    WATERFALL = "waterfall"
+    FUNNEL = "funnel"
+    TREEMAP = "treemap"
+    INDICATOR = "indicator"
+    AUTO = "auto"
 
 
 class DatasetSpec(TypedDict, total=False):
@@ -80,6 +86,7 @@ class DatasetSpec(TypedDict, total=False):
     name: str
     values: list[float]
     color: str
+    measure: list[str]  # For waterfall: "relative", "total", "absolute"
 
 
 class ChartSpec(TypedDict, total=False):
@@ -99,6 +106,8 @@ class ChartSpec(TypedDict, total=False):
     output_html: str
     output_png: str
     output_json: str
+    parents: list[str]  # For treemap hierarchy
+    reference: float  # For indicator delta calculation
 
 
 # ---------------------------------------------------------------------------
@@ -126,8 +135,8 @@ PLOTLY_QUALITATIVE: list[str] = [
 # Based on Plotly qualitative palette, same 10 colors used consistently.
 SERIES_COLORS: list[str] = PLOTLY_QUALITATIVE
 
-# Professional font stack
-FONT_FAMILY = "Arial, Helvetica, sans-serif"
+# Professional font stack (modern system font stack)
+FONT_FAMILY = "Inter, -apple-system, BlinkMacSystemFont, sans-serif"
 
 # Text styling constants
 TITLE_FONT_SIZE = 24
@@ -137,11 +146,13 @@ BODY_FONT_COLOR = "#374151"
 LABEL_FONT_SIZE = 14
 LABEL_FONT_COLOR = "#1f2937"
 
-# Grid styling constants (subtle, non-overpowering)
-GRID_COLOR = "rgba(0,0,0,0.08)"
+# Grid styling constants (subtler for modern look)
+GRID_COLOR = "rgba(0,0,0,0.06)"
 GRID_WIDTH = 1
-ZEROLINE_COLOR = "rgba(0,0,0,0.15)"
-ZEROLINE_WIDTH = 2
+
+# Bar corner radius (rounded corners for modern appearance)
+BAR_CORNER_RADIUS = "15%"
+BAR_CORNER_RADIUS_STACKED = 4  # Smaller for stacked bars to avoid gaps
 
 # Bar chart constants
 BAR_BORDER_COLOR = "rgba(255,255,255,0.8)"
@@ -152,6 +163,93 @@ BAR_GROUP_GAP = 0.1
 # Uniform text settings (Context7 validated: uniformtext_minsize + uniformtext_mode)
 UNIFORMTEXT_MINSIZE = 8
 UNIFORMTEXT_MODE = "hide"
+
+
+# ---------------------------------------------------------------------------
+# Auto-orientation helpers
+# ---------------------------------------------------------------------------
+
+
+def _looks_temporal(labels: list[str]) -> bool:
+    """Detect if labels look like temporal/time-series data.
+
+    Checks for common date, month, quarter, and day-of-week patterns.
+
+    Args:
+        labels: Category labels to examine.
+
+    Returns:
+        True if labels appear temporal, False otherwise.
+    """
+    import re
+
+    temporal_patterns = [
+        r"^\d{4}[-/]\d{1,2}",  # 2024-01, 2024/03
+        r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)",  # Month names
+        r"^(January|February|March|April|May|June|July|August|September|October|November|December)",
+        r"^Q[1-4]\b",  # Q1, Q2, Q3, Q4
+        r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)",  # Day abbreviations
+        r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)",
+        r"^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}",  # 01/15/2024
+        r"^(Week|W)\s*\d+",  # Week 1, W12
+        r"^(FY|H[12])\s*\d+",  # FY2024, H1 2024
+    ]
+    if not labels:
+        return False
+    # Check first few labels — if >50% match, consider temporal
+    sample = labels[: min(5, len(labels))]
+    matches = sum(
+        1 for label in sample if any(re.match(p, label, re.IGNORECASE) for p in temporal_patterns)
+    )
+    return matches > len(sample) / 2
+
+
+def _auto_orientation(labels: list[str], chart_type: str = "bar") -> str:
+    """Determine optimal bar orientation based on label characteristics.
+
+    Rules (in priority order):
+    1. Temporal labels → vertical (time flows left-to-right)
+    2. >8 categories → horizontal (prevents label crowding)
+    3. Max label length >12 → horizontal
+    4. Average label length >6 → horizontal
+    5. >5 categories AND avg >4 → horizontal
+    6. Otherwise → vertical
+
+    Args:
+        labels: Category labels.
+        chart_type: Chart type string.
+
+    Returns:
+        ``"v"`` for vertical or ``"h"`` for horizontal.
+    """
+    if not labels:
+        return "v"
+
+    # Temporal data always vertical (time on x-axis)
+    if _looks_temporal(labels):
+        return "v"
+
+    n_cats = len(labels)
+    max_len = max(len(label) for label in labels)
+    avg_len = sum(len(label) for label in labels) / n_cats
+
+    # Many categories → horizontal
+    if n_cats > 8:
+        return "h"
+
+    # Very long labels → horizontal
+    if max_len > 12:
+        return "h"
+
+    # Moderately long labels → horizontal
+    if avg_len > 6:
+        return "h"
+
+    # Medium count + medium labels → horizontal
+    if n_cats > 5 and avg_len > 4:
+        return "h"
+
+    return "v"
 
 
 # ---------------------------------------------------------------------------
@@ -353,21 +451,22 @@ def _build_base_layout(
                 "color": TITLE_FONT_COLOR,
                 "family": FONT_FAMILY,
             },
+            "x": 0.0,
+            "xanchor": "left",
         },
         "xaxis": {
             "title": x_title,
             "showgrid": True,
             "gridcolor": GRID_COLOR,
             "gridwidth": GRID_WIDTH,
-            "zeroline": True,
-            "zerolinecolor": ZEROLINE_COLOR,
-            "zerolinewidth": ZEROLINE_WIDTH,
+            "zeroline": False,
         },
         "yaxis": {
             "title": y_title,
             "showgrid": y_show_grid,
             "gridcolor": GRID_COLOR,
             "gridwidth": GRID_WIDTH,
+            "zeroline": False,
         },
         "template": theme,
         "height": height,
@@ -379,6 +478,13 @@ def _build_base_layout(
             "color": BODY_FONT_COLOR,
         },
         "showlegend": show_legend,
+        "legend": {
+            "orientation": "h",
+            "y": 1.02,
+            "yanchor": "bottom",
+            "x": 0.5,
+            "xanchor": "center",
+        },
         "plot_bgcolor": "rgba(0,0,0,0)",
         "paper_bgcolor": "white",
         # Uniform text sizing: hides labels that would be too small to read
@@ -391,6 +497,20 @@ def _build_base_layout(
         layout["barmode"] = barmode
         layout["bargap"] = BAR_GAP
         layout["bargroupgap"] = BAR_GROUP_GAP
+        # Rounded bar corners — smaller radius for stacked to avoid visual gaps
+        if barmode == "stack":
+            layout["barcornerradius"] = BAR_CORNER_RADIUS_STACKED
+        else:
+            layout["barcornerradius"] = BAR_CORNER_RADIUS
+
+    # Dark mode overrides for PNG/HTML generation
+    if theme in ("plotly_dark", "dark"):
+        layout["paper_bgcolor"] = "#1a1a2e"
+        layout["plot_bgcolor"] = "#1a1a2e"
+        layout["font"]["color"] = "#e0e0e0"
+        layout["title"]["font"]["color"] = "#f0f0f0"
+        layout["xaxis"]["gridcolor"] = "rgba(255,255,255,0.08)"
+        layout["yaxis"]["gridcolor"] = "rgba(255,255,255,0.08)"
 
     return layout
 
@@ -464,7 +584,14 @@ def generate_bar_chart(
                 text=values,
                 texttemplate=text_format,
                 textposition="outside",
-                textfont={"size": LABEL_FONT_SIZE, "color": LABEL_FONT_COLOR},
+                textfont={
+                    "size": LABEL_FONT_SIZE,
+                    "color": LABEL_FONT_COLOR,
+                    "shadow": "1px 1px 2px rgba(0,0,0,0.1)",
+                },
+                hovertemplate="%{y}: %{x:,.2f}<extra></extra>"
+                if orientation == "h"
+                else "%{x}: %{y:,.2f}<extra></extra>",
                 name=series.get("name", ""),
             )
         )
@@ -491,7 +618,13 @@ def generate_bar_chart(
                     text=series["values"],
                     texttemplate=text_format,
                     textposition="outside",
-                    textfont={"size": LABEL_FONT_SIZE},
+                    textfont={
+                        "size": LABEL_FONT_SIZE,
+                        "shadow": "1px 1px 2px rgba(0,0,0,0.1)",
+                    },
+                    hovertemplate="%{y}: %{x:,.2f}<extra>%{fullData.name}</extra>"
+                    if orientation == "h"
+                    else "%{x}: %{y:,.2f}<extra>%{fullData.name}</extra>",
                     name=series.get("name", "Series"),
                 )
             )
@@ -518,6 +651,10 @@ def generate_bar_chart(
         show_legend=not is_single_series,
         barmode="group" if not is_single_series else None,
     )
+    # Single-series bars: add rounded corners and bar gaps directly
+    if is_single_series:
+        layout["barcornerradius"] = BAR_CORNER_RADIUS
+        layout["bargap"] = BAR_GAP
     fig.update_layout(**layout)
 
     # Apply log scale if extreme outliers detected
@@ -712,7 +849,6 @@ def generate_area_chart(
 
     for i, series in enumerate(datasets):
         color = _get_color(i, series)
-        fill_color = _hex_to_rgba(color, alpha=0.25)
 
         fig.add_trace(
             go.Scatter(
@@ -722,7 +858,13 @@ def generate_area_chart(
                 name=series.get("name", "Series"),
                 line={"color": color, "width": 2},
                 fill="tozeroy",
-                fillcolor=fill_color,
+                fillgradient={
+                    "type": "vertical",
+                    "colorscale": [
+                        [0.0, _hex_to_rgba(color, alpha=0.35)],
+                        [1.0, _hex_to_rgba(color, alpha=0.02)],
+                    ],
+                },
             )
         )
 
@@ -776,7 +918,13 @@ def generate_grouped_bar_chart(
                 text=series["values"],
                 texttemplate=text_format,
                 textposition="outside",
-                textfont={"size": LABEL_FONT_SIZE},
+                textfont={
+                    "size": LABEL_FONT_SIZE,
+                    "shadow": "1px 1px 2px rgba(0,0,0,0.1)",
+                },
+                hovertemplate="%{y}: %{x:,.2f}<extra>%{fullData.name}</extra>"
+                if orientation == "h"
+                else "%{x}: %{y:,.2f}<extra>%{fullData.name}</extra>",
             )
         )
 
@@ -832,7 +980,13 @@ def generate_stacked_bar_chart(
                 text=series["values"],
                 texttemplate=text_format,
                 textposition="inside",
-                textfont={"size": LABEL_FONT_SIZE},
+                textfont={
+                    "size": LABEL_FONT_SIZE,
+                    "shadow": "1px 1px 2px rgba(0,0,0,0.1)",
+                },
+                hovertemplate="%{y}: %{x:,.2f}<extra>%{fullData.name}</extra>"
+                if orientation == "h"
+                else "%{x}: %{y:,.2f}<extra>%{fullData.name}</extra>",
             )
         )
 
@@ -896,6 +1050,335 @@ def generate_box_chart(
     return fig
 
 
+def generate_donut_chart(
+    title: str,
+    labels: list[str],
+    datasets: list[DatasetSpec],
+    width: int,
+    height: int,
+    theme: str,
+) -> Any:
+    """Generate a donut chart (pie with hole).
+
+    Modern alternative to pie charts. Uses ``hole=0.45`` for the donut hole.
+    Colors and text handling identical to pie charts.
+    """
+    import plotly.graph_objects as go
+
+    clean_labels = [_sanitize_label(label) for label in labels]
+    series = datasets[0]
+    values = series["values"]
+
+    colors = [
+        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(clean_labels))
+    ]
+
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=clean_labels,
+                values=values,
+                marker={"colors": colors},
+                textposition="inside",
+                textinfo="label+percent",
+                textfont={"size": LABEL_FONT_SIZE},
+                hole=0.45,
+            )
+        ]
+    )
+
+    layout = _build_base_layout(
+        title=title,
+        theme=theme,
+        width=width,
+        height=height,
+        show_legend=True,
+    )
+    layout["margin"] = {"l": 80, "r": 80, "t": 100, "b": 80}
+    layout.pop("xaxis", None)
+    layout.pop("yaxis", None)
+    fig.update_layout(**layout)
+
+    return fig
+
+
+def generate_waterfall_chart(
+    title: str,
+    x_label: str,
+    y_label: str,
+    labels: list[str],
+    datasets: list[DatasetSpec],
+    width: int,
+    height: int,
+    theme: str,
+) -> Any:
+    """Generate a waterfall chart for cumulative changes (P&L, budget).
+
+    Uses ``go.Waterfall`` with measure field to control bar direction.
+    Default: all relative except last is total.
+    Colors: green (increasing), red (decreasing), blue (totals).
+    """
+    import plotly.graph_objects as go
+
+    clean_labels = [_sanitize_label(label) for label in labels]
+    series = datasets[0]
+    values = series["values"]
+
+    # Get measure from dataset or default (all relative, last total)
+    measure = series.get("measure")
+    if not measure:
+        measure = ["relative"] * len(values)
+        if len(measure) > 1:
+            measure[-1] = "total"
+
+    fig = go.Figure(
+        data=[
+            go.Waterfall(
+                x=clean_labels,
+                y=values,
+                measure=measure,
+                name=series.get("name", ""),
+                textposition="outside",
+                text=values,
+                texttemplate=_smart_text_format(values),
+                textfont={"shadow": "1px 1px 2px rgba(0,0,0,0.1)"},
+                increasing={"marker": {"color": "#00CC96"}},
+                decreasing={"marker": {"color": "#EF553B"}},
+                totals={"marker": {"color": "#636EFA"}},
+                connector={"line": {"color": "rgba(0,0,0,0.15)", "width": 1}},
+            )
+        ]
+    )
+
+    layout = _build_base_layout(
+        title=title,
+        x_label=x_label,
+        y_label=y_label,
+        theme=theme,
+        width=width,
+        height=height,
+        show_legend=False,
+    )
+    fig.update_layout(**layout)
+
+    return fig
+
+
+def generate_funnel_chart(
+    title: str,
+    labels: list[str],
+    datasets: list[DatasetSpec],
+    width: int,
+    height: int,
+    theme: str,
+) -> Any:
+    """Generate a funnel chart for conversion pipelines.
+
+    Uses ``go.Funnel`` with per-stage colors and conversion rate text.
+    """
+    import plotly.graph_objects as go
+
+    clean_labels = [_sanitize_label(label) for label in labels]
+    series = datasets[0]
+    values = series["values"]
+
+    colors = [
+        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(clean_labels))
+    ]
+
+    fig = go.Figure(
+        data=[
+            go.Funnel(
+                y=clean_labels,
+                x=values,
+                textinfo="value+percent initial",
+                textposition="inside",
+                marker={"color": colors},
+                connector={"line": {"color": "rgba(0,0,0,0.1)", "width": 1}},
+            )
+        ]
+    )
+
+    layout = _build_base_layout(
+        title=title,
+        theme=theme,
+        width=width,
+        height=height,
+        show_legend=False,
+    )
+    fig.update_layout(**layout)
+
+    return fig
+
+
+def generate_treemap_chart(
+    title: str,
+    labels: list[str],
+    datasets: list[DatasetSpec],
+    parents: list[str],
+    width: int,
+    height: int,
+    theme: str,
+) -> Any:
+    """Generate a treemap chart for hierarchical data.
+
+    Uses ``go.Treemap`` with ``parents`` to define hierarchy and ``pathbar=True``
+    for breadcrumb navigation.
+    """
+    import plotly.graph_objects as go
+
+    clean_labels = [_sanitize_label(label) for label in labels]
+    series = datasets[0]
+    values = series["values"]
+
+    colors = [
+        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(clean_labels))
+    ]
+
+    fig = go.Figure(
+        data=[
+            go.Treemap(
+                labels=clean_labels,
+                parents=parents,
+                values=values,
+                marker={"colors": colors, "cornerradius": 5},
+                textinfo="label+value+percent parent",
+                pathbar={"visible": True},
+            )
+        ]
+    )
+
+    layout = _build_base_layout(
+        title=title,
+        theme=theme,
+        width=width,
+        height=height,
+        show_legend=False,
+    )
+    layout.pop("xaxis", None)
+    layout.pop("yaxis", None)
+    fig.update_layout(**layout)
+
+    return fig
+
+
+def generate_indicator_chart(
+    title: str,
+    datasets: list[DatasetSpec],
+    reference: float | None,
+    width: int,
+    height: int,
+    theme: str,
+) -> Any:
+    """Generate an indicator (KPI card) chart.
+
+    Uses ``go.Indicator(mode="number+delta")`` for dashboard-style KPI display.
+    Compact sizing for embedding in dashboards.
+    """
+    import plotly.graph_objects as go
+
+    series = datasets[0]
+    value = series["values"][0] if series["values"] else 0
+
+    mode = "number+delta" if reference is not None else "number"
+
+    indicator_kwargs: dict[str, Any] = {
+        "mode": mode,
+        "value": value,
+        "title": {"text": title, "font": {"size": 20}},
+        "number": {"font": {"size": 48}},
+    }
+    if reference is not None:
+        indicator_kwargs["delta"] = {
+            "reference": reference,
+            "relative": True,
+            "valueformat": ".1%",
+        }
+
+    fig = go.Figure(data=[go.Indicator(**indicator_kwargs)])
+
+    # Compact layout for KPI cards
+    compact_width = max(width, 500)
+    compact_height = max(height, 400)
+
+    layout = _build_base_layout(
+        title="",  # Title is in the indicator itself
+        theme=theme,
+        width=compact_width,
+        height=compact_height,
+        show_legend=False,
+    )
+    layout.pop("xaxis", None)
+    layout.pop("yaxis", None)
+    layout["margin"] = {"l": 40, "r": 40, "t": 40, "b": 40}
+    fig.update_layout(**layout)
+
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Auto chart type suggestion
+# ---------------------------------------------------------------------------
+
+
+def _suggest_chart_type(
+    labels: list[str],
+    datasets: list[DatasetSpec],
+    spec: ChartSpec,
+) -> str:
+    """Suggest an appropriate chart type based on data characteristics.
+
+    Heuristics (in priority order):
+    1. Single value with no/one label → indicator
+    2. Temporal labels → line
+    3. Has parents field → treemap
+    4. Has measure field in dataset → waterfall
+    5. Values sum to ~100% → pie
+    6. Multiple datasets → grouped_bar
+    7. Default → bar
+
+    Args:
+        labels: Category labels.
+        datasets: Data series.
+        spec: Full chart spec (for parents/reference fields).
+
+    Returns:
+        Chart type string.
+    """
+    if not datasets:
+        return "bar"
+
+    first_values = datasets[0].get("values", [])
+
+    # Single value → indicator
+    if len(first_values) == 1 and len(labels) <= 1:
+        return "indicator"
+
+    # Has parents → treemap
+    if spec.get("parents"):
+        return "treemap"
+
+    # Has measure → waterfall
+    if datasets[0].get("measure"):
+        return "waterfall"
+
+    # Temporal labels → line
+    if labels and _looks_temporal(labels):
+        return "line"
+
+    # Values sum to ~100% → pie
+    if len(datasets) == 1 and first_values:
+        total = sum(abs(v) for v in first_values)
+        if 95 <= total <= 105 and len(first_values) <= 7:
+            return "pie"
+
+    # Multiple datasets → grouped_bar
+    if len(datasets) > 1:
+        return "grouped_bar"
+
+    return "bar"
+
+
 # ---------------------------------------------------------------------------
 # Chart dispatch (pattern matching)
 # ---------------------------------------------------------------------------
@@ -917,13 +1400,23 @@ def _generate_chart(spec: ChartSpec) -> Any:
     title = spec["title"]
     x_label = spec.get("x_label", "")
     y_label = spec.get("y_label", "")
-    labels = spec["labels"]
+    labels = spec.get("labels") or []
     datasets = spec["datasets"]
-    orientation = spec.get("orientation", "v")
+    orientation = spec.get("orientation", "auto")
     lower_is_better = spec.get("lower_is_better", False)
     width = spec.get("width", 1000)
     height = spec.get("height", 600)
     theme = spec.get("theme", "plotly_white")
+    parents = spec.get("parents") or []
+    reference = spec.get("reference")
+
+    # Resolve auto chart type
+    if chart_type == ChartType.AUTO:
+        chart_type = _suggest_chart_type(labels, datasets, spec)
+
+    # Resolve auto orientation for bar-family charts
+    if orientation == "auto":
+        orientation = _auto_orientation(labels, chart_type)
 
     match chart_type:
         case ChartType.BAR:
@@ -1016,6 +1509,54 @@ def _generate_chart(spec: ChartSpec) -> Any:
                 height,
                 theme,
             )
+        case ChartType.DONUT:
+            return generate_donut_chart(
+                title,
+                labels,
+                datasets,
+                width,
+                height,
+                theme,
+            )
+        case ChartType.WATERFALL:
+            return generate_waterfall_chart(
+                title,
+                x_label,
+                y_label,
+                labels,
+                datasets,
+                width,
+                height,
+                theme,
+            )
+        case ChartType.FUNNEL:
+            return generate_funnel_chart(
+                title,
+                labels,
+                datasets,
+                width,
+                height,
+                theme,
+            )
+        case ChartType.TREEMAP:
+            return generate_treemap_chart(
+                title,
+                labels,
+                datasets,
+                parents,
+                width,
+                height,
+                theme,
+            )
+        case ChartType.INDICATOR:
+            return generate_indicator_chart(
+                title,
+                datasets,
+                reference,
+                width,
+                height,
+                theme,
+            )
         case _:
             supported = [t.value for t in ChartType]
             raise ValueError(
@@ -1037,28 +1578,41 @@ def _validate_input(data: dict[str, Any]) -> str | None:
     Returns:
         Error message string if validation fails, ``None`` if valid.
     """
-    # Required fields
+    # Required fields — indicator charts don't require labels
+    chart_type = data.get("chart_type", "")
+    is_indicator = chart_type == "indicator"
+
     required_fields = [
         "chart_type",
         "title",
-        "labels",
         "datasets",
         "output_html",
         "output_png",
     ]
+    if not is_indicator:
+        required_fields.append("labels")
+
     missing = [f for f in required_fields if f not in data]
     if missing:
         return f"Missing required fields: {missing}"
 
     # Chart type validation
     supported = {t.value for t in ChartType}
-    if data["chart_type"] not in supported:
-        return f"Unsupported chart_type: {data['chart_type']!r}. Must be one of {sorted(supported)}"
+    if chart_type not in supported:
+        return f"Unsupported chart_type: {chart_type!r}. Must be one of {sorted(supported)}"
 
-    # Labels validation
+    # Labels validation (skip for indicator)
     labels = data.get("labels")
-    if not labels or not isinstance(labels, list):
+    if not is_indicator and (not labels or not isinstance(labels, list)):
         return "Labels must be a non-empty list"
+
+    # Treemap parents validation
+    if chart_type == "treemap":
+        parents = data.get("parents")
+        if not parents or not isinstance(parents, list):
+            return "Treemap requires a 'parents' list"
+        if labels and len(parents) != len(labels):
+            return f"parents list ({len(parents)}) must match labels list ({len(labels)})"
 
     # Datasets validation
     datasets = data.get("datasets")
