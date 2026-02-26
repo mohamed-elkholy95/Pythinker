@@ -5,9 +5,9 @@ and ``Module`` objects so that MIPROv2 and GEPA can optimize their
 instructions and few-shot exemplars.
 
 Design constraints:
-- DSPy is an *optional* dependency (only installed in the offline optimizer
-  environment, not the runtime API container).  All DSPy imports are guarded
-  behind try/except so this module can be imported safely in runtime code.
+- DSPy is a permanent dependency (installed in the Docker image via
+  requirements.txt).  All DSPy imports are still guarded behind try/except
+  for graceful degradation during local development without full deps.
 - No I/O is performed here; LLM calls go through DSPy's LM abstraction.
 """
 
@@ -41,7 +41,7 @@ except ImportError:
 
 def _require_dspy() -> None:
     if not _DSPY_AVAILABLE:
-        raise ImportError("DSPy is not installed. Install it with: pip install dspy-ai")
+        raise ImportError("DSPy is not installed. Install it with: pip install dspy")
 
 
 class PlannerSignature:

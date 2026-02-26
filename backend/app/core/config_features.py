@@ -294,6 +294,20 @@ class PromptOptimizationSettingsMixin:
     # Minimum cases required before optimization is allowed to run.
     prompt_optimization_min_cases: int = 100
 
+    # DSPy performance tuning
+    # Number of parallel threads for dspy.Evaluate and MIPROv2 search.
+    # Higher values reduce wall-clock time proportionally (I/O-bound LLM calls).
+    dspy_num_threads: int = 4
+    # Few-shot bootstrapped demos generated from successful teacher traces.
+    dspy_max_bootstrapped_demos: int = 4
+    # Labeled examples from the trainset used as in-context demonstrations.
+    dspy_max_labeled_demos: int = 4
+    # Minibatch size for MIPROv2 candidate scoring (smaller = faster iteration).
+    dspy_minibatch_size: int = 25
+    # Persistent disk cache directory for DSPy/LiteLLM LLM call results.
+    # Prevents re-spending tokens on identical evaluation calls across runs.
+    dspy_cache_dir: str = "/app/data/dspy_cache"
+
 
 class TypoCorrectionSettingsMixin:
     """Typo correction (PromptQuickValidator) configuration."""

@@ -181,6 +181,11 @@ async def run_and_publish(
             model_name=model_name,
             all_session_events=all_session_events or None,
             miprov2_auto=auto,
+            num_threads=settings.dspy_num_threads,
+            max_bootstrapped_demos=settings.dspy_max_bootstrapped_demos,
+            max_labeled_demos=settings.dspy_max_labeled_demos,
+            minibatch_size=settings.dspy_minibatch_size,
+            cache_dir=settings.dspy_cache_dir,
         )
         logger.info(
             "Optimization complete: baseline=%.4f optimized=%.4f improvement=%+.4f",
