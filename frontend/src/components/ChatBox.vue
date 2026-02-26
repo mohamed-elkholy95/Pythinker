@@ -33,7 +33,7 @@
                         <button @click="uploadFile" class="chatbox-attach-btn">
                             <Paperclip :size="16" />
                         </button>
-                        <ExpertiseControl v-model="detailLevel" />
+
                     </div>
                     <div class="chatbox-actions-right">
                         <button v-if="!isRunning"
@@ -64,7 +64,7 @@ import { Paperclip, Puzzle, X } from 'lucide-vue-next';
 import ConnectorBanner from './connectors/ConnectorBanner.vue';
 import { useSkills } from '@/composables/useSkills';
 import { getCommandMap } from '@/api/skills';
-import ExpertiseControl, { type DetailLevel } from './ExpertiseControl.vue';
+
 import type { FileInfo } from '../api/file';
 import type { ThinkingMode } from '@/api/agent';
 import { showInfoToast } from '../utils/toast';
@@ -79,7 +79,7 @@ const isComposing = ref(false);
 const chatBoxFileListRef = ref();
 const textareaRef = ref<HTMLTextAreaElement>();
 const thinkingMode = ref<ThinkingMode>('auto');
-const detailLevel = ref<DetailLevel>('detailed');
+
 
 // Session skill chips: resolve skill IDs to name/id pairs for display
 const sessionSkillChips = computed(() => {
@@ -138,7 +138,7 @@ const sendEnabled = computed(() => {
 
 const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void;
-    (e: 'submit', options: { thinkingMode: ThinkingMode, detailLevel: DetailLevel }): void;
+    (e: 'submit', options: { thinkingMode: ThinkingMode }): void;
     (e: 'stop'): void;
     (e: 'fileClick', file: FileInfo): void;
 }>();
@@ -158,7 +158,7 @@ const handleEnterKeydown = (event: KeyboardEvent) => {
 
 const handleSubmit = () => {
     if (!sendEnabled.value) return;
-    emit('submit', { thinkingMode: thinkingMode.value, detailLevel: detailLevel.value });
+    emit('submit', { thinkingMode: thinkingMode.value });
 };
 
 // Reset thinking mode to auto when agent finishes (falling edge of isRunning)
