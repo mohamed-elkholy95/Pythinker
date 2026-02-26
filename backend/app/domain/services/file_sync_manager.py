@@ -24,6 +24,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, ClassVar
 
+import httpx
+
 from app.domain.models.event import MessageEvent, ReportEvent
 from app.domain.models.file import FileInfo
 
@@ -283,6 +285,21 @@ class FileSyncManager:
                 file_path,
                 e,
             )
+            return None
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.warning(
+                    "Agent %s: File not found in sandbox (404): '%s'",
+                    self._agent_id,
+                    file_path,
+                )
+            else:
+                logger.error(
+                    "Agent %s: Failed to sync file '%s': HTTP %s",
+                    self._agent_id,
+                    file_path,
+                    e.response.status_code,
+                )
             return None
         except Exception as e:
             logger.exception(
