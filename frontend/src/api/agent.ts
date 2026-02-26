@@ -721,6 +721,17 @@ export async function getInputStreamUrl(sessionId: string): Promise<string> {
 }
 
 /**
+ * Get VNC WebSocket URL via signed URL (proxied through backend)
+ * Used for takeover mode - streams full browser desktop (chrome, tabs, address bar)
+ * via noVNC over WebSocket through the backend proxy.
+ * @param sessionId Session ID
+ * @returns Signed WebSocket URL for VNC stream
+ */
+export async function getVncUrl(sessionId: string): Promise<string> {
+  return getSandboxSignedUrl(sessionId, 'vnc');
+}
+
+/**
  * Submit a rating for a report
  * @param sessionId Session ID
  * @param reportId Report ID
