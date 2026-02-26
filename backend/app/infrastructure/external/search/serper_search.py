@@ -30,7 +30,7 @@ from app.infrastructure.external.search.factory import SearchProviderRegistry
 logger = logging.getLogger(__name__)
 
 # HTTP status codes that indicate the API key should be rotated
-_ROTATE_STATUS_CODES = {401, 402, 403, 429}
+_ROTATE_STATUS_CODES = {400, 401, 402, 403, 429}  # 400: Serper returns this for "Not enough credits"
 
 
 @SearchProviderRegistry.register("serper")
@@ -218,8 +218,10 @@ class SerperSearchEngine(SearchEngineBase):
             params = self._build_request_params(query, date_range)
             response = await self._execute_request(client, params)
 
-            # Check for quota/auth errors
+            # Check for quota/auth errors (400 = "Not enough credits" from Serper)
             if response.status_code in _ROTATE_STATUS_CODES:
+                body = response.text[:200] if response.status_code == 400 else ""
+                logger.warning("Serper key exhausted (HTTP %d%s), rotating", response.status_code, f": {body}" if body else "")
                 # Mark key exhausted with 1-hour TTL (Serper resets hourly)
                 await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
 
