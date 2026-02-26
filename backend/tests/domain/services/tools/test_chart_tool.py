@@ -17,9 +17,9 @@ from app.domain.services.tools.chart import ChartTool
 def _build_success_output(*, include_json: bool) -> str:
     payload: dict[str, object | None] = {
         "success": True,
-        "html_path": "/home/ubuntu/chart-abc12345.html",
+        "html_path": "",
         "png_path": "/home/ubuntu/chart-abc12345.png",
-        "html_size": 1024,
+        "html_size": 0,
         "png_size": 2048,
         "chart_type": "bar",
         "data_points": 3,
@@ -66,6 +66,8 @@ async def test_chart_tool_includes_json_output_path_in_script_input() -> None:
     written_spec = json.loads(write_call.kwargs["content"])
     assert "output_json" in written_spec
     assert str(written_spec["output_json"]).endswith(".plotly.json")
+    assert "output_png" in written_spec
+    assert "output_html" not in written_spec  # No HTML output
 
 
 @pytest.mark.asyncio
