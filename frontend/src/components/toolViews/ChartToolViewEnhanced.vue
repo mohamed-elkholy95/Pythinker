@@ -73,10 +73,6 @@
           <div class="text-[var(--text-tertiary)] text-sm text-center">
             Failed to load interactive chart —
             <button @click="activeViewMode = 'static'" class="text-blue-500 hover:text-blue-600 underline">view static image</button>
-            <template v-if="chartContent.content?.html_file_id">
-              or
-              <button @click="openInteractive" class="text-blue-500 hover:text-blue-600 underline">open in new tab</button>
-            </template>
           </div>
         </div>
         <div v-else-if="!plotlyReady" class="p-8 flex items-center justify-center">
@@ -480,7 +476,11 @@ watch(() => props.chartContent?.content?.png_file_id, () => {
 watch(
   canShowInteractive,
   (canShow) => {
-    if (!canShow && activeViewMode.value === 'interactive') {
+    if (canShow && activeViewMode.value === 'static') {
+      // Promote to interactive when data becomes available
+      // (e.g., tool result arrived after initial render demoted to static)
+      activeViewMode.value = 'interactive';
+    } else if (!canShow && activeViewMode.value === 'interactive') {
       activeViewMode.value = 'static';
     }
   },
