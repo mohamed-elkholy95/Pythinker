@@ -1,7 +1,8 @@
 # Plotly Chart Design Best Practices
 
-**Source:** Official Plotly.py Documentation (Context7 MCP Validated - 2026-02-15)
+**Source:** Official Plotly.py Documentation (Context7 MCP Validated - 2026-02-15, Updated 2026-02-26)
 **Library ID:** `/plotly/plotly.py` (Benchmark Score: 93.2/100, 2696 snippets)
+**Chart Types:** 14 (bar, line, scatter, pie, area, grouped_bar, stacked_bar, box, donut, waterfall, funnel, treemap, indicator, auto)
 
 ---
 
@@ -38,7 +39,7 @@ STEP 2: What type of variables do you have?
 └─ Numerical Continuous (single variable) → box
 
 STEP 3: Apply formatting rules:
-├─ Are labels >4 characters? → Use orientation='h' for bar charts
+├─ Orientation: Use 'auto' (default) — system detects temporal, long labels, many categories
 ├─ Are values vastly different (>5x range)? → Log scale applied automatically
 └─ Do you need to compare order? → Charts auto-sort by value
 ```
@@ -245,6 +246,142 @@ STEP 3: Apply formatting rules:
 - Useful for detecting outliers (points beyond whiskers)
 - Good for comparing spread across multiple groups
 - Not ideal for small datasets (<10 points) - use scatter instead
+
+---
+
+### Donut Charts (NEW - 2026-02-26)
+**When to use:**
+- Same as pie charts but with a modern aesthetic
+- Center hole provides space for annotation or KPI text
+- Better visual balance than solid pie
+
+**Implementation:** `go.Pie(hole=0.45)` — identical API to pie with hole parameter.
+
+---
+
+### Waterfall Charts (NEW - 2026-02-26)
+**When to use:**
+- Showing cumulative effect of sequential positive/negative values
+- P&L statements, budget breakdowns, variance analysis
+- Any "bridge chart" connecting start to end values
+
+**Data Requirements:**
+- Labels: Sequential stages (Revenue, COGS, Expenses, Net Profit)
+- Values: Positive (gains) and negative (losses)
+- Optional `measure` field: `["relative", "relative", "total"]`
+
+**Colors:** Green (increasing), Red (decreasing), Blue (totals) — applied automatically.
+
+**Example:**
+```python
+chart_create(
+    chart_type="waterfall",
+    title="Q1 Profit Breakdown",
+    labels=["Revenue", "COGS", "Expenses", "Net Profit"],
+    datasets=[{
+        "values": [100, -30, -20, 50],
+        "measure": ["absolute", "relative", "relative", "total"]
+    }],
+)
+```
+
+---
+
+### Funnel Charts (NEW - 2026-02-26)
+**When to use:**
+- Conversion pipelines (marketing, sales, user onboarding)
+- Sequential stages with decreasing values
+- Showing drop-off rates between stages
+
+**Data Requirements:**
+- Labels: Stage names (Visitors, Signups, Trials, Paid)
+- Values: Counts at each stage (decreasing)
+
+**Features:** Automatically shows `value + percent initial` for conversion rates.
+
+---
+
+### Treemap Charts (NEW - 2026-02-26)
+**When to use:**
+- Hierarchical part-to-whole relationships
+- File/directory sizes, org chart budgets, category breakdowns
+- When you need to show both hierarchy and magnitude
+
+**Data Requirements:**
+- Labels: Node names
+- Values: Node sizes/values
+- Parents: Parent node for each label (use `""` for root nodes)
+
+**Example:**
+```python
+chart_create(
+    chart_type="treemap",
+    title="Budget by Department",
+    labels=["Company", "Engineering", "Frontend", "Backend", "Sales"],
+    datasets=[{"values": [0, 100, 40, 60, 80]}],
+    parents=["", "Company", "Engineering", "Engineering", "Company"],
+)
+```
+
+---
+
+### Indicator Charts (NEW - 2026-02-26)
+**When to use:**
+- Dashboard KPI cards showing a single headline metric
+- Comparing current value to a reference/target
+- Simple "big number" displays
+
+**Data Requirements:**
+- Single value in dataset
+- Optional `reference` for delta calculation
+- Labels not required
+
+**Example:**
+```python
+chart_create(
+    chart_type="indicator",
+    title="Monthly Revenue",
+    datasets=[{"values": [125000]}],
+    reference=110000,  # Shows +13.6% delta
+)
+```
+
+---
+
+### Auto Chart Type (NEW - 2026-02-26)
+**When to use:**
+- Unsure which chart type fits your data
+- Quick prototyping — let the system analyze and choose
+
+**Heuristics:**
+1. Single value → indicator
+2. Has parents → treemap
+3. Has measure → waterfall
+4. Temporal labels → line
+5. Values sum to ~100% (≤7 cats) → pie
+6. Multiple datasets → grouped_bar
+7. Default → bar
+
+---
+
+### Auto-Orientation (NEW - 2026-02-26)
+
+Bar charts now default to `orientation="auto"` which intelligently chooses:
+- **Temporal labels** (dates, months, Q1-Q4) → vertical (time flows left-to-right)
+- **Many categories** (>8) → horizontal (prevents label crowding)
+- **Long labels** (max >12 chars or avg >6) → horizontal
+- **Short labels, few items** → vertical
+
+Explicit `"v"` or `"h"` still works for manual override.
+
+---
+
+### Dark Mode (NEW - 2026-02-26)
+
+Set `theme="plotly_dark"` for dark mode PNG/HTML generation:
+- Dark background (`#1a1a2e`)
+- Light text and axis labels
+- Subtle light grid lines
 
 ---
 
