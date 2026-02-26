@@ -23,6 +23,7 @@ from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
     RotationStrategy,
+    _text_has_quota_keywords,
 )
 from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.infrastructure.external.search.factory import SearchProviderRegistry
@@ -220,29 +221,36 @@ class SerperSearchEngine(SearchEngineBase):
 
             # Check for quota/auth errors (400 = "Not enough credits" from Serper)
             if response.status_code in _ROTATE_STATUS_CODES:
-                body = response.text[:200] if response.status_code == 400 else ""
-                logger.warning("Serper key exhausted (HTTP %d%s), rotating", response.status_code, f": {body}" if body else "")
-                # Mark key exhausted with 1-hour TTL (Serper resets hourly)
-                await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
-
-                # Close cached client so next retry creates one with the new key
+                body = response.text[:200]
+                logger.warning("Serper key error (HTTP %d%s), rotating", response.status_code, f": {body}" if body else "")
+                await self._key_pool.handle_error(key, status_code=response.status_code, body_text=body)
                 await self.close()
-
-                # Retry with next key
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
             response.raise_for_status()
+
+            # Dual quota detection: scan successful response body
             results, total_results = self._parse_response(response)
+            response_text = response.text[:500]
+            if _text_has_quota_keywords(response_text):
+                logger.warning("Serper quota keyword detected in response body, rotating key")
+                await self._key_pool.handle_error(key, body_text=response_text)
+                await self.close()
+                return await self.search(query, date_range, _attempt=_attempt + 1)
+
+            self._key_pool.record_success(key)
             return self._create_success_result(query, date_range, results, total_results)
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code in _ROTATE_STATUS_CODES:
-                await self._key_pool.mark_exhausted(key, ttl_seconds=3600)
+                body = e.response.text[:200] if hasattr(e.response, "text") else ""
+                await self._key_pool.handle_error(key, status_code=e.response.status_code, body_text=body)
                 await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
             return self._create_error_result(query, date_range, self._handle_http_error(e))
 
         except httpx.TimeoutException:
+            await self._key_pool.handle_error(key, is_network_error=True)
             return self._create_error_result(query, date_range, f"Serper search timed out after {self.timeout}s")
 
         except Exception as e:
