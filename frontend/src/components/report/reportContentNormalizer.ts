@@ -114,6 +114,7 @@ export const linkifyInlineCitations = (markdown: string): string => {
   const lines = markdown.split('\n');
   let inCodeFence = false;
   let inReferencesSection = false;
+  let nextUnorderedRef = 1;
 
   return lines
     .map((line) => {
@@ -128,6 +129,7 @@ export const linkifyInlineCitations = (markdown: string): string => {
       // Detect references/sources/bibliography heading (markdown heading or bold text)
       if (REFERENCES_HEADING_RE.test(trimmed) || BOLD_REFERENCES_RE.test(trimmed)) {
         inReferencesSection = true;
+        nextUnorderedRef = 1;
         return line;
       }
 
@@ -145,6 +147,14 @@ export const linkifyInlineCitations = (markdown: string): string => {
       }
 
       if (inReferencesSection) {
+        // Unordered list item "- text", "* text", "+ text" — convert to numbered citation
+        const ulMatch = trimmed.match(/^[-*+]\s+(.+)/);
+        if (ulMatch) {
+          const num = nextUnorderedRef++;
+          const indent = line.slice(0, line.length - trimmed.length);
+          return `${indent}<span id="ref-${num}">[${num}]</span> ${ulMatch[1]}`;
+        }
+
         // Ordered list item "1. text" — inject id anchor before the content
         const olMatch = ORDERED_LIST_RE.exec(line);
         if (olMatch) {
