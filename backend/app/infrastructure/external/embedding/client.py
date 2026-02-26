@@ -146,10 +146,9 @@ class EmbeddingClient:
             )
 
             # Check for rate limit/auth errors
-            if response.status_code in (401, 429):
-                # Parse TTL from X-RateLimit-Reset header
-                ttl = self._parse_rate_limit_ttl(response.headers)
-                await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
+            if response.status_code in (401, 429, 402, 403):
+                body = response.text[:200] if hasattr(response, "text") else ""
+                await self._key_pool.handle_error(key, status_code=response.status_code, body_text=body)
                 return await self.embed_batch(texts, _attempt=_attempt + 1)
 
             response.raise_for_status()
@@ -157,13 +156,18 @@ class EmbeddingClient:
 
             # Sort by index to maintain order
             sorted_data = sorted(data["data"], key=lambda x: x["index"])
+            self._key_pool.record_success(key)
             return [d["embedding"] for d in sorted_data]
 
         except _httpx.HTTPStatusError as e:
-            if e.response.status_code in (401, 429):
-                ttl = self._parse_rate_limit_ttl(e.response.headers)
-                await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
+            if e.response.status_code in (401, 429, 402, 403):
+                body = e.response.text[:200] if hasattr(e.response, "text") else ""
+                await self._key_pool.handle_error(key, status_code=e.response.status_code, body_text=body)
                 return await self.embed_batch(texts, _attempt=_attempt + 1)
+            raise
+
+        except _httpx.TimeoutException:
+            await self._key_pool.handle_error(key, is_network_error=True)
             raise
 
         except Exception as e:

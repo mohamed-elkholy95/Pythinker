@@ -21,6 +21,7 @@ from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
     RotationStrategy,
+    _text_has_quota_keywords,
 )
 from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.infrastructure.external.search.factory import SearchProviderRegistry
@@ -198,10 +199,8 @@ class TavilySearchEngine(SearchEngineBase):
 
             # Check for quota/auth errors (HTTP status codes)
             if response.status_code in _ROTATE_STATUS_CODES:
-                # Mark key exhausted with 24-hour TTL (Tavily resets daily)
-                await self._key_pool.mark_exhausted(key, ttl_seconds=86400)
-
-                # Retry with next key
+                body = response.text[:200] if hasattr(response, "text") else ""
+                await self._key_pool.handle_error(key, status_code=response.status_code, body_text=body)
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
             response.raise_for_status()
@@ -209,31 +208,33 @@ class TavilySearchEngine(SearchEngineBase):
             # Parse response
             data = response.json()
 
-            # TAVILY-SPECIFIC: Check JSON body for quota/billing errors
+            # Dual quota detection: check JSON body for quota/billing/auth errors
             if "error" in data:
-                error_msg = data["error"]
-                error_lower = str(error_msg).lower()
+                error_msg = str(data["error"])
 
-                # Check for quota/billing errors
-                if "quota" in error_lower or "billing" in error_lower:
-                    await self._key_pool.mark_exhausted(key, ttl_seconds=86400)
+                if _text_has_quota_keywords(error_msg):
+                    await self._key_pool.handle_error(key, body_text=error_msg)
                     return await self.search(query, date_range, _attempt=_attempt + 1)
 
                 # Check for auth errors (permanent invalidity)
+                error_lower = error_msg.lower()
                 if "invalid" in error_lower or "auth" in error_lower:
-                    await self._key_pool.mark_invalid(key)
+                    await self._key_pool.handle_error(key, status_code=401, body_text=error_msg)
                     return await self.search(query, date_range, _attempt=_attempt + 1)
 
+            self._key_pool.record_success(key)
             results, total_results = self._parse_response_data(data)
             return self._create_success_result(query, date_range, results, total_results)
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code in _ROTATE_STATUS_CODES:
-                await self._key_pool.mark_exhausted(key, ttl_seconds=86400)
+                body = e.response.text[:200] if hasattr(e.response, "text") else ""
+                await self._key_pool.handle_error(key, status_code=e.response.status_code, body_text=body)
                 return await self.search(query, date_range, _attempt=_attempt + 1)
             return self._create_error_result(query, date_range, self._handle_http_error(e))
 
         except httpx.TimeoutException:
+            await self._key_pool.handle_error(key, is_network_error=True)
             return self._create_error_result(query, date_range, f"Tavily search timed out after {self.timeout}s")
 
         except Exception as e:
