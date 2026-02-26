@@ -1237,7 +1237,7 @@ async def chat(
                         final_status = getattr(refreshed_session, "status", final_status)
                 close_reason = _resolve_stream_exhausted_close_reason(final_status)
                 if close_reason == "stream_exhausted_non_terminal":
-                    logger.warning(
+                    logger.debug(
                         "SSE stream exhausted while session is non-terminal (session=%s status=%s)",
                         session_id,
                         _normalize_session_status(final_status),
