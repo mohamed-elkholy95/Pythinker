@@ -173,6 +173,24 @@ KNOWLEDGE_PATTERNS = [
     r"\?$",  # Ends with question mark (likely a question)
 ]
 
+# Queries matching KNOWLEDGE_PATTERNS but containing these indicators should
+# be escalated to the full workflow (WEB_SEARCH / TASK) because they require
+# up-to-date, cited, or multi-faceted information the LLM alone cannot provide.
+KNOWLEDGE_ESCALATION_PATTERNS = [
+    # Health, medical, supplement, drug topics — need authoritative/cited info
+    r"\b(?:side\s+effects?|dosage|supplement|medication|drug|symptoms?|treatment|diagnosis|health\s+(?:benefits?|risks?))\b",
+    r"\b(?:body|blood\s+pressure|cholesterol|heart|liver|kidney|brain|hormone|cortisol|testosterone)\b",
+    # Comparison / multi-faceted analysis — need structured research
+    r"\b(?:pros?\s+and\s+cons?|advantages?\s+and\s+disadvantages?|benefits?\s+and\s+(?:risks?|drawbacks?|downsides?))\b",
+    r"\b(?:compare|comparison|versus|vs\.?)\b",
+    # Current events, prices, stats — LLM training data is stale
+    r"\b(?:price|cost|stock|worth|salary|latest|current|today|this\s+(?:year|month|week))\b",
+    # Legal, financial advice — need authoritative sources
+    r"\b(?:legal|illegal|lawsuit|tax|regulation|compliance)\b",
+    # Safety and warnings
+    r"\b(?:safe(?:ty)?|unsafe|danger(?:ous)?|warnings?|risks?|toxic(?:ity)?|poisonous|overdose)\b",
+]
+
 # Patterns for explicit short-response directives.
 # These are simple conversational formatting requests that should not trigger
 # full planning/report workflows (e.g. "Reply with a short sentence.").
@@ -451,6 +469,29 @@ class FastPathRouter:
         if word_count < 35:
             for pattern in KNOWLEDGE_PATTERNS:
                 if re.search(pattern, message_lower):
+                    # Escalation check 1: topic-based (health, safety, legal, etc.)
+                    for esc_pattern in KNOWLEDGE_ESCALATION_PATTERNS:
+                        if re.search(esc_pattern, message_lower):
+                            logger.info(
+                                "Query matched KNOWLEDGE but escalated to TASK "
+                                "(escalation pattern: %s)",
+                                esc_pattern,
+                            )
+                            return QueryIntent.TASK, {}
+
+                    # Escalation check 2: multi-sub-question queries.
+                    # Queries with 3+ conjunctions ("and") or multiple question
+                    # aspects signal a compound question that benefits from
+                    # structured research (e.g., "X and pros and cons and side effects").
+                    conjunction_count = len(re.findall(r"\band\b", message_lower))
+                    if conjunction_count >= 3:
+                        logger.info(
+                            "Query matched KNOWLEDGE but escalated to TASK "
+                            "(multi-sub-question: %d conjunctions)",
+                            conjunction_count,
+                        )
+                        return QueryIntent.TASK, {}
+
                     logger.info("Query classified as KNOWLEDGE")
                     return QueryIntent.KNOWLEDGE, {"question": message_clean}
 
@@ -895,7 +936,12 @@ class FastPathRouter:
                 "You are Pythinker, an AI assistant created by the Pythinker Team and Mohamed Elkholy. "
                 "You are NOT Claude. You are NOT made by Anthropic. "
                 "Answer the following question concisely and accurately. "
-                "If you're not certain about something, say so. Keep your response focused and under 500 words."
+                "If you're not certain about something, say so. Keep your response focused and under 500 words.\n\n"
+                "Formatting rules:\n"
+                "- Use consistent formatting throughout: if you use a table for one section, use tables for all comparable sections. "
+                "If you use bullet points, use bullet points throughout.\n"
+                "- Never mix tables and bullet points for parallel content (e.g., pros vs cons should both be the same format).\n"
+                "- Prefer bullet points for short lists; prefer tables when comparing attributes side by side."
             )
             system_content += "\n" + get_current_datetime_signal()
             if self._memory_context:
