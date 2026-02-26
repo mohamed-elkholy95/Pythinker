@@ -1,10 +1,10 @@
 #!/bin/bash
 # Chrome wrapper script with filtered stderr.
 #
-# Runs Chrome headless with stderr piped through the noise filter, using
-# a standard pipeline (not process substitution) to keep all processes
-# in the same process group. Combined with supervisord's stopasgroup=true,
-# this prevents orphan filter processes on Chrome restart.
+# Runs Chrome headed on Xvfb (:99) with stderr piped through the noise
+# filter, using a standard pipeline (not process substitution) to keep
+# all processes in the same process group. Combined with supervisord's
+# stopasgroup=true, this prevents orphan filter processes on Chrome restart.
 #
 # Environment:
 #   BROWSER_PATH  - Chrome binary (default: /opt/chrome-for-testing/chrome)
@@ -27,6 +27,13 @@ export GSETTINGS_BACKEND=memory
 
 sleep 1
 
+# ── Wait for Xvfb display ────────────────────────────────────────────
+while ! xdpyinfo -display :99 >/dev/null 2>&1; do
+    echo "Waiting for Xvfb display :99..."
+    sleep 0.3
+done
+export DISPLAY=:99
+
 # ── Chrome binary and flags ──────────────────────────────────────────
 CHROME="${BROWSER_PATH:-/opt/chrome-for-testing/chrome}"
 
@@ -37,11 +44,10 @@ _CHROME_MAJOR=${_CHROME_RAW_VER%%.*}
 CHROME_UA_VERSION="${_CHROME_RAW_VER:-${_CHROME_MAJOR:-0}.0.0.0}"
 
 CHROME_FLAGS=(
-    --headless=new
     --no-sandbox
     --disable-setuid-sandbox
     --window-size=1280,1024
-    --disable-gpu
+    --start-maximized
     --disable-gpu-sandbox
     --disable-vulkan
     --enable-unsafe-swiftshader

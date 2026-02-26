@@ -142,6 +142,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-turbo8 libpng16-16 libxfont2 libgl1-mesa-dri libgl1-mesa-glx libgif7 \
     libssl3 libgnutls30 libxtst6 libxrandr2 libxcursor1 libxinerama1 libxkbfile1 \
     ripgrep jq git zip unzip \
+    xvfb openbox x11vnc python3-websockify \
     poppler-utils \
     fonts-noto-cjk fonts-noto-color-emoji \
     fonts-liberation fonts-dejavu-core fonts-freefont-ttf fontconfig \
@@ -267,7 +268,7 @@ RUN chown -R ubuntu:ubuntu /home/ubuntu && chmod 750 /home/ubuntu && \
     mkdir -p /workspace && chown ubuntu:ubuntu /workspace && chmod 755 /workspace && \
     chown -R ubuntu:ubuntu /app
 
-EXPOSE 8080 8082 9222 8443
+EXPOSE 8080 8082 9222 6080 8443
 
 # Health check: verify sandbox API is responding
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
