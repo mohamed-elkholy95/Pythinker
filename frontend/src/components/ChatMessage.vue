@@ -137,7 +137,7 @@
       >
         <div class="my-[1px]">
           <div
-            class="message-markdown markdown-content assistant-message-text py-[3px] whitespace-pre-wrap break-words"
+            class="message-markdown markdown-content assistant-message-text py-[3px] break-words"
             :class="{
               'message-markdown-collapsed': shouldCollapseMessageContent,
               'assistant-summary-compact': isAssistantSummaryCompact,
