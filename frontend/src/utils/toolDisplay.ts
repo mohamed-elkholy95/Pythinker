@@ -244,8 +244,8 @@ export function extractToolUrl(args?: Record<string, unknown>): string | null {
 
 /**
  * Get favicon URL for a domain using DuckDuckGo's favicon service.
- * DuckDuckGo always returns a fallback image for unknown domains,
- * avoiding 404 console errors that Google's service produces.
+ * Some subdomains may return 404 — callers should handle img @error
+ * and cache failed domains to avoid repeated requests.
  */
 export function getFaviconUrl(url: string): string | null {
   try {

@@ -39,7 +39,7 @@
             v-if="citCard.faviconUrl"
             :src="citCard.faviconUrl"
             class="cit-card-favicon"
-            @error="(e) => { (e.target as HTMLImageElement).style.display = 'none' }"
+            @error="(e: Event) => { (e.target as HTMLImageElement).style.display = 'none'; if (citCard.domain) _failedFaviconDomains.add(citCard.domain); }"
           />
           <span class="cit-card-domain">{{ citCard.domain }}</span>
           <svg class="cit-card-arrow" viewBox="0 0 12 12" fill="none">
@@ -83,6 +83,8 @@ const contentRef = ref<HTMLElement | null>(null);
 // ── Citation reference card state (declared early — template accesses this on first render) ──
 const citCard = reactive({ visible: false, title: '', domain: '', faviconUrl: '', url: '', x: 0, y: 0 });
 let _hideCardTimer: ReturnType<typeof setTimeout> | null = null;
+// Cache domains whose favicons failed to load — avoids repeated 404 requests on hover
+const _failedFaviconDomains = new Set<string>();
 
 // Convert markdown to HTML, applying citation linkification before marked.parse()
 const htmlContent = computed(() => {
@@ -483,7 +485,9 @@ const _onBadgeOver = (e: MouseEvent) => {
   const rect = badge.getBoundingClientRect();
   citCard.title = title;
   citCard.domain = domain;
-  citCard.faviconUrl = domain ? (getFaviconUrl(`https://${domain}`) ?? '') : '';
+  citCard.faviconUrl = domain && !_failedFaviconDomains.has(domain)
+    ? (getFaviconUrl(`https://${domain}`) ?? '')
+    : '';
   citCard.url = url;
   // Centre the card below the badge, clamped to viewport width
   const cardWidth = 260;
