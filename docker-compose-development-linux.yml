@@ -70,6 +70,7 @@ services:
     command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "app", "--reload-exclude", "tests/*", "--reload-exclude", "docs/*", "--reload-exclude", "*.md", "--timeout-graceful-shutdown", "3" ]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - dspy_cache:/app/data/dspy_cache
     ports:
       - "8000:8000"
     depends_on:
@@ -97,6 +98,10 @@ services:
       - "LOCAL_AUTH_PASSWORD=AdminPy@2026!"
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
+      # DSPy prompt optimization
+      - FEATURE_PROMPT_OPTIMIZATION_PIPELINE=${FEATURE_PROMPT_OPTIMIZATION_PIPELINE:-false}
+      - DSPY_CACHEDIR=/app/data/dspy_cache
+      - DSPY_NUM_THREADS=${DSPY_NUM_THREADS:-4}
     healthcheck:
       test: [ "CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1" ]
       interval: 15s
@@ -292,6 +297,8 @@ volumes:
     name: pythinker-qdrant-data
   minio_data:
     name: pythinker-minio-data
+  dspy_cache:
+    name: pythinker-dspy-cache
 
 networks:
   pythinker-network:

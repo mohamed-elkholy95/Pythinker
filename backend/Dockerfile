@@ -31,8 +31,16 @@ COPY . .
 # Set script execution permissions
 RUN chmod +x run.sh
 
+# Create persistent DSPy/LiteLLM disk cache directory.
+# Mounted as a named volume in docker-compose so LLM call results
+# survive container restarts and avoid re-spending tokens on re-evaluation.
+RUN mkdir -p /app/data/dspy_cache
+
 # Set environment variables
 ENV PYTHONPATH=/app
+# DSPy/LiteLLM will read this env var to locate the disk cache.
+# Override with DSPY_CACHE_DIR in docker-compose if you want a different path.
+ENV DSPY_CACHEDIR=/app/data/dspy_cache
 
 # Expose port
 EXPOSE 8000
