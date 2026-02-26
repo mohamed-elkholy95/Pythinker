@@ -449,15 +449,25 @@ class TestRetrieveContext:
 
     @pytest.mark.asyncio
     async def test_retrieval_all_three_phases(self, service, mock_repository):
-        """When turn_number > sliding_window_size, all three phases run."""
+        """When turn_number > sliding_window_size, all three phases run.
+
+        Cross-session content must share keywords with the query to pass
+        the topic-coherence filter (min 2 keyword overlap).
+        """
         mock_repository.get_recent_turns.return_value = [
             _make_context_result(content="Window turn", turn_number=8),
         ]
         mock_repository.search_session_turns.return_value = [
             _make_context_result(content="Semantic turn", turn_number=2, source="intra_session", score=0.85),
         ]
+        # Cross-session content shares keywords "test" and "query" with the query
         mock_repository.search_cross_session.return_value = [
-            _make_context_result(content="Cross-session turn", turn_number=5, source="cross_session", score=0.7),
+            _make_context_result(
+                content="Past session discussed test query results and analysis",
+                turn_number=5,
+                source="cross_session",
+                score=0.7,
+            ),
         ]
 
         with (
@@ -658,3 +668,111 @@ class TestContentHash:
         from app.domain.services.conversation_context_service import _content_hash
 
         assert _content_hash("message one") != _content_hash("message two")
+
+
+# ------------------------------------------------------------------ #
+# Topic coherence filter tests (cross-session leakage prevention)
+# ------------------------------------------------------------------ #
+
+
+class TestTopicCoherenceFilter:
+    """Tests for _filter_by_topic_coherence and _extract_keywords.
+
+    The topic-coherence filter prevents cross-session context leakage by
+    requiring a minimum keyword overlap between the current query and
+    cross-session results. This stops unrelated session content (e.g., a
+    discussion about 'qwen3 model capabilities') from leaking into a
+    query about 'ashwagandha health effects'.
+    """
+
+    def test_extract_keywords_basic(self):
+        from app.domain.services.conversation_context_service import _extract_keywords
+
+        keywords = _extract_keywords("What does ashwagandha do to your body")
+        assert "ashwagandha" in keywords
+        assert "body" in keywords
+        # Stop-words excluded
+        assert "what" not in keywords
+        assert "does" not in keywords
+        assert "your" not in keywords
+
+    def test_extract_keywords_min_length(self):
+        from app.domain.services.conversation_context_service import _extract_keywords
+
+        keywords = _extract_keywords("I am OK")
+        # "am" and "OK" are 2 chars, below min_length=3
+        assert "am" not in keywords
+        assert "ok" not in keywords
+
+    def test_filter_passes_related_content(self):
+        from app.domain.services.conversation_context_service import _filter_by_topic_coherence
+
+        query = "ashwagandha health benefits and side effects"
+        turns = [
+            _make_context_result(
+                content="Ashwagandha is an adaptogen with documented health benefits including stress reduction",
+                turn_number=1,
+                source="cross_session",
+            ),
+        ]
+        filtered = _filter_by_topic_coherence(query, turns)
+        assert len(filtered) == 1
+
+    def test_filter_drops_unrelated_content(self):
+        """Unrelated topic (LLM model discussion) should be filtered out."""
+        from app.domain.services.conversation_context_service import _filter_by_topic_coherence
+
+        query = "ashwagandha health benefits and side effects"
+        turns = [
+            _make_context_result(
+                content="qwen3 model performance benchmarks compared to llama and mistral",
+                turn_number=1,
+                source="cross_session",
+            ),
+        ]
+        filtered = _filter_by_topic_coherence(query, turns)
+        assert len(filtered) == 0
+
+    def test_filter_mixed_results(self):
+        """Only related turns survive the filter."""
+        from app.domain.services.conversation_context_service import _filter_by_topic_coherence
+
+        query = "python asyncio performance optimization"
+        related = _make_context_result(
+            content="asyncio performance tips for python web servers",
+            turn_number=1,
+            source="cross_session",
+        )
+        unrelated = _make_context_result(
+            content="react component rendering lifecycle with hooks",
+            turn_number=2,
+            source="cross_session",
+        )
+        filtered = _filter_by_topic_coherence(query, [related, unrelated])
+        assert len(filtered) == 1
+        assert filtered[0].content == related.content
+
+    def test_filter_empty_turns(self):
+        from app.domain.services.conversation_context_service import _filter_by_topic_coherence
+
+        assert _filter_by_topic_coherence("any query", []) == []
+
+    def test_filter_no_query_keywords(self):
+        """If query has no extractable keywords, all turns pass (no filtering)."""
+        from app.domain.services.conversation_context_service import _filter_by_topic_coherence
+
+        turns = [_make_context_result(content="some content here", turn_number=1)]
+        filtered = _filter_by_topic_coherence("a an the", turns)
+        assert len(filtered) == 1  # All stop-words → no filtering
+
+    def test_default_cross_session_disabled(self):
+        """Verify the default config disables cross-session recall."""
+        from app.core.config_features import FeatureFlagsSettingsMixin
+
+        assert FeatureFlagsSettingsMixin.conversation_context_cross_session_top_k == 0
+
+    def test_cross_session_min_score_raised(self):
+        """Verify the min score threshold is strict enough."""
+        from app.core.config_features import FeatureFlagsSettingsMixin
+
+        assert FeatureFlagsSettingsMixin.conversation_context_cross_session_min_score >= 0.7
