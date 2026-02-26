@@ -56,7 +56,7 @@ class EvalResult:
 
     metric_type: EvalMetricType
     score: float  # 0.0 to 1.0
-    passed: bool  # True if score >= threshold
+    passed: bool = False  # Set by __post_init__ from score >= threshold; default avoids missing-arg error
     threshold: float = 0.7
     reasoning: str = ""
     details: dict[str, Any] = field(default_factory=dict)
