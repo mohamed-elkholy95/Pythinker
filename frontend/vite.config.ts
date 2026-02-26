@@ -1,8 +1,42 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import tailwindcss from '@tailwindcss/vite';
 import commonjs from 'vite-plugin-commonjs';
 import { resolve } from 'path';
+import { readFileSync } from 'fs';
+
+// ---------------------------------------------------------------------------
+// noVNC TLA patch — https://github.com/novnc/noVNC/issues/1943
+//
+// noVNC v1.6 ships Babel-converted CJS on npm.  lib/util/browser.js contains
+// a top-level `await` (valid ESM, invalid CJS).  Every `require()` of that
+// file fails in esbuild because require() is synchronous.
+//
+// Fix: replace the blocking TLA with a deferred `.then()`.  The H.264 codec
+// check runs asynchronously and resolves well before VNC negotiates codecs.
+// ---------------------------------------------------------------------------
+const NOVNC_TLA_RE =
+  /exports\.supportsWebCodecsH264Decode\s*=\s*supportsWebCodecsH264Decode\s*=\s*await\s+_checkWebCodecsH264DecodeSupport\(\)\s*;/;
+
+const NOVNC_TLA_FIX = [
+  'exports.supportsWebCodecsH264Decode = supportsWebCodecsH264Decode = false;',
+  '_checkWebCodecsH264DecodeSupport().then(function(v) {',
+  '  exports.supportsWebCodecsH264Decode = supportsWebCodecsH264Decode = v;',
+  '});',
+].join('\n');
+
+/** Vite transform plugin — patches noVNC when served outside dep optimization. */
+function patchNoVncTLA(): Plugin {
+  return {
+    name: 'patch-novnc-tla',
+    enforce: 'pre',
+    transform(code, id) {
+      if (id.includes('novnc') && id.endsWith('browser.js') && NOVNC_TLA_RE.test(code)) {
+        return { code: code.replace(NOVNC_TLA_RE, NOVNC_TLA_FIX), map: null };
+      }
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 const usePolling =
@@ -20,6 +54,7 @@ const hmrClientPort = process.env.VITE_HMR_CLIENT_PORT
 
 export default defineConfig({
   plugins: [
+    patchNoVncTLA(),
     tailwindcss(),
     vue(),
     commonjs(),
@@ -34,9 +69,27 @@ export default defineConfig({
     esbuildOptions: {
       target: 'esnext',
       supported: {
-        'top-level-await': true
-      }
-    }
+        'top-level-await': true,
+      },
+      plugins: [
+        {
+          // esbuild plugin — patches noVNC's browser.js during dep optimization
+          name: 'patch-novnc-tla',
+          setup(build) {
+            build.onLoad(
+              { filter: /novnc[\\/]lib[\\/]util[\\/]browser\.js$/ },
+              (args) => {
+                let contents = readFileSync(args.path, 'utf-8');
+                if (NOVNC_TLA_RE.test(contents)) {
+                  contents = contents.replace(NOVNC_TLA_RE, NOVNC_TLA_FIX);
+                }
+                return { contents, loader: 'js' };
+              },
+            );
+          },
+        },
+      ],
+    },
   },
   server: {
     host: process.env.VITE_HOST === 'true' ? true : 'localhost',
