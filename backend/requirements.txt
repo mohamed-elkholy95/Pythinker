@@ -96,3 +96,7 @@ structlog>=24.4.0
 # Base package only — MinerU/LightRAG are transitive dependencies; imported lazily.
 # Enable with KNOWLEDGE_BASE_ENABLED=true in .env
 raganything>=1.2.0
+
+# Prompt optimization pipeline (Thompson sampling + MIPROv2)
+# Enable with FEATURE_PROMPT_OPTIMIZATION_PIPELINE=true
+dspy>=2.6.0
