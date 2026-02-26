@@ -29,72 +29,30 @@ class TestEmbeddingClient:
         assert client.dimension == 1536
 
     @pytest.mark.asyncio
-    async def test_embed_returns_vector(self):
-        """Should return embedding vector from API response."""
+    async def test_embed_delegates_to_embed_batch(self):
+        """embed() should delegate to embed_batch() for unified key rotation."""
         client = EmbeddingClient(api_key="test-key")
 
         expected_embedding = [0.1] * 1536
-        mock_data_item = MagicMock()
-        mock_data_item.embedding = expected_embedding
-
-        mock_response = MagicMock()
-        mock_response.data = [mock_data_item]
-
-        mock_embeddings = MagicMock()
-        mock_embeddings.create = AsyncMock(return_value=mock_response)
-        client._client = MagicMock()
-        client._client.embeddings = mock_embeddings
+        client.embed_batch = AsyncMock(return_value=[expected_embedding])
 
         result = await client.embed("Hello world")
 
         assert result == expected_embedding
-        assert len(result) == 1536
+        client.embed_batch.assert_awaited_once_with(["Hello world"])
 
     @pytest.mark.asyncio
-    async def test_embed_truncates_long_text(self):
-        """Should truncate text to 8000 chars."""
+    async def test_embed_returns_first_element(self):
+        """embed() should return the first (and only) embedding from batch."""
         client = EmbeddingClient(api_key="test-key")
 
-        mock_data_item = MagicMock()
-        mock_data_item.embedding = [0.1] * 1536
+        embedding = [0.5] * 1536
+        client.embed_batch = AsyncMock(return_value=[embedding])
 
-        mock_response = MagicMock()
-        mock_response.data = [mock_data_item]
+        result = await client.embed("test text")
 
-        mock_embeddings = MagicMock()
-        mock_embeddings.create = AsyncMock(return_value=mock_response)
-        client._client = MagicMock()
-        client._client.embeddings = mock_embeddings
-
-        long_text = "a" * 10000
-        result = await client.embed(long_text)
-
-        # Verify text was truncated in the API call
-        call_kwargs = mock_embeddings.create.call_args.kwargs
-        assert len(call_kwargs["input"]) == 8000
+        assert result == embedding
         assert len(result) == 1536
-
-    @pytest.mark.asyncio
-    async def test_embed_passes_model_and_encoding(self):
-        """Should pass model name and encoding_format to API."""
-        client = EmbeddingClient(api_key="test-key", model="text-embedding-3-large")
-
-        mock_data_item = MagicMock()
-        mock_data_item.embedding = [0.1] * 1536
-
-        mock_response = MagicMock()
-        mock_response.data = [mock_data_item]
-
-        mock_embeddings = MagicMock()
-        mock_embeddings.create = AsyncMock(return_value=mock_response)
-        client._client = MagicMock()
-        client._client.embeddings = mock_embeddings
-
-        await client.embed("test text")
-
-        call_kwargs = mock_embeddings.create.call_args.kwargs
-        assert call_kwargs["model"] == "text-embedding-3-large"
-        assert call_kwargs["encoding_format"] == "float"
 
     @pytest.mark.asyncio
     async def test_embed_batch_empty(self):
@@ -105,7 +63,7 @@ class TestEmbeddingClient:
 
     @pytest.mark.asyncio
     async def test_embed_batch_single_text(self):
-        """Should handle single-item batch via raw HTTP (not SDK)."""
+        """Should handle single-item batch via HTTPClientPool."""
         client = EmbeddingClient(api_key="test-key")
 
         api_response = {
@@ -117,12 +75,14 @@ class TestEmbeddingClient:
         mock_http_response.json.return_value = api_response
         mock_http_response.raise_for_status = MagicMock()
 
-        mock_http_client = AsyncMock()
-        mock_http_client.post = AsyncMock(return_value=mock_http_response)
-        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-        mock_http_client.__aexit__ = AsyncMock(return_value=False)
+        mock_managed_client = AsyncMock()
+        mock_managed_client.post = AsyncMock(return_value=mock_http_response)
 
-        with patch("app.infrastructure.external.embedding.client.httpx.AsyncClient", return_value=mock_http_client):
+        with patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            new_callable=AsyncMock,
+            return_value=mock_managed_client,
+        ):
             result = await client.embed_batch(["single text"])
 
         assert len(result) == 1
@@ -145,12 +105,14 @@ class TestEmbeddingClient:
         mock_http_response.json.return_value = api_response
         mock_http_response.raise_for_status = MagicMock()
 
-        mock_http_client = AsyncMock()
-        mock_http_client.post = AsyncMock(return_value=mock_http_response)
-        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-        mock_http_client.__aexit__ = AsyncMock(return_value=False)
+        mock_managed_client = AsyncMock()
+        mock_managed_client.post = AsyncMock(return_value=mock_http_response)
 
-        with patch("app.infrastructure.external.embedding.client.httpx.AsyncClient", return_value=mock_http_client):
+        with patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            new_callable=AsyncMock,
+            return_value=mock_managed_client,
+        ):
             result = await client.embed_batch(["text0", "text1"])
 
         # Should be sorted by index (0 first, then 1)
@@ -174,21 +136,85 @@ class TestEmbeddingClient:
         mock_http_response.json.return_value = api_response
         mock_http_response.raise_for_status = MagicMock()
 
-        mock_http_client = AsyncMock()
-        mock_http_client.post = AsyncMock(return_value=mock_http_response)
-        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-        mock_http_client.__aexit__ = AsyncMock(return_value=False)
+        mock_managed_client = AsyncMock()
+        mock_managed_client.post = AsyncMock(return_value=mock_http_response)
 
-        with patch("app.infrastructure.external.embedding.client.httpx.AsyncClient", return_value=mock_http_client):
+        with patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            new_callable=AsyncMock,
+            return_value=mock_managed_client,
+        ):
             long_texts = ["x" * 10000, "y" * 9000]
             await client.embed_batch(long_texts)
 
         # Verify truncation in the HTTP request body
-        call_kwargs = mock_http_client.post.call_args
+        call_kwargs = mock_managed_client.post.call_args
         request_body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
         input_texts = request_body["input"]
         assert len(input_texts[0]) == 8000
         assert len(input_texts[1]) == 8000
+
+    @pytest.mark.asyncio
+    async def test_embed_batch_uses_pool_with_base_url(self):
+        """Should pass base_url and timeout to HTTPClientPool.get_client."""
+        client = EmbeddingClient(
+            api_key="test-key",
+            base_url="https://custom-api.example.com/v1",
+            timeout=60.0,
+        )
+
+        api_response = {
+            "data": [{"index": 0, "embedding": [0.1] * 1536}],
+        }
+
+        mock_http_response = MagicMock()
+        mock_http_response.status_code = 200
+        mock_http_response.json.return_value = api_response
+        mock_http_response.raise_for_status = MagicMock()
+
+        mock_managed_client = AsyncMock()
+        mock_managed_client.post = AsyncMock(return_value=mock_http_response)
+
+        with patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            new_callable=AsyncMock,
+            return_value=mock_managed_client,
+        ) as mock_get_client:
+            await client.embed_batch(["test"])
+
+        mock_get_client.assert_awaited_once_with(
+            "openai-embedding",
+            base_url="https://custom-api.example.com/v1",
+            timeout=60.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_embed_batch_sends_relative_url(self):
+        """Should POST to /embeddings (relative), not full URL — base_url is on pool."""
+        client = EmbeddingClient(api_key="test-key")
+
+        api_response = {
+            "data": [{"index": 0, "embedding": [0.1] * 1536}],
+        }
+
+        mock_http_response = MagicMock()
+        mock_http_response.status_code = 200
+        mock_http_response.json.return_value = api_response
+        mock_http_response.raise_for_status = MagicMock()
+
+        mock_managed_client = AsyncMock()
+        mock_managed_client.post = AsyncMock(return_value=mock_http_response)
+
+        with patch(
+            "app.infrastructure.external.embedding.client.HTTPClientPool.get_client",
+            new_callable=AsyncMock,
+            return_value=mock_managed_client,
+        ):
+            await client.embed_batch(["test"])
+
+        # First positional arg to post() should be relative path
+        post_args = mock_managed_client.post.call_args
+        assert post_args[0][0] == "/embeddings"
 
     def test_model_property(self):
         """model property should return the configured model."""
