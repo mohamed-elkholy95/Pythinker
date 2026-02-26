@@ -90,7 +90,7 @@ def _looks_temporal(labels: list[str]) -> bool:
 
 
 def _auto_orientation(labels: list[str]) -> str:
-    """Determine optimal bar orientation based on label characteristics."""
+    """Determine optimal bar orientation — strongly biased toward vertical."""
     if not labels:
         return "v"
     if _looks_temporal(labels):
@@ -98,13 +98,11 @@ def _auto_orientation(labels: list[str]) -> str:
     n_cats = len(labels)
     max_len = max(len(label) for label in labels)
     avg_len = sum(len(label) for label in labels) / n_cats
-    if n_cats > 8:
+    if n_cats > 12:
         return "h"
-    if max_len > 12:
+    if max_len > 25:
         return "h"
-    if avg_len > 6:
-        return "h"
-    if n_cats > 5 and avg_len > 4:
+    if n_cats > 8 and avg_len > 15:
         return "h"
     return "v"
 
