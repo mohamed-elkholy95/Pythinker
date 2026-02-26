@@ -135,7 +135,7 @@ class BrowserSettingsMixin:
     browser_pool_timeout: float = 30.0  # Timeout waiting for available connection
     browser_pool_max_idle: float = 300.0  # Max idle time before cleanup (5 min)
     browser_pool_health_interval: float = 60.0  # Health check interval (1 min)
-    browser_init_timeout: float = 60.0  # Overall timeout for browser initialization (seconds)
+    browser_init_timeout: float = 20.0  # Overall timeout for browser initialization (seconds)
 
     # Browser crash detection and circuit breaker (Phase 1: hardening)
     browser_crash_circuit_breaker_enabled: bool = True  # Enable circuit breaker for repeated crashes
@@ -168,7 +168,7 @@ class BrowserSettingsMixin:
     browser_blocked_resource_types: str = "image,media"  # Comma-separated resource types
 
     # Fast acknowledgment refiner configuration (Phase 6: fix timeouts)
-    fast_ack_refiner_timeout: float = 2.5  # LLM timeout for fast acknowledgment generation
+    fast_ack_refiner_timeout: float = 5.0  # LLM timeout for fast acknowledgment generation
     fast_ack_refiner_traceback_sample_rate: float = 0.05  # Sample rate for error traceback logging
 
 

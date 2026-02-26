@@ -135,7 +135,6 @@ class SerperSearchEngine(SearchEngineBase):
             "gl": "us",
             "hl": "en",
             "num": 20,
-            "autocorrect": True,
         }
 
         if mapped := self._map_date_range(date_range):
