@@ -93,6 +93,11 @@
               :size="14"
               class="flex-shrink-0 text-[var(--text-tertiary)]"
             />
+            <Palette
+              v-else-if="currentViewType === 'canvas'"
+              :size="14"
+              class="flex-shrink-0 text-[var(--text-tertiary)]"
+            />
             <span class="truncate">{{ contentHeaderLabel }}</span>
           </div>
 
@@ -358,6 +363,16 @@
             />
           </div>
 
+          <!-- Canvas View -->
+          <div v-else-if="currentViewType === 'canvas' && resolvedCanvasProjectId" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <CanvasLiveView
+              ref="canvasLiveViewRef"
+              :session-id="sessionId || ''"
+              :project-id="resolvedCanvasProjectId"
+              :live="isActiveOperation"
+            />
+          </div>
+
           <!-- Generic/MCP View -->
           <div v-else-if="currentViewType === 'generic'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <GenericContentView
@@ -458,7 +473,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { Minimize2, MonitorUp, X, Loader2, Check, BarChart3 } from 'lucide-vue-next';
+import { Minimize2, MonitorUp, X, Loader2, Check, BarChart3, Palette } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -476,6 +491,7 @@ const TerminalContentView = defineAsyncComponent(() => import('@/components/tool
 const EditorContentView = defineAsyncComponent(() => import('@/components/toolViews/EditorContentView.vue'));
 const SearchContentView = defineAsyncComponent(() => import('@/components/toolViews/SearchContentView.vue'));
 const ChartToolView = defineAsyncComponent(() => import('@/components/toolViews/ChartToolViewEnhanced.vue'));
+const CanvasLiveView = defineAsyncComponent(() => import('@/components/toolViews/CanvasLiveView.vue'));
 const GenericContentView = defineAsyncComponent(() => import('@/components/toolViews/GenericContentView.vue'));
 const StreamingReportView = defineAsyncComponent(() => import('@/components/toolViews/StreamingReportView.vue'));
 const UnifiedStreamingView = defineAsyncComponent(() => import('@/components/toolViews/UnifiedStreamingView.vue'));
@@ -514,6 +530,8 @@ const props = defineProps<{
   embedded?: boolean;
   /** Override the auto-detected content view type (used for workspace tab switching) */
   forceViewType?: ContentViewType;
+  /** Active canvas project ID from SSE canvas_update events */
+  activeCanvasProjectId?: string | null;
 }>();
 
 // Computed for TaskProgressBar current tool
@@ -567,6 +585,32 @@ const toolName = computed(() => props.toolContent?.name || '');
 const toolFunction = computed(() => props.toolContent?.function || '');
 const toolStatus = computed(() => props.toolContent?.status || '');
 const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
+
+// Canvas live view
+const canvasLiveViewRef = ref<{ scheduleRefresh: () => void; refresh: () => void } | null>(null);
+
+/** Resolve canvas project ID from SSE prop or tool content args/result */
+const resolvedCanvasProjectId = computed(() => {
+  // Prefer activeCanvasProjectId from SSE events
+  if (props.activeCanvasProjectId) return props.activeCanvasProjectId;
+  // Fallback: extract from tool content
+  const content = props.toolContent?.content as Record<string, unknown> | undefined;
+  if (content?.project_id && typeof content.project_id === 'string') return content.project_id;
+  const args = props.toolContent?.args;
+  if (args?.project_id && typeof args.project_id === 'string') return args.project_id;
+  return '';
+});
+
+// Watch activeCanvasProjectId for SSE-driven refreshes
+watch(
+  () => props.activeCanvasProjectId,
+  (newId) => {
+    if (newId && currentViewType.value === 'canvas' && canvasLiveViewRef.value) {
+      canvasLiveViewRef.value.scheduleRefresh();
+    }
+  },
+);
+
 /** Show floating browser controls only in Canvas mode or standalone (non-embedded) */
 const showBrowserControls = computed(() => {
   if (!props.embedded) return true;
@@ -749,7 +793,10 @@ watch(
 watch(
   chartCanShowInteractive,
   (canShowInteractive) => {
-    if (!canShowInteractive && chartViewMode.value === 'interactive') {
+    if (canShowInteractive && chartViewMode.value === 'static') {
+      // Promote to interactive when data becomes available
+      chartViewMode.value = 'interactive';
+    } else if (!canShowInteractive && chartViewMode.value === 'interactive') {
       chartViewMode.value = 'static';
     }
   },
