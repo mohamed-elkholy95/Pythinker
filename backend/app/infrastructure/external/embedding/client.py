@@ -9,10 +9,8 @@ import threading
 import time
 from functools import lru_cache
 
-import httpx
-from openai import AsyncOpenAI
-
 from app.core.config import get_settings
+from app.infrastructure.external.http_pool import HTTPClientPool
 from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
@@ -67,8 +65,6 @@ class EmbeddingClient:
         # Set max retries to prevent unbounded recursion
         self._max_retries = len(key_configs)
 
-        # Keep legacy OpenAI client for backward compatibility with embed() method
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._model = model
         self._dimension = 1536  # text-embedding-3-small dimension
         self.api_base = base_url
@@ -83,6 +79,9 @@ class EmbeddingClient:
     async def embed(self, text: str) -> list[float]:
         """Generate embedding for a single text.
 
+        Delegates to embed_batch() so every call benefits from
+        HTTPClientPool connection reuse and APIKeyPool rotation.
+
         Args:
             text: Text to embed (truncated to 8000 chars)
 
@@ -92,13 +91,7 @@ class EmbeddingClient:
         Raises:
             Exception: If embedding API call fails
         """
-        truncated = text[:8000]
-        response = await self._client.embeddings.create(
-            model=self._model,
-            input=truncated,
-            encoding_format="float",
-        )
-        return response.data[0].embedding
+        return (await self.embed_batch([text]))[0]
 
     async def embed_batch(self, texts: list[str], _attempt: int = 0) -> list[list[float]]:
         """Generate embeddings for multiple texts with automatic key rotation.
@@ -128,38 +121,45 @@ class EmbeddingClient:
             raise RuntimeError(f"All {len(self._key_pool.keys)} OpenAI embedding keys exhausted")
 
         try:
+            import httpx as _httpx  # Only for exception types
+
             # OpenAI supports batch embedding natively
             truncated = [t[:8000] for t in texts]
 
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.api_base}/embeddings",
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "input": truncated,
-                        "model": self._model,
-                        "encoding_format": "float",
-                    },
-                )
+            # Reuse pooled connection — per-request Authorization (key rotates)
+            client = await HTTPClientPool.get_client(
+                "openai-embedding",
+                base_url=self.api_base,
+                timeout=self.timeout,
+            )
+            response = await client.post(
+                "/embeddings",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "input": truncated,
+                    "model": self._model,
+                    "encoding_format": "float",
+                },
+            )
 
-                # Check for rate limit/auth errors
-                if response.status_code in (401, 429):
-                    # Parse TTL from X-RateLimit-Reset header
-                    ttl = self._parse_rate_limit_ttl(response.headers)
-                    await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
-                    return await self.embed_batch(texts, _attempt=_attempt + 1)
+            # Check for rate limit/auth errors
+            if response.status_code in (401, 429):
+                # Parse TTL from X-RateLimit-Reset header
+                ttl = self._parse_rate_limit_ttl(response.headers)
+                await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
+                return await self.embed_batch(texts, _attempt=_attempt + 1)
 
-                response.raise_for_status()
-                data = response.json()
+            response.raise_for_status()
+            data = response.json()
 
-                # Sort by index to maintain order
-                sorted_data = sorted(data["data"], key=lambda x: x["index"])
-                return [d["embedding"] for d in sorted_data]
+            # Sort by index to maintain order
+            sorted_data = sorted(data["data"], key=lambda x: x["index"])
+            return [d["embedding"] for d in sorted_data]
 
-        except httpx.HTTPStatusError as e:
+        except _httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 429):
                 ttl = self._parse_rate_limit_ttl(e.response.headers)
                 await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
@@ -239,7 +239,7 @@ def get_embedding_client() -> EmbeddingClient:
 
         return EmbeddingClient(
             api_key=api_key,
-            fallback_api_keys=fallback_keys if fallback_keys else None,
+            fallback_api_keys=fallback_keys or None,
             redis_client=redis_client,
             base_url=settings.embedding_api_base,
             model=settings.embedding_model,
