@@ -103,105 +103,175 @@ export const normalizeVerificationMarkers = (markdown: string): string => {
 const normalizeLineEndings = (content: string): string => content.replace(/\r\n?/g, '\n');
 
 /**
+ * Converts a reference-section line to ordered-list markdown (`N. text`).
+ * Returns `{ num, line }` if the line is a reference item, or `null` for
+ * blank / non-reference lines (which are emitted as-is).
+ */
+const toRefItem = (
+  line: string,
+  trimmed: string,
+  nextUnorderedRef: { value: number },
+): { num: number; line: string } | null => {
+  // Unordered list item "- text"
+  const ulMatch = trimmed.match(/^[-*+]\s+(.+)/);
+  if (ulMatch) {
+    const num = nextUnorderedRef.value++;
+    const indent = line.slice(0, line.length - trimmed.length);
+    return { num, line: `${indent}${num}. ${ulMatch[1]}` };
+  }
+
+  // Ordered list item "3. text"
+  const olMatch = ORDERED_LIST_RE.exec(line);
+  if (olMatch) {
+    return { num: parseInt(olMatch[2], 10), line };
+  }
+
+  // Bracket-style "[3] text"
+  const bracketMatch = BRACKET_REF_LINE_RE.exec(line);
+  if (bracketMatch) {
+    const indent = bracketMatch[1];
+    const num = parseInt(bracketMatch[2], 10);
+    const rest = line.slice(bracketMatch[0].length);
+    return { num, line: `${indent}${num}. ${rest}` };
+  }
+
+  // Link reference definition "[16]: URL" — marked silently consumes these
+  const linkRefMatch = LINK_REF_DEF_RE.exec(line);
+  if (linkRefMatch) {
+    const indent = linkRefMatch[1];
+    const num = parseInt(linkRefMatch[2], 10);
+    const rest = linkRefMatch[3];
+    return { num, line: `${indent}${num}. ${rest}` };
+  }
+
+  return null;
+};
+
+/**
+ * Emits collected reference items as tight ordered-list groups.
+ * When there is a numbering gap between consecutive items, inserts an HTML
+ * comment to force marked to create a new `<ol start="N">`,
+ * preserving the original reference numbers through the pipeline.
+ */
+const flushRefItems = (items: Array<{ num: number; line: string }>): string[] => {
+  if (items.length === 0) return [];
+
+  const result: string[] = [];
+  let expectedNext = items[0].num;
+
+  for (const item of items) {
+    if (item.num !== expectedNext && result.length > 0) {
+      // Numbering gap — force a new <ol> by inserting an HTML comment separator
+      result.push('<!-- -->');
+    }
+    result.push(item.line);
+    expectedNext = item.num + 1;
+  }
+
+  return result;
+};
+
+/**
  * Transforms inline citation numbers [N] into clickable anchor links and adds
  * id anchors to reference list items in the References/Sources section.
  *
  * Outside the references section: [5] becomes a superscript anchor link.
- * Inside an ordered references section: prepends list items with an id anchor span.
+ * Inside the references section: converts all ref formats to tight ordered
+ * lists with HTML comment separators between non-consecutive groups so that
+ * marked produces `<ol start="N">` for each group (preserving numbering).
  * Skips code blocks entirely.
  */
 export const linkifyInlineCitations = (markdown: string): string => {
   if (!markdown) return markdown;
 
   const lines = markdown.split('\n');
+  const output: string[] = [];
   let inCodeFence = false;
   let inReferencesSection = false;
-  let nextUnorderedRef = 1;
+  const nextUnorderedRef = { value: 1 };
 
-  return lines
-    .map((line) => {
-      const trimmed = line.trimStart();
+  // Buffer for collecting reference items to emit as tight groups
+  let refBuffer: Array<{ num: number; line: string }> = [];
 
-      if (trimmed.startsWith('```')) {
-        inCodeFence = !inCodeFence;
-        return line;
-      }
-      if (inCodeFence) return line;
+  const flushBuffer = () => {
+    if (refBuffer.length > 0) {
+      output.push(...flushRefItems(refBuffer));
+      refBuffer = [];
+    }
+  };
 
-      // Detect references/sources/bibliography heading (markdown heading or bold text)
-      if (REFERENCES_HEADING_RE.test(trimmed) || BOLD_REFERENCES_RE.test(trimmed)) {
-        inReferencesSection = true;
-        nextUnorderedRef = 1;
-        return line;
-      }
+  for (const line of lines) {
+    const trimmed = line.trimStart();
 
-      // Any other heading exits the references section
-      if (trimmed.startsWith('#')) {
-        inReferencesSection = false;
-        return line;
-      }
+    if (trimmed.startsWith('```')) {
+      if (inReferencesSection) flushBuffer();
+      inCodeFence = !inCodeFence;
+      output.push(line);
+      continue;
+    }
+    if (inCodeFence) {
+      output.push(line);
+      continue;
+    }
 
-      // A bold-text section header (with colon, e.g. "**Conclusion:**") exits the references section.
-      // Only match lines ending with ":**" to avoid false exits on bold content within references
-      // (e.g. "**Important**" used as emphasis within a reference entry).
-      if (inReferencesSection && /^\*{2}[^*]+:\*{2}\s*$/.test(trimmed) && !BOLD_REFERENCES_RE.test(trimmed)) {
-        inReferencesSection = false;
-      }
+    // Detect references/sources/bibliography heading (markdown heading or bold text)
+    if (REFERENCES_HEADING_RE.test(trimmed) || BOLD_REFERENCES_RE.test(trimmed)) {
+      flushBuffer();
+      inReferencesSection = true;
+      nextUnorderedRef.value = 1;
+      output.push(line);
+      continue;
+    }
 
-      if (inReferencesSection) {
-        // Unordered list item "- text" — convert to ordered list so marked
-        // renders <ol><li> and addReferenceAnchors can process each item.
-        // Previous <span id> approach was stripped by TipTap, collapsing all
-        // items into a single <p> where only the first ref was discoverable.
-        const ulMatch = trimmed.match(/^[-*+]\s+(.+)/);
-        if (ulMatch) {
-          const num = nextUnorderedRef++;
-          const indent = line.slice(0, line.length - trimmed.length);
-          return `${indent}${num}. ${ulMatch[1]}`;
+    // Any other heading exits the references section
+    if (trimmed.startsWith('#')) {
+      flushBuffer();
+      inReferencesSection = false;
+      output.push(line);
+      continue;
+    }
+
+    // A bold-text section header (with colon, e.g. "**Conclusion:**") exits the references section.
+    if (inReferencesSection && /^\*{2}[^*]+:\*{2}\s*$/.test(trimmed) && !BOLD_REFERENCES_RE.test(trimmed)) {
+      flushBuffer();
+      inReferencesSection = false;
+    }
+
+    if (inReferencesSection) {
+      const refItem = toRefItem(line, trimmed, nextUnorderedRef);
+      if (refItem) {
+        refBuffer.push(refItem);
+      } else {
+        // Non-reference line (blank line or plain text) — skip blank lines
+        // between reference items to keep lists tight. Emit non-blank lines.
+        if (trimmed.length > 0) {
+          flushBuffer();
+          output.push(line);
         }
-
-        // Ordered list item "1. text" — keep as-is (already valid OL markdown)
-        if (ORDERED_LIST_RE.test(line)) {
-          return line;
-        }
-
-        // Bracket-style "[1] text" — convert to ordered list item so marked
-        // renders <ol start="N"><li> instead of a <p> that merges multiple
-        // refs into one element (losing all but the first).
-        const bracketMatch = BRACKET_REF_LINE_RE.exec(line);
-        if (bracketMatch) {
-          const indent = bracketMatch[1];
-          const num = bracketMatch[2];
-          const rest = line.slice(bracketMatch[0].length);
-          return `${indent}${num}. ${rest}`;
-        }
-
-        // Link reference definition "[16]: URL" — marked silently consumes
-        // these as link definitions and never renders them.  Convert to
-        // ordered list item so the reference is visible in the output.
-        const linkRefMatch = LINK_REF_DEF_RE.exec(line);
-        if (linkRefMatch) {
-          const indent = linkRefMatch[1];
-          const num = linkRefMatch[2];
-          const rest = linkRefMatch[3];
-          return `${indent}${num}. ${rest}`;
-        }
-
-        return line;
+        // Blank lines between ref items are intentionally dropped to keep
+        // the list tight, which prevents marked from renumbering items.
       }
+      continue;
+    }
 
-      // Outside references section: linkify inline [N] patterns.
-      // First move sentence-ending punctuation from after citation groups to before them
-      // so citations always sit AFTER punctuation. e.g. "word [1]." → "word.[1]"
-      const punct_normalized = line.replace(
-        / *((?:\[\d{1,3}\]\s*)+)([.!?,;])\s*$/g,
-        (_, cites: string, punct: string) => `${punct}${cites.trimEnd()}`,
-      );
-      return punct_normalized.replace(INLINE_CITATION_RE, (_, num) => {
+    // Outside references section: linkify inline [N] patterns.
+    // First move sentence-ending punctuation from after citation groups to before them
+    // so citations always sit AFTER punctuation. e.g. "word [1]." → "word.[1]"
+    const punct_normalized = line.replace(
+      / *((?:\[\d{1,3}\]\s*)+)([.!?,;])\s*$/g,
+      (_, cites: string, punct: string) => `${punct}${cites.trimEnd()}`,
+    );
+    output.push(
+      punct_normalized.replace(INLINE_CITATION_RE, (_, num) => {
         return `<a href="#ref-${num}" class="inline-citation">${num}</a>`;
-      });
-    })
-    .join('\n');
+      }),
+    );
+  }
+
+  // Flush any remaining buffered reference items
+  flushBuffer();
+
+  return output.join('\n');
 };
 
 export const stripLeadingMainTitle = (markdown: string): string => {
