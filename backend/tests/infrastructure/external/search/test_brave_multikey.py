@@ -114,8 +114,8 @@ class TestBraveMultiKey:
         assert result.success is True
         assert call_count == 2
 
-    async def test_brave_ttl_is_24_hours(self, mocker):
-        """Test that Brave uses 24-hour TTL (86400 seconds)."""
+    async def test_brave_429_triggers_handle_error(self, mocker):
+        """Test that Brave 429 triggers handle_error with rate limit classification."""
         engine = BraveSearchEngine(
             api_key="key1",
             redis_client=None,
@@ -124,16 +124,17 @@ class TestBraveMultiKey:
         # Mock response to trigger rotation
         mock_response = mocker.MagicMock()
         mock_response.status_code = 429
+        mock_response.text = ""
         mock_client = mocker.AsyncMock()
         mock_client.get = mocker.AsyncMock(return_value=mock_response)
         mocker.patch.object(engine, "_get_client", return_value=mock_client)
 
-        # Spy on mark_exhausted
-        mark_exhausted_spy = mocker.spy(engine._key_pool, "mark_exhausted")
+        # Spy on handle_error
+        handle_error_spy = mocker.spy(engine._key_pool, "handle_error")
 
         await engine.search("test query")
 
-        # Verify TTL is 86400 (24 hours)
-        mark_exhausted_spy.assert_called_once()
-        call_args = mark_exhausted_spy.call_args
-        assert call_args.kwargs["ttl_seconds"] == 86400
+        # Verify handle_error was called with 429 status
+        handle_error_spy.assert_called_once()
+        call_args = handle_error_spy.call_args
+        assert call_args.kwargs["status_code"] == 429
