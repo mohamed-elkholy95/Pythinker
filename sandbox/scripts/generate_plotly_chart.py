@@ -207,13 +207,15 @@ def _looks_temporal(labels: list[str]) -> bool:
 def _auto_orientation(labels: list[str], chart_type: str = "bar") -> str:
     """Determine optimal bar orientation based on label characteristics.
 
+    Strongly biased toward vertical — only switches to horizontal when
+    labels would genuinely be unreadable on the x-axis.
+
     Rules (in priority order):
     1. Temporal labels → vertical (time flows left-to-right)
-    2. >8 categories → horizontal (prevents label crowding)
-    3. Max label length >12 → horizontal
-    4. Average label length >6 → horizontal
-    5. >5 categories AND avg >4 → horizontal
-    6. Otherwise → vertical
+    2. >12 categories → horizontal (too many ticks on x-axis)
+    3. Max label length >25 → horizontal (would overlap severely)
+    4. >8 categories AND avg label >15 → horizontal
+    5. Otherwise → vertical (strong default)
 
     Args:
         labels: Category labels.
@@ -233,20 +235,16 @@ def _auto_orientation(labels: list[str], chart_type: str = "bar") -> str:
     max_len = max(len(label) for label in labels)
     avg_len = sum(len(label) for label in labels) / n_cats
 
-    # Many categories → horizontal
-    if n_cats > 8:
+    # Very many categories → horizontal
+    if n_cats > 12:
         return "h"
 
-    # Very long labels → horizontal
-    if max_len > 12:
+    # Extremely long labels → horizontal
+    if max_len > 25:
         return "h"
 
-    # Moderately long labels → horizontal
-    if avg_len > 6:
-        return "h"
-
-    # Medium count + medium labels → horizontal
-    if n_cats > 5 and avg_len > 4:
+    # Many categories with long-ish labels → horizontal
+    if n_cats > 8 and avg_len > 15:
         return "h"
 
     return "v"
@@ -1586,8 +1584,6 @@ def _validate_input(data: dict[str, Any]) -> str | None:
         "chart_type",
         "title",
         "datasets",
-        "output_html",
-        "output_png",
     ]
     if not is_indicator:
         required_fields.append("labels")
@@ -1699,47 +1695,26 @@ def main() -> int:
         print(_error_response(f"Chart generation failed: {exc}"))
         return 2
 
-    # --- Write HTML (CDN mode for small file size) ---
-    output_html: str = input_data["output_html"]
-    output_png: str = input_data["output_png"]
-    output_json: str = input_data.get("output_json") or str(
-        Path(output_html).with_suffix(".plotly.json")
-    )
+    # --- Output paths (HTML and PNG are optional) ---
+    output_html: str | None = input_data.get("output_html")
+    output_png: str | None = input_data.get("output_png")
+    output_json: str = input_data.get("output_json") or ""
     width: int = input_data.get("width", 1000)
     height: int = input_data.get("height", 600)
+    html_size: int = 0
+    png_size: int = 0
     plotly_json_size: int | None = None
     plotly_json_path: str | None = None
 
-    try:
-        fig.write_html(output_html, include_plotlyjs="cdn")
-        html_size = Path(output_html).stat().st_size
-        if html_size == 0:
-            Path(output_html).unlink(missing_ok=True)
-            print(_error_response("HTML write produced 0-byte file"))
-            return 3
-    except Exception as exc:
-        print(_error_response(f"HTML write failed: {exc}"))
-        return 3
+    # Derive output_json from output_html if neither is provided
+    if not output_json and output_html:
+        output_json = str(Path(output_html).with_suffix(".plotly.json"))
+    elif not output_json:
+        # Must have at least one output path
+        print(_error_response("No output path provided (need output_html, output_png, or output_json)"))
+        return 1
 
-    # --- Write PNG (Kaleido renderer) ---
-    try:
-        fig.write_image(output_png, width=width, height=height, scale=2)
-        png_size = Path(output_png).stat().st_size
-        if png_size == 0:
-            Path(output_png).unlink(missing_ok=True)
-            Path(output_html).unlink(missing_ok=True)
-            print(
-                _error_response("PNG render produced 0-byte file (Kaleido rendering failed)")
-            )
-            return 3
-    except Exception as exc:
-        # Clean up HTML on PNG failure
-        Path(output_html).unlink(missing_ok=True)
-        print(_error_response(f"PNG write failed: {exc}"))
-        return 3
-
-    # --- Write Plotly JSON render contract (best effort) ---
-    # This provides a stable, parse-free interactive rendering contract for the frontend.
+    # --- Write Plotly JSON render contract (primary output) ---
     try:
         figure_json = fig.to_plotly_json()
         with Path(output_json).open("w", encoding="utf-8") as json_file:
@@ -1747,27 +1722,49 @@ def main() -> int:
         plotly_json_size = Path(output_json).stat().st_size
         if plotly_json_size == 0:
             Path(output_json).unlink(missing_ok=True)
-            plotly_json_size = None
-            plotly_json_path = None
-        else:
-            plotly_json_path = output_json
+            print(_error_response("Plotly JSON write produced 0-byte file"))
+            return 3
+        plotly_json_path = output_json
     except Exception as exc:
-        # Do not fail the entire chart generation if JSON sidecar fails.
-        # HTML+PNG remain valid fallback artifacts.
-        print(f"WARNING: Plotly JSON write failed: {exc}", file=sys.stderr)
-        Path(output_json).unlink(missing_ok=True)
+        print(_error_response(f"Plotly JSON write failed: {exc}"))
+        return 3
+
+    # --- Write HTML (optional — only if output_html provided) ---
+    if output_html:
+        try:
+            fig.write_html(output_html, include_plotlyjs="cdn")
+            html_size = Path(output_html).stat().st_size
+            if html_size == 0:
+                Path(output_html).unlink(missing_ok=True)
+                output_html = None
+        except Exception as exc:
+            print(f"WARNING: HTML write failed: {exc}", file=sys.stderr)
+            output_html = None
+
+    # --- Write PNG (optional — only if output_png provided) ---
+    if output_png:
+        try:
+            fig.write_image(output_png, width=width, height=height, scale=2)
+            png_size = Path(output_png).stat().st_size
+            if png_size == 0:
+                Path(output_png).unlink(missing_ok=True)
+                output_png = None
+        except Exception as exc:
+            print(f"WARNING: PNG write failed: {exc}", file=sys.stderr)
+            output_png = None
 
     # --- Success output ---
+    labels = input_data.get("labels") or []
     print(
         _success_response(
-            html_path=output_html,
-            png_path=output_png,
+            html_path=output_html or "",
+            png_path=output_png or "",
             html_size=html_size,
             png_size=png_size,
             plotly_json_path=plotly_json_path,
             plotly_json_size=plotly_json_size,
             chart_type=input_data["chart_type"],
-            data_points=len(input_data["labels"]),
+            data_points=len(labels),
             series_count=len(input_data["datasets"]),
         )
     )
