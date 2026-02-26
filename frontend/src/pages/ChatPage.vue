@@ -3373,6 +3373,7 @@ const processEvent = (event: AgentSSEEvent) => {
       queuedAfterDone: streamController.getPendingEventCount(),
     })
     receivedDoneEvent.value = true;
+    follow.value = false;
     planningProgress.value = null;
     stopPlanningMessageCycle();
     ensureCompletionSuggestions();
