@@ -94,10 +94,12 @@ import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
 import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
 import {
-  Palette, Bot, Menu,
-  MessageSquare, Search
+  Bot, Menu,
 } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
+import SearchIcon from '../components/icons/SearchIcon.vue';
+import PaletteIcon from '../components/icons/PaletteIcon.vue';
+import ChatBubbleIcon from '../components/icons/ChatBubbleIcon.vue';
 import type { FileInfo } from '../api/file';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
@@ -129,21 +131,21 @@ const visibleFeatures: Feature[] = [
   {
     id: 'research',
     label: 'Research',
-    icon: Search,
+    icon: SearchIcon,
     mode: 'agent',
     prompt: 'create a comprehensive research report about: '
   },
   {
     id: 'design',
     label: 'Design',
-    icon: Palette,
+    icon: PaletteIcon,
     mode: 'agent',
     prompt: 'Create a design for: '
   },
   {
     id: 'chat',
     label: 'Chat Mode',
-    icon: MessageSquare,
+    icon: ChatBubbleIcon,
     mode: 'agent',
     prompt: ''
   }
@@ -585,6 +587,7 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
 
 .feature-btn:hover .feature-icon {
   color: var(--text-brand);
+  --icon-secondary: var(--text-brand);
 }
 
 /* Per-button accent colors on hover */
@@ -593,6 +596,7 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
 }
 .feature-btn--research:hover .feature-icon {
   color: #3b82f6;
+  --icon-secondary: #3b82f6;
 }
 
 .feature-btn--design:hover .feature-btn-icon-wrap {
@@ -600,6 +604,7 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
 }
 .feature-btn--design:hover .feature-icon {
   color: #a855f7;
+  --icon-secondary: #a855f7;
 }
 
 .feature-btn--chat:hover .feature-btn-icon-wrap {
@@ -607,6 +612,7 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
 }
 .feature-btn--chat:hover .feature-icon {
   color: #22c55e;
+  --icon-secondary: #22c55e;
 }
 
 .feature-btn:focus-visible {
