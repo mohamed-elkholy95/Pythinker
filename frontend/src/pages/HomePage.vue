@@ -294,9 +294,8 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
   }
 };
 
-const handleSubmit = async (options: { thinkingMode?: ThinkingMode, detailLevel?: string } = {}, skillIds: string[] = []) => {
+const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skillIds: string[] = []) => {
   const thinkingMode = options.thinkingMode || 'auto';
-  const detailLevel = options.detailLevel || 'detailed';
   // Merge pending skill from "Build with Pythinker" button if present
   if (pendingSkillId.value && !skillIds.includes(pendingSkillId.value)) {
     skillIds = [...skillIds, pendingSkillId.value];
@@ -327,7 +326,6 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode, detailLevel?
           message: submitMessage,
           skills: skillIds,
           thinking_mode: thinkingMode,
-          detail_level: detailLevel,
           files: attachments.value.map((file: FileInfo) => ({
             file_id: file.file_id,
             filename: file.filename,
