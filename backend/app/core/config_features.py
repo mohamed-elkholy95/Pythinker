@@ -199,7 +199,7 @@ class FeatureFlagsSettingsMixin:
     feature_parallel_memory: bool = False  # Parallel MongoDB/Qdrant memory writes
 
     # Continuous Conversational Context Storage (real-time Qdrant vectorization)
-    feature_conversation_context_enabled: bool = False  # Master toggle (start disabled)
+    feature_conversation_context_enabled: bool = True  # Master toggle (enabled for real-time context retrieval)
     conversation_context_buffer_size: int = 5  # Turns before batch flush to Qdrant
     conversation_context_flush_interval_seconds: float = 10.0  # Max seconds between flushes
     conversation_context_sliding_window: int = 5  # Recent turns always included (no embedding needed)
