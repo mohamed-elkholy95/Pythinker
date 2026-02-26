@@ -146,11 +146,8 @@
                 class="hidden h-8 w-8 items-center justify-center hover:bg-[var(--fill-tsp-gray-main)] rounded-lg cursor-pointer transition-colors">
                 <FileSearch class="text-[var(--icon-secondary)]" :size="18" />
               </button>
-              <button @click="isContextPanelOpen = true"
-                class="h-8 w-8 flex items-center justify-center hover:bg-[var(--fill-tsp-gray-main)] rounded-lg cursor-pointer transition-colors"
-                :aria-label="t('Show Context')">
-                <Database class="text-[var(--icon-secondary)]" :size="18" />
-              </button>
+              <!-- Context panel button removed — ContextPanel component not yet implemented -->
+
           </div>
         </div>
         <!-- Right side - spacer -->
@@ -513,16 +510,7 @@
     </DialogContent>
   </Dialog>
 
-  <!-- Side Panels -->
-  <ContextPanel
-    :isOpen="isContextPanelOpen"
-    :files="attachments"
-    :skillIds="sessionSkillIds"
-    :envKeys="activeEnvVars"
-    @close="isContextPanelOpen = false"
-  />
-
-  <CheckoutDialog :is-open="isCheckoutOpen" :insufficient-credits="insufficientCredits" @close="closeCheckoutDialog" />
+  <!-- Side Panels — ContextPanel + CheckoutDialog not yet implemented, refs removed to silence warnings -->
 </template>
 
 <script setup lang="ts">
@@ -565,8 +553,7 @@ import {
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
-import ContextPanel from '../components/ContextPanel.vue'
-import { ArrowDown, FileSearch, Lock, Globe, Link, Check, Menu, Database, MessageSquareText, GitBranch } from 'lucide-vue-next';
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check, Menu, MessageSquareText, GitBranch } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import { downloadFile } from '../api/file';
