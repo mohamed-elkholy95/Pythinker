@@ -3,9 +3,11 @@ const UNVERIFIED_MARKER_RE = /\[(?:unverified(?:\s+[^\]\n]*?)?|not verified)\]?/
 const VERIFIED_MARKER_RE = /\[(?:verified(?:\s+[^\]\n]*?)?)\]?/gi;
 const VERIFICATION_TAG_RE = /\[(?:unverified|verified|not verified)[^\]]*\]?/gi;
 
-// Matches [N] where N is 1–3 digits, not preceded by ^ (footnote) and not followed by ( or :
+// Matches [N] where N is 1–3 digits, not preceded by ^ (footnote) and not followed by ( or ": "
+// The (?!:\s) lookahead prevents matching link-ref-defs "[1]: URL" while still allowing
+// citations before sentence colons like "enhances [1]:"
 // Note: [ is intentionally NOT excluded so consecutive citations [1][2][3] all get linkified
-const INLINE_CITATION_RE = /(?<!\^)\[(\d{1,3})\](?![(:])/g;
+const INLINE_CITATION_RE = /(?<!\^)\[(\d{1,3})\](?![(])(?!:\s)/g;
 // Detects a "references/sources/bibliography" section heading (markdown heading)
 const REFERENCES_HEADING_RE = /^#{1,4}\s*(references?|sources?|bibliography|citations?)\s*$/i;
 // Detects bold-text reference headers: **Sources:** or **References** (common in chat messages)
