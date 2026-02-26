@@ -64,27 +64,43 @@ class MongoDB:
         self._artifacts_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="artifacts")
 
     async def initialize(self) -> None:
-        """Initialize MongoDB connection and Beanie ODM."""
+        """Initialize MongoDB connection and Beanie ODM.
+
+        Retries with exponential backoff (2s/4s/8s) to handle transient DNS
+        failures during container startup — matches Redis circuit-breaker
+        resilience pattern used elsewhere in this codebase.
+        """
         if self._client is not None:
             self._refresh_client_for_current_loop()
             return
 
-        try:
-            self._client = self._build_client()
-            self._client_loop = asyncio.get_running_loop()
-            # Verify the connection
-            await self._client.admin.command("ping")
-            logger.info("Successfully connected to MongoDB")
+        max_retries = 3
+        self._client = self._build_client()
+        self._client_loop = asyncio.get_running_loop()
 
+        for attempt in range(1, max_retries + 1):
+            try:
+                await self._client.admin.command("ping")
+                logger.info("Successfully connected to MongoDB")
+                break
+            except ConnectionFailure as e:
+                if attempt == max_retries:
+                    logger.error("Failed to connect to MongoDB after %d attempts: %s", max_retries, e)
+                    raise
+                delay = 2 ** attempt  # 2, 4, 8 seconds
+                logger.warning(
+                    "MongoDB connection attempt %d/%d failed, retrying in %ds: %s",
+                    attempt, max_retries, delay, e,
+                )
+                await asyncio.sleep(delay)
+
+        try:
             # Initialize GridFS bucket for artifact storage (screenshots migrated to MinIO S3)
             db = self._client[self._settings.mongodb_database]
             self._artifacts_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="artifacts")
             logger.info("Initialized GridFS bucket for artifacts")
-        except ConnectionFailure as e:
-            logger.error(f"Failed to connect to MongoDB: {e!s}")
-            raise
         except Exception as e:
-            logger.error(f"Failed to initialize Beanie: {e!s}")
+            logger.error(f"Failed to initialize MongoDB: {e!s}")
             raise
 
     async def shutdown(self) -> None:

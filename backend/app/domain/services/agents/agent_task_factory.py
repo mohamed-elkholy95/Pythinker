@@ -236,7 +236,7 @@ class AgentTaskFactory:
         should_clear_browser = is_new_sandbox
         browser_init_timeout = min(settings.browser_init_timeout, 20.0)
         if browser_init_timeout != settings.browser_init_timeout:
-            logger.info(
+            logger.debug(
                 "Clamped browser init timeout from %.1fs to %.1fs to avoid first-event stalls",
                 settings.browser_init_timeout,
                 browser_init_timeout,
