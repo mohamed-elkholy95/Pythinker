@@ -3477,7 +3477,7 @@ const handleEvent = (event: AgentSSEEvent) => {
   streamController.enqueueEvent(event);
 };
 
-const handleSubmit = (options: { thinkingMode?: ThinkingMode; detailLevel?: string } = {}) => {
+const handleSubmit = (options: { thinkingMode?: ThinkingMode } = {}) => {
   currentThinkingMode.value = options.thinkingMode || 'auto';
   chat(inputMessage.value, attachments.value, options);
 }
@@ -3513,7 +3513,7 @@ let lastSentTime = 0;
 const chat = async (
   message: string = '',
   files: FileInfo[] = [],
-  options?: { skipOptimistic?: boolean; thinkingMode?: ThinkingMode; detailLevel?: string }
+  options?: { skipOptimistic?: boolean; thinkingMode?: ThinkingMode }
 ) => {
   const streamAttemptId = beginStreamAttempt();
   if (!sessionId.value) return;
@@ -3666,7 +3666,7 @@ const chat = async (
           upload_date: file.upload_date
         })),
         effectiveSkillIds, // session + per-message skills
-        { thinking_mode: options?.thinkingMode, detail_level: options?.detailLevel },
+        { thinking_mode: options?.thinkingMode },
         transportCallbacks,
         followUp
       );

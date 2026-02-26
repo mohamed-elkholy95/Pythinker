@@ -265,7 +265,6 @@ export type ThinkingMode = 'auto' | 'fast' | 'deep_think';
  */
 export interface ChatOptions {
   thinking_mode?: ThinkingMode;  // Override model tier selection
-  detail_level?: string;         // Level of detail (brief, detailed, expert)
 }
 
 /**
@@ -294,7 +293,6 @@ export const chatWithSession = async (
     || Boolean(attachments && attachments.length > 0)
     || Boolean(skills && skills.length > 0)
     || Boolean(options?.thinking_mode && options.thinking_mode !== 'auto')
-    || Boolean(options?.detail_level && options.detail_level !== 'detailed')
     || Boolean(followUp)
 
   const body: Record<string, unknown> = {
@@ -303,7 +301,6 @@ export const chatWithSession = async (
     attachments,
     skills,
     thinking_mode: options?.thinking_mode,
-    detail_level: options?.detail_level,
   };
 
   // Resume cursors are only needed for transport resume calls without fresh input.
