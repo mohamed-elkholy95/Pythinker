@@ -33,7 +33,7 @@
             v-if="citCard.faviconUrl"
             :src="citCard.faviconUrl"
             class="msg-cit-card-favicon"
-            @error="(e) => { (e.target as HTMLImageElement).style.display = 'none' }"
+            @error="(e: Event) => { (e.target as HTMLImageElement).style.display = 'none'; if (citCard.domain) _failedFaviconDomains.add(citCard.domain); }"
           />
           <span class="msg-cit-card-domain">{{ citCard.domain }}</span>
           <svg class="msg-cit-card-arrow" viewBox="0 0 12 12" fill="none">
@@ -102,6 +102,7 @@ const citCard = reactive({
   y: 0,
 });
 let _hideCardTimer: ReturnType<typeof setTimeout> | null = null;
+const _failedFaviconDomains = new Set<string>();
 
 // Debug flag — enabled via ?debugCitations in URL or console: window.__citDebug = true
 const _citDebug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugCitations');
@@ -524,7 +525,9 @@ const _onBadgeOver = (e: MouseEvent) => {
   const rect = badge.getBoundingClientRect();
   citCard.title = title;
   citCard.domain = domain;
-  citCard.faviconUrl = domain ? (getFaviconUrl(`https://${domain}`) ?? '') : '';
+  citCard.faviconUrl = domain && !_failedFaviconDomains.has(domain)
+    ? (getFaviconUrl(`https://${domain}`) ?? '')
+    : '';
   citCard.url = url;
   const cardWidth = 260;
   citCard.x = Math.min(
