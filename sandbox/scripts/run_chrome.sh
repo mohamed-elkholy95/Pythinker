@@ -61,7 +61,7 @@ CHROME_FLAGS=(
     --noerrdialogs
     --disable-session-crashed-bubble
     --hide-crash-restore-bubble
-    "--disable-features=WelcomeExperience,SigninPromo,TranslateUI,AudioServiceOutOfProcess,InfiniteSessionRestore,GCMChannelStatusRequest,MediaRouter,DialMediaRouteProvider,PushMessaging,OptimizationHints,AutofillServerCommunication"
+    "--disable-features=WelcomeExperience,SigninPromo,TranslateUI,AudioServiceOutOfProcess,InfiniteSessionRestore,GCMChannelStatusRequest,MediaRouter,DialMediaRouteProvider,PushMessaging,OptimizationHints,AutofillServerCommunication,HardwareMediaKeyHandling"
     "--enable-features=NetworkService,NetworkServiceInProcess"
     --disable-infobars
     --disable-notifications
