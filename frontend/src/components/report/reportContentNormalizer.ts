@@ -14,6 +14,8 @@ const BOLD_REFERENCES_RE = /^\*{2}(references?|sources?|bibliography|citations?)
 const ORDERED_LIST_RE = /^(\s*)(\d+)\.\s+/;
 // Bracket-style reference at the start of a line: "[3] text"
 const BRACKET_REF_LINE_RE = /^(\s*)\[(\d+)\]\s+/;
+// Link reference definition at the start of a line: "[3]: URL" (consumed by marked if not converted)
+const LINK_REF_DEF_RE = /^(\s*)\[(\d+)\]:\s+(.+)/;
 const EXCESS_BLANK_LINES_RE = /\n{3,}/g;
 
 const normalizeTitle = (title: string): string => title.trim().toLowerCase();
@@ -147,30 +149,42 @@ export const linkifyInlineCitations = (markdown: string): string => {
       }
 
       if (inReferencesSection) {
-        // Unordered list item "- text", "* text", "+ text" — convert to numbered citation
+        // Unordered list item "- text" — convert to ordered list so marked
+        // renders <ol><li> and addReferenceAnchors can process each item.
+        // Previous <span id> approach was stripped by TipTap, collapsing all
+        // items into a single <p> where only the first ref was discoverable.
         const ulMatch = trimmed.match(/^[-*+]\s+(.+)/);
         if (ulMatch) {
           const num = nextUnorderedRef++;
           const indent = line.slice(0, line.length - trimmed.length);
-          return `${indent}<span id="ref-${num}">[${num}]</span> ${ulMatch[1]}`;
+          return `${indent}${num}. ${ulMatch[1]}`;
         }
 
-        // Ordered list item "1. text" — inject id anchor before the content
-        const olMatch = ORDERED_LIST_RE.exec(line);
-        if (olMatch) {
-          const indent = olMatch[1];
-          const num = olMatch[2];
-          const rest = line.slice(olMatch[0].length);
-          return `${indent}${num}. <span id="ref-${num}"></span>${rest}`;
+        // Ordered list item "1. text" — keep as-is (already valid OL markdown)
+        if (ORDERED_LIST_RE.test(line)) {
+          return line;
         }
 
-        // Bracket-style "[1] text" — replace with id anchor
+        // Bracket-style "[1] text" — convert to ordered list item so marked
+        // renders <ol start="N"><li> instead of a <p> that merges multiple
+        // refs into one element (losing all but the first).
         const bracketMatch = BRACKET_REF_LINE_RE.exec(line);
         if (bracketMatch) {
           const indent = bracketMatch[1];
           const num = bracketMatch[2];
           const rest = line.slice(bracketMatch[0].length);
-          return `${indent}<span id="ref-${num}">[${num}]</span> ${rest}`;
+          return `${indent}${num}. ${rest}`;
+        }
+
+        // Link reference definition "[16]: URL" — marked silently consumes
+        // these as link definitions and never renders them.  Convert to
+        // ordered list item so the reference is visible in the output.
+        const linkRefMatch = LINK_REF_DEF_RE.exec(line);
+        if (linkRefMatch) {
+          const indent = linkRefMatch[1];
+          const num = linkRefMatch[2];
+          const rest = linkRefMatch[3];
+          return `${indent}${num}. ${rest}`;
         }
 
         return line;
@@ -193,7 +207,17 @@ export const linkifyInlineCitations = (markdown: string): string => {
 export const stripLeadingMainTitle = (markdown: string): string => {
   if (!markdown) return markdown;
   const lines = markdown.split('\n');
-  const filtered = lines.filter((line) => !line.match(/^#\s+/));
+  // Only remove the FIRST h1 heading (the document title).
+  // Preserve subsequent h1 headings like "# References" or "# Sources"
+  // which are needed by addReferenceAnchors for citation card rendering.
+  let foundFirst = false;
+  const filtered = lines.filter((line) => {
+    if (!foundFirst && /^#\s+/.test(line)) {
+      foundFirst = true;
+      return false;
+    }
+    return true;
+  });
   return filtered.join('\n');
 };
 
