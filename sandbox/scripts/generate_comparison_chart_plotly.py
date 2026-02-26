@@ -32,24 +32,103 @@ Exit codes:
 - 3: File write failed
 """
 
+from __future__ import annotations
+
 import json
+import re
 import sys
 from pathlib import Path
 
+# ---------------------------------------------------------------------------
+# Constants (inlined from generate_plotly_chart.py — no cross-script imports)
+# ---------------------------------------------------------------------------
 
-def configure_kaleido():
-    """Configure Kaleido defaults for consistent output.
+PLOTLY_QUALITATIVE: list[str] = [
+    "#636EFA",
+    "#EF553B",
+    "#00CC96",
+    "#AB63FA",
+    "#FFA15A",
+    "#19D3F3",
+    "#FF6692",
+    "#B6E880",
+    "#FF97FF",
+    "#FECB52",
+]
+FONT_FAMILY = "Inter, -apple-system, BlinkMacSystemFont, sans-serif"
+GRID_COLOR = "rgba(0,0,0,0.06)"
+BAR_CORNER_RADIUS = "15%"
 
-    Note: Kaleido template API was removed in newer versions.
-    Configuration is now passed directly to write_image().
-    """
-    pass  # No-op - configuration passed to write_image instead
+
+# ---------------------------------------------------------------------------
+# Inlined helpers (no cross-script imports in sandbox)
+# ---------------------------------------------------------------------------
+
+
+def _looks_temporal(labels: list[str]) -> bool:
+    """Detect if labels look like temporal/time-series data."""
+    temporal_patterns = [
+        r"^\d{4}[-/]\d{1,2}",
+        r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)",
+        r"^(January|February|March|April|May|June|July|August|September|October|November|December)",
+        r"^Q[1-4]\b",
+        r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)",
+        r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)",
+        r"^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}",
+        r"^(Week|W)\s*\d+",
+        r"^(FY|H[12])\s*\d+",
+    ]
+    if not labels:
+        return False
+    sample = labels[: min(5, len(labels))]
+    matches = sum(
+        1
+        for label in sample
+        if any(re.match(p, label, re.IGNORECASE) for p in temporal_patterns)
+    )
+    return matches > len(sample) / 2
+
+
+def _auto_orientation(labels: list[str]) -> str:
+    """Determine optimal bar orientation based on label characteristics."""
+    if not labels:
+        return "v"
+    if _looks_temporal(labels):
+        return "v"
+    n_cats = len(labels)
+    max_len = max(len(label) for label in labels)
+    avg_len = sum(len(label) for label in labels) / n_cats
+    if n_cats > 8:
+        return "h"
+    if max_len > 12:
+        return "h"
+    if avg_len > 6:
+        return "h"
+    if n_cats > 5 and avg_len > 4:
+        return "h"
+    return "v"
+
+
+def _sanitize_label(label: str) -> str:
+    """Remove markdown formatting and clean up label text."""
+    cleaned = re.sub(r"\*\*(.+?)\*\*", r"\1", label)
+    cleaned = re.sub(r"\*(.+?)\*", r"\1", cleaned)
+    cleaned = re.sub(r"`(.+?)`", r"\1", cleaned)
+    cleaned = re.sub(r"__(.+?)__", r"\1", cleaned)
+    cleaned = re.sub(r"_(.+?)_", r"\1", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+
+# ---------------------------------------------------------------------------
+# Chart generation
+# ---------------------------------------------------------------------------
 
 
 def generate_bar_chart(
     title: str, metric_name: str, points: list[dict], lower_is_better: bool
 ):
-    """Generate a Plotly bar chart."""
+    """Generate a Plotly comparison bar chart with modern styling."""
     import plotly.graph_objects as go
 
     # Sort points by value (ascending if lower_is_better, descending otherwise)
@@ -61,40 +140,80 @@ def generate_bar_chart(
     if len(sorted_points) > 8:
         sorted_points = sorted_points[:8]
 
-    labels = [p["label"] for p in sorted_points]
+    labels = [_sanitize_label(p["label"]) for p in sorted_points]
     values = [p["value"] for p in sorted_points]
     display_values = [p.get("display_value", str(p["value"])) for p in sorted_points]
 
-    # Alternating colors for visual distinction
-    colors = ["#2563eb" if i % 2 == 0 else "#0891b2" for i in range(len(labels))]
+    # Smart auto-orientation
+    orientation = _auto_orientation(labels)
+
+    # Per-bar coloring from qualitative palette
+    colors = [PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(labels))]
+
+    if orientation == "h":
+        bar_x, bar_y = values, labels
+    else:
+        bar_x, bar_y = labels, values
 
     fig = go.Figure(
         data=[
             go.Bar(
-                x=values,
-                y=labels,
-                orientation="h",
-                marker=dict(color=colors),
+                x=bar_x,
+                y=bar_y,
+                orientation=orientation,
+                marker={"color": colors, "line": {"color": "rgba(255,255,255,0.8)", "width": 2}},
                 text=display_values,
                 textposition="outside",
-                textfont=dict(size=14),
+                textfont={
+                    "size": 14,
+                    "shadow": "1px 1px 2px rgba(0,0,0,0.1)",
+                },
+                hovertemplate="%{y}: %{x}<extra></extra>"
+                if orientation == "h"
+                else "%{x}: %{y}<extra></extra>",
             )
         ]
     )
 
     direction_text = "Lower is better" if lower_is_better else "Higher is better"
+    left_margin = 200 if orientation == "h" else 80
+
     fig.update_layout(
-        title=dict(
-            text=f"{title}<br><sub>{metric_name} ({direction_text})</sub>",
-            font=dict(size=24),
-        ),
-        xaxis=dict(title=metric_name, showgrid=True, gridcolor="lightgray"),
-        yaxis=dict(title="", showgrid=False),
+        title={
+            "text": f"{title}<br><sub>{metric_name} ({direction_text})</sub>",
+            "font": {"size": 24, "family": FONT_FAMILY, "color": "#111827"},
+            "x": 0.0,
+            "xanchor": "left",
+        },
+        xaxis={
+            "title": metric_name if orientation == "h" else "",
+            "showgrid": True,
+            "gridcolor": GRID_COLOR,
+            "zeroline": False,
+        },
+        yaxis={
+            "title": "" if orientation == "h" else metric_name,
+            "showgrid": orientation != "h",
+            "gridcolor": GRID_COLOR,
+            "zeroline": False,
+        },
         template="plotly_white",
-        height=max(400, len(labels) * 60),  # Dynamic height based on data points
+        height=max(400, len(labels) * 60) if orientation == "h" else 600,
         width=1200,
-        margin=dict(l=200, r=100, t=100, b=80),
-        font=dict(size=14),
+        margin={"l": left_margin, "r": 100, "t": 100, "b": 80},
+        font={"size": 14, "family": FONT_FAMILY, "color": "#374151"},
+        legend={
+            "orientation": "h",
+            "y": 1.02,
+            "yanchor": "bottom",
+            "x": 0.5,
+            "xanchor": "center",
+        },
+        showlegend=False,
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="white",
+        barcornerradius=BAR_CORNER_RADIUS,
+        bargap=0.15,
     )
 
     return fig
@@ -150,8 +269,6 @@ def main():
                 )
                 return 1
 
-        configure_kaleido()
-
         # Generate chart
         try:
             fig = generate_bar_chart(title, metric_name, points, lower_is_better)
@@ -175,7 +292,7 @@ def main():
             )
             return 3
 
-        # Write PNG (Kaleido + Chromium)
+        # Write PNG (Kaleido renderer)
         try:
             fig.write_image(output_png, width=1200, height=fig.layout.height, scale=2)
             png_size = Path(output_png).stat().st_size
