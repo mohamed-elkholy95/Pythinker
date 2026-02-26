@@ -1,59 +1,12 @@
 <template>
     <div v-if="shouldShow" class="fixed bg-[var(--background-gray-main)] z-[60] transition-all w-full h-full inset-0 flex flex-col">
-        <!-- Browser address bar -->
-        <div class="takeover-address-bar">
-            <div class="takeover-address-bar-inner">
-                <button
-                    class="takeover-nav-btn"
-                    title="Back"
-                    @click="navigateBack"
-                >
-                    <ArrowLeft :size="15" />
-                </button>
-                <button
-                    class="takeover-nav-btn"
-                    title="Forward"
-                    @click="navigateForward"
-                >
-                    <ArrowRight :size="15" />
-                </button>
-                <button
-                    class="takeover-nav-btn"
-                    :title="isNavigating ? 'Stop' : 'Reload'"
-                    @click="isNavigating ? cancelNavigation() : reloadPage()"
-                >
-                    <Loader2 v-if="isNavigating" :size="14" class="animate-spin" />
-                    <RotateCw v-else :size="14" />
-                </button>
-                <form class="takeover-url-input-wrapper" @submit.prevent="handleNavigate">
-                    <Globe :size="14" class="takeover-url-icon" />
-                    <input
-                        ref="urlInputRef"
-                        v-model="urlInput"
-                        class="takeover-url-input"
-                        type="text"
-                        placeholder="Enter URL or search..."
-                        spellcheck="false"
-                    />
-                </form>
-                <button
-                    class="takeover-nav-btn"
-                    title="Open in new tab"
-                    @click="openExternal"
-                >
-                    <ExternalLink :size="14" />
-                </button>
-            </div>
-        </div>
-
-        <!-- Browser viewport -->
+        <!-- Browser viewport — full desktop via VNC (Chrome chrome, tabs, address bar visible) -->
         <div class="flex-1 min-h-0 relative">
-            <LiveViewer
+            <VncViewer
                 :session-id="sessionId"
                 :enabled="shouldShow"
-                :view-only="false"
-                @connected="onLivePreviewConnected"
-                @disconnected="onLivePreviewDisconnected"
+                @connected="onVncConnected"
+                @disconnected="onVncDisconnected"
             />
         </div>
 
@@ -61,7 +14,7 @@
         <Transition name="fade">
             <div
                 v-if="showOnboarding"
-                class="absolute top-[52px] left-1/2 -translate-x-1/2 bg-[var(--background-white-main)] rounded-xl shadow-lg border border-[var(--border-main)] px-4 py-3 max-w-sm"
+                class="absolute top-3 left-1/2 -translate-x-1/2 bg-[var(--background-white-main)] rounded-xl shadow-lg border border-[var(--border-main)] px-4 py-3 max-w-sm z-20"
             >
                 <div class="flex items-start gap-3">
                     <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
@@ -70,7 +23,7 @@
                     <div class="flex-1 min-w-0">
                         <h4 class="text-sm font-semibold text-[var(--text-primary)]">{{ t('You\'re in control!') }}</h4>
                         <p class="text-xs text-[var(--text-secondary)] mt-0.5">
-                            {{ t('You can interact directly with the browser. The agent is paused while you\'re in control.') }}
+                            {{ t('You have full browser control with tabs! The agent is paused while you\'re in control.') }}
                         </p>
                     </div>
                     <button
@@ -84,7 +37,7 @@
         </Transition>
 
         <!-- Exit button -->
-        <div class="absolute bottom-4 left-1/2 -translate-x-1/2">
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
             <button @click="handleExitClick"
                 class="inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:opacity-90 active:opacity-80 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] h-[36px] px-[12px] gap-[6px] text-sm rounded-full border-2 border-[var(--border-dark)] shadow-[0px_8px_32px_0px_rgba(0,0,0,0.32)] exit-takeover-btn">
                 <span class="text-sm font-medium">{{ t('Exit Takeover') }}</span>
@@ -173,9 +126,9 @@
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { MousePointer, X, Monitor, ArrowLeft, ArrowRight, RotateCw, Globe, ExternalLink, Loader2 } from 'lucide-vue-next';
-import LiveViewer from './LiveViewer.vue';
-import { browseUrl, endTakeover, getTakeoverNavigationHistory, startTakeover, takeoverNavigate } from '@/api/agent';
+import { MousePointer, X, Monitor, Loader2 } from 'lucide-vue-next';
+import VncViewer from './VncViewer.vue';
+import { endTakeover, startTakeover } from '@/api/agent';
 import {
     Dialog,
     DialogContent,
@@ -210,106 +163,6 @@ const dismissOnboarding = () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, 'true');
 };
 
-// Address bar state
-const urlInput = ref('');
-const urlInputRef = ref<HTMLInputElement | null>(null);
-const isNavigating = ref(false);
-let cancelNavigationFn: (() => void) | null = null;
-
-const handleNavigate = () => {
-    const raw = urlInput.value.trim();
-    if (!raw || !sessionId.value) return;
-
-    // Auto-add protocol if missing
-    let url = raw;
-    if (!/^https?:\/\//i.test(url)) {
-        // If it looks like a domain (has dots, no spaces), add https://
-        if (/^[^\s]+\.[^\s]+/.test(url)) {
-            url = `https://${url}`;
-        } else {
-            // Treat as search query
-            url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
-        }
-    }
-
-    urlInput.value = url;
-    isNavigating.value = true;
-
-    // Blur the input so keyboard events go back to the browser
-    urlInputRef.value?.blur();
-
-    browseUrl(sessionId.value, url, {
-        onClose: () => {
-            isNavigating.value = false;
-            cancelNavigationFn = null;
-        },
-        onError: () => {
-            isNavigating.value = false;
-            cancelNavigationFn = null;
-        },
-    }).then((cancel) => {
-        cancelNavigationFn = cancel;
-    }).catch(() => {
-        isNavigating.value = false;
-    });
-};
-
-const cancelNavigation = () => {
-    if (sessionId.value) {
-        void takeoverNavigate(sessionId.value, 'stop').catch(() => undefined);
-    }
-    if (cancelNavigationFn) {
-        cancelNavigationFn();
-        cancelNavigationFn = null;
-    }
-    isNavigating.value = false;
-};
-
-const syncCurrentUrlFromHistory = async () => {
-    if (!sessionId.value) return;
-    try {
-        const history = await getTakeoverNavigationHistory(sessionId.value);
-        const current = history.entries[history.current_index];
-        if (current?.url) {
-            urlInput.value = current.url;
-        }
-    } catch {
-        // Best effort only
-    }
-};
-
-const navigateBack = () => {
-    if (!sessionId.value) return;
-    void takeoverNavigate(sessionId.value, 'back')
-        .then(() => syncCurrentUrlFromHistory())
-        .catch(() => undefined);
-};
-
-const navigateForward = () => {
-    if (!sessionId.value) return;
-    void takeoverNavigate(sessionId.value, 'forward')
-        .then(() => syncCurrentUrlFromHistory())
-        .catch(() => undefined);
-};
-
-const reloadPage = () => {
-    if (!sessionId.value) return;
-    isNavigating.value = true;
-    void takeoverNavigate(sessionId.value, 'reload')
-        .then(() => syncCurrentUrlFromHistory())
-        .catch(() => undefined)
-        .finally(() => {
-            isNavigating.value = false;
-        });
-};
-
-const openExternal = () => {
-    const url = urlInput.value.trim();
-    if (url && /^https?:\/\//i.test(url)) {
-        window.open(url, '_blank');
-    }
-};
-
 // Listen to takeover events
 const handleTakeOverEvent = (event: Event) => {
     const customEvent = event as CustomEvent;
@@ -317,14 +170,13 @@ const handleTakeOverEvent = (event: Event) => {
     currentSessionId.value = customEvent.detail.sessionId;
 };
 
-// Live preview event handlers
-const onLivePreviewConnected = () => {
-    // Live preview connection established
-    void syncCurrentUrlFromHistory();
+// VNC event handlers
+const onVncConnected = () => {
+    // VNC desktop connection established — full browser chrome is visible
 };
 
-const onLivePreviewDisconnected = (_reason?: string) => {
-    // Live preview connection lost
+const onVncDisconnected = (_reason?: string) => {
+    // VNC desktop connection lost
 };
 
 // Calculate whether to show takeover view
@@ -355,8 +207,6 @@ watch(
     },
     { immediate: true },
 );
-
-
 
 // Remove event listener when component is unmounted
 onBeforeUnmount(() => {
@@ -431,84 +281,6 @@ defineExpose({
 </script>
 
 <style scoped>
-/* Address bar */
-.takeover-address-bar {
-    flex-shrink: 0;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    padding: 0 8px;
-    background: var(--background-white-main, #ffffff);
-    border-bottom: 1px solid var(--border-light, #e5e5e5);
-}
-
-.takeover-address-bar-inner {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    width: 100%;
-}
-
-.takeover-nav-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--icon-secondary, #666);
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: all 0.15s ease;
-}
-
-.takeover-nav-btn:hover {
-    background: var(--fill-tsp-gray-main, #f5f5f5);
-    color: var(--text-primary, #1a1a1a);
-}
-
-.takeover-url-input-wrapper {
-    display: flex;
-    align-items: center;
-    flex: 1;
-    min-width: 0;
-    height: 32px;
-    padding: 0 10px;
-    background: var(--fill-tsp-gray-main, #f5f5f5);
-    border: 1px solid var(--border-light, #e5e5e5);
-    border-radius: 10px;
-    gap: 8px;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.takeover-url-input-wrapper:focus-within {
-    border-color: var(--border-focus, #8080ff);
-    box-shadow: 0 0 0 2px var(--fill-tsp-primary-light, rgba(128, 128, 255, 0.15));
-    background: var(--background-white-main, #ffffff);
-}
-
-.takeover-url-icon {
-    flex-shrink: 0;
-    color: var(--icon-tertiary, #999);
-}
-
-.takeover-url-input {
-    flex: 1;
-    min-width: 0;
-    border: none;
-    background: transparent;
-    outline: none;
-    font-size: 13px;
-    color: var(--text-primary, #1a1a1a);
-    font-family: inherit;
-}
-
-.takeover-url-input::placeholder {
-    color: var(--text-tertiary, #999);
-}
-
 .fade-enter-active,
 .fade-leave-active {
     transition: opacity 0.3s ease, transform 0.3s ease;
