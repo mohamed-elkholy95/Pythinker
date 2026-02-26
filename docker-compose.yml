@@ -54,6 +54,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - knowledge_base_data:/app/data/knowledge_bases
+      - dspy_cache:/app/data/dspy_cache
       #- ./mcp.json:/etc/mcp.json # Mount MCP servers directory
     networks:
       - pythinker-network
@@ -67,6 +68,13 @@ services:
       - GRPC_ENABLE_FORK_SUPPORT=0 # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation # Suppress Playwright url.parse() deprecation
       - FAST_MODEL=${FAST_MODEL:-qwen/qwen3-coder-next}
+      # DSPy prompt optimization — disabled by default; flip to true to run offline jobs
+      - FEATURE_PROMPT_OPTIMIZATION_PIPELINE=${FEATURE_PROMPT_OPTIMIZATION_PIPELINE:-false}
+      - DSPY_CACHEDIR=/app/data/dspy_cache
+      - DSPY_NUM_THREADS=${DSPY_NUM_THREADS:-4}
+      - DSPY_MAX_BOOTSTRAPPED_DEMOS=${DSPY_MAX_BOOTSTRAPPED_DEMOS:-4}
+      - DSPY_MAX_LABELED_DEMOS=${DSPY_MAX_LABELED_DEMOS:-4}
+      - DSPY_MINIBATCH_SIZE=${DSPY_MINIBATCH_SIZE:-25}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik-public"
@@ -326,6 +334,8 @@ volumes:
     name: pythinker-minio-data
   knowledge_base_data:
     name: pythinker-knowledge-base-data
+  dspy_cache:
+    name: pythinker-dspy-cache
 
 networks:
   pythinker-network:
