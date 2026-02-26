@@ -764,7 +764,7 @@ class AgentService:
 
                 if not done:
                     idle_seconds = time.monotonic() - last_event_at
-                    logger.warning(
+                    logger.debug(
                         "Chat stream idle for session %s: %.2fs without domain events; continuing to wait",
                         session_id,
                         idle_seconds,

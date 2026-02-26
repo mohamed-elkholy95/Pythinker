@@ -412,6 +412,11 @@ class PlaywrightBrowser:
 
         except Exception as e:
             if self._is_crash_error(e):
+                err_str = str(e)
+                # Navigation destroys execution context — this is expected, not a crash
+                if "Execution context was destroyed" in err_str:
+                    logger.debug("Health check during navigation (context destroyed) — treating as healthy")
+                    return True
                 logger.error(f"Browser crash detected in quick health check: {e}")
                 self._connection_healthy = False
                 self._record_crash()
