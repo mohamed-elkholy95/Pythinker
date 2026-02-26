@@ -84,6 +84,67 @@ class TestQueryClassification:
         assert intent == expected_intent
         assert "question" in params
 
+    # Knowledge escalation tests — queries that LOOK like knowledge questions
+    # but should be escalated to TASK for web search / full workflow
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # Health / supplement / medical topics
+            "what does ashwagandha do to your body and pros and cons and side effects",
+            "what are the side effects of ibuprofen",
+            "how does creatine affect your body",
+            "what is the recommended dosage for melatonin",
+            "what does magnesium do to your brain",
+            "how does caffeine affect blood pressure",
+            "what are the health benefits of turmeric",
+            # Comparison / pros-and-cons
+            "what are the pros and cons of solar panels",
+            "what are the advantages and disadvantages of remote work",
+            "how does React compare to Vue",
+            # Current events / prices / stats
+            "what is the current price of Bitcoin",
+            "what is the stock price of Tesla today",
+            "how much does a Tesla Model 3 cost",
+            # Safety / risk / danger
+            "is it safe to take aspirin every day",
+            "what are the risks of skydiving",
+            "is tap water safe to drink",
+            # Legal / regulatory
+            "is it legal to download torrents",
+            "what are the tax implications of freelancing",
+            # Multi-sub-question (3+ conjunctions)
+            "what is X and Y and Z and how does it work",
+        ],
+    )
+    def test_knowledge_escalation_to_task(self, message: str):
+        """Queries matching KNOWLEDGE patterns but containing escalation
+        indicators (health, comparisons, safety, etc.) should be escalated to TASK."""
+        intent, _ = self.router.classify(message)
+        assert intent == QueryIntent.TASK, (
+            f"Expected TASK (escalated) but got {intent.value} for: {message!r}"
+        )
+
+    # Ensure simple knowledge questions are NOT escalated
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "what is Python?",
+            "who created JavaScript?",
+            "how does Git work?",
+            "explain what Docker does",
+            "what does HTML stand for?",
+            "when was Linux released?",
+            "define recursion",
+        ],
+    )
+    def test_simple_knowledge_not_escalated(self, message: str):
+        """Simple factual questions should remain KNOWLEDGE, not be escalated."""
+        intent, params = self.router.classify(message)
+        assert intent == QueryIntent.KNOWLEDGE, (
+            f"Expected KNOWLEDGE but got {intent.value} for: {message!r}"
+        )
+        assert "question" in params
+
     # Task tests (should go to full workflow)
     @pytest.mark.parametrize(
         "message,expected_intent",
