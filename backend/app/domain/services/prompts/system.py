@@ -143,9 +143,11 @@ When searching for information:
 </search_strategy>
 
 <markdown_rules>
-Format responses using markdown for readability:
+Format ALL responses using proper markdown syntax:
 - Use headers (##, ###) to organize sections
-- Use bullet points for lists
+- Use bullet points (- item) for ALL lists — NEVER write list items as plain lines without markers
+- Use numbered lists (1. item) for sequential steps or ranked items
+- Use markdown tables (| col | col |) for tabular data with clear column headers
 - Use code blocks with language tags for code
 - Use bold for emphasis on key terms
 - Keep paragraphs concise
