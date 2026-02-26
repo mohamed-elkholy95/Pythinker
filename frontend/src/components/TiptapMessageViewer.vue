@@ -58,6 +58,10 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import Highlight from '@tiptap/extension-highlight';
+import { Table } from '@tiptap/extension-table';
+import TableRow from '@tiptap/extension-table-row';
+import TableHeader from '@tiptap/extension-table-header';
+import TableCell from '@tiptap/extension-table-cell';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import TextAlign from '@tiptap/extension-text-align';
@@ -99,13 +103,30 @@ const citCard = reactive({
 });
 let _hideCardTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Debug flag — enabled via ?debugCitations in URL or console: window.__citDebug = true
+const _citDebug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugCitations');
+
 // Apply same normalizers as TiptapReportEditor: verification markers + inline citations
 const htmlContent = computed(() => {
   if (!props.content) return '<p></p>';
   const normalizedMarkdown = normalizeVerificationMarkers(props.content);
   const linkedMarkdown = linkifyInlineCitations(normalizedMarkdown);
-  const rawHtml = marked.parse(linkedMarkdown, { async: false, breaks: true, gfm: true }) as string;
-  return DOMPurify.sanitize(rawHtml);
+  // Collapse 3+ consecutive newlines to 2 — prevents excessive <br> gaps from `breaks: true`
+  const collapsed = linkedMarkdown.replace(/\n{3,}/g, '\n\n');
+  const rawHtml = marked.parse(collapsed, { async: false, breaks: true, gfm: true }) as string;
+  const sanitized = DOMPurify.sanitize(rawHtml);
+  if (_citDebug) {
+    console.groupCollapsed('%c[CitDebug:Msg] htmlContent pipeline', 'color:#9b59b6;font-weight:bold');
+    const refTail = (s: string) => {
+      const idx = s.search(/(?:#{1,4}\s*(?:references?|sources?|bibliography|citations?)|\*{2}(?:references?|sources?|bibliography|citations?):?\*{2})/i);
+      return idx >= 0 ? s.slice(idx, idx + 800) : '(no references section detected)';
+    };
+    console.log('after linkifyInlineCitations (ref tail):\n', refTail(linkedMarkdown));
+    console.log('after marked.parse (ref tail):\n', refTail(rawHtml));
+    console.log('after DOMPurify (ref tail):\n', refTail(sanitized));
+    console.groupEnd();
+  }
+  return sanitized;
 });
 
 // After TipTap renders, stamp id="ref-N" onto reference list items,
@@ -120,6 +141,12 @@ const addReferenceAnchors = () => {
   const headings = Array.from(proseMirror.querySelectorAll('h1, h2, h3, h4'));
   const refMap = new Map<string, { title: string; domain: string; url: string }>();
 
+  if (_citDebug) {
+    console.groupCollapsed('%c[CitDebug:Msg] addReferenceAnchors', 'color:#1a73e8;font-weight:bold');
+    console.log('props.sources count:', props.sources?.length ?? 0);
+    console.log('headings found:', headings.map(h => `${h.tagName}: "${h.textContent?.trim()}"`));
+  }
+
   // Seed refMap from structured backend sources (authoritative, index-based).
   // The backend assigns citation numbers sequentially (1-based), matching [N] in content.
   if (props.sources?.length) {
@@ -129,8 +156,11 @@ const addReferenceAnchors = () => {
         const domain = new URL(src.url).hostname.replace(/^www\./, '');
         const title = (src.title || domain).slice(0, 80);
         refMap.set(String(i + 1), { title, domain, url: src.url });
-      } catch { /* malformed URL — skip, DOM scraping will fill the gap */ }
+      } catch {
+        if (_citDebug) console.warn(`  source[${i}] malformed URL:`, src.url);
+      }
     }
+    if (_citDebug) console.log('refMap after sources seed:', Object.fromEntries(refMap));
   }
 
   // Helper: find the first anchor inside an element whose raw href is external
@@ -216,15 +246,18 @@ const addReferenceAnchors = () => {
         continue;
       }
 
-      // Bracket-style: "[N] [Title](URL)" rendered as a <p>
+      // Bracket-style: "[N] [Title](URL)" rendered as a <p>.
+      // Match ALL bracket refs in the element (multiple may land in one <p> via <br>).
       if (sibling.tagName === 'P' || sibling.tagName === 'DIV') {
         const text = sibling.textContent?.trimStart() ?? '';
-        const m = text.match(/^\[(\d{1,3})\]/);
-        if (m) {
-          const num = m[1];
-          sibling.setAttribute('id', `ref-${num}`);
-          extractRefMeta(sibling, num);
-          nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+        const bracketMatches = [...text.matchAll(/\[(\d{1,3})\]/g)];
+        if (bracketMatches.length > 0) {
+          sibling.setAttribute('id', `ref-${bracketMatches[0][1]}`);
+          for (const bm of bracketMatches) {
+            const num = bm[1];
+            extractRefMeta(sibling, num);
+            nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+          }
         }
       }
 
@@ -270,12 +303,14 @@ const addReferenceAnchors = () => {
 
         if (sibling.tagName === 'P' || sibling.tagName === 'DIV') {
           const text = sibling.textContent?.trimStart() ?? '';
-          const m = text.match(/^\[(\d{1,3})\]/);
-          if (m) {
-            const num = m[1];
-            sibling.setAttribute('id', `ref-${num}`);
-            extractRefMeta(sibling, num);
-            nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+          const bracketMatches = [...text.matchAll(/\[(\d{1,3})\]/g)];
+          if (bracketMatches.length > 0) {
+            sibling.setAttribute('id', `ref-${bracketMatches[0][1]}`);
+            for (const bm of bracketMatches) {
+              const num = bm[1];
+              extractRefMeta(sibling, num);
+              nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+            }
           }
         }
 
@@ -287,7 +322,9 @@ const addReferenceAnchors = () => {
 
   // Stamp data attributes onto inline citation badge anchors for popup card.
   // Also strip Link extension attributes/classes — citation badges have their own styling.
-  proseMirror.querySelectorAll('a[href^="#ref-"]').forEach((badge) => {
+  const badges = Array.from(proseMirror.querySelectorAll('a[href^="#ref-"]'));
+  const unresolvedBadges: string[] = [];
+  badges.forEach((badge) => {
     const el = badge as HTMLAnchorElement;
     el.removeAttribute('target');
     el.removeAttribute('rel');
@@ -300,8 +337,24 @@ const addReferenceAnchors = () => {
       el.dataset.title = title;
       el.dataset.domain = domain;
       el.dataset.url = url;
+      el.dataset.citResolved = 'true';
+      if (_citDebug) el.removeAttribute('data-cit-unresolved');
+    } else {
+      el.dataset.citResolved = 'false';
+      if (_citDebug) {
+        el.dataset.citUnresolved = 'true';
+        if (num) unresolvedBadges.push(num);
+      }
     }
   });
+
+  if (_citDebug) {
+    console.log('refMap final:', Object.fromEntries(refMap));
+    console.log(`badges: ${badges.length} total, ${unresolvedBadges.length} unresolved:`, unresolvedBadges);
+    const refEls = Array.from(proseMirror.querySelectorAll('[id^="ref-"]'));
+    console.log('DOM ref-N elements:', refEls.map(el => `${el.id} (${el.tagName})`));
+    console.groupEnd();
+  }
 };
 
 const editor = useEditor({
@@ -328,6 +381,13 @@ const editor = useEditor({
     Highlight.configure({ multicolor: true }),
     TaskList,
     TaskItem.configure({ nested: true }),
+    Table.configure({
+      resizable: false,
+      HTMLAttributes: { class: 'tiptap-table' },
+    }),
+    TableRow,
+    TableHeader,
+    TableCell,
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Typography,
     CodeBlockLowlight.configure({
@@ -449,7 +509,16 @@ const _onBadgeOver = (e: MouseEvent) => {
     }
   }
 
-  if (!title && !domain) return;
+  if (!title && !domain) {
+    if (_citDebug) {
+      console.warn(`[CitDebug:Msg] hover on [${num}] — ALL resolution failed`, {
+        'data-attrs': { title: badge.dataset.title, domain: badge.dataset.domain, url: badge.dataset.url },
+        'sources[idx]': props.sources?.[parseInt(num, 10) - 1] ?? 'N/A',
+        'DOM #ref-N': !!contentRef.value?.querySelector(`.ProseMirror #ref-${num}`),
+      });
+    }
+    return;
+  }
 
   keepCard();
   const rect = badge.getBoundingClientRect();
@@ -1005,5 +1074,29 @@ defineExpose({ contentRef });
   border-color: #e5e5e7;
   color: #1c1c1e;
   text-decoration: none !important;
+}
+
+/* ── Debug: highlight unresolved citation badges ────────────────────── */
+.tiptap-message-viewer a[data-cit-unresolved="true"] {
+  border-color: #e53e3e !important;
+  color: #e53e3e !important;
+  position: relative;
+}
+.tiptap-message-viewer a[data-cit-unresolved="true"]::after {
+  content: '?';
+  position: absolute;
+  top: -7px;
+  right: -6px;
+  width: 10px;
+  height: 10px;
+  background: #e53e3e;
+  color: white;
+  border-radius: 50%;
+  font-size: 7px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 </style>
