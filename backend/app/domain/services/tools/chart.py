@@ -1,7 +1,8 @@
 """
 Plotly chart creation tool for the agent.
 
-Supports 8 chart types: bar, line, scatter, pie, area, grouped_bar, stacked_bar, box
+Supports 14 chart types: bar, line, scatter, pie, area, grouped_bar, stacked_bar, box,
+donut, waterfall, funnel, treemap, indicator, auto
 """
 
 import asyncio
@@ -22,7 +23,8 @@ class ChartTool(BaseTool):
     Plotly chart creation tool for the agent.
 
     Creates interactive HTML and static PNG charts from structured data.
-    Supports bar, line, scatter, pie, area, grouped_bar, stacked_bar, and box charts.
+    Supports bar, line, scatter, pie, area, grouped_bar, stacked_bar, box,
+    donut, waterfall, funnel, treemap, indicator, and auto-detected chart types.
     """
 
     name: str = "chart"
@@ -126,19 +128,73 @@ STEP 4: AVOID COMMON MISTAKES
 - Don't use bar charts for time-series → Use line chart
 - Don't use vertical bars with long labels → Use horizontal orientation ('h')
 
+FINANCIAL & CUMULATIVE DATA:
+- waterfall: Show cumulative effect of sequential values (P&L, budget changes)
+  • Use when: Values represent incremental changes (gains/losses) building to a total
+  • Example: "Quarterly profit breakdown: revenue, costs, taxes → net profit"
+  • Optional: Pass 'measure' in dataset with ["relative", "relative", "total"] values
+
+CONVERSION & PIPELINE DATA:
+- funnel: Visualize conversion pipeline stages
+  • Use when: Sequential stages with decreasing values (sales funnel, user journey)
+  • Example: "Website conversion: Visitors → Signups → Trials → Paid"
+  • Shows value + percent of initial automatically
+
+HIERARCHICAL DATA:
+- treemap: Show hierarchical part-to-whole relationships
+  • Use when: Data has parent-child relationships (org chart, file sizes, budget hierarchy)
+  • Requires: 'parents' parameter matching labels
+  • Example: "Department budget breakdown with sub-departments"
+
+KPI & METRICS:
+- indicator: Dashboard-style KPI card with optional delta
+  • Use when: Single headline number with optional comparison to reference
+  • Example: "Current MRR: $125,000 (+12.5% vs last month)"
+  • Optional: 'reference' parameter for delta calculation
+
+MODERN ALTERNATIVES:
+- donut: Modern pie chart with center hole (hole=0.45)
+  • Use when: Same as pie but want modern appearance
+  • Example: "Revenue by product line"
+
+AUTO-DETECTION:
+- auto: Let the system choose the best chart type based on data characteristics
+  • Analyzes: data count, temporal patterns, hierarchy, value distributions
+  • Good when you're unsure which chart type fits best
+
 DECISION FLOWCHART:
-1. Is data categorical? → YES: Are labels long (>4 chars)? → Use bar (orientation='h'), else bar (orientation='v')
-2. Is data time-series? → YES: Use line chart
-3. Is data continuous relationship? → YES: Use scatter plot
-4. Is data part-to-whole with <7 categories? → YES: Use pie chart
-5. Is data distribution/spread? → YES: Use box plot
+1. Unsure? → Use 'auto' and let the system decide
+2. Is data categorical? → bar (orientation auto-detected) or grouped_bar
+3. Is data time-series? → line chart
+4. Is data continuous relationship? → scatter plot
+5. Is data part-to-whole with <7 categories? → pie or donut
+6. Is data distribution/spread? → box plot
+7. Is data cumulative/financial? → waterfall
+8. Is data a conversion pipeline? → funnel
+9. Is data hierarchical? → treemap
+10. Single KPI metric? → indicator
 
 Returns both interactive HTML and static PNG files.""",
         parameters={
             "chart_type": {
                 "type": "string",
-                "description": "Type of chart to create. See tool description for selection guide.",
-                "enum": ["bar", "line", "scatter", "pie", "area", "grouped_bar", "stacked_bar", "box"],
+                "description": "Type of chart to create. Use 'auto' to let the system choose. See tool description for selection guide.",
+                "enum": [
+                    "bar",
+                    "line",
+                    "scatter",
+                    "pie",
+                    "area",
+                    "grouped_bar",
+                    "stacked_bar",
+                    "box",
+                    "donut",
+                    "waterfall",
+                    "funnel",
+                    "treemap",
+                    "indicator",
+                    "auto",
+                ],
             },
             "title": {
                 "type": "string",
@@ -179,8 +235,8 @@ Returns both interactive HTML and static PNG files.""",
             },
             "orientation": {
                 "type": "string",
-                "description": "Chart orientation: 'v' for vertical (DEFAULT - best for rankings, histograms, categorical comparisons), 'h' for horizontal (use when labels are longer than 3-4 characters to prevent rotation issues).",
-                "enum": ["v", "h"],
+                "description": "Chart orientation: 'auto' (DEFAULT - intelligently chooses based on label length, count, and temporal patterns), 'v' for vertical, 'h' for horizontal.",
+                "enum": ["auto", "v", "h"],
             },
             "lower_is_better": {
                 "type": "boolean",
@@ -199,53 +255,79 @@ Returns both interactive HTML and static PNG files.""",
                 "description": "Plotly theme (default: 'plotly_white')",
                 "enum": ["plotly", "plotly_white", "plotly_dark", "ggplot2", "seaborn", "simple_white"],
             },
+            "parents": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Parent labels for treemap hierarchy. Must match labels array length. Use '' for root nodes.",
+            },
+            "reference": {
+                "type": "number",
+                "description": "Reference value for indicator delta calculation (e.g., previous period value).",
+            },
         },
-        required=["chart_type", "title", "labels", "datasets"],
+        required=["chart_type", "title", "datasets"],
     )
     async def chart_create(
         self,
         chart_type: str,
         title: str,
-        labels: list[str],
         datasets: list[dict[str, Any]],
+        labels: list[str] | None = None,
         x_label: str = "",
         y_label: str = "",
-        orientation: str = "v",
+        orientation: str = "auto",
         lower_is_better: bool = False,
         width: int = 1000,
         height: int = 600,
         theme: str = "plotly_white",
+        parents: list[str] | None = None,
+        reference: float | None = None,
     ) -> ToolResult:
         """
         Create a Plotly chart and return HTML + PNG + JSON contract file references.
 
         Args:
-            chart_type: Type of chart (bar, line, scatter, pie, area, grouped_bar, stacked_bar, box)
+            chart_type: Type of chart
             title: Chart title
-            labels: X-axis labels or category names
             datasets: Data series to plot
+            labels: X-axis labels or category names (not required for indicator)
             x_label: X-axis label
             y_label: Y-axis label
-            orientation: Chart orientation (v or h)
+            orientation: Chart orientation (auto, v, or h)
             lower_is_better: Whether lower values are better (for sorting)
             width: Chart width in pixels
             height: Chart height in pixels
             theme: Plotly theme
+            parents: Parent labels for treemap hierarchy
+            reference: Reference value for indicator delta
 
         Returns:
             ToolResult with chart metadata and file paths
         """
-        # Validate inputs
-        if not labels:
+        is_indicator = chart_type == "indicator"
+
+        # Validate inputs — indicator charts don't require labels
+        if not is_indicator and (not labels or len(labels) == 0):
             return ToolResult(success=False, message="Labels cannot be empty")
 
         if not datasets or len(datasets) == 0:
             return ToolResult(success=False, message="Datasets cannot be empty")
 
+        # Treemap requires parents
+        if chart_type == "treemap":
+            if not parents:
+                return ToolResult(success=False, message="Treemap requires 'parents' parameter")
+            if labels and len(parents) != len(labels):
+                return ToolResult(
+                    success=False,
+                    message=f"parents ({len(parents)}) must match labels ({len(labels)})",
+                )
+
         for i, dataset in enumerate(datasets):
             if "values" not in dataset:
                 return ToolResult(success=False, message=f"Dataset {i} missing 'values' field")
-            if len(dataset["values"]) != len(labels):
+            # Skip length check for indicator (may have single value with no labels)
+            if not is_indicator and labels and len(dataset["values"]) != len(labels):
                 return ToolResult(
                     success=False,
                     message=f"Dataset {i} has {len(dataset['values'])} values but {len(labels)} labels. They must match.",
@@ -260,12 +342,12 @@ Returns both interactive HTML and static PNG files.""",
         output_json = f"/home/ubuntu/chart-{chart_id}.plotly.json"
 
         # Build JSON payload for sandbox script
-        chart_spec = {
+        chart_spec: dict[str, Any] = {
             "chart_type": chart_type,
             "title": title,
             "x_label": x_label,
             "y_label": y_label,
-            "labels": labels,
+            "labels": labels or [],
             "datasets": datasets,
             "orientation": orientation,
             "lower_is_better": lower_is_better,
@@ -276,6 +358,10 @@ Returns both interactive HTML and static PNG files.""",
             "output_png": output_png,
             "output_json": output_json,
         }
+        if parents:
+            chart_spec["parents"] = parents
+        if reference is not None:
+            chart_spec["reference"] = reference
 
         # Write JSON spec to sandbox temp file (must be within /home/ubuntu or /workspace)
         temp_input_path = f"/home/ubuntu/plotly_input_{chart_id}.json"
