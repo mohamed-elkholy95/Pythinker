@@ -90,7 +90,20 @@ const htmlContent = computed(() => {
   const normalizedMarkdown = normalizeVerificationMarkers(props.content);
   const linkedMarkdown = linkifyInlineCitations(normalizedMarkdown);
   const rawHtml = marked.parse(linkedMarkdown, { async: false, breaks: true, gfm: true }) as string;
-  return DOMPurify.sanitize(rawHtml);
+  const sanitized = DOMPurify.sanitize(rawHtml);
+  if (_citDebug) {
+    console.groupCollapsed('%c[CitDebug] htmlContent pipeline', 'color:#9b59b6;font-weight:bold');
+    // Show only the references section tail of each stage to avoid spamming
+    const refTail = (s: string) => {
+      const idx = s.search(/(?:#{1,4}\s*(?:references?|sources?|bibliography|citations?)|\*{2}(?:references?|sources?|bibliography|citations?):?\*{2})/i);
+      return idx >= 0 ? s.slice(idx, idx + 800) : '(no references section detected)';
+    };
+    console.log('after linkifyInlineCitations (ref tail):\n', refTail(linkedMarkdown));
+    console.log('after marked.parse (ref tail):\n', refTail(rawHtml));
+    console.log('after DOMPurify (ref tail):\n', refTail(sanitized));
+    console.groupEnd();
+  }
+  return sanitized;
 });
 
 // After TipTap renders, stamp id="ref-N" onto list items inside the
@@ -98,6 +111,9 @@ const htmlContent = computed(() => {
 // from its schema nodes, so we must do this via direct DOM mutation.
 // Also injects data-{title,domain,url} into inline citation badges for the popup,
 // and stamps the same data onto reference-section anchors for hover popups.
+// Debug flag — enabled via ?debugCitations in URL or DEV mode console toggle
+const _citDebug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugCitations');
+
 const addReferenceAnchors = () => {
   const proseMirror = contentRef.value?.querySelector('.ProseMirror');
   if (!proseMirror) return;
@@ -105,6 +121,12 @@ const addReferenceAnchors = () => {
   const refHeadingRe = /^(references?|sources?|bibliography|citations?)$/i;
   const headings = Array.from(proseMirror.querySelectorAll('h1, h2, h3, h4'));
   const refMap = new Map<string, { title: string; domain: string; url: string }>();
+
+  if (_citDebug) {
+    console.groupCollapsed('%c[CitDebug] addReferenceAnchors', 'color:#1a73e8;font-weight:bold');
+    console.log('props.sources count:', props.sources?.length ?? 0);
+    console.log('headings found:', headings.map(h => `${h.tagName}: "${h.textContent?.trim()}"`));
+  }
 
   // Seed refMap from structured backend sources (authoritative, index-based).
   // The backend assigns citation numbers sequentially (1-based), matching [N] in content.
@@ -115,8 +137,11 @@ const addReferenceAnchors = () => {
         const domain = new URL(src.url).hostname.replace(/^www\./, '');
         const title = (src.title || domain).slice(0, 80);
         refMap.set(String(i + 1), { title, domain, url: src.url });
-      } catch { /* malformed URL — skip, DOM scraping will fill the gap */ }
+      } catch {
+        if (_citDebug) console.warn(`  source[${i}] malformed URL:`, src.url);
+      }
     }
+    if (_citDebug) console.log('refMap after sources seed:', Object.fromEntries(refMap));
   }
 
   // Helper: find the first anchor whose raw href is external (not a fragment)
@@ -182,6 +207,7 @@ const addReferenceAnchors = () => {
 
   for (const heading of headings) {
     if (!refHeadingRe.test(heading.textContent?.trim() ?? '')) continue;
+    if (_citDebug) console.log('matched ref heading:', heading.tagName, `"${heading.textContent?.trim()}"`);
 
     let sibling = heading.nextElementSibling;
     let nextNum = 1; // running counter for list items across split lists
@@ -192,6 +218,7 @@ const addReferenceAnchors = () => {
       if (sibling.tagName === 'OL' || sibling.tagName === 'UL') {
         const startAttr = sibling.getAttribute('start');
         const startNum = startAttr ? parseInt(startAttr, 10) : nextNum;
+        if (_citDebug) console.log(`  ${sibling.tagName} start=${startNum}, items=${sibling.querySelectorAll(':scope > li').length}`);
         sibling.querySelectorAll(':scope > li').forEach((item, index) => {
           const num = String(startNum + index);
           item.setAttribute('id', `ref-${num}`);
@@ -203,15 +230,20 @@ const addReferenceAnchors = () => {
         continue;
       }
 
-      // Bracket-style: "[N] [Link Title](URL)" — rendered as a <p> by marked
+      // Bracket-style: "[N] [Link Title](URL)" — rendered as a <p> by marked.
+      // When multiple bracket refs land in one <p> (e.g. via <br>), match ALL of them
+      // so every ref gets into refMap (not just the first).
       if (sibling.tagName === 'P' || sibling.tagName === 'DIV') {
         const text = sibling.textContent?.trimStart() ?? '';
-        const m = text.match(/^\[(\d{1,3})\]/);
-        if (m) {
-          const num = m[1];
-          sibling.setAttribute('id', `ref-${num}`);
-          extractRefMeta(sibling, num);
-          nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+        const bracketMatches = [...text.matchAll(/\[(\d{1,3})\]/g)];
+        if (bracketMatches.length > 0) {
+          if (_citDebug) console.log(`  bracket-refs in <${sibling.tagName}>:`, bracketMatches.map(m => m[1]));
+          sibling.setAttribute('id', `ref-${bracketMatches[0][1]}`);
+          for (const bm of bracketMatches) {
+            const num = bm[1];
+            extractRefMeta(sibling, num);
+            nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+          }
         }
       }
 
@@ -224,12 +256,16 @@ const addReferenceAnchors = () => {
   // Only run this scan if the heading-based scan above found nothing new.
   const headingScanFound = refMap.size > refMapSizeBeforeHeadingScan;
   if (!headingScanFound) {
+    if (_citDebug) console.log('heading scan found nothing new → trying bold-text fallback');
     const paragraphs = Array.from(proseMirror.querySelectorAll('p'));
+    let boldHeaderFound = false;
     for (const p of paragraphs) {
       const strong = p.querySelector('strong');
       if (!strong) continue;
       const strongText = strong.textContent?.trim().replace(/:$/, '') ?? '';
       if (!refHeadingRe.test(strongText)) continue;
+      boldHeaderFound = true;
+      if (_citDebug) console.log('matched bold ref header:', `"${strongText}"`);
 
       // Found a bold reference header — process siblings just like heading scan
       let sibling = p.nextElementSibling;
@@ -245,6 +281,7 @@ const addReferenceAnchors = () => {
         if (sibling.tagName === 'OL' || sibling.tagName === 'UL') {
           const startAttr = sibling.getAttribute('start');
           const startNum = startAttr ? parseInt(startAttr, 10) : nextNum;
+          if (_citDebug) console.log(`  bold-fallback ${sibling.tagName} start=${startNum}, items=${sibling.querySelectorAll(':scope > li').length}`);
           sibling.querySelectorAll(':scope > li').forEach((item, index) => {
             const num = String(startNum + index);
             item.setAttribute('id', `ref-${num}`);
@@ -257,12 +294,14 @@ const addReferenceAnchors = () => {
 
         if (sibling.tagName === 'P' || sibling.tagName === 'DIV') {
           const text = sibling.textContent?.trimStart() ?? '';
-          const m = text.match(/^\[(\d{1,3})\]/);
-          if (m) {
-            const num = m[1];
-            sibling.setAttribute('id', `ref-${num}`);
-            extractRefMeta(sibling, num);
-            nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+          const bracketMatches = [...text.matchAll(/\[(\d{1,3})\]/g)];
+          if (bracketMatches.length > 0) {
+            sibling.setAttribute('id', `ref-${bracketMatches[0][1]}`);
+            for (const bm of bracketMatches) {
+              const num = bm[1];
+              extractRefMeta(sibling, num);
+              nextNum = Math.max(nextNum, parseInt(num, 10) + 1);
+            }
           }
         }
 
@@ -270,12 +309,17 @@ const addReferenceAnchors = () => {
       }
       break; // Only process the first bold reference header
     }
+    if (_citDebug && !boldHeaderFound) console.warn('no bold ref header found either — reference section undetected');
+  } else {
+    if (_citDebug) console.log('heading scan found refs, skipping bold fallback');
   }
 
   // Stamp data attributes onto inline citation badge anchors for popup card.
   // Also remove target/_blank / rel added by the Link extension — citation
   // badges are internal fragment links and must scroll within the page.
-  proseMirror.querySelectorAll('a[href^="#ref-"]').forEach((badge) => {
+  const badges = Array.from(proseMirror.querySelectorAll('a[href^="#ref-"]'));
+  const unresolvedBadges: string[] = [];
+  badges.forEach((badge) => {
     const el = badge as HTMLAnchorElement;
     el.removeAttribute('target');
     el.removeAttribute('rel');
@@ -288,8 +332,25 @@ const addReferenceAnchors = () => {
       el.dataset.title = title;
       el.dataset.domain = domain;
       el.dataset.url = url;
+      el.dataset.citResolved = 'true';
+      if (_citDebug) el.removeAttribute('data-cit-unresolved');
+    } else {
+      el.dataset.citResolved = 'false';
+      if (_citDebug) {
+        el.dataset.citUnresolved = 'true';
+        if (num) unresolvedBadges.push(num);
+      }
     }
   });
+
+  if (_citDebug) {
+    console.log('refMap final:', Object.fromEntries(refMap));
+    console.log(`badges: ${badges.length} total, ${unresolvedBadges.length} unresolved:`, unresolvedBadges);
+    // Check for ref-N elements in the DOM
+    const refEls = Array.from(proseMirror.querySelectorAll('[id^="ref-"]'));
+    console.log('DOM ref-N elements:', refEls.map(el => `${el.id} (${el.tagName})`));
+    console.groupEnd();
+  }
 };
 
 const editor = useEditor({
@@ -407,7 +468,16 @@ const _onBadgeOver = (e: MouseEvent) => {
     }
   }
 
-  if (!title && !domain) return;
+  if (!title && !domain) {
+    if (_citDebug) {
+      console.warn(`[CitDebug] hover on [${num}] — ALL resolution failed`, {
+        'data-attrs': { title: badge.dataset.title, domain: badge.dataset.domain, url: badge.dataset.url },
+        'sources[idx]': props.sources?.[parseInt(num, 10) - 1] ?? 'N/A',
+        'DOM #ref-N': !!contentRef.value?.querySelector(`.ProseMirror #ref-${num}`),
+      });
+    }
+    return;
+  }
 
   keepCard();
   const rect = badge.getBoundingClientRect();
@@ -981,5 +1051,29 @@ defineExpose({
 .dark .tiptap-report-editor .ref-list-anchor:hover {
   text-decoration-color: #7cb3e0;
   color: #7cb3e0;
+}
+
+/* ── Debug: highlight unresolved citation badges ────────────────────── */
+.tiptap-report-editor a[data-cit-unresolved="true"] {
+  border-color: #e53e3e !important;
+  color: #e53e3e !important;
+  position: relative;
+}
+.tiptap-report-editor a[data-cit-unresolved="true"]::after {
+  content: '?';
+  position: absolute;
+  top: -7px;
+  right: -6px;
+  width: 10px;
+  height: 10px;
+  background: #e53e3e;
+  color: white;
+  border-radius: 50%;
+  font-size: 7px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 </style>
