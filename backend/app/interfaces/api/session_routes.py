@@ -135,7 +135,6 @@ def _is_websocket_origin_allowed(websocket: WebSocket) -> bool:
     return request_origin in allowed
 
 
-
 def _redact_query_params(url: str, sensitive_keys: set[str] | None = None) -> str:
     """Redact sensitive query parameter values in URLs before logging."""
     keys = sensitive_keys or _SENSITIVE_QUERY_KEYS
@@ -1516,10 +1515,10 @@ async def create_sandbox_signed_url(
 ) -> APIResponse[SignedUrlResponse]:
     """Generate signed URL for sandbox WebSocket access
 
-    Creates a signed URL for the screencast or input WebSocket proxy.
-    Target must be 'screencast' or 'input'.
+    Creates a signed URL for the screencast, input, or vnc WebSocket proxy.
+    Target must be 'screencast', 'input', or 'vnc'.
     """
-    allowed_targets = {"screencast", "input"}
+    allowed_targets = {"screencast", "input", "vnc"}
     if target not in allowed_targets:
         raise HTTPException(status_code=400, detail=f"Invalid target: {target}. Must be one of {allowed_targets}")
 
@@ -1826,6 +1825,143 @@ async def input_websocket(
             logger.error(f"Input WebSocket error: {error_text}")
         with contextlib.suppress(Exception):
             await websocket.close(code=1011, reason=f"Input error: {error_text}")
+
+
+@router.websocket("/{session_id}/vnc")
+async def vnc_websocket(
+    websocket: WebSocket,
+    session_id: str,
+    signature: str = Depends(verify_signature_websocket),
+    agent_service: AgentService = Depends(get_agent_service),
+    sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
+) -> None:
+    """VNC WebSocket proxy for takeover mode.
+
+    Proxies the sandbox websockify (VNC-over-WebSocket on port 6080) to the
+    browser.  Used during takeover to show full browser chrome with tabs.
+    The VNC protocol is binary-only — no text messages to handle.
+    """
+    try:
+        # noVNC requires the 'binary' subprotocol (VNC is a binary protocol).
+        # If the server doesn't echo the subprotocol, the browser closes with 1006.
+        await websocket.accept(subprotocol="binary")
+    except RuntimeError as e:
+        logger.warning(f"VNC WebSocket accept failed (connection already closed or shutdown in progress): {e}")
+        return
+
+    if not _is_websocket_origin_allowed(websocket):
+        logger.warning(
+            "[SECURITY] VNC WebSocket rejected: origin %r not in allowlist for session %s",
+            websocket.headers.get("origin"),
+            session_id,
+        )
+        await websocket.close(code=1008, reason="Origin not allowed")
+        return
+
+    try:
+        from app.interfaces.dependencies import extract_user_id_from_signed_url
+
+        user_id = extract_user_id_from_signed_url(websocket=websocket)
+
+        if not user_id:
+            logger.warning(f"[SECURITY] VNC WebSocket rejected: missing user_id in signed URL for session {session_id}")
+            await websocket.close(code=1008, reason="Unauthorized")
+            return
+
+        session = await agent_service.get_session(session_id, user_id)
+        if not session or not session.sandbox_id:
+            await websocket.close(code=1008, reason="Session or sandbox not found")
+            return
+
+        sandbox = await sandbox_cls.get(session.sandbox_id)
+        if not sandbox:
+            await websocket.close(code=1008, reason="Sandbox not found")
+            return
+
+        # Websockify runs on port 6080 inside the sandbox container.
+        # Replace the API port (typically 8080) with 6080 for VNC.
+        sandbox_vnc_url = sandbox.base_url.replace("http", "ws")
+        sandbox_vnc_url = sandbox_vnc_url.replace(":8080", ":6080")
+
+        redacted_sandbox_vnc_url = _redact_query_params(sandbox_vnc_url)
+        logger.info("Connecting to VNC websockify at %s", redacted_sandbox_vnc_url)
+
+        async with websockets.connect(
+            sandbox_vnc_url,
+            subprotocols=["binary"],
+            **SANDBOX_WS_CONNECT_KWARGS,
+        ) as sandbox_ws:
+            logger.info("Connected to VNC websockify at %s", redacted_sandbox_vnc_url)
+
+            async def forward_from_sandbox():
+                """Relay VNC frames from sandbox → browser."""
+                try:
+                    async for message in sandbox_ws:
+                        if isinstance(message, bytes):
+                            await websocket.send_bytes(message)
+                        else:
+                            await websocket.send_text(message)
+                except WebSocketDisconnect:
+                    logger.info("Browser -> VNC connection closed")
+                except RuntimeError as e:
+                    if "disconnect message has been received" in str(e):
+                        logger.info("Browser -> VNC connection closed")
+                    else:
+                        logger.error(f"Error forwarding from VNC: {e}")
+                except websockets.exceptions.ConnectionClosed:
+                    logger.info("VNC -> browser connection closed")
+                except Exception as e:
+                    logger.error(f"Error forwarding from VNC: {e}")
+
+            async def forward_from_browser():
+                """Relay browser → sandbox VNC messages (mouse/keyboard input)."""
+                try:
+                    while True:
+                        msg = await websocket.receive()
+                        msg_type = msg.get("type")
+                        if msg_type == "websocket.disconnect":
+                            break
+                        text = msg.get("text")
+                        data = msg.get("bytes")
+                        try:
+                            if data is not None:
+                                await sandbox_ws.send(data)
+                            elif text is not None:
+                                await sandbox_ws.send(text)
+                        except websockets.exceptions.ConnectionClosed:
+                            break
+                except (WebSocketDisconnect, RuntimeError):
+                    pass
+
+            tasks = [
+                asyncio.create_task(forward_from_sandbox()),
+                asyncio.create_task(forward_from_browser()),
+            ]
+            try:
+                _done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for task in tasks:
+                    task.cancel()
+                for task in tasks:
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+
+    except (ConnectionError, websockets.exceptions.WebSocketException) as e:
+        error_text = _safe_exc_text(e)
+        if "No such container" in error_text or "404 Client Error" in error_text:
+            logger.warning(f"VNC WS: sandbox container no longer exists: {error_text}")
+        else:
+            logger.error(f"Unable to connect to VNC websockify: {error_text}")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason=f"Unable to connect to sandbox VNC: {error_text}")
+    except Exception as e:
+        error_text = _safe_exc_text(e)
+        if "No such container" in error_text or "404 Client Error" in error_text:
+            logger.warning(f"VNC WS: sandbox container no longer exists: {error_text}")
+        else:
+            logger.error(f"VNC WebSocket error: {error_text}")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason=f"VNC error: {error_text}")
 
 
 # ============================================================================
