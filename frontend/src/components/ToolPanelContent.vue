@@ -370,6 +370,15 @@
             />
           </div>
 
+          <!-- Deal View -->
+          <div v-else-if="currentViewType === 'deals'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <DealContentView
+              :content="dealContent"
+              :is-searching="isDealSearching"
+              @browseUrl="handleBrowseUrl"
+            />
+          </div>
+
           <!-- Chart View -->
           <div v-else-if="currentViewType === 'chart'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <ChartToolView
@@ -511,6 +520,7 @@ const LoadingState = defineAsyncComponent(() => import('@/components/toolViews/s
 const TerminalContentView = defineAsyncComponent(() => import('@/components/toolViews/TerminalContentView.vue'));
 const EditorContentView = defineAsyncComponent(() => import('@/components/toolViews/EditorContentView.vue'));
 const SearchContentView = defineAsyncComponent(() => import('@/components/toolViews/SearchContentView.vue'));
+const DealContentView = defineAsyncComponent(() => import('@/components/toolViews/DealContentView.vue'));
 const ChartToolView = defineAsyncComponent(() => import('@/components/toolViews/ChartToolViewEnhanced.vue'));
 const CanvasLiveView = defineAsyncComponent(() => import('@/components/toolViews/CanvasLiveView.vue'));
 const GenericContentView = defineAsyncComponent(() => import('@/components/toolViews/GenericContentView.vue'));
@@ -528,6 +538,7 @@ import type { ScreenshotMetadata } from '@/types/screenshot';
 import { detectContentType, detectLanguage, type StreamingContentType } from '@/types/streaming';
 
 import type { ContentViewType } from '@/constants/tool';
+import type { DealToolContent } from '@/types/toolContent';
 
 const props = defineProps<{
   sessionId?: string;
@@ -810,7 +821,7 @@ const showLiveViewSkeleton = computed(() => {
   if (isSummaryPhase.value || props.summaryStreamText) return false;
   if (props.isReplayMode) return false;
   // These views handle their own skeleton or show live content
-  const noSkeleton = new Set(['search', 'live_preview', 'wide_research', 'terminal', 'editor']);
+  const noSkeleton = new Set(['search', 'live_preview', 'wide_research', 'terminal', 'editor', 'deals']);
   return !noSkeleton.has(currentViewType.value ?? '');
 });
 
@@ -1435,6 +1446,18 @@ const searchQuery = computed(() => {
     args.task ||
     ''
   );
+});
+
+// ============ Deal Content ============
+const dealContent = computed((): DealToolContent | null => {
+  const content = props.toolContent?.content as DealToolContent | undefined;
+  if (content && Array.isArray(content.deals)) return content;
+  return null;
+});
+
+const isDealSearching = computed(() => {
+  const isDealTool = toolDisplay.value?.toolKey === 'deal_scraper';
+  return isDealTool && toolStatus.value === 'calling';
 });
 
 // ============ Event Handlers ============

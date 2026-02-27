@@ -14,7 +14,7 @@ export type AgentMode = 'discuss' | 'agent';
 /**
  * Research mode - determines research strategy for the session
  */
-export type ResearchMode = 'fast_search' | 'deep_research';
+export type ResearchMode = 'fast_search' | 'deep_research' | 'deal_finding';
 
 export interface CreateSessionOptions {
   require_fresh_sandbox?: boolean;

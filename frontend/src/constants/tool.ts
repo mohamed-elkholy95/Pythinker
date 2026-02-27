@@ -558,7 +558,7 @@ export const TOOL_TIMELINE_COLORS: Record<string, string> = {
   code_dev: 'bg-emerald-400',
   file: 'bg-slate-400',
   git: 'bg-slate-400',
-  deal_scraper: 'bg-amber-400',
+  deal_scraper: 'bg-emerald-500',
   chart: 'bg-violet-400',
   message: 'bg-gray-300',
 };
@@ -568,7 +568,7 @@ export const TOOL_TIMELINE_DEFAULT_COLOR = 'bg-gray-400';
 /**
  * Content view types for the unified tool panel
  */
-export type ContentViewType = 'live_preview' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research' | 'chart' | 'canvas';
+export type ContentViewType = 'live_preview' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research' | 'chart' | 'canvas' | 'deals';
 export type ViewMode = 'primary' | 'secondary' | 'tertiary';
 
 export interface ContentConfig {
@@ -710,7 +710,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === DEAL SCRAPER ===
   deal_scraper: {
-    primaryView: 'search',
+    primaryView: 'deals',
     secondaryView: 'live_preview',
     tabLabels: [],
     defaultView: 'primary',
