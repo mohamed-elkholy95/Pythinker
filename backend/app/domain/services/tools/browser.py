@@ -468,9 +468,7 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                         "access_status": access_status,
                         "focus": focus,
                         "paywall_confidence": paywall_result.confidence,
-                        "paywall_indicators": paywall_result.indicators[:3]
-                        if paywall_result.indicators
-                        else [],
+                        "paywall_indicators": paywall_result.indicators[:3] if paywall_result.indicators else [],
                     },
                 )
         except Exception as e:
@@ -565,14 +563,14 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
         nav_visit_count = self._url_visit_counts.get(nav_normalized_url, 0) + 1
         self._url_visit_counts[nav_normalized_url] = nav_visit_count
 
-        if nav_visit_count >= 3:
+        if nav_visit_count >= 2:
             logger.warning(f"browser_navigate: URL visited {nav_visit_count} times, returning rejection: {url[:80]}")
             return ToolResult(
                 success=True,
                 message=(
-                    f"This URL has already been visited {nav_visit_count} times this session. "
-                    "Content is identical to previous visits. "
-                    "Please proceed with different URLs or complete the current step."
+                    "This URL was already visited this session. "
+                    "The page content has not changed since the last visit. "
+                    "Use the information already extracted. Do NOT navigate here again."
                 ),
                 data={"url": url, "visit_count": nav_visit_count},
             )
