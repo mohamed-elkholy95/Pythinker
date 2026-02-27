@@ -58,6 +58,12 @@ async def test_create_task_recycles_sandbox_on_browser_timeout():
         enable_multi_agent=False,
         resolved_flow_mode=FlowMode.PLAN_ACT,
         browser_init_timeout=1.0,
+        max_search_api_calls_per_task=30,
+        max_wide_research_calls_per_task=3,
+        max_wide_research_queries=5,
+        search_dedup_skip_existing=True,
+        deal_scraper_enabled=False,
+        scraping_tool_enabled=False,
     )
 
     task = MagicMock()
@@ -145,6 +151,12 @@ async def test_create_task_recycles_sandbox_on_browser_readiness_failure():
         enable_multi_agent=False,
         resolved_flow_mode=FlowMode.PLAN_ACT,
         browser_init_timeout=1.0,
+        max_search_api_calls_per_task=30,
+        max_wide_research_calls_per_task=3,
+        max_wide_research_queries=5,
+        search_dedup_skip_existing=True,
+        deal_scraper_enabled=False,
+        scraping_tool_enabled=False,
     )
 
     task = MagicMock()
@@ -220,6 +232,12 @@ async def test_create_task_bypasses_sandbox_pool_when_static_addresses_configure
         enable_multi_agent=False,
         resolved_flow_mode=FlowMode.PLAN_ACT,
         browser_init_timeout=1.0,
+        max_search_api_calls_per_task=30,
+        max_wide_research_calls_per_task=3,
+        max_wide_research_queries=5,
+        search_dedup_skip_existing=True,
+        deal_scraper_enabled=False,
+        scraping_tool_enabled=False,
     )
 
     task = MagicMock()

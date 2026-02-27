@@ -154,7 +154,7 @@ async def test_chat_cancellation_marks_session_cancelled() -> None:
 async def test_chat_done_emitted_when_task_completes_without_events() -> None:
     task = SimpleNamespace(
         id="task-id",
-        output_stream=SimpleNamespace(get=AsyncMock()),
+        output_stream=SimpleNamespace(get=AsyncMock(return_value=(None, None))),
         done=True,
     )
     session = Session(
