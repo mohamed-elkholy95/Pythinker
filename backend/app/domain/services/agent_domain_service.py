@@ -713,10 +713,32 @@ class AgentDomainService:
                     or follow_up_source
                 )
                 if task is None and not has_new_input:
-                    logger.info(
-                        f"Session {session_id} has no active task and no new input; ending stream without completion event"
-                    )
-                    return
+                    # Check if the session already reached a terminal state from a
+                    # previous task runner invocation whose events we missed.
+                    # Without this, the frontend never receives a DoneEvent and the
+                    # session appears stuck in RUNNING state indefinitely.
+                    session = await self._session_repository.find_by_id(session_id)
+                    persisted_status = session.status if session else None
+                    if persisted_status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
+                        logger.info(
+                            "Session %s has no active task but persisted status is %s — "
+                            "emitting terminal event to unblock frontend",
+                            session_id,
+                            persisted_status,
+                        )
+                        if persisted_status == SessionStatus.COMPLETED:
+                            title = session.title if session else "Task completed"
+                            yield DoneEvent(title=title, summary="Session completed.")
+                            terminal_status = SessionStatus.COMPLETED
+                        else:
+                            yield ErrorEvent(error="Task failed in a previous execution cycle.")
+                            terminal_status = SessionStatus.FAILED
+                    else:
+                        logger.info(
+                            "Session %s has no active task and no new input; ending stream without completion event",
+                            session_id,
+                        )
+                        return
 
                 logger.warning(f"Session {session_id} task completed without producing events")
                 session = await self._session_repository.find_by_id(session_id)
