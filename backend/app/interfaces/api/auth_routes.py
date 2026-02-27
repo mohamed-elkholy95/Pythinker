@@ -43,12 +43,14 @@ async def login(
     auth_result = await auth_service.login_with_tokens(request.email, request.password)
 
     # Return success response with tokens
+    settings = get_settings()
     return APIResponse.success(
         LoginResponse(
             user=UserResponse.from_user(auth_result.user),
             access_token=auth_result.access_token,
             refresh_token=auth_result.refresh_token,
             token_type=auth_result.token_type,
+            expires_in=settings.jwt_access_token_expire_minutes * 60,
         )
     )
 
@@ -66,12 +68,14 @@ async def register(
     refresh_token = auth_service.token_service.create_refresh_token(user)
 
     # Return success response with tokens
+    settings = get_settings()
     return APIResponse.success(
         RegisterResponse(
             user=UserResponse.from_user(user),
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
+            expires_in=settings.jwt_access_token_expire_minutes * 60,
         )
     )
 
@@ -171,8 +175,13 @@ async def refresh_token(
     # Refresh access token
     token_result = await auth_service.refresh_access_token(request.refresh_token)
 
+    settings = get_settings()
     return APIResponse.success(
-        RefreshTokenResponse(access_token=token_result.access_token, token_type=token_result.token_type)
+        RefreshTokenResponse(
+            access_token=token_result.access_token,
+            token_type=token_result.token_type,
+            expires_in=settings.jwt_access_token_expire_minutes * 60,
+        )
     )
 
 

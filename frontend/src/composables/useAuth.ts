@@ -21,6 +21,35 @@ import {
   type RegisterResponse
 } from '../api/auth'
 
+/** Default token lifetime in seconds (2 hours) used when server doesn't provide expires_in */
+const DEFAULT_TOKEN_LIFETIME_SECONDS = 7200
+
+/** Minimum refresh interval to avoid tight loops (60 seconds) */
+const MIN_REFRESH_INTERVAL_SECONDS = 60
+
+/** Proactive refresh fires at 75% of token lifetime */
+const REFRESH_LIFETIME_RATIO = 0.75
+
+let _refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * Parse JWT payload to extract expiration time.
+ * Returns seconds until expiry, or 0 if expired/invalid.
+ */
+function getTokenExpiresIn(token: string): number {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return 0
+    const payload = parts[1]!.replace(/-/g, '+').replace(/_/g, '/')
+    const decoded = JSON.parse(atob(payload)) as { exp?: number }
+    if (typeof decoded.exp !== 'number') return 0
+    const remaining = decoded.exp - Math.floor(Date.now() / 1000)
+    return Math.max(0, remaining)
+  } catch {
+    return 0
+  }
+}
+
 // Global auth state
 const currentUser = ref<User | null>(null)
 const isAuthenticated = ref<boolean>(false)
@@ -31,6 +60,25 @@ let hasAttemptedInit = false
 
 // Singleton listener for logout events from token refresh interceptor (registered once at module load)
 let _logoutListenerRegistered = false
+
+function scheduleProactiveRefresh(expiresInSeconds: number, doRefresh: () => Promise<boolean>) {
+  cancelProactiveRefresh()
+  const refreshAfter = Math.max(
+    MIN_REFRESH_INTERVAL_SECONDS,
+    Math.floor(expiresInSeconds * REFRESH_LIFETIME_RATIO),
+  )
+  _refreshTimer = setTimeout(() => {
+    _refreshTimer = null
+    doRefresh()
+  }, refreshAfter * 1000)
+}
+
+function cancelProactiveRefresh() {
+  if (_refreshTimer !== null) {
+    clearTimeout(_refreshTimer)
+    _refreshTimer = null
+  }
+}
 
 export function useAuth() {
   /**
@@ -64,7 +112,14 @@ export function useAuth() {
       const token = getStoredToken()
       if (token) {
         setAuthToken(token)
-        await loadCurrentUser()
+        const expiresIn = getTokenExpiresIn(token)
+        if (expiresIn <= 0) {
+          // Token already expired — attempt immediate refresh
+          await refreshAuthToken()
+        } else {
+          scheduleProactiveRefresh(expiresIn, refreshAuthToken)
+          await loadCurrentUser()
+        }
       }
     } finally {
       isInitializingAuth = false
@@ -106,11 +161,12 @@ export function useAuth() {
       storeToken(response.access_token)
       storeRefreshToken(response.refresh_token)
       setAuthToken(response.access_token)
-      
+      scheduleProactiveRefresh(response.expires_in ?? DEFAULT_TOKEN_LIFETIME_SECONDS, refreshAuthToken)
+
       // Update user state
       currentUser.value = response.user
       isAuthenticated.value = true
-      
+
       return response
     } catch (error: unknown) {
       authError.value = error instanceof Error ? error.message : 'Login failed'
@@ -134,11 +190,12 @@ export function useAuth() {
       storeToken(response.access_token)
       storeRefreshToken(response.refresh_token)
       setAuthToken(response.access_token)
-      
+      scheduleProactiveRefresh(response.expires_in ?? DEFAULT_TOKEN_LIFETIME_SECONDS, refreshAuthToken)
+
       // Update user state
       currentUser.value = response.user
       isAuthenticated.value = true
-      
+
       return response
     } catch (error: unknown) {
       authError.value = error instanceof Error ? error.message : 'Registration failed'
@@ -174,6 +231,7 @@ export function useAuth() {
    * Clear authentication state
    */
   const clearAuth = () => {
+    cancelProactiveRefresh()
     currentUser.value = null
     isAuthenticated.value = false
     clearAuthToken()
@@ -194,11 +252,12 @@ export function useAuth() {
 
     try {
       const response = await apiRefreshToken({ refresh_token: refreshToken })
-      
+
       // Store new access token
       storeToken(response.access_token)
       setAuthToken(response.access_token)
-      
+      scheduleProactiveRefresh(response.expires_in ?? DEFAULT_TOKEN_LIFETIME_SECONDS, refreshAuthToken)
+
       return true
     } catch (error: unknown) {
       console.error('Token refresh failed:', error)
