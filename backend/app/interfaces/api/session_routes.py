@@ -342,7 +342,7 @@ async def get_session(
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> APIResponse[GetSessionResponse]:
-    session = await agent_service.get_session(session_id, current_user.id)
+    session = await agent_service.get_session_full(session_id, current_user.id)
     if not session:
         raise NotFoundError("Session not found")
     return APIResponse.success(
@@ -756,7 +756,8 @@ async def chat(
     disconnect detection and timeouts for better reliability.
     """
     # Validate session exists before starting SSE stream (returns 404 instead of 200 with error)
-    session = await agent_service.get_session(session_id, current_user.id)
+    # Use full payload for completed/failed sessions so resume_cursor replay has events.
+    session = await agent_service.get_session_full(session_id, current_user.id)
     if not session:
         raise NotFoundError("Session not found")
     # New stream means client is connected again; cancel any pending disconnect teardown.

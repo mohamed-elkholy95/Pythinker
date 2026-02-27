@@ -1024,12 +1024,23 @@ class AgentService:
         yield done_event
 
     async def get_session(self, session_id: str, user_id: str | None = None) -> Session | None:
-        """Get a session by ID, ensuring it belongs to the user"""
+        """Get a session by ID (lightweight — excludes events/files)."""
         logger.info(f"Getting session {session_id} for user {user_id}")
         if not user_id:
             session = await self._session_repository.find_by_id(session_id)
         else:
             session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+        return session
+
+    async def get_session_full(self, session_id: str, user_id: str | None = None) -> Session | None:
+        """Get a session by ID with full payload (includes events/files)."""
+        logger.info(f"Getting full session {session_id} for user {user_id}")
+        if not user_id:
+            session = await self._session_repository.find_by_id_full(session_id)
+        else:
+            session = await self._session_repository.find_by_id_and_user_id_full(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
         return session
@@ -1465,7 +1476,7 @@ class AgentService:
     async def get_shared_session(self, session_id: str) -> Session | None:
         """Get a shared session by ID (no user authentication required)"""
         logger.info(f"Getting shared session {session_id}")
-        session = await self._session_repository.find_by_id(session_id)
+        session = await self._session_repository.find_by_id_full(session_id)
         if not session or not session.is_shared:
             logger.error(f"Shared session {session_id} not found or not shared")
             return None
