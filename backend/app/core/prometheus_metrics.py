@@ -1312,6 +1312,137 @@ _metrics_registry.extend(
     ]
 )
 
+# --- Infrastructure Metrics (Phases 1-4) ---
+
+# Phase 1A: Event Store Archival
+event_store_archived_total = Counter(
+    name="pythinker_event_store_archived_total",
+    help_text="Total events archived from agent_events to archive collection",
+    labels=[],
+)
+event_store_archival_runs = Counter(
+    name="pythinker_event_store_archival_runs_total",
+    help_text="Total archival task executions",
+    labels=["status"],  # "success" | "error"
+)
+
+# Phase 3A: MinIO Retry & Failure
+minio_operation_retries_total = Counter(
+    name="pythinker_minio_operation_retries_total",
+    help_text="Total MinIO operation retries",
+    labels=["operation"],
+)
+
+minio_operation_failures_total = Counter(
+    name="pythinker_minio_operation_failures_total",
+    help_text="Total MinIO operation final failures after retry exhaustion",
+    labels=["operation"],
+)
+
+# Phase 4A: Infrastructure Latency SLOs
+mongodb_operation_duration_seconds = Histogram(
+    name="pythinker_mongodb_operation_duration_seconds",
+    help_text="MongoDB operation duration in seconds",
+    labels=["operation", "collection"],
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5],
+)
+
+minio_operation_duration_seconds = Histogram(
+    name="pythinker_minio_operation_duration_seconds",
+    help_text="MinIO operation duration in seconds",
+    labels=["operation", "bucket"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+)
+
+slo_violations_total = Counter(
+    name="pythinker_slo_violations_total",
+    help_text="Total SLO violations by service",
+    labels=["service", "operation"],
+)
+
+# Phase 4B: MongoDB Slow Query Profiler
+mongodb_slow_queries_total = Counter(
+    name="pythinker_mongodb_slow_queries_total",
+    help_text="Total slow MongoDB queries detected by profiler",
+    labels=["collection", "operation"],
+)
+
+# Phase 2.2-2.5: Deep Health Metrics (WiredTiger, Redis INFO, Qdrant collection stats)
+mongodb_wiredtiger_cache_bytes = Gauge(
+    name="pythinker_mongodb_wiredtiger_cache_bytes",
+    help_text="WiredTiger cache usage in bytes",
+    labels=["type"],  # "current", "max", "dirty"
+)
+
+mongodb_connections_current = Gauge(
+    name="pythinker_mongodb_connections_current",
+    help_text="Current MongoDB connections",
+    labels=[],
+)
+
+redis_memory_bytes = Gauge(
+    name="pythinker_redis_memory_bytes",
+    help_text="Redis memory usage in bytes",
+    labels=["type"],  # "used", "max"
+)
+
+redis_keyspace_hit_ratio = Gauge(
+    name="pythinker_redis_keyspace_hit_ratio",
+    help_text="Redis keyspace hit ratio (0-1)",
+    labels=[],
+)
+
+# Phase 7A: MongoDB COLLSCAN detection
+mongodb_collscan_total = Counter(
+    name="pythinker_mongodb_collscan_total",
+    help_text="Total COLLSCAN (full table scan) operations detected by profiler",
+    labels=["collection", "operation"],
+)
+
+# Phase 6.2: Semantic failure tracking for LLM JSON output
+llm_json_parse_failures_total = Counter(
+    name="pythinker_llm_json_parse_failures_total",
+    help_text="Total LLM JSON parse failures (malformed output)",
+    labels=["model", "method"],
+)
+
+_metrics_registry.extend(
+    [
+        event_store_archived_total,
+        event_store_archival_runs,
+        minio_operation_retries_total,
+        minio_operation_failures_total,
+        mongodb_operation_duration_seconds,
+        minio_operation_duration_seconds,
+        slo_violations_total,
+        mongodb_slow_queries_total,
+        # Deep health metrics
+        mongodb_wiredtiger_cache_bytes,
+        mongodb_connections_current,
+        redis_memory_bytes,
+        redis_keyspace_hit_ratio,
+        mongodb_collscan_total,
+        llm_json_parse_failures_total,
+    ]
+)
+
+
+# --- Infrastructure Helper Functions ---
+
+
+def record_mongodb_operation(operation: str, collection: str, duration: float, slo_threshold: float = 0.1) -> None:
+    """Record a MongoDB operation with SLO violation detection."""
+    mongodb_operation_duration_seconds.observe({"operation": operation, "collection": collection}, duration)
+    if duration > slo_threshold:
+        slo_violations_total.inc({"service": "mongodb", "operation": operation})
+
+
+def record_minio_operation(operation: str, bucket: str, duration: float, slo_threshold: float = 0.5) -> None:
+    """Record a MinIO operation with SLO violation detection."""
+    minio_operation_duration_seconds.observe({"operation": operation, "bucket": bucket}, duration)
+    if duration > slo_threshold:
+        slo_violations_total.inc({"service": "minio", "operation": operation})
+
 
 def record_llm_call(
     model: str,
