@@ -17,8 +17,21 @@ logger = logging.getLogger(__name__)
 
 async def handle_search_content(event: ToolEvent, ctx: AgentTaskRunner) -> None:
     """Normalize search results for SearchContentView."""
+    # Skip if tool_content already has results (set by base.py _create_tool_event)
+    if (
+        event.tool_content is not None
+        and isinstance(event.tool_content, SearchToolContent)
+        and event.tool_content.results
+    ):
+        logger.info(
+            "Search tool content already populated with %d results, skipping handler",
+            len(event.tool_content.results),
+        )
+        return
+
     search_results: ToolResult[SearchResults] = event.function_result
-    logger.debug("Search tool results: %s", search_results)
+    if search_results is None:
+        return
 
     normalized_results: list[Any] = []
     if hasattr(search_results, "data") and search_results.data:
@@ -31,9 +44,12 @@ async def handle_search_content(event: ToolEvent, ctx: AgentTaskRunner) -> None:
             elif isinstance(data.get("data"), dict) and isinstance(data["data"].get("results"), list):
                 normalized_results = data["data"]["results"]
 
-    logger.info(
-        "Search tool results count=%s tool_call_id=%s",
-        len(normalized_results),
-        event.tool_call_id,
-    )
-    event.tool_content = SearchToolContent(results=normalized_results)
+    if normalized_results:
+        logger.info(
+            "Search tool results count=%s tool_call_id=%s",
+            len(normalized_results),
+            event.tool_call_id,
+        )
+        event.tool_content = SearchToolContent(results=normalized_results)
+    else:
+        logger.debug("Search handler found no results for tool_call_id=%s", event.tool_call_id)
