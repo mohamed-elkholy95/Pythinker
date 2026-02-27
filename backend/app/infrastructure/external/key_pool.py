@@ -361,11 +361,16 @@ class APIKeyPool:
         """Log key exhaustion with cooldown to prevent log spam.
 
         Logs at WARNING level once per cooldown period, then DEBUG for
-        subsequent calls within the cooldown window.
+        subsequent calls within the cooldown window. Includes the soonest
+        recovery time for actionable debugging.
         """
         now = time.time()
         if now - self._last_exhaustion_warning >= self._exhaustion_warning_cooldown:
-            logger.warning(f"[{self.provider}] All {len(self.keys)} keys exhausted")
+            _, remaining = self._get_soonest_recovery()
+            recovery_hint = (
+                f", soonest recovery in {remaining:.0f}s (~{remaining / 60:.1f}min)" if remaining > 0 else ""
+            )
+            logger.warning(f"[{self.provider}] All {len(self.keys)} keys exhausted{recovery_hint}")
             self._last_exhaustion_warning = now
         else:
             logger.debug(f"[{self.provider}] All {len(self.keys)} keys exhausted (suppressed)")
@@ -394,6 +399,94 @@ class APIKeyPool:
         if self.strategy == RotationStrategy.WEIGHTED:
             return await self._weighted_selection()
         raise ValueError(f"Unsupported strategy: {self.strategy}")
+
+    def _get_soonest_recovery(self) -> tuple[str | None, float]:
+        """Find the non-invalid key with the shortest remaining cooldown.
+
+        Scans in-memory exhaustion state only (Redis sync happens lazily via
+        _is_healthy). Sufficient for the wait decision since _is_healthy keeps
+        _memory_exhausted in sync with Redis TTLs on each get_healthy_key() call.
+
+        Returns:
+            Tuple of (key_string, remaining_seconds). Returns (key, 0) if a key
+            is immediately available. Returns (None, 0) if all keys are permanently
+            invalid and cannot recover.
+        """
+        now = time.time()
+        best_key: str | None = None
+        best_remaining = float("inf")
+
+        for key_config in self.keys:
+            key_hash = self._hash_key(key_config.key)
+
+            # Skip permanently invalid keys (cannot recover)
+            if key_hash in self._memory_invalid:
+                continue
+
+            if key_hash in self._memory_exhausted:
+                remaining = self._memory_exhausted[key_hash] - now
+                if remaining <= 0:
+                    # TTL already expired in memory — key is healthy again
+                    return key_config.key, 0.0
+                if remaining < best_remaining:
+                    best_remaining = remaining
+                    best_key = key_config.key
+            else:
+                # Key is not exhausted — immediately available
+                return key_config.key, 0.0
+
+        return best_key, best_remaining if best_key is not None else 0.0
+
+    async def get_healthy_key_or_wait(self, max_wait_seconds: float = 120.0) -> str | None:
+        """Get a healthy key, waiting for the soonest-recovering key if all are exhausted.
+
+        Implements the MCP API Rotators wait pattern: instead of returning None
+        immediately when all keys are in cooldown, waits up to max_wait_seconds
+        for the soonest-recovering key.
+
+        Useful for rate-limited (60-120s) and short cooldown (15-30s) scenarios.
+        For long quota cooldowns (4h+), the wait budget is exceeded and the caller
+        falls back to the next search provider via FallbackSearchEngine.
+
+        Args:
+            max_wait_seconds: Maximum seconds to wait for key recovery (default 120s).
+
+        Returns:
+            API key string, or None if soonest recovery exceeds max_wait_seconds
+            or all keys are permanently invalid.
+        """
+        # Fast path: return immediately if a key is already healthy
+        key = await self.get_healthy_key()
+        if key is not None:
+            return key
+
+        # All keys in cooldown — find the soonest-recovering non-invalid key
+        soonest_key, remaining = self._get_soonest_recovery()
+
+        if soonest_key is None:
+            logger.error(f"[{self.provider}] All {len(self.keys)} keys are permanently invalid — cannot recover")
+            return None
+
+        if remaining <= 0:
+            # A key recovered since get_healthy_key() ran (race cleared by _is_healthy)
+            return await self.get_healthy_key()
+
+        if remaining > max_wait_seconds:
+            logger.warning(
+                f"[{self.provider}] All keys exhausted; soonest recovery in {remaining:.0f}s "
+                f"(> max_wait={max_wait_seconds:.0f}s) — not waiting, using fallback"
+            )
+            return None
+
+        logger.info(
+            f"[{self.provider}] All keys exhausted; waiting {remaining:.1f}s for soonest key to recover "
+            f"(budget: {max_wait_seconds:.0f}s)"
+        )
+        # +1s buffer ensures the TTL has fully elapsed before re-check
+        await asyncio.sleep(remaining + 1.0)
+
+        # Final selection after wait
+        return await self.get_healthy_key()
 
     async def _round_robin(self) -> str | None:
         """
