@@ -81,15 +81,21 @@ class LLMJsonParser(JsonParser):
         cleaned_output = self._strip_thinking_tags(text.strip())
 
         # Try each parsing strategy
-        for strategy in self.strategies:
+        for i, strategy in enumerate(self.strategies):
             try:
                 result = await strategy(cleaned_output)
                 if result is not None:
                     logger.debug(f"Successfully parsed using strategy: {strategy.__name__}")
                     return result
             except Exception as e:
-                key = f"strategy:{strategy.__name__}:{type(e).__name__}:{str(e)[:120]}"
-                self._warn_once(key, f"Strategy {strategy.__name__} failed: {e!s}")
+                # The first strategy (_try_direct_parse) failing is normal when
+                # the LLM wraps JSON in markdown or prose.  Log at debug to
+                # avoid noisy warnings on every non-raw-JSON response.
+                if i == 0:
+                    logger.debug("Strategy %s fell through: %s", strategy.__name__, e)
+                else:
+                    key = f"strategy:{strategy.__name__}:{type(e).__name__}:{str(e)[:120]}"
+                    self._warn_once(key, f"Strategy {strategy.__name__} failed: {e!s}")
                 continue
 
         # If all strategies fail
