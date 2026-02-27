@@ -49,7 +49,7 @@ class TestBraveMultiKey:
             redis_client=None,
         )
 
-        key = await engine.api_key
+        key = await engine._key_pool.get_healthy_key()
         assert key == "test-key-1"
         assert engine._key_pool._redis is None
 
@@ -62,7 +62,7 @@ class TestBraveMultiKey:
 
         assert len(engine._key_pool.keys) == 1
         assert engine._max_retries == 1
-        key = await engine.api_key
+        key = await engine._key_pool.get_healthy_key()
         assert key == "primary-key"
 
     async def test_brave_filters_empty_keys(self):

@@ -8,9 +8,12 @@ Uses APIKeyPool for production-grade multi-key management:
 - TTL-based recovery: keys auto-recover after 24 hours (Tavily quota reset)
 - Redis coordination: distributed key health tracking across instances
 - Prometheus metrics: observability for key exhaustion and rotation
+- Wait-for-recovery: waits up to 120s for soonest-recovering key (MCP Rotator pattern)
+- Per-request auth: API key injected per-request, connection pool survives rotation
 """
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -88,15 +91,6 @@ class TavilySearchEngine(SearchEngineBase):
         self.base_url = "https://api.tavily.com/search"
         logger.info(f"Tavily search initialized with {len(key_configs)} API key(s)")
 
-    @property
-    async def api_key(self) -> str | None:
-        """Get the currently active API key from pool."""
-        return await self._key_pool.get_healthy_key()
-
-    def _get_headers(self) -> dict[str, str]:
-        """Get Tavily API headers."""
-        return {"Content-Type": "application/json"}
-
     def _get_date_range_mapping(self) -> dict[str, str]:
         """Tavily date hints (appended to query since API lacks direct filtering)."""
         return {
@@ -107,18 +101,17 @@ class TavilySearchEngine(SearchEngineBase):
             "past_year": "this year",
         }
 
-    async def _build_request_params(self, query: str, date_range: str | None) -> dict[str, Any]:
-        """Build Tavily API request payload."""
+    def _build_request_params(self, query: str, date_range: str | None) -> dict[str, Any]:
+        """Build Tavily API request payload (without API key).
+
+        The API key is injected per-request in search() so the connection pool
+        survives key rotation without needing to close and recreate the client.
+        """
         actual_query = query
         if date_hint := self._map_date_range(date_range):
             actual_query = f"{query} {date_hint}"
 
-        key = await self.api_key
-        if not key:
-            raise RuntimeError("All Tavily API keys exhausted")
-
         return {
-            "api_key": key,
             "query": actual_query,
             "search_depth": "advanced",
             "include_answer": False,
@@ -165,6 +158,7 @@ class TavilySearchEngine(SearchEngineBase):
         - HTTP 402 (payment required)
         - HTTP 403 (forbidden / suspended)
         - HTTP 429 (rate limit)
+        - HTTP 432 (Tavily-specific billing error)
         - HTTP 200 with billing-related error in JSON body
 
         APIKeyPool handles exhausted key tracking with TTL-based recovery.
@@ -185,8 +179,18 @@ class TavilySearchEngine(SearchEngineBase):
                 f"All {len(self._key_pool.keys)} Tavily API keys exhausted after {_attempt} attempts",
             )
 
-        # Get healthy key from pool
-        key = await self.api_key
+        # Sanitize query: collapse newlines/control chars, strip, cap length
+        query = re.sub(r"[\r\n\t\x00-\x1f\x7f]+", " ", query).strip()
+        query = re.sub(r" {2,}", " ", query)
+        if not query:
+            return self._create_error_result(query, date_range, "Tavily bad request: empty search query")
+        if len(query) > 500:
+            logger.warning(f"Tavily query truncated from {len(query)} to 500 chars")
+            query = query[:500]
+
+        # Wait up to 120s for a key to become available (MCP Rotator pattern).
+        # Falls through to fallback provider when cooldowns exceed the budget.
+        key = await self._key_pool.get_healthy_key_or_wait(max_wait_seconds=120.0)
         if not key:
             return self._create_error_result(
                 query, date_range, f"All {len(self._key_pool.keys)} Tavily API keys exhausted"
@@ -194,12 +198,19 @@ class TavilySearchEngine(SearchEngineBase):
 
         try:
             client = await self._get_client()
-            params = await self._build_request_params(query, date_range)
+            params = self._build_request_params(query, date_range)
+
+            # Per-request auth injection: API key in JSON body so the connection
+            # pool is reused across all key rotations without recreating the client.
+            params["api_key"] = key
             response = await self._execute_request(client, params)
 
             # Check for quota/auth errors (HTTP status codes)
             if response.status_code in _ROTATE_STATUS_CODES:
                 body = response.text[:200] if hasattr(response, "text") else ""
+                logger.warning(
+                    "Tavily key error (HTTP %d%s), rotating", response.status_code, f": {body}" if body else ""
+                )
                 await self._key_pool.handle_error(key, status_code=response.status_code, body_text=body)
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
@@ -213,12 +224,14 @@ class TavilySearchEngine(SearchEngineBase):
                 error_msg = str(data["error"])
 
                 if _text_has_quota_keywords(error_msg):
+                    logger.warning("Tavily quota keyword detected in response body, rotating key")
                     await self._key_pool.handle_error(key, body_text=error_msg)
                     return await self.search(query, date_range, _attempt=_attempt + 1)
 
                 # Check for auth errors (permanent invalidity)
                 error_lower = error_msg.lower()
                 if "invalid" in error_lower or "auth" in error_lower:
+                    logger.warning("Tavily auth error in response body, rotating key")
                     await self._key_pool.handle_error(key, status_code=401, body_text=error_msg)
                     return await self.search(query, date_range, _attempt=_attempt + 1)
 

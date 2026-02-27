@@ -163,7 +163,7 @@ async def test_exa_works_without_redis():
         redis_client=None,
     )
 
-    key = await engine.api_key
+    key = await engine._key_pool.get_healthy_key()
     assert key == "test-key-1"
     assert engine._key_pool._redis is None
 
