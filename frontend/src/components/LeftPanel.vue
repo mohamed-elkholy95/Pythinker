@@ -180,7 +180,7 @@ const route = useRoute()
 const router = useRouter()
 
 const sessions = ref<ListSessionItem[]>([])
-const optimisticTitleHints = ref<Record<string, string>>({})
+const optimisticTitleHints = ref<Record<string, { title: string; createdAt: number }>>({})
 
 // Search state
 const searchQuery = ref('')
@@ -266,13 +266,16 @@ const mergeWithOptimisticSession = (serverSessions: ListSessionItem[]): ListSess
     return serverSessions
   }
 
-  const optimisticTitle = optimisticTitleHints.value[activeSessionId]?.trim()
+  const hint = optimisticTitleHints.value[activeSessionId]
+  const optimisticTitle = hint?.title?.trim()
   if (!optimisticTitle) {
     return serverSessions
   }
 
   const alreadyExists = serverSessions.some((session) => session.session_id === activeSessionId)
   if (alreadyExists) {
+    // Server now knows about this session — remove the optimistic hint
+    delete optimisticTitleHints.value[activeSessionId]
     return serverSessions
   }
 
@@ -280,7 +283,7 @@ const mergeWithOptimisticSession = (serverSessions: ListSessionItem[]): ListSess
     session_id: activeSessionId,
     title: optimisticTitle,
     latest_message: optimisticTitle,
-    latest_message_at: Date.now(),
+    latest_message_at: hint.createdAt,
     status: SessionStatus.PENDING,
     unread_message_count: 0,
     is_shared: false,
@@ -294,9 +297,15 @@ const handleSessionTitleHint = (event: Event) => {
   const optimisticTitle = detail.title?.trim()
   if (!optimisticTitle) return
 
-  optimisticTitleHints.value = {
-    ...optimisticTitleHints.value,
-    [detail.sessionId]: optimisticTitle,
+  // Only store hint if we don't already have one (freeze the timestamp)
+  if (!optimisticTitleHints.value[detail.sessionId]) {
+    optimisticTitleHints.value = {
+      ...optimisticTitleHints.value,
+      [detail.sessionId]: { title: optimisticTitle, createdAt: Date.now() },
+    }
+  } else {
+    // Update title but keep original timestamp
+    optimisticTitleHints.value[detail.sessionId].title = optimisticTitle
   }
 
   const existing = sessions.value.find((session) => session.session_id === detail.sessionId)
