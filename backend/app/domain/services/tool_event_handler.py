@@ -6,6 +6,7 @@ following the Strategy pattern for clean separation of concerns.
 
 import logging
 from collections.abc import Callable
+from typing import Any, ClassVar
 
 from app.domain.models.event import ToolEvent
 
@@ -192,13 +193,79 @@ class ToolEventHandler:
     # --- Observation Handlers ---
 
     def _handle_shell_observation(self, event: ToolEvent) -> None:
-        """Handle shell tool observation metadata."""
+        """Handle shell tool observation metadata.
+
+        Extracts stdout, stderr, and exit_code from function_result so
+        the SSE event carries the actual shell output to the frontend.
+        """
         event.observation_type = "run"
+        self._extract_shell_output(event)
+
+    def _extract_shell_output(self, event: ToolEvent) -> None:
+        """Extract stdout/stderr/exit_code from function_result into top-level fields.
+
+        ToolResult.data holds the sandbox ShellExecResult dict with keys:
+            output, returncode, session_id, command, status
+        This populates the event's top-level stdout/exit_code so the SSE
+        serialization sends them to the frontend terminal view.
+        """
+        fr = event.function_result
+        if fr is None:
+            return
+
+        # Extract from ToolResult.data dict (ShellExecResult / ShellViewResult)
+        data = getattr(fr, "data", None)
+        if isinstance(data, dict):
+            # Shell output is in data["output"], not data["stdout"]
+            if data.get("output") and not event.stdout:
+                event.stdout = data["output"]
+            if data.get("stdout") and not event.stdout:
+                event.stdout = data["stdout"]
+            if data.get("error") and not event.stderr:
+                event.stderr = data["error"]
+            if data.get("stderr") and not event.stderr:
+                event.stderr = data["stderr"]
+            if data.get("return_code") is not None and event.exit_code is None:
+                event.exit_code = data["return_code"]
+            if data.get("returncode") is not None and event.exit_code is None:
+                event.exit_code = data["returncode"]
+            if data.get("exit_code") is not None and event.exit_code is None:
+                event.exit_code = data["exit_code"]
+
+        # Fallback: use ToolResult.message if it contains actual output
+        # (skip generic sandbox API messages like "Command executed")
+        if not event.stdout:
+            message = getattr(fr, "message", None)
+            if message and message != "Command executed":
+                event.stdout = message
+
+    _FILE_LISTING_FUNCTIONS: ClassVar[set[str]] = {"file_find_in_content", "file_find_by_name", "file_list_directory"}
 
     def _handle_file_observation(self, event: ToolEvent) -> None:
-        """Handle file tool observation metadata."""
+        """Handle file tool observation metadata.
+
+        For listing/finding functions, extracts the result into tool_content
+        so the frontend generic view can display it.
+        """
         event.observation_type = "edit"
+
+        # For file listing/finding, extract result into tool_content for frontend display
+        if event.function_name in self._FILE_LISTING_FUNCTIONS and event.tool_content is None:
+            fr = event.function_result
+            if fr is not None:
+                result_text = getattr(fr, "message", None)
+                data = getattr(fr, "data", None)
+                content: dict[str, Any] = {}
+                if result_text:
+                    content["result"] = result_text
+                if isinstance(data, dict):
+                    content.update(data)
+                elif data is not None:
+                    content["data"] = str(data)
+                if content:
+                    event.tool_content = content  # type: ignore[assignment]
 
     def _handle_code_executor_observation(self, event: ToolEvent) -> None:
         """Handle code_executor tool observation metadata."""
         event.observation_type = "run"
+        self._extract_shell_output(event)
