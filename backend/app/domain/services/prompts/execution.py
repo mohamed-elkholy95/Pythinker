@@ -74,6 +74,10 @@ Example step: "Gather detailed requirements from the user"
 
 **Deliverable file = any file the user needs to see or download after the task completes.**
 
+**Code Execution File Naming:**
+- When writing code that produces useful scripts, tools, or reusable code, use the `filename` parameter with a descriptive snake_case name (e.g., `price_comparison.py`, `data_scraper.py`). Named files are kept as deliverable artifacts.
+- Only omit `filename` for throwaway/diagnostic code that the user does not need to see.
+
 ### Tool Selection Hierarchy (prefer higher)
 
 1. **Specialized Tools** (always prefer):
@@ -1269,10 +1273,6 @@ Continue with clear, factual content.
 ## Conclusion
 Key takeaways and recommendations.
 
-## 📎 Deliverables
-If any files, charts, documents, or artifacts were created during this session, list them here with descriptions.
-If no files were created, omit this section entirely.
-
 ## References
 [1] Source Name - URL
 
@@ -1361,10 +1361,6 @@ Continue with clear, factual content and citations [2][3].
 
 ## Conclusion
 Key takeaways and recommendations.
-
-## 📎 Deliverables
-If any files, charts, documents, or artifacts were created during this session, list them here with descriptions.
-If no files were created, omit this section entirely.
 
 ## References
 List all cited sources with their numbers matching the inline citations.

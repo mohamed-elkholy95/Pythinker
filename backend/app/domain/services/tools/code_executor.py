@@ -329,6 +329,10 @@ class CodeExecutorTool(BaseTool):
                 "type": "string",
                 "description": "Working directory for execution (defaults to session workspace)",
             },
+            "filename": {
+                "type": "string",
+                "description": "Optional descriptive filename for the code file (e.g., 'data_analysis.py'). When provided, the file is kept after execution as a deliverable artifact. When omitted, a temporary exec file is used and cleaned up.",
+            },
         },
         required=["language", "code"],
     )
@@ -340,6 +344,7 @@ class CodeExecutorTool(BaseTool):
         timeout: int | None = None,  # noqa: ASYNC109
         env_vars: dict[str, str] | None = None,
         working_dir: str | None = None,
+        filename: str | None = None,
     ) -> ToolResult:
         """
         Execute code in the specified language.
@@ -403,10 +408,18 @@ class CodeExecutorTool(BaseTool):
                 return ToolResult(success=False, message=f"Failed to install packages:\n{pkg_output}")
             logger.info(f"Installed packages: {packages_installed}")
 
-        # Generate unique filename for the code
-        file_id = str(uuid.uuid4())[:8]
-        file_ext = config["file_extension"]
-        code_file = f"exec_{file_id}{file_ext}"
+        # Determine filename: user-provided (persistent) or auto-generated (temp)
+        is_temp_file = filename is None
+        if filename:
+            # Ensure the filename has the correct extension
+            file_ext = config["file_extension"]
+            if not filename.endswith(file_ext):
+                filename = f"{filename}{file_ext}"
+            code_file = filename
+        else:
+            file_id = str(uuid.uuid4())[:8]
+            file_ext = config["file_extension"]
+            code_file = f"exec_{file_id}{file_ext}"
         code_path = f"{work_dir}/{code_file}"
 
         # Add shebang if applicable
@@ -444,8 +457,9 @@ class CodeExecutorTool(BaseTool):
         # Calculate execution time
         execution_time_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
-        # Clean up code file
-        await self.sandbox.file_delete(code_path)
+        # Clean up temp exec files; named files are intentional artifacts
+        if is_temp_file:
+            await self.sandbox.file_delete(code_path)
 
         # Collect artifacts
         artifacts = await self._collect_artifacts()
