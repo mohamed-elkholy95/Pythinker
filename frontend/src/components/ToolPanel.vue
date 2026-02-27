@@ -8,9 +8,10 @@
     }"
     :style="{ 'width': isShow ? panelWidth : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
     <div class="h-full flex flex-col" :style="{ 'width': isShow ? '100%' : '0px' }">
-      <WorkspacePanel
-        ref="workspacePanelRef"
+      <ToolPanelContent
+        ref="toolPanelContentRef"
         v-if="isShow && toolContent"
+        :embedded="false"
         :sessionId="sessionId"
         :realTime="realTime"
         :toolContent="toolContent"
@@ -21,6 +22,9 @@
         :timelineTimestamp="timelineTimestamp"
         :timelineCanStepForward="timelineCanStepForward"
         :timelineCanStepBackward="timelineCanStepBackward"
+        :toolTimeline="toolTimeline"
+        :timelineCurrentStep="timelineCurrentStep"
+        :timelineTotalSteps="timelineTotalSteps"
         :plan="plan"
         :isLoading="isLoading"
         :isThinking="isThinking"
@@ -30,6 +34,7 @@
         :replayScreenshots="panelProps.replayScreenshots"
         :summaryStreamText="panelProps.summaryStreamText"
         :isSummaryStreaming="panelProps.isSummaryStreaming"
+        :activeCanvasProjectId="panelProps.activeCanvasProjectId"
         @hide="() => hideToolPanel(true)"
         @jumpToRealTime="jumpToRealTime"
         @stepForward="handleTimelineStepForward"
@@ -46,7 +51,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import type { ToolContent } from '../types/message'
 import type { PlanEventData } from '../types/event'
 import type { ScreenshotMetadata } from '../types/screenshot'
-import WorkspacePanel from './workspace/WorkspacePanel.vue'
+import ToolPanelContent from './ToolPanelContent.vue'
 import { useResizeObserver } from '../composables/useResizeObserver'
 import { eventBus } from '../utils/eventBus'
 import { EVENT_SHOW_FILE_PANEL, EVENT_SHOW_TOOL_PANEL, EVENT_TOOL_PANEL_STATE_CHANGE } from '../constants/event'
@@ -86,7 +91,7 @@ const isShow = ref(false)
 const live = ref(false)
 const toolContent = ref<ToolContent>()
 const visible = ref(true)
-const workspacePanelRef = ref<InstanceType<typeof WorkspacePanel> | null>(null)
+const toolPanelContentRef = ref<InstanceType<typeof ToolPanelContent> | null>(null)
 
 const emit = defineEmits<{
   (e: 'jumpToRealTime'): void
@@ -109,12 +114,16 @@ const panelProps = defineProps<{
   timelineTimestamp?: number
   timelineCanStepForward?: boolean
   timelineCanStepBackward?: boolean
+  toolTimeline?: ToolContent[]
+  timelineCurrentStep?: number
+  timelineTotalSteps?: number
   isReplayMode?: boolean
   replayScreenshotUrl?: string
   replayMetadata?: ScreenshotMetadata | null
   replayScreenshots?: ScreenshotMetadata[]
   summaryStreamText?: string
   isSummaryStreaming?: boolean
+  activeCanvasProjectId?: string | null
 }>()
 
 // Track if state change was from user action

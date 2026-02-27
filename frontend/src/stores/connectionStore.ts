@@ -218,6 +218,81 @@ export const useConnectionStore = defineStore('connection', () => {
     }
   }
 
+  // ── Stale Detection ──────────────────────────────────────────────
+  // Backend heartbeat interval is 30s. Thresholds are multiples of this:
+  //   Liveness: 1.5× (45s) — tolerates one delayed heartbeat
+  //   Stale:    4× (120s) — requires 4 missed heartbeats before declaring stale
+  const HEARTBEAT_LIVENESS_MS = 45_000
+  const STALE_TIMEOUT_MS = 120_000
+  const STALE_CHECK_INTERVAL_MS = 5_000
+
+  const isStale = ref(false)
+  let _staleCheckInterval: ReturnType<typeof setInterval> | null = null
+  let _heartbeatBridgeHandler: ((event: Event) => void) | null = null
+
+  /** True when heartbeats are arriving within liveness threshold. */
+  const isReceivingHeartbeats = computed(() => {
+    if (lastHeartbeatTime.value === 0) return false
+    return (Date.now() - lastHeartbeatTime.value) < HEARTBEAT_LIVENESS_MS
+  })
+
+  function checkStaleConnection() {
+    if (!isLoading.value) {
+      isStale.value = false
+      return
+    }
+    const timeSinceLastEvent = Date.now() - lastRealEventTime.value
+    const timeSinceHeartbeat = lastHeartbeatTime.value > 0
+      ? Date.now() - lastHeartbeatTime.value
+      : Infinity
+
+    if (
+      timeSinceLastEvent > STALE_TIMEOUT_MS
+      && timeSinceHeartbeat > STALE_TIMEOUT_MS
+      && lastRealEventTime.value > 0
+    ) {
+      isStale.value = true
+    } else if (isStale.value && timeSinceHeartbeat < HEARTBEAT_LIVENESS_MS) {
+      // Heartbeat arrived while stale — connection recovered
+      isStale.value = false
+    }
+  }
+
+  function startStaleDetection() {
+    // Reset stale state
+    isStale.value = false
+    updateLastRealEventTime()
+
+    // Start heartbeat bridge (listens for sse:heartbeat custom events from client.ts)
+    if (!_heartbeatBridgeHandler) {
+      _heartbeatBridgeHandler = () => {
+        updateLastHeartbeatTime()
+        if (isStale.value) {
+          isStale.value = false
+        }
+      }
+      window.addEventListener('sse:heartbeat', _heartbeatBridgeHandler)
+    }
+
+    // Start periodic stale check
+    if (!_staleCheckInterval) {
+      _staleCheckInterval = setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS)
+    }
+  }
+
+  function stopStaleDetection() {
+    isStale.value = false
+
+    if (_heartbeatBridgeHandler) {
+      window.removeEventListener('sse:heartbeat', _heartbeatBridgeHandler)
+      _heartbeatBridgeHandler = null
+    }
+    if (_staleCheckInterval) {
+      clearInterval(_staleCheckInterval)
+      _staleCheckInterval = null
+    }
+  }
+
   // ── Full Reset ───────────────────────────────────────────────────
   function resetConnection() {
     connectionState.value = 'disconnected'
@@ -282,5 +357,11 @@ export const useConnectionStore = defineStore('connection', () => {
     cleanupSessionStorage,
     resetConnection,
     resetAll,
+    // Stale detection
+    isStale,
+    isReceivingHeartbeats,
+    checkStaleConnection,
+    startStaleDetection,
+    stopStaleDetection,
   }
 })

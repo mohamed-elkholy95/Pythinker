@@ -142,9 +142,13 @@
                   </PopoverContent>
                 </Popover>
               </span>
-              <button @click="handleFileListShow"
-                class="hidden h-8 w-8 items-center justify-center hover:bg-[var(--fill-tsp-gray-main)] rounded-lg cursor-pointer transition-colors">
-                <FileSearch class="text-[var(--icon-secondary)]" :size="18" />
+              <button
+                @click="handleFileListShow"
+                class="h-7 w-7 rounded-[8px] inline-flex items-center justify-center clickable border border-[var(--border-main)] hover:border-[var(--border-dark)] hover:bg-[var(--fill-tsp-white-main)] transition-all"
+                :title="t('All files in this task')"
+                aria-label="All files in this task"
+              >
+                <FileSearch class="text-[var(--icon-secondary)]" :size="15" />
               </button>
               <!-- Context panel button removed — ContextPanel component not yet implemented -->
 
@@ -469,14 +473,18 @@
         :isSummaryStreaming="isSummaryStreaming"
         @jumpToRealTime="jumpToRealTime"
         :showTimeline="showTimelineControls"
-        :timelineProgress="effectiveTimelineProgress"
-        :timelineTimestamp="effectiveTimelineTimestamp"
-        :timelineCanStepForward="effectiveCanStepForward"
-        :timelineCanStepBackward="effectiveCanStepBackward"
+        :timelineProgress="toolTimelineProgress"
+        :timelineTimestamp="toolTimelineTimestamp"
+        :timelineCanStepForward="toolTimelineCanStepForward"
+        :timelineCanStepBackward="toolTimelineCanStepBackward"
+        :toolTimeline="toolTimeline"
+        :timelineCurrentStep="toolTimelineCurrentStep"
+        :timelineTotalSteps="toolTimeline.length"
         :isReplayMode="isReplayMode"
         :replayScreenshotUrl="replay.currentScreenshotUrl.value"
         :replayMetadata="replay.currentScreenshot.value"
         :replayScreenshots="replay.screenshots.value"
+        :activeCanvasProjectId="activeCanvasProjectId"
         @timelineStepForward="handleTimelineStepForward"
         @timelineStepBackward="handleTimelineStepBackward"
         @timelineSeek="handleTimelineSeek"
@@ -599,6 +607,16 @@ import { useSSEConnection } from '@/composables/useSSEConnection';
 import { useSessionStreamController } from '@/composables/useSessionStreamController';
 import { logSseDiagnostics } from '@/utils/sseDiagnostics';
 import { isEventSourceResumeEnabled } from '@/utils/sseTransport';
+import { useToolStore } from '@/stores/toolStore';
+import { useConnectionStore } from '@/stores/connectionStore';
+import { useUIStore } from '@/stores/uiStore';
+import { createEventHandlerRegistry, dispatchEvent } from '@/composables/useEventHandlerRegistry';
+import { useMcpStatus } from '@/composables/useMcpStatus';
+
+// ── Pinia stores (dual-write: stores mirror local state during migration) ──
+const toolStore = useToolStore()
+const connectionStore = useConnectionStore()
+const uiStore = useUIStore()
 
 const router = useRouter()
 const { t } = useI18n()
@@ -653,7 +671,7 @@ const handleStaleConnection = () => {
 
 const {
   connectionState: _connectionState,
-  lastEventTime,
+  lastEventTime: _lastEventTime,
   lastEventId,
   updateLastRealEventTime,
   isConnectionStale: _isConnectionStale,
@@ -880,6 +898,8 @@ const canOpenLiveViewPanel = computed(() => chatViewMode.value !== 'reasoning');
 const showToolPanelIfAllowed = (tool: ToolContent, isLive: boolean) => {
   if (!canOpenLiveViewPanel.value) return false;
   toolPanel.value?.showToolPanel(tool, isLive);
+  // Dual-write: mirror panel state to Pinia stores
+  uiStore.setRightPanel(true)
   return true;
 };
 
@@ -1023,8 +1043,6 @@ const isReplayMode = computed(() => {
   const ended = !isLoading.value && isSessionComplete.value
   return !!ended && hasScreenshotReplay.value
 })
-
-const isScreenshotReplayMode = computed(() => isReplayMode.value)
 
 // Message ID counter for generating unique keys (avoids crypto overhead)
 let messageIdCounter = 0;
@@ -1402,7 +1420,7 @@ const initializePendingSession = async () => {
 
     // Persist chat mode flag AFTER session ID is known
     if (isChatMode.value) {
-      try { sessionStorage.setItem(`chatMode:${session.session_id}`, '1'); } catch {}
+      try { sessionStorage.setItem(`chatMode:${session.session_id}`, '1'); } catch { /* storage unavailable */ }
     }
 
     if (pendingMessage || pendingFiles.length > 0) {
@@ -1633,57 +1651,13 @@ watch(filePreviewOpen, (isOpen) => {
 });
 
 // ===== Agent Connection Health Monitoring =====
-// Backend heartbeat interval is 30s. Thresholds are multiples of this:
-//   Liveness: 1.5× (45s) — tolerates one delayed heartbeat
-//   Stale:    4× (120s) — requires 4 missed heartbeats before declaring stale
-const HEARTBEAT_LIVENESS_MS = 45000; // 1.5× heartbeat interval — grace for network jitter
-const STALE_TIMEOUT_MS = 120000; // 4× heartbeat interval — connection truly dead
-const STALE_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
-let staleCheckInterval: ReturnType<typeof setInterval> | null = null;
-let heartbeatBridgeHandler: ((event: Event) => void) | null = null;
-
-// Track whether we're receiving heartbeats (backend alive).
-// Uses lastHeartbeatAt which is updated by the sse:heartbeat custom event bridge below.
-const isReceivingHeartbeats = computed(() => {
-  if (lastHeartbeatAt.value === 0) return false;
-  return (Date.now() - lastHeartbeatAt.value) < HEARTBEAT_LIVENESS_MS;
-})
-
-// Update last event time when any event is received
-// Wrapper to update event time and reset stale flag
+// Stale detection consolidated in connectionStore (single source of truth).
+// Local refs kept as thin aliases for backward-compatible reads.
 const updateEventTimeAndResetStale = () => {
   updateLastRealEventTime()
   isStale.value = false
+  connectionStore.updateLastRealEventTime()
 }
-
-// Check if connection appears stale.
-// Only marks stale when BOTH real events AND heartbeats are missing for STALE_TIMEOUT_MS.
-// If heartbeats are arriving, the connection is alive — the agent is just working on a long task.
-const checkStaleConnection = () => {
-  if (!isLoading.value) {
-    isStale.value = false;
-    return;
-  }
-
-  const timeSinceLastEvent = Date.now() - lastEventTime.value;
-  const timeSinceHeartbeat = lastHeartbeatAt.value > 0 ? Date.now() - lastHeartbeatAt.value : Infinity;
-
-  if (timeSinceLastEvent > STALE_TIMEOUT_MS && timeSinceHeartbeat > STALE_TIMEOUT_MS && lastEventTime.value > 0) {
-    if (!isStale.value) {
-      logChatSseDiagnostics('stale:marked', {
-        timeSinceLastEvent,
-        timeSinceHeartbeat,
-      })
-    }
-    isStale.value = true;
-  } else if (isStale.value && timeSinceHeartbeat < HEARTBEAT_LIVENESS_MS) {
-    // Heartbeat arrived while stale — connection recovered
-    isStale.value = false;
-    logChatSseDiagnostics('stale:recovered_via_heartbeat', {
-      timeSinceHeartbeat,
-    })
-  }
-};
 
 // Track if ToolPanel is open (needed for live preview thumbnail management)
 const isToolPanelOpen = ref(false);
@@ -1696,45 +1670,19 @@ const handleThumbnailRefresh = () => {
   // With live preview, no refresh is needed - it's always up to date
 };
 
-// Bridge heartbeats from client.ts → ChatPage state.
-// client.ts intentionally filters heartbeats out of onMessage (they're silent keep-alives)
-// and dispatches them as sse:heartbeat custom events instead. We listen here to update
-// lastHeartbeatAt so the stale check and isReceivingHeartbeats work correctly.
-const startHeartbeatBridge = () => {
-  if (heartbeatBridgeHandler) return;
-  heartbeatBridgeHandler = () => {
-    lastHeartbeatAt.value = Date.now();
-    // Also clear stale if heartbeat arrives while marked stale
-    if (isStale.value) {
-      isStale.value = false;
-    }
-  };
-  window.addEventListener('sse:heartbeat', heartbeatBridgeHandler);
-};
-
-const stopHeartbeatBridge = () => {
-  if (heartbeatBridgeHandler) {
-    window.removeEventListener('sse:heartbeat', heartbeatBridgeHandler);
-    heartbeatBridgeHandler = null;
-  }
-};
-
-// Start stale detection + heartbeat bridge when loading starts
+// Delegate stale detection lifecycle to connectionStore
 watch(isLoading, (loading) => {
   if (loading) {
-    updateEventTimeAndResetStale();
-    startHeartbeatBridge();
-    if (!staleCheckInterval) {
-      staleCheckInterval = setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS);
-    }
+    connectionStore.startStaleDetection()
   } else {
-    isStale.value = false;
-    stopHeartbeatBridge();
-    if (staleCheckInterval) {
-      clearInterval(staleCheckInterval);
-      staleCheckInterval = null;
-    }
+    connectionStore.stopStaleDetection()
+    isStale.value = false
   }
+});
+
+// Sync store stale state back to local ref (backward compat until full migration)
+watch(() => connectionStore.isStale, (stale) => {
+  isStale.value = stale
 });
 
 // Auto-retry after timeout: progressive backoff (5s, 15s, 45s, 60s), max 4 attempts
@@ -2032,17 +1980,14 @@ const showThumbnailDockSpacer = computed(() => showTaskProgressBar.value && shou
 // Handle tool panel state changes
 const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) => {
   isToolPanelOpen.value = isOpen;
+  // Dual-write: mirror panel state to Pinia stores
+  uiStore.setRightPanel(isOpen)
   if (!isOpen && userAction) {
     userDismissedPanel.value = true;
+    uiStore.setUserDismissedPanel(true)
   }
 };
 
-// Computer-related tools that should show thumbnail
-const COMPUTER_TOOLS = ['browser', 'shell', 'file', 'browser_agent', 'code_executor'];
-const isComputerTool = (tool?: ToolContent | null) => {
-  if (!tool) return false;
-  return COMPUTER_TOOLS.includes(tool.name);
-};
 
 // Always show thumbnail when panel is closed and there's activity
 const shouldShowThumbnail = computed(() => {
@@ -2102,27 +2047,12 @@ const toolTimelineCanStepForward = computed(() => {
 
 const toolTimelineCanStepBackward = computed(() => toolTimelineIndex.value > 0);
 
-const showTimelineControls = computed(() => {
-  // Show timeline when replay mode is active, OR when there are any tool entries
-  // in the timeline (not just when the current panel tool is in it — the panel
-  // may be showing a non-computer tool like search/mcp while earlier browser/shell
-  // tools still exist in the timeline).
-  return isScreenshotReplayMode.value || toolTimeline.value.length > 0
-});
+/** 1-based current step for display (0 when nothing selected). */
+const toolTimelineCurrentStep = computed(() =>
+  toolTimelineIndex.value >= 0 ? toolTimelineIndex.value + 1 : 0
+);
 
-// Effective timeline values — replay mode overrides tool timeline
-const effectiveTimelineProgress = computed(() =>
-  isScreenshotReplayMode.value ? replay.progress.value : toolTimelineProgress.value
-);
-const effectiveTimelineTimestamp = computed(() =>
-  isScreenshotReplayMode.value ? replay.currentTimestamp.value : toolTimelineTimestamp.value
-);
-const effectiveCanStepForward = computed(() =>
-  isScreenshotReplayMode.value ? replay.canStepForward.value : toolTimelineCanStepForward.value
-);
-const effectiveCanStepBackward = computed(() =>
-  isScreenshotReplayMode.value ? replay.canStepBackward.value : toolTimelineCanStepBackward.value
-);
+const showTimelineControls = computed(() => toolTimeline.value.length > 0);
 
 // Handle opening the panel from TaskProgressBar
 const handleOpenPanel = () => {
@@ -2148,7 +2078,6 @@ const handleOpenPanel = () => {
 };
 
 const upsertToolTimeline = (toolContent: ToolContent) => {
-  if (!isComputerTool(toolContent)) return;
   const existingIndex = toolTimeline.value.findIndex(tool => tool.tool_call_id === toolContent.tool_call_id);
   if (existingIndex >= 0) {
     Object.assign(toolTimeline.value[existingIndex], toolContent);
@@ -2415,6 +2344,17 @@ const handleToolStreamEvent = (data: ToolStreamEventData) => {
       lastTool.value.streaming_content_type = buffered.contentType;
     }
   }
+
+  // ── Dual-write: mirror streaming content to Pinia store ──
+  const storeBuffered = streamingContentBuffer.get(data.tool_call_id)
+  if (storeBuffered) {
+    toolStore.setStreamingContent(
+      data.tool_call_id,
+      storeBuffered.content,
+      storeBuffered.functionName,
+      storeBuffered.contentType,
+    )
+  }
 }
 
 // Handle tool_progress event — update progress on active tool
@@ -2502,6 +2442,13 @@ const handleToolEvent = (toolData: ToolEventData) => {
   if (toolContent.name !== 'message') {
     lastNoMessageTool.value = toolContent;
     upsertToolTimeline(toolContent);
+
+    // Auto-resume to real-time when a new tool starts during a live session
+    // and the user had navigated backward in the timeline.
+    if (!realTime.value && isLoading.value && toolContent.status === 'calling') {
+      realTime.value = true;
+    }
+
     if (realTime.value && canOpenLiveViewPanel.value) {
       panelToolId.value = toolContent.tool_call_id;
       if (isToolPanelOpen.value) {
@@ -2522,8 +2469,13 @@ const handleToolEvent = (toolData: ToolEventData) => {
     if (sources.length > 0) {
       searchSourcesCache.value.set(toolContent.tool_call_id, sources);
       triggerRef(searchSourcesCache);
+      // Dual-write: mirror to Pinia store
+      toolStore.cacheSearchSources(toolContent.tool_call_id, sources);
     }
   }
+
+  // ── Dual-write: mirror tool event to Pinia store ──
+  toolStore.recordToolCall(toolContent)
 
   if (functionName === 'message_ask_user') {
     const args = toolData.args || {};
@@ -3184,9 +3136,21 @@ const handleSkillActivationEvent = (data: SkillActivationEventData) => {
   }
 };
 
-// Handle canvas update events
+// Handle canvas update events — auto-open panel with canvas view
 const handleCanvasUpdateEvent = (data: CanvasUpdateEventData) => {
   activeCanvasProjectId.value = data.project_id;
+
+  // Auto-open side panel with canvas view on first canvas event
+  const syntheticTool: ToolContent = {
+    timestamp: Date.now(),
+    tool_call_id: `canvas-live-${data.project_id}`,
+    name: 'canvas',
+    function: data.operation || 'canvas_create_project',
+    args: { project_id: data.project_id },
+    content: { project_id: data.project_id, element_count: data.element_count },
+    status: 'calling',
+  };
+  showToolPanelIfAllowed(syntheticTool, true);
 };
 
 // Handle suggestion selection (user clicks a suggestion)
@@ -3293,6 +3257,108 @@ const shouldReplayHistoryEvent = (event: AgentSSEEvent): boolean => {
   return event.event !== 'stream';
 };
 
+// ── Extracted event handlers for registry dispatch ──────────────────
+const handleDoneEvent = () => {
+  activeReasoningState.value = 'completed';
+  dismissConnectionBanner();
+  logChatSseDiagnostics('event:done_received', {
+    eventId: null,
+    queuedAfterDone: streamController.getPendingEventCount(),
+  })
+  receivedDoneEvent.value = true;
+  follow.value = false;
+  planningProgress.value = null;
+  stopPlanningMessageCycle();
+  ensureCompletionSuggestions();
+  markShortAssistantCompletion();
+  isWaitingForReply.value = false;
+  clearTakeoverCta();
+  transitionTo('completing')
+  if (sessionId.value) {
+    emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
+    cleanupSessionStorage(sessionId.value);
+  }
+  sessionStatus.value = SessionStatus.COMPLETED;
+  replay.loadScreenshots();
+}
+
+const handleWaitEvent = (data: unknown) => {
+  dismissConnectionBanner();
+  isWaitingForReply.value = true;
+  const waitData = data as WaitEventData;
+  setTakeoverCtaFromMetadata(waitData.wait_reason, waitData.suggest_user_takeover);
+  transitionTo('settled')
+}
+
+const handleIncomingErrorEvent = (data: unknown) => {
+  clearTakeoverCta();
+  const errorData = data as ErrorEventData;
+  const isRecoverableTimeout = errorData.error_type === 'timeout' && (errorData.recoverable ?? true);
+  const isRecoverableStreamGap = errorData.error_code === 'stream_gap_detected';
+
+  if (isRecoverableStreamGap) {
+    logChatSseDiagnostics('event:stream_gap_warning_ignored', {
+      requestedEventId: errorData.details?.requested_event_id ?? null,
+      firstAvailableEventId: errorData.details?.first_available_event_id ?? null,
+      checkpointEventId: errorData.checkpoint_event_id ?? null,
+    })
+    return;
+  }
+
+  if (isRecoverableTimeout) {
+    lastError.value = {
+      message: errorData.error || 'Chat stream timed out',
+      type: errorData.error_type ?? null,
+      recoverable: true,
+      hint: errorData.retry_hint ?? null,
+    };
+    const code = errorData.error_code ?? '';
+    if (code === 'workflow_idle_timeout' || code === 'workflow_wall_clock_timeout') {
+      timeoutReason.value = code === 'workflow_idle_timeout' ? 'workflow_idle' : 'workflow_limit';
+    } else {
+      timeoutReason.value = 'connection';
+    }
+    transitionTo('timed_out')
+  } else {
+    transitionTo('error')
+    handleErrorEvent(errorData);
+  }
+}
+
+const handleResearchModeEvent = (data: unknown) => {
+  const rmData = data as { research_mode: string };
+  sessionResearchMode.value = (rmData.research_mode as agentApi.ResearchMode) || 'deep_research';
+}
+
+// ── Event handler registry (O(1) dispatch replaces 22-branch if/else) ──
+const eventRegistry = createEventHandlerRegistry({
+  message: (data) => { handleMessageEvent(data as MessageEventData); suggestions.value = []; },
+  tool: (data) => handleToolEvent(data as ToolEventData),
+  tool_stream: (data) => handleToolStreamEvent(data as ToolStreamEventData),
+  tool_progress: (data) => handleToolProgressEvent(data as import('../types/event').ToolProgressEventData),
+  step: (data) => handleStepEvent(data as StepEventData),
+  phase: (data) => handlePhaseEvent(data as import('../types/event').AgentPhaseEventData),
+  thought: (data) => handleThoughtEvent(data as ThoughtEventData),
+  done: () => handleDoneEvent(),
+  wait: (data) => handleWaitEvent(data),
+  error: (data) => handleIncomingErrorEvent(data),
+  title: (data) => handleTitleEvent(data as TitleEventData),
+  plan: (data) => handlePlanEvent(data as PlanEventData),
+  mode_change: (data) => handleModeChangeEvent(data as ModeChangeEventData),
+  suggestion: (data) => handleSuggestionEvent(data as SuggestionEventData),
+  report: (data) => handleReportEvent(data as ReportEventData),
+  stream: (data) => handleStreamEvent(data as StreamEventData),
+  progress: (data) => handleProgressEvent(data as ProgressEventData),
+  phase_transition: (data) => handlePhaseTransitionEvent(data as PhaseTransitionEventData),
+  checkpoint_saved: (data) => handleCheckpointSavedEvent(data as CheckpointSavedEventData),
+  skill_delivery: (data) => handleSkillDeliveryEvent(data as SkillDeliveryEventData),
+  skill_activation: (data) => handleSkillActivationEvent(data as SkillActivationEventData),
+  canvas_update: (data) => handleCanvasUpdateEvent(data as CanvasUpdateEventData),
+  workspace: (data) => researchWorkflow.handleWorkspaceEvent(data as WorkspaceEventData),
+  research_mode: (data) => handleResearchModeEvent(data),
+  mcp_health: (data) => useMcpStatus().handleHealthEvent(data as import('@/api/mcp').McpHealthEventData),
+})
+
 // Process a single event (extracted from handleEvent for batching)
 const processEvent = (event: AgentSSEEvent) => {
   // Deduplicate events based on event_id to prevent duplicate messages
@@ -3318,6 +3384,8 @@ const processEvent = (event: AgentSSEEvent) => {
 
   // Update last event time for stale connection detection
   updateEventTimeAndResetStale();
+  // Dual-write: mirror event time to Pinia connection store
+  connectionStore.updateLastRealEventTime()
 
   // Transition to streaming on first real event
   if (
@@ -3336,119 +3404,10 @@ const processEvent = (event: AgentSSEEvent) => {
     transitionTo('streaming')
   }
 
-  if (event.event === 'message') {
-    handleMessageEvent(event.data as MessageEventData);
-    // Clear suggestions when new message arrives
-    suggestions.value = [];
-  } else if (event.event === 'tool') {
-    handleToolEvent(event.data as ToolEventData);
-  } else if (event.event === 'tool_stream') {
-    handleToolStreamEvent(event.data as ToolStreamEventData);
-  } else if (event.event === 'tool_progress') {
-    handleToolProgressEvent(event.data as import('../types/event').ToolProgressEventData);
-  } else if (event.event === 'step') {
-    handleStepEvent(event.data as StepEventData);
-  } else if (event.event === 'phase') {
-    handlePhaseEvent(event.data as import('../types/event').AgentPhaseEventData);
-  } else if (event.event === 'thought') {
-    handleThoughtEvent(event.data as ThoughtEventData);
-  } else if (event.event === 'done') {
-    activeReasoningState.value = 'completed';
-    dismissConnectionBanner();
-    logChatSseDiagnostics('event:done_received', {
-      eventId: eventId ?? null,
-      queuedAfterDone: streamController.getPendingEventCount(),
-    })
-    receivedDoneEvent.value = true;
-    follow.value = false;
-    planningProgress.value = null;
-    stopPlanningMessageCycle();
-    ensureCompletionSuggestions();
-    markShortAssistantCompletion();
-    isWaitingForReply.value = false;
-    clearTakeoverCta();
-    transitionTo('completing') // → auto-settles to 'settled' after 300ms
-    // Notify sidebar that session is no longer running
-    if (sessionId.value) {
-      emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
-      cleanupSessionStorage(sessionId.value);
-    }
-    // Load screenshots for replay mode (seamless live → replay transition)
-    sessionStatus.value = SessionStatus.COMPLETED;
-    replay.loadScreenshots();
-  } else if (event.event === 'wait') {
-    // Agent is waiting for user input - show waiting indicator
-    dismissConnectionBanner();
-    isWaitingForReply.value = true;
-    const waitData = event.data as WaitEventData;
-    setTakeoverCtaFromMetadata(waitData.wait_reason, waitData.suggest_user_takeover);
-    transitionTo('settled')
-  } else if (event.event === 'error') {
-    clearTakeoverCta();
-    const errorData = event.data as ErrorEventData;
-    const isRecoverableTimeout = errorData.error_type === 'timeout' && (errorData.recoverable ?? true);
-    const isRecoverableStreamGap = errorData.error_code === 'stream_gap_detected';
-
-    if (isRecoverableStreamGap) {
-      logChatSseDiagnostics('event:stream_gap_warning_ignored', {
-        requestedEventId: errorData.details?.requested_event_id ?? null,
-        firstAvailableEventId: errorData.details?.first_available_event_id ?? null,
-        checkpointEventId: errorData.checkpoint_event_id ?? null,
-      })
-      // Stream-gap warnings are transport-level resume diagnostics.
-      // The client already handles checkpoint resumption via onGapDetected.
-      // Avoid surfacing this as a user-facing error message.
-      return;
-    }
-
-    if (isRecoverableTimeout) {
-      lastError.value = {
-        message: errorData.error || 'Chat stream timed out',
-        type: errorData.error_type ?? null,
-        recoverable: true,
-        hint: errorData.retry_hint ?? null,
-      };
-      // Discriminate workflow timeouts (agent stopped) from connection timeouts (transport)
-      const code = errorData.error_code ?? '';
-      if (code === 'workflow_idle_timeout' || code === 'workflow_wall_clock_timeout') {
-        timeoutReason.value = code === 'workflow_idle_timeout' ? 'workflow_idle' : 'workflow_limit';
-      } else {
-        timeoutReason.value = 'connection';
-      }
-      transitionTo('timed_out')
-    } else {
-      transitionTo('error')
-      handleErrorEvent(errorData);
-    }
-  } else if (event.event === 'title') {
-    handleTitleEvent(event.data as TitleEventData);
-  } else if (event.event === 'plan') {
-    handlePlanEvent(event.data as PlanEventData);
-  } else if (event.event === 'mode_change') {
-    handleModeChangeEvent(event.data as ModeChangeEventData);
-  } else if (event.event === 'suggestion') {
-    handleSuggestionEvent(event.data as SuggestionEventData);
-  } else if (event.event === 'report') {
-    handleReportEvent(event.data as ReportEventData);
-  } else if (event.event === 'stream') {
-    handleStreamEvent(event.data as StreamEventData);
-  } else if (event.event === 'progress') {
-    handleProgressEvent(event.data as ProgressEventData);
-  } else if (event.event === 'phase_transition') {
-    handlePhaseTransitionEvent(event.data as PhaseTransitionEventData);
-  } else if (event.event === 'checkpoint_saved') {
-    handleCheckpointSavedEvent(event.data as CheckpointSavedEventData);
-  } else if (event.event === 'skill_delivery') {
-    handleSkillDeliveryEvent(event.data as SkillDeliveryEventData);
-  } else if (event.event === 'skill_activation') {
-    handleSkillActivationEvent(event.data as SkillActivationEventData);
-  } else if (event.event === 'canvas_update') {
-    handleCanvasUpdateEvent(event.data as CanvasUpdateEventData);
-  } else if (event.event === 'workspace') {
-    researchWorkflow.handleWorkspaceEvent(event.data as WorkspaceEventData);
-  } else if (event.event === 'research_mode') {
-    const rmData = event.data as { research_mode: string };
-    sessionResearchMode.value = (rmData.research_mode as agentApi.ResearchMode) || 'deep_research';
+  // Dispatch event through registry (O(1) lookup replaces 22-branch if/else)
+  const handled = dispatchEvent(eventRegistry, event.event, event.data)
+  if (!handled) {
+    console.warn(`[SSE] Unhandled event type: ${event.event}`)
   }
   lastEventId.value = event.data.event_id;
   // Persist lastEventId to sessionStorage for proper event resumption on page refresh
@@ -3506,6 +3465,8 @@ const chat = async (
   if (!sessionId.value) return;
   // Reset user dismissal so the panel auto-opens for the new agent run
   userDismissedPanel.value = false;
+  uiStore.resetDismissed()
+  toolStore.clearAll()
   const normalizedMessage = message.trim();
 
   // Prevent duplicate message submission within 2 seconds
@@ -3858,7 +3819,7 @@ onMounted(async () => {
     // If sessionId is included in URL, use it directly
     sessionId.value = String(routeParams.sessionId) as string;
     // Restore chat mode flag from sessionStorage
-    try { if (sessionStorage.getItem(`chatMode:${sessionId.value}`)) isChatModeOverride.value = true; } catch {}
+    try { if (sessionStorage.getItem(`chatMode:${sessionId.value}`)) isChatModeOverride.value = true; } catch { /* storage unavailable */ }
     // Do not auto-send messages from history.state on existing sessions.
     // Pending initial prompts are handled exclusively via /chat/new bootstrap flow.
     if ((history.state as PendingSessionCreateState | null)?.pendingSessionCreate) {
@@ -3941,6 +3902,37 @@ const isLiveTool = (tool: ToolContent) => {
   return false;
 }
 
+/** Sync screenshot replay index to match the currently navigated tool. */
+const syncReplayToTool = (tool: ToolContent) => {
+  if (!replay.hasScreenshots.value) return;
+  const screenshots = replay.screenshots.value;
+
+  // Exact match by tool_call_id (prefer tool_after for result view)
+  let bestIdx = -1;
+  for (let i = screenshots.length - 1; i >= 0; i--) {
+    if (screenshots[i].tool_call_id === tool.tool_call_id) {
+      bestIdx = i;
+      if (screenshots[i].trigger === 'tool_after') break;
+    }
+  }
+
+  // Fallback: closest screenshot by timestamp
+  if (bestIdx < 0 && tool.timestamp) {
+    let bestDiff = Infinity;
+    for (let i = 0; i < screenshots.length; i++) {
+      const diff = Math.abs((screenshots[i].timestamp || 0) - tool.timestamp);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIdx = i;
+      }
+    }
+  }
+
+  if (bestIdx >= 0) {
+    replay.currentIndex.value = bestIdx;
+  }
+};
+
 const showToolFromTimeline = (index: number) => {
   if (toolTimeline.value.length === 0) return;
   if (!canOpenLiveViewPanel.value) return;
@@ -3948,25 +3940,24 @@ const showToolFromTimeline = (index: number) => {
   const tool = toolTimeline.value[clampedIndex];
   if (!tool) return;
   realTime.value = false;
-  if (showToolPanelIfAllowed(tool, isLiveTool(tool))) {
+  if (showToolPanelIfAllowed(tool, false)) {
     panelToolId.value = tool.tool_call_id;
+    // Sync screenshot replay to this tool's timeframe
+    syncReplayToTool(tool);
   }
 }
 
 const handleTimelineStepForward = () => {
-  if (isScreenshotReplayMode.value) { replay.stepForward(); return; }
   if (!toolTimelineCanStepForward.value) return;
   showToolFromTimeline(toolTimelineIndex.value + 1);
 }
 
 const handleTimelineStepBackward = () => {
-  if (isScreenshotReplayMode.value) { replay.stepBackward(); return; }
   if (!toolTimelineCanStepBackward.value) return;
   showToolFromTimeline(toolTimelineIndex.value - 1);
 }
 
 const handleTimelineSeek = (progress: number) => {
-  if (isScreenshotReplayMode.value) { replay.seekByProgress(progress); return; }
   if (toolTimeline.value.length === 0) return;
   const maxIndex = toolTimeline.value.length - 1;
   const targetIndex = Math.round((progress / 100) * maxIndex);
@@ -3977,8 +3968,9 @@ const handleToolClick = (tool: ToolContent) => {
   realTime.value = false;
   if (!canOpenLiveViewPanel.value) return;
   if (sessionId.value) {
-    if (showToolPanelIfAllowed(tool, isLiveTool(tool))) {
+    if (showToolPanelIfAllowed(tool, false)) {
       panelToolId.value = tool.tool_call_id;
+      syncReplayToTool(tool);
     }
   }
 }
