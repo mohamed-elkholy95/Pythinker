@@ -202,7 +202,7 @@ class TokenManager:
         # not updated) — the root cause of the deep research report failure.
         self._validate_model_limit(model_name, self._max_tokens)
 
-        logger.info(
+        logger.debug(
             f"TokenManager initialized for {model_name}: "
             f"max={self._max_tokens}, effective={self._effective_limit}, "
             f"cache={'enabled' if enable_cache else 'disabled'}"
