@@ -190,16 +190,40 @@ class HealthMonitor:
         )
 
     async def _check_database_health(self, health: ComponentHealth):
-        """Check database connectivity"""
+        """Check database connectivity with WiredTiger cache and connection stats."""
         try:
+            import time
+
+            from app.core.prometheus_metrics import (
+                mongodb_connections_current,
+                mongodb_wiredtiger_cache_bytes,
+            )
             from app.infrastructure.storage.mongodb import get_mongodb
 
-            # Simple ping test
             mongodb = get_mongodb()
-            await mongodb.client.admin.command("ping")
+            start = time.monotonic()
+            status = await mongodb.client.admin.command("serverStatus")
+            response_time = time.monotonic() - start
 
-            health.status = ComponentStatus.HEALTHY
-            response_time = 0.1  # Placeholder
+            # WiredTiger cache metrics
+            wt_cache = status.get("wiredTiger", {}).get("cache", {})
+            cache_current = wt_cache.get("bytes currently in the cache", 0)
+            cache_max = wt_cache.get("maximum bytes configured", 0)
+            cache_dirty = wt_cache.get("tracked dirty bytes in the cache", 0)
+            mongodb_wiredtiger_cache_bytes.set({"type": "current"}, cache_current)
+            mongodb_wiredtiger_cache_bytes.set({"type": "max"}, cache_max)
+            mongodb_wiredtiger_cache_bytes.set({"type": "dirty"}, cache_dirty)
+
+            # Connection metrics
+            connections = status.get("connections", {}).get("current", 0)
+            mongodb_connections_current.set(value=connections)
+
+            # Determine health from cache pressure
+            cache_ratio = cache_current / cache_max if cache_max > 0 else 0
+            if cache_ratio > 0.95:
+                health.status = ComponentStatus.DEGRADED
+            else:
+                health.status = ComponentStatus.HEALTHY
 
         except Exception as e:
             health.status = ComponentStatus.UNHEALTHY
@@ -207,20 +231,63 @@ class HealthMonitor:
             logger.warning(f"Database health check failed: {e}")
 
         health.add_metric(
-            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now(UTC))
+            HealthMetric(
+                name="response_time",
+                value=response_time,
+                status=health.status,
+                timestamp=datetime.now(UTC),
+            )
         )
 
     async def _check_redis_health(self, health: ComponentHealth):
-        """Check Redis connectivity"""
+        """Check Redis connectivity with memory and hit ratio stats."""
         try:
+            import time
+
+            from app.core.prometheus_metrics import (
+                cache_eviction_rate,
+                redis_keyspace_hit_ratio,
+                redis_memory_bytes,
+            )
             from app.infrastructure.storage.redis import get_redis
 
             redis = get_redis()
             await redis.initialize()
-            await redis.call("ping", max_retries=2)
+            start = time.monotonic()
+            info_raw = await redis.call("info", "all", max_retries=2)
+            response_time = time.monotonic() - start
 
-            health.status = ComponentStatus.HEALTHY
-            response_time = 0.05  # Placeholder
+            # Parse INFO response into dict
+            info: dict[str, str] = {}
+            if isinstance(info_raw, (str, bytes)):
+                text = info_raw.decode() if isinstance(info_raw, bytes) else info_raw
+                for line in text.splitlines():
+                    if ":" in line and not line.startswith("#"):
+                        k, v = line.split(":", 1)
+                        info[k.strip()] = v.strip()
+
+            # Memory metrics
+            used_memory = int(info.get("used_memory", 0))
+            max_memory = int(info.get("maxmemory", 0))
+            redis_memory_bytes.set({"type": "used"}, used_memory)
+            redis_memory_bytes.set({"type": "max"}, max_memory)
+
+            # Keyspace hit ratio
+            hits = int(info.get("keyspace_hits", 0))
+            misses = int(info.get("keyspace_misses", 0))
+            total = hits + misses
+            hit_ratio = hits / total if total > 0 else 1.0
+            redis_keyspace_hit_ratio.set(value=hit_ratio)
+
+            # Eviction rate
+            evicted = int(info.get("evicted_keys", 0))
+            cache_eviction_rate.set({"cache_type": "redis"}, evicted)
+
+            # Determine health
+            if max_memory > 0 and used_memory / max_memory > 0.95:
+                health.status = ComponentStatus.DEGRADED
+            else:
+                health.status = ComponentStatus.HEALTHY
 
         except Exception as e:
             health.status = ComponentStatus.UNHEALTHY
@@ -264,16 +331,48 @@ class HealthMonitor:
         )
 
     async def _check_qdrant_health(self, health: ComponentHealth):
-        """Check Qdrant connectivity"""
+        """Check Qdrant connectivity with collection stats."""
         try:
+            import time
+
+            from app.core.prometheus_metrics import (
+                qdrant_collection_size,
+                qdrant_disk_usage_bytes,
+            )
             from app.infrastructure.storage.qdrant import get_qdrant
 
-            # Simple health check
-            get_qdrant()
-            # Placeholder health check
+            qdrant = get_qdrant()
+            client = qdrant.client
+            start = time.monotonic()
+            collections_response = await client.get_collections()
+            response_time = time.monotonic() - start
 
-            health.status = ComponentStatus.HEALTHY
-            response_time = 0.1  # Placeholder
+            # Collect per-collection stats
+            optimizer_issues = False
+            for col_info in collections_response.collections:
+                try:
+                    col_detail = await client.get_collection(col_info.name)
+                    qdrant_collection_size.set(
+                        {"collection": col_info.name},
+                        col_detail.vectors_count or 0,
+                    )
+                    # disk_data_size may not be available on all versions
+                    disk_size = getattr(col_detail, "disk_data_size", None) or 0
+                    qdrant_disk_usage_bytes.set(
+                        {"collection": col_info.name},
+                        disk_size,
+                    )
+                    # Check optimizer status
+                    opt_status = col_detail.optimizer_status
+                    if opt_status and opt_status.status != "ok":
+                        optimizer_issues = True
+                except Exception:
+                    logger.debug("Failed to get stats for collection %s", col_info.name, exc_info=True)
+
+            if optimizer_issues:
+                health.status = ComponentStatus.DEGRADED
+            else:
+                health.status = ComponentStatus.HEALTHY
 
         except Exception as e:
             health.status = ComponentStatus.DEGRADED  # Qdrant is optional
