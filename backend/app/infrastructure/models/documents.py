@@ -354,7 +354,7 @@ class DailyUsageDocument(
     class Settings:
         name: ClassVar[str] = "daily_usage"
         indexes: ClassVar[list[Any]] = [
-            "usage_id",
+            IndexModel([("usage_id", ASCENDING)], unique=True),
             "user_id",
             IndexModel([("user_id", ASCENDING), ("date", DESCENDING)]),
         ]
@@ -417,10 +417,9 @@ class SkillDocument(BaseDocument[Skill], id_field="skill_id", domain_model_class
         name: ClassVar[str] = "skills"
         indexes: ClassVar[list[Any]] = [
             IndexModel([("skill_id", ASCENDING)], unique=True),
-            "category",
-            "source",
+            # "category" and "source" standalone indexes removed — covered by compound prefix below
             IndexModel([("category", ASCENDING), ("source", ASCENDING)]),
-            "owner_id",  # Index for user's custom skills queries
+            # "owner_id" standalone index removed — covered by compound prefix below
             IndexModel([("owner_id", ASCENDING), ("created_at", DESCENDING)]),
             IndexModel([("is_public", ASCENDING), ("created_at", DESCENDING)]),
             "invocation_type",  # Index for AI-invokable skills queries
@@ -452,12 +451,16 @@ class AgentDecisionDocument(Document):
     outcome: str | None = None  # "success", "error", "replanned"
     led_to_error: bool = False
 
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
     class Settings:
         name: ClassVar[str] = "agent_decisions"
         indexes: ClassVar[list[Any]] = [
             IndexModel([("session_id", ASCENDING), ("timestamp", ASCENDING)]),
             IndexModel([("decision_type", ASCENDING)]),
             IndexModel([("led_to_error", ASCENDING)]),
+            # TTL: auto-delete after 30 days (ephemeral analysis data)
+            IndexModel([("created_at", ASCENDING)], expireAfterSeconds=30 * 86400),
         ]
 
 
@@ -482,11 +485,15 @@ class ToolExecutionDocument(Document):
     container_cpu_percent: float | None = None
     container_memory_mb: float | None = None
 
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
     class Settings:
         name: ClassVar[str] = "tool_executions"
         indexes: ClassVar[list[Any]] = [
             IndexModel([("session_id", ASCENDING), ("started_at", ASCENDING)]),
             IndexModel([("tool_name", ASCENDING), ("success", ASCENDING)]),
+            # TTL: auto-delete after 30 days (ephemeral execution data)
+            IndexModel([("created_at", ASCENDING)], expireAfterSeconds=30 * 86400),
         ]
 
 
@@ -509,10 +516,14 @@ class WorkflowStateDocument(Document):
 
     state_duration_ms: float
 
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
     class Settings:
         name: ClassVar[str] = "workflow_states"
         indexes: ClassVar[list[Any]] = [
             IndexModel([("session_id", ASCENDING), ("timestamp", ASCENDING)]),
+            # TTL: auto-delete after 7 days (short-lived analysis data)
+            IndexModel([("created_at", ASCENDING)], expireAfterSeconds=7 * 86400),
         ]
 
 

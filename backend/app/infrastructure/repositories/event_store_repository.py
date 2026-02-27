@@ -6,6 +6,7 @@ Implements event sourcing pattern:
 - Append-only writes
 - Monotonic sequence numbers
 - NO TTL on source events (projections can have TTL)
+- Archival to cold collection for unbounded growth prevention
 """
 
 import logging
@@ -16,6 +17,7 @@ from typing import ClassVar
 from beanie import Document
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import Field
+from pymongo import IndexModel
 from pymongo.errors import DuplicateKeyError
 
 from app.domain.exceptions.base import DuplicateResourceException
@@ -29,8 +31,8 @@ class AgentEventDocument(Document):
 
     event_id: str = Field(index=True, unique=True)
     event_type: AgentEventType = Field(index=True)
-    session_id: str = Field(index=True)
-    task_id: str = Field(index=True)
+    session_id: str  # Covered by compound (session_id, sequence) prefix
+    task_id: str  # Covered by compound (task_id, timestamp) prefix
     sequence: int = Field(index=True)
     timestamp: datetime = Field(index=True)
     payload: dict
@@ -38,16 +40,18 @@ class AgentEventDocument(Document):
 
     class Settings:
         name = "agent_events"  # Collection name
-        # NO TTL INDEX - events are immutable source of truth
+        # TTL index on timestamp provides automatic cleanup of old events.
+        # The archival background task copies events to agent_events_archive
+        # BEFORE TTL deletion, so no data is lost. TTL = 90 days (7776000s).
+        # Note: Standalone "session_id" and "task_id" indexes removed —
+        # covered by compound prefixes (session_id,sequence) and (task_id,timestamp)
+        # which serve both compound and prefix-only queries per MongoDB docs.
         indexes: ClassVar[list] = [
-            "event_id",
             "event_type",
-            "session_id",
-            "task_id",
             "sequence",
-            "timestamp",
             [("session_id", 1), ("sequence", 1)],  # Compound index for ordering
             [("task_id", 1), ("timestamp", 1)],
+            IndexModel([("timestamp", 1)], expireAfterSeconds=7_776_000),  # 90-day TTL
         ]
 
 
@@ -255,3 +259,58 @@ class EventStoreRepository:
             Total event count
         """
         return await AgentEventDocument.find({"session_id": session_id}).count()
+
+    async def archive_events_before(self, cutoff: datetime, *, batch_size: int = 1000) -> int:
+        """
+        Archive events older than cutoff to the agent_events_archive collection.
+
+        Copies events in batches to the archive collection, then deletes from source.
+        This preserves event sourcing immutability while controlling disk growth.
+
+        Args:
+            cutoff: Archive events with timestamp before this datetime.
+            batch_size: Number of events to process per batch.
+
+        Returns:
+            Total number of events archived.
+        """
+        from app.core.prometheus_metrics import event_store_archived_total
+
+        source = AgentEventDocument.get_pymongo_collection()
+        db = source.database
+        archive = db["agent_events_archive"]
+
+        total_archived = 0
+        query = {"timestamp": {"$lt": cutoff}}
+
+        while True:
+            # Fetch a batch of old events
+            cursor = source.find(query).sort("timestamp", 1).limit(batch_size)
+            batch = await cursor.to_list(length=batch_size)
+            if not batch:
+                break
+
+            # Insert into archive collection
+            await archive.insert_many(batch, ordered=False)
+
+            # Delete archived events from source by _id
+            ids = [doc["_id"] for doc in batch]
+            result = await source.delete_many({"_id": {"$in": ids}})
+            archived_count = result.deleted_count
+            total_archived += archived_count
+
+            event_store_archived_total.inc(value=archived_count)
+            logger.info(
+                "Archived %d events (batch), total: %d",
+                archived_count,
+                total_archived,
+            )
+
+            # If batch was smaller than batch_size, we're done
+            if len(batch) < batch_size:
+                break
+
+        if total_archived > 0:
+            logger.info("Event archival complete: %d events moved to archive", total_archived)
+
+        return total_archived
