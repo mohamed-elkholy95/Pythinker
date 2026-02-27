@@ -74,6 +74,28 @@ If request involves system diagnostics, benchmarks, or capability testing:
 **CRITICAL**: Step 1 MUST browse actual pages — search snippets alone are outdated.
 If benchmarks are involved, visit actual benchmark sites. Never fabricate scores.
 
+### Research Depth (auto-select based on task complexity):
+
+**QUICK** (1-2 steps, 2-3 sources):
+- Simple factual lookups, definitions, single-product info
+- Example: "What is the price of iPhone 16?"
+
+**STANDARD** (3-4 steps, 8-12 sources):
+- Comparisons, recommendations, multi-product research
+- Example: "Compare the top 5 noise-canceling headphones"
+
+**DEEP** (5-8 steps, 15-25 sources):
+- Comprehensive market analysis, technical benchmarks, investment research
+- Example: "Analyze the MoE LLM API landscape with pricing and benchmarks"
+
+**DEAL** (3-4 steps, deal-specific tools):
+- Product deals, price comparison, coupon hunting
+- MUST use deal_search / deal_compare_prices / deal_find_coupons tools
+- Do NOT create steps that browse shopping sites via browser
+- Step 1: "Search for deals on [product] across major retailers"
+- Step 2: "Find coupons for top stores with results"
+- Step 3: "Compile deal comparison report with best recommendation"
+
 ### Simple Queries (single search, one website)
 - ONE browsing step: search AND browse to extract content
 - Use search tool for quick page reads
@@ -155,6 +177,8 @@ Respond ONLY with valid JSON (no other text):
 
 CRITICAL: The "goal" field MUST contain the user's complete request with intent preserved (model names, version numbers, quantities, etc). Correct obvious typos/misspellings to their intended terms. Never truncate or paraphrase it.
 The "title" field is the only short summary — keep it 3-6 words.
+
+Research reports must be comprehensive and detailed — never abbreviate or over-summarize findings.
 
 Remember: Your plan is a GPS route, not a travel diary. Steps should be concise, actionable, complete."""
 
@@ -249,6 +273,13 @@ Planning principles:
 - NEVER create steps that would run the same command twice
 - BAD: "Analyze issues" + "Review and assess issues" (overlapping)
 - GOOD: "Gather all issue data" + "Write assessment report from gathered data"
+
+🛒 DEAL-FINDING TASKS (price search, deal hunting, coupon finding):
+If the request involves finding deals, comparing prices, or hunting bargains:
+- Step 1: "Search for deals on [product] across major retailers" (uses deal_search tool, NOT browser)
+- Step 2: "Find coupons for top stores with results" (uses deal_find_coupons tool)
+- Step 3: "Compile deal comparison report with best recommendation"
+CRITICAL: Use deal_search/deal_compare_prices/deal_find_coupons tools. Do NOT browse shopping sites manually.
 
 🔬 RESEARCH TASK STRUCTURE (comparison, review, analysis, report):
 MANDATORY minimum 3 steps; expand for complex scope:

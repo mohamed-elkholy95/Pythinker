@@ -15,7 +15,21 @@ if TYPE_CHECKING:
 # ENHANCED EXECUTION SYSTEM PROMPT
 # ============================================================================
 
-ENHANCED_EXECUTION_SYSTEM_PROMPT = """You are an elite task execution agent. Execute with extreme efficiency and minimal overhead.
+ENHANCED_EXECUTION_SYSTEM_PROMPT = """## Response Format (MANDATORY)
+
+Your ENTIRE response MUST be valid JSON matching this schema:
+```json
+{"success": boolean, "result": "1-2 sentence summary", "attachments": ["file/paths or empty"]}
+```
+- "result" = brief summary, NOT full content
+- "attachments" = list file paths created via file_write; empty [] for inline answers
+- No prose outside JSON. No markdown wrapping.
+
+---
+
+## Execution Rules
+
+Execute with extreme efficiency and minimal overhead.
 
 ## CRITICAL: The Conciseness Protocol
 
@@ -202,21 +216,7 @@ Examples:
 - Verify facts from primary sources
 - Match user's language in all output
 
-## Response Specification
-
-CRITICAL: You MUST respond with ONLY valid JSON. No prose, no explanations, no markdown outside the JSON.
-
-```json
-{
-  "success": boolean,        // whether step completed
-  "result": "string",        // brief summary (1-2 sentences) - NOT full content
-  "attachments": []          // REQUIRED when files are created; empty for inline answers
-}
-```
-
-IMPORTANT: Your ENTIRE response must be valid JSON matching the schema above. Do NOT write prose or explanations - ONLY the JSON object.
-
-Remember: You are a precision execution machine. Minimal words, maximum results. ALWAYS respond with valid JSON."""
+Remember: Minimal words, maximum results. ALWAYS respond with valid JSON as specified at the top."""
 
 # ============================================================================
 # SIGNAL TEMPLATES
@@ -1306,11 +1306,16 @@ DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
 - Write in professional, direct tone
 
 QUALITY STANDARDS:
-- Be CONCISE - no filler text or meta-commentary
-- Focus on FACTS and FINDINGS only
+- Be THOROUGH — include full detail from all sources gathered during research
+- Do NOT summarize or condense findings — present comprehensive evidence and analysis
+- Write full paragraphs with supporting evidence, not abbreviated bullet points
+- Each section should contain 2-4 paragraphs minimum for research tasks
+- Include ALL references gathered during research — every URL visited, every search result used
+- Focus on FACTS, FINDINGS, and EVIDENCE with proper attribution
 - Every comparison should be in a table
 - Every workflow or process should use a Mermaid diagram when possible
 - Use alerts sparingly for genuinely important callouts
+- No filler text or meta-commentary (but DO include substantive detail)
 - The ## References section MUST list ALL cited sources with their [N] numbers and URLs
 
 FORBIDDEN (your response will be REJECTED if it contains any of these):
@@ -1329,7 +1334,7 @@ FORBIDDEN (your response will be REJECTED if it contains any of these):
 - Any text before the first # heading
 - Omitting or truncating the ## References section
 
-CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete report using all available information from the conversation. The ## References section is MANDATORY and must appear at the end with ALL cited sources.
+CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete, detailed report using ALL available information from the conversation — do not abbreviate or over-summarize. The ## References section is MANDATORY and must list EVERY source consulted during research.
 """
 
 # Citation-aware summarization prompt (MindSearch-inspired)
@@ -1394,11 +1399,16 @@ DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
 - Synthesize findings into coherent prose — do NOT include raw Q&A pairs
 
 QUALITY STANDARDS:
-- Be CONCISE - no filler text or meta-commentary
-- Focus on FACTS and FINDINGS with proper attribution
+- Be THOROUGH — include full detail from all sources gathered during research
+- Do NOT summarize or condense findings — present comprehensive evidence and analysis
+- Write full paragraphs with supporting evidence, not abbreviated bullet points
+- Each section should contain 2-4 paragraphs minimum for research tasks
+- Include ALL references gathered during research — every URL visited, every search result used
+- Focus on FACTS, FINDINGS, and EVIDENCE with proper attribution
 - Every comparison should be in a table
 - Every workflow or process should use a Mermaid diagram when possible
 - Use alerts sparingly for genuinely important callouts
+- No filler text or meta-commentary (but DO include substantive detail)
 - The ## References section MUST list ALL cited sources with their [N] numbers and URLs
 
 FORBIDDEN (your response will be REJECTED if it contains any of these):
@@ -1411,7 +1421,7 @@ FORBIDDEN (your response will be REJECTED if it contains any of these):
 - Any text before the first # heading
 - Omitting or truncating the ## References section
 
-CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete report using all available research findings. The ## References section is MANDATORY and must appear at the end with ALL cited sources.
+CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete, detailed report using ALL available research findings — do not abbreviate or over-summarize. The ## References section is MANDATORY and must list EVERY source consulted during research.
 """
 
 # Confirmation summary prompt - emitted as a MessageEvent before the ReportEvent
