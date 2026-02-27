@@ -28,6 +28,7 @@ class LLMSettingsMixin:
     model_name: str = "qwen/qwen3-coder-next"
     temperature: float = 0.3  # Lower temperature for deterministic JSON responses
     max_tokens: int = 16000  # Output token limit per LLM call
+    summarization_max_tokens: int = 32000  # Higher limit for report/summary generation
 
     # Ollama configuration
     ollama_base_url: str = "http://localhost:11434"
@@ -46,11 +47,25 @@ class LLMSettingsMixin:
     use_instructor_structured_output: bool = True
 
     # Adaptive Model Selection (DeepCode Integration Phase 1)
-    # Enables dynamic model routing based on step complexity for cost optimization
+    # Enables dynamic model routing based on step complexity for cost optimization.
+    # Works with any OpenAI-compatible provider (OpenRouter, DeepInfra, etc.).
+    #
+    # Recommended MoE presets (via OpenRouter):
+    #   FAST:     openai/gpt-oss-120b       ($0.04/$0.19/M)  — 5.1B active, Apache 2.0
+    #             xiaomi/mimo-v2-flash       ($0.09/$0.29/M)  — 15B active, hybrid-thinking
+    #   BALANCED: deepseek/deepseek-chat     ($0.25/$0.38/M)  — 37B active, "thinking in tool-use"
+    #             zhipu-ai/glm-4-air         ($0.30/$0.90/M)  — 90.6% tool-calling success
+    #   POWERFUL: moonshotai/kimi-k2.5       ($0.60/$3.00/M)  — 32B active, Agent Swarm (100 sub-agents)
+    #             deepseek/deepseek-chat-v3-0324-speciale ($0.40/$1.20/M)
     adaptive_model_selection_enabled: bool = False
-    fast_model: str = "claude-haiku-4-5"  # Fast tier: summaries, simple transforms, status checks
+    fast_model: str = ""  # Fast tier: summaries, simple transforms (empty = use model_name)
     balanced_model: str = ""  # Balanced tier: standard execution (empty = use model_name)
-    powerful_model: str = "claude-sonnet-4-5"  # Powerful tier: complex reasoning, architecture
+    powerful_model: str = ""  # Powerful tier: complex reasoning, architecture (empty = use model_name)
+
+    # GLM Thinking Mode Control
+    # GLM-5/4.7 enable "deep thinking" by default, adding latency.
+    # Set to true to send thinking.type=disabled on every GLM API call.
+    glm_disable_thinking: bool = True
 
 
 class EmbeddingSettingsMixin:
@@ -78,7 +93,7 @@ class LLMConcurrencySettingsMixin:
     """LLM concurrency, token management, and semantic cache configuration."""
 
     # Phase 6: LLM Concurrency Control
-    llm_max_concurrent: int = 5  # Maximum concurrent LLM API requests
+    llm_max_concurrent: int = 20  # Maximum concurrent LLM API requests (scaled for multi-user)
     llm_queue_timeout: float = 120.0  # Timeout waiting in LLM queue (seconds)
     llm_concurrency_enabled: bool = True  # Enable LLM concurrency limiting
     token_budget_warn_threshold: float = 0.8  # Warn when budget reaches this utilization (0-1)

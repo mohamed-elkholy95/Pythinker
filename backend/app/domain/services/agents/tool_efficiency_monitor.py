@@ -49,12 +49,8 @@ class ToolEfficiencyMonitor:
 
     # Tool classification — delegated to canonical ToolName enum sets
     # Backward-compatible: sets of str values (ToolName inherits from str)
-    READ_TOOLS: ClassVar[frozenset[str]] = frozenset(
-        t.value for t in ToolName.read_only_tools()
-    )
-    ACTION_TOOLS: ClassVar[frozenset[str]] = frozenset(
-        t.value for t in ToolName.action_tools()
-    )
+    READ_TOOLS: ClassVar[frozenset[str]] = frozenset(t.value for t in ToolName.read_only_tools())
+    ACTION_TOOLS: ClassVar[frozenset[str]] = frozenset(t.value for t in ToolName.action_tools())
 
     def __init__(
         self,

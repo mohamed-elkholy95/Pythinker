@@ -708,10 +708,7 @@ class PlannerAgent(BaseAgent):
             # If the LLM drops more than half of the remaining steps in a single
             # update pass, keep the original pending steps instead.  This stops
             # a 6-step plan from collapsing to 1-2 steps after one execution.
-            if (
-                len(remaining_pending) > 2
-                and 0 < len(new_steps) < len(remaining_pending) * 0.5
-            ):
+            if len(remaining_pending) > 2 and 0 < len(new_steps) < len(remaining_pending) * 0.5:
                 logger.warning(
                     "Plan update collapsed %d→%d steps (>50%% reduction). "
                     "Keeping original pending steps to prevent premature completion.",
