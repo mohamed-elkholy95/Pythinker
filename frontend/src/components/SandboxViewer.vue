@@ -159,7 +159,7 @@ let intentionalClose = false
 // initial capture. The sandbox sends "ping" every 5s — as long as pings
 // flow, the connection chain is alive and we should NOT reconnect.
 // The watchdog therefore tracks ANY message (frames + pings) for liveness.
-const CONNECTION_STALL_TIMEOUT_MS = 25_000 // 25s with no messages at all → dead connection
+const CONNECTION_STALL_TIMEOUT_MS = 60_000 // 60s with no messages at all → dead connection
 const FIRST_FRAME_GRACE_MS = 30_000 // 30s grace for initial frame (slow page loads)
 let lastMessageReceivedAt = 0 // Any WebSocket message (frame, ping, JSON)
 let lastFrameReceivedAt = 0 // Binary frames only — for first-frame tracking
