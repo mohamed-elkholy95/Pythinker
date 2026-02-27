@@ -76,6 +76,7 @@ class TruncationDetector:
     """Detects truncated LLM responses using pattern matching.
 
     Analyzes response content for signs of incompleteness:
+    - Truncated or missing References sections in reports
     - Mid-sentence cutoff (no punctuation, hanging phrases)
     - Incomplete code blocks (unclosed ```, {, [, etc.)
     - Partial lists or enumerations
@@ -83,6 +84,14 @@ class TruncationDetector:
 
     Context7 validated: Pattern detection, regex matching, dataclass return types.
     """
+
+    # Continuation prompt for incomplete reference sections
+    REFERENCES_CONTINUATION_PROMPT: ClassVar[str] = (
+        "Your previous response has an incomplete ## References section. "
+        "Continue by writing the COMPLETE ## References section listing ALL cited sources. "
+        "Each reference must be formatted as: [N] Source Title - URL. "
+        "Do NOT repeat any content before the References section."
+    )
 
     # Default truncation patterns
     DEFAULT_PATTERNS: ClassVar[list[TruncationPattern]] = [
@@ -187,6 +196,11 @@ class TruncationDetector:
                 evidence=["finish_reason=length" if finish_reason == "length" else "max_tokens_used=True"],
             )
 
+        # Domain-specific: incomplete References section (higher priority than generic patterns)
+        ref_assessment = self._detect_incomplete_references(content)
+        if ref_assessment.is_truncated:
+            return ref_assessment
+
         # Check patterns
         evidence = []
         matches = []
@@ -209,6 +223,92 @@ class TruncationDetector:
             continuation_prompt=best_match.continuation_prompt,
             evidence=evidence,
         )
+
+    def _detect_incomplete_references(self, content: str) -> TruncationAssessment:
+        """Detect truncated or missing References sections in report-style content.
+
+        Three checks (each exceeds the 0.85 continuation threshold):
+        1. References heading present but section empty/very short → 0.92
+        2. Partial [N] entry at end (no URL) → 0.90
+        3. Inline citation count exceeds reference entry count → 0.88
+        """
+        evidence: list[str] = []
+
+        # Only check content that looks like a report (has headings)
+        if not re.search(r"^#{1,3}\s+", content, re.MULTILINE):
+            return TruncationAssessment(is_truncated=False)
+
+        # Find the ## References section
+        ref_heading_match = re.search(
+            r"^##\s+References?\s*$",
+            content,
+            re.MULTILINE | re.IGNORECASE,
+        )
+
+        # Count inline citations [N] in the body (before References heading)
+        body = content[: ref_heading_match.start()] if ref_heading_match else content
+        inline_citations = set(re.findall(r"\[(\d+)\]", body))
+
+        if ref_heading_match:
+            ref_section = content[ref_heading_match.end() :].strip()
+
+            # Check 1: References heading present but section empty/very short
+            # (either nothing after heading, or < 30 chars which is too short for even one entry)
+            if len(ref_section) < 30:
+                evidence.append("references_heading_present_but_empty_or_very_short")
+                return TruncationAssessment(
+                    is_truncated=True,
+                    truncation_type="incomplete_references",
+                    confidence=0.92,
+                    continuation_prompt=self.REFERENCES_CONTINUATION_PROMPT,
+                    evidence=evidence,
+                )
+
+            # Check 2: Partial [N] entry at end (has number but no URL)
+            # Look at the last line of the references section
+            ref_lines = [ln.strip() for ln in ref_section.split("\n") if ln.strip()]
+            if ref_lines:
+                last_line = ref_lines[-1]
+                # Matches patterns like "[5]" or "[5] Some Title" without a URL
+                if re.match(r"^\[?\d+\]?\s*\S*$", last_line) or (
+                    re.match(r"^\[?\d+\]", last_line) and "http" not in last_line and " - " not in last_line
+                ):
+                    evidence.append(f"partial_reference_entry_at_end: {last_line!r}")
+                    return TruncationAssessment(
+                        is_truncated=True,
+                        truncation_type="incomplete_references",
+                        confidence=0.90,
+                        continuation_prompt=self.REFERENCES_CONTINUATION_PROMPT,
+                        evidence=evidence,
+                    )
+
+            # Check 3: Inline citation count exceeds reference entry count
+            ref_entries = set(re.findall(r"\[(\d+)\]", ref_section))
+            if inline_citations and ref_entries and len(inline_citations) > len(ref_entries):
+                missing_count = len(inline_citations) - len(ref_entries)
+                evidence.append(
+                    f"inline_citations={len(inline_citations)} > ref_entries={len(ref_entries)} "
+                    f"(missing {missing_count})"
+                )
+                return TruncationAssessment(
+                    is_truncated=True,
+                    truncation_type="incomplete_references",
+                    confidence=0.88,
+                    continuation_prompt=self.REFERENCES_CONTINUATION_PROMPT,
+                    evidence=evidence,
+                )
+        elif inline_citations:
+            # No References heading at all, but inline citations exist
+            evidence.append(f"no_references_heading_but_{len(inline_citations)}_inline_citations_found")
+            return TruncationAssessment(
+                is_truncated=True,
+                truncation_type="incomplete_references",
+                confidence=0.92,
+                continuation_prompt=self.REFERENCES_CONTINUATION_PROMPT,
+                evidence=evidence,
+            )
+
+        return TruncationAssessment(is_truncated=False)
 
     def should_request_continuation(self, assessment: TruncationAssessment, confidence_threshold: float = 0.8) -> bool:
         """Determine if continuation should be requested based on assessment.
