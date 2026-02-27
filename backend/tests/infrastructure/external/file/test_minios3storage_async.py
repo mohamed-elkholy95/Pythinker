@@ -116,6 +116,9 @@ def _make_s3_error(code: str, message: str):
 _FAKE_SETTINGS = SimpleNamespace(
     minio_bucket_name="pythinker",
     minio_presigned_expiry_seconds=3600,
+    minio_multipart_threshold_bytes=10 * 1024 * 1024,
+    minio_retry_max_attempts=3,
+    minio_retry_base_delay=0.5,
 )
 
 

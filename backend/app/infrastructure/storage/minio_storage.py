@@ -1,8 +1,12 @@
 import asyncio
 import io
 import logging
+import secrets
 import threading
+import time
+from collections.abc import Callable
 from functools import lru_cache
+from typing import TypeVar
 
 from minio import Minio
 from minio.deleteobjects import DeleteObject
@@ -11,6 +15,51 @@ from minio.error import S3Error
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+def _minio_retry(
+    func: Callable[..., T],
+    *args: object,
+    max_attempts: int = 3,
+    base_delay: float = 0.5,
+    operation: str = "unknown",
+) -> T:
+    """Retry a synchronous MinIO SDK call with exponential backoff + jitter.
+
+    This runs inside a thread (via ``asyncio.to_thread``), so ``time.sleep``
+    is acceptable and does not block the event loop.
+    """
+    from app.core.prometheus_metrics import minio_operation_failures_total, minio_operation_retries_total
+
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return func(*args)
+        except (S3Error, OSError, TimeoutError) as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                delay = base_delay * (2 ** (attempt - 1)) + secrets.randbelow(int(base_delay * 1000) + 1) / 1000
+                logger.warning(
+                    "MinIO %s failed (attempt %d/%d), retrying in %.1fs: %s",
+                    operation,
+                    attempt,
+                    max_attempts,
+                    delay,
+                    exc,
+                )
+                minio_operation_retries_total.inc({"operation": operation})
+                time.sleep(delay)
+            else:
+                logger.error(
+                    "MinIO %s failed after %d attempts: %s",
+                    operation,
+                    max_attempts,
+                    exc,
+                )
+                minio_operation_failures_total.inc({"operation": operation})
+    raise last_exc  # type: ignore[misc]
 
 
 class MinIOStorage:
@@ -56,6 +105,20 @@ class MinIOStorage:
                 else:
                     logger.info("MinIO bucket '%s' already exists", bucket)
 
+                # Enable bucket versioning if configured (Phase 6E)
+                if self._settings.minio_versioning_enabled:
+                    try:
+                        from minio.versioningconfig import VersioningConfig
+
+                        await asyncio.to_thread(
+                            self._client.set_bucket_versioning,
+                            bucket,
+                            VersioningConfig(status="Enabled"),
+                        )
+                        logger.info("Bucket versioning enabled for '%s'", bucket)
+                    except Exception as e:
+                        logger.warning("Failed to enable versioning on '%s': %s", bucket, e)
+
             logger.info(
                 "Successfully connected to MinIO at %s",
                 self._settings.minio_endpoint,
@@ -94,12 +157,16 @@ class MinIOStorage:
         """Store screenshot in MinIO screenshots bucket. Returns the object key."""
         bucket = self._settings.minio_screenshots_bucket
         await asyncio.to_thread(
+            _minio_retry,
             self.client.put_object,
             bucket,
             object_key,
             io.BytesIO(image_data),
-            length=len(image_data),
-            content_type=content_type,
+            len(image_data),
+            content_type,
+            max_attempts=self._settings.minio_retry_max_attempts,
+            base_delay=self._settings.minio_retry_base_delay,
+            operation="store_screenshot",
         )
         logger.debug("Stored screenshot: %s (%d bytes)", object_key, len(image_data))
         return object_key
@@ -113,12 +180,16 @@ class MinIOStorage:
         """Store thumbnail in MinIO thumbnails bucket. Returns the object key."""
         bucket = self._settings.minio_thumbnails_bucket
         await asyncio.to_thread(
+            _minio_retry,
             self.client.put_object,
             bucket,
             object_key,
             io.BytesIO(image_data),
-            length=len(image_data),
-            content_type=content_type,
+            len(image_data),
+            content_type,
+            max_attempts=self._settings.minio_retry_max_attempts,
+            base_delay=self._settings.minio_retry_base_delay,
+            operation="store_thumbnail",
         )
         logger.debug("Stored thumbnail: %s (%d bytes)", object_key, len(image_data))
         return object_key
@@ -134,15 +205,52 @@ class MinIOStorage:
         return await asyncio.to_thread(self._get_object_bytes, bucket, object_key)
 
     def _get_object_bytes(self, bucket: str, object_key: str) -> bytes:
-        """Synchronous helper to read object bytes (runs in thread)."""
-        response = self.client.get_object(bucket, object_key)
-        try:
-            data = response.read()
-        finally:
-            response.close()
-            response.release_conn()
+        """Synchronous helper to read object bytes (runs in thread, with retry)."""
+
+        def _do_get() -> bytes:
+            response = self.client.get_object(bucket, object_key)
+            try:
+                data = response.read()
+            finally:
+                response.close()
+                response.release_conn()
+            return data
+
+        data = _minio_retry(
+            _do_get,
+            max_attempts=self._settings.minio_retry_max_attempts,
+            base_delay=self._settings.minio_retry_base_delay,
+            operation="get_object",
+        )
         logger.debug("Retrieved object: %s/%s", bucket, object_key)
         return data
+
+    def _get_object_range_sync(self, bucket: str, object_key: str, offset: int, length: int) -> bytes:
+        """Synchronous helper to read a byte range from an object (runs in thread)."""
+
+        def _do_range_get() -> bytes:
+            response = self.client.get_object(bucket, object_key, offset=offset, length=length)
+            try:
+                data = response.read()
+            finally:
+                response.close()
+                response.release_conn()
+            return data
+
+        return _minio_retry(
+            _do_range_get,
+            max_attempts=self._settings.minio_retry_max_attempts,
+            base_delay=self._settings.minio_retry_base_delay,
+            operation="get_object_range",
+        )
+
+    async def get_object_range(self, bucket: str, object_key: str, offset: int, length: int) -> bytes:
+        """Retrieve a byte range from an object (non-blocking).
+
+        Uses HTTP Range GET to avoid loading entire objects into memory.
+        Useful for large files where only a portion is needed.
+        """
+        return await asyncio.to_thread(self._get_object_range_sync, bucket, object_key, offset, length)
 
     async def delete_screenshots_by_session(self, session_id: str) -> int:
         """Delete all screenshots and thumbnails for a session prefix."""
