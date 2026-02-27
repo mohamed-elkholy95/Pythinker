@@ -17,7 +17,11 @@ PROVIDERS_INFO: dict = {
         {
             "id": "anthropic",
             "name": "Anthropic",
-            "models": ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-5-20251001"],
+            "models": [
+                "claude-sonnet-4-20250514",
+                "claude-opus-4-20250514",
+                "claude-haiku-4-5-20251001",
+            ],
             "requires_api_key": True,
         },
         {
@@ -29,7 +33,11 @@ PROVIDERS_INFO: dict = {
         {
             "id": "openrouter",
             "name": "OpenRouter",
-            "models": ["anthropic/claude-sonnet-4-20250514", "openai/gpt-4o", "google/gemini-2.5-pro"],
+            "models": [
+                "anthropic/claude-sonnet-4-20250514",
+                "openai/gpt-4o",
+                "google/gemini-2.5-pro",
+            ],
             "requires_api_key": True,
         },
     ],
@@ -45,8 +53,10 @@ PROVIDERS_INFO: dict = {
 # user_id -> settings dict
 user_settings: dict[str, dict] = {}
 
+
 def get_settings(user_id: str) -> dict:
     return user_settings.get(user_id, {**DEFAULT_SETTINGS})
+
 
 def update_settings(user_id: str, updates: dict) -> dict:
     current = get_settings(user_id)

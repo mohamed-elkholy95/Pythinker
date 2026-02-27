@@ -21,6 +21,7 @@ Key design decisions for stuck-detection avoidance:
   - 10 step-complete responses with diverse vocabulary/structure avoid semantic similarity.
   - Both streaming and non-streaming paths share the same detection logic.
 """
+
 from __future__ import annotations
 
 import json
@@ -71,7 +72,10 @@ _MOCK_PLAN = {
     "goal": "Complete the requested task",
     "language": "en",
     "steps": [
-        {"description": "Analyze the request and gather information", "status": "pending"},
+        {
+            "description": "Analyze the request and gather information",
+            "status": "pending",
+        },
         {"description": "Execute the task based on analysis", "status": "pending"},
         {"description": "Summarize findings and present results", "status": "pending"},
     ],
@@ -98,11 +102,23 @@ _MOCK_VERIFICATION = {
 
 _TOOL_ARGS: dict[str, list[dict]] = {
     "info_search_web": [
-        {"query": "latest developments and breakthroughs in AI agent frameworks", "date_range": "past_year"},
-        {"query": "technical analysis comparing autonomous agent architectures", "date_range": "past_month"},
-        {"query": "emerging patterns in multi-agent orchestration systems", "date_range": "past_week"},
+        {
+            "query": "latest developments and breakthroughs in AI agent frameworks",
+            "date_range": "past_year",
+        },
+        {
+            "query": "technical analysis comparing autonomous agent architectures",
+            "date_range": "past_month",
+        },
+        {
+            "query": "emerging patterns in multi-agent orchestration systems",
+            "date_range": "past_week",
+        },
         {"query": "benchmark results for tool-using language model agents 2025"},
-        {"query": "production deployment strategies for LLM-powered automation", "date_range": "past_month"},
+        {
+            "query": "production deployment strategies for LLM-powered automation",
+            "date_range": "past_month",
+        },
     ],
     "search": [
         {"query": "comprehensive overview of autonomous agent capabilities"},
@@ -117,7 +133,9 @@ _TOOL_ARGS: dict[str, list[dict]] = {
     "shell_exec": [
         {"command": "ls -la /home/ubuntu/workspace"},
         {"command": "python3 -c \"import sys; print(f'Python {sys.version}')\""},
-        {"command": "find /home/ubuntu/workspace -maxdepth 2 -type f 2>/dev/null | head -20"},
+        {
+            "command": "find /home/ubuntu/workspace -maxdepth 2 -type f 2>/dev/null | head -20"
+        },
     ],
     "browser_navigate": [
         {"url": "https://example.com/research"},
@@ -135,9 +153,16 @@ _TOOL_ARGS: dict[str, list[dict]] = {
 
 # Preferred order for tool cycling — safe/read-only tools first
 _PREFERRED_TOOLS = [
-    "info_search_web", "file_read", "shell_exec", "search",
-    "browser_navigate", "code_execute_python", "browser_view",
-    "git_status", "git_log", "code_list_artifacts",
+    "info_search_web",
+    "file_read",
+    "shell_exec",
+    "search",
+    "browser_navigate",
+    "code_execute_python",
+    "browser_view",
+    "git_status",
+    "git_log",
+    "code_list_artifacts",
 ]
 
 # ── Step complete responses — deliberately diverse vocabulary + structure ──
@@ -242,13 +267,16 @@ _SUMMARIZE_RESPONSES = [
 
 # ── Helper functions ─────────────────────────────────────────────────
 
+
 def _get_last_content(messages: list[dict], role: str) -> str:
     """Get the content of the last message with the given role."""
     for m in reversed(messages):
         if m.get("role") == role:
             content = m.get("content") or ""
             if isinstance(content, list):
-                return " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+                return " ".join(
+                    c.get("text", "") for c in content if isinstance(c, dict)
+                )
             return content
     return ""
 
@@ -261,7 +289,11 @@ def _prompt_requests_json(messages: list[dict]) -> bool:
     """
     for m in messages:
         content = m.get("content") or ""
-        if isinstance(content, str) and "respond with" in content.lower() and "json" in content.lower():
+        if (
+            isinstance(content, str)
+            and "respond with" in content.lower()
+            and "json" in content.lower()
+        ):
             return True
     return False
 
@@ -269,7 +301,7 @@ def _prompt_requests_json(messages: list[dict]) -> bool:
 def _extract_json_schema_name(messages: list[dict]) -> str | None:
     """Try to detect which schema the backend is asking for from the prompt."""
     for m in messages:
-        content = (m.get("content") or "")
+        content = m.get("content") or ""
         if isinstance(content, str):
             lower = content.lower()
             if "plan" in lower and "steps" in lower:
@@ -399,6 +431,7 @@ def _build_json_content(body: dict) -> str:
 
 # ── Non-streaming response ───────────────────────────────────────────
 
+
 def _non_streaming_response(body: dict) -> dict:
     """Build a non-streaming OpenAI chat completion response."""
     req_type = _detect_request_type(body)
@@ -440,7 +473,11 @@ def _non_streaming_response(body: dict) -> dict:
                     "finish_reason": "tool_calls",
                 }
             ],
-            "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+            },
         }
 
     elif req_type == "step_complete":
@@ -470,6 +507,7 @@ def _non_streaming_response(body: dict) -> dict:
 
 
 # ── Streaming response ───────────────────────────────────────────────
+
 
 async def _streaming_response(body: dict):
     """Yield SSE chunks in OpenAI streaming format.
@@ -546,7 +584,13 @@ async def _streaming_response(body: dict):
         "object": "chat.completion.chunk",
         "created": created,
         "model": model,
-        "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": ""},
+                "finish_reason": None,
+            }
+        ],
     }
     yield f"data: {json.dumps(chunk)}\n\n"
 
@@ -557,12 +601,17 @@ async def _streaming_response(body: dict):
 
     chunk["choices"][0]["delta"] = {}
     chunk["choices"][0]["finish_reason"] = "stop"
-    chunk["usage"] = {"prompt_tokens": 100, "completion_tokens": len(words), "total_tokens": 100 + len(words)}
+    chunk["usage"] = {
+        "prompt_tokens": 100,
+        "completion_tokens": len(words),
+        "total_tokens": 100 + len(words),
+    }
     yield f"data: {json.dumps(chunk)}\n\n"
     yield "data: [DONE]\n\n"
 
 
 # ── Routes ────────────────────────────────────────────────────────────
+
 
 @router.post("/chat/completions")
 async def chat_completions(request: Request):
@@ -579,6 +628,7 @@ async def chat_completions(request: Request):
 
 
 # ── Models endpoint (some clients check this) ──
+
 
 @router.get("/models")
 async def list_models():
