@@ -866,12 +866,34 @@ class SearchTool(BaseTool):
             # of failing — the results are already in the agent's context.
             if self._pre_planning_context:
                 logger.info(f"Dedup hit for '{query}' — returning cached pre-planning results")
-                from app.domain.models.search import SearchResults
+                from app.domain.models.search import SearchResultItem, SearchResults
+
+                # Parse pre-planning context into structured results for the
+                # frontend live view.  Format: "- [Title](url): Snippet"
+                cached_items: list[SearchResultItem] = []
+                for line in self._pre_planning_context.splitlines():
+                    line = line.strip()
+                    if not line.startswith("- "):
+                        continue
+                    m = re.match(r"^- \[(.+?)\]\((.+?)\)(?::\s*(.*))?$", line)
+                    if m:
+                        cached_items.append(
+                            SearchResultItem(
+                                title=m.group(1),
+                                link=m.group(2),
+                                snippet=m.group(3) or "",
+                            )
+                        )
 
                 return ToolResult(
                     success=True,
                     message=(f"Results for '{query}' (from pre-planning search):\n\n{self._pre_planning_context}"),
-                    data=SearchResults(query=query, date_range=date_range),
+                    data=SearchResults(
+                        query=query,
+                        date_range=date_range,
+                        total_results=len(cached_items),
+                        results=cached_items,
+                    ),
                 )
 
             self._consecutive_dedup_rejections += 1
