@@ -127,6 +127,12 @@ class ToolEventData(BaseEventData):
         return v
 
 
+_SEARCH_FUNCTIONS = frozenset({
+    "info_search_web", "web_search", "search", "wide_research",
+    "deal_search", "deal_compare_prices", "deal_find_coupons",
+})
+
+
 def _derive_search_content(event: ToolEvent) -> SearchToolContent | None:
     """Derive SearchToolContent from function_result when tool_content is missing.
 
@@ -138,7 +144,7 @@ def _derive_search_content(event: ToolEvent) -> SearchToolContent | None:
     if event.status != ToolStatus.CALLED or event.function_result is None:
         return None
     func = (event.function_name or "").lower()
-    if func not in ("info_search_web", "web_search", "search"):
+    if func not in _SEARCH_FUNCTIONS:
         return None
     fr = event.function_result
 
@@ -163,17 +169,17 @@ def _derive_search_content(event: ToolEvent) -> SearchToolContent | None:
                     link=getattr(r, "link", None) or "",
                     snippet=getattr(r, "snippet", None) or "",
                 )
-                for r in data.results[:5]
+                for r in data.results[:10]
             ]
         elif isinstance(data, dict):
             if data.get("results"):
-                for r in data["results"][:5]:
+                for r in data["results"][:10]:
                     t = r.get("title", "No title") if isinstance(r, dict) else (getattr(r, "title", None) or "No title")
                     lnk = r.get("link", "") if isinstance(r, dict) else (getattr(r, "link", None) or "")
                     snip = r.get("snippet", "") if isinstance(r, dict) else (getattr(r, "snippet", None) or "")
                     results_list.append(SearchResultItem(title=t, link=lnk, snippet=snip))
             elif data.get("sources"):
-                for s in data["sources"][:5]:
+                for s in data["sources"][:10]:
                     results_list.append(
                         SearchResultItem(
                             title=s.get("title", "No title"),
@@ -181,6 +187,29 @@ def _derive_search_content(event: ToolEvent) -> SearchToolContent | None:
                             snippet=s.get("snippet", ""),
                         )
                     )
+
+    # Deal-specific extraction: deals list → SearchResultItems
+    if not results_list and isinstance(data, dict):
+        deals = data.get("deals", [])
+        for d in deals[:10]:
+            results_list.append(
+                SearchResultItem(
+                    title=f"{d.get('store', 'Unknown')} — ${d.get('price', 0):.2f}",
+                    link=d.get("url", d.get("product_url", "")),
+                    snippet=d.get("title", d.get("product_name", "")),
+                )
+            )
+        # Coupon extraction fallback
+        if not results_list:
+            coupons = data.get("coupons", [])
+            for c in coupons[:10]:
+                results_list.append(
+                    SearchResultItem(
+                        title=c.get("code", "No code"),
+                        link=c.get("source", ""),
+                        snippet=c.get("description", ""),
+                    )
+                )
 
     if not results_list:
         return None
