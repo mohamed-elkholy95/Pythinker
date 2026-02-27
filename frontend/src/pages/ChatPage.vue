@@ -1954,7 +1954,7 @@ const showTaskProgressBar = computed(() =>
   !isChatMode.value &&
   !showSessionWarmupMessage.value &&
   !isToolPanelOpen.value &&
-  (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
+  (!!plan.value?.steps?.length || (!!lastNoMessageTool.value && !isTaskCompleted.value) || isInitializing.value || isSandboxInitializing.value)
 );
 
 const showPlanningCard = computed(() =>
@@ -1988,12 +1988,29 @@ const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) =>
 };
 
 
-// Always show thumbnail when panel is closed and there's activity
+// Show live preview thumbnail whenever the agent is actively working.
+// Covers every activity signal so the user always has visual feedback.
 const shouldShowThumbnail = computed(() => {
   if (isToolPanelOpen.value) return false;
   if (!sessionId.value) return false;
-  // Show live preview thumbnail when there's an active plan (not yet completed), loading, or tool activity
-  return (!!plan.value?.steps?.length && !isPlanCompleted.value) || isLoading.value || !!lastNoMessageTool.value;
+
+  // 1. SSE stream is live (connecting / streaming / completing / reconnecting / degraded)
+  if (isLoading.value) return true;
+
+  // 2. Sandbox or session is still booting up
+  if (isInitializing.value || isSandboxInitializing.value) return true;
+
+  // 3. Thinking or summary text is streaming in real-time
+  if (isThinkingStreaming.value || isSummaryStreaming.value) return true;
+
+  // 4. Plan steps exist and at least one is not yet completed
+  if (plan.value?.steps?.length && !isPlanCompleted.value) return true;
+
+  // 5. A tool was invoked and the session hasn't finished yet
+  //    (lastNoMessageTool persists after completion — gate on !isTaskCompleted)
+  if (lastNoMessageTool.value && !isTaskCompleted.value) return true;
+
+  return false;
 });
 
 const isPlanCompleted = computed(() => {
