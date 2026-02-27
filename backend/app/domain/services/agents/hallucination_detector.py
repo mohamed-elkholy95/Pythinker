@@ -87,7 +87,7 @@ class ToolHallucinationDetector:
             "command": [
                 r"rm\s+-rf\s+/",  # Dangerous rm
                 r"rm\s+-rf\s+\*",  # Dangerous rm wildcard
-                r">\s*/dev/",  # Device writes
+                r"(?<!\d)>\s*/dev/(?!null)",  # Device writes (allows 2>/dev/null, >/dev/null)
                 r"sudo\s+",  # Privilege escalation
                 r"chmod\s+777",  # Overly permissive
                 r"mkfs\.",  # Filesystem format
@@ -107,7 +107,7 @@ class ToolHallucinationDetector:
             "command": [
                 r"rm\s+-rf\s+/",
                 r"rm\s+-rf\s+\*",
-                r">\s*/dev/",
+                r"(?<!\d)>\s*/dev/(?!null)",  # Device writes (allows 2>/dev/null, >/dev/null)
                 r"sudo\s+",
                 r"chmod\s+777",
                 r"mkfs\.",
@@ -119,7 +119,7 @@ class ToolHallucinationDetector:
             "command": [
                 r"rm\s+-rf\s+/",
                 r"rm\s+-rf\s+\*",
-                r">\s*/dev/",
+                r"(?<!\d)>\s*/dev/(?!null)",  # Device writes (allows 2>/dev/null, >/dev/null)
                 r"sudo\s+",
                 r"chmod\s+777",
                 r"mkfs\.",
