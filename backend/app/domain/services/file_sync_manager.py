@@ -22,7 +22,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import TYPE_CHECKING, ClassVar
+import re
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import httpx
 
@@ -116,6 +117,11 @@ SKIP_DIRECTORIES = {
 MAX_SYNC_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_SWEEP_FILES = 50
 
+# Pattern for auto-generated exec temp files from code_execute tool.
+# These are execution wrappers (exec_{hex}.{ext}) that should have been
+# cleaned up but sometimes survive due to race conditions or sandbox restarts.
+_EXEC_TEMP_FILE_RE = re.compile(r"^exec_[a-f0-9]{6,}\.(py|sh|js|ts|sql)$")
+
 
 class FileSyncManager:
     """Manages file synchronization between sandbox and persistent storage.
@@ -184,7 +190,12 @@ class FileSyncManager:
 
     # ── Sync: Sandbox → Storage ───────────────────────────────────────
 
-    async def sync_file_to_storage(self, file_path: str, content_type: str | None = None) -> FileInfo | None:
+    async def sync_file_to_storage(
+        self,
+        file_path: str,
+        content_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> FileInfo | None:
         """Download a file from sandbox and upload to persistent storage.
 
         1. Validates file_path
@@ -196,6 +207,7 @@ class FileSyncManager:
         Args:
             file_path: Path in sandbox (e.g., /home/ubuntu/report.md).
             content_type: Optional MIME type.
+            metadata: Optional metadata to preserve (e.g., is_report, title).
 
         Returns:
             FileInfo with valid file_id, or None on failure.
@@ -249,6 +261,7 @@ class FileSyncManager:
                 file_name,
                 self._user_id,
                 content_type=resolved_content_type,
+                metadata=metadata,
             )
 
             if not file_info:
@@ -267,6 +280,9 @@ class FileSyncManager:
                 return None
 
             file_info.file_path = file_path
+            # Merge original metadata back (storage returns S3-level metadata only)
+            if metadata:
+                file_info.metadata = {**(file_info.metadata or {}), **metadata}
             await self._session_repository.add_file(self._session_id, file_info)
 
             logger.debug(
@@ -314,6 +330,7 @@ class FileSyncManager:
         self,
         file_path: str,
         content_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
         max_attempts: int = 3,
         initial_delay_seconds: float = 0.2,
     ) -> FileInfo | None:
@@ -323,7 +340,7 @@ class FileSyncManager:
 
         delay = initial_delay_seconds
         for attempt in range(1, max_attempts + 1):
-            file_info = await self.sync_file_to_storage(file_path, content_type=content_type)
+            file_info = await self.sync_file_to_storage(file_path, content_type=content_type, metadata=metadata)
             if file_info is not None:
                 return file_info
 
@@ -396,6 +413,19 @@ class FileSyncManager:
 
             discovered_paths = [p.strip() for p in output.strip().split("\n") if p.strip()]
             discovered_paths = [p for p in discovered_paths if p.startswith(f"{workspace_root}/")]
+
+            # Filter out orphaned exec temp files (exec_{hex}.py etc.)
+            pre_filter_count = len(discovered_paths)
+            discovered_paths = [
+                p for p in discovered_paths if not _EXEC_TEMP_FILE_RE.match(os.path.basename(p))
+            ]
+            if len(discovered_paths) < pre_filter_count:
+                logger.debug(
+                    "Agent %s: Filtered %d exec temp files from sweep",
+                    self._agent_id,
+                    pre_filter_count - len(discovered_paths),
+                )
+
             if not discovered_paths:
                 return []
 
@@ -498,7 +528,11 @@ class FileSyncManager:
             )
 
             sync_tasks = [
-                self.sync_file_to_storage(attachment.file_path, content_type=attachment.content_type)
+                self.sync_file_to_storage(
+                    attachment.file_path,
+                    content_type=attachment.content_type,
+                    metadata=attachment.metadata,
+                )
                 for attachment in valid_attachments
             ]
             results = await asyncio.gather(*sync_tasks, return_exceptions=True)
