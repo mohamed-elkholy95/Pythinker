@@ -414,7 +414,7 @@ class AuthService:
 
     async def refresh_access_token(self, refresh_token: str) -> AuthToken:
         """Refresh access token using refresh token"""
-        payload = self.token_service.verify_token(refresh_token)
+        payload = await self.token_service.verify_token_async(refresh_token)
 
         if not payload:
             raise UnauthorizedError("Invalid refresh token")
@@ -463,6 +463,42 @@ class AuthService:
             email=user_info.get("email"),
             role=UserRole(user_info.get("role", "user")),
             is_active=user_info.get("is_active", True),
+        )
+
+    async def verify_token_secure(self, token: str) -> User | None:
+        """Verify JWT token with full blacklist and revocation checks, then return user.
+
+        Unlike verify_token() which uses sync JWT verification (no Redis),
+        this method uses verify_token_async() to check the token blacklist
+        and per-user revocation timestamp. Use this for route dependencies.
+        """
+        payload = await self.token_service.verify_token_async(token)
+        if not payload:
+            return None
+
+        # Ensure this is an access token (not refresh/resource)
+        if payload.get("type") != "access":
+            logger.warning("Non-access token used for authentication: type=%s", payload.get("type"))
+            return None
+
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+
+        # For database users, verify user still exists and is active
+        if self.settings.auth_provider == "password":
+            user = await self.user_repository.get_user_by_id(user_id)
+            if not user or not user.is_active:
+                return None
+            return user
+
+        # For local/none authentication, create user from token payload
+        return User(
+            id=user_id,
+            fullname=payload.get("fullname", ""),
+            email=payload.get("email"),
+            role=UserRole(payload.get("role", "user")),
+            is_active=payload.get("is_active", True),
         )
 
     async def logout(self, token: str) -> bool:

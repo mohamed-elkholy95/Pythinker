@@ -348,8 +348,8 @@ async def require_admin_user(
         raise UnauthorizedError("Authentication required")
 
     try:
-        # Verify bearer token
-        user = await auth_service.verify_token(bearer_credentials.credentials)
+        # Verify bearer token with blacklist + revocation checks
+        user = await auth_service.verify_token_secure(bearer_credentials.credentials)
 
         if not user:
             raise UnauthorizedError("Invalid token")
@@ -404,8 +404,8 @@ async def get_current_user(
         raise UnauthorizedError("Authentication required")
 
     try:
-        # Verify bearer token
-        user = await auth_service.verify_token(bearer_credentials.credentials)
+        # Verify bearer token with blacklist + revocation checks
+        user = await auth_service.verify_token_secure(bearer_credentials.credentials)
 
         if not user:
             raise UnauthorizedError("Invalid token")
@@ -443,7 +443,7 @@ async def get_eventsource_current_user(
         raise UnauthorizedError("Authentication required")
 
     try:
-        user = await auth_service.verify_token(token)
+        user = await auth_service.verify_token_secure(token)
         if not user:
             raise UnauthorizedError("Invalid token")
         if not user.is_active:
@@ -479,8 +479,8 @@ async def get_optional_current_user(
         return None
 
     try:
-        # Try to verify bearer token
-        user = await auth_service.verify_token(bearer_credentials.credentials)
+        # Try to verify bearer token with blacklist + revocation checks
+        user = await auth_service.verify_token_secure(bearer_credentials.credentials)
 
         if user and user.is_active:
             return user
