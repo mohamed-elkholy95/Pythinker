@@ -400,6 +400,9 @@ const handleResize = () => {
 // Task timer — shared composable replaces local interval logic
 const timer = useElapsedTimer()
 
+/** Expose timer start-time as a template-friendly ref for v-if guards. */
+const taskStartTime = computed(() => timer.startTime.value)
+
 const isVisible = computed(() => {
   return props.plan && props.plan.steps.length > 0
 })

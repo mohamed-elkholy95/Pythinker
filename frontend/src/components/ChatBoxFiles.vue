@@ -63,7 +63,7 @@
         </div>
     </div>
     <!-- Hidden file input -->
-    <input ref="fileInput" type="file" multiple class="hidden" @change="handleFileSelect" />
+    <input ref="fileInput" id="chatbox-file-upload" name="chatbox-file-upload" type="file" multiple class="hidden" aria-hidden="true" @change="handleFileSelect" />
 </template>
 
 <script setup lang="ts">

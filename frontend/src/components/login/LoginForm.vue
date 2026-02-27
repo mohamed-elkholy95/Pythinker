@@ -16,6 +16,7 @@
                 <input v-model="formData.email"
                   class="rounded-[10px] overflow-hidden text-sm leading-[22px] text-[var(--text-primary)] h-10 disabled:cursor-not-allowed placeholder:text-[var(--text-disable)] bg-[var(--fill-input-chat)] pt-1 pr-1.5 pb-1 pl-3 focus:ring-[1.5px] focus:ring-[var(--border-dark)] w-full"
                   :class="{ 'ring-1 ring-[var(--function-error)]': validationErrors.email }" id="email"
+                  name="email" autocomplete="email"
                   placeholder="mail@domain.com" type="email" :disabled="isLoading" @input="validateField('email')"
                   @blur="validateField('email')">
                 <div
@@ -40,6 +41,7 @@
                   <input v-model="formData.password"
                     class="rounded-[10px] overflow-hidden text-sm leading-[22px] text-[var(--text-primary)] h-10 w-full disabled:cursor-not-allowed placeholder:text-[var(--text-disable)] bg-[var(--fill-input-chat)] pt-1 pb-1 pl-3 focus:ring-[1.5px] focus:ring-[var(--border-dark)] pr-[40px]"
                     :class="{ 'ring-1 ring-[var(--function-error)]': validationErrors.password }"
+                    id="password" name="password" autocomplete="current-password"
                     :placeholder="t('Enter password')" :type="showPassword ? 'text' : 'password'"
                     :disabled="isLoading" @input="validateField('password')" @blur="validateField('password')">
                   <div

@@ -3,22 +3,26 @@
     <!-- Header -->
     <header class="page-header">
       <div class="header-left">
-        <button class="btn-back" @click="goBack">
+        <button class="btn-back" aria-label="Go back" @click="goBack">
           <ArrowLeft :size="20" />
         </button>
         <h1>Session History</h1>
       </div>
       <div class="header-right">
         <div class="search-box">
+          <label for="session-search" class="sr-only">Search sessions</label>
           <Search :size="16" />
           <input
             v-model="searchQuery"
+            id="session-search"
+            name="session-search"
             type="text"
             placeholder="Search sessions..."
             class="search-input"
           />
         </div>
-        <select v-model="statusFilter" class="filter-select">
+        <label for="status-filter" class="sr-only">Filter by status</label>
+        <select v-model="statusFilter" id="status-filter" name="status-filter" class="filter-select">
           <option value="">All Status</option>
           <option value="completed">Completed</option>
           <option value="running">Running</option>
@@ -467,5 +471,17 @@ onMounted(() => {
   to {
     transform: rotate(360deg);
   }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 </style>
