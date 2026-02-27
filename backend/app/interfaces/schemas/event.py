@@ -133,9 +133,6 @@ _SEARCH_FUNCTIONS = frozenset(
         "web_search",
         "search",
         "wide_research",
-        "deal_search",
-        "deal_compare_prices",
-        "deal_find_coupons",
     }
 )
 
@@ -194,29 +191,6 @@ def _derive_search_content(event: ToolEvent) -> SearchToolContent | None:
                             snippet=s.get("snippet", ""),
                         )
                     )
-
-    # Deal-specific extraction: deals list → SearchResultItems
-    if not results_list and isinstance(data, dict):
-        deals = data.get("deals", [])
-        for d in deals[:10]:
-            results_list.append(
-                SearchResultItem(
-                    title=f"{d.get('store', 'Unknown')} — ${d.get('price', 0):.2f}",
-                    link=d.get("url", d.get("product_url", "")),
-                    snippet=d.get("title", d.get("product_name", "")),
-                )
-            )
-        # Coupon extraction fallback
-        if not results_list:
-            coupons = data.get("coupons", [])
-            for c in coupons[:10]:
-                results_list.append(
-                    SearchResultItem(
-                        title=c.get("code", "No code"),
-                        link=c.get("source", ""),
-                        snippet=c.get("description", ""),
-                    )
-                )
 
     if not results_list:
         return None
@@ -301,6 +275,7 @@ class ToolProgressEventData(BaseEventData):
     steps_total: int | None = None
     elapsed_ms: float = 0
     estimated_remaining_ms: float | None = None
+    checkpoint_data: dict[str, Any] | None = None
 
 
 class ToolProgressSSEEvent(BaseSSEEvent):
@@ -321,6 +296,7 @@ class ToolProgressSSEEvent(BaseSSEEvent):
                 steps_total=event.steps_total,
                 elapsed_ms=event.elapsed_ms,
                 estimated_remaining_ms=event.estimated_remaining_ms,
+                checkpoint_data=event.checkpoint_data,
             )
         )
 

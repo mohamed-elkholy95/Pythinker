@@ -505,7 +505,7 @@ class BaseAgent:
                 and hasattr(function_result, "success")
                 and function_result.success
                 and hasattr(function_result, "data")
-                and function_result.data
+                and function_result.data is not None
             ):
                 data = function_result.data
                 raw_deals = data.get("deals", []) if isinstance(data, dict) else []
@@ -542,17 +542,21 @@ class BaseAgent:
                     scored = [(i, d.score or 0) for i, d in enumerate(deal_items)]
                     best_idx = max(scored, key=lambda x: x[1])[0] if any(s > 0 for _, s in scored) else 0
                 query_str = function_args.get("query", function_args.get("product", ""))
-                if deal_items or coupon_items:
-                    tool_content = DealToolContent(
-                        deals=deal_items,
-                        coupons=coupon_items,
-                        query=query_str,
-                        best_deal_index=best_idx,
-                    )
-                    logger.info(
-                        f"DealToolContent created with {len(deal_items)} deals, "
-                        f"{len(coupon_items)} coupons for {function_name}"
-                    )
+                # Extract store metadata (always present even when deals are empty)
+                searched_stores: list[str] = data.get("searched_stores", []) if isinstance(data, dict) else []
+                store_errors: list[dict[str, str]] = data.get("store_errors", []) if isinstance(data, dict) else []
+                tool_content = DealToolContent(
+                    deals=deal_items,
+                    coupons=coupon_items,
+                    query=query_str,
+                    best_deal_index=best_idx,
+                    searched_stores=searched_stores,
+                    store_errors=store_errors,
+                )
+                logger.info(
+                    f"DealToolContent created with {len(deal_items)} deals, "
+                    f"{len(coupon_items)} coupons, {len(searched_stores)} stores for {function_name}"
+                )
 
         return ToolEvent(
             tool_call_id=tool_call_id,
