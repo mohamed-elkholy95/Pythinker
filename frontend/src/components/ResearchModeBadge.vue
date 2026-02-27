@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Zap, Globe } from 'lucide-vue-next';
+import { Zap, Globe, Tag } from 'lucide-vue-next';
 import type { ResearchMode } from '../api/agent';
 
 defineProps<{
@@ -13,17 +13,18 @@ defineProps<{
     v-if="mode"
     class="research-badge"
     :class="[
-      mode === 'fast_search' ? 'badge-fast' : 'badge-deep',
+      mode === 'fast_search' ? 'badge-fast' : mode === 'deal_finding' ? 'badge-deal' : 'badge-deep',
       { 'badge-compact': compact }
     ]"
-    :aria-label="compact ? (mode === 'fast_search' ? 'Fast Search' : 'Research') : undefined"
+    :aria-label="compact ? (mode === 'fast_search' ? 'Fast Search' : mode === 'deal_finding' ? 'Deal Finder' : 'Research') : undefined"
   >
     <span class="badge-icon-wrap">
       <Zap v-if="mode === 'fast_search'" :size="12" :stroke-width="2.5" />
+      <Tag v-else-if="mode === 'deal_finding'" :size="12" :stroke-width="2" />
       <Globe v-else :size="12" :stroke-width="2" />
     </span>
     <span v-if="!compact" class="badge-label">
-      {{ mode === 'fast_search' ? 'Fast Search' : 'Research' }}
+      {{ mode === 'fast_search' ? 'Fast Search' : mode === 'deal_finding' ? 'Deal Finder' : 'Research' }}
     </span>
   </span>
 </template>
@@ -137,6 +138,42 @@ defineProps<{
   60%, 100% { transform: translateX(120%); }
 }
 
+/* ── Deal Finder — warm amber/orange commerce feel ── */
+.badge-deal {
+  border-color: rgba(234, 88, 12, 0.25);
+  background: linear-gradient(145deg, #fff7ed, #ffedd5);
+}
+
+.badge-deal .badge-icon-wrap {
+  background: linear-gradient(135deg, #ea580c, #c2410c);
+  color: #ffffff;
+  animation: deal-bounce 4s ease-in-out infinite;
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.3);
+}
+
+@keyframes deal-bounce {
+  0%, 80%, 100% { transform: scale(1); }
+  10% { transform: scale(1.15); }
+  20% { transform: scale(1); }
+}
+
+.badge-deal::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(234, 88, 12, 0.06) 45%,
+    rgba(234, 88, 12, 0.12) 50%,
+    rgba(234, 88, 12, 0.06) 55%,
+    transparent 65%
+  );
+  animation: badge-shimmer 3.5s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
 /* ── Dark theme ── */
 :global(.dark) .badge-deep {
   border-color: rgba(255, 255, 255, 0.15);
@@ -164,6 +201,28 @@ defineProps<{
   background: linear-gradient(135deg, #f4f4f5, #ffffff);
   color: #000000;
   box-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
+}
+
+:global(.dark) .badge-deal {
+  border-color: rgba(251, 146, 60, 0.3);
+  background: linear-gradient(145deg, rgba(124, 45, 18, 0.3), rgba(154, 52, 18, 0.2));
+}
+
+:global(.dark) .badge-deal .badge-icon-wrap {
+  background: linear-gradient(135deg, #fb923c, #f97316);
+  color: #000000;
+  box-shadow: 0 0 12px rgba(251, 146, 60, 0.4);
+}
+
+:global(.dark) .badge-deal::after {
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(251, 146, 60, 0.1) 45%,
+    rgba(251, 146, 60, 0.2) 50%,
+    rgba(251, 146, 60, 0.1) 55%,
+    transparent 65%
+  );
 }
 
 :global(.dark) .research-badge {

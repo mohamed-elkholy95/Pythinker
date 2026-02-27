@@ -166,6 +166,35 @@ export interface ChartToolContent extends ToolContentBase {
   error?: string | null;
 }
 
+export interface DealItem {
+  store: string;
+  price: number | null;
+  original_price: number | null;
+  discount_percent: number | null;
+  product_name: string;
+  url: string;
+  score: number | null;
+  in_stock: boolean | null;
+  coupon_code: string | null;
+  image_url: string | null;
+}
+
+export interface CouponItem {
+  code: string;
+  description: string;
+  store: string;
+  expiry: string | null;
+  verified: boolean;
+  source: string;
+}
+
+export interface DealToolContent extends ToolContentBase {
+  deals: DealItem[];
+  coupons: CouponItem[];
+  query: string;
+  best_deal_index: number | null;
+}
+
 export type ToolContentPayload =
   | BrowserToolContent
   | SearchToolContent
@@ -188,4 +217,5 @@ export type ToolContentPayload =
   | CanvasToolContent
   | PlanToolContent
   | RepoMapToolContent
-  | ChartToolContent;
+  | ChartToolContent
+  | DealToolContent;
