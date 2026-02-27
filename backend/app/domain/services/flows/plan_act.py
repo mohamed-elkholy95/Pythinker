@@ -414,6 +414,13 @@ class PlanActFlow(BaseFlow):
             feature_flags=feature_flags,
             cancel_token=self._cancel_token,
         )
+        # Relax efficiency monitor thresholds for research modes
+        if self._research_mode in ("deep_research", "wide_research"):
+            from app.domain.services.agents.tool_efficiency_monitor import ToolEfficiencyMonitor
+
+            self.executor._efficiency_monitor = ToolEfficiencyMonitor(
+                research_mode=self._research_mode,
+            )
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
         # Create verifier agent (Phase 1: Plan-Verify-Execute)
