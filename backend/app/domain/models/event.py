@@ -295,6 +295,41 @@ class KnowledgeBaseToolContent(BaseModel):
     query_time_ms: float = 0.0
 
 
+class DealItem(BaseModel):
+    """Individual deal/product entry from deal scraper"""
+
+    store: str = ""
+    price: float | None = None
+    original_price: float | None = None
+    discount_percent: float | None = None
+    product_name: str = ""
+    url: str = ""
+    score: int | None = None  # 0-100 deal quality score
+    in_stock: bool | None = None
+    coupon_code: str | None = None
+    image_url: str | None = None
+
+
+class CouponItem(BaseModel):
+    """Coupon/promo code entry"""
+
+    code: str = ""
+    description: str = ""
+    store: str = ""
+    expiry: str | None = None
+    verified: bool = False
+    source: str = ""
+
+
+class DealToolContent(BaseModel):
+    """Deal scraper tool content with structured deal data"""
+
+    deals: list[DealItem] = Field(default_factory=list)
+    coupons: list[CouponItem] = Field(default_factory=list)
+    query: str = ""
+    best_deal_index: int | None = None
+
+
 ToolContent = (
     BrowserToolContent
     | SearchToolContent
@@ -319,6 +354,7 @@ ToolContent = (
     | RepoMapToolContent
     | ChartToolContent
     | KnowledgeBaseToolContent
+    | DealToolContent
 )
 
 
