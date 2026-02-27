@@ -9,6 +9,8 @@ Uses APIKeyPool for production-grade multi-key management:
 - TTL-based recovery: keys auto-recover after cooldown
 - Redis coordination: distributed key health tracking across instances
 - Dual quota detection: HTTP status codes + response body keyword scan
+- Wait-for-recovery: waits up to 120s for soonest-recovering key (MCP Rotator pattern)
+- Per-request auth: x-api-key injected per-request, connection pool survives rotation
 """
 
 import logging
@@ -103,31 +105,16 @@ class ExaSearchEngine(SearchEngineBase):
         self.base_url = "https://api.exa.ai/search"
         logger.info(f"Exa search initialized with {len(key_configs)} API key(s)")
 
-    @property
-    async def api_key(self) -> str | None:
-        """Get the currently active API key from pool."""
-        return await self._key_pool.get_healthy_key()
-
-    async def _get_headers(self) -> dict[str, str]:
-        """Get Exa API headers with active key authentication."""
-        key = await self.api_key
-        if not key:
-            raise RuntimeError("All Exa API keys exhausted")
-
-        return {
-            "x-api-key": key,
-            "Content-Type": "application/json",
-        }
-
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with connection pooling.
+        """Get or create shared HTTP client.
 
-        Overrides base class to support async header generation.
+        Auth header (x-api-key) is NOT baked in here - it is injected as a
+        per-request header in search() so the connection pool is reused
+        across all key rotations without needing to close and recreate the client.
         """
         if self._client is None or self._client.is_closed:
-            headers = await self._get_headers()
             self._client = httpx.AsyncClient(
-                headers=headers,
+                headers={"Content-Type": "application/json"},
                 timeout=httpx.Timeout(self.timeout, connect=10.0),
                 follow_redirects=True,
             )
@@ -221,8 +208,9 @@ class ExaSearchEngine(SearchEngineBase):
             logger.warning(f"Exa query truncated from {len(query)} to 500 chars")
             query = query[:500]
 
-        # Get healthy key from pool
-        key = await self.api_key
+        # Wait up to 120s for a key to become available (MCP Rotator pattern).
+        # Falls through to fallback provider when cooldowns exceed the budget.
+        key = await self._key_pool.get_healthy_key_or_wait(max_wait_seconds=120.0)
         if not key:
             return self._create_error_result(
                 query, date_range, f"All {len(self._key_pool.keys)} Exa API keys exhausted"
@@ -231,14 +219,20 @@ class ExaSearchEngine(SearchEngineBase):
         try:
             client = await self._get_client()
             params = self._build_request_params(query, date_range)
-            response = await self._execute_request(client, params)
+
+            # Per-request auth injection: key header overrides the pool-level client
+            # so the connection pool is reused across all key rotations.
+            response = await client.post(
+                self.base_url,
+                json=params,
+                headers={"x-api-key": key},
+            )
 
             # Check for quota/auth errors
             if response.status_code in _ROTATE_STATUS_CODES:
                 body = response.text[:200]
                 logger.warning("Exa key error (HTTP %d%s), rotating", response.status_code, f": {body}" if body else "")
                 await self._key_pool.handle_error(key, status_code=response.status_code, body_text=body)
-                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
             response.raise_for_status()
@@ -249,7 +243,6 @@ class ExaSearchEngine(SearchEngineBase):
             if _text_has_quota_keywords(response_text):
                 logger.warning("Exa quota keyword detected in response body, rotating key")
                 await self._key_pool.handle_error(key, body_text=response_text)
-                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
             self._key_pool.record_success(key)
@@ -259,7 +252,6 @@ class ExaSearchEngine(SearchEngineBase):
             if e.response.status_code in _ROTATE_STATUS_CODES:
                 body = e.response.text[:200] if hasattr(e.response, "text") else ""
                 await self._key_pool.handle_error(key, status_code=e.response.status_code, body_text=body)
-                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
             return self._create_error_result(query, date_range, self._handle_http_error(e))
 
