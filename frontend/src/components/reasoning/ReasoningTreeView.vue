@@ -617,7 +617,7 @@ const graph = computed<GraphSnapshot>(() => {
     .find((node) => runningStatuses.has(node.status));
 
   let fallbackByStage: TreeNode | undefined;
-  if (!latestRunningNode && props.activeReasoningState && props.activeReasoningState !== 'idle') {
+  if (!latestRunningNode && props.activeReasoningState && props.activeReasoningState !== 'idle' && props.activeReasoningState !== 'completed') {
     if (props.activeReasoningState === 'retrieval' || props.activeReasoningState === 'generation') {
       fallbackByStage = [...nodeList].reverse().find((node) => node.kind === 'tool');
     } else if (props.activeReasoningState === 'planning') {
@@ -882,6 +882,9 @@ const statusClass = (status: NodeStatus) => {
   if (status === 'skipped') return 'status-skipped';
   return 'status-idle';
 };
+
+const formatMetadataKey = (key: string): string =>
+  key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 const getToolIcon = (fn: string): LucideComponent => {
   const name = fn.toLowerCase();
@@ -1203,7 +1206,8 @@ defineExpose({ scrollToTop });
             <div class="sidebar-label">Status</div>
             <div class="sidebar-value">
               <span class="reasoning-node-status" :class="statusClass(selectedNode.status)">
-                <component :is="getStatusIcon(selectedNode.status)" :size="10" :title="statusLabel(selectedNode.status)" />
+                <component :is="getStatusIcon(selectedNode.status)" :size="10" />
+                {{ statusLabel(selectedNode.status) }}
               </span>
             </div>
           </div>
@@ -1213,7 +1217,12 @@ defineExpose({ scrollToTop });
           </div>
           <div v-if="Object.keys(selectedNode.metadata).length > 0" class="sidebar-field">
             <div class="sidebar-label">Metadata</div>
-            <pre class="sidebar-json">{{ JSON.stringify(selectedNode.metadata, null, 2) }}</pre>
+            <div class="sidebar-metadata">
+              <div v-for="(value, key) in selectedNode.metadata" :key="String(key)" class="metadata-row">
+                <span class="metadata-key">{{ formatMetadataKey(String(key)) }}</span>
+                <span class="metadata-val">{{ value ?? '—' }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
@@ -1704,6 +1713,36 @@ defineExpose({ scrollToTop });
   color: var(--text-secondary);
   background: var(--fill-tsp-white-main);
   white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sidebar-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: var(--fill-tsp-white-main);
+}
+
+.metadata-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.metadata-key {
+  color: var(--text-tertiary);
+  font-weight: 500;
+  white-space: nowrap;
+  min-width: 70px;
+}
+
+.metadata-val {
+  color: var(--text-secondary);
   word-break: break-word;
 }
 
