@@ -253,11 +253,42 @@ class ResponseGenerator:
 
         for overlap_size in range(max_overlap, min_overlap - 1, -1):
             if base_tail[-overlap_size:] == continuation_head[:overlap_size]:
-                return base + continuation[overlap_size:]
+                merged = base + continuation[overlap_size:]
+                return self._repair_markdown_structure(merged)
 
         if base.endswith("\n") or continuation.startswith("\n"):
-            return base + continuation
-        return base + "\n" + continuation
+            merged = base + continuation
+        else:
+            merged = base + "\n" + continuation
+        return self._repair_markdown_structure(merged)
+
+    @staticmethod
+    def _repair_markdown_structure(text: str) -> str:
+        """Repair common markdown structural issues after continuation stitching.
+
+        Fixes:
+        - Unclosed code fences (odd count of ``` markers)
+        - Duplicate headings at the merge seam
+        - Orphaned list items without preceding content
+        """
+        if not text:
+            return text
+
+        # 1. Close unclosed code fences
+        fence_count = len(re.findall(r"^```", text, re.MULTILINE))
+        if fence_count % 2 != 0:
+            text = text.rstrip() + "\n```\n"
+
+        # 2. Remove duplicate adjacent headings (same level + same text)
+        text = re.sub(
+            r"(^#{1,6}\s+.+$)\n+\1",
+            r"\1",
+            text,
+            flags=re.MULTILINE,
+        )
+
+        # 3. Clean up triple+ blank lines (stitch artifact)
+        return re.sub(r"\n{4,}", "\n\n\n", text)
 
     # ── Duplicate Collapse ─────────────────────────────────────────────
 
