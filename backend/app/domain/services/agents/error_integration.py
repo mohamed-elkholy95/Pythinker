@@ -237,9 +237,7 @@ class ErrorIntegrationBridge:
             from app.domain.services.agents.reasoning.meta_cognition import get_meta_cognition
 
             _meta = get_meta_cognition(tools=[])
-            _recent_error_rate = (
-                health.error_count_recent / 10.0 if health.error_count_recent else 0.0
-            )
+            _recent_error_rate = health.error_count_recent / 10.0 if health.error_count_recent else 0.0
             _task_hint = health.details.get("task", "")
             _uncertainty = _meta.compute_uncertainty_score(
                 task=_task_hint or "unknown",
