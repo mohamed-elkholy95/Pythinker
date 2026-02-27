@@ -9,6 +9,7 @@ const ShareLayout = () => import('../pages/ShareLayout.vue')
 const SharePage = () => import('../pages/SharePage.vue')
 const SessionHistoryPage = () => import('../pages/SessionHistoryPage.vue')
 const CanvasPage = () => import('../pages/CanvasPage.vue')
+const NotFoundPage = () => import('../pages/NotFoundPage.vue')
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -54,6 +55,21 @@ export const router = createRouter({
     {
       path: '/login',
       component: LoginPage,
+    },
+    // Legacy route redirects
+    {
+      path: '/sessions',
+      redirect: '/chat/history',
+    },
+    {
+      path: '/history',
+      redirect: '/chat/history',
+    },
+    // Catch-all 404 — must be last
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: NotFoundPage,
     },
   ],
 })
