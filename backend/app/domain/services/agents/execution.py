@@ -265,7 +265,7 @@ class ExecutionAgent(BaseAgent):
 
         # Propagate pre-planning search context to SearchTool so dedup-blocked
         # queries return cached results instead of failing with 0 results.
-        if self._pre_planning_search_context:
+        if self._pre_planning_search_context is not None:
             for t in self.tools:
                 if hasattr(t, "_pre_planning_context"):
                     t._pre_planning_context = self._pre_planning_search_context
