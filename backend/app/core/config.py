@@ -422,6 +422,7 @@ def get_feature_flags() -> dict[str, bool]:
             "delivery_integrity_gate": True,
             "adaptive_verbosity_shadow": False,
             "pre_planning_search": False,
+            "confirmation_summary_enabled": False,
             # Live shell streaming
             "live_shell_streaming": False,
             "live_shell_poll_interval_ms": 500,
@@ -463,6 +464,7 @@ def get_feature_flags() -> dict[str, bool]:
         "delivery_integrity_gate": settings.feature_delivery_integrity_gate,
         "adaptive_verbosity_shadow": settings.feature_adaptive_verbosity_shadow,
         "pre_planning_search": settings.feature_pre_planning_search,
+        "confirmation_summary_enabled": settings.confirmation_summary_enabled,
         # Live shell streaming
         "live_shell_streaming": settings.feature_live_shell_streaming,
         "live_shell_poll_interval_ms": settings.live_shell_poll_interval_ms,
