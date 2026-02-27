@@ -79,6 +79,10 @@ export interface ToolContent extends BaseContent {
   // Streaming preview content (from tool_stream events)
   streaming_content?: string;
   streaming_content_type?: string;
+  // Progress tracking (from tool_progress events)
+  progress_percent?: number;
+  current_step?: string;
+  elapsed_ms?: number;
 }
 
 export interface StepContent extends BaseContent {

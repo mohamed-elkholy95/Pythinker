@@ -66,12 +66,13 @@
                   <span class="hidden sm:inline">Reasoning</span>
                 </button>
               </div>
-	              <span class="relative flex-shrink-0" aria-expanded="false" aria-haspopup="dialog">
+	              <span class="relative flex-shrink-0">
 	                <Popover>
-	                  <PopoverTrigger>
+	                  <PopoverTrigger as-child>
                     <button
                       class="h-7 rounded-[8px] inline-flex items-center justify-center clickable border border-[var(--border-main)] hover:border-[var(--border-dark)] hover:bg-[var(--fill-tsp-white-main)] transition-all"
                       :class="[isToolPanelOpen ? 'w-7 px-0 gap-0' : 'w-7 px-0 gap-0 sm:w-auto sm:min-w-[56px] sm:px-2 sm:gap-1.5']"
+                      aria-haspopup="dialog"
                     >
                       <ShareIcon color="var(--icon-secondary)" />
                       <span
@@ -1729,16 +1730,14 @@ const pollSessionStatusFallback = async (): Promise<'continue' | 'stop'> => {
 };
 
 // Cleanup on unmount
+// Note: stale check interval + heartbeat bridge are now managed by connectionStore.
+// connectionStore.stopStaleDetection() is triggered reactively via the isLoading watcher above.
 onUnmounted(() => {
-  if (staleCheckInterval) {
-    clearInterval(staleCheckInterval);
-    staleCheckInterval = null;
-  }
   if (staleReconnectTimer) {
     clearTimeout(staleReconnectTimer);
     staleReconnectTimer = null;
   }
-  stopHeartbeatBridge();
+  connectionStore.stopStaleDetection();
   stopFallbackStatusPolling();
   stopPlanningMessageCycle();
 });
@@ -3330,6 +3329,52 @@ const handleResearchModeEvent = (data: unknown) => {
   sessionResearchMode.value = (rmData.research_mode as agentApi.ResearchMode) || 'deep_research';
 }
 
+// ── Observability event handlers (flow lifecycle, verification) ──
+// These events provide visibility into backend flow selection and state
+// transitions. Currently logged for diagnostics; extend as UI surfaces evolve.
+
+const handleFlowSelectionEvent = (data: unknown) => {
+  const fsData = data as import('../types/event').FlowSelectionEventData
+  logChatSseDiagnostics('event:flow_selection', {
+    flow_mode: fsData.flow_mode,
+    model: fsData.model ?? null,
+    reason: fsData.reason ?? null,
+  })
+}
+
+const handleFlowTransitionEvent = (data: unknown) => {
+  const ftData = data as import('../types/event').FlowTransitionEventData
+  logChatSseDiagnostics('event:flow_transition', {
+    from: ftData.from_state,
+    to: ftData.to_state,
+    reason: ftData.reason ?? null,
+    elapsed_ms: ftData.elapsed_ms ?? null,
+  })
+}
+
+const handleVerificationEvent = (data: unknown) => {
+  const vData = data as import('../types/event').VerificationEventData
+  logChatSseDiagnostics('event:verification', {
+    status: vData.status,
+    verdict: vData.verdict ?? null,
+    confidence: vData.confidence ?? null,
+  })
+}
+
+const handleReflectionEvent = (data: unknown) => {
+  const rData = data as import('../types/event').ReflectionEventData
+  logChatSseDiagnostics('event:reflection', {
+    status: rData.status,
+    decision: rData.decision ?? null,
+    confidence: rData.confidence ?? null,
+    trigger_reason: rData.trigger_reason ?? null,
+  })
+  // Map reflection to quality_checking reasoning stage (same as phase_type mapping)
+  if (rData.status === 'triggered') {
+    activeReasoningState.value = 'quality_checking'
+  }
+}
+
 // ── Event handler registry (O(1) dispatch replaces 22-branch if/else) ──
 const eventRegistry = createEventHandlerRegistry({
   message: (data) => { handleMessageEvent(data as MessageEventData); suggestions.value = []; },
@@ -3357,6 +3402,10 @@ const eventRegistry = createEventHandlerRegistry({
   workspace: (data) => researchWorkflow.handleWorkspaceEvent(data as WorkspaceEventData),
   research_mode: (data) => handleResearchModeEvent(data),
   mcp_health: (data) => useMcpStatus().handleHealthEvent(data as import('@/api/mcp').McpHealthEventData),
+  flow_selection: (data) => handleFlowSelectionEvent(data),
+  flow_transition: (data) => handleFlowTransitionEvent(data),
+  verification: (data) => handleVerificationEvent(data),
+  reflection: (data) => handleReflectionEvent(data),
 })
 
 // Process a single event (extracted from handleEvent for batching)
