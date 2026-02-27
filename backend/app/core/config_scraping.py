@@ -34,6 +34,9 @@ class ScrapingSettingsMixin:
     scraping_adaptive_tracking: bool = False  # Store element fingerprints
     scraping_adaptive_storage_dir: str = "/tmp/scrapling_adaptive"  # SQLite fingerprint storage
 
+    # Per-domain authentication
+    scraping_hf_token: str = ""  # HuggingFace token for gated model pages (HF_TOKEN)
+
     # Content thresholds
     scraping_min_content_length: int = 500  # Minimum text length before escalating
     scraping_max_content_length: int = 100000  # Maximum text length to return

@@ -5,6 +5,7 @@ import logging
 import random
 import re
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
@@ -210,6 +211,9 @@ class PlaywrightBrowser:
         self._current_user_agent: str = DEFAULT_USER_AGENT
         self._current_viewport: dict[str, int] = DEFAULT_VIEWPORT
         self._current_timezone: str = DEFAULT_TIMEZONE
+
+        # Recovery callback — set by BrowserTool to emit progress events on reconnect
+        self._recovery_callback: Callable[[], Awaitable[None]] | None = None
 
     @staticmethod
     def _safe_bool(value: Any, default: bool) -> bool:
@@ -1153,6 +1157,15 @@ class PlaywrightBrowser:
             await self._ensure_browser()
             if self._connection_healthy:
                 logger.info(f"Proactive reconnect succeeded (CDP: {self.cdp_url})")
+                # Reset viewport and verify window position to prevent
+                # "zoomed in" screencast after recovery
+                await self._verify_and_reset_viewport()
+                # Notify recovery callback if registered
+                if self._recovery_callback:
+                    try:
+                        await self._recovery_callback()
+                    except Exception as cb_err:
+                        logger.debug(f"Recovery callback failed: {cb_err}")
         except Exception as e:
             logger.warning(f"Proactive reconnect failed (CDP: {self.cdp_url}): {e} — will retry on next operation")
 
@@ -1172,7 +1185,11 @@ class PlaywrightBrowser:
         )
 
     async def _verify_connection_health(self) -> bool:
-        """Verify the browser connection is healthy
+        """Verify the browser connection is healthy.
+
+        Checks:
+        1. Page is open and responsive (JS evaluation)
+        2. Viewport dimensions match expected values (logs drift, best-effort)
 
         Returns:
             bool: True if connection is healthy, False otherwise
@@ -1182,6 +1199,21 @@ class PlaywrightBrowser:
                 return False
             # Simple evaluation to verify connection (uses page's default timeout)
             await self.page.evaluate("() => true")
+
+            # Lightweight viewport sanity check — log drift but don't fail health check
+            try:
+                vp = self.page.viewport_size
+                if vp:
+                    expected_w = self._current_viewport.get("width", DEFAULT_VIEWPORT["width"])
+                    expected_h = self._current_viewport.get("height", DEFAULT_VIEWPORT["height"])
+                    if vp["width"] != expected_w or vp["height"] != expected_h:
+                        logger.warning(
+                            f"Viewport drift detected: {vp['width']}x{vp['height']} "
+                            f"(expected {expected_w}x{expected_h})"
+                        )
+            except Exception:
+                logger.debug("Viewport size check skipped (best-effort)")
+
             return True
         except Exception as e:
             if self._is_crash_error(e):
@@ -1190,6 +1222,66 @@ class PlaywrightBrowser:
             else:
                 logger.warning(f"Connection health check failed: {e}")
             return False
+
+    async def _verify_and_reset_viewport(self) -> None:
+        """Verify and reset viewport + window position after crash recovery.
+
+        After a browser crash, the recovered page may have wrong viewport
+        dimensions or window position, causing the CDP screencast to appear
+        "zoomed in" on the frontend. This method:
+        1. Resets viewport to DEFAULT_VIEWPORT (1280x900)
+        2. Verifies window position is at (0,0) via CDP
+        3. Corrects position if displaced
+
+        Called after successful recovery in _ensure_browser() and
+        _proactive_reconnect(). Safe to call multiple times (idempotent).
+
+        Validated against:
+        - Playwright docs: set_viewport_size before navigation (Context7)
+        - CDP Browser.getWindowBounds / setWindowBounds (Ref AI)
+        """
+        if not self.page or not self.context:
+            return
+
+        # Step 1: Reset viewport to known dimensions
+        try:
+            await self.page.set_viewport_size(DEFAULT_VIEWPORT)
+            self._current_viewport = DEFAULT_VIEWPORT
+            logger.info(
+                f"Viewport reset to {DEFAULT_VIEWPORT['width']}x{DEFAULT_VIEWPORT['height']} "
+                "after recovery"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to reset viewport after recovery: {e}")
+
+        # Step 2: Verify window position via CDP (lightweight check)
+        cdp_session = None
+        try:
+            cdp_session = await self.context.new_cdp_session(self.page)
+            result = await cdp_session.send("Browser.getWindowForTarget")
+            window_id = result.get("windowId")
+            if window_id:
+                readback = await cdp_session.send(
+                    "Browser.getWindowBounds", {"windowId": window_id}
+                )
+                actual = readback.get("bounds", {})
+                actual_left = actual.get("left", 0)
+                actual_top = actual.get("top", 0)
+
+                if actual_left != 0 or actual_top != 0:
+                    logger.warning(
+                        f"Window displaced after recovery: ({actual_left}, {actual_top}). "
+                        "Forcing to (0, 0)."
+                    )
+                    await self._force_window_position(self.page)
+                else:
+                    logger.debug("Window position verified at (0, 0) after recovery")
+        except Exception as e:
+            logger.debug(f"Window position check after recovery failed: {e}")
+        finally:
+            if cdp_session:
+                with contextlib.suppress(Exception):
+                    await cdp_session.detach()
 
     async def clear_session(self) -> None:
         """Clear browser state while preserving the original window position.
@@ -1423,10 +1515,14 @@ class PlaywrightBrowser:
                             self.page = await self._new_page_with_bounds(self.context)
                         else:
                             self.page = reuse_page
-                            # NOTE: Do NOT call _force_window_position or set_viewport_size here
-                            # The window is already correctly positioned by Chrome's launch flags
-                            # Calling these can cause the window to shift/resize unexpectedly
-                            logger.info("Reusing existing page - keeping current window position")
+                            if attempt > 0:
+                                # Recovery path: verify viewport + window position
+                                # to prevent "zoomed in" screencast appearance
+                                await self._verify_and_reset_viewport()
+                                logger.info("Reusing existing page after recovery - viewport verified")
+                            else:
+                                # Normal path: window is positioned by Chrome's launch flags
+                                logger.info("Reusing existing page - keeping current window position")
                     else:
                         # Last resort: Create new page with proper window positioning
                         logger.warning("No existing pages available, creating new page with bounds")
@@ -1503,6 +1599,12 @@ class PlaywrightBrowser:
                     )
 
                 logger.info(f"Browser initialized successfully (attempt {attempt + 1})")
+
+                # After recovery (attempt > 0), reset viewport and window
+                # position to prevent "zoomed in" screencast on frontend
+                if attempt > 0:
+                    await self._verify_and_reset_viewport()
+
                 return True
 
             except Exception as e:

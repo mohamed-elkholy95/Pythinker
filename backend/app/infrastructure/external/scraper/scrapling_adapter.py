@@ -34,8 +34,40 @@ class ScraplingAdapter:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._proxy_rotator = None
+        self._domain_auth = self._build_domain_auth(settings)
         if settings.scraping_proxy_enabled and settings.scraping_proxy_list:
             self._init_proxy_rotator(settings.scraping_proxy_list)
+
+    @staticmethod
+    def _build_domain_auth(settings: Settings) -> dict[str, dict[str, str]]:
+        """Build domain → headers mapping from configured auth tokens.
+
+        Returns a dict keyed by domain substring (e.g. "huggingface.co")
+        whose values are header dicts injected into fetch requests for
+        matching URLs. This keeps auth handling generic — add new domains
+        by extending the mapping.
+        """
+        auth: dict[str, dict[str, str]] = {}
+        if settings.scraping_hf_token:
+            auth["huggingface.co"] = {"Authorization": f"Bearer {settings.scraping_hf_token}"}
+        return auth
+
+    def _get_auth_headers(self, url: str) -> dict[str, str]:
+        """Return auth headers for a URL based on secure hostname matching.
+
+        Parses the URL hostname to prevent credential leakage via crafted
+        URLs like ``attacker.com/path?ref=huggingface.co``.
+        """
+        from urllib.parse import urlparse
+
+        try:
+            hostname = urlparse(url).hostname or ""
+        except Exception:
+            return {}
+        for domain, headers in self._domain_auth.items():
+            if hostname == domain or hostname.endswith("." + domain):
+                return headers
+        return {}
 
     def _init_proxy_rotator(self, proxy_list_str: str) -> None:
         try:
@@ -53,6 +85,7 @@ class ScraplingAdapter:
     async def fetch(self, url: str, **kwargs: object) -> ScrapedContent:
         """Tier 1: HTTP fetch with TLS fingerprint impersonation."""
         proxy = self._proxy_rotator.get_proxy() if self._proxy_rotator else None
+        auth_headers = self._get_auth_headers(url)
         try:
             page = await AsyncFetcher.get(
                 url,
@@ -60,6 +93,7 @@ class ScraplingAdapter:
                 timeout=self._settings.scraping_http_timeout,
                 proxy=proxy,
                 follow_redirects=True,
+                **({"headers": auth_headers} if auth_headers else {}),
             )
             text = str(page.get_all_text(separator="\n\n"))
             # Trim to configured max

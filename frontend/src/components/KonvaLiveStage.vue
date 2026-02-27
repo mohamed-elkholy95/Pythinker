@@ -456,6 +456,16 @@ function resetScreencast(): void {
 }
 
 /**
+ * Force frame dimensions to known values after crash recovery.
+ * Delegates to the screencast composable and triggers auto-fit.
+ */
+function forceDimensionReset(width: number, height: number): void {
+  screencast.forceDimensionReset(width, height)
+  zoomCtrl.resetZoom()
+  _userHasManuallyZoomed = false
+}
+
+/**
  * Start stats tracking.
  */
 function startStats(): void {
@@ -613,6 +623,7 @@ defineExpose({
   // Frame management
   pushFrame,
   resetScreencast,
+  forceDimensionReset,
   startStats,
   stopStats,
 

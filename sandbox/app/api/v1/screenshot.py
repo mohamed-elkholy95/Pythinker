@@ -29,6 +29,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from app.services.cdp_screencast import (
     CDPScreencastService,
     ScreencastConfig,
+    _SAME_URL_REDISCOVERY_THRESHOLD,
 )
 
 router = APIRouter()
@@ -230,6 +231,13 @@ async def _capture_with_cdp(
     service = _get_cdp_service()
     if should_invalidate:
         service.invalidate_cache()
+        # Escalate if the same broken URL keeps being rediscovered
+        if service._rediscovery_counter >= _SAME_URL_REDISCOVERY_THRESHOLD:
+            logger.warning(
+                "[Screenshot] Same broken URL rediscovered %d times, escalating recovery",
+                service._rediscovery_counter,
+            )
+            await service._escalate_recovery()
 
     try:
         # P2.8 FIX: Pass quality and format per-request to avoid singleton config race
@@ -257,6 +265,10 @@ async def _capture_with_cdp(
             "[Screenshot] CDP capture timed out after %.1fs",
             _SCREENSHOT_TIMEOUT_SECONDS,
         )
+        # Force-disconnect the hung WebSocket so the next attempt gets a fresh connection
+        await service.disconnect()
+        service.invalidate_cache()
+        service._record_page_failure(service._cached_ws_url)
         async with _cdp_failure_lock:
             _cdp_consecutive_failures += 1
             if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
@@ -268,6 +280,10 @@ async def _capture_with_cdp(
         return None
     except Exception as e:
         logger.warning(f"[Screenshot] CDP capture failed: {e}")
+        # Force-disconnect to avoid reusing a broken WebSocket
+        await service.disconnect()
+        service.invalidate_cache()
+        service._record_page_failure(service._cached_ws_url)
         async with _cdp_failure_lock:
             _cdp_consecutive_failures += 1
             if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD:
