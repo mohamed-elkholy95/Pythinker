@@ -112,5 +112,19 @@ async def liveness_check():
     return {"status": "alive"}
 
 
+@app.get("/metrics", tags=["Metrics"], include_in_schema=False)
+async def root_metrics():
+    """Prometheus scrape endpoint at root path (no auth — for internal network only).
+
+    Standard Prometheus convention is GET /metrics. The authenticated endpoint
+    at /api/v1/metrics remains available for external access.
+    """
+    from fastapi.responses import PlainTextResponse
+
+    from app.core.prometheus_metrics import format_prometheus
+
+    return PlainTextResponse(format_prometheus(), media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
 # Register routes
 app.include_router(router, prefix="/api/v1")
