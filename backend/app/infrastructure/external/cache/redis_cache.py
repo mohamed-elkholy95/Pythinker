@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import secrets
+import time
 from typing import Any
 
 from app.core.config import get_settings
@@ -14,6 +16,11 @@ class RedisCache:
 
     Uses a single initialization with lock to avoid repeated initialize() calls
     on every operation, reducing overhead and connection pool pressure.
+
+    Features:
+    - TTL jitter to prevent thundering herd on mass cache expiry
+    - Stale-while-revalidate (SWR) pattern for latency-sensitive reads
+    - Pipeline-based bulk key deletion for efficient pattern clearing
     """
 
     def __init__(self):
@@ -23,8 +30,12 @@ class RedisCache:
         try:
             settings = get_settings()
             self._scan_count = max(1, settings.redis_scan_count)
+            self._ttl_jitter_percent = settings.redis_cache_ttl_jitter_percent
+            self._swr_enabled = settings.redis_cache_swr_enabled
         except Exception:
             self._scan_count = 1000
+            self._ttl_jitter_percent = 0.1
+            self._swr_enabled = False
 
     @property
     def available(self) -> bool:
@@ -48,8 +59,20 @@ class RedisCache:
                 await self.redis_client.initialize()
                 self._initialized = True
 
+    def _jittered_ttl(self, ttl: int) -> int:
+        """Apply random jitter to TTL to prevent thundering herd on mass expiry.
+
+        Returns TTL ± jitter_percent, with a minimum of 1 second.
+        """
+        if self._ttl_jitter_percent <= 0 or ttl <= 0:
+            return ttl
+        jitter_range = int(ttl * self._ttl_jitter_percent)
+        if jitter_range == 0:
+            return ttl
+        return max(1, ttl + secrets.randbelow(2 * jitter_range + 1) - jitter_range)
+
     async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
-        """Store a value with optional TTL."""
+        """Store a value with optional TTL (jitter applied automatically)."""
         if not self.available:
             return False
         try:
@@ -59,7 +82,8 @@ class RedisCache:
             serialized_value = json.dumps(value)
 
             if ttl is not None:
-                result = await self.redis_client.call("setex", key, ttl, serialized_value)
+                effective_ttl = self._jittered_ttl(ttl)
+                result = await self.redis_client.call("setex", key, effective_ttl, serialized_value)
             else:
                 result = await self.redis_client.call("set", key, serialized_value)
 
@@ -172,15 +196,19 @@ class RedisCache:
             return []
 
     async def clear_pattern(self, pattern: str) -> int:
-        """Clear all keys matching a pattern using SCAN + UNLINK/DEL."""
+        """Clear all keys matching a pattern using SCAN + pipeline UNLINK.
+
+        Accumulates all matching keys from SCAN, then deletes via Redis
+        pipeline in batches of 1000 for reduced round-trip overhead.
+        """
         if not self.available:
             return 0
         try:
             await self._ensure_initialized()
 
+            # Accumulate all matching keys
             cursor: int | str = 0
-            deleted_total = 0
-
+            all_keys: list[str] = []
             while True:
                 cursor, batch = await self.redis_client.call(
                     "scan",
@@ -189,13 +217,23 @@ class RedisCache:
                     count=self._scan_count,
                 )
                 if batch:
-                    try:
-                        deleted_total += await self.redis_client.call("unlink", *batch)
-                    except Exception:
-                        # Fallback for Redis builds/ACLs where UNLINK is unavailable.
-                        deleted_total += await self.redis_client.call("delete", *batch)
+                    all_keys.extend(batch)
                 if cursor in (0, "0"):
                     break
+
+            if not all_keys:
+                return 0
+
+            # Pipeline UNLINK in batches of 1000
+            deleted_total = 0
+            pipeline_batch_size = 1000
+            for i in range(0, len(all_keys), pipeline_batch_size):
+                batch = all_keys[i : i + pipeline_batch_size]
+                try:
+                    deleted_total += await self.redis_client.call("unlink", *batch)
+                except Exception:
+                    # Fallback for Redis builds/ACLs where UNLINK is unavailable.
+                    deleted_total += await self.redis_client.call("delete", *batch)
 
             return deleted_total
 
@@ -221,3 +259,77 @@ class RedisCache:
             logger.error(f"Failed to increment cache key {key}: {e!s}")
             self._initialized = False
             return None
+
+    # --- Stale-While-Revalidate (SWR) Pattern ---
+
+    async def set_with_swr(self, key: str, value: Any, soft_ttl: int, hard_ttl: int) -> bool:
+        """Store a value with soft + hard TTL for stale-while-revalidate.
+
+        The value is wrapped in a JSON envelope with a soft expiry timestamp.
+        Redis TTL is set to hard_ttl (the actual eviction time).
+
+        Args:
+            key: Cache key.
+            value: JSON-serializable value.
+            soft_ttl: Seconds until the value is considered stale (triggers revalidation).
+            hard_ttl: Seconds until Redis evicts the key entirely.
+
+        Returns:
+            True if stored successfully.
+        """
+        if not self.available or not self._swr_enabled:
+            return await self.set(key, value, ttl=soft_ttl)
+        try:
+            await self._ensure_initialized()
+
+            envelope = {
+                "v": value,
+                "soft_expires": time.time() + soft_ttl,
+            }
+            serialized = json.dumps(envelope)
+            effective_hard_ttl = self._jittered_ttl(hard_ttl)
+            result = await self.redis_client.call("setex", key, effective_hard_ttl, serialized)
+            return result is not None
+
+        except Exception as e:
+            logger.error(f"Failed to set SWR cache key {key}: {e!s}")
+            self._initialized = False
+            return False
+
+    async def get_with_swr(self, key: str) -> tuple[Any | None, bool]:
+        """Retrieve a value with stale-while-revalidate awareness.
+
+        Returns:
+            Tuple of (value, is_stale).
+            - (value, False) — fresh cache hit.
+            - (value, True) — stale hit (caller should revalidate in background).
+            - (None, False) — hard cache miss.
+        """
+        if not self.available:
+            return None, False
+        if not self._swr_enabled:
+            value = await self.get(key)
+            return value, False
+        try:
+            await self._ensure_initialized()
+
+            raw = await self.redis_client.call("get", key)
+            if raw is None:
+                return None, False
+
+            envelope = json.loads(raw)
+            # Support both SWR envelopes and plain values
+            if isinstance(envelope, dict) and "v" in envelope and "soft_expires" in envelope:
+                is_stale = time.time() > envelope["soft_expires"]
+                return envelope["v"], is_stale
+            # Plain value (set without SWR)
+            return envelope, False
+
+        except json.JSONDecodeError:
+            logger.error(f"Failed to deserialize SWR cache value for key {key}")
+            await self.delete(key)
+            return None, False
+        except Exception as e:
+            logger.error(f"Failed to get SWR cache key {key}: {e!s}")
+            self._initialized = False
+            return None, False
