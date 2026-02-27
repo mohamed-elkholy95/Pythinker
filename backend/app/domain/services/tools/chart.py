@@ -285,7 +285,7 @@ Returns both interactive HTML and static PNG files.""",
         reference: float | None = None,
     ) -> ToolResult:
         """
-        Create a Plotly chart and return HTML + PNG + JSON contract file references.
+        Create a Plotly chart and return HTML + PNG file references.
 
         Args:
             chart_type: Type of chart
@@ -337,9 +337,9 @@ Returns both interactive HTML and static PNG files.""",
         # Generate unique chart ID
         chart_id = str(uuid.uuid4())[:8]
 
-        # Build output paths — only PNG + JSON (no HTML; frontend renders Plotly JSON)
+        # Build output paths — HTML (interactive) + PNG (static preview)
+        output_html = f"/home/ubuntu/chart-{chart_id}.html"
         output_png = f"/home/ubuntu/chart-{chart_id}.png"
-        output_json = f"/home/ubuntu/chart-{chart_id}.plotly.json"
 
         # Build JSON payload for sandbox script
         chart_spec: dict[str, Any] = {
@@ -354,8 +354,8 @@ Returns both interactive HTML and static PNG files.""",
             "width": width,
             "height": height,
             "theme": theme,
+            "output_html": output_html,
             "output_png": output_png,
-            "output_json": output_json,
         }
         if parents:
             chart_spec["parents"] = parents
@@ -471,11 +471,10 @@ Returns both interactive HTML and static PNG files.""",
                 data={
                     "chart_type": chart_type,
                     "title": title,
+                    "html_path": output_data.get("html_path"),
                     "png_path": output_data.get("png_path"),
-                    "plotly_json_path": output_data.get("plotly_json_path"),
+                    "html_size": output_data.get("html_size"),
                     "png_size": output_data.get("png_size"),
-                    "plotly_json_size": output_data.get("plotly_json_size"),
-                    "render_contract_version": output_data.get("render_contract_version"),
                     "data_points": output_data.get("data_points"),
                     "series_count": output_data.get("series_count"),
                 },

@@ -711,10 +711,7 @@ const chartPayload = computed(() => {
 const chartCanShowInteractive = computed(() => {
   if (currentViewType.value !== 'chart') return false;
   const htmlFileId = chartPayload.value.html_file_id;
-  const jsonFileId = chartPayload.value.plotly_json_file_id;
-  const hasHtml = typeof htmlFileId === 'string' && htmlFileId.length > 0;
-  const hasJson = typeof jsonFileId === 'string' && jsonFileId.length > 0;
-  return hasHtml || hasJson;
+  return typeof htmlFileId === 'string' && htmlFileId.length > 0;
 });
 
 const chartTypeBadge = computed(() => {
