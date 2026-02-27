@@ -22,6 +22,13 @@ class DatabaseSettingsMixin:
     # Automatic retry on transient errors (primary elections, network blips)
     mongodb_retry_writes: bool = True
     mongodb_retry_reads: bool = True
+    # Event store archival (Phase 1A: unbounded growth prevention)
+    mongodb_event_retention_days: int = 90
+    # Slow query profiler (Phase 4B)
+    mongodb_profiler_enabled: bool = False
+    mongodb_slow_query_threshold_ms: int = 100
+    # Bounded session event array (Phase 2.3: prevents BSONDocumentTooLarge)
+    mongodb_session_event_limit: int = 5000
 
 
 class RedisSettingsMixin:
@@ -32,7 +39,7 @@ class RedisSettingsMixin:
     redis_db: int = 0
     redis_password: str | None = None
     # Connection pooling and timeouts
-    redis_max_connections: int = 50  # Max connections in pool
+    redis_max_connections: int = 200  # Max connections in pool (scaled for multi-replica + SSE)
     redis_socket_timeout: float = 30.0  # 30s socket timeout for long-running operations like xread
     redis_socket_connect_timeout: float = 5.0  # 5s connection timeout
     redis_health_check_interval: int = 30  # 30s health check interval
@@ -44,10 +51,14 @@ class RedisSettingsMixin:
     redis_cache_port: int = 6379
     redis_cache_db: int = 0
     redis_cache_password: str | None = None
-    redis_cache_max_connections: int = 100
+    redis_cache_max_connections: int = 200
     redis_scan_count: int = 1000  # SCAN batch size for pattern operations (replaces KEYS)
     redis_stream_max_len: int = 10000  # Stream retention cap per stream (0 disables auto-trim)
     redis_stream_poll_block_ms: int = 1000  # Blocking read window for SSE Redis stream polling
+    # TTL jitter to prevent thundering herd on mass cache expiry (Phase 2A)
+    redis_cache_ttl_jitter_percent: float = 0.1  # ±10% jitter on TTL
+    # Stale-while-revalidate pattern (Phase 2B)
+    redis_cache_swr_enabled: bool = False
 
 
 class StorageSettingsMixin:
@@ -70,6 +81,14 @@ class StorageSettingsMixin:
     # Screenshot-specific buckets
     minio_screenshots_bucket: str = "screenshots"
     minio_thumbnails_bucket: str = "thumbnails"
+    # Retry with exponential backoff (Phase 3A)
+    minio_retry_max_attempts: int = 3
+    minio_retry_base_delay: float = 0.5
+    # Multipart upload threshold (Phase 3B)
+    minio_multipart_threshold_bytes: int = 52_428_800  # 50MB
+    minio_multipart_part_size: int = 10_485_760  # 10MB
+    # Bucket versioning (Phase 6E)
+    minio_versioning_enabled: bool = False
 
 
 class QdrantSettingsMixin:
@@ -92,3 +111,22 @@ class QdrantSettingsMixin:
 
     # Conversation context collection (real-time turn vectorization during active sessions)
     qdrant_conversation_context_collection: str = "conversation_context"
+    # Scalar quantization for memory-efficient vector storage (Phase 5D)
+    qdrant_quantization_enabled: bool = False
+    qdrant_quantization_type: str = "scalar"  # "scalar" (INT8) — ~75% memory savings
+    # Conversation context age-based cleanup (Phase 6F)
+    qdrant_conversation_context_max_age_days: int = 30
+    # Tenant-aware HNSW: m=0 disables global links, payload_m builds per-user sub-graphs
+    qdrant_hnsw_payload_m: int = 16
+    qdrant_hnsw_m: int = 0
+    # Query-time search beam width (higher = better recall, more latency)
+    qdrant_hnsw_ef: int = 128
+
+
+class SLOSettingsMixin:
+    """Latency SLO thresholds for infrastructure services (Phase 4A)."""
+
+    slo_mongodb_p95_seconds: float = 0.1
+    slo_redis_p95_seconds: float = 0.01
+    slo_minio_p95_seconds: float = 0.5
+    slo_qdrant_p95_seconds: float = 0.2
