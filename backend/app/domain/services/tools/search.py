@@ -330,6 +330,8 @@ class SearchTool(BaseTool):
         self._browser = browser
         self._search_prefer_browser = search_prefer_browser
         self._scraper = scraper
+        # Track the current browse task so we can cancel it before spawning a new one
+        self._current_browse_task: asyncio.Task[None] | None = None
         # Instance-level cache with O(1) LRU eviction
         self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
 
@@ -762,8 +764,8 @@ class SearchTool(BaseTool):
                             timeout=navigation_timeout_seconds,
                         )
                         consecutive_failures = 0
-                    # Brief pause for live preview render (kept short to avoid blocking)
-                    await asyncio.sleep(1.0)
+                    # Dwell time for live preview — long enough for users to see each page
+                    await asyncio.sleep(5.0)
                 except Exception as e:
                     consecutive_failures += 1
                     logger.debug(f"Failed to browse {url}: {e}")
@@ -773,6 +775,8 @@ class SearchTool(BaseTool):
                         f"_browse_top_results: stopping early after {consecutive_failures} consecutive failures"
                     )
                     break
+        except asyncio.CancelledError:
+            logger.debug("_browse_top_results: cancelled by newer browse task")
         except Exception as e:
             logger.debug(f"_browse_top_results error (non-critical): {e}")
 
@@ -966,7 +970,11 @@ class SearchTool(BaseTool):
         if result.success and self._browser and result.data:
             if hasattr(self._browser, "allow_background_browsing"):
                 self._browser.allow_background_browsing()
+            # Cancel previous browse task to prevent overlapping navigations (flickering)
+            if self._current_browse_task and not self._current_browse_task.done():
+                self._current_browse_task.cancel()
             task = asyncio.create_task(self._browse_top_results(result.data, count=3))
+            self._current_browse_task = task
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
@@ -1219,7 +1227,11 @@ wide_research(
 
         # Fire-and-forget: open top 3 results in browser for live preview visibility
         if self._browser and search_data:
+            # Cancel previous browse task to prevent overlapping navigations (flickering)
+            if self._current_browse_task and not self._current_browse_task.done():
+                self._current_browse_task.cancel()
             task = asyncio.create_task(self._browse_top_results(search_data, count=3))
+            self._current_browse_task = task
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
