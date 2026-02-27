@@ -46,7 +46,6 @@ from app.domain.services.agents.task_state_manager import get_task_state_manager
 from app.domain.services.attention_injector import AttentionInjector
 from app.domain.services.prompts.execution import (
     EXECUTION_SYSTEM_PROMPT,
-    STREAMING_SUMMARIZE_PROMPT,
     build_execution_prompt_from_context,
 )
 from app.domain.services.prompts.system import SYSTEM_PROMPT
@@ -128,6 +127,7 @@ class ExecutionAgent(BaseAgent):
             config=critic_config or CriticConfig(enabled=True, auto_approve_simple_tasks=True, max_revision_attempts=2),
         )
         self._user_request: str | None = None  # Track for critic context
+        self._research_depth: str = "STANDARD"  # Set by PlanActFlow before summarization
 
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
@@ -554,13 +554,27 @@ class ExecutionAgent(BaseAgent):
 
         # Use streaming prompt (plain markdown, no JSON wrapper)
         # Phase 2: Switch to citation-aware prompt when sources were collected
-        if self._collected_sources:
-            from app.domain.services.prompts.execution import CITATION_AWARE_SUMMARIZE_PROMPT
+        # Phase 3: Use unified build_summarize_prompt() with depth-aware length guidance
+        from app.domain.services.prompts.execution import build_summarize_prompt, detect_comparison_intent
 
+        _is_comparison = detect_comparison_intent(self._user_request or "")
+        if self._collected_sources:
             source_list = self._build_numbered_source_list()
-            summarize_prompt = f"{CITATION_AWARE_SUMMARIZE_PROMPT}\n\n## Available Sources\n{source_list}"
+            summarize_prompt = (
+                build_summarize_prompt(
+                    has_sources=True,
+                    source_list=source_list,
+                    research_depth=self._research_depth,
+                    is_comparison=_is_comparison,
+                )
+                + f"\n\n## Available Sources\n{source_list}"
+            )
         else:
-            summarize_prompt = STREAMING_SUMMARIZE_PROMPT
+            summarize_prompt = build_summarize_prompt(
+                has_sources=False,
+                research_depth=self._research_depth,
+                is_comparison=_is_comparison,
+            )
 
         # Topic anchor: prevent hallucination by pinning the user's original question
         if self._user_request:
@@ -960,13 +974,13 @@ class ExecutionAgent(BaseAgent):
                             {"role": "user", "content": truncation_assessment.continuation_prompt},
                         ]
 
-                        # Up to 2 continuation attempts for pattern-based detection
-                        # (first with fast model, second escalates to powerful model if still truncated)
-                        _max_pattern_continuations = 2
+                        # Up to 4 continuation attempts for pattern-based detection
+                        # (attempt 1 uses balanced model; attempts 2-4 escalate to powerful model)
+                        _max_pattern_continuations = 4
                         _stage2_resolved = False
                         for _pattern_attempt in range(1, _max_pattern_continuations + 1):
                             _cont_model = _summarize_model
-                            # Escalate to powerful model on 2nd attempt
+                            # Escalate to powerful model from 2nd attempt onward
                             if _pattern_attempt > 1:
                                 _powerful = _get_settings().powerful_model or None
                                 if _powerful and _powerful != _summarize_model:
@@ -977,7 +991,7 @@ class ExecutionAgent(BaseAgent):
                                         _pattern_attempt,
                                     )
                                 else:
-                                    break  # No escalation available
+                                    break  # No escalation available, stop early
 
                             logger.info(
                                 "Requesting continuation based on content patterns (attempt %d, model=%s)...",
@@ -1049,6 +1063,30 @@ class ExecutionAgent(BaseAgent):
 
             # Guaranteed fallback: inject complete References section if truncated/missing
             message_content = self._ensure_complete_references(message_content)
+
+            # Citation integrity: validate and auto-repair orphan citations
+            try:
+                from app.domain.services.agents.citation_integrity import repair_citations, validate_citations
+
+                cite_result = validate_citations(message_content)
+                if not cite_result.is_valid:
+                    logger.warning(
+                        "Citation integrity issues: orphans=%s, phantoms=%s, gaps=%s, dupes=%d",
+                        cite_result.orphan_citations,
+                        cite_result.phantom_references,
+                        cite_result.citation_gaps,
+                        len(cite_result.duplicate_urls),
+                    )
+                    _metrics.record_counter(
+                        "pythinker_citation_integrity_issues_total",
+                        labels={"type": "orphan" if cite_result.orphan_citations else "other"},
+                    )
+                    # Auto-repair orphan citations when source list is available
+                    if cite_result.orphan_citations and self._collected_sources:
+                        source_list = self._build_numbered_source_list()
+                        message_content = repair_citations(message_content, source_list)
+            except Exception as e:
+                logger.debug("Citation integrity check failed: %s", e)
 
             # Extract title from first # heading
             message_title = self._extract_title(message_content)
@@ -1249,6 +1287,15 @@ class ExecutionAgent(BaseAgent):
                     attachments=None,
                     sources=sources,
                 )
+
+                # Enhancement 7: optional brief confirmation MessageEvent after report
+                if flags.get("confirmation_summary_enabled", False):
+                    try:
+                        confirmation = await self._generate_confirmation_summary(message_content, message_title)
+                        if confirmation:
+                            yield MessageEvent(message=confirmation)
+                    except Exception as _ce:
+                        logger.debug("Confirmation summary skipped: %s", _ce)
             else:
                 message_event = MessageEvent(message=message_content)
                 message_event_id = message_event.id
@@ -1400,7 +1447,7 @@ class ExecutionAgent(BaseAgent):
 
     def _is_low_quality_summary(self, content: str) -> bool:
         """Structural quality gate (delegated to ResponseGenerator)."""
-        return self._response_generator.is_low_quality_summary(content)
+        return self._response_generator.is_low_quality_summary(content, self._research_depth)
 
     def _clean_report_content(self, content: str) -> str:
         """Strip hallucinated tool-call XML and boilerplate (delegated)."""
