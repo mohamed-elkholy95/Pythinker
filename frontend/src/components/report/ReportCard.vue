@@ -134,15 +134,6 @@
       </div>
     </div>
 
-    <!-- Attachments Preview (compact file summary inside the card) -->
-    <div v-if="cardAttachments.length > 0" class="card-attachments-section">
-      <AttachmentsInlineGrid
-        :attachments="cardAttachments"
-        @open-file="(file) => emit('open', report)"
-        @show-all-files="() => emit('open', report)"
-      />
-    </div>
-
     <!-- Suggested Follow-ups Section -->
     <div v-if="suggestions && suggestions.length > 0" class="suggestions-section">
       <div class="suggestions-header">
@@ -187,9 +178,7 @@ import {
 } from 'lucide-vue-next';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import TiptapReportEditor from './TiptapReportEditor.vue';
-import AttachmentsInlineGrid from './AttachmentsInlineGrid.vue';
 import type { ReportData, ReportSection } from './types';
-import type { FileInfo } from '@/api/file';
 import { collapseDuplicateReportBlocks } from './reportContentNormalizer';
 
 export type { ReportData, ReportSection };
@@ -210,9 +199,6 @@ const emit = defineEmits<{
 const showMenu = ref(false);
 const showDownloadMenu = ref(false);
 const normalizedReportContent = computed(() => collapseDuplicateReportBlocks(props.report.content || ''));
-
-// Attachments to show inside the card preview
-const cardAttachments = computed<FileInfo[]>(() => props.report.attachments ?? []);
 
 const getSuggestionIcon = (index: number) => {
   const icons = [Puzzle, MessageCircle, MessageCircle, Briefcase];
@@ -546,16 +532,6 @@ const _handleSaveToOneDriveWork = () => {
   bottom: 0;
   height: 96px;
   background: linear-gradient(rgba(255, 255, 255, 0) 0%, var(--background-white-main) 100%);
-}
-
-/* ===== CARD ATTACHMENTS ===== */
-.card-attachments-section {
-  padding: 0 16px 4px;
-}
-
-.card-attachments-section :deep(.attachments-inline-grid) {
-  max-width: 100%;
-  margin-top: 0;
 }
 
 /* ===== SUGGESTIONS ===== */
