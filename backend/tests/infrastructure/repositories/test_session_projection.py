@@ -147,9 +147,7 @@ class TestProjectionDiscipline:
     @pytest.mark.asyncio
     async def test_add_file_loads_only_files(self, repo, mock_collection):
         """add_file should load only the files array for duplicate check."""
-        mock_collection.find_one = AsyncMock(
-            return_value={"_id": "obj_id", "files": []}
-        )
+        mock_collection.find_one = AsyncMock(return_value={"_id": "obj_id", "files": []})
 
         file_info = MagicMock(spec=FileInfo)
         file_info.file_id = "f1"
@@ -199,9 +197,7 @@ class TestEventQueryOptimizations:
     @pytest.mark.asyncio
     async def test_get_event_by_sequence_uses_slice(self, repo, mock_collection):
         """get_event_by_sequence should use $slice projection."""
-        mock_collection.find_one = AsyncMock(
-            return_value={"events": [{"type": "message", "id": "e5"}]}
-        )
+        mock_collection.find_one = AsyncMock(return_value={"events": [{"type": "message", "id": "e5"}]})
 
         with patch(
             "app.infrastructure.repositories.mongo_session_repository.SessionDocument.get_pymongo_collection",
