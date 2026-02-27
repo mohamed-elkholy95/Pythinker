@@ -135,39 +135,55 @@ user_skill_configs: dict[str, dict[str, dict]] = {}
 # custom skills: skill_id -> skill dict
 custom_skills: dict[str, dict] = {}
 
+
 def get_all_skills(category: str | None = None) -> list[dict]:
     result = list(skills.values())
     if category:
         result = [s for s in result if s.get("category") == category]
     return result
 
+
 def get_skill(skill_id: str) -> dict | None:
     return skills.get(skill_id)
+
 
 def get_user_skills(user_id: str) -> list[dict]:
     configs = user_skill_configs.get(user_id, {})
     result = []
     for skill in skills.values():
         sid = skill["id"]
-        cfg = configs.get(sid, {
-            "enabled": skill.get("default_enabled", False),
-            "config": {},
-            "order": 0,
-        })
+        cfg = configs.get(
+            sid,
+            {
+                "enabled": skill.get("default_enabled", False),
+                "config": {},
+                "order": 0,
+            },
+        )
         result.append({"skill": skill, **cfg})
     result.sort(key=lambda x: x.get("order", 0))
     return result
 
-def update_user_skill(user_id: str, skill_id: str, enabled: bool | None = None, config: dict | None = None, order: int | None = None) -> dict | None:
+
+def update_user_skill(
+    user_id: str,
+    skill_id: str,
+    enabled: bool | None = None,
+    config: dict | None = None,
+    order: int | None = None,
+) -> dict | None:
     if skill_id not in skills:
         return None
     if user_id not in user_skill_configs:
         user_skill_configs[user_id] = {}
-    cfg = user_skill_configs[user_id].get(skill_id, {
-        "enabled": skills[skill_id].get("default_enabled", False),
-        "config": {},
-        "order": 0,
-    })
+    cfg = user_skill_configs[user_id].get(
+        skill_id,
+        {
+            "enabled": skills[skill_id].get("default_enabled", False),
+            "config": {},
+            "order": 0,
+        },
+    )
     if enabled is not None:
         cfg["enabled"] = enabled
     if config is not None:
@@ -176,6 +192,7 @@ def update_user_skill(user_id: str, skill_id: str, enabled: bool | None = None, 
         cfg["order"] = order
     user_skill_configs[user_id][skill_id] = cfg
     return {"skill": skills[skill_id], **cfg}
+
 
 def create_custom_skill(user_id: str, data: dict) -> dict:
     sid = f"skill_custom_{uuid.uuid4().hex[:8]}"
@@ -206,8 +223,10 @@ def create_custom_skill(user_id: str, data: dict) -> dict:
     custom_skills[sid] = skill
     return skill
 
+
 def get_custom_skills(user_id: str) -> list[dict]:
     return [s for s in custom_skills.values() if s.get("owner_id") == user_id]
+
 
 def delete_custom_skill(skill_id: str) -> bool:
     if skill_id in custom_skills:
