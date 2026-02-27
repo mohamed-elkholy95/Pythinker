@@ -1992,8 +1992,8 @@ const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) =>
 const shouldShowThumbnail = computed(() => {
   if (isToolPanelOpen.value) return false;
   if (!sessionId.value) return false;
-  // Show live preview thumbnail when there's an active plan, loading, or tool activity
-  return !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value || !!lastNoMessageTool.value;
+  // Show live preview thumbnail when there's an active plan (not yet completed), loading, or tool activity
+  return (!!plan.value?.steps?.length && !isPlanCompleted.value) || isLoading.value || !!lastNoMessageTool.value;
 });
 
 const isPlanCompleted = computed(() => {
