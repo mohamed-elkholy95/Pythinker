@@ -76,6 +76,20 @@ router.beforeEach(async (to, _, next) => {
 
 const app = createApp(App)
 
+// Global error handler — catches errors from component lifecycle, watchers, event handlers
+app.config.errorHandler = (err, instance, info) => {
+  const componentName = instance?.$options?.name ?? instance?.$options?.__name ?? 'Unknown'
+  console.error(
+    `[Vue Error] in <${componentName}> during "${info}":`,
+    err,
+  )
+}
+
+// Catch unhandled Promise rejections from non-Vue code
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[Unhandled Rejection]', event.reason)
+})
+
 const pinia = createPinia()
 app.use(pinia)
 app.use(router)
