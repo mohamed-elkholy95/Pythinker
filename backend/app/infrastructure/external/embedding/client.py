@@ -78,8 +78,12 @@ class EmbeddingClient:
         logger.info(f"Embedding client initialized with {len(key_configs)} API key(s) using ROUND_ROBIN strategy")
 
     async def get_api_key(self) -> str | None:
-        """Get the currently active API key from pool (round-robin distribution)."""
-        return await self._key_pool.get_healthy_key()
+        """Get the currently active API key from pool (round-robin distribution).
+
+        Uses wait-for-recovery (MCP Rotator pattern): if all keys are in cooldown,
+        waits up to 120s for the soonest-recovering key instead of failing immediately.
+        """
+        return await self._key_pool.get_healthy_key_or_wait(max_wait_seconds=120.0)
 
     def _cache_key(self, text: str) -> str:
         """Build a Redis cache key from text content hash + model."""

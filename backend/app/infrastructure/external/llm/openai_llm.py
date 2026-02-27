@@ -160,11 +160,15 @@ class OpenAILLM(LLM):
         )
 
     async def get_api_key(self) -> str | None:
-        """Get currently active API key from pool."""
+        """Get currently active API key from pool.
+
+        Uses wait-for-recovery (MCP Rotator pattern): if all keys are in cooldown,
+        waits up to 120s for the soonest-recovering key instead of failing immediately.
+        """
         if not hasattr(self, "_key_pool"):
             # Instance created improperly (e.g., with __new__() bypassing __init__)
             return None
-        return await self._key_pool.get_healthy_key()
+        return await self._key_pool.get_healthy_key_or_wait(max_wait_seconds=120.0)
 
     async def _get_client(self) -> AsyncOpenAI:
         """Get OpenAI client with current active key."""
