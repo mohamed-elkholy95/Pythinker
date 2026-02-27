@@ -10,7 +10,7 @@
         class="connector-banner-preview"
         src="https://files.manuscdn.com/webapp/_next/static/media/connectorsLight.907a46cd.png"
       />
-      <button class="connector-banner-close" @click.stop="handleClose">
+      <button class="connector-banner-close" :aria-label="t('Dismiss connector banner')" @click.stop="handleClose">
         <X :size="16" />
       </button>
     </div>

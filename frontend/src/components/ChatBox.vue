@@ -20,17 +20,20 @@
                 <div class="chatbox-input-area">
                     <textarea
                         ref="textareaRef"
+                        id="chatbox-message"
+                        name="chatbox-message"
                         class="chatbox-textarea"
                         :rows="rows" :value="modelValue"
                         @input="handleInput"
                         @compositionstart="isComposing = true" @compositionend="isComposing = false"
                         @keydown.enter.exact="handleEnterKeydown"
                         :placeholder="t('Give Pythinker a task to work on...')"
+                        :aria-label="t('Give Pythinker a task to work on...')"
                         :style="textareaStyle"></textarea>
                 </div>
                 <footer class="chatbox-footer">
                     <div class="chatbox-actions-left">
-                        <button @click="uploadFile" class="chatbox-attach-btn">
+                        <button @click="uploadFile" class="chatbox-attach-btn" :aria-label="t('Attach file')">
                             <Paperclip :size="16" />
                         </button>
 
@@ -39,16 +42,18 @@
                         <button v-if="!isRunning"
                             class="chatbox-send-btn"
                             :class="{ 'disabled': !sendEnabled, 'enabled': sendEnabled }"
+                            :aria-label="t('Send message')"
+                            :aria-disabled="!sendEnabled"
                             @click="handleSubmit">
                             <SendIcon :disabled="!sendEnabled" />
                         </button>
-                        <button v-else @click="handleStop" class="chatbox-stop-btn active-interrupt">
+                        <button v-else @click="handleStop" class="chatbox-stop-btn active-interrupt" :aria-label="t('Stop task')">
                             <div class="stop-icon"></div>
                         </button>
                     </div>
                 </footer>
             </div>
-            <div v-if="showConnectorRow" class="chatbox-connector-row hidden">
+            <div v-if="showConnectorRow" class="chatbox-connector-row">
                 <ConnectorBanner :forceVisible="true" @close="handleConnectorBannerClose" />
             </div>
         </div>
@@ -106,29 +111,27 @@ const showConnectorRow = computed(() => !!props.showConnectorBanner && !isConnec
 
 const MIN_TEXTAREA_HEIGHT = 46;
 const MAX_TEXTAREA_HEIGHT = 216;
-const ESTIMATED_LINE_HEIGHT = 24;
-const ESTIMATED_VERTICAL_PADDING = 20;
 
 const textareaStyle = ref<{ height: string; overflowY: 'auto' | 'hidden' }>({
   height: `${MIN_TEXTAREA_HEIGHT}px`,
   overflowY: 'hidden',
 });
 
-const resizeTextarea = (inputValue?: string) => {
+const resizeTextarea = () => {
   const textarea = textareaRef.value;
   if (!textarea) return;
 
-  textarea.style.height = `${MIN_TEXTAREA_HEIGHT}px`;
+  // Collapse to 0 so scrollHeight reflects true content height
+  // (scrollHeight returns max(content, element) — using MIN as baseline
+  //  hides wrapped lines when content == MIN and lineCount is 1)
+  textarea.style.height = '0px';
   const measuredHeight = textarea.scrollHeight;
-  const value = typeof inputValue === 'string' ? inputValue : textarea.value;
-  const lineCount = Math.max((value || '').split('\n').length, 1);
-  const estimatedHeight = lineCount * ESTIMATED_LINE_HEIGHT + ESTIMATED_VERTICAL_PADDING;
-  const contentHeight = measuredHeight > MIN_TEXTAREA_HEIGHT ? measuredHeight : estimatedHeight;
-  const nextHeight = Math.min(Math.max(contentHeight, MIN_TEXTAREA_HEIGHT), MAX_TEXTAREA_HEIGHT);
+  const contentHeight = Math.max(measuredHeight, MIN_TEXTAREA_HEIGHT);
+  const nextHeight = Math.min(contentHeight, MAX_TEXTAREA_HEIGHT);
 
   textareaStyle.value = {
     height: `${nextHeight}px`,
-    overflowY: contentHeight > MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden',
+    overflowY: contentHeight > nextHeight ? 'auto' : 'hidden',
   };
 };
 
@@ -176,7 +179,7 @@ const handleStop = () => {
 const handleInput = (event: Event) => {
   const target = event.target as HTMLTextAreaElement;
   emit('update:modelValue', target.value);
-  resizeTextarea(target.value);
+  resizeTextarea();
 };
 
 const uploadFile = () => {
@@ -214,7 +217,7 @@ watch(() => props.modelValue, (value: string) => {
 
 watch(() => props.modelValue, async () => {
   await nextTick();
-  resizeTextarea(props.modelValue);
+  resizeTextarea();
 });
 
 watch(

@@ -18,9 +18,11 @@
             class="text-lg font-medium text-[var(--text-primary)] flex-1 min-w-0 text-center hidden sm:block overflow-hidden text-ellipsis whitespace-nowrap">
             {{ title }}</div>
           <div class="flex items-center sm:gap-3"><button @click="handleCopyLink"
+              :aria-label="t('Copy share link')"
               class="p-2 flex items-center justify-center hover:bg-[var(--fill-tsp-white-dark)] rounded-lg cursor-pointer">
               <Link class="text-[var(--icon-secondary)]" :size="20" />
             </button><button @click="handleFileListShow"
+              :aria-label="t('View files')"
               class="p-2 flex items-center justify-center hover:bg-[var(--fill-tsp-white-dark)] rounded-lg cursor-pointer">
               <FileSearch class="text-[var(--icon-secondary)]" :size="20" />
             </button>
