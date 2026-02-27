@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime, timedelta
 
 from beanie import init_beanie
 from fastapi import FastAPI
@@ -45,6 +46,7 @@ _health_state = {
     "redis": False,
     "redis_cache": False,
     "qdrant": False,
+    "minio": False,
     "sandbox_pool": False,
     "ready": False,
 }
@@ -77,18 +79,49 @@ async def _run_periodic_session_cleanup(
             logger.warning("Periodic session cleanup failed: %s", e)
 
 
+async def _run_periodic_event_archival(
+    interval_seconds: float = 86400.0,  # Daily
+) -> None:
+    """Background task: archive old agent_events to cold collection."""
+    # Wait 5 minutes before first run to let system stabilize
+    await asyncio.sleep(300)
+    while True:
+        try:
+            from app.core.prometheus_metrics import event_store_archival_runs
+            from app.infrastructure.repositories.event_store_repository import EventStoreRepository
+
+            db = get_mongodb().client[settings.mongodb_database]
+            event_repo = EventStoreRepository(db_client=db)
+            cutoff = datetime.now(UTC) - timedelta(days=settings.mongodb_event_retention_days)
+            archived = await event_repo.archive_events_before(cutoff)
+            event_store_archival_runs.inc(labels={"status": "success"})
+            if archived > 0:
+                logger.info("Periodic event archival: %d events archived", archived)
+        except Exception as e:
+            from app.core.prometheus_metrics import event_store_archival_runs
+
+            event_store_archival_runs.inc(labels={"status": "error"})
+            logger.warning("Periodic event archival failed: %s", e)
+        await asyncio.sleep(interval_seconds)
+
+
 def _initialize_observability() -> None:
     """Initialize observability components (OTEL, metrics, tracer)."""
     try:
         # Configure OTEL if enabled
+        otel_active = False
         if settings.otel_enabled and settings.otel_endpoint:
             from app.infrastructure.observability.otel_exporter import configure_otel
 
-            configure_otel(
+            otel_active = configure_otel(
                 endpoint=settings.otel_endpoint,
                 service_name=settings.otel_service_name,
                 insecure=settings.otel_insecure,
             )
+
+        # Auto-instrument httpx and FastAPI when OTEL is active
+        if otel_active:
+            _setup_otel_auto_instrumentation()
 
         # Configure tracer with OTEL export
         from app.infrastructure.observability.tracer import configure_tracer
@@ -109,6 +142,31 @@ def _initialize_observability() -> None:
         logger.warning(f"Failed to initialize observability: {e}")
 
 
+def _setup_otel_auto_instrumentation() -> None:
+    """Activate OpenTelemetry auto-instrumentation for httpx and FastAPI.
+
+    Each instrumentor is independently guarded so a missing package
+    never blocks the others.
+    """
+    # httpx — traces all outbound HTTP calls (LLM, search, embeddings)
+    try:
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        HTTPXClientInstrumentor().instrument()
+        logger.info("OTEL auto-instrumented: httpx")
+    except Exception as exc:
+        logger.debug("OTEL httpx instrumentation skipped: %s", exc)
+
+    # FastAPI — traces all inbound HTTP requests
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor().instrument()
+        logger.info("OTEL auto-instrumented: FastAPI")
+    except Exception as exc:
+        logger.debug("OTEL FastAPI instrumentation skipped: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Code executed on startup
@@ -125,6 +183,8 @@ async def lifespan(app: FastAPI):
     periodic_cleanup_task = None
     reconciliation_task = None
     memory_cleanup_task = None
+    event_archival_task = None
+    mongo_profiler_task = None
 
     try:
         # Initialize observability (OTEL, metrics)
@@ -392,7 +452,7 @@ async def lifespan(app: FastAPI):
             reconciliation_task = asyncio.create_task(_reconciliation_loop())
             logger.info("Reconciliation background task started")
 
-        # Start background memory cleanup task (Phase 7)
+        # Start background memory cleanup task (Phase 7 + Phase 6F context cleanup)
         if _health_state["qdrant"]:
 
             async def _memory_cleanup_loop():
@@ -409,8 +469,53 @@ async def lifespan(app: FastAPI):
                     except Exception as e:
                         logger.debug(f"Memory cleanup failed (non-critical): {e}")
 
+                    # Phase 6F: Clean up old conversation context points
+                    try:
+                        from qdrant_client import models as qdrant_models
+
+                        max_age_days = settings.qdrant_conversation_context_max_age_days
+                        collection = settings.qdrant_conversation_context_collection
+                        cutoff_ts = (datetime.now(UTC) - timedelta(days=max_age_days)).isoformat()
+                        qdrant_client = get_qdrant().client
+                        if qdrant_client:
+                            result = await qdrant_client.delete(
+                                collection_name=collection,
+                                points_selector=qdrant_models.FilterSelector(
+                                    filter=qdrant_models.Filter(
+                                        must=[
+                                            qdrant_models.FieldCondition(
+                                                key="created_at",
+                                                range=qdrant_models.Range(lt=cutoff_ts),
+                                            ),
+                                        ],
+                                    ),
+                                ),
+                            )
+                            logger.debug("Conversation context cleanup: %s", result)
+                    except Exception as e:
+                        logger.debug(f"Conversation context cleanup failed (non-critical): {e}")
+
             memory_cleanup_task = asyncio.create_task(_memory_cleanup_loop())
             logger.info("Memory cleanup background task started")
+
+        # Start MongoDB slow query profiler (Phase 4B)
+        if _health_state["mongodb"] and settings.mongodb_profiler_enabled:
+            try:
+                from app.infrastructure.middleware.mongo_profiler import start_mongo_profiler
+
+                db = get_mongodb().client[settings.mongodb_database]
+                mongo_profiler_task = await start_mongo_profiler(
+                    db, threshold_ms=settings.mongodb_slow_query_threshold_ms
+                )
+            except Exception as e:
+                logger.warning("MongoDB profiler startup failed (non-critical): %s", e)
+
+        # Start event archival background task (Phase 1A: unbounded growth prevention)
+        if _health_state["mongodb"]:
+            event_archival_task = asyncio.create_task(_run_periodic_event_archival())
+            logger.info(
+                "Event archival background task started (retention: %d days)", settings.mongodb_event_retention_days
+            )
 
         try:
             yield
@@ -418,6 +523,16 @@ async def lifespan(app: FastAPI):
             # Code executed on shutdown
             logger.info("Application shutdown - Pythinker AI Agent terminating")
             _health_state["ready"] = False
+
+            # Phase 1.5: Drain active SSE streams before tearing down services
+            try:
+                from app.domain.services.stream_guard import drain_active_streams
+
+                drained = await drain_active_streams(drain_timeout=5.0)
+                if drained:
+                    logger.info("Drained %d active SSE streams before shutdown", drained)
+            except Exception as e:
+                logger.warning("SSE stream drain failed (non-critical): %s", e)
 
             # Phase 2: Stop sync worker
             if _health_state["qdrant"]:
@@ -446,6 +561,18 @@ async def lifespan(app: FastAPI):
                 memory_cleanup_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await memory_cleanup_task
+
+            # Cancel event archival task
+            if event_archival_task is not None:
+                event_archival_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await event_archival_task
+
+            # Stop MongoDB profiler
+            if mongo_profiler_task is not None:
+                mongo_profiler_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await mongo_profiler_task
 
             # Shutdown sandbox pool first (Phase 3)
             sandbox_pool_enabled = (
