@@ -52,11 +52,16 @@ class ToolEfficiencyMonitor:
     READ_TOOLS: ClassVar[frozenset[str]] = frozenset(t.value for t in ToolName.read_only_tools())
     ACTION_TOOLS: ClassVar[frozenset[str]] = frozenset(t.value for t in ToolName.action_tools())
 
+    # Relaxed thresholds for research modes (deep_research, wide_research)
+    _RESEARCH_READ_THRESHOLD: ClassVar[int] = 12
+    _RESEARCH_STRONG_THRESHOLD: ClassVar[int] = 15
+
     def __init__(
         self,
         window_size: int = 10,
         read_threshold: int = 5,
         strong_threshold: int = 6,
+        research_mode: str | None = None,
     ):
         """Initialize tool efficiency monitor.
 
@@ -64,9 +69,13 @@ class ToolEfficiencyMonitor:
             window_size: Number of recent tool calls to track
             read_threshold: Consecutive reads before nudge
             strong_threshold: Consecutive reads before strong nudge
+            research_mode: If deep_research/wide_research, auto-relax thresholds
 
         Context7 validated: Constructor with sensible defaults.
         """
+        if research_mode in ("deep_research", "wide_research"):
+            read_threshold = max(read_threshold, self._RESEARCH_READ_THRESHOLD)
+            strong_threshold = max(strong_threshold, self._RESEARCH_STRONG_THRESHOLD)
         self.window_size = window_size
         self.read_threshold = read_threshold
         self.strong_threshold = strong_threshold
