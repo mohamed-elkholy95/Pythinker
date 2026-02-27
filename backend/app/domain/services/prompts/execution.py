@@ -1139,24 +1139,26 @@ Task: {step}
 # SUMMARIZE PROMPT
 # ============================================================================
 
-ENHANCED_SUMMARIZE_PROMPT = """Deliver the completed result as a professional research report.
+ENHANCED_SUMMARIZE_PROMPT = """Deliver the completed result as a professional, visually rich research report.
 
 REPORT STRUCTURE (follow this format exactly):
 
-# [Clear, Descriptive Title]
+# 🔬 [Clear, Descriptive Title]
+
+---
 
 ## Introduction
 Brief context and scope of the research (2-3 sentences).
 
-## [Main Section 1]
+## 📊 [Main Section 1]
 ### [Subsection if needed]
-Content with **bold** for key terms. Use tables for comparisons:
+Content with **bold** for key terms. Use RICH TABLES for comparisons:
 
 | Category | Details | Notes |
 |----------|---------|-------|
 | Item 1   | Value   | Info  |
 
-## [Main Section 2]
+## 🔍 [Main Section 2]
 Continue with clear, factual content.
 
 ## Conclusion
@@ -1165,17 +1167,43 @@ Key takeaways and recommendations.
 ## References
 [1] Source Name - URL
 
-WRITING GUIDELINES:
-- Be CONCISE - no filler text, disclaimers, or meta-commentary
-- NO revision notes, change logs, or "this report has been updated" sections
-- NO "Important Disclaimer" or similar notices
-- Focus on FACTS and FINDINGS only
-- Use **bold** for key terms, not for entire headings
-- Use tables for structured comparisons
-- For comparison/versus reports, include a dedicated "## Comparison Table" section with first column as item name and at least one numeric metric column
+DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
+- Use emoji prefixes on section headings (## 🎯 Section, ## 📊 Data, ## 🔍 Analysis, ## 💡 Insights, ## 🏆 Results)
+- Use horizontal rules (---) to separate major sections for visual clarity
+- Use TABLES extensively for any structured comparisons, feature lists, pricing, or specifications — tables are rendered with premium styling
+- For comparisons/versus reports: include a dedicated "## Comparison Table" or "## Benchmark Comparison" section with clear column headers
+- For workflows, architectures, or relationships: use Mermaid diagrams:
+  ```mermaid
+  graph LR
+    A[Step 1] --> B[Step 2] --> C[Step 3]
+  ```
+- For important callouts, use GitHub-style alert blockquotes:
+  > [!NOTE]
+  > Background context or helpful information
+
+  > [!TIP]
+  > Optimization or best practice suggestion
+
+  > [!IMPORTANT]
+  > Critical requirement or must-know information
+
+  > [!WARNING]
+  > Potential problems or breaking changes
+
+  > [!CAUTION]
+  > High-risk actions or security concerns
+- Use **bold** for key terms within paragraphs
 - Use bullet points for lists of items
 - Include numbered references at the end
 - Write in professional, direct tone
+
+QUALITY STANDARDS:
+- Be CONCISE - no filler text, disclaimers, or meta-commentary
+- NO revision notes, change logs, or "this report has been updated" sections
+- Focus on FACTS and FINDINGS only
+- Every comparison should be in a table, never in paragraph form
+- Every workflow or process should use a Mermaid diagram when possible
+- Use alerts sparingly (1-3 per report) for genuinely important callouts
 
 FORBIDDEN:
 - "This report has been revised..."
@@ -1191,7 +1219,7 @@ Response specification:
 ```json
 {{
   "title": "string",       // Clear title (e.g., "Best Practices for Coding with Claude")
-  "message": "string",     // FULL report in clean Markdown - NO meta-commentary
+  "message": "string",     // FULL report in clean Markdown with rich formatting — NO meta-commentary
   "attachments": [],       // ALWAYS leave empty — report content is delivered automatically
   "suggestions": ["string", "string", "string"]  // Exactly 3 short follow-up questions the user might ask next (each 5-15 words)
 }}
@@ -1220,20 +1248,22 @@ STREAMING_SUMMARIZE_PROMPT = """Write the research report NOW. Start your respon
 
 REPORT STRUCTURE (follow this format exactly):
 
-# [Clear, Descriptive Title]
+# 🔬 [Clear, Descriptive Title]
+
+---
 
 ## Introduction
 Brief context and scope of the research (2-3 sentences).
 
-## [Main Section 1]
+## 📊 [Main Section 1]
 ### [Subsection if needed]
-Content with **bold** for key terms. Use tables for comparisons:
+Content with **bold** for key terms. Use RICH TABLES for comparisons:
 
 | Category | Details | Notes |
 |----------|---------|-------|
 | Item 1   | Value   | Info  |
 
-## [Main Section 2]
+## 🔍 [Main Section 2]
 Continue with clear, factual content.
 
 ## Conclusion
@@ -1242,17 +1272,39 @@ Key takeaways and recommendations.
 ## References
 [1] Source Name - URL
 
-WRITING GUIDELINES:
-- Be CONCISE - no filler text, disclaimers, or meta-commentary
-- NO revision notes, change logs, or "this report has been updated" sections
-- NO "Important Disclaimer" or similar notices
-- Focus on FACTS and FINDINGS only
-- Use **bold** for key terms, not for entire headings
-- Use tables for structured comparisons
-- For comparison/versus reports, include a dedicated "## Comparison Table" section with first column as item name and at least one numeric metric column
-- Use bullet points for lists of items
+DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
+- Use emoji prefixes on section headings (## 🎯 Section, ## 📊 Data, ## 🔍 Analysis, ## 💡 Insights, ## 🏆 Results)
+- Use horizontal rules (---) to separate major sections for visual clarity
+- Use TABLES extensively for any structured data, comparisons, feature lists, pricing, or specifications
+- For comparisons/versus reports: include a dedicated comparison table with numeric metrics
+- For workflows, architectures, or relationships: use Mermaid diagrams:
+  ```mermaid
+  graph LR
+    A[Step 1] --> B[Step 2] --> C[Step 3]
+  ```
+- For important callouts, use GitHub-style alert blockquotes:
+  > [!NOTE]
+  > Background context or helpful information
+
+  > [!TIP]
+  > Optimization or best practice suggestion
+
+  > [!IMPORTANT]
+  > Critical requirement or must-know information
+
+  > [!WARNING]
+  > Potential problems or breaking changes
+- Use **bold** for key terms within paragraphs
+- Use bullet points for lists
 - Include numbered references at the end
 - Write in professional, direct tone
+
+QUALITY STANDARDS:
+- Be CONCISE - no filler text or meta-commentary
+- Focus on FACTS and FINDINGS only
+- Every comparison should be in a table
+- Every workflow or process should use a Mermaid diagram when possible
+- Use alerts sparingly for genuinely important callouts
 
 FORBIDDEN (your response will be REJECTED if it contains any of these):
 - Starting with "I'll create...", "I will write...", "Let me...", "Based on the research findings..."
@@ -1285,20 +1337,22 @@ CITATION REQUIREMENTS:
 
 REPORT STRUCTURE (follow this format exactly):
 
-# [Clear, Descriptive Title]
+# 🔬 [Clear, Descriptive Title]
+
+---
 
 ## Introduction
 Brief context and scope of the research (2-3 sentences).
 
-## [Main Section 1]
+## 📊 [Main Section 1]
 ### [Subsection if needed]
-Content with inline citations [1]. Use tables for comparisons:
+Content with inline citations [1]. Use RICH TABLES for comparisons:
 
 | Category | Details | Source |
 |----------|---------|--------|
 | Item 1   | Value   | [1]    |
 
-## [Main Section 2]
+## 🔍 [Main Section 2]
 Continue with clear, factual content and citations [2][3].
 
 ## Conclusion
@@ -1307,14 +1361,35 @@ Key takeaways and recommendations.
 ## References
 List all cited sources with their numbers matching the inline citations.
 
-WRITING GUIDELINES:
-- Be CONCISE - no filler text, disclaimers, or meta-commentary
-- Focus on FACTS and FINDINGS with proper attribution
-- Use **bold** for key terms
-- Use tables for structured comparisons
+DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
+- Use emoji prefixes on section headings (## 🎯 Section, ## 📊 Data, ## 🔍 Analysis, ## 💡 Insights, ## 🏆 Results)
+- Use horizontal rules (---) to separate major sections for visual clarity
+- Use TABLES extensively for any structured data, comparisons, feature lists, pricing, or specifications
+- For workflows, architectures, or relationships: use Mermaid diagrams:
+  ```mermaid
+  graph LR
+    A[Step 1] --> B[Step 2] --> C[Step 3]
+  ```
+- For important callouts, use GitHub-style alert blockquotes:
+  > [!NOTE]
+  > Background context or helpful information
+
+  > [!IMPORTANT]
+  > Critical requirement or must-know information
+
+  > [!WARNING]
+  > Potential problems or breaking changes
+- Use **bold** for key terms within paragraphs
 - Write in professional, rigorous tone
 - Maintain consistent citation usage throughout
 - Synthesize findings into coherent prose — do NOT include raw Q&A pairs
+
+QUALITY STANDARDS:
+- Be CONCISE - no filler text or meta-commentary
+- Focus on FACTS and FINDINGS with proper attribution
+- Every comparison should be in a table
+- Every workflow or process should use a Mermaid diagram when possible
+- Use alerts sparingly for genuinely important callouts
 
 FORBIDDEN (your response will be REJECTED if it contains any of these):
 - Starting with "I'll create...", "I will write...", "Let me...", "Based on the research findings..."
