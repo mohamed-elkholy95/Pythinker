@@ -462,12 +462,18 @@ class ResponseGenerator:
             or self.is_report_structure(content)
         )
 
-    def can_auto_repair_delivery_integrity(self, issues: list[str]) -> bool:
-        """Allow safe remediation for coverage-only misses with deterministic fallbacks."""
+    def can_auto_repair_delivery_integrity(self, issues: list[str], content: str = "") -> bool:
+        """Allow safe remediation for coverage-only misses with deterministic fallbacks.
+
+        For stream_truncation_unresolved: if the gathered content is substantial (>=500 chars)
+        we prefer delivering it with a truncation notice over silently discarding the work.
+        """
         if not issues:
             return False
         if any(issue == "stream_truncation_unresolved" for issue in issues):
-            return False
+            # Degrade gracefully — deliver partial content with a disclaimer rather than
+            # discarding potentially thousands of chars of completed research.
+            return len(content.strip()) >= 500
 
         actionable_issues = [i for i in issues if i != "content_completeness_warning"]
         if not actionable_issues:
@@ -497,6 +503,13 @@ class ResponseGenerator:
         """Append deterministic fallback sections for reparable coverage misses."""
         missing = self._extract_missing_coverage_requirements(issues)
         sections: list[str] = []
+
+        if any(issue == "stream_truncation_unresolved" for issue in issues):
+            sections.append(
+                "> **Note:** The model's output was cut off before completion. "
+                "The content above represents all successfully gathered information. "
+                "You may ask a follow-up question to continue from where this left off."
+            )
 
         if "final result" in missing:
             sections.append("## Final Result\nThe requested work has been completed as summarized above.")
