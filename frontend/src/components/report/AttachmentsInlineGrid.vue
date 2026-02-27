@@ -82,7 +82,7 @@ import { fileApi } from '@/api/file'
 import { isChartPngFile, isInteractiveChartFile, getChartHtmlFile } from '@/utils/fileType'
 import FileTypeIcon from '@/components/FileTypeIcon.vue'
 
-const MAX_REGULAR_FILES = 2
+const MAX_REGULAR_FILES = 4
 
 const props = defineProps<{
   attachments: FileInfo[]
@@ -144,7 +144,7 @@ const regularFiles = computed(() => {
   )
 })
 
-const MAX_VISUAL_FILES = 2
+const MAX_VISUAL_FILES = 4
 
 // Only show first 2 visual files inline
 const displayedChartFiles = computed(() =>
