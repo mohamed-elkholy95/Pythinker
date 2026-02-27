@@ -7,9 +7,7 @@ Fix: get_toolset_manager() calls warm_cache_for_common_tasks() on first creation
 validate_tool_contracts() executes at startup and logs any schema violations.
 """
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from app.domain.services.tools.dynamic_toolset import DynamicToolsetManager
 
@@ -46,7 +44,6 @@ def test_get_toolset_manager_triggers_warm_cache_on_first_call():
     _mod._toolset_manager = None
     try:
         warm_called = []
-        original_class_init = DynamicToolsetManager.__init__
 
         def patched_warm(self_inner):
             warm_called.append(True)
@@ -67,9 +64,7 @@ def test_validate_tool_contracts_detects_missing_description():
     manager = DynamicToolsetManager()
 
     # Register a tool with no description
-    from app.domain.services.tools.dynamic_toolset import ToolInfo
-
-    from app.domain.services.tools.dynamic_toolset import ToolCategory
+    from app.domain.services.tools.dynamic_toolset import ToolCategory, ToolInfo
 
     bad_tool = ToolInfo(
         name="bad_tool",
@@ -97,9 +92,7 @@ def test_validate_tool_contracts_detects_param_missing_type():
     """validate_tool_contracts() flags parameters without a 'type' field."""
     manager = DynamicToolsetManager()
 
-    from app.domain.services.tools.dynamic_toolset import ToolInfo
-
-    from app.domain.services.tools.dynamic_toolset import ToolCategory
+    from app.domain.services.tools.dynamic_toolset import ToolCategory, ToolInfo
 
     bad_param_tool = ToolInfo(
         name="param_tool",
@@ -123,7 +116,7 @@ def test_validate_tool_contracts_detects_param_missing_type():
             },
         },
     )
-    manager._tools["param_tool"] = param_tool = bad_param_tool
+    manager._tools["param_tool"] = bad_param_tool
 
     violations = manager.validate_tool_contracts()
     assert any("param_tool" in v and "type" in v for v in violations), (

@@ -23,6 +23,7 @@ def policy() -> HitlPolicy:
 
 # ── Destructive shell commands ──────────────────────────────────────────────
 
+
 def test_rm_rf_is_critical(policy: HitlPolicy):
     assessment = policy.assess("shell_run", {"command": "rm -rf /tmp/workspace"})
     assert assessment.requires_approval is True
@@ -42,6 +43,7 @@ def test_shutil_rmtree_is_critical(policy: HitlPolicy):
 
 # ── Shell injection ──────────────────────────────────────────────────────────
 
+
 def test_subprocess_shell_true_is_flagged(policy: HitlPolicy):
     assessment = policy.assess("run_bash", {"command": "subprocess.run(['ls'], shell=True)"})
     assert assessment.requires_approval is True
@@ -60,6 +62,7 @@ def test_code_injection_pattern_is_critical(policy: HitlPolicy):
 
 
 # ── HTTP mutations ───────────────────────────────────────────────────────────
+
 
 def test_http_delete_is_flagged(policy: HitlPolicy):
     assessment = policy.assess(
@@ -88,6 +91,7 @@ def test_http_post_to_localhost_is_not_flagged(policy: HitlPolicy):
 
 # ── Sensitive file writes ────────────────────────────────────────────────────
 
+
 def test_write_to_etc_passwd_is_critical(policy: HitlPolicy):
     assessment = policy.assess("file_write", {"path": "/etc/passwd"})
     assert assessment.requires_approval is True
@@ -99,7 +103,7 @@ def test_write_to_var_is_critical(policy: HitlPolicy):
     assert assessment.requires_approval is True
 
 
-def test_content_mentioning_etc_in_file_write_is_NOT_flagged(policy: HitlPolicy):
+def test_content_mentioning_etc_in_file_write_is_not_flagged(policy: HitlPolicy):
     """File content that mentions /etc should NOT trigger — only the path arg is inspected."""
     assessment = policy.assess(
         "file_write",
@@ -115,6 +119,7 @@ def test_content_mentioning_etc_in_file_write_is_NOT_flagged(policy: HitlPolicy)
 
 
 # ── Safe operations ──────────────────────────────────────────────────────────
+
 
 def test_safe_shell_command_not_flagged(policy: HitlPolicy):
     assessment = policy.assess("shell_run", {"command": "ls -la /workspace"})
@@ -133,6 +138,7 @@ def test_safe_web_search_not_flagged(policy: HitlPolicy):
 
 
 # ── Singleton ────────────────────────────────────────────────────────────────
+
 
 def test_get_hitl_policy_returns_singleton():
     """get_hitl_policy() returns the same instance on repeated calls."""

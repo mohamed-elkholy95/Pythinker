@@ -13,7 +13,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_eval_gate_called_when_flag_enabled():
     """evaluate_all() is invoked when enable_eval_gates=True and summary content exists."""
-    from app.domain.services.evaluation.ragas_metrics import EvaluationBatch, EvalResult, EvalMetricType
+    from app.domain.services.evaluation.ragas_metrics import EvaluationBatch
 
     mock_batch = MagicMock(spec=EvaluationBatch)
     mock_batch.results = [

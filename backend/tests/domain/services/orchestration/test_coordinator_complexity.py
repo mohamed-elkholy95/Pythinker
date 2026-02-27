@@ -4,7 +4,7 @@ _analyze_task() now calls meta.assess_capabilities() after keyword/length heuris
 and upgrades to COMPLEX when capability_match_score < 0.6 or can_accomplish is False.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

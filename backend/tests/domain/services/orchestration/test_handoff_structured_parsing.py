@@ -7,9 +7,7 @@ Fix: _detect_handoff_request() now tries JSON-first parsing:
 and falls back to regex markers for backward compatibility.
 """
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from app.domain.services.orchestration.swarm import Swarm, SwarmTask
 
@@ -104,7 +102,5 @@ def test_parse_structured_handoff_returns_none_for_empty_agent():
     swarm = _make_swarm()
     task = _make_task()
 
-    handoff = swarm._parse_structured_handoff(
-        {"handoff": {"agent": "", "task": "Do something"}}, task
-    )
+    handoff = swarm._parse_structured_handoff({"handoff": {"agent": "", "task": "Do something"}}, task)
     assert handoff is None

@@ -788,7 +788,7 @@ class TestInputWebSocketIDOR:
     """Tests for IDOR protection on the input_websocket endpoint."""
 
     @pytest.fixture(autouse=True)
-    def _allow_origins(self, _permit_all_ws_origins):  # noqa: PT019
+    def _allow_origins(self, _permit_all_ws_origins):
         """Ensure origin allowlist is not enforced for IDOR tests."""
 
     @pytest.mark.asyncio
@@ -1178,11 +1178,12 @@ class TestTakeoverLifecycleRoutes:
 
         assert response.data.takeover_state == "idle"
 
+
 class TestScreencastWebSocketIDOR:
     """Tests for IDOR protection on the screencast_websocket endpoint."""
 
     @pytest.fixture(autouse=True)
-    def _allow_origins(self, _permit_all_ws_origins):  # noqa: PT019
+    def _allow_origins(self, _permit_all_ws_origins):
         """Ensure origin allowlist is not enforced for IDOR tests."""
 
     @pytest.mark.asyncio
