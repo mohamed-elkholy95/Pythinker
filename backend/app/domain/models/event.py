@@ -324,6 +324,8 @@ class DealToolContent(BaseModel):
     coupons: list[CouponItem] = Field(default_factory=list)
     query: str = ""
     best_deal_index: int | None = None
+    searched_stores: list[str] = Field(default_factory=list)
+    store_errors: list[dict[str, str]] = Field(default_factory=list)
 
 
 ToolContent = (
