@@ -64,9 +64,9 @@ def _mock_auth_service(
     """Create a mock AuthService."""
     mock = Mock()
     if side_effect:
-        mock.verify_token = AsyncMock(side_effect=side_effect)
+        mock.verify_token_secure = AsyncMock(side_effect=side_effect)
     else:
-        mock.verify_token = AsyncMock(return_value=user)
+        mock.verify_token_secure = AsyncMock(return_value=user)
     return mock
 
 
