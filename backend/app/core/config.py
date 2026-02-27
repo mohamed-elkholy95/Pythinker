@@ -36,6 +36,7 @@ from app.core.config_database import (
     RedisSettingsMixin,
     StorageSettingsMixin,
 )
+from app.core.config_deals import DealScraperSettingsMixin
 from app.core.config_enums import FlowMode, StreamingMode
 from app.core.config_features import (
     AgentSafetySettingsMixin,
@@ -103,6 +104,7 @@ class Settings(
     PromptOptimizationSettingsMixin,
     KnowledgeBaseSettingsMixin,
     ScrapingSettingsMixin,
+    DealScraperSettingsMixin,
     # BaseSettings must come last
     BaseSettings,
 ):

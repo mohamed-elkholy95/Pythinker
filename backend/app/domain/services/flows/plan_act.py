@@ -319,6 +319,15 @@ class PlanActFlow(BaseFlow):
             tools.append(ScrapingTool(scraper=scraper, memory_service=memory_service, user_id=user_id))
             logger.info(f"ScrapingTool enabled for Agent {agent_id}")
 
+        # Add DealScraperTool when enabled (multi-store deal search + price comparison)
+        if get_settings().deal_scraper_enabled and scraper and search_engine:
+            from app.domain.services.tools.deal_scraper import DealScraperTool
+            from app.infrastructure.external.deal_finder import get_deal_finder_adapter
+
+            _deal_finder = get_deal_finder_adapter(scraper=scraper, search_engine=search_engine)
+            tools.append(DealScraperTool(deal_finder=_deal_finder))
+            logger.info(f"DealScraperTool enabled for Agent {agent_id}")
+
         # Add skill creator tools for custom skill creation (Phase 3: Custom Skills)
         # Pending events queue for skill delivery events from tools
         self._pending_events: list[BaseEvent] = []
