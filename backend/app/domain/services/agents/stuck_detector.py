@@ -235,6 +235,13 @@ class StuckDetector:
         self._max_recovery_attempts = 3  # Align with prompt retry guidance
         self._semantic_stuck_detected = False
 
+        # Session-level escalation: survives brief pattern breaks.
+        # Tracks total stuck triggers across the entire session to prevent
+        # the oscillation problem where agents do one different action to
+        # reset the counter, then resume the stuck pattern.
+        self._session_stuck_triggers = 0
+        self._max_session_triggers = 6  # Hard-stop after 6 cumulative triggers
+
         # LRU embedding cache for efficiency (proper eviction instead of clear-all)
         self._embedding_cache: LRUCache = LRUCache(maxsize=100)
 
@@ -308,19 +315,29 @@ class StuckDetector:
 
         if is_stuck:
             self._stuck_count += 1
+            self._session_stuck_triggers += 1
             stuck_type = "hash-based" if is_hash_stuck else "semantic"
             logger.warning(
-                f"Stuck pattern detected ({stuck_type}, count: {self._stuck_count}, confidence: {confidence:.2f}). "
+                f"Stuck pattern detected ({stuck_type}, count: {self._stuck_count}, "
+                f"session_triggers: {self._session_stuck_triggers}/{self._max_session_triggers}, "
+                f"confidence: {confidence:.2f}). "
                 f"Similar responses in last {self._window_size} turns."
             )
         else:
-            # Reset stuck count if pattern broken
+            # Reset current-pattern count if pattern broken, but preserve
+            # session-level escalation and recovery attempts to prevent
+            # the oscillation exploit (one different action then resume).
             if self._stuck_count > 0:
-                logger.info("Stuck pattern broken, resetting counter")
+                logger.info(
+                    f"Stuck pattern broken, resetting current counter "
+                    f"(session triggers: {self._session_stuck_triggers})"
+                )
                 self._stuck_count = 0
-                self._recovery_attempts = 0
                 self._semantic_stuck_detected = False
                 self._stuck_analysis = None
+                # NOTE: _recovery_attempts and _session_stuck_triggers are
+                # intentionally NOT reset here — they accumulate across the
+                # session to enforce escalating pressure.
 
         # Phase 4 P1: Log detection check
         logger.debug(
@@ -547,7 +564,19 @@ class StuckDetector:
         return len(set(normalized)) == 1
 
     def can_attempt_recovery(self) -> bool:
-        """Check if recovery attempts are available"""
+        """Check if recovery attempts are available.
+
+        Returns False if either:
+        - Per-pattern recovery attempts exhausted (3 consecutive)
+        - Session-level stuck triggers exceeded (6 cumulative) — catches
+          the oscillation pattern where agents briefly switch tools to
+          reset the per-pattern counter.
+        """
+        if self._session_stuck_triggers >= self._max_session_triggers:
+            logger.warning(
+                f"Session-level stuck limit reached ({self._session_stuck_triggers}/{self._max_session_triggers})"
+            )
+            return False
         return self._recovery_attempts < self._max_recovery_attempts
 
     def record_recovery_attempt(self) -> None:
@@ -595,6 +624,7 @@ class StuckDetector:
         self._response_history.clear()
         self._stuck_count = 0
         self._recovery_attempts = 0
+        self._session_stuck_triggers = 0
         self._semantic_stuck_detected = False
         self._embedding_cache.clear()
         self._tool_action_history.clear()
@@ -611,6 +641,8 @@ class StuckDetector:
             "responses_tracked": len(self._response_history),
             "stuck_count": self._stuck_count,
             "recovery_attempts": self._recovery_attempts,
+            "session_stuck_triggers": self._session_stuck_triggers,
+            "max_session_triggers": self._max_session_triggers,
             "is_stuck": self.is_stuck(),
             "semantic_stuck": self._semantic_stuck_detected,
             "can_recover": self.can_attempt_recovery(),
