@@ -516,12 +516,23 @@ class ExecutionAgent(BaseAgent):
             self.system_prompt = original_system_prompt
             self._step_model_override = None  # DeepCode Phase 1: Reset model override
 
-    async def summarize(self, response_policy: ResponsePolicy | None = None) -> AsyncGenerator[BaseEvent, None]:
+    async def summarize(
+        self,
+        response_policy: ResponsePolicy | None = None,
+        all_steps_completed: bool = False,
+    ) -> AsyncGenerator[BaseEvent, None]:
         """
         Summarize the completed task, streaming tokens for live display.
         Uses ask_stream() to yield StreamEvent chunks so the frontend can render
         the report progressively. CoVe and Critic run as post-processing on the
         accumulated text after streaming completes.
+
+        Args:
+            response_policy: Override default response policy for summarization.
+            all_steps_completed: When True, "next step" is dropped from required
+                coverage sections and delivery-gate failures are downgraded to
+                warnings (the task is done — blocking the report is worse than
+                delivering it with minor coverage gaps).
         """
         active_policy = (
             response_policy
@@ -1078,10 +1089,16 @@ class ExecutionAgent(BaseAgent):
             # already handles factual accuracy. Re-enable when the LLM supports
             # reliable structured output for the 5-check framework.
 
+            # When all plan steps completed, "next step" is meaningless — drop it
+            # from required sections to avoid false coverage failures on terminal tasks.
+            _required_sections = active_policy.min_required_sections
+            if all_steps_completed:
+                _required_sections = [s for s in _required_sections if s.lower() != "next step"]
+
             coverage_result = self._output_coverage_validator.validate(
                 output=message_content,
                 user_request=self._user_request or "",
-                required_sections=active_policy.min_required_sections,
+                required_sections=_required_sections,
             )
             if not coverage_result.is_valid:
                 logger.warning(
@@ -1096,7 +1113,7 @@ class ExecutionAgent(BaseAgent):
                 compressed_coverage = self._output_coverage_validator.validate(
                     output=compressed_content,
                     user_request=self._user_request or "",
-                    required_sections=active_policy.min_required_sections,
+                    required_sections=_required_sections,
                 )
                 if compressed_coverage.is_valid and len(compressed_content) < len(message_content):
                     message_content = compressed_content
@@ -1114,19 +1131,21 @@ class ExecutionAgent(BaseAgent):
                 stream_metadata=stream_metadata,
                 truncation_exhausted=truncation_exhausted,
             )
-            if not gate_passed and self._can_auto_repair_delivery_integrity(gate_issues):
+            if not gate_passed and self._can_auto_repair_delivery_integrity(gate_issues, message_content):
                 repaired_content = self._append_delivery_integrity_fallback(message_content, gate_issues)
                 repaired_coverage = self._output_coverage_validator.validate(
                     output=repaired_content,
                     user_request=self._user_request or "",
-                    required_sections=active_policy.min_required_sections,
+                    required_sections=_required_sections,
                 )
+                # Pass truncation_exhausted=False: the notice was already appended above,
+                # so re-flagging it in the verification pass would re-block the repair.
                 repaired_passed, repaired_issues = self._run_delivery_integrity_gate(
                     content=repaired_content,
                     response_policy=active_policy,
                     coverage_result=repaired_coverage,
                     stream_metadata=stream_metadata,
-                    truncation_exhausted=truncation_exhausted,
+                    truncation_exhausted=False,
                 )
                 if repaired_passed:
                     logger.info(
@@ -1142,17 +1161,31 @@ class ExecutionAgent(BaseAgent):
 
             if not gate_passed:
                 issue_text = "; ".join(gate_issues)
-                yield StepEvent(
-                    status=StepStatus.FAILED,
-                    step=Step(
-                        id="finalization",
-                        description="Summary failed delivery integrity checks",
-                        status=ExecutionStatus.FAILED,
-                        step_type=StepType.FINALIZATION,
-                    ),
-                )
-                yield ErrorEvent(error=f"Delivery integrity gate blocked output: {issue_text}")
-                return
+                if all_steps_completed:
+                    # All plan steps succeeded — blocking the report is worse than
+                    # delivering it with minor integrity gaps.  Downgrade to warning
+                    # and proceed with delivery so the user sees their completed work.
+                    logger.warning(
+                        "Delivery integrity gate failed but all steps completed — "
+                        "downgrading to warning and delivering report: %s",
+                        issue_text,
+                    )
+                    _metrics.record_counter(
+                        "delivery_gate_downgraded_total",
+                        labels={"reason": "all_steps_completed"},
+                    )
+                else:
+                    yield StepEvent(
+                        status=StepStatus.FAILED,
+                        step=Step(
+                            id="finalization",
+                            description="Summary failed delivery integrity checks",
+                            status=ExecutionStatus.FAILED,
+                            step_type=StepType.FINALIZATION,
+                        ),
+                    )
+                    yield ErrorEvent(error=f"Delivery integrity gate blocked output: {issue_text}")
+                    return
 
             _metrics.record_counter("response_policy_mode_total", labels={"mode": active_policy.mode.value})
             _metrics.record_histogram(
@@ -1338,9 +1371,9 @@ class ExecutionAgent(BaseAgent):
             content, response_policy, coverage_result, stream_metadata, truncation_exhausted
         )
 
-    def _can_auto_repair_delivery_integrity(self, issues: list[str]) -> bool:
+    def _can_auto_repair_delivery_integrity(self, issues: list[str], content: str = "") -> bool:
         """Allow safe remediation for coverage-only misses (delegated)."""
-        return self._response_generator.can_auto_repair_delivery_integrity(issues)
+        return self._response_generator.can_auto_repair_delivery_integrity(issues, content)
 
     def _append_delivery_integrity_fallback(self, content: str, issues: list[str]) -> str:
         """Append deterministic fallback sections (delegated to ResponseGenerator)."""
