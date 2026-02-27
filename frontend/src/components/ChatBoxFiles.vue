@@ -29,7 +29,8 @@
                     <div class="flex flex-col gap-0.5 flex-1 min-w-0">
                         <div class="flex-1 min-w-0 flex items-center">
                             <div
-                                class="text-sm text-[var(--text-primary)] text-ellipsis overflow-hidden whitespace-nowrap flex-1 min-w-0">
+                                class="text-sm text-[var(--text-primary)] text-ellipsis overflow-hidden whitespace-nowrap flex-1 min-w-0"
+                                :title="file.filename">
                                 {{ file.filename }}</div>
                             <button @click.stop="removeFile(file.file_id)"
                                 class="hidden touch-device:flex group-hover/attach:flex rounded-full p-[2px] bg-[var(--icon-tertiary)] transition-all duration-200 hover:opacity-85">
