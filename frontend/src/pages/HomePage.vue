@@ -89,7 +89,7 @@
 
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
-import { ref, onMounted, computed, onUnmounted, watch } from 'vue';
+import { ref, onMounted, computed, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
 import type { AgentMode, ThinkingMode, ResearchMode } from '../api/agent';
@@ -100,6 +100,7 @@ import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue
 import SearchIcon from '../components/icons/SearchIcon.vue';
 import PaletteIcon from '../components/icons/PaletteIcon.vue';
 import ChatBubbleIcon from '../components/icons/ChatBubbleIcon.vue';
+import { Tag } from 'lucide-vue-next';
 import type { FileInfo } from '../api/file';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
@@ -134,6 +135,13 @@ const visibleFeatures: Feature[] = [
     icon: SearchIcon,
     mode: 'agent',
     prompt: 'create a comprehensive research report about: '
+  },
+  {
+    id: 'deals',
+    label: 'Deal Finder',
+    icon: Tag,
+    mode: 'agent',
+    prompt: 'Act as a professional deal finder. Search all major stores, compare prices, and find the best deals, coupons, and promo codes for: '
   },
   {
     id: 'design',
@@ -262,8 +270,15 @@ const handleFeatureClick = async (feature: Feature) => {
     // Chat mode - create agent session with a greeting so fast path sends a welcome bubble
     await createSessionWithMode('agent', 'Hello');
   } else if (feature.prompt) {
-    // Set the prompt in the message input
+    // Set the prompt in the message input and focus textarea for immediate typing
     message.value = feature.prompt;
+    await nextTick();
+    const textarea = document.getElementById('chatbox-message') as HTMLTextAreaElement | null;
+    if (textarea) {
+      textarea.focus();
+      // Place cursor at end of prompt so user can type product name immediately
+      textarea.setSelectionRange(feature.prompt.length, feature.prompt.length);
+    }
   }
 };
 
@@ -597,6 +612,14 @@ const handleSubmit = async (options: { thinkingMode?: ThinkingMode } = {}, skill
 .feature-btn--research:hover .feature-icon {
   color: #3b82f6;
   --icon-secondary: #3b82f6;
+}
+
+.feature-btn--deals:hover .feature-btn-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+}
+.feature-btn--deals:hover .feature-icon {
+  color: #f59e0b;
+  --icon-secondary: #f59e0b;
 }
 
 .feature-btn--design:hover .feature-btn-icon-wrap {

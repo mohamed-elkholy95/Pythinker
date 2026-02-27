@@ -64,6 +64,7 @@
         <div class="tool-chip-text max-w-[100%] min-w-0">
           {{ toolInfo.description }}
         </div>
+        <span v-if="progressLabel" class="tool-progress-label">{{ progressLabel }}</span>
         <span v-if="(groupCount ?? 1) > 1" class="tool-group-badge">×{{ groupCount }}</span>
         <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
       </div>
@@ -127,6 +128,15 @@ const { toolInfo } = useToolInfo(toRef(() => props.tool));
 const faviconError = ref(false);
 
 const isRunning = computed(() => props.tool.status === 'calling');
+
+/** Micro progress label from tool_progress events (truncated to 30 chars) */
+const progressLabel = computed(() => {
+  if (!isRunning.value) return '';
+  const step = props.tool.current_step;
+  if (!step) return '';
+  return step.length > 30 ? step.slice(0, 27) + '...' : step;
+});
+
 const shouldShimmer = computed(
   () => !!props.isActive && (isRunning.value || !!props.isTaskRunning)
 );
@@ -342,6 +352,11 @@ const handleBrowseUrl = (url: string) => {
   --tool-icon-accent: #e11d48;
 }
 
+[data-tool-category="deal_scraper"] {
+  --tool-category-bg: rgba(245, 158, 11, 0.08);
+  --tool-icon-accent: #f59e0b;
+}
+
 /* ── Category tint variables (dark mode) ── */
 .dark [data-tool-category="search"],
 .dark [data-tool-category="wide_research"] {
@@ -370,6 +385,25 @@ const handleBrowseUrl = (url: string) => {
 .dark [data-tool-category="git"] {
   --tool-category-bg: rgba(225, 29, 72, 0.10);
   --tool-icon-accent: #fb7185;
+}
+
+.dark [data-tool-category="deal_scraper"] {
+  --tool-category-bg: rgba(245, 158, 11, 0.10);
+  --tool-icon-accent: #fbbf24;
+}
+
+/* ── Progress micro-label ── */
+.tool-progress-label {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+  line-height: 1;
 }
 
 /* ── Group count badge ── */

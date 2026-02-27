@@ -38,6 +38,10 @@ export type AgentSSEEvent = {
     | 'canvas_update'
     | 'workspace'
     | 'research_mode'
+    | 'flow_selection'
+    | 'flow_transition'
+    | 'verification'
+    | 'reflection'
     | 'phase';
   data:
     | ToolEventData
@@ -64,7 +68,11 @@ export type AgentSSEEvent = {
     | CanvasUpdateEventData
     | WorkspaceEventData
     | AgentPhaseEventData
-    | ResearchModeEventData;
+    | ResearchModeEventData
+    | FlowSelectionEventData
+    | FlowTransitionEventData
+    | VerificationEventData
+    | ReflectionEventData;
 }
 
 export interface BaseEventData {
@@ -320,4 +328,43 @@ export interface AgentPhaseEventData extends BaseEventData {
 
 export interface ResearchModeEventData extends BaseEventData {
   research_mode: string;
+}
+
+// ── Observability events (flow lifecycle, verification) ──────────────
+
+export interface FlowSelectionEventData extends BaseEventData {
+  flow_mode: string;
+  model?: string;
+  session_id?: string;
+  reason?: string;
+}
+
+export interface FlowTransitionEventData extends BaseEventData {
+  from_state: string;
+  to_state: string;
+  reason?: string;
+  step_id?: string;
+  elapsed_ms?: number;
+}
+
+export type VerificationVerdict = 'pass' | 'revise' | 'fail';
+
+export interface VerificationEventData extends BaseEventData {
+  status: string;
+  verdict?: VerificationVerdict;
+  confidence?: number;
+  summary?: string;
+  revision_feedback?: string;
+}
+
+// ── Reflection events (meta-cognitive reflection during execution) ────
+
+export type ReflectionDecision = 'continue' | 'adjust' | 'replan' | 'escalate' | 'abort';
+
+export interface ReflectionEventData extends BaseEventData {
+  status: 'triggered' | 'completed';
+  decision?: ReflectionDecision;
+  confidence?: number;
+  summary?: string;
+  trigger_reason?: string;
 }
