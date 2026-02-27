@@ -17,6 +17,7 @@ Industry patterns from AWS, Google Cloud, Apache APISIX, MCP API Rotators.
 """
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import random
@@ -27,6 +28,7 @@ from enum import Enum
 from redis.asyncio import Redis
 
 from app.core.prometheus_metrics import (
+    api_key_early_recoveries_total,
     api_key_exhaustions_total,
     api_key_health_score,
     api_key_selections_total,
@@ -49,6 +51,8 @@ QUOTA_KEYWORDS = frozenset(
         "not enough credits",
         "billing",
         "payment required",
+        "credits",
+        "insufficient",
     }
 )
 
@@ -287,6 +291,7 @@ class APIKeyPool:
         redis_client: Redis | None = None,
         base_backoff_seconds: float = 1.0,
         max_backoff_seconds: float = 60.0,
+        cooldown_overrides: dict[ErrorType, int] | None = None,
     ):
         """
         Initialize API key pool.
@@ -298,6 +303,9 @@ class APIKeyPool:
             redis_client: Redis client for health tracking (None = in-memory mode)
             base_backoff_seconds: Base delay for exponential backoff (default: 1s)
             max_backoff_seconds: Maximum backoff delay (default: 60s)
+            cooldown_overrides: Per-provider cooldown overrides by error type.
+                Merges with defaults — only specified types are overridden.
+                Example: ``{ErrorType.QUOTA_EXHAUSTED: 14400}`` for 4h instead of 24h.
 
         Raises:
             ValueError: If keys list is empty
@@ -312,6 +320,11 @@ class APIKeyPool:
         self.base_backoff_seconds = base_backoff_seconds
         self.max_backoff_seconds = max_backoff_seconds
 
+        # Per-provider cooldown overrides (merge with defaults)
+        self._cooldowns = dict(_ERROR_COOLDOWNS)
+        if cooldown_overrides:
+            self._cooldowns.update(cooldown_overrides)
+
         # Round-robin state (lock protects index read+increment atomicity)
         self._round_robin_index = 0
         self._round_robin_lock = asyncio.Lock()
@@ -323,12 +336,20 @@ class APIKeyPool:
         # Per-key consecutive rate limit counters for exponential backoff
         self._consecutive_rate_limits: dict[str, int] = {}  # key_hash -> count
 
+        # Adaptive TTL learning: tracks when keys were marked exhausted
+        # and adjusts future TTLs based on actual recovery times
+        self._exhaustion_timestamps: dict[str, float] = {}  # key_hash -> when marked exhausted
+        self._adaptive_ttl_multiplier: float = 1.0  # shrinks on early recovery (floor: 0.25)
+
         # Circuit breaker for upstream outage protection
         self.circuit_breaker = CircuitBreaker()
 
         # Cooldown: suppress repeated "all keys exhausted" warnings
         self._last_exhaustion_warning: float = 0.0
         self._exhaustion_warning_cooldown: float = 60.0  # seconds
+
+        # Background health probe task (opt-in via start_health_probe)
+        self._health_probe_task: asyncio.Task | None = None
 
         # Warn if running without Redis
         if redis_client is None:
@@ -523,19 +544,20 @@ class APIKeyPool:
                     return False
 
                 # Check if key is exhausted (temporary with TTL)
+                # Use TTL instead of EXISTS to get actual remaining seconds
+                # TTL returns: >0 = seconds remaining, -2 = key doesn't exist, -1 = no expiry
                 exhausted_key = f"api_key:exhausted:{self.provider}:{key_hash}"
-                exhausted_result = await self._redis.call("exists", exhausted_key)
-                # Only trust result if it's actually a boolean or int (0/1)
-                if isinstance(exhausted_result, (bool, int)) and exhausted_result:
-                    # Sync to in-memory state (with default 60s TTL since we can't get exact TTL easily)
-                    self._memory_exhausted[key_hash] = now + 60
+                ttl_result = await self._redis.call("ttl", exhausted_key)
+                if isinstance(ttl_result, int) and ttl_result > 0:
+                    # Sync actual Redis TTL to in-memory state
+                    self._memory_exhausted[key_hash] = now + ttl_result
                     return False
             except Exception as e:
                 logger.warning(f"[{self.provider}] Redis check failed, using in-memory state: {e}")
 
         return True
 
-    async def mark_exhausted(self, key: str, ttl_seconds: int) -> None:
+    async def mark_exhausted(self, key: str, ttl_seconds: int, *, apply_adaptive: bool = True) -> None:
         """
         Mark API key as exhausted with TTL.
 
@@ -548,12 +570,26 @@ class APIKeyPool:
         Args:
             key: API key to mark as exhausted
             ttl_seconds: Time-to-live in seconds (e.g., 3600 for 1 hour)
+            apply_adaptive: Whether to apply the adaptive TTL multiplier (default True).
+                Set to False for rate-limit backoff where the cooldown is already calculated.
         """
         key_hash = self._hash_key(key)
 
         # Skip if already marked exhausted (prevents log spam from concurrent callers)
         if key_hash in self._memory_exhausted and self._memory_exhausted[key_hash] > time.time():
             return
+
+        # Apply adaptive TTL multiplier for quota exhaustion cooldowns
+        if apply_adaptive and self._adaptive_ttl_multiplier < 1.0:
+            original = ttl_seconds
+            ttl_seconds = max(60, int(ttl_seconds * self._adaptive_ttl_multiplier))
+            logger.info(
+                f"[{self.provider}] Adaptive TTL: {original}s → {ttl_seconds}s "
+                f"(multiplier={self._adaptive_ttl_multiplier:.2f})"
+            )
+
+        # Record exhaustion timestamp for adaptive learning
+        self._exhaustion_timestamps[key_hash] = time.time()
 
         expiry_time = time.time() + ttl_seconds
 
@@ -632,7 +668,9 @@ class APIKeyPool:
         Returns:
             The classified ErrorType
         """
-        error_type, default_cooldown = classify_error(status_code, body_text, is_network_error)
+        error_type, _default_cooldown = classify_error(status_code, body_text, is_network_error)
+        # Use per-provider cooldown override (falls back to module default)
+        cooldown = self._cooldowns[error_type]
 
         # Update circuit breaker (only 5xx errors count)
         self.circuit_breaker.record_failure(error_type)
@@ -651,23 +689,24 @@ class APIKeyPool:
 
         if error_type == ErrorType.RATE_LIMITED:
             # Exponential backoff based on consecutive rate limits
-            cooldown = self._get_rate_limit_cooldown(key)
-            await self.mark_exhausted(key, ttl_seconds=cooldown)
+            rate_cooldown = self._get_rate_limit_cooldown(key)
+            await self.mark_exhausted(key, ttl_seconds=rate_cooldown, apply_adaptive=False)
             return error_type
 
         if error_type == ErrorType.QUOTA_EXHAUSTED:
-            # Long cooldown for quota exhaustion
-            await self.mark_exhausted(key, ttl_seconds=default_cooldown)
+            # Long cooldown for quota exhaustion (adaptive TTL applies)
+            await self.mark_exhausted(key, ttl_seconds=cooldown)
             return error_type
 
         # UPSTREAM_5XX, NETWORK_ERROR, OTHER — short cooldowns
-        await self.mark_exhausted(key, ttl_seconds=default_cooldown)
+        await self.mark_exhausted(key, ttl_seconds=cooldown)
         return error_type
 
     def record_success(self, key: str) -> None:
         """Record a successful request for a key.
 
-        Resets the consecutive rate limit counter and updates circuit breaker.
+        Resets the consecutive rate limit counter, updates circuit breaker,
+        and checks for early recovery to adapt future TTLs.
 
         Args:
             key: The API key that succeeded
@@ -677,6 +716,29 @@ class APIKeyPool:
         self._consecutive_rate_limits.pop(key_hash, None)
         # Update circuit breaker
         self.circuit_breaker.record_success()
+
+        # Adaptive TTL learning: detect early recovery
+        if key_hash in self._exhaustion_timestamps:
+            exhausted_at = self._exhaustion_timestamps.pop(key_hash)
+            actual_recovery = time.time() - exhausted_at
+
+            # Check if key was in exhausted state (now cleared by _is_healthy TTL expiry)
+            # If recovery happened in <75% of the configured TTL, shrink the multiplier
+            configured_ttl = self._cooldowns.get(ErrorType.QUOTA_EXHAUSTED, 86400)
+            threshold = configured_ttl * 0.75 * self._adaptive_ttl_multiplier
+
+            if actual_recovery < threshold:
+                old_multiplier = self._adaptive_ttl_multiplier
+                self._adaptive_ttl_multiplier = max(0.25, self._adaptive_ttl_multiplier * 0.7)
+                logger.info(
+                    f"[{self.provider}] Key {key_hash} recovered early "
+                    f"({actual_recovery:.0f}s < {threshold:.0f}s threshold). "
+                    f"Adaptive multiplier: {old_multiplier:.2f} → {self._adaptive_ttl_multiplier:.2f}"
+                )
+                api_key_early_recoveries_total.inc({"provider": self.provider})
+
+            # Clear from memory exhausted if still present
+            self._memory_exhausted.pop(key_hash, None)
 
     def _get_rate_limit_cooldown(self, key: str) -> int:
         """Calculate exponential backoff cooldown for rate-limited keys.
@@ -792,3 +854,64 @@ class APIKeyPool:
             First 8 characters of SHA256 hash
         """
         return hashlib.sha256(key.encode()).hexdigest()[:8]
+
+    # ------------------------------------------------------------------
+    # Background health probe (opt-in)
+    # ------------------------------------------------------------------
+
+    def start_health_probe(self, interval_seconds: float = 300.0) -> None:
+        """Start a background task that periodically cleans stale in-memory state.
+
+        The probe:
+        - Removes expired entries from ``_memory_exhausted``
+        - Checks Redis TTL for entries that Redis has already expired
+
+        Opt-in: call this after construction. No consumer changes required
+        for MVP — keys are naturally re-tested when ``get_healthy_key()`` runs.
+        The probe ensures stale in-memory entries don't block keys after
+        Redis TTL expires between ``get_healthy_key()`` calls.
+        """
+        if self._health_probe_task is not None:
+            logger.warning(f"[{self.provider}] Health probe already running")
+            return
+        self._health_probe_task = asyncio.create_task(
+            self._health_probe_loop(interval_seconds),
+            name=f"key-pool-health-probe-{self.provider}",
+        )
+        logger.info(f"[{self.provider}] Health probe started (interval={interval_seconds}s)")
+
+    def stop_health_probe(self) -> None:
+        """Cancel the background health probe gracefully."""
+        if self._health_probe_task is not None:
+            self._health_probe_task.cancel()
+            self._health_probe_task = None
+            logger.info(f"[{self.provider}] Health probe stopped")
+
+    async def _health_probe_loop(self, interval: float) -> None:
+        """Background loop: clean expired in-memory entries and sync with Redis."""
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                now = time.time()
+
+                # 1. Remove expired in-memory entries
+                expired = [kh for kh, exp in self._memory_exhausted.items() if exp <= now]
+                for kh in expired:
+                    del self._memory_exhausted[kh]
+                    self._exhaustion_timestamps.pop(kh, None)
+
+                # 2. If Redis available, check TTL for remaining entries
+                if self._redis is not None:
+                    for kh in list(self._memory_exhausted):
+                        with contextlib.suppress(Exception):
+                            redis_key = f"api_key:exhausted:{self.provider}:{kh}"
+                            ttl = await self._redis.call("ttl", redis_key)
+                            if isinstance(ttl, int) and ttl == -2:
+                                # Key doesn't exist in Redis — clear in-memory
+                                del self._memory_exhausted[kh]
+                                self._exhaustion_timestamps.pop(kh, None)
+
+                if expired:
+                    logger.debug(f"[{self.provider}] Health probe cleared {len(expired)} expired entries")
+        except asyncio.CancelledError:
+            pass
