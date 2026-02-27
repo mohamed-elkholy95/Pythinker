@@ -57,6 +57,30 @@ STORE_RELIABILITY: dict[str, float] = {
     "eBay": 0.70,
 }
 
+# Community search query templates — {query} is replaced with the product query
+COMMUNITY_QUERY_TEMPLATES = [
+    "{query} deal reddit",
+    "{query} best price slickdeals OR dealnews OR techbargains",
+    "{query} discount coupon",
+]
+
+# Known community/deal domains → human-readable names
+COMMUNITY_DOMAINS: dict[str, str] = {
+    "reddit.com": "Reddit",
+    "slickdeals.net": "Slickdeals",
+    "dealnews.com": "DealNews",
+    "techbargains.com": "TechBargains",
+    "wirecutter.com": "Wirecutter",
+    "bensbargains.com": "Ben's Bargains",
+    "bradsdeals.com": "Brad's Deals",
+}
+
+# Confidence for snippet-extracted prices (low — not from structured page data)
+CONFIDENCE_SNIPPET = 0.20
+
+# Regex to find $XX.XX prices in search snippets
+_SNIPPET_PRICE_PATTERN = re.compile(r"\$\s*(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)")
+
 # Regex to strip color/year modifiers for query simplification
 _QUERY_SIMPLIFY_PATTERN = re.compile(
     r"\b(black|white|silver|gold|blue|red|green|gray|grey|pink|purple|"
@@ -151,6 +175,90 @@ def _score_deal(
     return min(100, score)
 
 
+def _extract_deals_from_snippets(
+    search_results: object,
+    query: str,
+    source_type: str,
+) -> list[DealResult]:
+    """Extract deal information from search result snippets.
+
+    Parses $XX.XX prices from title + snippet text. Returns one deal per
+    unique URL. Items without a parseable price get price=0.0 and very
+    low confidence (mention-only).
+    """
+    deals: list[DealResult] = []
+    seen_urls: set[str] = set()
+
+    if not search_results or not hasattr(search_results, "results"):
+        return deals
+
+    for item in search_results.results[:5]:
+        url = getattr(item, "url", None) or getattr(item, "link", "")
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+
+        title = getattr(item, "title", "") or ""
+        snippet = getattr(item, "snippet", "") or getattr(item, "description", "") or ""
+        combined_text = f"{title} {snippet}"
+
+        # Detect store name from URL or community domain map
+        domain = _domain_from_url(url)
+        store_name = COMMUNITY_DOMAINS.get(domain, _store_from_url(url))
+
+        prices = _SNIPPET_PRICE_PATTERN.findall(combined_text)
+        parsed_prices = []
+        for p in prices:
+            try:
+                val = float(p.replace(",", ""))
+                if 0.50 <= val <= 50_000:
+                    parsed_prices.append(val)
+            except ValueError:
+                continue
+
+        if parsed_prices:
+            price = parsed_prices[0]
+            # Second higher price is likely the original price
+            original_price = None
+            if len(parsed_prices) > 1:
+                higher = [p for p in parsed_prices[1:] if p > price]
+                if higher:
+                    original_price = higher[0]
+
+            discount_pct = None
+            if original_price and original_price > price:
+                discount_pct = round((original_price - price) / original_price * 100, 1)
+
+            deals.append(
+                DealResult(
+                    product_name=title or query,
+                    store=store_name,
+                    price=price,
+                    original_price=original_price,
+                    discount_percent=discount_pct,
+                    url=url,
+                    extraction_strategy="snippet",
+                    extraction_confidence=CONFIDENCE_SNIPPET,
+                    source_type=source_type,
+                )
+            )
+        else:
+            # Mention-only: deal referenced but no price found
+            deals.append(
+                DealResult(
+                    product_name=title or query,
+                    store=store_name,
+                    price=0.0,
+                    url=url,
+                    extraction_strategy="snippet_mention",
+                    extraction_confidence=0.10,
+                    source_type=source_type,
+                )
+            )
+
+    return deals
+
+
 class DealFinderAdapter:
     """Infrastructure adapter that implements the DealFinder Protocol.
 
@@ -193,8 +301,11 @@ class DealFinderAdapter:
                 searched_stores=[],
             )
 
-        # steps: 1 (init) + N stores + 1 (coupons) + 1 (scoring) = N + 3
-        total_steps = len(active_stores) + 3
+        # Check if community search is enabled
+        community_enabled = settings.deal_scraper_community_search or settings.deal_scraper_open_web_search
+
+        # steps: 1 (init) + N stores + 1 (community, if enabled) + 1 (coupons) + 1 (scoring)
+        total_steps = len(active_stores) + 3 + (1 if community_enabled else 0)
         step = 0
 
         async def _report(msg: str) -> None:
@@ -205,13 +316,30 @@ class DealFinderAdapter:
 
         await _report(f'Searching {len(active_stores)} stores for "{query}"')
 
-        # Search for products with store-specific queries
+        # Search for products with store-specific queries + community (concurrent)
         search_tasks = []
         for store_domain in active_stores:
             search_query = f"{query} site:{store_domain}"
             search_tasks.append(self._search_store(search_query, store_domain, timeout))
 
+        # Community search runs concurrently with store searches
+        community_task_idx: int | None = None
+        if community_enabled:
+            community_task_idx = len(search_tasks)
+            search_tasks.append(self._search_community(query, timeout))
+
         results = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+        # Separate community results from store results
+        community_deals: list[DealResult] = []
+        if community_task_idx is not None:
+            community_result = results[community_task_idx]
+            if isinstance(community_result, list):
+                community_deals = community_result
+            elif isinstance(community_result, Exception):
+                logger.warning("Community search failed: %s", community_result)
+            # Remove community result so store iteration below is clean
+            results = list(results[:community_task_idx]) + list(results[community_task_idx + 1 :])
 
         for store_domain, result in zip(active_stores, results, strict=False):
             store_name = _store_from_url(f"https://{store_domain}")
@@ -239,6 +367,18 @@ class DealFinderAdapter:
                     except Exception as exc:
                         logger.debug("Retry search failed for %s: %s", store_domain, exc)
             await _report(f"Searched {store_name} ({count} results)")
+
+        # Merge community deals (dedup by URL against store results)
+        community_sources_searched = 0
+        if community_deals:
+            store_urls = {d.url for d in deals}
+            for cd in community_deals:
+                if cd.url not in store_urls:
+                    deals.append(cd)
+                    community_sources_searched += 1
+                    store_urls.add(cd.url)
+            if community_enabled:
+                await _report(f"Found {community_sources_searched} community/web mention(s)")
 
         # Find coupons for stores that returned results
         await _report("Aggregating coupons")
@@ -288,6 +428,7 @@ class DealFinderAdapter:
             coupons_found=coupons[:10],
             searched_stores=searched_stores,
             store_errors=store_errors,
+            community_sources_searched=community_sources_searched,
         )
 
     async def _search_store(
@@ -365,6 +506,67 @@ class DealFinderAdapter:
                 logger.warning("Price extraction failed for %s: %s", url, exc)
 
         return deals
+
+    async def _search_community(
+        self,
+        query: str,
+        timeout: int,  # noqa: ASYNC109
+    ) -> list[DealResult]:
+        """Search community sites and open web for deal mentions.
+
+        Builds queries from COMMUNITY_QUERY_TEMPLATES plus one open-web
+        query (if enabled). Caps total queries at community_max_queries.
+        Extracts prices from search snippets — no page scraping needed.
+        """
+        if not self._search_engine:
+            return []
+
+        settings = get_settings()
+        max_queries = settings.deal_scraper_community_max_queries
+
+        queries: list[tuple[str, str]] = []  # (search_query, source_type)
+
+        # Community queries (Reddit, Slickdeals, forums)
+        if settings.deal_scraper_community_search:
+            for template in COMMUNITY_QUERY_TEMPLATES:
+                if len(queries) >= max_queries:
+                    break
+                queries.append((template.format(query=query), "community"))
+
+        # Open web query (unrestricted)
+        if settings.deal_scraper_open_web_search and len(queries) < max_queries:
+            queries.append((f"{query} deal best price", "open_web"))
+
+        if not queries:
+            return []
+
+        async def _run_one(search_query: str, source_type: str) -> list[DealResult]:
+            try:
+                search_results = await asyncio.wait_for(
+                    self._search_engine.search(search_query),
+                    timeout=timeout,
+                )
+                return _extract_deals_from_snippets(search_results, query, source_type)
+            except TimeoutError:
+                logger.debug("Community search timed out for: %s", search_query)
+                return []
+            except Exception as exc:
+                logger.debug("Community search failed for '%s': %s", search_query, exc)
+                return []
+
+        results = await asyncio.gather(
+            *[_run_one(q, st) for q, st in queries],
+            return_exceptions=True,
+        )
+
+        combined: list[DealResult] = []
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.debug("Community search exception: %s", result)
+                continue
+            combined.extend(result)
+
+        return combined
 
     async def find_coupons(
         self,
