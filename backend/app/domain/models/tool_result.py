@@ -12,11 +12,13 @@ class ToolResult(BaseModel, Generic[T]):
         success: Whether the tool execution succeeded
         message: Human-readable message (required for errors, optional for success)
         data: Structured data for programmatic access
+        suggested_filename: Hint for auto-deliverable file creation (e.g. "deal_report.md")
     """
 
     success: bool
     message: str | None = None
     data: T | None = None
+    suggested_filename: str | None = None
 
     @classmethod
     def ok(cls, message: str | None = None, data: T | None = None) -> Self:
