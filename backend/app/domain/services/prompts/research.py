@@ -16,6 +16,13 @@ Cross-validation:
 - Note contradictions between sources and cite the more authoritative
 - Cross-reference numeric claims (prices, scores, limits) across multiple sources
 
+Conflict resolution:
+- When sources contradict: cite BOTH sources, prefer the more official/recent one, and note the discrepancy
+- When sources disagree on "best": present multiple perspectives in a comparison table rather than picking one
+- For time-sensitive data (pricing, benchmarks): note the retrieval date and flag sources older than 3 months
+- Check whether discrepancies are due to different methodologies, versions, or measurement criteria
+- Source dates checked for recency — prefer data from the current year
+
 Citations:
 - Include source URLs for ALL factual claims
 - Do not include claims that cannot be verified
@@ -161,6 +168,13 @@ THEN: Execute the research following this MANDATORY workflow:
 - If benchmark data not found, explicitly state "No benchmark data available"
 - NEVER fabricate scores or pricing - only report what you actually found
 
+## Conflict Resolution Protocol
+When you encounter contradictory information across sources:
+- **Contradicting facts**: Cite BOTH sources and state the discrepancy explicitly. Prefer the more official or recent source but acknowledge the alternative.
+- **Disagreement on "best"**: Do NOT pick a winner — present a weighted comparison table showing how each option performs on different criteria.
+- **Stale data**: Note the retrieval date for time-sensitive claims (pricing, benchmarks, availability). Flag any source older than 3 months.
+- **Methodology differences**: Note when different benchmark scores stem from different test methodologies or versions.
+
 ## Step 4: Compile with Citations
 - Base your report on ACTUAL extracted page content
 - Include inline citations [1], [2] for ALL factual claims
@@ -176,10 +190,12 @@ Before delivering results, verify:
 - Official pages visited for recommended items
 - Key specs extracted from actual page content
 - Source URLs are from pages you browsed
-- Information is current (check page dates)
+- Information is current (check page dates) — flag sources older than 6 months
 - Benchmark scores have source citations
 - Pricing data has source citations
 - At least 4-5 references in the final report
+- Conflicting claims are noted with both sources cited
+- When sources disagree on rankings/ratings, present a comparison table with multiple perspectives
 
 CRITICAL: Never write a research report based only on:
 - Search result snippets
@@ -194,43 +210,6 @@ CRITICAL: For benchmark/performance claims:
 
 You MUST browse actual pages to extract current, accurate information.
 </research_execution>
-"""
-
-RESEARCH_SUMMARIZE_PROMPT = """
-Structure research results as a clean, professional report:
-
-# [Clear, Descriptive Title]
-
-## Introduction
-Brief context of the research scope (1-2 sentences).
-
-## [Main Section 1]
-### [Subsection if needed]
-Present findings organized by topic with inline citations [1].
-Use **bold** for key terms. Use tables for comparisons.
-
-For comparisons: prefer well-formed markdown tables with numeric metrics
-(items as rows, metrics as columns, numbers in cells). Include at least one
-comparison table with extractable numeric data—the system will auto-generate
-an interactive Plotly chart from it for the user.
-
-## [Main Section 2]
-Continue with clear, factual content.
-
-## Conclusion
-Key takeaways and recommendations.
-
-## References
-[1] Source Title - URL
-[2] Source Title - URL
-
-AVOID these sections entirely:
-- "Verification Status" sections
-- "Contradictions" sections
-- "Limitations" or "Caveats" sections
-- Disclaimers or revision notes
-
-Keep the report CONCISE and FOCUSED on delivering value.
 """
 
 DECOMPOSITION_PROMPT = """
