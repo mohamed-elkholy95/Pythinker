@@ -108,7 +108,12 @@ class ConversationContextRepository:
 
         query_filter = models.Filter(
             must=must_conditions,
-            must_not=must_not_conditions if must_not_conditions else None,
+            must_not=must_not_conditions or None,
+        )
+
+        dense_search_params = models.SearchParams(
+            hnsw_ef=self._settings.qdrant_hnsw_ef,
+            exact=False,
         )
 
         start_time = time.time()
@@ -133,6 +138,7 @@ class ConversationContextRepository:
                             using="dense",
                             limit=limit * 2,
                             filter=query_filter,
+                            params=dense_search_params,
                         ),
                     ],
                     query=models.FusionQuery(fusion=models.Fusion.RRF),
@@ -147,6 +153,7 @@ class ConversationContextRepository:
                     query=dense_vector,
                     using="dense",
                     query_filter=query_filter,
+                    search_params=dense_search_params,
                     limit=limit,
                     score_threshold=min_score,
                 )
@@ -200,6 +207,11 @@ class ConversationContextRepository:
             ],
         )
 
+        dense_search_params = models.SearchParams(
+            hnsw_ef=self._settings.qdrant_hnsw_ef,
+            exact=False,
+        )
+
         start_time = time.time()
         try:
             if sparse_vector and self._settings.qdrant_use_hybrid_search:
@@ -221,6 +233,7 @@ class ConversationContextRepository:
                             using="dense",
                             limit=limit * 2,
                             filter=query_filter,
+                            params=dense_search_params,
                         ),
                     ],
                     query=models.FusionQuery(fusion=models.Fusion.RRF),
@@ -234,6 +247,7 @@ class ConversationContextRepository:
                     query=dense_vector,
                     using="dense",
                     query_filter=query_filter,
+                    search_params=dense_search_params,
                     limit=limit,
                     score_threshold=min_score,
                 )
