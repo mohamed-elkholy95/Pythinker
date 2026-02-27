@@ -19,7 +19,9 @@ def validate_file_syntax(file_path: Path) -> tuple[bool, str]:
         return False, f"Error: {e}"
 
 
-def check_imports(file_path: Path, expected_imports: list[str]) -> tuple[bool, list[str]]:
+def check_imports(
+    file_path: Path, expected_imports: list[str]
+) -> tuple[bool, list[str]]:
     """Check if file contains expected imports."""
     try:
         with open(file_path, "r") as f:
@@ -34,7 +36,11 @@ def check_imports(file_path: Path, expected_imports: list[str]) -> tuple[bool, l
                         full_import = f"{node.module}.{alias.name}"
                         found_imports.append(full_import)
 
-        missing = [imp for imp in expected_imports if not any(imp in found for found in found_imports)]
+        missing = [
+            imp
+            for imp in expected_imports
+            if not any(imp in found for found in found_imports)
+        ]
         return len(missing) == 0, missing
     except Exception as e:
         return False, [f"Error: {e}"]
