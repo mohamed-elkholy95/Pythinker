@@ -17,7 +17,9 @@ const RESULT_KEYS = [
   'items',
   'search_results',
   'searchResults',
-  'documents'
+  'documents',
+  'deals',
+  'coupons'
 ] as const;
 
 function pickFirstString(source: any, keys: string[]): string {
