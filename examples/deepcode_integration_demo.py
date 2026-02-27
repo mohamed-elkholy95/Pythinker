@@ -12,7 +12,6 @@ Context7 validated: Example patterns, async usage.
 
 import asyncio
 import logging
-from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -32,13 +31,18 @@ async def demo_phase_1_adaptive_routing():
     tasks = [
         ("List files in directory", ModelTier.FAST),
         ("Write a simple hello world function", ModelTier.BALANCED),
-        ("Design a distributed system architecture with fault tolerance", ModelTier.POWERFUL),
+        (
+            "Design a distributed system architecture with fault tolerance",
+            ModelTier.POWERFUL,
+        ),
     ]
 
     for task_desc, expected_tier in tasks:
         config = router.route(task_desc)
         logger.info(f"\nTask: {task_desc}")
-        logger.info(f"  → Model Tier: {config.tier.value} (expected: {expected_tier.value})")
+        logger.info(
+            f"  → Model Tier: {config.tier.value} (expected: {expected_tier.value})"
+        )
         logger.info(f"  → Model: {config.model_name}")
         logger.info(f"  → Temperature: {config.temperature}")
         logger.info(f"  → Max Tokens: {config.max_tokens}")
@@ -60,7 +64,9 @@ async def demo_phase_2_efficiency_monitor():
     logger.info("PHASE 2.1: TOOL EFFICIENCY MONITOR")
     logger.info("=" * 80)
 
-    from app.domain.services.agents.tool_efficiency_monitor import get_efficiency_monitor
+    from app.domain.services.agents.tool_efficiency_monitor import (
+        get_efficiency_monitor,
+    )
 
     monitor = get_efficiency_monitor()
 
@@ -83,14 +89,18 @@ async def demo_phase_2_efficiency_monitor():
         if not signal.is_balanced:
             logger.info(f"\n  Step {i}: {tool}")
             logger.info(f"  ⚠️ {signal.nudge_message}")
-            logger.info(f"  → Reads: {signal.read_count}, Actions: {signal.action_count}")
+            logger.info(
+                f"  → Reads: {signal.read_count}, Actions: {signal.action_count}"
+            )
             logger.info(f"  → Confidence: {signal.confidence:.0%}")
 
     # Now take an action to reset
     logger.info("\n  Taking action: file_write")
     monitor.record("file_write")
     signal = monitor.check_efficiency()
-    logger.info(f"  ✅ Balanced again! (Reads: {signal.read_count}, Actions: {signal.action_count})")
+    logger.info(
+        f"  ✅ Balanced again! (Reads: {signal.read_count}, Actions: {signal.action_count})"
+    )
 
     monitor.reset()
 
@@ -120,7 +130,7 @@ async def demo_phase_2_truncation_detector():
             "mid_code",
         ),
         (
-            "The configuration is: {\"key\": \"value\", \"nested\": {\"item\":",
+            'The configuration is: {"key": "value", "nested": {"item":',
             "mid_json",
         ),
         (
@@ -137,7 +147,9 @@ async def demo_phase_2_truncation_detector():
             logger.info(f"  ⚠️ TRUNCATED: {assessment.truncation_type}")
             logger.info(f"  → Confidence: {assessment.confidence:.0%}")
             logger.info(f"  → Evidence: {assessment.evidence}")
-            logger.info(f"  → Continuation prompt: {assessment.continuation_prompt[:80]}...")
+            logger.info(
+                f"  → Continuation prompt: {assessment.continuation_prompt[:80]}..."
+            )
         else:
             logger.info("  ✅ COMPLETE")
 
@@ -194,7 +206,7 @@ def function3():
     segmenter = get_document_segmenter(config)
     result = segmenter.segment(python_code, DocumentType.PYTHON)
 
-    logger.info(f"\nSegmented Python code:")
+    logger.info("\nSegmented Python code:")
     logger.info(f"  → Document type: {result.document_type.value}")
     logger.info(f"  → Total lines: {result.total_lines}")
     logger.info(f"  → Total chunks: {result.total_chunks}")
@@ -204,14 +216,18 @@ def function3():
     logger.info("\n  Chunks:")
     for chunk in result.chunks:
         logger.info(f"    Chunk {chunk.chunk_index + 1}/{chunk.total_chunks}:")
-        logger.info(f"      Lines: {chunk.start_line}-{chunk.end_line} ({chunk.end_line - chunk.start_line + 1} lines)")
+        logger.info(
+            f"      Lines: {chunk.start_line}-{chunk.end_line} ({chunk.end_line - chunk.start_line + 1} lines)"
+        )
         logger.info(f"      Type: {chunk.chunk_type}")
         preview = chunk.content.split("\n")[0]
         logger.info(f"      Preview: {preview[:60]}...")
 
     # Test reconstruction
     reconstructed = segmenter.reconstruct(result.chunks, remove_overlap=True)
-    logger.info(f"\n  Reconstruction: {'✅ Perfect match' if reconstructed.strip() == python_code.strip() else '❌ Mismatch'}")
+    logger.info(
+        f"\n  Reconstruction: {'✅ Perfect match' if reconstructed.strip() == python_code.strip() else '❌ Mismatch'}"
+    )
 
 
 async def demo_phase_3_implementation_tracker():
@@ -220,7 +236,9 @@ async def demo_phase_3_implementation_tracker():
     logger.info("PHASE 3.2: IMPLEMENTATION TRACKER")
     logger.info("=" * 80)
 
-    from app.domain.services.agents.implementation_tracker import get_implementation_tracker
+    from app.domain.services.agents.implementation_tracker import (
+        get_implementation_tracker,
+    )
 
     tracker = get_implementation_tracker()
 
@@ -273,13 +291,17 @@ def another_stub():
         logger.info(f"\n  {filename}:")
         logger.info(f"    Status: {status.status.value.upper()}")
         logger.info(f"    Completeness: {status.completeness_score:.0%}")
-        logger.info(f"    Functions: {status.complete_functions}/{status.total_functions} complete")
+        logger.info(
+            f"    Functions: {status.complete_functions}/{status.total_functions} complete"
+        )
         logger.info(f"    Issues: {len(status.issues)}")
 
         if status.issues:
-            logger.info(f"    Top issues:")
+            logger.info("    Top issues:")
             for issue in status.issues[:3]:
-                logger.info(f"      - Line {issue.line_number}: {issue.reason.value} ({issue.severity})")
+                logger.info(
+                    f"      - Line {issue.line_number}: {issue.reason.value} ({issue.severity})"
+                )
                 if issue.suggestion:
                     logger.info(f"        → {issue.suggestion}")
 
@@ -357,7 +379,9 @@ async def main():
         logger.info("DEMO COMPLETE!")
         logger.info("=" * 80)
         logger.info("\nAll 8 DeepCode enhancements demonstrated:")
-        logger.info("  ✅ Phase 1: Adaptive Model Routing (cost -20-40%, latency -60-70%)")
+        logger.info(
+            "  ✅ Phase 1: Adaptive Model Routing (cost -20-40%, latency -60-70%)"
+        )
         logger.info("  ✅ Phase 2.1: Tool Efficiency Monitor (-50% analysis paralysis)")
         logger.info("  ✅ Phase 2.2: Truncation Detector (-60% incomplete outputs)")
         logger.info("  ✅ Phase 3.1: Document Segmenter (-70% context truncation)")

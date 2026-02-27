@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Test OpenRouter configuration"""
+
 import sys
 import os
 
 # Add backend to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
 from app.core.config import get_settings
+
 
 def test_openrouter_config():
     """Test OpenRouter configuration"""
@@ -20,20 +22,30 @@ def test_openrouter_config():
     print(f"Model Name: {settings.model_name}")
     print(f"Temperature: {settings.temperature}")
     print(f"Max Tokens: {settings.max_tokens}")
-    print(f"API Key: {settings.api_key[:20]}..." if settings.api_key else "API Key: Not set")
+    print(
+        f"API Key: {settings.api_key[:20]}..."
+        if settings.api_key
+        else "API Key: Not set"
+    )
     print("=" * 60)
 
     # Verify OpenRouter settings
     if settings.llm_provider != "openai":
-        print(f"❌ ERROR: LLM provider should be 'openai', got '{settings.llm_provider}'")
+        print(
+            f"❌ ERROR: LLM provider should be 'openai', got '{settings.llm_provider}'"
+        )
         return False
 
     if "openrouter.ai" not in settings.api_base:
-        print(f"❌ ERROR: API base should contain 'openrouter.ai', got '{settings.api_base}'")
+        print(
+            f"❌ ERROR: API base should contain 'openrouter.ai', got '{settings.api_base}'"
+        )
         return False
 
     if "nemotron" not in settings.model_name.lower():
-        print(f"⚠️  WARNING: Model name doesn't contain 'nemotron', got '{settings.model_name}'")
+        print(
+            f"⚠️  WARNING: Model name doesn't contain 'nemotron', got '{settings.model_name}'"
+        )
 
     if not settings.api_key or not settings.api_key.startswith("sk-or-v1-"):
         print("❌ ERROR: OpenRouter API key should start with 'sk-or-v1-'")
@@ -46,6 +58,7 @@ def test_openrouter_config():
     # Test LLM initialization
     try:
         from app.infrastructure.external.llm.factory import get_llm_from_factory
+
         llm = get_llm_from_factory()
         if llm is None:
             print("❌ ERROR: Failed to initialize LLM")
@@ -61,8 +74,10 @@ def test_openrouter_config():
     except Exception as e:
         print(f"❌ ERROR initializing LLM: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 if __name__ == "__main__":
     success = test_openrouter_config()
