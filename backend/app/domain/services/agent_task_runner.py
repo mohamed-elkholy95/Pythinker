@@ -1091,7 +1091,7 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name in ("agent_mode", "message"):
                     # Control tools — no content needed
                     logger.debug("Processing %s tool event", event.tool_name)
-                elif event.tool_name in ("wide_research", "scraping"):
+                elif event.tool_name in ("wide_research", "scraping", "deal_scraper"):
                     # Handled elsewhere (WideResearchEvent/ReportEvent) or logging-only
                     logger.debug("Agent %s: Processing %s tool event", self._agent_id, event.tool_name)
                 else:
