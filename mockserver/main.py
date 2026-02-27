@@ -8,6 +8,7 @@ Usage:
     pip install -r requirements.txt
     uvicorn main:app --port 8000 --reload
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,7 +21,9 @@ from fastapi.middleware.cors import CORSMiddleware
 logger = logging.getLogger("mockserver")
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"))
+handler.setFormatter(
+    logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+)
 logger.addHandler(handler)
 
 # ── App ──────────────────────────────────────────────────────────────
@@ -62,6 +65,7 @@ app.include_router(ratings_router, prefix=PREFIX)
 # LLM endpoint at /v1/chat/completions (no /api prefix — OpenAI-compatible)
 app.include_router(llm_router)
 
+
 # ── Seed Data ────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def seed():
@@ -72,7 +76,9 @@ async def seed():
     seed_sessions()
     logger.info("Mock server ready — seeded demo user + 3 sessions")
     logger.info("Auth bypass: GET /api/v1/auth/status → auth_provider='none'")
-    logger.info("Frontend: cd frontend && BACKEND_URL=http://localhost:8000 bun run dev")
+    logger.info(
+        "Frontend: cd frontend && BACKEND_URL=http://localhost:8000 bun run dev"
+    )
 
 
 # ── Root ─────────────────────────────────────────────────────────────
