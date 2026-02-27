@@ -424,9 +424,17 @@ class AuthService:
 
         # Get user from database
         user_id = payload.get("sub")
+        if not user_id:
+            logger.warning("Refresh token missing 'sub' claim")
+            raise UnauthorizedError("Invalid refresh token")
+
         user = await self.user_repository.get_user_by_id(user_id)
 
-        if not user or not user.is_active:
+        if not user:
+            logger.warning("Refresh failed: user_id=%s not found in database", user_id)
+            raise UnauthorizedError("User not found or inactive")
+        if not user.is_active:
+            logger.warning("Refresh failed: user_id=%s is inactive", user_id)
             raise UnauthorizedError("User not found or inactive")
 
         # Generate new access token

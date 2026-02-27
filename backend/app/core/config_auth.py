@@ -47,7 +47,7 @@ class JWTSettingsMixin:
 
     jwt_secret_key: str | None = None  # REQUIRED - must be set via environment
     jwt_algorithm: str = "HS256"
-    jwt_access_token_expire_minutes: int = 30
+    jwt_access_token_expire_minutes: int = 120  # 2 hours — long enough for deep research sessions
     jwt_refresh_token_expire_days: int = 7
     jwt_token_blacklist_enabled: bool = True  # Enable token revocation
 
