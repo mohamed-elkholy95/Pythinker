@@ -671,6 +671,36 @@ class AgentDomainService:
                 if isinstance(event, WaitEvent):
                     break
 
+            # If the main loop didn't consume events (e.g. task finished before
+            # the loop started — a fast error/completion race), drain any
+            # remaining events from the output stream so they aren't lost.
+            if not received_events and task is not None:
+                logger.debug(f"Session {session_id}: task done before event loop; draining remaining events")
+                while True:
+                    event_id, event_str = await task.output_stream.get(
+                        start_id=latest_event_id,
+                        block_ms=0,  # non-blocking drain
+                    )
+                    if event_str is None:
+                        break
+                    received_events = True
+                    latest_event_id = event_id
+                    event = TypeAdapter(AgentEvent).validate_json(event_str)
+                    event.id = event_id
+                    if isinstance(event, DoneEvent):
+                        terminal_status = SessionStatus.COMPLETED
+                        await self._session_repository.update_status(session_id, SessionStatus.COMPLETED)
+                        yield event
+                        break
+                    if isinstance(event, ErrorEvent):
+                        terminal_status = SessionStatus.FAILED
+                        await self._session_repository.update_status(session_id, SessionStatus.FAILED)
+                        self._record_conversation_turn(event, session_id, user_id)
+                        yield event
+                        break
+                    self._record_conversation_turn(event, session_id, user_id)
+                    yield event
+
             # If the task completed without producing any events, emit a DoneEvent
             if not received_events:
                 has_message_content = bool(message and message.strip())
