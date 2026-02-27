@@ -117,12 +117,15 @@ export default defineConfig({
           ws: true,
           // Prevent hanging connections during backend hot-reload
           timeout: 30_000,
+          // Increase proxy timeout for long-lived WebSocket connections
+          proxyTimeout: 0,
           configure: (proxy) => {
             // Error codes expected during uvicorn --reload (1-2s restart window).
             // docker-compose depends_on service_healthy gates initial startup;
             // these only appear transiently during code-change restarts.
             const TRANSIENT = new Set(['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT']);
             let suppressedCount = 0;
+            let suppressResetTimer: ReturnType<typeof setTimeout> | null = null;
 
             proxy.on('error', (err: NodeJS.ErrnoException, _req, res) => {
               const isTransient = TRANSIENT.has(err.code ?? '');
@@ -133,6 +136,9 @@ export default defineConfig({
                 if (suppressedCount === 1 || suppressedCount % 10 === 0) {
                   console.warn(`[proxy] Backend temporarily unavailable (${err.code}) — ${suppressedCount} transient error(s)`);
                 }
+                // Reset suppressed counter after 30s of quiet (backend fully restarted)
+                if (suppressResetTimer) clearTimeout(suppressResetTimer);
+                suppressResetTimer = setTimeout(() => { suppressedCount = 0; }, 30_000);
               } else {
                 console.error(`[proxy] Unexpected proxy error: ${err.code} ${err.message}`);
               }
@@ -140,7 +146,10 @@ export default defineConfig({
               // HTTP response → return 504 so frontend client sees a clean status code
               if (res && 'writeHead' in res && !(res as import('http').ServerResponse).headersSent) {
                 const httpRes = res as import('http').ServerResponse;
-                httpRes.writeHead(504, { 'Content-Type': 'application/json' });
+                httpRes.writeHead(504, {
+                  'Content-Type': 'application/json',
+                  'Retry-After': '2',
+                });
                 httpRes.end(JSON.stringify({
                   code: 504,
                   message: isTransient
