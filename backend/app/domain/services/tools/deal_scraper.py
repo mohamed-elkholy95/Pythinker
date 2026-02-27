@@ -58,8 +58,8 @@ _COUPON_NOISE_WORDS: frozenset[str] = frozenset(
 def _build_deal_report_message(comparison: DealComparison) -> str:
     """Build a structured report message from a DealComparison.
 
-    Provides factual summary, best deal callout, failed stores,
-    coupon summary, and formatting instructions for the LLM.
+    Includes a Plotly-compatible Markdown table for auto-chart generation,
+    plus factual summary, best deal callout, and formatting guidance.
     """
     lines: list[str] = []
 
@@ -81,6 +81,18 @@ def _build_deal_report_message(comparison: DealComparison) -> str:
             "(Reddit, Slickdeals, forums — prices may be approximate)"
         )
 
+    # Plotly-compatible comparison table (auto-chart picks this up)
+    if comparison.deals:
+        lines.append("")
+        lines.append("| Store | Price ($) | Original ($) | Discount (%) | Score | Stock |")
+        lines.append("|-------|-----------|-------------|-------------|-------|-------|")
+        for deal in comparison.deals:
+            orig = f"{deal.original_price:.2f}" if deal.original_price else "—"
+            disc = f"{deal.discount_percent}" if deal.discount_percent else "—"
+            stock = "Yes" if deal.in_stock else "—"
+            lines.append(f"| {deal.store} | {deal.price:.2f} | {orig} | {disc} | {deal.score} | {stock} |")
+        lines.append("")
+
     # Failed stores
     if comparison.store_errors:
         failed_names = [e["store"] for e in comparison.store_errors]
@@ -93,8 +105,7 @@ def _build_deal_report_message(comparison: DealComparison) -> str:
 
     # FORMAT instruction for the LLM
     lines.append(
-        "FORMAT: Present as Markdown table with Store, Price, Original, "
-        "Discount, Score, Stock columns. Prioritize same-day and last-7-days deals. "
+        "FORMAT: Present the table above in your response. Prioritize same-day and last-7-days deals. "
         "Flag deals older than 1-2 months as likely expired. "
         "Do NOT validate deals against the product's official website. "
         'Add disclaimer: "Prices checked just now and may change. Verify before purchasing."'
@@ -302,6 +313,9 @@ class DealScraperTool(BaseTool):
 
         coupons_data = [asdict(c) for c in comparison.coupons_found] if comparison.coupons_found else []
 
+        # Generate a slug for suggested deliverable filename
+        slug = re.sub(r"[^a-z0-9]+", "_", query.lower().strip())[:40].rstrip("_")
+
         return ToolResult(
             success=True,
             message=_build_deal_report_message(comparison),
@@ -313,6 +327,7 @@ class DealScraperTool(BaseTool):
                 "searched_stores": comparison.searched_stores,
                 "store_errors": comparison.store_errors,
             },
+            suggested_filename=f"deal_report_{slug}.md",
         )
 
     @tool(

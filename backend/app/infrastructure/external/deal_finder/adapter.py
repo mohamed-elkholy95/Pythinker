@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Major retailers to search by default
+# Major retailers to search by default (expanded for broader coverage)
 DEFAULT_STORES = [
     "amazon.com",
     "walmart.com",
@@ -42,6 +42,10 @@ DEFAULT_STORES = [
     "target.com",
     "ebay.com",
     "newegg.com",
+    "costco.com",
+    "bhphotovideo.com",
+    "adorama.com",
+    "microcenter.com",
 ]
 
 # Store reliability ratings (0-1) — reflects return policy, price accuracy, trust
@@ -54,6 +58,9 @@ STORE_RELIABILITY: dict[str, float] = {
     "Newegg": 0.85,
     "Macy's": 0.85,
     "Home Depot": 0.88,
+    "B&H Photo": 0.92,
+    "Adorama": 0.88,
+    "Micro Center": 0.90,
     "eBay": 0.70,
 }
 
@@ -75,8 +82,8 @@ COMMUNITY_DOMAINS: dict[str, str] = {
     "bradsdeals.com": "Brad's Deals",
 }
 
-# Confidence for snippet-extracted prices (low — not from structured page data)
-CONFIDENCE_SNIPPET = 0.20
+# Confidence for snippet-extracted prices (moderate — from search result text, not structured page data)
+CONFIDENCE_SNIPPET = 0.35
 
 # Regex to find $XX.XX prices in search snippets
 _SNIPPET_PRICE_PATTERN = re.compile(r"\$\s*(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)")
@@ -108,6 +115,9 @@ def _store_from_url(url: str) -> str:
         "costco.com": "Costco",
         "macys.com": "Macy's",
         "homedepot.com": "Home Depot",
+        "bhphotovideo.com": "B&H Photo",
+        "adorama.com": "Adorama",
+        "microcenter.com": "Micro Center",
     }
     return store_names.get(domain, domain)
 
@@ -192,7 +202,7 @@ def _extract_deals_from_snippets(
     if not search_results or not hasattr(search_results, "results"):
         return deals
 
-    for item in search_results.results[:5]:
+    for item in search_results.results[:10]:
         url = getattr(item, "url", None) or getattr(item, "link", "")
         if not url or url in seen_urls:
             continue
@@ -316,10 +326,11 @@ class DealFinderAdapter:
 
         await _report(f'Searching {len(active_stores)} stores for "{query}"')
 
-        # Search for products with store-specific queries + community (concurrent)
+        # Search for products with store-specific queries + community (concurrent).
+        # Uses price-focused query variant for better deal extraction.
         search_tasks = []
         for store_domain in active_stores:
-            search_query = f"{query} site:{store_domain}"
+            search_query = f"{query} price deal site:{store_domain}"
             search_tasks.append(self._search_store(search_query, store_domain, timeout))
 
         # Community search runs concurrently with store searches
@@ -460,7 +471,7 @@ class DealFinderAdapter:
             return deals
 
         urls_to_scrape = []
-        for item in search_results.results[:3]:  # Top 3 results per store
+        for item in search_results.results[:10]:  # Top 10 results per store
             url = getattr(item, "url", None) or getattr(item, "link", "")
             if url and store_domain in _domain_from_url(url):
                 urls_to_scrape.append((url, getattr(item, "title", "")))

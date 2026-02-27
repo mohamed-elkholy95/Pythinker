@@ -494,7 +494,8 @@ async def aggregate_coupons(
 
     # Fetch all sources concurrently
     results = await asyncio.gather(
-        *(coro for _, coro in tasks), return_exceptions=True,
+        *(coro for _, coro in tasks),
+        return_exceptions=True,
     )
 
     for (source_lower, _), result in zip(tasks, results, strict=True):
