@@ -363,8 +363,7 @@ class PromptOptimizer:
         perturbations = [
             (
                 "concise",
-                "\n\n[Style: Be concise and direct. Prefer bullet points over prose. "
-                "Minimize redundant explanation.]",
+                "\n\n[Style: Be concise and direct. Prefer bullet points over prose. Minimize redundant explanation.]",
             ),
             (
                 "detailed",

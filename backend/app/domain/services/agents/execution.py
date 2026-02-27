@@ -601,13 +601,20 @@ class ExecutionAgent(BaseAgent):
             from app.core.config import get_settings as _get_settings
 
             _summarize_model: str | None = _get_settings().fast_model or None
+            _summarize_max_tokens: int = _get_settings().summarization_max_tokens
 
             # Phase 1: Stream tokens live via StreamEvent
             while True:
                 stream_attempt += 1
                 attempt_text = ""
 
-                stream_iter = self.llm.ask_stream(stream_messages, tools=None, tool_choice=None, model=_summarize_model)
+                stream_iter = self.llm.ask_stream(
+                    stream_messages,
+                    tools=None,
+                    tool_choice=None,
+                    model=_summarize_model,
+                    max_tokens=_summarize_max_tokens,
+                )
                 async for stream_event in self._iter_coalesced_stream_events(stream_iter, phase="summarizing"):
                     attempt_text += stream_event.content
                     yield stream_event
@@ -646,7 +653,11 @@ class ExecutionAgent(BaseAgent):
                             ]
                             escalation_text = ""
                             stream_iter = self.llm.ask_stream(
-                                stream_messages, tools=None, tool_choice=None, model=_powerful_model
+                                stream_messages,
+                                tools=None,
+                                tool_choice=None,
+                                model=_powerful_model,
+                                max_tokens=_summarize_max_tokens,
                             )
                             async for stream_event in self._iter_coalesced_stream_events(
                                 stream_iter, phase="summarizing"
@@ -741,7 +752,11 @@ class ExecutionAgent(BaseAgent):
                 )
                 retry_text = ""
                 retry_stream = self.llm.ask_stream(
-                    list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
+                    list(self.memory.get_messages()),
+                    tools=None,
+                    tool_choice=None,
+                    model=_summarize_model,
+                    max_tokens=_summarize_max_tokens,
                 )
                 async for stream_event in self._iter_coalesced_stream_events(retry_stream, phase="summarizing"):
                     retry_text += stream_event.content
@@ -791,7 +806,11 @@ class ExecutionAgent(BaseAgent):
 
                     retry_text = ""
                     retry_stream = self.llm.ask_stream(
-                        list(self.memory.get_messages()), tools=None, tool_choice=None, model=_summarize_model
+                        list(self.memory.get_messages()),
+                        tools=None,
+                        tool_choice=None,
+                        model=_summarize_model,
+                        max_tokens=_summarize_max_tokens,
                     )
                     async for stream_event in self._iter_coalesced_stream_events(retry_stream, phase="summarizing"):
                         retry_text += stream_event.content
