@@ -321,8 +321,8 @@ class PlanActFlow(BaseFlow):
             tools.append(ScrapingTool(scraper=scraper, memory_service=memory_service, user_id=user_id))
             logger.info(f"ScrapingTool enabled for Agent {agent_id}")
 
-        # Add DealScraperTool when enabled (multi-store deal search + price comparison)
-        if get_settings().deal_scraper_enabled and deal_finder:
+        # Add DealScraperTool when deal_finder is provided (explicit setting OR auto-detected intent)
+        if deal_finder:
             from app.domain.services.tools.deal_scraper import DealScraperTool
 
             tools.append(DealScraperTool(deal_finder=deal_finder))

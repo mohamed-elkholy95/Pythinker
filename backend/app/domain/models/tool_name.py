@@ -333,260 +333,276 @@ class ToolName(str, Enum):
 # Classification set definitions (must be after class body)
 # ─────────────────────────────────────────────────────────────────────
 
-ToolName._READ_ONLY = frozenset({
-    # File reads
-    ToolName.FILE_READ,
-    ToolName.FILE_SEARCH,
-    ToolName.FILE_FIND,
-    ToolName.FILE_FIND_BY_NAME,
-    ToolName.FILE_FIND_IN_CONTENT,
-    ToolName.FILE_LIST,
-    ToolName.FILE_LIST_DIRECTORY,
-    ToolName.FILE_VIEW,
-    # Browser reads (view-only, no navigation side effects)
-    ToolName.BROWSER_VIEW,
-    ToolName.BROWSER_CONSOLE_VIEW,
-    ToolName.BROWSER_SCREENSHOT,
-    ToolName.BROWSER_AGENT_EXTRACT,
-    # Playwright reads
-    ToolName.PLAYWRIGHT_GET_CONTENT,
-    ToolName.PLAYWRIGHT_SCREENSHOT,
-    ToolName.PLAYWRIGHT_PDF,
-    ToolName.PLAYWRIGHT_GET_COOKIES,
-    ToolName.PLAYWRIGHT_DETECT_PROTECTION,
-    ToolName.PLAYWRIGHT_WAIT_FOR_SELECTOR,
-    # Search operations
-    ToolName.SEARCH,
-    ToolName.INFO_SEARCH_WEB,
-    ToolName.WEB_SEARCH,
-    ToolName.WIDE_RESEARCH,
-    # Code reads
-    ToolName.CODE_LIST_ARTIFACTS,
-    ToolName.CODE_READ_ARTIFACT,
-    ToolName.CODE_ANALYZE,
-    ToolName.CODE_SEARCH,
-    # Workspace reads
-    ToolName.WORKSPACE_INFO,
-    ToolName.WORKSPACE_TREE,
-    ToolName.WORKSPACE_EXISTS,
-    # Shell reads
-    ToolName.SHELL_VIEW,
-    # MCP reads
-    ToolName.MCP_RESOURCES,
-    ToolName.MCP_TOOL_SCHEMAS,
-    ToolName.MCP_HEALTH_CHECK,
-    ToolName.MCP_LIST_RESOURCES,
-    ToolName.MCP_READ_RESOURCE,
-    ToolName.MCP_SERVER_STATUS,
-    # Test (reads: listing only)
-    ToolName.TEST_LIST,
-    # Export reads
-    ToolName.EXPORT_LIST,
-    # Git reads
-    ToolName.GIT_STATUS,
-    ToolName.GIT_LOG,
-    ToolName.GIT_DIFF,
-    ToolName.GIT_BRANCHES,
-    # Deep scan (analysis, no modifications)
-    ToolName.DEEP_SCAN_PROJECT,
-    ToolName.DEEP_SCAN_CODE,
-    ToolName.DEEP_SCAN_DEPENDENCIES,
-    ToolName.DEEP_SCAN_SECURITY,
-    ToolName.DEEP_SCAN_QUALITY,
-    # Knowledge base reads
-    ToolName.KB_QUERY,
-    ToolName.KB_LIST,
-    # Canvas reads
-    ToolName.CANVAS_GET_STATE,
-    # Skill reads
-    ToolName.SKILL_LIST_USER,
-    # Schedule reads
-    ToolName.AGENT_LIST_SCHEDULED_TASKS,
-    # Idle
-    ToolName.IDLE,
-})
+ToolName._READ_ONLY = frozenset(
+    {
+        # File reads
+        ToolName.FILE_READ,
+        ToolName.FILE_SEARCH,
+        ToolName.FILE_FIND,
+        ToolName.FILE_FIND_BY_NAME,
+        ToolName.FILE_FIND_IN_CONTENT,
+        ToolName.FILE_LIST,
+        ToolName.FILE_LIST_DIRECTORY,
+        ToolName.FILE_VIEW,
+        # Browser reads (view-only, no navigation side effects)
+        ToolName.BROWSER_VIEW,
+        ToolName.BROWSER_CONSOLE_VIEW,
+        ToolName.BROWSER_SCREENSHOT,
+        ToolName.BROWSER_AGENT_EXTRACT,
+        # Playwright reads
+        ToolName.PLAYWRIGHT_GET_CONTENT,
+        ToolName.PLAYWRIGHT_SCREENSHOT,
+        ToolName.PLAYWRIGHT_PDF,
+        ToolName.PLAYWRIGHT_GET_COOKIES,
+        ToolName.PLAYWRIGHT_DETECT_PROTECTION,
+        ToolName.PLAYWRIGHT_WAIT_FOR_SELECTOR,
+        # Search operations
+        ToolName.SEARCH,
+        ToolName.INFO_SEARCH_WEB,
+        ToolName.WEB_SEARCH,
+        ToolName.WIDE_RESEARCH,
+        # Code reads
+        ToolName.CODE_LIST_ARTIFACTS,
+        ToolName.CODE_READ_ARTIFACT,
+        ToolName.CODE_ANALYZE,
+        ToolName.CODE_SEARCH,
+        # Workspace reads
+        ToolName.WORKSPACE_INFO,
+        ToolName.WORKSPACE_TREE,
+        ToolName.WORKSPACE_EXISTS,
+        # Shell reads
+        ToolName.SHELL_VIEW,
+        # MCP reads
+        ToolName.MCP_RESOURCES,
+        ToolName.MCP_TOOL_SCHEMAS,
+        ToolName.MCP_HEALTH_CHECK,
+        ToolName.MCP_LIST_RESOURCES,
+        ToolName.MCP_READ_RESOURCE,
+        ToolName.MCP_SERVER_STATUS,
+        # Test (reads: listing only)
+        ToolName.TEST_LIST,
+        # Export reads
+        ToolName.EXPORT_LIST,
+        # Git reads
+        ToolName.GIT_STATUS,
+        ToolName.GIT_LOG,
+        ToolName.GIT_DIFF,
+        ToolName.GIT_BRANCHES,
+        # Deep scan (analysis, no modifications)
+        ToolName.DEEP_SCAN_PROJECT,
+        ToolName.DEEP_SCAN_CODE,
+        ToolName.DEEP_SCAN_DEPENDENCIES,
+        ToolName.DEEP_SCAN_SECURITY,
+        ToolName.DEEP_SCAN_QUALITY,
+        # Knowledge base reads
+        ToolName.KB_QUERY,
+        ToolName.KB_LIST,
+        # Canvas reads
+        ToolName.CANVAS_GET_STATE,
+        # Skill reads
+        ToolName.SKILL_LIST_USER,
+        # Schedule reads
+        ToolName.AGENT_LIST_SCHEDULED_TASKS,
+        # Idle
+        ToolName.IDLE,
+    }
+)
 
-ToolName._ACTION = frozenset({
-    # File writes
-    ToolName.FILE_WRITE,
-    ToolName.FILE_CREATE,
-    ToolName.FILE_DELETE,
-    ToolName.FILE_RENAME,
-    ToolName.FILE_MOVE,
-    ToolName.FILE_STR_REPLACE,
-    # Browser actions (side effects: navigation, clicks, state changes)
-    ToolName.BROWSER_NAVIGATE,
-    ToolName.BROWSER_GET_CONTENT,
-    ToolName.BROWSER_CLICK,
-    ToolName.BROWSER_INPUT,
-    ToolName.BROWSER_MOVE_MOUSE,
-    ToolName.BROWSER_PRESS_KEY,
-    ToolName.BROWSER_SELECT_OPTION,
-    ToolName.BROWSER_SCROLL_UP,
-    ToolName.BROWSER_SCROLL_DOWN,
-    ToolName.BROWSER_CONSOLE_EXEC,
-    ToolName.BROWSER_RESTART,
-    ToolName.BROWSER_AGENT_RUN,
-    # Playwright actions
-    ToolName.PLAYWRIGHT_LAUNCH,
-    ToolName.PLAYWRIGHT_NAVIGATE,
-    ToolName.PLAYWRIGHT_FILL,
-    ToolName.PLAYWRIGHT_TYPE,
-    ToolName.PLAYWRIGHT_SELECT_OPTION,
-    ToolName.PLAYWRIGHT_PRESS_KEY,
-    ToolName.PLAYWRIGHT_EVALUATE,
-    ToolName.PLAYWRIGHT_SET_COOKIES,
-    ToolName.PLAYWRIGHT_INTERCEPT_REQUESTS,
-    ToolName.PLAYWRIGHT_CLOUDFLARE_BYPASS,
-    ToolName.PLAYWRIGHT_LOGIN_WITH_2FA,
-    ToolName.PLAYWRIGHT_FILL_2FA_CODE,
-    ToolName.PLAYWRIGHT_SOLVE_RECAPTCHA,
-    ToolName.PLAYWRIGHT_STEALTH_NAVIGATE,
-    # Code execution
-    ToolName.CODE_EXECUTE,
-    ToolName.CODE_EXECUTE_PYTHON,
-    ToolName.CODE_EXECUTE_JAVASCRIPT,
-    ToolName.CODE_CREATE_ARTIFACT,
-    ToolName.CODE_UPDATE_ARTIFACT,
-    ToolName.CODE_CLEANUP_WORKSPACE,
-    ToolName.CODE_SAVE_ARTIFACT,
-    ToolName.CODE_FORMAT,
-    ToolName.CODE_LINT,
-    # Shell execution
-    ToolName.SHELL_EXEC,
-    ToolName.SHELL_WAIT,
-    ToolName.SHELL_WRITE_TO_PROCESS,
-    ToolName.SHELL_KILL_PROCESS,
-    # Workspace actions
-    ToolName.WORKSPACE_INIT,
-    ToolName.WORKSPACE_CLEAN,
-    # User interaction
-    ToolName.MESSAGE_ASK_USER,
-    ToolName.MESSAGE_NOTIFY_USER,
-    # MCP actions
-    ToolName.MCP_CALL_TOOL,
-    # Test execution (modifies environment state)
-    ToolName.TEST_RUN,
-    ToolName.TEST_COVERAGE,
-    # Export actions
-    ToolName.EXPORT,
-    ToolName.EXPORT_ORGANIZE,
-    ToolName.EXPORT_ARCHIVE,
-    ToolName.EXPORT_REPORT,
-    # Scraping
-    ToolName.SCRAPE_STRUCTURED,
-    ToolName.SCRAPE_BATCH,
-    ToolName.ADAPTIVE_SCRAPE,
-    # Canvas actions
-    ToolName.CANVAS_CREATE_PROJECT,
-    ToolName.CANVAS_ADD_ELEMENT,
-    ToolName.CANVAS_MODIFY_ELEMENT,
-    ToolName.CANVAS_DELETE_ELEMENTS,
-    ToolName.CANVAS_ARRANGE_LAYER,
-    ToolName.CANVAS_EXPORT,
-    ToolName.CANVAS_GENERATE_IMAGE,
-    # Git actions
-    ToolName.GIT_CLONE,
-    # Slides actions
-    ToolName.SLIDES_CREATE,
-    ToolName.SLIDES_ADD_CHART,
-    ToolName.SLIDES_EXPORT,
-    # Chart
-    ToolName.CHART_CREATE,
-    # Skill actions
-    ToolName.SKILL_CREATE,
-    ToolName.SKILL_DELETE,
-    # Schedule actions
-    ToolName.AGENT_SCHEDULE_TASK,
-    ToolName.AGENT_CANCEL_SCHEDULED_TASK,
-    ToolName.AGENT_START_TASK,
-})
+ToolName._ACTION = frozenset(
+    {
+        # File writes
+        ToolName.FILE_WRITE,
+        ToolName.FILE_CREATE,
+        ToolName.FILE_DELETE,
+        ToolName.FILE_RENAME,
+        ToolName.FILE_MOVE,
+        ToolName.FILE_STR_REPLACE,
+        # Browser actions (side effects: navigation, clicks, state changes)
+        ToolName.BROWSER_NAVIGATE,
+        ToolName.BROWSER_GET_CONTENT,
+        ToolName.BROWSER_CLICK,
+        ToolName.BROWSER_INPUT,
+        ToolName.BROWSER_MOVE_MOUSE,
+        ToolName.BROWSER_PRESS_KEY,
+        ToolName.BROWSER_SELECT_OPTION,
+        ToolName.BROWSER_SCROLL_UP,
+        ToolName.BROWSER_SCROLL_DOWN,
+        ToolName.BROWSER_CONSOLE_EXEC,
+        ToolName.BROWSER_RESTART,
+        ToolName.BROWSER_AGENT_RUN,
+        # Playwright actions
+        ToolName.PLAYWRIGHT_LAUNCH,
+        ToolName.PLAYWRIGHT_NAVIGATE,
+        ToolName.PLAYWRIGHT_FILL,
+        ToolName.PLAYWRIGHT_TYPE,
+        ToolName.PLAYWRIGHT_SELECT_OPTION,
+        ToolName.PLAYWRIGHT_PRESS_KEY,
+        ToolName.PLAYWRIGHT_EVALUATE,
+        ToolName.PLAYWRIGHT_SET_COOKIES,
+        ToolName.PLAYWRIGHT_INTERCEPT_REQUESTS,
+        ToolName.PLAYWRIGHT_CLOUDFLARE_BYPASS,
+        ToolName.PLAYWRIGHT_LOGIN_WITH_2FA,
+        ToolName.PLAYWRIGHT_FILL_2FA_CODE,
+        ToolName.PLAYWRIGHT_SOLVE_RECAPTCHA,
+        ToolName.PLAYWRIGHT_STEALTH_NAVIGATE,
+        # Code execution
+        ToolName.CODE_EXECUTE,
+        ToolName.CODE_EXECUTE_PYTHON,
+        ToolName.CODE_EXECUTE_JAVASCRIPT,
+        ToolName.CODE_CREATE_ARTIFACT,
+        ToolName.CODE_UPDATE_ARTIFACT,
+        ToolName.CODE_CLEANUP_WORKSPACE,
+        ToolName.CODE_SAVE_ARTIFACT,
+        ToolName.CODE_FORMAT,
+        ToolName.CODE_LINT,
+        # Shell execution
+        ToolName.SHELL_EXEC,
+        ToolName.SHELL_WAIT,
+        ToolName.SHELL_WRITE_TO_PROCESS,
+        ToolName.SHELL_KILL_PROCESS,
+        # Workspace actions
+        ToolName.WORKSPACE_INIT,
+        ToolName.WORKSPACE_CLEAN,
+        # User interaction
+        ToolName.MESSAGE_ASK_USER,
+        ToolName.MESSAGE_NOTIFY_USER,
+        # MCP actions
+        ToolName.MCP_CALL_TOOL,
+        # Test execution (modifies environment state)
+        ToolName.TEST_RUN,
+        ToolName.TEST_COVERAGE,
+        # Export actions
+        ToolName.EXPORT,
+        ToolName.EXPORT_ORGANIZE,
+        ToolName.EXPORT_ARCHIVE,
+        ToolName.EXPORT_REPORT,
+        # Scraping
+        ToolName.SCRAPE_STRUCTURED,
+        ToolName.SCRAPE_BATCH,
+        ToolName.ADAPTIVE_SCRAPE,
+        # Canvas actions
+        ToolName.CANVAS_CREATE_PROJECT,
+        ToolName.CANVAS_ADD_ELEMENT,
+        ToolName.CANVAS_MODIFY_ELEMENT,
+        ToolName.CANVAS_DELETE_ELEMENTS,
+        ToolName.CANVAS_ARRANGE_LAYER,
+        ToolName.CANVAS_EXPORT,
+        ToolName.CANVAS_GENERATE_IMAGE,
+        # Git actions
+        ToolName.GIT_CLONE,
+        # Slides actions
+        ToolName.SLIDES_CREATE,
+        ToolName.SLIDES_ADD_CHART,
+        ToolName.SLIDES_EXPORT,
+        # Chart
+        ToolName.CHART_CREATE,
+        # Skill actions
+        ToolName.SKILL_CREATE,
+        ToolName.SKILL_DELETE,
+        # Schedule actions
+        ToolName.AGENT_SCHEDULE_TASK,
+        ToolName.AGENT_CANCEL_SCHEDULED_TASK,
+        ToolName.AGENT_START_TASK,
+    }
+)
 
-ToolName._SAFE_PARALLEL = frozenset({
-    ToolName.FILE_READ,
-    ToolName.FILE_SEARCH,
-    ToolName.FILE_LIST_DIRECTORY,
-    ToolName.BROWSER_VIEW,
-    ToolName.CODE_LIST_ARTIFACTS,
-    ToolName.CODE_READ_ARTIFACT,
-    ToolName.MCP_LIST_RESOURCES,
-    ToolName.MCP_READ_RESOURCE,
-    ToolName.MCP_SERVER_STATUS,
-    ToolName.MCP_RESOURCES,
-    ToolName.MCP_HEALTH_CHECK,
-})
+ToolName._SAFE_PARALLEL = frozenset(
+    {
+        ToolName.FILE_READ,
+        ToolName.FILE_SEARCH,
+        ToolName.FILE_LIST_DIRECTORY,
+        ToolName.BROWSER_VIEW,
+        ToolName.CODE_LIST_ARTIFACTS,
+        ToolName.CODE_READ_ARTIFACT,
+        ToolName.MCP_LIST_RESOURCES,
+        ToolName.MCP_READ_RESOURCE,
+        ToolName.MCP_SERVER_STATUS,
+        ToolName.MCP_RESOURCES,
+        ToolName.MCP_HEALTH_CHECK,
+    }
+)
 
-ToolName._SEARCH = frozenset({
-    ToolName.INFO_SEARCH_WEB,
-    ToolName.WEB_SEARCH,
-    ToolName.WIDE_RESEARCH,
-    ToolName.SEARCH,
-})
+ToolName._SEARCH = frozenset(
+    {
+        ToolName.INFO_SEARCH_WEB,
+        ToolName.WEB_SEARCH,
+        ToolName.WIDE_RESEARCH,
+        ToolName.SEARCH,
+    }
+)
 
-ToolName._NETWORK = frozenset({
-    ToolName.INFO_SEARCH_WEB,
-    ToolName.BROWSER_GET_CONTENT,
-    ToolName.BROWSER_NAVIGATE,
-    ToolName.MCP_CALL_TOOL,
-    ToolName.WIDE_RESEARCH,
-    ToolName.SEARCH,
-    ToolName.SCRAPE_STRUCTURED,
-    ToolName.SCRAPE_BATCH,
-    ToolName.ADAPTIVE_SCRAPE,
-    ToolName.PLAYWRIGHT_NAVIGATE,
-    ToolName.PLAYWRIGHT_STEALTH_NAVIGATE,
-})
+ToolName._NETWORK = frozenset(
+    {
+        ToolName.INFO_SEARCH_WEB,
+        ToolName.BROWSER_GET_CONTENT,
+        ToolName.BROWSER_NAVIGATE,
+        ToolName.MCP_CALL_TOOL,
+        ToolName.WIDE_RESEARCH,
+        ToolName.SEARCH,
+        ToolName.SCRAPE_STRUCTURED,
+        ToolName.SCRAPE_BATCH,
+        ToolName.ADAPTIVE_SCRAPE,
+        ToolName.PLAYWRIGHT_NAVIGATE,
+        ToolName.PLAYWRIGHT_STEALTH_NAVIGATE,
+    }
+)
 
-ToolName._VIEW = frozenset({
-    ToolName.FILE_VIEW,
-    ToolName.BROWSER_VIEW,
-    ToolName.BROWSER_GET_CONTENT,
-    ToolName.BROWSER_AGENT_EXTRACT,
-    ToolName.PLAYWRIGHT_GET_CONTENT,
-    ToolName.PLAYWRIGHT_SCREENSHOT,
-})
+ToolName._VIEW = frozenset(
+    {
+        ToolName.FILE_VIEW,
+        ToolName.BROWSER_VIEW,
+        ToolName.BROWSER_GET_CONTENT,
+        ToolName.BROWSER_AGENT_EXTRACT,
+        ToolName.PLAYWRIGHT_GET_CONTENT,
+        ToolName.PLAYWRIGHT_SCREENSHOT,
+    }
+)
 
-ToolName._PHASE_PLANNING = frozenset({
-    ToolName.FILE_READ,
-    ToolName.FILE_LIST,
-    ToolName.FILE_LIST_DIRECTORY,
-    ToolName.FILE_SEARCH,
-    ToolName.FILE_FIND,
-    ToolName.FILE_FIND_BY_NAME,
-    ToolName.FILE_FIND_IN_CONTENT,
-    ToolName.INFO_SEARCH_WEB,
-    ToolName.WIDE_RESEARCH,
-    ToolName.BROWSER_NAVIGATE,
-    ToolName.BROWSER_VIEW,
-    ToolName.BROWSER_GET_CONTENT,
-    ToolName.WORKSPACE_INFO,
-    ToolName.WORKSPACE_TREE,
-    ToolName.SHELL_EXEC,
-    ToolName.SHELL_VIEW,
-    ToolName.MESSAGE_ASK_USER,
-    ToolName.MESSAGE_NOTIFY_USER,
-    ToolName.CODE_LIST_ARTIFACTS,
-    ToolName.CODE_READ_ARTIFACT,
-})
+ToolName._PHASE_PLANNING = frozenset(
+    {
+        ToolName.FILE_READ,
+        ToolName.FILE_LIST,
+        ToolName.FILE_LIST_DIRECTORY,
+        ToolName.FILE_SEARCH,
+        ToolName.FILE_FIND,
+        ToolName.FILE_FIND_BY_NAME,
+        ToolName.FILE_FIND_IN_CONTENT,
+        ToolName.INFO_SEARCH_WEB,
+        ToolName.WIDE_RESEARCH,
+        ToolName.BROWSER_NAVIGATE,
+        ToolName.BROWSER_VIEW,
+        ToolName.BROWSER_GET_CONTENT,
+        ToolName.WORKSPACE_INFO,
+        ToolName.WORKSPACE_TREE,
+        ToolName.SHELL_EXEC,
+        ToolName.SHELL_VIEW,
+        ToolName.MESSAGE_ASK_USER,
+        ToolName.MESSAGE_NOTIFY_USER,
+        ToolName.CODE_LIST_ARTIFACTS,
+        ToolName.CODE_READ_ARTIFACT,
+    }
+)
 
-ToolName._PHASE_VERIFYING = frozenset({
-    ToolName.FILE_READ,
-    ToolName.FILE_LIST,
-    ToolName.FILE_LIST_DIRECTORY,
-    ToolName.FILE_SEARCH,
-    ToolName.SHELL_EXEC,
-    ToolName.SHELL_VIEW,
-    ToolName.BROWSER_NAVIGATE,
-    ToolName.BROWSER_VIEW,
-    ToolName.BROWSER_GET_CONTENT,
-    ToolName.TEST_RUN,
-    ToolName.TEST_LIST,
-    ToolName.TEST_COVERAGE,
-    ToolName.CODE_EXECUTE,
-    ToolName.CODE_LIST_ARTIFACTS,
-    ToolName.CODE_READ_ARTIFACT,
-    ToolName.MESSAGE_ASK_USER,
-})
+ToolName._PHASE_VERIFYING = frozenset(
+    {
+        ToolName.FILE_READ,
+        ToolName.FILE_LIST,
+        ToolName.FILE_LIST_DIRECTORY,
+        ToolName.FILE_SEARCH,
+        ToolName.SHELL_EXEC,
+        ToolName.SHELL_VIEW,
+        ToolName.BROWSER_NAVIGATE,
+        ToolName.BROWSER_VIEW,
+        ToolName.BROWSER_GET_CONTENT,
+        ToolName.TEST_RUN,
+        ToolName.TEST_LIST,
+        ToolName.TEST_COVERAGE,
+        ToolName.CODE_EXECUTE,
+        ToolName.CODE_LIST_ARTIFACTS,
+        ToolName.CODE_READ_ARTIFACT,
+        ToolName.MESSAGE_ASK_USER,
+    }
+)
 
 ToolName._SAFE_MCP_PREFIXES = (
     "mcp_get_",

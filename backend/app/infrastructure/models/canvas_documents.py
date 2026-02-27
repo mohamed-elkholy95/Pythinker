@@ -35,8 +35,8 @@ class CanvasProjectDocument(
         name: ClassVar[str] = "canvas_projects"
         indexes: ClassVar[list[Any]] = [
             IndexModel([("project_id", ASCENDING)], unique=True),
+            # "user_id" standalone index removed — covered by compound prefix below
             IndexModel([("user_id", ASCENDING), ("updated_at", DESCENDING)]),
-            "user_id",
         ]
 
     def to_domain(self) -> CanvasProject:

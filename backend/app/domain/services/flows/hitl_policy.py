@@ -42,16 +42,32 @@ class HitlAssessment:
 
 # Tools that actually execute shell commands or run code — shell injection patterns
 # are scoped to these tools ONLY to prevent false positives on file content.
-_SHELL_EXEC_TOOLS: frozenset[str] = frozenset({
-    "terminal", "run_bash", "execute_command", "shell_run", "execute_code",
-    "python_repl", "bash", "sh", "run_script", "exec",
-})
+_SHELL_EXEC_TOOLS: frozenset[str] = frozenset(
+    {
+        "terminal",
+        "run_bash",
+        "execute_command",
+        "shell_run",
+        "execute_code",
+        "python_repl",
+        "bash",
+        "sh",
+        "run_script",
+        "exec",
+    }
+)
 
 # Tools that write file content — for these we only inspect the path argument,
 # not the content, to avoid false positives on code written inside the file.
-_FILE_WRITE_TOOLS: frozenset[str] = frozenset({
-    "file_write", "write_file", "create_file", "file_edit", "append_file",
-})
+_FILE_WRITE_TOOLS: frozenset[str] = frozenset(
+    {
+        "file_write",
+        "write_file",
+        "create_file",
+        "file_edit",
+        "append_file",
+    }
+)
 
 
 def _build_raw_patterns() -> list[tuple[str, str, str, frozenset[str] | None]]:
@@ -66,37 +82,48 @@ def _build_raw_patterns() -> list[tuple[str, str, str, frozenset[str] | None]]:
     # Shell command prefix for dynamic pattern building
     _rm = "rm"
     _shutil = "shutil"
-    _sys_fn = "os" + "." + "system"   # avoid literal in source
+    _sys_fn = "os" + "." + "system"  # avoid literal in source
     _sub = "subprocess"
 
     return [
         # Destructive shell commands — shell tools only (file content may mention these)
-        (r"\b" + _rm + r"\s+(-r\s*)?(-f\s*)?(-rf|-fr)\b", "critical",
-         "destructive rm -rf shell command", _SHELL_EXEC_TOOLS),
-        (r"\b" + _shutil + r"\.rmtree\b", "critical",
-         "Python shutil.rmtree (recursive delete)", _SHELL_EXEC_TOOLS),
+        (
+            r"\b" + _rm + r"\s+(-r\s*)?(-f\s*)?(-rf|-fr)\b",
+            "critical",
+            "destructive rm -rf shell command",
+            _SHELL_EXEC_TOOLS,
+        ),
+        (r"\b" + _shutil + r"\.rmtree\b", "critical", "Python shutil.rmtree (recursive delete)", _SHELL_EXEC_TOOLS),
         (r"\brmdir\s+/[^\s]+", "high", "rmdir on absolute path", _SHELL_EXEC_TOOLS),
         # Shell injection patterns — shell tools only to avoid false positives on file content
-        (r"\b" + re.escape(_sys_fn) + r"\s*\(", "high",
-         "direct shell execution via system() call", _SHELL_EXEC_TOOLS),
-        (r"\b" + _sub + r"\b.*\bshell\s*=\s*True\b", "high",
-         "subprocess with shell=True injection risk", _SHELL_EXEC_TOOLS),
-        (r"\beval\s*\(.*__import__", "critical",
-         "eval with __import__ (code injection)", _SHELL_EXEC_TOOLS),
+        (r"\b" + re.escape(_sys_fn) + r"\s*\(", "high", "direct shell execution via system() call", _SHELL_EXEC_TOOLS),
+        (
+            r"\b" + _sub + r"\b.*\bshell\s*=\s*True\b",
+            "high",
+            "subprocess with shell=True injection risk",
+            _SHELL_EXEC_TOOLS,
+        ),
+        (r"\beval\s*\(.*__import__", "critical", "eval with __import__ (code injection)", _SHELL_EXEC_TOOLS),
         # External HTTP mutations — apply to all tools (URL in any argument is concerning)
         (r"\bDELETE\b.{0,60}\bHTTP", "high", "external HTTP DELETE request", None),
-        (r"\bPUT\b.{0,60}\bhttps?://(?!localhost|127\.0\.0\.1)", "medium",
-         "external HTTP PUT to remote host", None),
-        (r"\bPOST\b.{0,60}\bhttps?://(?!localhost|127\.0\.0\.1)", "medium",
-         "external HTTP POST to remote host", None),
+        (r"\bPUT\b.{0,60}\bhttps?://(?!localhost|127\.0\.0\.1)", "medium", "external HTTP PUT to remote host", None),
+        (r"\bPOST\b.{0,60}\bhttps?://(?!localhost|127\.0\.0\.1)", "medium", "external HTTP POST to remote host", None),
         # Sensitive system paths in code being executed (Python open() pattern)
-        (r"open\s*\(\s*['\"]/(etc|root|home|usr|var|boot|sys|proc)", "critical",
-         "file write to sensitive system path via open()", _SHELL_EXEC_TOOLS),
+        (
+            r"open\s*\(\s*['\"]/(etc|root|home|usr|var|boot|sys|proc)",
+            "critical",
+            "file write to sensitive system path via open()",
+            _SHELL_EXEC_TOOLS,
+        ),
         # Direct path argument pointing at a sensitive system directory (file-write tools)
         # _build_args_text() returns only the path arg for FILE_WRITE_TOOLS, so this
         # pattern safely matches "/etc/passwd" without risk of content false positives.
-        (r"^/(etc|root|usr/local|var|boot|sys|proc)/", "critical",
-         "write to sensitive system directory", _FILE_WRITE_TOOLS),
+        (
+            r"^/(etc|root|usr/local|var|boot|sys|proc)/",
+            "critical",
+            "write to sensitive system directory",
+            _FILE_WRITE_TOOLS,
+        ),
     ]
 
 
@@ -108,9 +135,7 @@ class HitlPolicy:
     """
 
     def __init__(self) -> None:
-        self._patterns: list[tuple[re.Pattern[str], str, str, frozenset[str] | None]] = (
-            self._compile_patterns()
-        )
+        self._patterns: list[tuple[re.Pattern[str], str, str, frozenset[str] | None]] = self._compile_patterns()
         self._always_block: frozenset[str] = frozenset()
 
     @staticmethod
@@ -119,9 +144,7 @@ class HitlPolicy:
         compiled = []
         for pattern_str, level, reason, tool_filter in _build_raw_patterns():
             try:
-                compiled.append(
-                    (re.compile(pattern_str, re.IGNORECASE | re.DOTALL), level, reason, tool_filter)
-                )
+                compiled.append((re.compile(pattern_str, re.IGNORECASE | re.DOTALL), level, reason, tool_filter))
             except re.error as exc:
                 logger.warning("HitlPolicy: failed to compile pattern '%s': %s", pattern_str, exc)
         return compiled

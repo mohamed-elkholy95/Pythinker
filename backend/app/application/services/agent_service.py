@@ -20,6 +20,7 @@ from app.application.schemas.workspace import (
     WorkspaceManifestResponse,
     WorkspaceWriteError,
 )
+from app.application.services.session_lifecycle_service import SessionLifecycleService
 from app.application.services.settings_service import get_settings_service
 from app.application.services.usage_service import get_usage_service
 from app.core import prometheus_metrics as pm
@@ -38,7 +39,6 @@ from app.domain.models.session import AgentMode, ResearchMode, Session, SessionS
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
-from app.application.services.session_lifecycle_service import SessionLifecycleService
 from app.domain.services.agent_domain_service import AgentDomainService
 from app.domain.services.browser_login_state_store import BrowserLoginStateStore
 from app.domain.services.stream_guard import has_active_stream
