@@ -395,11 +395,45 @@ class AcknowledgmentGenerator:
 
         return normalized or None
 
+    @staticmethod
+    def _strip_system_instruction_prefix(text: str) -> str:
+        """Strip system instruction prefixes injected by feature buttons.
+
+        Feature buttons (Deal Finder, Research, etc.) prepend instructions like
+        "Act as a professional deal finder. Search all major stores... for: "
+        before the user's actual query. This method extracts the real query
+        by detecting common delimiter patterns.
+        """
+        # Pattern: "... for: <actual query>" — feature button delimiter
+        for_match = re.search(
+            r"(?:for|about|regarding|on)\s*:\s*(.+)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if for_match:
+            candidate = for_match.group(1).strip()
+            if len(candidate) >= 3:
+                return candidate
+
+        # Pattern: multi-sentence instruction where last sentence is the query
+        # e.g., "Act as X. Do Y. Find Z. best coupon for cursor ai"
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        if len(sentences) > 2 and re.match(
+            r"^(?:act\s+as|you\s+are|imagine\s+you)", sentences[0], re.IGNORECASE
+        ):
+            # Last sentence is likely the actual user query
+            return sentences[-1].strip().rstrip(".!?")
+
+        return text
+
     def _extract_request_focus(self, user_message: str) -> str:
         """Extract the actionable focus from the user's request."""
         focus = (user_message or "").strip()
         if not focus:
             return "this task"
+
+        # Strip system instruction prefixes from feature buttons
+        focus = self._strip_system_instruction_prefix(focus)
 
         focus = re.sub(
             r"^\s*(?:please\s+)?(?:(?:can|could|would)\s+you|you\s+can)\s+",
