@@ -370,6 +370,18 @@ const ALERT_TYPES: Record<string, { icon: string; label: string }> = {
   CAUTION: { icon: '🔴', label: 'Caution' },
 };
 
+/** Build a styled alert header element from alert metadata (safe — only static trusted strings). */
+const _buildAlertHeader = (alertMeta: { icon: string; label: string }): HTMLDivElement => {
+  const header = document.createElement('div');
+  header.className = 'gh-alert-header';
+  const iconSpan = document.createElement('span');
+  iconSpan.className = 'gh-alert-icon';
+  iconSpan.textContent = alertMeta.icon;
+  header.appendChild(iconSpan);
+  header.appendChild(document.createTextNode(alertMeta.label));
+  return header;
+};
+
 const enhanceAlertBlockquotes = () => {
   const proseMirror = contentRef.value?.querySelector('.ProseMirror');
   if (!proseMirror) return;
@@ -382,29 +394,44 @@ const enhanceAlertBlockquotes = () => {
     if (!firstP) continue;
 
     const text = firstP.textContent?.trim() ?? '';
-    const match = text.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i);
-    if (!match) continue;
 
-    const type = match[1].toUpperCase();
-    const alertMeta = ALERT_TYPES[type];
-    if (!alertMeta) continue;
+    // Strategy 1: GitHub-flavored [!TYPE] syntax (e.g., "> [!WARNING]\n> content")
+    const gfmMatch = text.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i);
+    if (gfmMatch) {
+      const type = gfmMatch[1].toUpperCase();
+      const alertMeta = ALERT_TYPES[type];
+      if (!alertMeta) continue;
 
-    bq.classList.add('gh-alert', `gh-alert-${type.toLowerCase()}`);
+      bq.classList.add('gh-alert', `gh-alert-${type.toLowerCase()}`);
 
-    // Create the header element
-    const header = document.createElement('div');
-    header.className = 'gh-alert-header';
-    header.innerHTML = `<span class="gh-alert-icon">${alertMeta.icon}</span>${alertMeta.label}`;
+      // Remove the [!TYPE] marker from the first paragraph text
+      firstP.innerHTML = firstP.innerHTML.replace(/\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i, '');
+      if (!firstP.textContent?.trim()) {
+        firstP.remove();
+      }
 
-    // Remove the [!TYPE] marker from the first paragraph text
-    firstP.innerHTML = firstP.innerHTML.replace(/\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i, '');
-    if (!firstP.textContent?.trim()) {
-      // If the paragraph is now empty (marker was on its own line), remove it
-      firstP.remove();
+      bq.insertBefore(_buildAlertHeader(alertMeta), bq.firstChild);
+      continue;
     }
 
-    // Insert header at the top of the blockquote
-    bq.insertBefore(header, bq.firstChild);
+    // Strategy 2: Bold-label blockquotes from LLM output (e.g., "> **Note:** content")
+    const boldLabel = firstP.querySelector('strong');
+    if (boldLabel) {
+      const labelText = boldLabel.textContent?.trim().replace(/:$/, '').toUpperCase() ?? '';
+      const alertMeta = ALERT_TYPES[labelText];
+      if (alertMeta) {
+        bq.classList.add('gh-alert', `gh-alert-${labelText.toLowerCase()}`);
+
+        // Remove the bold label and any trailing colon/space from the paragraph
+        boldLabel.remove();
+        firstP.innerHTML = firstP.innerHTML.replace(/^[\s:]+/, '');
+        if (!firstP.textContent?.trim()) {
+          firstP.remove();
+        }
+
+        bq.insertBefore(_buildAlertHeader(alertMeta), bq.firstChild);
+      }
+    }
   }
 };
 

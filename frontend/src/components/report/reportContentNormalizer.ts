@@ -293,6 +293,21 @@ export const stripLeadingMainTitle = (markdown: string): string => {
   return filtered.join('\n');
 };
 
+/**
+ * Fix malformed GFM alert blockquotes where a label prefix appears before the `>` marker.
+ * LLMs sometimes generate `Caveat: > [!WARNING]` or `Next step: > Students must...`
+ * instead of putting `>` at the start of the line. This normalizer moves such lines
+ * into proper blockquote syntax so `marked` can parse them correctly.
+ */
+const normalizeInlineBlockquotes = (markdown: string): string => {
+  if (!markdown) return markdown;
+  // Match lines like "Label: > [!TYPE]" or "Label: > text" where label appears before blockquote
+  return markdown.replace(
+    /^([^\n>]*?):\s*>\s*(\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\].*)/gim,
+    '> $2',
+  );
+};
+
 export const normalizeMarkdownLayout = (markdown: string): string => {
   if (!markdown) return markdown;
   return normalizeLineEndings(markdown).replace(EXCESS_BLANK_LINES_RE, '\n\n').trim();
@@ -307,6 +322,7 @@ export const prepareMarkdownForViewer = (
   const shouldStripMainTitle = options?.stripMainTitle ?? false;
 
   let normalized = normalizeMarkdownLayout(markdown);
+  normalized = normalizeInlineBlockquotes(normalized);
   if (shouldCollapse) {
     normalized = collapseDuplicateReportBlocks(normalized);
   }
