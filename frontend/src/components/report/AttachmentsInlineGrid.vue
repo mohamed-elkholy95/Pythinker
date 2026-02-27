@@ -52,7 +52,7 @@
           <FileTypeIcon :filename="file.filename" :size="36" />
         </div>
         <div class="flex flex-col min-w-0 flex-1">
-          <span class="text-sm text-[var(--text-primary)] truncate font-medium leading-tight">
+          <span class="text-sm text-[var(--text-primary)] truncate font-medium leading-tight" :title="file.filename">
             {{ file.filename }}
           </span>
           <span class="text-xs text-[var(--text-tertiary)]">
