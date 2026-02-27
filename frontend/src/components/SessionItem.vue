@@ -40,8 +40,8 @@
       <div class="flex-1 min-w-0">
         <span class="block truncate text-sm text-[var(--text-primary)]"
           :class="isCurrentSession ? 'font-medium' : 'font-normal'"
-          :title="session.title || t('New Chat')">
-          {{ session.title || t('New Chat') }}
+          :title="displayTitle">
+          {{ displayTitle }}
         </span>
       </div>
 
@@ -103,6 +103,15 @@ const isRunning = computed(() => {
   return props.session.status === SessionStatus.RUNNING || props.session.status === SessionStatus.PENDING;
 });
 
+const displayTitle = computed(() => {
+  if (props.session.title) return props.session.title;
+  if (props.session.latest_message) {
+    const msg = props.session.latest_message.trim();
+    return msg.length > 40 ? msg.substring(0, 40) + '...' : msg;
+  }
+  return t('New Chat');
+});
+
 const handleSessionClick = () => {
   router.push(`/chat/${props.session.session_id}`);
 };
@@ -133,7 +142,7 @@ const handleSessionMenuClick = (event: MouseEvent) => {
       showPromptDialog({
         title: t('Rename Session'),
         placeholder: t('Enter new name'),
-        defaultValue: props.session.title || t('New Chat'),
+        defaultValue: props.session.title || displayTitle.value,
         confirmText: t('Rename'),
         cancelText: t('Cancel'),
         onConfirm: async (newTitle: string) => {
