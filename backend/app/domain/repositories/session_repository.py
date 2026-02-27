@@ -14,7 +14,11 @@ class SessionRepository(Protocol):
         ...
 
     async def find_by_id(self, session_id: str) -> Session | None:
-        """Find a session by its ID"""
+        """Find a session by its ID (lightweight — excludes events/files)."""
+        ...
+
+    async def find_by_id_full(self, session_id: str) -> Session | None:
+        """Find a session by its ID with full payload (includes events/files)."""
         ...
 
     async def find_by_user_id(self, user_id: str) -> list[Session]:
@@ -22,7 +26,11 @@ class SessionRepository(Protocol):
         ...
 
     async def find_by_id_and_user_id(self, session_id: str, user_id: str) -> Session | None:
-        """Find a session by ID and user ID (for authorization)"""
+        """Find a session by ID and user ID (lightweight — excludes events/files)."""
+        ...
+
+    async def find_by_id_and_user_id_full(self, session_id: str, user_id: str) -> Session | None:
+        """Find a session by ID and user ID with full payload (includes events/files)."""
         ...
 
     async def update_title(self, session_id: str, title: str) -> None:
