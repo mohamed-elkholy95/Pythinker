@@ -469,6 +469,14 @@ class UniversalLLM:
             # Wrap non-dict results (e.g. list)
             return {"data": result}
 
+        # Track semantic failure (HTTP 200 but malformed JSON)
+        try:
+            from app.core.prometheus_metrics import llm_json_parse_failures_total
+
+            llm_json_parse_failures_total.inc({"model": self._model_name, "method": "ask_json"})
+        except Exception:
+            logger.debug("Failed to record ask_json parse failure metric", exc_info=True)
+
         logger.debug(f"ask_json: no valid JSON found in {len(content)}-char response")
         return default
 
@@ -557,6 +565,14 @@ class UniversalLLM:
                         ),
                     },
                 ]
+
+        # Track semantic failure after all retries exhausted
+        try:
+            from app.core.prometheus_metrics import llm_json_parse_failures_total
+
+            llm_json_parse_failures_total.inc({"model": self._model_name, "method": "ask_json_validated"})
+        except Exception:
+            logger.debug("Failed to record ask_json_validated parse failure metric", exc_info=True)
 
         raise ValueError(f"ask_json_validated failed after {max_retries + 1} attempts. Last error: {last_error}")
 
