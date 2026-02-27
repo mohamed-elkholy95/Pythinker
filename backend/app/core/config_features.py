@@ -42,6 +42,9 @@ class SearchSettingsMixin:
     exa_api_key_4: str | None = None  # Fallback Exa key #4
     exa_api_key_5: str | None = None  # Fallback Exa key #5
 
+    # Search key pool recovery
+    serper_quota_cooldown_seconds: int = 1800  # Cooldown after quota exhaustion (default 30min)
+
     # Search API budget limits (per agent task)
     max_search_api_calls_per_task: int = 30  # Hard cap on API calls per task
     max_wide_research_queries: int = 5  # Max queries in a single wide_research call

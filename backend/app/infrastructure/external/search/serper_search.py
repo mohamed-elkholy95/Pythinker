@@ -59,6 +59,7 @@ class SerperSearchEngine(SearchEngineBase):
         fallback_api_keys: list[str] | None = None,
         redis_client=None,
         timeout: float | None = None,
+        quota_cooldown_seconds: int = 1800,
     ):
         """Initialize Serper search engine.
 
@@ -67,6 +68,8 @@ class SerperSearchEngine(SearchEngineBase):
             fallback_api_keys: Optional list of fallback API keys
             redis_client: Redis client for distributed key coordination
             timeout: Optional custom timeout
+            quota_cooldown_seconds: Cooldown after quota exhaustion (default 30min).
+                Configurable via SERPER_QUOTA_COOLDOWN_SECONDS env var.
         """
         super().__init__(timeout=timeout)
 
@@ -78,13 +81,13 @@ class SerperSearchEngine(SearchEngineBase):
         key_configs = [APIKeyConfig(key=k, priority=i) for i, k in enumerate(all_keys) if k and k.strip()]
 
         # Initialize key pool with FAILOVER strategy
-        # Serper free-tier resets credits faster than 24h — use 4h cooldown
+        # Cooldown configurable via env; default 30min (was 4h, too aggressive)
         self._key_pool = APIKeyPool(
             provider="serper",
             keys=key_configs,
             redis_client=redis_client,
             strategy=RotationStrategy.FAILOVER,
-            cooldown_overrides={ErrorType.QUOTA_EXHAUSTED: 14400},
+            cooldown_overrides={ErrorType.QUOTA_EXHAUSTED: quota_cooldown_seconds},
         )
 
         # Set max retries to number of keys to prevent unbounded recursion
@@ -93,31 +96,16 @@ class SerperSearchEngine(SearchEngineBase):
         self.base_url = "https://google.serper.dev/search"
         logger.info(f"Serper search initialized with {len(key_configs)} API key(s)")
 
-    @property
-    async def api_key(self) -> str | None:
-        """Get the currently active API key from pool."""
-        return await self._key_pool.get_healthy_key()
-
-    async def _get_headers(self) -> dict[str, str]:
-        """Get Serper API headers with active key authentication."""
-        key = await self.api_key
-        if not key:
-            raise RuntimeError("All Serper API keys exhausted")
-
-        return {
-            "X-API-Key": key,
-            "Content-Type": "application/json",
-        }
-
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with connection pooling.
+        """Get or create shared HTTP client.
 
-        Overrides base class to support async header generation.
+        Auth header (X-API-Key) is NOT baked in here — it is injected as a
+        per-request header in search() so the connection pool is reused across
+        all key rotations without needing to close and recreate the client.
         """
         if self._client is None or self._client.is_closed:
-            headers = await self._get_headers()
             self._client = httpx.AsyncClient(
-                headers=headers,
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
                 timeout=httpx.Timeout(self.timeout, connect=10.0),
                 follow_redirects=True,
             )
@@ -148,7 +136,7 @@ class SerperSearchEngine(SearchEngineBase):
         return params
 
     async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
-        """Execute POST request to Serper API."""
+        """Satisfy abstract base contract. Not called — search() drives the full flow."""
         return await client.post(self.base_url, json=params)
 
     def _parse_response(self, response: httpx.Response) -> tuple[list[SearchResultItem], int]:
@@ -210,8 +198,9 @@ class SerperSearchEngine(SearchEngineBase):
             logger.warning(f"Serper query truncated from {len(query)} to 500 chars")
             query = query[:500]
 
-        # Get healthy key from pool
-        key = await self.api_key
+        # Wait up to 120s for a key to become available (MCP Rotator pattern).
+        # Falls through to fallback provider when cooldowns exceed the budget.
+        key = await self._key_pool.get_healthy_key_or_wait(max_wait_seconds=120.0)
         if not key:
             return self._create_error_result(
                 query, date_range, f"All {len(self._key_pool.keys)} Serper API keys exhausted"
@@ -220,7 +209,14 @@ class SerperSearchEngine(SearchEngineBase):
         try:
             client = await self._get_client()
             params = self._build_request_params(query, date_range)
-            response = await self._execute_request(client, params)
+
+            # Per-request auth injection: key header overrides the pool-level client
+            # so the connection pool is reused across all key rotations.
+            response = await client.post(
+                self.base_url,
+                json=params,
+                headers={"X-API-Key": key},
+            )
 
             # Check for quota/auth errors (400 = "Not enough credits" from Serper)
             if response.status_code in _ROTATE_STATUS_CODES:
@@ -229,7 +225,6 @@ class SerperSearchEngine(SearchEngineBase):
                     "Serper key error (HTTP %d%s), rotating", response.status_code, f": {body}" if body else ""
                 )
                 await self._key_pool.handle_error(key, status_code=response.status_code, body_text=body)
-                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
             response.raise_for_status()
@@ -240,7 +235,6 @@ class SerperSearchEngine(SearchEngineBase):
             if _text_has_quota_keywords(response_text):
                 logger.warning("Serper quota keyword detected in response body, rotating key")
                 await self._key_pool.handle_error(key, body_text=response_text)
-                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
             self._key_pool.record_success(key)
@@ -250,7 +244,6 @@ class SerperSearchEngine(SearchEngineBase):
             if e.response.status_code in _ROTATE_STATUS_CODES:
                 body = e.response.text[:200] if hasattr(e.response, "text") else ""
                 await self._key_pool.handle_error(key, status_code=e.response.status_code, body_text=body)
-                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
             return self._create_error_result(query, date_range, self._handle_http_error(e))
 
