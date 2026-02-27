@@ -244,6 +244,18 @@ class PrePlanningSearchExecutor:
 
         all_results = await asyncio.gather(*[_safe_search(q, delay=i * 0.1) for i, q in enumerate(queries)])
 
+        # Register queries in TaskStateManager so execution-phase dedup
+        # knows these queries have already been searched (prevents 0-result
+        # collisions when the LLM re-searches the same query via SearchTool).
+        try:
+            from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+            tsm = get_task_state_manager()
+            for q in queries:
+                tsm.record_query(q)
+        except Exception:
+            logger.debug("Failed to register pre-planning queries in TSM", exc_info=True)
+
         # Flatten and deduplicate by URL
         seen_urls: set[str] = set()
         unique_items: list[tuple[str, str, str]] = []
