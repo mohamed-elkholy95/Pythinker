@@ -3,7 +3,7 @@
     :style="{ minWidth: `${size}px`, minHeight: `${size}px` }">
     <!-- Clip path to constrain scanning lines inside the circle -->
     <defs>
-      <clipPath id="circle-clip">
+      <clipPath :id="clipId">
         <circle cx="6.5" cy="6.5" r="5.3" />
       </clipPath>
     </defs>
@@ -12,7 +12,7 @@
     <circle class="icon-glyph" cx="6.5" cy="6.5" r="5.5" stroke-width="1.3" />
 
     <!-- Scanning lines inside circle (animated) -->
-    <g clip-path="url(#circle-clip)" class="scan-lines">
+    <g :clip-path="`url(#${clipId})`" class="scan-lines">
       <line class="scan-line scan-line-1" x1="1" y1="2" x2="12" y2="2" stroke-width="0.8" />
       <line class="scan-line scan-line-2" x1="1" y1="4.5" x2="12" y2="4.5" stroke-width="0.8" />
       <line class="scan-line scan-line-3" x1="1" y1="7" x2="12" y2="7" stroke-width="0.8" />
@@ -26,9 +26,13 @@
 </template>
 
 <script setup lang="ts">
+import { useId } from 'vue';
+
 defineProps({
   size: { type: Number, default: 21 },
 });
+
+const clipId = `circle-clip-${useId()}`;
 </script>
 
 <style scoped>
