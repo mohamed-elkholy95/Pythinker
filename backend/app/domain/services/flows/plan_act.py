@@ -2929,6 +2929,27 @@ class PlanActFlow(BaseFlow):
                     except Exception as e:
                         logger.warning(f"Failed to fetch session files: {e}")
 
+                    # For ALL modes: inject session files into summarization context
+                    # so the LLM can reference them in the final report.
+                    # Skip if deep_research already injected workspace listing above.
+                    if session_files and not (self._research_mode == "deep_research" and self._workspace_output_path):
+                        file_listing = "\n".join(
+                            f"- {f.filename} ({f.file_size or 0:,} bytes) — {f.content_type or 'unknown type'}"
+                            for f in session_files
+                        )
+                        deliverables_ctx = (
+                            "\n\n## Session Deliverables\n"
+                            "The following files were created during this session:\n"
+                            f"{file_listing}\n\n"
+                            'Include a "## 📎 Deliverables" section in your final report '
+                            "listing each file with a brief description of what it contains or demonstrates."
+                        )
+                        self.executor.system_prompt += deliverables_ctx
+                        logger.info(
+                            "Injected session files listing (%d files) into summarization context",
+                            len(session_files),
+                        )
+
                     # Fallback: ensure executor has user_request for topic anchoring,
                     # even when no steps executed (normally set in execute_step()).
                     if not self.executor._user_request and message.message:
