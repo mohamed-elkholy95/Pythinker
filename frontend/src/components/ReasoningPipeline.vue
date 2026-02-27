@@ -263,31 +263,38 @@ onBeforeUnmount(() => { stopAnimation(); roCompact.value?.disconnect(); roExpand
 const progressPct = computed(() => Math.round((currentIndex.value / NODES.length) * 100))
 
 // ─── TOOL LABEL HELPER ────────────────────────────────────────────────────────
-function toolLabel(toolName: string, toolArgs: Record<string, unknown>): { detail: string } {
+function toolLabel(toolName: string, toolArgs: Record<string, unknown>): { detail: string; fullDetail: string } {
   const name = toolName.toLowerCase()
   const firstArg = Object.values(toolArgs)[0]
-  const argStr = typeof firstArg === 'string' ? firstArg.slice(0, 40) : ''
+  const argStr = typeof firstArg === 'string' ? firstArg : ''
 
-  if (name.includes('search') || name.includes('web')) return { detail: argStr ? `Searching: ${argStr}` : 'Web search' }
-  if (name.includes('browser') || name.includes('navigate')) return { detail: argStr ? `Navigate: ${argStr}` : 'Browser' }
-  if (name.includes('read') || name.includes('file')) return { detail: argStr ? `File: ${argStr}` : 'Reading file' }
-  if (name.includes('write') || name.includes('edit')) return { detail: argStr ? `Writing: ${argStr}` : 'Editing file' }
-  if (name.includes('terminal') || name.includes('bash') || name.includes('exec')) return { detail: argStr ? `Run: ${argStr}` : 'Terminal' }
-  return { detail: argStr || toolName }
+  let prefix: string
+  let fallback: string
+  if (name.includes('search') || name.includes('web'))                       { prefix = 'Searching'; fallback = 'Web search' }
+  else if (name.includes('browser') || name.includes('navigate'))            { prefix = 'Navigate'; fallback = 'Browser' }
+  else if (name.includes('read') || name.includes('file'))                   { prefix = 'File'; fallback = 'Reading file' }
+  else if (name.includes('write') || name.includes('edit'))                  { prefix = 'Writing'; fallback = 'Editing file' }
+  else if (name.includes('terminal') || name.includes('bash') || name.includes('exec')) { prefix = 'Run'; fallback = 'Terminal' }
+  else                                                                       { prefix = ''; fallback = toolName }
+
+  const fullDetail = argStr ? (prefix ? `${prefix}: ${argStr}` : argStr) : fallback
+  // CSS text-overflow: ellipsis handles visual truncation; keep full string for title attr
+  return { detail: fullDetail, fullDetail }
 }
 
 // ─── COMPACT INLINE LABEL ─────────────────────────────────────────────────────
-const compactLabel = computed(() => {
+/** Full untruncated label — used as `title` attr for hover tooltip. */
+const compactLabelFull = computed(() => {
   const a = props.liveActivity
-  if (!a) return activeNode.value?.sublabel ?? ''
-  if (a.toolName) {
-    const { detail } = toolLabel(a.toolName, a.toolArgs ?? {})
-    return detail.slice(0, 60)
-  }
-  if (a.stepDescription) return a.stepDescription.slice(0, 60)
-  if (a.progressMessage) return a.progressMessage.slice(0, 60)
-  return activeNode.value?.sublabel ?? ''
+  if (!a) return ''
+  if (a.toolName) return toolLabel(a.toolName, a.toolArgs ?? {}).fullDetail
+  if (a.stepDescription) return a.stepDescription
+  if (a.progressMessage) return a.progressMessage
+  return ''
 })
+
+/** Display label — CSS text-overflow handles visual truncation. */
+const compactLabel = computed(() => compactLabelFull.value || (activeNode.value as StageNode & { sublabel?: string })?.sublabel || '')
 
 
 </script>
@@ -306,7 +313,7 @@ const compactLabel = computed(() => {
         <span class="nn-title">NeuralFlow</span>
 
         <!-- live activity inline label -->
-        <span class="nn-activity-inline" v-if="compactLabel">{{ compactLabel }}</span>
+        <span class="nn-activity-inline" v-if="compactLabel" :title="compactLabelFull">{{ compactLabel }}</span>
 
         <!-- progress bar -->
         <div class="nn-progress-track">
@@ -382,18 +389,18 @@ const compactLabel = computed(() => {
               >{{ node.glyph }}</text>
               <!-- friendly label below each node -->
               <text y="20" text-anchor="middle" dominant-baseline="hanging"
-                font-size="9"
+                font-size="10"
                 :fill="getNodeState(i)==='active' ? node.color : getNodeState(i)==='completed' ? 'var(--text-secondary)' : 'var(--text-tertiary)'"
                 :font-weight="getNodeState(i)==='active' ? '600' : '400'"
-                :opacity="getNodeState(i)==='pending' ? 0.4 : 1"
+                :opacity="getNodeState(i)==='pending' ? 0.55 : 1"
                 style="pointer-events:none;user-select:none"
               >{{ node.label }}</text>
               <!-- active: show friendly description below the label -->
               <text v-if="getNodeState(i)==='active'"
-                y="31" text-anchor="middle" dominant-baseline="hanging"
-                font-size="7.5"
+                y="32" text-anchor="middle" dominant-baseline="hanging"
+                font-size="8"
                 :fill="node.color"
-                opacity="0.75"
+                opacity="0.8"
                 style="pointer-events:none;user-select:none"
               >{{ node.shortDesc }}</text>
             </g>
