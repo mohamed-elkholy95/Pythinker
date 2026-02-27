@@ -222,8 +222,10 @@ async function connect(): Promise<void> {
 
       // Start Konva stats tracking
       liveStageRef.value?.startStats()
-      // Reset screencast on reconnect
+      // Reset screencast on reconnect — force backend viewport dimensions
+      // so auto-fit recalculates correctly (prevents "zoomed in" after crash)
       liveStageRef.value?.resetScreencast()
+      liveStageRef.value?.forceDimensionReset(1280, 900)
 
       // Setup input forwarding if not view-only
       if (!props.viewOnly && props.sessionId) {
