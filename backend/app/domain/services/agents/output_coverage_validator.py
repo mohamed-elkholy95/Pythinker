@@ -55,7 +55,11 @@ class OutputCoverageValidator:
     )
 
     _REQUIREMENT_PATTERNS: ClassVar[dict[str, tuple[str, ...]]] = {
-        "final result": (r"\b(result|outcome|solution|answer|completed|implemented|updated|fixed|created|added)\b",),
+        "final result": (
+            r"\b(result|outcome|solution|answer|completed|implemented|updated|fixed|created|added"
+            r"|findings|analysis|summary|conclusion|overview|discovered|identified|comparison"
+            r"|recommendation|delivered|generated|produced|report|research)\b",
+        ),
         "artifact references": (r"\b(file|path|diff|report|artifact)\b",),
         "key caveat": (r"\b(caveat|limitation|risk|warning|note)\b",),
         "next step": (r"\b(next step|follow-up|you can now|recommended)\b",),
