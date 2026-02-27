@@ -197,6 +197,8 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
             kwargs["fallback_api_keys"] = fallback_keys
         if redis_client:
             kwargs["redis_client"] = redis_client
+        quota_cooldown = getattr(settings, "serper_quota_cooldown_seconds", 1800)
+        kwargs["quota_cooldown_seconds"] = quota_cooldown
         return kwargs
 
     if provider == "exa":
