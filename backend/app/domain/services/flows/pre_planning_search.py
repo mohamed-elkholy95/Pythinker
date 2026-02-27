@@ -299,9 +299,10 @@ class PrePlanningSearchExecutor:
         lines: list[str] = []
         total_len = 0
 
-        for title, _url, snippet in items:
-            # Title + snippet only (URL omitted — planner doesn't need it)
-            line = f"- {title}: {snippet}" if snippet else f"- {title}"
+        for title, url, snippet in items:
+            # Include URL in markdown link format so dedup-cached results can
+            # reconstruct SearchResultItem objects for the frontend live view.
+            line = f"- [{title}]({url}): {snippet}" if snippet else f"- [{title}]({url})"
             if total_len + len(line) > PrePlanningSearchExecutor.MAX_CONTEXT_CHARS:
                 break
             lines.append(line)
