@@ -1318,6 +1318,21 @@ class BaseAgent:
                             # Drain any remaining events
                             async for ev in poller.drain_events():
                                 yield ev
+                    elif getattr(tool, "supports_progress", False) and hasattr(tool, "drain_progress_events"):
+                        # Tools with built-in progress queue (e.g. DealScraperTool)
+                        tool._active_tool_call_id = tool_call_id
+                        tool._active_function_name = function_name
+                        exec_task = asyncio.create_task(self.invoke_tool(tool, function_name, function_args))
+                        try:
+                            while not exec_task.done():
+                                await asyncio.sleep(0.3)
+                                async for ev in tool.drain_progress_events():
+                                    yield ev
+                            result = exec_task.result()
+                        finally:
+                            # Drain any remaining events after completion
+                            async for ev in tool.drain_progress_events():
+                                yield ev
                     else:
                         result = await self.invoke_tool(tool, function_name, function_args)
 
