@@ -184,11 +184,34 @@ export interface CouponItem {
   source: string;
 }
 
+export interface StoreError {
+  store: string;
+  error: string;
+}
+
 export interface DealToolContent extends ToolContentBase {
   deals: DealItem[];
   coupons: CouponItem[];
   query: string;
   best_deal_index: number | null;
+  searched_stores?: string[];
+  store_errors?: StoreError[];
+}
+
+// ── Deal Progress (live view checkpoint_data) ──
+
+export type DealStoreStatusKind = 'pending' | 'found' | 'failed' | 'empty';
+
+export interface StoreStatus {
+  store: string;
+  status: DealStoreStatusKind;
+  result_count: number;
+}
+
+export interface DealProgressData {
+  store_statuses: StoreStatus[];
+  partial_deals: Partial<DealItem>[];
+  query: string;
 }
 
 export type ToolContentPayload =
