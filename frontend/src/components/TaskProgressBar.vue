@@ -217,7 +217,7 @@
             <span class="text-[10px] text-gray-400 dark:text-[var(--text-tertiary)]">/</span>
             <span class="text-[12px] font-medium tabular-nums">{{ totalCount }}</span>
           </div>
-          <button @click.stop="toggleExpand" class="expand-btn">
+          <button @click.stop="toggleExpand" class="expand-btn" aria-label="Toggle task details">
             <ChevronUp class="w-4 h-4" />
           </button>
         </div>
