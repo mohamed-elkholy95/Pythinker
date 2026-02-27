@@ -10,6 +10,7 @@ Enhanced with ProgressMetrics integration for reflection system (Phase 2).
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -120,10 +121,35 @@ class TaskState:
         """Record a search query. Returns True if this is a new query."""
         if not query:
             return False
-        normalized = query.strip().lower()
+        normalized = self._normalize_search_query(query)
         is_new = normalized not in self.searched_queries
         self.searched_queries.add(normalized)
         return is_new
+
+    @staticmethod
+    def _normalize_search_query(query: str) -> str:
+        """Normalize a search query for order-independent dedup.
+
+        Strips temporal suffixes (e.g. "latest 2026", "february 2026"),
+        trailing bare years, and sorts words alphabetically so that
+        "Claude Code pricing Anthropic 2026" and
+        "Anthropic Claude Code pricing" match the same key.
+        """
+        q = query.strip().lower()
+        # Strip "latest 2026", "current 2025", etc.
+        q = re.sub(r"\b(latest|current|recent|newest|new)\s+\d{4}\b", "", q)
+        # Strip "february 2026", "march 2025", etc.
+        q = re.sub(
+            r"\b(january|february|march|april|may|june|july|august|"
+            r"september|october|november|december)\s+\d{4}\b",
+            "",
+            q,
+        )
+        # Strip trailing bare year
+        q = re.sub(r"\s+\d{4}\s*$", "", q)
+        words = q.split()
+        words.sort()
+        return " ".join(w for w in words if w).strip()
 
     def get_visited_summary(self) -> str:
         """Return a compact summary of visited URLs and search queries for context injection.
