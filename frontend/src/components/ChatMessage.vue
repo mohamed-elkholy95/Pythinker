@@ -302,10 +302,10 @@
       @open="handleReportOpen"
       @selectSuggestion="handleSelectSuggestion"
     />
-    <!-- Attachments shown separately below the report card -->
+    <!-- Attachments shown separately below the report card (excluding the report's own .md file) -->
     <AttachmentsInlineGrid
-      v-if="reportData.attachments && reportData.attachments.length > 0"
-      :attachments="reportData.attachments"
+      v-if="reportSupplementaryAttachments.length > 0"
+      :attachments="reportSupplementaryAttachments"
       @openFile="handleReportFileOpen"
       @showAllFiles="handleShowAllFiles"
     />
@@ -449,6 +449,19 @@ const reportData = computed<ReportData>(() => {
     attachments: content.attachments,
     sources: content.sources,
   };
+});
+
+// Filter out the report's own .md file from the attachment grid — it duplicates
+// the report card content (created by _ensure_report_file on the backend).
+const reportSupplementaryAttachments = computed(() => {
+  const atts = reportData.value.attachments;
+  if (!atts || atts.length === 0) return [];
+  const reportId = reportData.value.id;
+  return atts.filter((file) => {
+    const fname = file.filename || file.file_path?.split('/').pop() || '';
+    // Pattern: report-{uuid}.md — exact match for the auto-generated report file
+    return !fname.startsWith(`report-${reportId}`) || !fname.endsWith('.md');
+  });
 });
 
 // Control step expand/collapse state
