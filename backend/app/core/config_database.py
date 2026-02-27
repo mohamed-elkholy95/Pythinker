@@ -19,6 +19,9 @@ class DatabaseSettingsMixin:
     mongodb_connect_timeout_ms: int = 10_000  # 10s connection timeout
     mongodb_server_selection_timeout_ms: int = 30_000  # 30s server selection timeout
     mongodb_socket_timeout_ms: int = 20_000  # 20s socket timeout
+    # Automatic retry on transient errors (primary elections, network blips)
+    mongodb_retry_writes: bool = True
+    mongodb_retry_reads: bool = True
 
 
 class RedisSettingsMixin:

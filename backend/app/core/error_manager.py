@@ -361,14 +361,17 @@ def error_handler(
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                ErrorContext(
+                context = ErrorContext(
                     component=func.__module__,
                     operation=func.__name__,
                     metadata={"args": str(args), "kwargs": str(kwargs)},
                 )
 
                 # For sync functions, we can't do async recovery
-                logger.error(f"Error in {func.__name__}: {e}")
+                logger.error(
+                    f"Error in {func.__name__}: {e}",
+                    extra={"component": context.component, "operation": context.operation},
+                )
 
                 if reraise:
                     raise
