@@ -249,6 +249,14 @@ Use this context to maintain conversational continuity. Reference earlier decisi
 ---
 """
 
+MCP_CONTEXT_SIGNAL = """
+---
+CONNECTED MCP SERVERS & TOOLS:
+{mcp_context}
+You may use these MCP tools when they match the task at hand.
+---
+"""
+
 PRE_PLANNING_SEARCH_CONTEXT_SIGNAL = """
 ---
 CURRENT WEB INFORMATION (retrieved at planning time — use these facts):
@@ -1432,6 +1440,10 @@ def build_execution_prompt_from_context(
         # Inject general intent analysis for complex/research tasks
         if is_complex_task(step) or is_research_task(step):
             prompt = INTENT_ANALYSIS_SIGNAL + prompt
+
+    # Inject MCP context if present (connected servers & tools)
+    if ctx.mcp_context:
+        prompt = MCP_CONTEXT_SIGNAL.format(mcp_context=ctx.mcp_context) + prompt
 
     # Inject pre-planning search context if present (real-time web info)
     if ctx.search_context:
