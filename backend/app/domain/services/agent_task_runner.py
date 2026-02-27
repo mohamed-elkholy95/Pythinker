@@ -293,15 +293,31 @@ class AgentTaskRunner(TaskRunner):
             except Exception as exc:
                 logger.debug("Scraping adapter unavailable: %s", exc)
 
-            # DealFinder adapter — injected so domain layer stays infra-free
+            # DealFinder adapter — injected so domain layer stays infra-free.
+            # Auto-enabled when user intent is deal-related (even if deal_scraper_enabled=False).
             _deal_finder = None
-            if settings.deal_scraper_enabled and _scraper and self._search_engine:
-                try:
-                    from app.infrastructure.external.deal_finder import get_deal_finder_adapter
+            _deal_intent_detected = False
+            if _scraper and self._search_engine:
+                _should_enable_deals = settings.deal_scraper_enabled
+                if not _should_enable_deals:
+                    # Auto-detect deal intent from the latest user message
+                    from app.domain.services.prompts.deal_finding import detect_deal_intent
 
-                    _deal_finder = get_deal_finder_adapter(scraper=_scraper, search_engine=self._search_engine)
-                except Exception as exc:
-                    logger.warning("DealFinder adapter unavailable: %s", exc)
+                    _latest_msg = ""
+                    if hasattr(self, "_messages") and self._messages:
+                        _latest_msg = self._messages[-1].content or ""
+                    _deal_intent_detected = detect_deal_intent(_latest_msg)
+                    _should_enable_deals = _deal_intent_detected
+
+                if _should_enable_deals:
+                    try:
+                        from app.infrastructure.external.deal_finder import get_deal_finder_adapter
+
+                        _deal_finder = get_deal_finder_adapter(scraper=_scraper, search_engine=self._search_engine)
+                        if _deal_intent_detected:
+                            logger.info("DealFinder auto-enabled via intent detection for session %s", self._session_id)
+                    except Exception as exc:
+                        logger.warning("DealFinder adapter unavailable: %s", exc)
 
             # WP-6: CheckpointManager for cross-restart workflow persistence.
             # Inject a real MongoDB collection so checkpoints survive process restarts.
