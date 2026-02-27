@@ -79,8 +79,8 @@ async def test_serper_works_without_redis():
         redis_client=None,  # Should not crash
     )
 
-    # Should be able to get a key
-    key = await engine.api_key
+    # Should be able to get a healthy key from the pool
+    key = await engine._key_pool.get_healthy_key()
     assert key == "test-key-1"  # First key in FAILOVER strategy
 
     # Verify pool is in in-memory mode
