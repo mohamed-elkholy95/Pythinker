@@ -524,9 +524,34 @@ export const FUNCTION_ICON_MAP: Record<string, Component> = {
 };
 
 /**
+ * Tool-type marker colors for timeline scrubber track.
+ * Maps tool name → Tailwind background class.
+ */
+export const TOOL_TIMELINE_COLORS: Record<string, string> = {
+  search: 'bg-amber-400',
+  info: 'bg-amber-400',
+  info_search_web: 'bg-amber-400',
+  web_search: 'bg-amber-400',
+  wide_research: 'bg-amber-500',
+  browser: 'bg-blue-400',
+  browser_agent: 'bg-blue-400',
+  playwright: 'bg-blue-400',
+  shell: 'bg-emerald-400',
+  code_executor: 'bg-emerald-400',
+  code_execute: 'bg-emerald-400',
+  code_dev: 'bg-emerald-400',
+  file: 'bg-slate-400',
+  git: 'bg-slate-400',
+  chart: 'bg-violet-400',
+  message: 'bg-gray-300',
+};
+
+export const TOOL_TIMELINE_DEFAULT_COLOR = 'bg-gray-400';
+
+/**
  * Content view types for the unified tool panel
  */
-export type ContentViewType = 'live_preview' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research' | 'chart';
+export type ContentViewType = 'live_preview' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research' | 'chart' | 'canvas';
 export type ViewMode = 'primary' | 'secondary' | 'tertiary';
 
 export interface ContentConfig {
@@ -677,7 +702,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === CANVAS ===
   canvas: {
-    primaryView: 'generic',
+    primaryView: 'canvas',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -815,6 +840,19 @@ export const FUNCTION_VIEW_OVERRIDES: Record<string, ViewMode> = {
   code_read_artifact: 'secondary',
   // File write - show editor immediately for live file creation visibility
   file_write: 'primary',
+};
+
+/**
+ * Function-specific content view type overrides.
+ * Some functions produce output that doesn't match their parent tool's view type.
+ * For example, file listing/finding returns text results (not file content), so
+ * they should use 'generic' instead of 'editor'.
+ */
+export const FUNCTION_CONTENT_TYPE_OVERRIDES: Partial<Record<string, ContentViewType>> = {
+  // File listing/finding — text results, not file content
+  file_find_in_content: 'generic',
+  file_find_by_name: 'generic',
+  file_list_directory: 'generic',
 };
 
 /**

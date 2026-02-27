@@ -85,6 +85,18 @@ export const useUIStore = defineStore('ui', () => {
     settingsDefaultTab.value = tabId
   }
 
+  // ── Panel Dismissal Tracking ─────────────────────────────────────
+  /** True when user manually closed the tool panel during the current agent run. */
+  const userDismissedPanel = ref(false)
+
+  function setUserDismissedPanel(dismissed: boolean) {
+    userDismissedPanel.value = dismissed
+  }
+
+  function resetDismissed() {
+    userDismissedPanel.value = false
+  }
+
   // ── File Preview State ───────────────────────────────────────────
   const filePreviewOpen = ref(false)
   const filePreviewFile = ref<FileInfo | null>(null)
@@ -117,6 +129,10 @@ export const useUIStore = defineStore('ui', () => {
     closeSettingsDialog,
     toggleSettingsDialog,
     setSettingsDefaultTab,
+    // Panel dismissal
+    userDismissedPanel,
+    setUserDismissedPanel,
+    resetDismissed,
     // File preview
     filePreviewOpen,
     filePreviewFile,

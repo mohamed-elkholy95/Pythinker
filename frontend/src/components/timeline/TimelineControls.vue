@@ -1,5 +1,10 @@
 <template>
-  <div class="timeline-controls px-4 py-3 bg-[var(--background-menu-white)] border-t border-black/8 dark:border-[var(--border-main)]">
+  <div
+    ref="controlsRef"
+    class="timeline-controls px-4 py-3 bg-[var(--background-menu-white)] border-t border-black/8 dark:border-[var(--border-main)]"
+    tabindex="0"
+    @keydown="handleKeydown"
+  >
     <!-- Jump to Live Button (shown when not in live mode, hidden in replay mode) -->
     <div
       v-if="!isLive && !isReplayMode"
@@ -26,24 +31,32 @@
 
     <!-- Main Controls Row -->
     <div class="flex items-center gap-3">
-      <!-- Step Controls -->
+      <!-- Step Controls + Counter -->
       <div class="flex items-center gap-1">
         <!-- Step Backward -->
         <button
           @click="$emit('stepBackward')"
           :disabled="!canStepBackward"
           class="p-1.5 rounded hover:bg-[var(--fill-tsp-gray-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          title="Previous action"
+          title="Previous action (←)"
         >
           <SkipBack class="w-4 h-4 text-[var(--icon-primary)]" />
         </button>
+
+        <!-- Step Counter -->
+        <span
+          v-if="totalSteps > 0"
+          class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)] min-w-[36px] text-center select-none"
+        >
+          {{ currentStep }} / {{ totalSteps }}
+        </span>
 
         <!-- Step Forward -->
         <button
           @click="$emit('stepForward')"
           :disabled="!canStepForward"
           class="p-1.5 rounded hover:bg-[var(--fill-tsp-gray-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          title="Next action"
+          title="Next action (→)"
         >
           <SkipForward class="w-4 h-4 text-[var(--icon-primary)]" />
         </button>
@@ -58,23 +71,26 @@
           @mousedown="startDragging"
           @mouseenter="handleMouseEnter"
           @mouseleave="handleMouseLeave"
+          @mousemove="handleMouseMove"
         >
-          <!-- Floating Timestamp -->
+          <!-- Floating Tooltip (timestamp + tool name on hover/drag) -->
           <div
-            v-if="showTimestamp && showTimestampOnInteract"
-            class="absolute -top-7 -translate-x-1/2 rounded-full bg-blue-500 text-white text-[10px] font-medium px-2 py-0.5 shadow-sm pointer-events-none whitespace-nowrap"
-            :style="{ left: `${progress}%` }"
+            v-if="tooltipVisible"
+            class="absolute -translate-x-1/2 rounded-lg bg-gray-800 dark:bg-gray-700 text-white text-[10px] font-medium px-2 py-1 shadow-md pointer-events-none whitespace-nowrap z-20 flex flex-col items-center gap-0.5"
+            :style="{ left: `${tooltipPosition}%`, bottom: '12px' }"
           >
-            {{ formattedTimestamp }}
+            <span v-if="tooltipToolLabel" class="text-[10px] font-semibold">{{ tooltipToolLabel }}</span>
+            <span v-if="tooltipTimestamp" class="text-[9px] opacity-75">{{ tooltipTimestamp }}</span>
           </div>
-          <!-- Event Markers -->
+
+          <!-- Tool-Type Markers -->
           <div
-            v-for="marker in eventMarkers"
-            :key="marker.index"
+            v-for="marker in toolMarkers"
+            :key="`tool-${marker.index}`"
             class="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none z-10"
-            :class="marker.trigger === 'tool_before' ? 'bg-blue-400' : 'bg-emerald-400'"
+            :class="marker.colorClass"
             :style="{ left: `${marker.position}%` }"
-            :title="`${marker.toolName ?? marker.trigger}`"
+            :title="marker.label"
           />
 
           <!-- Progress Fill -->
@@ -111,8 +127,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { SkipBack, SkipForward, Play } from 'lucide-vue-next'
-import type { ScreenshotMetadata } from '../../types/screenshot'
+import type { ToolContent } from '../../types/message'
 import { normalizeTimestampSeconds } from '../../utils/time'
+import { TOOL_TIMELINE_COLORS, TOOL_TIMELINE_DEFAULT_COLOR } from '../../constants/tool'
+import { getToolDisplay } from '../../utils/toolDisplay'
 
 interface Props {
   progress: number
@@ -122,7 +140,12 @@ interface Props {
   canStepForward: boolean
   canStepBackward: boolean
   showTimestampOnInteract?: boolean
-  screenshots?: ScreenshotMetadata[]
+  /** Tool timeline entries for markers and hover labels */
+  toolTimeline?: ToolContent[]
+  /** 1-based current step index (0 if nothing selected) */
+  currentStep?: number
+  /** Total number of steps in the tool timeline */
+  totalSteps?: number
 }
 
 const props = defineProps<Props>()
@@ -134,18 +157,35 @@ const emit = defineEmits<{
   seekByProgress: [progress: number]
 }>()
 
+const controlsRef = ref<HTMLElement | null>(null)
 const scrubberRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
 const isHovering = ref(false)
+const hoverPercent = ref(0)
 
-// Format timestamp for display
-const formattedTimestamp = computed(() => {
-  const normalizedTimestamp = normalizeTimestampSeconds(props.currentTimestamp ?? Number.NaN)
-  if (normalizedTimestamp === null) return ''
+// ── Keyboard navigation ──
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    if (props.canStepBackward) emit('stepBackward')
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    if (props.canStepForward) emit('stepForward')
+  } else if (event.key === 'Home') {
+    event.preventDefault()
+    emit('seekByProgress', 0)
+  } else if (event.key === 'End') {
+    event.preventDefault()
+    emit('seekByProgress', 100)
+  }
+}
 
-  const date = new Date(normalizedTimestamp * 1000)
+// ── Timestamp formatting ──
+const formatTimestamp = (ts: number | undefined): string => {
+  const normalized = normalizeTimestampSeconds(ts ?? Number.NaN)
+  if (normalized === null) return ''
+  const date = new Date(normalized * 1000)
   if (Number.isNaN(date.getTime())) return ''
-
   return date.toLocaleString('en-US', {
     month: 'numeric',
     day: 'numeric',
@@ -155,7 +195,9 @@ const formattedTimestamp = computed(() => {
     second: '2-digit',
     hour12: true,
   })
-})
+}
+
+const formattedTimestamp = computed(() => formatTimestamp(props.currentTimestamp))
 
 const showTimestamp = computed(() => {
   if (normalizeTimestampSeconds(props.currentTimestamp ?? Number.NaN) === null) return false
@@ -163,32 +205,81 @@ const showTimestamp = computed(() => {
   return true
 })
 
-// Event markers for tool triggers on the scrubber track
-const eventMarkers = computed(() => {
-  const list = props.screenshots ?? []
-  if (list.length <= 1) return []
-  const maxIdx = list.length - 1
-  return list
-    .map((s, i) => ({ ...s, index: i }))
-    .filter((s) => s.trigger === 'tool_before' || s.trigger === 'tool_after')
-    .map((s) => ({
-      index: s.index,
-      position: (s.index / maxIdx) * 100,
-      trigger: s.trigger,
-      toolName: s.tool_name,
-    }))
+// ── Tool-type markers on scrubber track ──
+const toolMarkers = computed(() => {
+  const tools = props.toolTimeline ?? []
+  if (tools.length <= 1) return []
+  const maxIdx = tools.length - 1
+  return tools.map((tool, i) => ({
+    index: i,
+    position: (i / maxIdx) * 100,
+    colorClass: TOOL_TIMELINE_COLORS[tool.name] ?? TOOL_TIMELINE_DEFAULT_COLOR,
+    label: getToolDisplay({
+      name: tool.name,
+      function: tool.function,
+      args: tool.args,
+      display_command: tool.display_command,
+    }).displayName,
+  }))
 })
 
+// ── Hover tooltip (tool name + timestamp) ──
+const hoveredToolIndex = computed(() => {
+  const tools = props.toolTimeline ?? []
+  if (tools.length === 0) return -1
+  const maxIdx = tools.length - 1
+  return Math.round((hoverPercent.value / 100) * maxIdx)
+})
+
+const hoveredTool = computed(() => {
+  const tools = props.toolTimeline ?? []
+  const idx = hoveredToolIndex.value
+  if (idx < 0 || idx >= tools.length) return null
+  return tools[idx]
+})
+
+const tooltipVisible = computed(() => {
+  if (!props.showTimestampOnInteract) return showTimestamp.value
+  return (isHovering.value || isDragging.value) && hoveredTool.value !== null
+})
+
+const tooltipPosition = computed(() => {
+  if (isDragging.value) return progress.value
+  return hoverPercent.value
+})
+
+const tooltipToolLabel = computed(() => {
+  if (!hoveredTool.value) return ''
+  const display = getToolDisplay({
+    name: hoveredTool.value.name,
+    function: hoveredTool.value.function,
+    args: hoveredTool.value.args,
+    display_command: hoveredTool.value.display_command,
+  })
+  return display.displayName
+})
+
+const tooltipTimestamp = computed(() => {
+  if (!hoveredTool.value) return ''
+  return formatTimestamp(hoveredTool.value.timestamp)
+})
+
+const progress = computed(() => props.progress)
+
+// ── Mouse interaction ──
 const handleMouseEnter = () => {
-  if (props.showTimestampOnInteract) {
-    isHovering.value = true
-  }
+  isHovering.value = true
 }
 
 const handleMouseLeave = () => {
-  if (props.showTimestampOnInteract) {
-    isHovering.value = false
-  }
+  isHovering.value = false
+}
+
+const handleMouseMove = (event: MouseEvent) => {
+  if (!scrubberRef.value) return
+  const rect = scrubberRef.value.getBoundingClientRect()
+  const x = event.clientX - rect.left
+  hoverPercent.value = Math.max(0, Math.min(100, (x / rect.width) * 100))
 }
 
 // Handle click on scrubber
@@ -213,9 +304,9 @@ const handleDrag = (event: MouseEvent) => {
 
   const rect = scrubberRef.value.getBoundingClientRect()
   const clickX = event.clientX - rect.left
-  const percentage = Math.max(0, Math.min(100, (clickX / rect.width) * 100))
+  hoverPercent.value = Math.max(0, Math.min(100, (clickX / rect.width) * 100))
 
-  emit('seekByProgress', percentage)
+  emit('seekByProgress', hoverPercent.value)
 }
 
 const stopDragging = () => {
@@ -236,6 +327,16 @@ onUnmounted(() => {
 <style scoped>
 .timeline-controls {
   user-select: none;
+}
+
+.timeline-controls:focus {
+  outline: none;
+}
+
+.timeline-controls:focus-visible {
+  outline: 2px solid var(--focus-ring, #3b82f6);
+  outline-offset: -2px;
+  border-radius: 4px;
 }
 
 .scrubber-track {
