@@ -315,10 +315,10 @@ interface StreamErrorEnvelope extends StreamEnvelope {
 }
 
 const DEFAULT_SSE_RETRY_POLICY: SSERetryPolicy = {
-  maxRetries: 7,
-  baseDelayMs: 1000,
-  maxDelayMs: 45000,
-  jitterRatio: 0.25,
+  maxRetries: 5,
+  baseDelayMs: 10000,
+  maxDelayMs: 60000,
+  jitterRatio: 0.2,
 };
 
 const SSE_POLICY_LIMITS = {
