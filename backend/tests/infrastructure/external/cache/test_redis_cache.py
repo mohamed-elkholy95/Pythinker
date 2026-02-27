@@ -49,6 +49,8 @@ class _FakeRedisWrapper:
 
 class _Settings:
     redis_scan_count = 2
+    redis_cache_ttl_jitter_percent = 0.0
+    redis_cache_swr_enabled = False
 
 
 def _as_flat(items: Iterable[list[str]]) -> list[str]:
