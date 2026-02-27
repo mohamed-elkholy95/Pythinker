@@ -277,6 +277,38 @@ class SearchTool(BaseTool):
     # prevent GC of fire-and-forget browse tasks
     _background_tasks: ClassVar[set[asyncio.Task[None]]] = set()
 
+    class _BudgetTracker:
+        """Per-task search API call budget enforcement.
+
+        Tracks actual API calls (not tool invocations) and wide_research usage
+        to prevent runaway key consumption within a single agent task.
+        """
+
+        def __init__(self, max_api_calls: int, max_wide_research: int) -> None:
+            self._api_calls = 0
+            self._wide_calls = 0
+            self._max_api = max_api_calls
+            self._max_wide = max_wide_research
+
+        def can_search(self) -> tuple[bool, str]:
+            if self._api_calls >= self._max_api:
+                return False, f"Search budget exhausted ({self._api_calls}/{self._max_api} API calls used)"
+            return True, ""
+
+        def can_wide_research(self) -> tuple[bool, str]:
+            if self._wide_calls >= self._max_wide:
+                return False, f"Wide research limit reached ({self._wide_calls}/{self._max_wide})"
+            return self.can_search()
+
+        def record_api_call(self, count: int = 1) -> None:
+            self._api_calls += count
+
+        def record_wide_research(self) -> None:
+            self._wide_calls += 1
+
+        def remaining(self) -> int:
+            return max(0, self._max_api - self._api_calls)
+
     def __init__(
         self,
         search_engine: SearchEngine,
@@ -300,6 +332,23 @@ class SearchTool(BaseTool):
         self._scraper = scraper
         # Instance-level cache with O(1) LRU eviction
         self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
+
+        # Budget enforcement (per-task, since SearchTool is instantiated per task)
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        self._budget = self._BudgetTracker(
+            max_api_calls=settings.max_search_api_calls_per_task,
+            max_wide_research=settings.max_wide_research_calls_per_task,
+        )
+        self._max_wide_queries = settings.max_wide_research_queries
+        self._dedup_skip = settings.search_dedup_skip_existing
+
+        # Cache for pre-planning search results.  When the planner ran
+        # pre-planning web searches, the execution agent propagates the
+        # context here so that dedup-blocked queries can return cached
+        # results instead of failing with 0 results.
+        self._pre_planning_context: str | None = None
 
     def _should_use_browser_search(self) -> bool:
         """Check if browser-based search should be used.
@@ -501,8 +550,34 @@ class SearchTool(BaseTool):
         if cached_result:
             return cached_result
 
+        # Budget check before making the API call
+        ok, reason = self._budget.can_search()
+        if not ok:
+            from app.core.prometheus_metrics import search_budget_exhausted_total
+
+            search_budget_exhausted_total.inc({"tool": "api_search"})
+            logger.warning(f"Search budget exhausted: {reason}")
+            from app.domain.models.search import SearchResults
+
+            return ToolResult(
+                success=False,
+                message=reason,
+                data=SearchResults(query=query, date_range=date_range),
+            )
+
         # Execute API search
         result = await self.search_engine.search(query, date_range)
+
+        # Record the API call in budget and Prometheus
+        self._budget.record_api_call()
+        try:
+            from app.core.prometheus_metrics import search_api_calls_total
+
+            provider = getattr(self.search_engine, "provider_name", "unknown").lower()
+            search_api_calls_total.inc({"provider": provider, "tool": "api_search"})
+        except Exception:
+            logger.debug("Failed to record search API call metric", exc_info=True)
+
         result = self._add_verification_guidance(result, query)
 
         # Add search type context to result
@@ -754,7 +829,23 @@ class SearchTool(BaseTool):
         """
         logger.info(f"Info search web: {query}")
 
+        # Budget check
+        ok, reason = self._budget.can_search()
+        if not ok:
+            from app.core.prometheus_metrics import search_budget_exhausted_total
+
+            search_budget_exhausted_total.inc({"tool": "info_search_web"})
+            logger.warning(f"Search budget exhausted for info_search_web: {reason}")
+            from app.domain.models.search import SearchResults
+
+            return ToolResult(
+                success=False,
+                message=reason,
+                data=SearchResults(query=query, date_range=date_range),
+            )
+
         # Record query in task state to survive token trimming
+        is_new = True
         try:
             from app.domain.services.agents.task_state_manager import get_task_state_manager
 
@@ -764,6 +855,32 @@ class SearchTool(BaseTool):
                 logger.info(f"Search query already executed: {query}")
         except Exception:
             logger.debug("Failed to record search query in task state", exc_info=True)
+
+        # Skip duplicate if already searched and dedup enabled
+        if self._dedup_skip and not is_new:
+            # If pre-planning search context is available, return it instead
+            # of failing — the results are already in the agent's context.
+            if self._pre_planning_context:
+                logger.info(f"Dedup hit for '{query}' — returning cached pre-planning results")
+                from app.domain.models.search import SearchResults
+
+                return ToolResult(
+                    success=True,
+                    message=(
+                        f"Results for '{query}' (from pre-planning search):\n\n"
+                        f"{self._pre_planning_context}"
+                    ),
+                    data=SearchResults(query=query, date_range=date_range),
+                )
+
+            logger.info(f"Skipping duplicate search (dedup_skip=True): {query}")
+            from app.domain.models.search import SearchResults
+
+            return ToolResult(
+                success=False,
+                message=f"Already searched: '{query}'. Use different keywords for new results.",
+                data=SearchResults(query=query, date_range=date_range),
+            )
 
         # Try browser-based search first only when explicitly enabled via settings
         if self._should_use_browser_search():
@@ -780,6 +897,17 @@ class SearchTool(BaseTool):
         # API-based search (default path)
         logger.info(f"Using API search for: {query}")
         result = await self.search_engine.search(query, date_range)
+
+        # Record the API call in budget and Prometheus (not in _execute_typed_search path)
+        self._budget.record_api_call()
+        try:
+            from app.core.prometheus_metrics import search_api_calls_total
+
+            provider = getattr(self.search_engine, "provider_name", "unknown").lower()
+            search_api_calls_total.inc({"provider": provider, "tool": "info_search_web"})
+        except Exception:
+            logger.debug("Failed to record search API call metric", exc_info=True)
+
         result = self._add_verification_guidance(result, query)
         if result.success and result.message:
             result.message = f"[INFO SEARCH]\n{result.message}"
@@ -871,6 +999,26 @@ wide_research(
         """
         from app.domain.models.search import SearchResultItem, SearchResults
 
+        # Budget check for wide_research invocation
+        ok, reason = self._budget.can_wide_research()
+        if not ok:
+            from app.core.prometheus_metrics import search_budget_exhausted_total
+
+            search_budget_exhausted_total.inc({"tool": "wide_research"})
+            logger.warning(f"Wide research budget exhausted: {reason}")
+            return ToolResult(
+                success=False,
+                message=reason,
+                data=SearchResults(query=topic, date_range=date_range),
+            )
+
+        # Clamp queries list to configured maximum
+        if len(queries) > self._max_wide_queries:
+            logger.warning(
+                f"Wide research queries clamped: {len(queries)} → {self._max_wide_queries}"
+            )
+            queries = queries[: self._max_wide_queries]
+
         # Parse search types
         if search_types is None:
             search_types = ["info"]
@@ -891,6 +1039,14 @@ wide_research(
             for stype in stypes:
                 variants = QueryExpander.expand(query, stype, max_variants=2)
                 all_queries.extend((variant, stype) for variant in variants)
+
+        # Trim to remaining budget
+        remaining = self._budget.remaining()
+        if len(all_queries) > remaining:
+            logger.warning(
+                f"Wide research queries trimmed to budget: {len(all_queries)} → {remaining}"
+            )
+            all_queries = all_queries[:remaining]
 
         logger.info(f"Wide research on '{topic}': {len(all_queries)} total queries across {len(stypes)} search types")
 
@@ -935,6 +1091,9 @@ wide_research(
             *[search_with_limit(q, st) for q, st in all_queries],
             return_exceptions=True,
         )
+
+        # Record wide_research invocation (individual API calls already tracked in _execute_typed_search)
+        self._budget.record_wide_research()
 
         # Optional spider enrichment: fetch full page content for top-K URLs
         if self._scraper and all_items:
