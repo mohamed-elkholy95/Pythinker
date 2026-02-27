@@ -26,6 +26,7 @@ from app.domain.models.event import (
     MessageEvent,
     ModeChangeEvent,
     ReportEvent,
+    ResearchModeEvent,
     TitleEvent,
     ToolEvent,
     ToolProgressEvent,
@@ -122,6 +123,7 @@ class AgentTaskRunner(TaskRunner):
         self._extra_mcp_configs = extra_mcp_configs or {}
         self._mode = mode
         self._research_mode = research_mode
+        self._deal_mode_emitted: bool = False
 
         # Multi-agent configuration
         self._enable_multi_agent = enable_multi_agent
@@ -291,6 +293,16 @@ class AgentTaskRunner(TaskRunner):
             except Exception as exc:
                 logger.debug("Scraping adapter unavailable: %s", exc)
 
+            # DealFinder adapter — injected so domain layer stays infra-free
+            _deal_finder = None
+            if settings.deal_scraper_enabled and _scraper and self._search_engine:
+                try:
+                    from app.infrastructure.external.deal_finder import get_deal_finder_adapter
+
+                    _deal_finder = get_deal_finder_adapter(scraper=_scraper, search_engine=self._search_engine)
+                except Exception as exc:
+                    logger.warning("DealFinder adapter unavailable: %s", exc)
+
             # WP-6: CheckpointManager for cross-restart workflow persistence.
             # Inject a real MongoDB collection so checkpoints survive process restarts.
             # Falls back gracefully to in-memory storage when MongoDB is unavailable.
@@ -350,6 +362,7 @@ class AgentTaskRunner(TaskRunner):
                 knowledge_base_service=self._knowledge_base_service,
                 prompt_profile_repo=self._prompt_profile_repo,
                 scraper=_scraper,
+                deal_finder=_deal_finder,
                 checkpoint_manager=_checkpoint_manager,
             )
             # Inject circuit breaker for tool-level failure protection
@@ -544,6 +557,39 @@ class AgentTaskRunner(TaskRunner):
             return
 
         existing = event.attachments or []
+
+        # Include the full pre-summarization markdown (from the agent's file_write
+        # during execution) as an attachment so users get the complete original report
+        # alongside the summarized version.
+        full_content = self._get_pre_trim_report_content()
+        if full_content and full_content.strip() and full_content.strip() != event.content.strip():
+            full_name = f"full-report-{event.id}.md"
+            if not self._has_attachment(existing, full_name):
+                full_path = f"/workspace/{self._session_id}/{full_name}"
+                try:
+                    result = await self._sandbox.file_write(file=full_path, content=full_content)
+                    write_ok = result is None or not hasattr(result, "success") or result.success
+                    if write_ok:
+                        full_size = len(full_content.encode("utf-8"))
+                        full_info = FileInfo(
+                            filename=full_name,
+                            file_path=full_path,
+                            size=full_size,
+                            content_type="text/markdown",
+                            user_id=self._user_id,
+                            metadata={"is_report": True, "is_full_report": True, "title": event.title},
+                        )
+                        existing = [*existing, full_info]
+                        logger.info(
+                            "Attached full pre-summarization report (%d chars) for session=%s",
+                            full_size,
+                            self._session_id,
+                        )
+                    else:
+                        logger.warning("Agent %s: Failed to write full report file (success=False)", self._agent_id)
+                except Exception as e:
+                    logger.warning("Agent %s: Failed to write full report file: %s", self._agent_id, e)
+
         expected_name = f"report-{event.id}.md"
         if not self._has_attachment(existing, expected_name):
             file_path = f"/workspace/{self._session_id}/{expected_name}"
@@ -781,6 +827,22 @@ class AgentTaskRunner(TaskRunner):
             if attachment.file_path and attachment.file_path.endswith(expected_name):
                 return True
         return False
+
+    def _get_pre_trim_report_content(self) -> str | None:
+        """Retrieve the full pre-summarization markdown from the executor's cache.
+
+        The executor caches file_write content before token trimming so that the
+        original report written during execution survives aggressive memory pruning.
+        This method exposes that cache for inclusion as an attachment.
+        """
+        flow = self._flow
+        if flow and hasattr(flow, "executor"):
+            executor = flow.executor
+            if hasattr(executor, "_pre_trim_report_cache"):
+                cache = executor._pre_trim_report_cache
+                if isinstance(cache, str):
+                    return cache
+        return None
 
     def _resolve_chart_generation_mode(self) -> str:
         """Resolve user override for chart generation from current task text."""
@@ -1091,9 +1153,12 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name in ("agent_mode", "message"):
                     # Control tools — no content needed
                     logger.debug("Processing %s tool event", event.tool_name)
-                elif event.tool_name in ("wide_research", "scraping", "deal_scraper"):
+                elif event.tool_name in ("wide_research", "scraping"):
                     # Handled elsewhere (WideResearchEvent/ReportEvent) or logging-only
                     logger.debug("Agent %s: Processing %s tool event", self._agent_id, event.tool_name)
+                elif event.tool_name == "deal_scraper":
+                    # Content already populated by base.py:_create_tool_event()
+                    logger.debug("Agent %s: deal_scraper tool content from base.py", self._agent_id)
                 else:
                     logger.warning("Agent %s received unknown tool event: %s", self._agent_id, event.tool_name)
         except Exception as e:
@@ -1259,6 +1324,20 @@ class AgentTaskRunner(TaskRunner):
 
         mode_switch_task: str | None = None
 
+        # Detect deal/price intent from user query for badge auto-switch
+        _is_deal_query = (
+            not self._deal_mode_emitted
+            and self._research_mode != ResearchMode.DEAL_FINDING
+            and re.search(
+                r"\b(deal|deals|price|prices|pricing|cheap|cheapest|coupon|coupons|"
+                r"discount|discounts|promo|sale|bargain|offer|offers|cost|affordable|"
+                r"buy|purchase|lowest.price|best.price|compare.prices?)\b",
+                message.message,
+                re.IGNORECASE,
+            )
+            is not None
+        )
+
         async with self._usage_context():
             async for event in self._flow.run(message):
                 # Check if task is paused (for user takeover) before processing each event
@@ -1267,9 +1346,24 @@ class AgentTaskRunner(TaskRunner):
                         logger.debug(f"Agent {self._agent_id} paused in flow, waiting for resume...")
                         await asyncio.sleep(0.5)
 
+                # Intercept the flow's ResearchModeEvent and replace with deal_finding
+                # when the user query contains deal/price keywords
+                if isinstance(event, ResearchModeEvent) and _is_deal_query and not self._deal_mode_emitted:
+                    self._deal_mode_emitted = True
+                    yield ResearchModeEvent(research_mode="deal_finding")
+                    continue
+
                 if isinstance(event, ToolEvent):
                     # TODO: move to tool function
                     await self._handle_tool_event(event)
+                    # Auto-switch badge on first deal_scraper tool completion
+                    if (
+                        not self._deal_mode_emitted
+                        and event.tool_name == "deal_scraper"
+                        and event.status == ToolStatus.CALLED
+                    ):
+                        self._deal_mode_emitted = True
+                        yield ResearchModeEvent(research_mode="deal_finding")
                 elif isinstance(event, ReportEvent):
                     await self._ensure_report_file(event)
                     # Sync attachments to storage for events that contain file references

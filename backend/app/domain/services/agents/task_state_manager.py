@@ -677,3 +677,14 @@ def get_task_state_manager(sandbox=None) -> TaskStateManager:
     elif sandbox and not _task_state_manager._sandbox:
         _task_state_manager._sandbox = sandbox
     return _task_state_manager
+
+
+def set_task_state_manager(instance: TaskStateManager) -> None:
+    """Replace the global singleton with a session-scoped instance.
+
+    Called by PlanActFlow at session start so that all consumers
+    (SearchTool, BrowserTool, pre_planning_search) share the same
+    per-session state instead of a stale cross-session singleton.
+    """
+    global _task_state_manager
+    _task_state_manager = instance

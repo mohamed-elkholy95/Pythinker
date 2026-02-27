@@ -581,10 +581,15 @@ class PlanActGraphFlow(BaseFlow):
         )
         logger.info(f"ReflectionAgent enabled for agent {agent_id}")
 
-        # Task state manager
+        # Task state manager — also set as global singleton to prevent
+        # cross-session dedup pollution (same fix as PlanActFlow).
         self._task_state_manager = TaskStateManager(sandbox)
         self.planner._task_state_manager = self._task_state_manager
         self.executor._task_state_manager = self._task_state_manager
+
+        from app.domain.services.agents.task_state_manager import set_task_state_manager
+
+        set_task_state_manager(self._task_state_manager)
 
         # Create workflow graph
         self._graph = create_plan_act_graph()
