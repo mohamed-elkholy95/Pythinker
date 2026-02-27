@@ -1111,7 +1111,10 @@ const isChatMode = computed(() => {
   const greetings = ['hello', 'hi', 'hey', 'howdy', 'hola', 'greetings', 'yo', 'sup', 'good morning', 'good afternoon', 'good evening'];
   return greetings.includes(text);
 });
-const skipNextRouteReset = ref(false);
+// Route guard: skip reset when navigating to a session we just created.
+// Stores the target session ID instead of a boolean flag to avoid race conditions
+// where the flag could be consumed by a different navigation event.
+const skipResetForSessionId = ref<string | null>(null);
 
 interface PendingSessionCreateState {
   pendingSessionCreate: boolean;
@@ -1405,7 +1408,8 @@ const initializePendingSession = async () => {
   }
 
   try {
-    const session = await agentApi.createSession(mode, { research_mode: researchMode, sandbox_wait_seconds: 0 });
+    const idempotencyKey = crypto.randomUUID();
+    const session = await agentApi.createSession(mode, { research_mode: researchMode, sandbox_wait_seconds: 0, idempotencyKey });
     sessionResearchMode.value = researchMode;
     sessionId.value = session.session_id;
     if (pendingMessage) {
@@ -1416,7 +1420,7 @@ const initializePendingSession = async () => {
       });
     }
 
-    skipNextRouteReset.value = true;
+    skipResetForSessionId.value = session.session_id;
     await router.replace({ path: `/chat/${session.session_id}` });
 
     // Persist chat mode flag AFTER session ID is known
@@ -3814,16 +3818,19 @@ const restoreSession = async () => {
 
 
 onBeforeRouteUpdate(async (to, from, next) => {
-  if (skipNextRouteReset.value) {
-    skipNextRouteReset.value = false;
-    if (to.params.sessionId) {
-      sessionId.value = String(to.params.sessionId);
+  const targetSessionId = String(to.params.sessionId || '');
+  if (skipResetForSessionId.value && skipResetForSessionId.value === targetSessionId) {
+    skipResetForSessionId.value = null;
+    if (targetSessionId) {
+      sessionId.value = targetSessionId;
       // Clear stale search sources from previous session even when skipping full reset
       searchSourcesCache.value = new Map();
     }
     next();
     return;
   }
+  // Clear stale skip target if navigating elsewhere
+  skipResetForSessionId.value = null;
 
   // Only reset state when actually switching to a different session
   // This prevents cancelling the active chat on same-session route updates
