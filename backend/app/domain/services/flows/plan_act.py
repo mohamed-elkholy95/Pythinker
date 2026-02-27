@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from app.domain.exceptions.base import LLMKeysExhaustedError, SessionNotFoundException
 from app.domain.external.browser import Browser
+from app.domain.external.deal_finder import DealFinder
 from app.domain.external.llm import LLM
 from app.domain.external.logging import get_agent_logger
 from app.domain.external.sandbox import Sandbox
@@ -206,6 +207,7 @@ class PlanActFlow(BaseFlow):
         knowledge_base_service=None,
         prompt_profile_repo=None,
         scraper: Scraper | None = None,
+        deal_finder: DealFinder | None = None,
         checkpoint_manager=None,
     ):
         self._feature_flags = feature_flags
@@ -320,12 +322,10 @@ class PlanActFlow(BaseFlow):
             logger.info(f"ScrapingTool enabled for Agent {agent_id}")
 
         # Add DealScraperTool when enabled (multi-store deal search + price comparison)
-        if get_settings().deal_scraper_enabled and scraper and search_engine:
+        if get_settings().deal_scraper_enabled and deal_finder:
             from app.domain.services.tools.deal_scraper import DealScraperTool
-            from app.infrastructure.external.deal_finder import get_deal_finder_adapter
 
-            _deal_finder = get_deal_finder_adapter(scraper=scraper, search_engine=search_engine)
-            tools.append(DealScraperTool(deal_finder=_deal_finder))
+            tools.append(DealScraperTool(deal_finder=deal_finder))
             logger.info(f"DealScraperTool enabled for Agent {agent_id}")
 
         # Add skill creator tools for custom skill creation (Phase 3: Custom Skills)
@@ -476,10 +476,16 @@ class PlanActFlow(BaseFlow):
         self._last_save_time: datetime | None = None
         self._save_debounce_seconds = 5  # Min seconds between saves
 
-        # Task state manager for todo recitation
+        # Task state manager for todo recitation — also set as global singleton
+        # so SearchTool, BrowserTool, and pre_planning_search share the same
+        # per-session state (prevents cross-session dedup pollution).
         self._task_state_manager = TaskStateManager(sandbox)
         self.planner._task_state_manager = self._task_state_manager
         self.executor._task_state_manager = self._task_state_manager
+
+        from app.domain.services.agents.task_state_manager import set_task_state_manager
+
+        set_task_state_manager(self._task_state_manager)
 
         # Compliance gates for output quality checks
         self._compliance_gates = get_compliance_gates()
@@ -2901,7 +2907,9 @@ class PlanActFlow(BaseFlow):
                                     "The following files were created during this research session:\n"
                                     f"```\n{listing}\n```\n"
                                     'Include a "## Deliverables" section in your final report '
-                                    "listing each file with a brief description of its contents."
+                                    "listing each file with a brief description of its contents. "
+                                    "Show only the filename (not the full internal path) — these paths are internal "
+                                    "to the sandbox and meaningless to the user."
                                 )
                                 self.executor.system_prompt += deliverables_ctx
                                 logger.info(
@@ -2934,7 +2942,7 @@ class PlanActFlow(BaseFlow):
                     # Skip if deep_research already injected workspace listing above.
                     if session_files and not (self._research_mode == "deep_research" and self._workspace_output_path):
                         file_listing = "\n".join(
-                            f"- {f.filename} ({f.file_size or 0:,} bytes) — {f.content_type or 'unknown type'}"
+                            f"- {f.filename} ({f.size or 0:,} bytes) — {f.content_type or 'unknown type'}"
                             for f in session_files
                         )
                         deliverables_ctx = (
@@ -2942,7 +2950,9 @@ class PlanActFlow(BaseFlow):
                             "The following files were created during this session:\n"
                             f"{file_listing}\n\n"
                             'Include a "## 📎 Deliverables" section in your final report '
-                            "listing each file with a brief description of what it contains or demonstrates."
+                            "listing each file with a brief description of what it contains or demonstrates. "
+                            "Show only the filename (not the full internal path) — these paths are internal "
+                            "to the sandbox and meaningless to the user."
                         )
                         self.executor.system_prompt += deliverables_ctx
                         logger.info(
