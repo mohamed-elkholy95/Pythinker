@@ -81,6 +81,7 @@ class CommandFormatter:
             "test": CommandFormatter._format_test,
             "message": CommandFormatter._format_message,
             "wide_research": CommandFormatter._format_wide_research,
+            "deal": CommandFormatter._format_deal,
         }
 
         for prefix, formatter in formatters.items():
@@ -321,6 +322,22 @@ class CommandFormatter:
             return (truncated, "message", "Notification")
 
         return (truncated, "message", "Message")
+
+    @staticmethod
+    def _format_deal(function_name: str, args: dict) -> tuple[str, str, str]:
+        """Format deal scraper commands."""
+        if function_name == "deal_search":
+            query = args.get("query", "")
+            stores = args.get("stores", [])
+            store_text = f" across {', '.join(stores[:3])}" if stores else ""
+            return (f'Finding deals for "{_truncate(query, 60)}"{store_text}', "search", _truncate(query, 40))
+        if function_name == "deal_compare_prices":
+            urls = args.get("urls", [])
+            return (f"Comparing prices across {len(urls)} stores", "search", f"{len(urls)} stores")
+        if function_name == "deal_find_coupons":
+            store = args.get("store_name", "")
+            return (f"Finding coupons for {_truncate(store, 40)}", "search", _truncate(store, 30))
+        return CommandFormatter._format_default(function_name, args)
 
     @staticmethod
     def _format_default(function_name: str, args: dict) -> tuple[str, str, str]:
