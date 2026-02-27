@@ -6,7 +6,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 import httpx
 from openai import AsyncOpenAI, RateLimitError
@@ -43,6 +43,8 @@ class OpenAILLM(LLM):
     Supports OpenAI, OpenRouter, DeepSeek, and other OpenAI-compatible APIs.
     Uses FAILOVER strategy for automatic key rotation on rate limits (429) and auth errors (401).
     """
+
+    _json_format_warned: ClassVar[set[str]] = set()  # Track models already warned about json_object fallback
 
     _MESSAGE_VALIDATION_ERROR_TERMS = (
         "'1214'",
@@ -1614,9 +1616,16 @@ To extract data from a webpage:
                     logger.debug("Using json_object response format")
                 else:
                     # Provider doesn't support json_object - use prompt-based JSON
-                    logger.info(
-                        f"Provider doesn't support json_object format, using prompt-based JSON for {self._model_name}"
-                    )
+                    if self._model_name not in OpenAILLM._json_format_warned:
+                        OpenAILLM._json_format_warned.add(self._model_name)
+                        logger.info(
+                            "Provider doesn't support json_object format, using prompt-based JSON for %s",
+                            self._model_name,
+                        )
+                    else:
+                        logger.debug(
+                            "Using prompt-based JSON fallback for %s", self._model_name
+                        )
                     json_instruction = (
                         "\n\nCRITICAL: You must respond with valid JSON matching this schema:\n"
                         f"{json.dumps(schema, indent=2)}\n\n"
