@@ -9,16 +9,33 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Dense vector configuration (1536 = OpenAI text-embedding-3-small)
-# HNSW config is specified per-vector, not at collection level, to avoid applying to sparse vectors
+
+def _build_dense_vector_config() -> models.VectorParams:
+    """Build dense vector config from settings.
+
+    Uses tenant-aware HNSW: m=0 disables global links, payload_m builds
+    per-user sub-graphs so filtered queries don't waste traversal steps.
+    Requires collection recreation on existing deployments when changing m/payload_m.
+    """
+    settings = get_settings()
+    return models.VectorParams(
+        size=1536,
+        distance=models.Distance.COSINE,
+        hnsw_config=models.HnswConfigDiff(
+            m=settings.qdrant_hnsw_m,  # 0 = no global links (tenant-aware)
+            payload_m=settings.qdrant_hnsw_payload_m,  # Per-payload sub-graph links
+            ef_construct=100,  # Build-time accuracy
+            full_scan_threshold=10000,  # Use full scan for <10k points
+        ),
+    )
+
+
+# Backward-compatible module-level reference (lazy — rebuilt each time COLLECTIONS is accessed).
+# Tests that inspect DENSE_VECTOR_CONFIG directly still work.
 DENSE_VECTOR_CONFIG = models.VectorParams(
     size=1536,
     distance=models.Distance.COSINE,
-    hnsw_config=models.HnswConfigDiff(
-        m=16,  # Connections per node in HNSW graph
-        ef_construct=100,  # Build-time accuracy
-        full_scan_threshold=10000,  # Use full scan for <10k points
-    ),
+    hnsw_config=models.HnswConfigDiff(m=16, ef_construct=100, full_scan_threshold=10000),
 )
 
 # Collection names mapped to dense vector params.
@@ -127,9 +144,23 @@ class QdrantStorage:
         active_collection = self._settings.qdrant_user_knowledge_collection
         logger.info(f"Qdrant active memory collection: {active_collection}")
 
+        # Build tenant-aware dense vector config from settings
+        dense_params = _build_dense_vector_config()
+
         # Create multi-collection architecture with named vectors
-        for name, dense_params in COLLECTIONS.items():
+        for name in COLLECTIONS:
             if name not in existing_names:
+                # Quantization config (Phase 5D: ~75% memory savings at >1M points)
+                quantization_config = None
+                if self._settings.qdrant_quantization_enabled and self._settings.qdrant_quantization_type == "scalar":
+                    quantization_config = models.ScalarQuantization(
+                        scalar=models.ScalarQuantizationConfig(
+                            type=models.ScalarType.INT8,
+                            quantile=0.99,
+                            always_ram=True,
+                        ),
+                    )
+
                 await self._client.create_collection(
                     collection_name=name,
                     vectors_config={"dense": dense_params},  # HNSW config is in dense_params
@@ -141,6 +172,7 @@ class QdrantStorage:
                         deleted_threshold=0.2,  # Rebuild segment when 20% deleted
                         flush_interval_sec=300,  # Flush WAL every 5 minutes
                     ),
+                    quantization_config=quantization_config,
                     on_disk_payload=True,  # Phase 6: Store payloads on disk for memory efficiency
                     # NOTE: No collection-level hnsw_config - it's specified per-vector in dense_params
                     # to avoid applying HNSW to sparse vectors (which use inverted indexes)

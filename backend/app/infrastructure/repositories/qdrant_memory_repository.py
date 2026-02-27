@@ -231,11 +231,16 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                 )
             )
 
-        # Phase 1: Use named 'dense' vector
+        # Phase 1: Use named 'dense' vector with query-time hnsw_ef
         import time
 
         from app.core.prometheus_metrics import (
             qdrant_query_duration_seconds,
+        )
+
+        search_params = models.SearchParams(
+            hnsw_ef=self._settings.qdrant_hnsw_ef,
+            exact=False,
         )
 
         start_time = time.time()
@@ -245,6 +250,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                 query=query_vector,
                 using="dense",  # Named vector
                 query_filter=models.Filter(must=must_conditions),
+                search_params=search_params,
                 limit=limit,
                 score_threshold=min_score,
             )
@@ -338,6 +344,9 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         )
 
         hybrid_filter = models.Filter(must=must_conditions)
+        dense_search_params = models.SearchParams(
+            hnsw_ef=self._settings.qdrant_hnsw_ef,
+        )
 
         start_time = time.time()
         try:
@@ -351,12 +360,13 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                         limit=limit * 2,  # Fetch 2x for fusion
                         filter=hybrid_filter,
                     ),
-                    # Dense prefetch (semantic search)
+                    # Dense prefetch (semantic search) with hnsw_ef
                     models.Prefetch(
                         query=dense_vector,
                         using="dense",
                         limit=limit * 2,
                         filter=hybrid_filter,
+                        params=dense_search_params,
                     ),
                 ],
                 query=models.FusionQuery(fusion=models.Fusion.RRF),  # Reciprocal Rank Fusion
