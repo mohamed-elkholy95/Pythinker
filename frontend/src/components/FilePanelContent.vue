@@ -27,11 +27,11 @@
                 </svg>
                 <span class="text-xs font-medium text-[var(--text-secondary)]">Open Chart</span>
               </div>
-              <div @click="download"
+              <button type="button" @click="download"
                 class="flex h-7 w-7 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md"
-                aria-expanded="false" aria-haspopup="dialog">
+                aria-label="Download file">
                 <Download class="text-[var(--icon-secondary)] size-[18px]" />
-              </div>
+              </button>
             </div>
             <div class="flex items-center gap-2">
               <div @click="hide"
