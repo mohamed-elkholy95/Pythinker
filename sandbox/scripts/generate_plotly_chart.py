@@ -194,7 +194,9 @@ def _looks_temporal(labels: list[str]) -> bool:
     # Check first few labels — if >50% match, consider temporal
     sample = labels[: min(5, len(labels))]
     matches = sum(
-        1 for label in sample if any(re.match(p, label, re.IGNORECASE) for p in temporal_patterns)
+        1
+        for label in sample
+        if any(re.match(p, label, re.IGNORECASE) for p in temporal_patterns)
     )
     return matches > len(sample) / 2
 
@@ -1063,7 +1065,8 @@ def generate_donut_chart(
     values = series["values"]
 
     colors = [
-        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(clean_labels))
+        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)]
+        for i in range(len(clean_labels))
     ]
 
     fig = go.Figure(
@@ -1176,7 +1179,8 @@ def generate_funnel_chart(
     values = series["values"]
 
     colors = [
-        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(clean_labels))
+        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)]
+        for i in range(len(clean_labels))
     ]
 
     fig = go.Figure(
@@ -1225,7 +1229,8 @@ def generate_treemap_chart(
     values = series["values"]
 
     colors = [
-        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(clean_labels))
+        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)]
+        for i in range(len(clean_labels))
     ]
 
     fig = go.Figure(
@@ -1603,7 +1608,9 @@ def _validate_input(data: dict[str, Any]) -> str | None:
         if not parents or not isinstance(parents, list):
             return "Treemap requires a 'parents' list"
         if labels and len(parents) != len(labels):
-            return f"parents list ({len(parents)}) must match labels list ({len(labels)})"
+            return (
+                f"parents list ({len(parents)}) must match labels list ({len(labels)})"
+            )
 
     # Datasets validation
     datasets = data.get("datasets")
@@ -1694,7 +1701,9 @@ def main() -> int:
     png_size: int = 0
 
     if not output_html and not output_png:
-        print(_error_response("No output path provided (need output_html or output_png)"))
+        print(
+            _error_response("No output path provided (need output_html or output_png)")
+        )
         return 1
 
     # --- Write HTML (interactive chart with Plotly.js CDN) ---

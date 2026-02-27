@@ -36,7 +36,9 @@ def create_file_test_app() -> FastAPI:
 
 
 @pytest.fixture(autouse=True)
-def _sandbox_base_dir_for_tests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _sandbox_base_dir_for_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Override SANDBOX_ALLOWED_DIRS so file-API tests can use pytest ``tmp_path``.
 
     In production the sandbox restricts all paths to ``/home/ubuntu`` and ``/workspace``.

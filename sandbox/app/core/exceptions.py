@@ -58,7 +58,9 @@ async def app_exception_handler(request: Request, exc: AppException):
     if exc.status_code >= 500:
         logger.error("Application exception: %s", exc.message)
     else:
-        logger.debug("Application exception: %s (code: %d)", exc.message, exc.status_code)
+        logger.debug(
+            "Application exception: %s (code: %d)", exc.message, exc.status_code
+        )
     response = Response.error(message=exc.message, data=exc.data)
     return JSONResponse(status_code=exc.status_code, content=response.model_dump())
 
