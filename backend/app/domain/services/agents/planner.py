@@ -295,6 +295,7 @@ class PlannerAgent(BaseAgent):
         # Pre-planning search engine for real-time web context
         self._search_engine = search_engine
         self._last_search_context: str | None = None
+        self._last_search_queries: list[str] = []
 
     async def _stream_thinking(self, message: str) -> AsyncGenerator[BaseEvent, None]:
         """Stream thinking process before creating a plan.
@@ -513,11 +514,13 @@ class PlannerAgent(BaseAgent):
 
         # --- Await pre-planning search (should already be done by now) ---
         search_context: str | None = None
+        search_queries: list[str] = []
         if search_task is not None:
             try:
                 search_result = await asyncio.wait_for(search_task, timeout=3.0)
                 if search_result.triggered and search_result.search_context:
                     search_context = search_result.search_context
+                    search_queries = search_result.queries
                     logger.info(
                         f"Pre-planning search completed: {search_result.total_results} results "
                         f"in {search_result.duration_ms:.0f}ms, queries={search_result.queries}"
@@ -530,6 +533,7 @@ class PlannerAgent(BaseAgent):
 
         # Store for propagation to execution agent
         self._last_search_context = search_context
+        self._last_search_queries = search_queries
 
         # Extract just filenames from attachment paths for cleaner display
         attachment_names = []
@@ -688,9 +692,9 @@ class PlannerAgent(BaseAgent):
             # SAFEGUARD: If LLM returns empty steps but we still have pending steps,
             # keep the original pending steps (prevent premature task completion)
             if len(new_steps) == 0 and len(remaining_pending) >= 1:
-                logger.warning(
+                logger.info(
                     f"LLM returned empty steps but {len(remaining_pending)} steps remain. "
-                    "Keeping original pending steps."
+                    "Keeping original pending steps (safeguard working as designed)."
                 )
                 # Ensure the just-completed step is marked done
                 for s in plan.steps:
