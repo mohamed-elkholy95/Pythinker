@@ -220,7 +220,7 @@ async def test_http_client_config_defaults():
     assert config.timeout == 30.0
     assert config.connect_timeout == 10.0
     assert config.max_connections == 100
-    assert config.max_keepalive_connections == 20
+    assert config.max_keepalive_connections == 40
     assert config.verify_ssl is True
     assert config.http2 is False
     assert config.max_retries == 3

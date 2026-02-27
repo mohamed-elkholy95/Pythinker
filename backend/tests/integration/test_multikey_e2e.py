@@ -77,7 +77,7 @@ class TestMultiKeyRotationE2E:
 
         engine = SerperSearchEngine(
             api_key=settings.serper_api_key,
-            fallback_api_keys=fallback_keys if fallback_keys else None,
+            fallback_api_keys=fallback_keys or None,
             redis_client=redis_client,
         )
 
@@ -109,7 +109,7 @@ class TestMultiKeyRotationE2E:
 
         engine = TavilySearchEngine(
             api_key=settings.tavily_api_key,
-            fallback_api_keys=fallback_keys if fallback_keys else None,
+            fallback_api_keys=fallback_keys or None,
             redis_client=redis_client,
         )
 
@@ -131,7 +131,7 @@ class TestMultiKeyRotationE2E:
 
         engine = BraveSearchEngine(
             api_key=settings.brave_search_api_key,
-            fallback_api_keys=fallback_keys if fallback_keys else None,
+            fallback_api_keys=fallback_keys or None,
             redis_client=redis_client,
         )
 
@@ -182,7 +182,7 @@ class TestMultiKeyRotationE2E:
 
         llm = AnthropicLLM(
             api_key=settings.anthropic_api_key,
-            fallback_api_keys=fallback_keys if fallback_keys else None,
+            fallback_api_keys=fallback_keys or None,
             redis_client=redis_client,
         )
 
@@ -204,7 +204,7 @@ class TestMultiKeyRotationE2E:
 
         llm = OpenAILLM(
             api_key=settings.api_key,
-            fallback_api_keys=fallback_keys if fallback_keys else None,
+            fallback_api_keys=fallback_keys or None,
             redis_client=redis_client,
         )
 
@@ -425,7 +425,7 @@ class TestMultiKeyRecovery:
 
         engine = SerperSearchEngine(
             api_key=settings.serper_api_key,
-            fallback_api_keys=fallback_keys if fallback_keys else None,
+            fallback_api_keys=fallback_keys or None,
             redis_client=redis_client,
         )
 

@@ -53,9 +53,7 @@ def test_get_best_variant_with_min_trials_zero_returns_variant(optimizer: Prompt
     optimizer.auto_generate_variants("planner", "Base prompt", num_variants=3)
 
     variant = optimizer.get_best_variant("planner", min_trials=0)
-    assert variant is not None, (
-        "get_best_variant(min_trials=0) should return a variant even when trials=0"
-    )
+    assert variant is not None, "get_best_variant(min_trials=0) should return a variant even when trials=0"
     assert variant.prompt_template != ""
 
 
@@ -64,9 +62,7 @@ def test_get_best_variant_default_min_trials_filters_fresh_variants(optimizer: P
     optimizer.auto_generate_variants("planner", "Base", num_variants=3)
     # Default MIN_TRIALS=5; fresh variants have 0 trials → should return None
     variant = optimizer.get_best_variant("planner")  # uses MIN_TRIALS=5
-    assert variant is None, (
-        "Default get_best_variant() should still require MIN_TRIALS trials"
-    )
+    assert variant is None, "Default get_best_variant() should still require MIN_TRIALS trials"
 
 
 def test_record_outcome_increments_trial_count(optimizer: PromptOptimizer):

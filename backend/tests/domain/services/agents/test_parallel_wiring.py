@@ -5,8 +5,6 @@ Tests verify:
 - Pure read-only calls on different paths batch correctly into parallel
 """
 
-import pytest
-
 from app.domain.services.agents.parallel_executor import ParallelToolExecutor, ToolCall
 
 
@@ -50,9 +48,8 @@ def test_no_dependency_different_files():
 def test_can_parallelize_returns_false_for_write_then_read(monkeypatch):
     """_can_parallelize_tools returns False when write-read dependency exists."""
     # Import base lazily to avoid full import chain
-    from unittest.mock import MagicMock
 
-    from app.domain.services.agents.parallel_executor import ParallelToolExecutor as PTE
+    from app.domain.services.agents.parallel_executor import ParallelToolExecutor as PTE  # noqa: N817
 
     # Build minimal mock that has the required attributes of BaseAgent
     class FakeAgent:

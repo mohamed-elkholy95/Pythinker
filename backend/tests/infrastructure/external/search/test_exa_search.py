@@ -199,12 +199,14 @@ def test_parse_response_handles_empty_results():
 def test_parse_response_skips_items_without_url():
     """Items missing url should be skipped."""
     engine = ExaSearchEngine(api_key="test-key")
-    mock_response = _make_mock_response({
-        "results": [
-            {"title": "No URL", "text": "Some text"},
-            {"title": "Has URL", "url": "https://example.com", "text": "Valid"},
-        ],
-    })
+    mock_response = _make_mock_response(
+        {
+            "results": [
+                {"title": "No URL", "text": "Some text"},
+                {"title": "Has URL", "url": "https://example.com", "text": "Valid"},
+            ],
+        }
+    )
     results, total = engine._parse_response(mock_response)
     assert total == 1
     assert results[0].link == "https://example.com"

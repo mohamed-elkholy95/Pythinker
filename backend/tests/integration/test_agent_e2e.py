@@ -1025,7 +1025,9 @@ class TestHallucinationGrounding:
             print(f"  Total events: {len(events)}")
             for te in tool_events[:5]:
                 data = te["data"]
-                name = data.get("tool_name") or data.get("name") or data.get("function_name") or data.get("function", "")
+                name = (
+                    data.get("tool_name") or data.get("name") or data.get("function_name") or data.get("function", "")
+                )
                 print(f"    {name}: {data.get('status', 'N/A')}")
 
             # Require tools only when execution/tool stages were actually reached.
