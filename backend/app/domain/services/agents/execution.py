@@ -924,20 +924,65 @@ class ExecutionAgent(BaseAgent):
                             {"role": "user", "content": truncation_assessment.continuation_prompt},
                         ]
 
-                        # Single continuation attempt for pattern-based detection
-                        logger.info("Requesting continuation based on content patterns...")
-                        continuation_text = ""
-                        continuation_iter = self.llm.ask_stream(
-                            continuation_messages, tools=None, tool_choice=None, model=_summarize_model
-                        )
-                        async for stream_event in self._iter_coalesced_stream_events(
-                            continuation_iter, phase="summarizing"
-                        ):
-                            continuation_text += stream_event.content
-                            yield stream_event
+                        # Up to 2 continuation attempts for pattern-based detection
+                        # (first with fast model, second escalates to powerful model if still truncated)
+                        _max_pattern_continuations = 2
+                        for _pattern_attempt in range(1, _max_pattern_continuations + 1):
+                            _cont_model = _summarize_model
+                            # Escalate to powerful model on 2nd attempt
+                            if _pattern_attempt > 1:
+                                _powerful = _get_settings().powerful_model or None
+                                if _powerful and _powerful != _summarize_model:
+                                    _cont_model = _powerful
+                                    logger.info(
+                                        "Pattern-based truncation: escalating to powerful model (%s) for attempt %d",
+                                        _powerful,
+                                        _pattern_attempt,
+                                    )
+                                else:
+                                    break  # No escalation available
 
-                        accumulated_text = self._merge_stream_continuation(accumulated_text, continuation_text)
-                        message_content = self._collapse_duplicate_report_payload(accumulated_text.strip())
+                            logger.info(
+                                "Requesting continuation based on content patterns (attempt %d, model=%s)...",
+                                _pattern_attempt,
+                                _cont_model or "default",
+                            )
+                            continuation_text = ""
+                            continuation_iter = self.llm.ask_stream(
+                                continuation_messages, tools=None, tool_choice=None, model=_cont_model
+                            )
+                            async for stream_event in self._iter_coalesced_stream_events(
+                                continuation_iter, phase="summarizing"
+                            ):
+                                continuation_text += stream_event.content
+                                yield stream_event
+
+                            accumulated_text = self._merge_stream_continuation(accumulated_text, continuation_text)
+                            message_content = self._collapse_duplicate_report_payload(accumulated_text.strip())
+
+                            logger.info(
+                                "Truncation recovery: added %d chars via pattern-based continuation (attempt %d)",
+                                len(continuation_text),
+                                _pattern_attempt,
+                            )
+
+                            # Re-check for truncation after continuation
+                            post_assessment = truncation_detector.detect(
+                                content=message_content,
+                                finish_reason=None,
+                                max_tokens_used=False,
+                            )
+                            if not truncation_detector.should_request_continuation(
+                                post_assessment, confidence_threshold=0.85
+                            ):
+                                break  # Content looks complete
+
+                            # Update continuation messages for next attempt
+                            continuation_messages = [
+                                *stream_messages,
+                                {"role": "assistant", "content": message_content},
+                                {"role": "user", "content": post_assessment.continuation_prompt},
+                            ]
 
                         # Record outcome
                         _metrics.increment(
@@ -947,10 +992,6 @@ class ExecutionAgent(BaseAgent):
                                 "truncation_type": truncation_assessment.truncation_type or "unknown",
                                 "confidence_tier": "continuation_completed",
                             },
-                        )
-
-                        logger.info(
-                            f"Truncation recovery: added {len(continuation_text)} chars via pattern-based continuation"
                         )
 
                 except Exception as e:
