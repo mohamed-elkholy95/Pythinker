@@ -128,6 +128,19 @@ export function useKonvaScreencast() {
   }
 
   /**
+   * Force frame dimensions to known values after crash recovery.
+   *
+   * After a browser crash, the backend resets viewport to DEFAULT_VIEWPORT
+   * (1280x900). The frontend must also reset its expected dimensions so
+   * the auto-fit logic recalculates scale correctly when the first
+   * post-recovery frame arrives. Without this, stale dimensions cause
+   * the screencast to appear "zoomed in".
+   */
+  function forceDimensionReset(width: number, height: number): void {
+    frameDimensions.value = { width, height }
+  }
+
+  /**
    * Start periodic stats calculation (call on WS open).
    */
   function startStats(): void {
@@ -351,6 +364,7 @@ export function useKonvaScreencast() {
     unbindImageNode,
     pushFrame,
     reset,
+    forceDimensionReset,
     startStats,
     stopStats,
   }
