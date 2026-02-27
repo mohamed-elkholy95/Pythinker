@@ -493,6 +493,33 @@ class BaseAgent:
                     tool_content = SearchToolContent(results=results_list)
                     logger.info(f"SearchToolContent created with {len(results_list)} results for {function_name}")
 
+        # Handle deal scraper tools — transform deals list into SearchResultItems
+        deal_functions = {"deal_search", "deal_compare_prices"}
+        if tool_content is None and status == ToolStatus.CALLED and function_name in deal_functions:
+            function_result = kwargs.get("function_result")
+            if (
+                function_result
+                and hasattr(function_result, "success")
+                and function_result.success
+                and hasattr(function_result, "data")
+                and function_result.data
+            ):
+                data = function_result.data
+                deals = data.get("deals", []) if isinstance(data, dict) else []
+                results_list = [
+                    SearchResultItem(
+                        title=f"{d.get('store', 'Unknown')} — ${d.get('price', 0):.2f}"
+                        + (f" ({d.get('discount_display', '')})" if d.get("discount_display") else ""),
+                        link=d.get("url", d.get("product_url", "")),
+                        snippet=d.get("title", d.get("product_name", ""))
+                        + (f" | Score: {d.get('score', 0)}/100" if d.get("score") else ""),
+                    )
+                    for d in deals[:10]
+                ]
+                if results_list:
+                    tool_content = SearchToolContent(results=results_list)
+                    logger.info(f"SearchToolContent created with {len(results_list)} deal results for {function_name}")
+
         return ToolEvent(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
