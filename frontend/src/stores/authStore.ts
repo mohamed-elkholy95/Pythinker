@@ -25,6 +25,37 @@ import {
   type RegisterRequest,
 } from '../api/auth'
 
+/** Default token lifetime in seconds (2 hours) used when server doesn't provide expires_in */
+const DEFAULT_TOKEN_LIFETIME_SECONDS = 7200
+
+/** Minimum refresh interval to avoid tight loops (60 seconds) */
+const MIN_REFRESH_INTERVAL_SECONDS = 60
+
+/** Proactive refresh fires at 75% of token lifetime */
+const REFRESH_LIFETIME_RATIO = 0.75
+
+let _refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * Parse JWT payload to extract expiration time.
+ * JWTs are base64url-encoded — we only read the payload (2nd segment).
+ * Returns seconds until expiry, or 0 if expired/invalid.
+ */
+function getTokenExpiresIn(token: string): number {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return 0
+    // base64url → base64 → decode
+    const payload = parts[1]!.replace(/-/g, '+').replace(/_/g, '/')
+    const decoded = JSON.parse(atob(payload)) as { exp?: number }
+    if (typeof decoded.exp !== 'number') return 0
+    const remaining = decoded.exp - Math.floor(Date.now() / 1000)
+    return Math.max(0, remaining)
+  } catch {
+    return 0
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
   // ── State ────────────────────────────────────────────────────────
   const currentUser = ref<User | null>(null)
@@ -67,7 +98,14 @@ export const useAuthStore = defineStore('auth', () => {
       const token = getStoredToken()
       if (token) {
         setAuthToken(token)
-        await loadCurrentUser()
+        const expiresIn = getTokenExpiresIn(token)
+        if (expiresIn <= 0) {
+          // Token already expired — attempt immediate refresh
+          await refreshAuthToken()
+        } else {
+          scheduleProactiveRefresh(expiresIn)
+          await loadCurrentUser()
+        }
       }
     } finally {
       _isInitializing = false
@@ -102,6 +140,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (response.refresh_token) {
         storeRefreshToken(response.refresh_token)
       }
+      scheduleProactiveRefresh(response.expires_in ?? DEFAULT_TOKEN_LIFETIME_SECONDS)
       await loadCurrentUser()
       return response
     } catch (error: unknown) {
@@ -152,6 +191,7 @@ export const useAuthStore = defineStore('auth', () => {
       const response = await apiRefreshToken({ refresh_token: refreshTokenValue })
       storeToken(response.access_token)
       setAuthToken(response.access_token)
+      scheduleProactiveRefresh(response.expires_in ?? DEFAULT_TOKEN_LIFETIME_SECONDS)
       return true
     } catch {
       clearAuth()
@@ -160,6 +200,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function clearAuth() {
+    cancelProactiveRefresh()
     currentUser.value = null
     isAuthenticated.value = false
     authError.value = null
@@ -173,6 +214,29 @@ export const useAuthStore = defineStore('auth', () => {
 
   function hasRole(role: string): boolean {
     return currentUser.value?.role === role
+  }
+
+  /**
+   * Schedule a proactive token refresh at 75% of token lifetime.
+   * Prevents SSE reconnection failures by refreshing before expiry.
+   */
+  function scheduleProactiveRefresh(expiresInSeconds: number) {
+    cancelProactiveRefresh()
+    const refreshAfter = Math.max(
+      MIN_REFRESH_INTERVAL_SECONDS,
+      Math.floor(expiresInSeconds * REFRESH_LIFETIME_RATIO),
+    )
+    _refreshTimer = setTimeout(() => {
+      _refreshTimer = null
+      refreshAuthToken()
+    }, refreshAfter * 1000)
+  }
+
+  function cancelProactiveRefresh() {
+    if (_refreshTimer !== null) {
+      clearTimeout(_refreshTimer)
+      _refreshTimer = null
+    }
   }
 
   function registerLogoutListener() {
