@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import re
 from collections.abc import AsyncGenerator
@@ -746,6 +747,7 @@ async def chat(
     http_request: Request,
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
+    token_service: TokenService = Depends(get_token_service),
 ) -> EventSourceResponse:
     """Chat endpoint with SSE streaming.
 
@@ -959,6 +961,14 @@ async def chat(
                     "source": request.follow_up.source,
                 }
 
+            # Extract token expiry once for heartbeat enrichment (Phase 4: SSE token awareness)
+            _token_expires_at: int | None = None
+            _auth_header = http_request.headers.get("authorization", "")
+            if _auth_header.startswith("Bearer "):
+                _token_exp = token_service.get_token_expiration(_auth_header[7:])
+                if _token_exp:
+                    _token_expires_at = int(_token_exp.timestamp())
+
             # Heartbeat: send keep-alive events during long agent operations
             # Prevents frontend "stale" detection and proxy/timeout disconnects (SSE best practice)
             heartbeat = ProgressEvent(
@@ -967,10 +977,18 @@ async def chat(
                 progress_percent=None,
             )
             sse_heartbeat = await EventMapper.event_to_sse_event(heartbeat)
-            if sse_heartbeat:
+            if sse_heartbeat and sse_heartbeat.data:
+                _hb_data = json.loads(sse_heartbeat.data.model_dump_json())
+                if _token_expires_at:
+                    _hb_data["token_expires_at"] = _token_expires_at
                 heartbeat_sse = ServerSentEvent(
                     event=sse_heartbeat.event,
-                    data=sse_heartbeat.data.model_dump_json() if sse_heartbeat.data else None,
+                    data=json.dumps(_hb_data),
+                )
+            elif sse_heartbeat:
+                heartbeat_sse = ServerSentEvent(
+                    event=sse_heartbeat.event,
+                    data=None,
                 )
             else:
                 heartbeat_sse = None
