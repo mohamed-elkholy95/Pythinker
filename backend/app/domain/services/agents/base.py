@@ -11,6 +11,9 @@ from app.domain.external.logging import get_agent_logger
 from app.domain.models.agent import Agent
 from app.domain.models.event import (
     BaseEvent,
+    CouponItem,
+    DealItem,
+    DealToolContent,
     ErrorEvent,
     MessageEvent,
     SearchToolContent,
@@ -493,8 +496,8 @@ class BaseAgent:
                     tool_content = SearchToolContent(results=results_list)
                     logger.info(f"SearchToolContent created with {len(results_list)} results for {function_name}")
 
-        # Handle deal scraper tools — transform deals list into SearchResultItems
-        deal_functions = {"deal_search", "deal_compare_prices"}
+        # Handle deal scraper tools — emit structured DealToolContent
+        deal_functions = {"deal_search", "deal_compare_prices", "deal_find_coupons"}
         if tool_content is None and status == ToolStatus.CALLED and function_name in deal_functions:
             function_result = kwargs.get("function_result")
             if (
@@ -505,20 +508,51 @@ class BaseAgent:
                 and function_result.data
             ):
                 data = function_result.data
-                deals = data.get("deals", []) if isinstance(data, dict) else []
-                results_list = [
-                    SearchResultItem(
-                        title=f"{d.get('store', 'Unknown')} — ${d.get('price', 0):.2f}"
-                        + (f" ({d.get('discount_display', '')})" if d.get("discount_display") else ""),
-                        link=d.get("url", d.get("product_url", "")),
-                        snippet=d.get("title", d.get("product_name", ""))
-                        + (f" | Score: {d.get('score', 0)}/100" if d.get("score") else ""),
+                raw_deals = data.get("deals", []) if isinstance(data, dict) else []
+                deal_items = [
+                    DealItem(
+                        store=d.get("store", d.get("store_name", "")),
+                        price=d.get("price"),
+                        original_price=d.get("original_price"),
+                        discount_percent=d.get("discount_percent", d.get("discount", None)),
+                        product_name=d.get("title", d.get("product_name", "")),
+                        url=d.get("url", d.get("product_url", "")),
+                        score=d.get("score"),
+                        in_stock=d.get("in_stock"),
+                        coupon_code=d.get("coupon_code"),
+                        image_url=d.get("image_url"),
                     )
-                    for d in deals[:10]
+                    for d in raw_deals[:10]
                 ]
-                if results_list:
-                    tool_content = SearchToolContent(results=results_list)
-                    logger.info(f"SearchToolContent created with {len(results_list)} deal results for {function_name}")
+                raw_coupons = data.get("coupons", []) if isinstance(data, dict) else []
+                coupon_items = [
+                    CouponItem(
+                        code=c.get("code", ""),
+                        description=c.get("description", ""),
+                        store=c.get("store_name", c.get("store", "")),
+                        expiry=c.get("expiry_date", c.get("expiry")),
+                        verified=bool(c.get("verified", False)),
+                        source=c.get("source", ""),
+                    )
+                    for c in raw_coupons[:10]
+                ]
+                # Determine best deal by score
+                best_idx: int | None = None
+                if deal_items:
+                    scored = [(i, d.score or 0) for i, d in enumerate(deal_items)]
+                    best_idx = max(scored, key=lambda x: x[1])[0] if any(s > 0 for _, s in scored) else 0
+                query_str = function_args.get("query", function_args.get("product", ""))
+                if deal_items or coupon_items:
+                    tool_content = DealToolContent(
+                        deals=deal_items,
+                        coupons=coupon_items,
+                        query=query_str,
+                        best_deal_index=best_idx,
+                    )
+                    logger.info(
+                        f"DealToolContent created with {len(deal_items)} deals, "
+                        f"{len(coupon_items)} coupons for {function_name}"
+                    )
 
         return ToolEvent(
             tool_call_id=tool_call_id,
