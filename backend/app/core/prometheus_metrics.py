@@ -706,6 +706,19 @@ orphaned_task_cleanup_duration_seconds = Histogram(
     buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
 )
 
+# Search API Budget Metrics
+search_api_calls_total = Counter(
+    name="pythinker_search_api_calls_total",
+    help_text="Total search API calls (actual HTTP requests, not tool invocations)",
+    labels=["provider", "tool"],  # provider: serper/tavily/brave/exa/duckduckgo, tool: info_search_web/wide_research
+)
+
+search_budget_exhausted_total = Counter(
+    name="pythinker_search_budget_exhausted_total",
+    help_text="Total times search budget was exhausted per task",
+    labels=["tool"],
+)
+
 
 # Registry of all metrics
 _metrics_registry = [
@@ -772,6 +785,9 @@ _metrics_registry = [
     orphaned_redis_streams_cleaned_total,
     zombie_sessions_cleaned_total,
     orphaned_task_cleanup_duration_seconds,
+    # Search API Budget
+    search_api_calls_total,
+    search_budget_exhausted_total,
 ]
 
 # Workflow Phase Metrics (Monitoring Enhancement)
