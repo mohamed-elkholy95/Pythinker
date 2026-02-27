@@ -13,6 +13,10 @@ import type {
 } from '../types/message'
 import type { PlanEventData, StepEventData } from '../types/event'
 
+// ── Memory Caps ─────────────────────────────────────────────────────
+const MAX_MESSAGES_IN_MEMORY = 500
+const MAX_STEPS_IN_MEMORY = 200
+
 // ── Interfaces ──────────────────────────────────────────────────────
 
 /** Lightweight file reference for session-scoped file tracking. */
@@ -63,6 +67,9 @@ export const useSessionStore = defineStore('session', () => {
 
   function addMessage(msg: Message) {
     messages.value.push(msg)
+    if (messages.value.length > MAX_MESSAGES_IN_MEMORY) {
+      messages.value = messages.value.slice(-MAX_MESSAGES_IN_MEMORY)
+    }
   }
 
   function updateMessage(id: string, data: Partial<Message>) {
@@ -101,6 +108,9 @@ export const useSessionStore = defineStore('session', () => {
         phase_id: data.phase_id ?? null,
         step_type: data.step_type ?? null,
       })
+      if (steps.value.length > MAX_STEPS_IN_MEMORY) {
+        steps.value = steps.value.slice(-MAX_STEPS_IN_MEMORY)
+      }
     }
 
     // Track the currently executing step

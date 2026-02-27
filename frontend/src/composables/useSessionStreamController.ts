@@ -26,7 +26,8 @@ interface ReconnectCoordinatorOptions {
   pollFallbackStatus: () => Promise<FallbackPollOutcome>
   maxAutoRetries?: number
   autoRetryDelaysMs?: number[]
-  fallbackPollIntervalMs?: number
+  fallbackPollInitialIntervalMs?: number
+  fallbackPollMaxIntervalMs?: number
   fallbackPollMaxAttempts?: number
 }
 
@@ -49,8 +50,9 @@ const MAX_SEEN_EVENT_IDS = 1000
 const YIELD_BATCH_SIZE = 50
 const DEFAULT_MAX_AUTO_RETRIES = 4
 const DEFAULT_AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000, 60000]
-const DEFAULT_FALLBACK_STATUS_POLL_INTERVAL_MS = 5000
-const DEFAULT_FALLBACK_STATUS_POLL_MAX_ATTEMPTS = 24
+const DEFAULT_FALLBACK_STATUS_POLL_INITIAL_INTERVAL_MS = 5000
+const DEFAULT_FALLBACK_STATUS_POLL_MAX_INTERVAL_MS = 60000
+const DEFAULT_FALLBACK_STATUS_POLL_MAX_ATTEMPTS = 12
 
 const hasBrowserRaf = (): boolean => {
   return typeof requestAnimationFrame === 'function' && typeof cancelAnimationFrame === 'function'
@@ -69,6 +71,17 @@ const cancelFrame = (handle: FrameHandle): void => {
     return
   }
   clearTimeout(handle as ReturnType<typeof setTimeout>)
+}
+
+/**
+ * Calculate exponential backoff interval with ±20% jitter.
+ * Starts at `initialMs`, doubles each attempt, caps at `maxMs`.
+ */
+const calcBackoffWithJitter = (attempt: number, initialMs: number, maxMs: number): number => {
+  const exponential = Math.min(initialMs * Math.pow(2, attempt), maxMs)
+  // ±20% jitter to prevent thundering herd
+  const jitterFactor = 0.8 + Math.random() * 0.4
+  return Math.round(exponential * jitterFactor)
 }
 
 export function useSessionStreamController(options: UseSessionStreamControllerOptions) {
@@ -323,7 +336,16 @@ export function useSessionStreamController(options: UseSessionStreamControllerOp
       return
     }
 
-    const intervalMs = reconnectCoordinatorOptions.fallbackPollIntervalMs ?? DEFAULT_FALLBACK_STATUS_POLL_INTERVAL_MS
+    const initialMs = reconnectCoordinatorOptions.fallbackPollInitialIntervalMs ?? DEFAULT_FALLBACK_STATUS_POLL_INITIAL_INTERVAL_MS
+    const maxMs = reconnectCoordinatorOptions.fallbackPollMaxIntervalMs ?? DEFAULT_FALLBACK_STATUS_POLL_MAX_INTERVAL_MS
+    // attempt index is 0-based: first poll already happened, so use (attempts - 1)
+    const intervalMs = calcBackoffWithJitter(fallbackStatusPollAttempts - 1, initialMs, maxMs)
+
+    log('fallback:poll_scheduled', {
+      attempt: fallbackStatusPollAttempts,
+      nextIntervalMs: intervalMs,
+    })
+
     fallbackStatusPollTimer = setTimeout(() => {
       fallbackStatusPollTimer = null
       void runFallbackStatusPoll()
