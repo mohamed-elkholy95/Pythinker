@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import asdict
@@ -22,12 +23,36 @@ from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 
 if TYPE_CHECKING:
-    from app.domain.external.deal_finder import DealComparison, DealFinder
+    from app.domain.external.deal_finder import CouponSearchResult, DealComparison, DealFinder
 
 logger = logging.getLogger(__name__)
 
 # Queue capacity — prevents unbounded memory growth
 _QUEUE_MAX_SIZE = 200
+
+# Noise words stripped during store name normalization (domain layer copy —
+# mirrors infrastructure's _STORE_NOISE_WORDS but lives here to avoid
+# importing from infrastructure).
+_COUPON_NOISE_WORDS: frozenset[str] = frozenset(
+    {
+        "coupon",
+        "coupons",
+        "code",
+        "codes",
+        "promo",
+        "discount",
+        "deal",
+        "deals",
+        "offer",
+        "sale",
+        "free",
+        "best",
+        "top",
+        "latest",
+        "new",
+        "online",
+    }
+)
 
 
 def _build_deal_report_message(comparison: DealComparison) -> str:
@@ -90,6 +115,9 @@ class DealScraperTool(BaseTool):
         self._active_tool_call_id: str = ""
         self._active_function_name: str = ""
         self._start_time: float = 0.0
+        # Session-level store dedup: prevents LLM from re-searching same store
+        # with name variations like "Anthropic coupons" then "anthropic promo codes"
+        self._coupon_searched_stores: set[str] = set()
 
     # ── Progress helpers ──────────────────────────────────────────
 
@@ -133,6 +161,24 @@ class DealScraperTool(BaseTool):
                 yield self._progress_queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
+
+    # ── Helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _normalize_store_name(raw: str) -> str:
+        """Normalize a store name for session-level dedup.
+
+        Strips coupon noise words, trailing years, and lowercases.
+        E.g. "Anthropic Claude Code Coupons 2026" → "anthropic claude code"
+        """
+        name = raw.strip().lower()
+        # Strip trailing year
+        name = re.sub(r"\b20\d{2}\b", "", name)
+        tokens = name.split()
+        meaningful = [t for t in tokens if t and t not in _COUPON_NOISE_WORDS and len(t) > 1]
+        if not meaningful:
+            meaningful = [t for t in tokens if t][:1]
+        return " ".join(meaningful[:3])
 
     # ── Tool methods ──────────────────────────────────────────────
 
@@ -416,10 +462,24 @@ class DealScraperTool(BaseTool):
         if not store_name.strip():
             return ToolResult(success=False, message="store_name must not be empty")
 
+        # Session-level store dedup: normalize and check if already searched
+        normalized_store = self._normalize_store_name(store_name)
+        if normalized_store in self._coupon_searched_stores:
+            return ToolResult(
+                success=True,
+                message=(
+                    f"Already searched coupons for this store (normalized: '{normalized_store}'). "
+                    "Results from the previous search still apply. "
+                    "Do NOT call deal_find_coupons again with a different name variant."
+                ),
+                data={"store": store_name, "normalized": normalized_store, "deduplicated": True},
+            )
+        self._coupon_searched_stores.add(normalized_store)
+
         self._start_time = time.monotonic()
 
         try:
-            coupons = await self._deal_finder.find_coupons(
+            result: CouponSearchResult = await self._deal_finder.find_coupons(
                 store=store_name,
                 product_url=product_url,
                 progress=self._progress_callback,
@@ -431,11 +491,27 @@ class DealScraperTool(BaseTool):
                 message=f"Coupon search failed: {exc}",
             )
 
+        coupons = result.coupons
+
         if not coupons:
+            # Build detailed failure report so the LLM doesn't retry via browser
+            failure_lines = [f"No coupons found for '{store_name}'."]
+            if result.source_failures:
+                failure_lines.append("Sources checked:")
+                failure_lines.extend(f"  - {sf['source']}: {sf['reason']}" for sf in result.source_failures)
+            if result.urls_checked:
+                failure_lines.append("URLs checked:")
+                failure_lines.extend(f"  - {u}" for u in result.urls_checked)
+            failure_lines.append("Do NOT re-visit these URLs via browser_navigate — they return identical results.")
             return ToolResult(
                 success=True,
-                message=f"No coupons found for {store_name}",
-                data={"store": store_name, "coupons": []},
+                message="\n".join(failure_lines),
+                data={
+                    "store": store_name,
+                    "coupons": [],
+                    "source_failures": result.source_failures,
+                    "urls_checked": result.urls_checked,
+                },
             )
 
         coupons_data = [asdict(c) for c in coupons]
