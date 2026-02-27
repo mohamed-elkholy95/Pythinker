@@ -346,10 +346,56 @@ export function clearStoredTokens(): void {
 }
 
 /**
- * Initialize authentication from stored tokens
- * This should be called when the app starts
+ * Legacy localStorage keys from previous auth implementations.
+ * These are no longer used — canonical keys are 'access_token' and 'refresh_token'.
+ */
+const STALE_AUTH_KEYS = ['token', 'auth_token', 'accessToken', 'user'] as const;
+
+/**
+ * Migrate and clean up stale auth tokens from localStorage.
+ *
+ * Previous implementations stored tokens under different keys. This function
+ * migrates any valid JWT found under legacy keys to the canonical 'access_token'
+ * key, then removes all stale entries.
+ *
+ * Should be called once on app startup, before initializeAuth().
+ */
+export function migrateStaleTokens(): void {
+  if (!canReadStorage() || !canWriteStorage()) {
+    return;
+  }
+
+  const canonical = localStorage.getItem('access_token');
+  const hasValidCanonical = canonical && canonical.startsWith('eyJ');
+
+  // If no valid canonical token exists, check legacy keys for a JWT to rescue
+  if (!hasValidCanonical) {
+    for (const key of STALE_AUTH_KEYS) {
+      const value = localStorage.getItem(key);
+      if (value && value.startsWith('eyJ') && value.length > 50) {
+        // Found a valid-looking JWT in a legacy key — promote it
+        localStorage.setItem('access_token', value);
+        break;
+      }
+    }
+  }
+
+  // Remove all stale keys regardless
+  for (const key of STALE_AUTH_KEYS) {
+    localStorage.removeItem(key);
+  }
+}
+
+/**
+ * Initialize authentication from stored tokens.
+ * This should be called when the app starts.
+ *
+ * Runs a one-time migration to clean up stale localStorage keys from
+ * previous auth implementations, then sets the Authorization header
+ * from the canonical 'access_token' key.
  */
 export function initializeAuth(): void {
+  migrateStaleTokens();
   const token = getStoredToken();
   if (token) {
     setAuthToken(token);

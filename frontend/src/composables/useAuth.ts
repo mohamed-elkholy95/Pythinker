@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
-import { 
-  login as apiLogin, 
-  register as apiRegister, 
+import {
+  login as apiLogin,
+  register as apiRegister,
   logout as apiLogout,
   getCurrentUser,
   refreshToken as apiRefreshToken,
@@ -12,6 +12,7 @@ import {
   getStoredToken,
   getStoredRefreshToken,
   clearStoredTokens,
+  migrateStaleTokens,
   getCachedAuthProvider,
   type User,
   type LoginRequest,
@@ -177,6 +178,7 @@ export function useAuth() {
     isAuthenticated.value = false
     clearAuthToken()
     clearStoredTokens()
+    migrateStaleTokens()  // Also purge any legacy keys
     authError.value = null
   }
 
