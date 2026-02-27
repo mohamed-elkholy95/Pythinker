@@ -73,13 +73,13 @@ class TokenService:
     def verify_token(self, token: str) -> dict[str, Any] | None:
         """Verify JWT token and return payload"""
         try:
-            payload = jwt.decode(token, self.settings.jwt_secret_key, algorithms=[self.settings.jwt_algorithm])
-
-            # Check if token is not expired
-            exp = payload.get("exp")
-            if exp and exp < int(datetime.now(UTC).timestamp()):
-                logger.warning("Token has expired")
-                return None
+            payload = jwt.decode(
+                token,
+                self.settings.jwt_secret_key,
+                algorithms=[self.settings.jwt_algorithm],
+                leeway=5,
+                options={"require": ["exp", "iat", "sub"]},
+            )
 
             logger.debug(f"Token verified for user: {payload.get('fullname')}")
             return payload
