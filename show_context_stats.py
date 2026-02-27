@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Display sandbox context statistics"""
+
 import json
 
-with open('/app/sandbox_context.json') as f:
+with open("/app/sandbox_context.json") as f:
     data = json.load(f)
 
 print("Context Metadata:")
