@@ -18,20 +18,14 @@ from app.domain.external.task import Task, TaskRunner
 from app.domain.models.event import (
     AgentEvent,
     BaseEvent,
-    BrowserAgentToolContent,
-    BrowserToolContent,
-    CanvasToolContent,
-    ChartToolContent,
     DoneEvent,
     ErrorEvent,
     FileToolContent,
     FlowSelectionEvent,
-    McpToolContent,
+    MCPHealthEvent,
     MessageEvent,
     ModeChangeEvent,
     ReportEvent,
-    SearchToolContent,
-    ShellToolContent,
     TitleEvent,
     ToolEvent,
     ToolProgressEvent,
@@ -41,7 +35,6 @@ from app.domain.models.event import (
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
-from app.domain.models.search import SearchResults
 from app.domain.models.session import AgentMode, ResearchMode, SessionStatus
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
@@ -60,10 +53,11 @@ from app.domain.services.orchestration.coordinator_flow import (
     create_coordinator_flow,
 )
 from app.domain.services.plotly_chart_orchestrator import PlotlyChartOrchestrator
+from app.domain.services.tool_content_handlers import get_content_handler_registry
 from app.domain.services.tool_event_handler import ToolEventHandler
 from app.domain.services.tools.mcp import MCPTool
+from app.domain.services.tools.mcp_registry import get_mcp_registry
 from app.domain.utils.cancellation import CancellationToken
-from app.domain.utils.diff import build_unified_diff
 from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
@@ -190,6 +184,8 @@ class AgentTaskRunner(TaskRunner):
 
         # Tool event handler for action/observation metadata enrichment
         self._tool_event_handler = ToolEventHandler()
+        # Per-tool content handler registry (replaces elif chain)
+        self._content_handlers = get_content_handler_registry()
         self._comparison_chart_generator = ComparisonChartGenerator()
         # Phase 4: Plotly chart orchestrator (feature-flagged)
         self._plotly_chart_orchestrator = PlotlyChartOrchestrator(sandbox=self._sandbox, session_id=session_id)
@@ -1088,362 +1084,18 @@ class AgentTaskRunner(TaskRunner):
                 # Enrich observation metadata using ToolEventHandler
                 self._tool_event_handler.enrich_observation_metadata(event)
 
-                if event.tool_name == "browser":
-                    # Extract page content from function result if available
-                    page_content = None
-                    if event.function_result and hasattr(event.function_result, "data"):
-                        result_data = event.function_result.data
-                        if isinstance(result_data, dict):
-                            # Try to get content from various possible fields
-                            page_content = (
-                                result_data.get("content") or result_data.get("text") or result_data.get("data")
-                            )
-                        elif isinstance(result_data, str):
-                            page_content = result_data
-                    event.tool_content = BrowserToolContent(content=page_content)
-                elif event.tool_name == "search":
-                    # Normalize search results for SearchContentView
-                    search_results: ToolResult[SearchResults] = event.function_result
-                    logger.debug(f"Search tool results: {search_results}")
-
-                    normalized_results: list[Any] = []
-                    if hasattr(search_results, "data") and search_results.data:
-                        data = search_results.data
-                        if isinstance(data, SearchResults):
-                            normalized_results = data.results
-                        elif isinstance(data, dict):
-                            if isinstance(data.get("results"), list):
-                                normalized_results = data["results"]
-                            elif isinstance(data.get("data"), dict) and isinstance(data["data"].get("results"), list):
-                                normalized_results = data["data"]["results"]
-
-                    logger.info(
-                        "Search tool results count=%s tool_call_id=%s",
-                        len(normalized_results),
-                        event.tool_call_id,
-                    )
-                    event.tool_content = SearchToolContent(results=normalized_results)
-                elif event.tool_name == "chart":
-                    # Handle chart tool events - sync HTML/PNG + Plotly JSON contract to storage
-                    if event.function_result and hasattr(event.function_result, "data"):
-                        # Safely coerce data to dict (handles non-dict or None values)
-                        raw_data = getattr(event.function_result, "data", None)
-                        data = dict(raw_data) if isinstance(raw_data, dict) else {}
-                        tool_success = bool(getattr(event.function_result, "success", False))
-                        tool_message = str(getattr(event.function_result, "message", "") or "")
-
-                        html_path = data.get("html_path")
-                        png_path = data.get("png_path")
-                        plotly_json_path = data.get("plotly_json_path")
-
-                        # Sync files independently (not requiring all artifacts to exist)
-                        html_info = None
-                        png_info = None
-                        plotly_json_info = None
-                        sync_errors: list[str] = []
-                        sync_warnings: list[str] = []
-                        if not tool_success and tool_message:
-                            # Preserve tool-level failures (e.g., script/runtime errors) so
-                            # frontend shows a concrete cause instead of generic "unavailable".
-                            sync_errors.append(tool_message)
-                        elif tool_success and not html_path and not png_path and not plotly_json_path:
-                            # Successful result with missing paths is still an error condition.
-                            sync_errors.append("Chart generation returned no output files")
-                        sync_plan: list[tuple[str, str, str]] = []
-
-                        if isinstance(html_path, str) and html_path:
-                            sync_plan.append(("html", html_path, "text/html"))
-                        if isinstance(png_path, str) and png_path:
-                            sync_plan.append(("png", png_path, "image/png"))
-                        if isinstance(plotly_json_path, str) and plotly_json_path:
-                            sync_plan.append(("plotly_json", plotly_json_path, "application/json"))
-
-                        # Execute syncs concurrently if any exist
-                        if sync_plan:
-                            sync_tasks = [
-                                self._sync_file_to_storage_with_retry(
-                                    artifact_path,
-                                    content_type=content_type,
-                                    max_attempts=3,
-                                )
-                                for _, artifact_path, content_type in sync_plan
-                            ]
-                            results = await asyncio.gather(*sync_tasks, return_exceptions=True)
-
-                            for (artifact_kind, artifact_path, _), result in zip(sync_plan, results, strict=False):
-                                artifact_label = artifact_kind.replace("_", " ").upper()
-                                if isinstance(result, Exception):
-                                    message = f"{artifact_label} sync failed: {result}"
-                                    if artifact_kind == "plotly_json":
-                                        sync_warnings.append(message)
-                                    else:
-                                        sync_errors.append(message)
-                                    logger.warning("%s", message)
-                                    continue
-
-                                if result is None:
-                                    message = f"{artifact_label} file missing or empty in sandbox"
-                                    if artifact_kind == "plotly_json":
-                                        sync_warnings.append(message)
-                                    else:
-                                        sync_errors.append(message)
-                                    logger.warning("%s for %s", message, artifact_path)
-                                    continue
-
-                                if artifact_kind == "html":
-                                    html_info = result
-                                elif artifact_kind == "png":
-                                    png_info = result
-                                elif artifact_kind == "plotly_json":
-                                    plotly_json_info = result
-
-                        # Build error message if any sync failed
-                        chart_error = "; ".join(sync_errors) if sync_errors else None
-
-                        # Set ChartToolContent on the event
-                        event.tool_content = ChartToolContent(
-                            chart_type=data.get("chart_type", "bar"),
-                            title=data.get("title", "Chart"),
-                            html_file_id=html_info.file_id if html_info else None,
-                            png_file_id=png_info.file_id if png_info else None,
-                            plotly_json_file_id=plotly_json_info.file_id if plotly_json_info else None,
-                            html_filename=html_info.filename if html_info else None,
-                            png_filename=png_info.filename if png_info else None,
-                            plotly_json_filename=plotly_json_info.filename if plotly_json_info else None,
-                            html_size=data.get("html_size"),
-                            plotly_json_size=data.get("plotly_json_size"),
-                            render_contract_version=data.get("render_contract_version"),
-                            data_points=data.get("data_points", 0),
-                            series_count=data.get("series_count", 0),
-                            error=chart_error,
-                        )
-
-                        log_fn = logger.error if chart_error else logger.info
-                        log_fn(
-                            (
-                                "Chart created: type=%s title=%s data_points=%s series=%s "
-                                "html=%s png=%s plotly_json=%s contract=%s warnings=%s error=%s"
-                            ),
-                            data.get("chart_type"),
-                            data.get("title"),
-                            data.get("data_points"),
-                            data.get("series_count"),
-                            "synced" if html_info else "missing/failed",
-                            "synced" if png_info else "missing/failed",
-                            "synced" if plotly_json_info else "missing/failed",
-                            data.get("render_contract_version"),
-                            "; ".join(sync_warnings) if sync_warnings else None,
-                            chart_error,
-                        )
-                elif event.tool_name == "shell":
-                    # observation_type set by ToolEventHandler
-                    if event.function_result and hasattr(event.function_result, "data"):
-                        data = event.function_result.data or {}
-                        if isinstance(data, dict):
-                            event.stdout = data.get("output")
-                            event.exit_code = data.get("returncode")
-                    if "id" in event.function_args:
-                        shell_result = await self._sandbox.view_shell(event.function_args["id"], console=True)
-                        event.tool_content = ShellToolContent(console=(shell_result.data or {}).get("console", []))
-                    else:
-                        event.tool_content = ShellToolContent(console="(No Console)")
-                elif event.tool_name == "file":
-                    # observation_type set by ToolEventHandler
-                    if "file" in event.function_args:
-                        file_path = event.function_args["file"]
-                        # Read file and sync to storage concurrently
-                        file_read_task = self._sandbox.file_read(file_path)
-                        sync_task = self._sync_file_to_storage(file_path)
-                        file_read_result, _ = await asyncio.gather(file_read_task, sync_task, return_exceptions=True)
-                        if isinstance(file_read_result, Exception):
-                            file_content = f"(Error: {file_read_result})"
-                        elif (
-                            file_read_result is None
-                            or not hasattr(file_read_result, "data")
-                            or file_read_result.data is None
-                        ):
-                            file_content = "(Error: file not found or empty response)"
-                        else:
-                            file_content = file_read_result.data.get("content", "")
-                        event.tool_content = FileToolContent(content=file_content)
-
-                        before_content = self._file_before_cache.pop(event.tool_call_id, "")
-                        diff_text = build_unified_diff(before_content, file_content, file_path)
-                        if diff_text:
-                            event.diff = diff_text
-                    else:
-                        event.tool_content = FileToolContent(content="(No Content)")
-                elif event.tool_name == "mcp":
-                    logger.debug(f"Processing MCP tool event: function_result={event.function_result}")
-                    if event.function_result:
-                        if hasattr(event.function_result, "data") and event.function_result.data:
-                            logger.debug(f"MCP tool result data: {event.function_result.data}")
-                            event.tool_content = McpToolContent(result=event.function_result.data)
-                        elif hasattr(event.function_result, "success") and event.function_result.success:
-                            logger.debug(f"MCP tool result (success, no data): {event.function_result}")
-                            result_data = (
-                                event.function_result.model_dump()
-                                if hasattr(event.function_result, "model_dump")
-                                else str(event.function_result)
-                            )
-                            event.tool_content = McpToolContent(result=result_data)
-                        else:
-                            logger.debug(f"MCP tool result (fallback): {event.function_result}")
-                            event.tool_content = McpToolContent(result=str(event.function_result))
-                    else:
-                        logger.warning("MCP tool: No function_result found")
-                        event.tool_content = McpToolContent(result="No result available")
-
-                    logger.debug(f"MCP tool_content set to: {event.tool_content}")
-                    if event.tool_content:
-                        logger.debug(f"MCP tool_content.result: {event.tool_content.result}")
-                        logger.debug(f"MCP tool_content dict: {event.tool_content.model_dump()}")
-                elif event.tool_name in ("browser_agent", "browsing"):
-                    logger.debug(f"Processing {event.tool_name} tool event: function_result={event.function_result}")
-                    if event.function_result:
-                        result_data = event.function_result.data if hasattr(event.function_result, "data") else {}
-                        steps_taken = result_data.get("steps_taken", 0) if isinstance(result_data, dict) else 0
-                        result = (
-                            result_data.get("result", str(result_data))
-                            if isinstance(result_data, dict)
-                            else str(result_data)
-                        )
-                        event.tool_content = BrowserAgentToolContent(result=result, steps_taken=steps_taken)
-                    else:
-                        event.tool_content = BrowserAgentToolContent(result="No result available", steps_taken=0)
-                elif event.tool_name == "agent_mode":
-                    # agent_mode is a control tool, no special content needed
-                    logger.debug("Processing agent_mode tool event")
-                elif event.tool_name == "message":
-                    # message tool events don't need tool_content
-                    logger.debug("Processing message tool event")
-                elif event.tool_name == "code_executor":
-                    # observation_type set by ToolEventHandler
-                    # Code execution output shown in terminal-like view
-                    if event.function_result and hasattr(event.function_result, "data"):
-                        data = event.function_result.data
-                        if isinstance(data, dict):
-                            # Artifact operations should surface file content directly
-                            if event.function_name == "code_save_artifact":
-                                content = event.function_args.get("content")
-                                if isinstance(content, str):
-                                    event.tool_content = FileToolContent(content=content)
-                                else:
-                                    event.tool_content = FileToolContent(content="")
-                                artifact_path = data.get("path")
-                                if isinstance(artifact_path, str):
-                                    event.file_path = artifact_path
-                                    if getattr(event.function_result, "success", False):
-                                        await self._sync_file_to_storage(artifact_path)
-                            elif event.function_name == "code_read_artifact":
-                                content = data.get("content")
-                                if isinstance(content, str):
-                                    event.tool_content = FileToolContent(content=content)
-                                else:
-                                    event.tool_content = FileToolContent(content="")
-                                artifact_path = data.get("path")
-                                if isinstance(artifact_path, str):
-                                    event.file_path = artifact_path
-                                else:
-                                    artifact_name = data.get("filename")
-                                    if isinstance(artifact_name, str):
-                                        event.file_path = artifact_name
-                            else:
-                                # Extract stdout/stderr for console display
-                                console_output = []
-                                if data.get("stdout"):
-                                    console_output.append(data["stdout"])
-                                if data.get("stderr"):
-                                    console_output.append(f"[stderr] {data['stderr']}")
-                                if data.get("exit_code") is not None:
-                                    console_output.append(f"[exit code: {data['exit_code']}]")
-                                event.stdout = data.get("stdout")
-                                event.stderr = data.get("stderr")
-                                event.exit_code = data.get("exit_code")
-                                event.tool_content = ShellToolContent(
-                                    console="\n".join(console_output) if console_output else "(No output)"
-                                )
-
-                                # Sync artifacts to session files
-                                artifacts = data.get("artifacts", [])
-                                if artifacts:
-                                    sync_tasks = []
-                                    for artifact in artifacts:
-                                        artifact_path = artifact.get("path") if isinstance(artifact, dict) else None
-                                        if artifact_path:
-                                            sync_tasks.append(self._sync_file_to_storage(artifact_path))
-                                    if sync_tasks:
-                                        await asyncio.gather(*sync_tasks, return_exceptions=True)
-                                        logger.debug(
-                                            f"Agent {self._agent_id}: Synced {len(sync_tasks)} artifacts from code_executor"
-                                        )
-                        else:
-                            event.tool_content = ShellToolContent(console=str(data) if data else "(No output)")
-                    else:
-                        event.tool_content = ShellToolContent(console="(No output)")
-                elif event.tool_name == "canvas":
-                    operation = event.function_name.replace("canvas_", "") if event.function_name else "unknown"
-                    project_id: str | None = None
-                    project_name: str | None = None
-                    element_count = 0
-                    image_urls: list[str] | None = None
-
-                    data: Any | None = None
-                    if event.function_result and hasattr(event.function_result, "data"):
-                        data = event.function_result.data
-
-                    if isinstance(data, dict):
-                        project_id = data.get("project_id") or data.get("id")
-                        project_name = data.get("project_name") or data.get("name")
-                        if isinstance(data.get("elements"), list):
-                            element_count = len(data["elements"])
-                        elif isinstance(data.get("element_count"), int):
-                            element_count = data["element_count"]
-                        else:
-                            pages = data.get("pages")
-                            if isinstance(pages, list):
-                                for page in pages:
-                                    if isinstance(page, dict):
-                                        elems = page.get("elements")
-                                        if isinstance(elems, list):
-                                            element_count += len(elems)
-                        if isinstance(data.get("image_url"), str):
-                            image_urls = [data["image_url"]]
-                        elif isinstance(data.get("image_urls"), list):
-                            image_urls = [str(url) for url in data["image_urls"]]
-
-                    if not project_id:
-                        arg_project_id = event.function_args.get("project_id")
-                        if isinstance(arg_project_id, str):
-                            project_id = arg_project_id
-
-                    if not project_name:
-                        arg_name = event.function_args.get("name")
-                        if isinstance(arg_name, str):
-                            project_name = arg_name
-
-                    event.tool_content = CanvasToolContent(
-                        operation=operation,
-                        project_id=project_id,
-                        project_name=project_name,
-                        element_count=element_count,
-                        image_urls=image_urls,
-                    )
-                elif event.tool_name == "wide_research":
-                    # wide_research results are handled via WideResearchEvent and ReportEvent
-                    logger.debug("Processing wide_research tool event")
-                elif event.tool_name == "export":
-                    # Sync exported files (archives, reports) to session files
-                    if event.function_result and hasattr(event.function_result, "data"):
-                        data = event.function_result.data
-                        if isinstance(data, dict):
-                            # Export tools return the created file path
-                            export_path = data.get("path") or data.get("file_path") or data.get("output_path")
-                            if export_path:
-                                await self._sync_file_to_storage(export_path)
-                                logger.debug(f"Agent {self._agent_id}: Synced export file '{export_path}'")
+                # Dispatch to per-tool content handler (registry replaces elif chain)
+                handler = self._content_handlers.get(event.tool_name)
+                if handler:
+                    await handler(event, self)
+                elif event.tool_name in ("agent_mode", "message"):
+                    # Control tools — no content needed
+                    logger.debug("Processing %s tool event", event.tool_name)
+                elif event.tool_name in ("wide_research", "scraping"):
+                    # Handled elsewhere (WideResearchEvent/ReportEvent) or logging-only
+                    logger.debug("Agent %s: Processing %s tool event", self._agent_id, event.tool_name)
                 else:
-                    logger.warning(f"Agent {self._agent_id} received unknown tool event: {event.tool_name}")
+                    logger.warning("Agent %s received unknown tool event: %s", self._agent_id, event.tool_name)
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} failed to generate tool content: {e}")
 
@@ -1456,6 +1108,25 @@ class AgentTaskRunner(TaskRunner):
             logger.info(f"Agent {self._agent_id} message processing task started (task_id={task.id})")
 
             # Initialize sandbox and MCP tool concurrently
+            # Wire MCP health callback so events stream to the client
+            _task_ref = task  # capture for closure
+
+            async def _mcp_health_callback(summary: dict) -> None:
+                """Emit per-server MCPHealthEvent for each server in the summary."""
+                servers_info = summary.get("servers", {})
+                for name in servers_info.get("healthy_names", []):
+                    await self._put_and_add_event(
+                        _task_ref,
+                        MCPHealthEvent(server_name=name, healthy=True, tools_available=0),
+                    )
+                for name in servers_info.get("unhealthy_names", []):
+                    await self._put_and_add_event(
+                        _task_ref,
+                        MCPHealthEvent(server_name=name, healthy=False, tools_available=0),
+                    )
+
+            self._mcp_tool.set_health_callback(_mcp_health_callback)
+
             async def init_mcp():
                 config = await self._mcp_repository.get_mcp_config()
                 # Merge user's extra MCP server configs (e.g. from connectors)
@@ -1472,6 +1143,14 @@ class AgentTaskRunner(TaskRunner):
                     component = "sandbox" if i == 0 else "MCP"
                     logger.error(f"Agent {self._agent_id} {component} init failed: {result}")
             logger.debug(f"Agent {self._agent_id} concurrent initialization completed")
+
+            # Register MCP manager in the global registry (for REST endpoints)
+            if self._mcp_tool.manager is not None:
+                get_mcp_registry().register(
+                    self._user_id,
+                    self._mcp_tool.manager,
+                    self._mcp_tool.health_monitor,
+                )
 
             # Initialize screenshot capture service after sandbox is ready
             settings = get_settings()
@@ -1733,6 +1412,8 @@ class AgentTaskRunner(TaskRunner):
                 logger.warning(f"Sandbox destroy failed for Agent {self._agent_id}: {e}")
 
         if self._mcp_tool:
+            # Unregister from global MCP registry before cleanup
+            get_mcp_registry().unregister(self._user_id)
             logger.debug(f"Destroying Agent {self._agent_id}'s MCP tool")
             try:
                 await asyncio.wait_for(self._mcp_tool.cleanup(), timeout=10.0)
