@@ -2,8 +2,11 @@
 
 Provides a singleton embedding client used by both MemoryService
 and SemanticCache. Wraps OpenAI's embedding API with fallback support.
+Includes Redis-based embedding cache to avoid redundant API calls.
 """
 
+import hashlib
+import json
 import logging
 import threading
 import time
@@ -69,12 +72,48 @@ class EmbeddingClient:
         self._dimension = 1536  # text-embedding-3-small dimension
         self.api_base = base_url
         self.timeout = timeout
+        self._redis_client = redis_client
+        self._cache_ttl = 86400  # 24 hours — embeddings are deterministic per model
 
         logger.info(f"Embedding client initialized with {len(key_configs)} API key(s) using ROUND_ROBIN strategy")
 
     async def get_api_key(self) -> str | None:
         """Get the currently active API key from pool (round-robin distribution)."""
         return await self._key_pool.get_healthy_key()
+
+    def _cache_key(self, text: str) -> str:
+        """Build a Redis cache key from text content hash + model."""
+        content_hash = hashlib.sha256(text.encode()).hexdigest()[:16]
+        return f"emb:{self._model}:{content_hash}"
+
+    async def _get_cached(self, keys: list[str]) -> dict[str, list[float]]:
+        """Fetch cached embeddings from Redis. Returns {cache_key: vector}."""
+        if not self._redis_client:
+            return {}
+        try:
+            pipe = self._redis_client.pipeline(transaction=False)
+            for k in keys:
+                pipe.get(k)
+            results = await pipe.execute()
+            cached = {}
+            for k, val in zip(keys, results, strict=False):
+                if val is not None:
+                    cached[k] = json.loads(val)
+            return cached
+        except Exception:
+            return {}
+
+    async def _set_cached(self, items: dict[str, list[float]]) -> None:
+        """Store embeddings in Redis with TTL."""
+        if not self._redis_client or not items:
+            return
+        try:
+            pipe = self._redis_client.pipeline(transaction=False)
+            for k, vec in items.items():
+                pipe.set(k, json.dumps(vec), ex=self._cache_ttl)
+            await pipe.execute()
+        except Exception:  # noqa: S110
+            pass  # Cache write failures are non-critical
 
     async def embed(self, text: str) -> list[float]:
         """Generate embedding for a single text.
@@ -96,6 +135,8 @@ class EmbeddingClient:
     async def embed_batch(self, texts: list[str], _attempt: int = 0) -> list[list[float]]:
         """Generate embeddings for multiple texts with automatic key rotation.
 
+        Uses Redis cache to skip API calls for previously-embedded content.
+
         Args:
             texts: List of texts to embed
             _attempt: Internal retry counter
@@ -108,6 +149,21 @@ class EmbeddingClient:
         """
         if not texts:
             return []
+
+        # --- Cache lookup: resolve already-embedded texts ---
+        truncated = [t[:8000] for t in texts]
+        cache_keys = [self._cache_key(t) for t in truncated]
+        cached = await self._get_cached(cache_keys)
+
+        # Build result array — None for cache misses
+        results: list[list[float] | None] = [cached.get(ck) for ck in cache_keys]
+        miss_indices = [i for i, r in enumerate(results) if r is None]
+
+        if not miss_indices:
+            return results  # type: ignore[return-value]  # all hits
+
+        # --- API call for cache misses only ---
+        miss_texts = [truncated[i] for i in miss_indices]
 
         # Check retry limit
         if _attempt >= self._max_retries:
@@ -123,9 +179,6 @@ class EmbeddingClient:
         try:
             import httpx as _httpx  # Only for exception types
 
-            # OpenAI supports batch embedding natively
-            truncated = [t[:8000] for t in texts]
-
             # Reuse pooled connection — per-request Authorization (key rotates)
             client = await HTTPClientPool.get_client(
                 "openai-embedding",
@@ -139,7 +192,7 @@ class EmbeddingClient:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "input": truncated,
+                    "input": miss_texts,
                     "model": self._model,
                     "encoding_format": "float",
                 },
@@ -157,7 +210,18 @@ class EmbeddingClient:
             # Sort by index to maintain order
             sorted_data = sorted(data["data"], key=lambda x: x["index"])
             self._key_pool.record_success(key)
-            return [d["embedding"] for d in sorted_data]
+            api_embeddings = [d["embedding"] for d in sorted_data]
+
+            # --- Merge API results + populate cache ---
+            to_cache: dict[str, list[float]] = {}
+            for idx_in_miss, orig_idx in enumerate(miss_indices):
+                vec = api_embeddings[idx_in_miss]
+                results[orig_idx] = vec
+                to_cache[cache_keys[orig_idx]] = vec
+
+            await self._set_cached(to_cache)
+
+            return results  # type: ignore[return-value]
 
         except _httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 429, 402, 403):
