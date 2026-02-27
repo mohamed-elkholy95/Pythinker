@@ -56,9 +56,11 @@ class ExecutionStepResult(BaseModel):
     """Response schema for step execution results.
 
     Used by ExecutionAgent after completing a step.
+    Extra fields are ignored to tolerate LLMs that return additional
+    keys (e.g. ``thinking``, ``confidence``) beyond the schema.
     """
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     success: bool = Field(description="Whether the step completed successfully")
     result: str | None = Field(default=None, description="Summary of what was accomplished in this step")
@@ -103,7 +105,7 @@ class DiscussResponse(BaseModel):
     Used when agent is in conversational mode without task execution.
     """
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     message: str = Field(description="Response to user query")
     should_switch_to_agent: bool = Field(default=False, description="Whether this query requires agent mode execution")
@@ -126,7 +128,7 @@ class VerificationVerdict(str, Enum):
 class ToolFeasibility(BaseModel):
     """Feasibility assessment for a tool in a step."""
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     step_id: str = Field(description="ID of the step being assessed")
     tool: str = Field(description="Tool being checked")
@@ -137,7 +139,7 @@ class ToolFeasibility(BaseModel):
 class PrerequisiteCheck(BaseModel):
     """Check for a prerequisite condition."""
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     check: str = Field(description="What is being checked")
     satisfied: bool = Field(description="Whether the prerequisite is met")
@@ -147,7 +149,7 @@ class PrerequisiteCheck(BaseModel):
 class DependencyIssue(BaseModel):
     """An identified dependency issue in the plan."""
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     step_id: str = Field(description="ID of the affected step")
     depends_on: str = Field(description="What this step depends on")
@@ -160,7 +162,7 @@ class VerificationResponse(BaseModel):
     Used by VerifierAgent to validate plans before execution.
     """
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     verdict: VerificationVerdict = Field(description="Verification verdict")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the verdict (0.0-1.0)")
@@ -180,7 +182,7 @@ class VerificationResponse(BaseModel):
 class SimpleVerificationResponse(BaseModel):
     """Simplified verification response for quick checks."""
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     verdict: VerificationVerdict = Field(description="Verification verdict")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in verdict")
@@ -205,7 +207,7 @@ class ReflectionDecision(str, Enum):
 class ProgressMetrics(BaseModel):
     """Metrics about current execution progress."""
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     steps_completed: int = Field(description="Number of completed steps")
     steps_remaining: int = Field(description="Number of remaining steps")
@@ -220,7 +222,7 @@ class ReflectionResponse(BaseModel):
     Used by ReflectionAgent to assess progress and determine next actions.
     """
 
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
     decision: ReflectionDecision = Field(description="Reflection decision")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the decision")
