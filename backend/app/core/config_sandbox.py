@@ -61,10 +61,10 @@ class SandboxPoolSettingsMixin:
 
     # Sandbox Pool Pre-warming (Phase 3)
     sandbox_pool_enabled: bool = True  # Enable sandbox pool (20-32s → 2-5s cold start)
-    sandbox_pool_min_size: int = 1  # Pre-warm 1 sandbox, create 2nd on demand
-    sandbox_pool_max_size: int = 2  # Cap at 2 for 2-concurrent-task target
-    max_concurrent_agents: int = 2  # In-process concurrency guard; matches sandbox_pool_max_size
-    max_concurrent_executions: int = 4  # LLM execution concurrency (higher than agents since LLM calls are I/O-bound)
+    sandbox_pool_min_size: int = 2  # Pre-warm 2 sandboxes for faster cold start
+    sandbox_pool_max_size: int = 10  # Scale: ~2GB RAM per sandbox, adjust to host capacity
+    max_concurrent_agents: int = 8  # In-process concurrency guard; scale with pool_max_size
+    max_concurrent_executions: int = 12  # LLM execution concurrency (higher than agents since LLM calls are I/O-bound)
     sandbox_pool_warmup_interval: int = 30  # Seconds between pool maintenance checks
 
     # Sandbox idle management

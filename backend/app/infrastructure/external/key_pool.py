@@ -40,15 +40,17 @@ logger = logging.getLogger(__name__)
 # Dual quota detection keywords — scanned in both HTTP error text and
 # successful response bodies to catch APIs that return 200 OK with errors.
 # ---------------------------------------------------------------------------
-QUOTA_KEYWORDS = frozenset({
-    "quota",
-    "limit exceeded",
-    "usage limit",
-    "monthly limit",
-    "not enough credits",
-    "billing",
-    "payment required",
-})
+QUOTA_KEYWORDS = frozenset(
+    {
+        "quota",
+        "limit exceeded",
+        "usage limit",
+        "monthly limit",
+        "not enough credits",
+        "billing",
+        "payment required",
+    }
+)
 
 
 def _text_has_quota_keywords(text: str) -> bool:
@@ -61,26 +63,28 @@ def _text_has_quota_keywords(text: str) -> bool:
 # Error classification
 # ---------------------------------------------------------------------------
 
+
 class ErrorType(str, Enum):
     """7-category error taxonomy for API key rotation decisions."""
 
-    CLIENT_ERROR = "client_error"        # 400 — bad request, not the key's fault
-    AUTH_ERROR = "auth_error"            # 401/403 — invalid or revoked key
-    RATE_LIMITED = "rate_limited"        # 429 — rate limit hit
+    CLIENT_ERROR = "client_error"  # 400 — bad request, not the key's fault
+    AUTH_ERROR = "auth_error"  # 401/403 — invalid or revoked key
+    RATE_LIMITED = "rate_limited"  # 429 — rate limit hit
     QUOTA_EXHAUSTED = "quota_exhausted"  # Quota/billing keywords in body
-    UPSTREAM_5XX = "upstream_5xx"        # 500+ — upstream server error
-    NETWORK_ERROR = "network_error"      # Connection timeout/reset
-    OTHER = "other"                      # Unclassified
+    UPSTREAM_5XX = "upstream_5xx"  # 500+ — upstream server error
+    NETWORK_ERROR = "network_error"  # Connection timeout/reset
+    OTHER = "other"  # Unclassified
+
 
 # Default cooldown per error type (seconds)
 _ERROR_COOLDOWNS: dict[ErrorType, int] = {
-    ErrorType.CLIENT_ERROR: 0,         # No cooldown — bad request from caller
-    ErrorType.AUTH_ERROR: 3600,        # 1 hour
-    ErrorType.RATE_LIMITED: 60,        # Base for exponential backoff
+    ErrorType.CLIENT_ERROR: 0,  # No cooldown — bad request from caller
+    ErrorType.AUTH_ERROR: 3600,  # 1 hour
+    ErrorType.RATE_LIMITED: 60,  # Base for exponential backoff
     ErrorType.QUOTA_EXHAUSTED: 86400,  # 24 hours
-    ErrorType.UPSTREAM_5XX: 30,        # 30 seconds
-    ErrorType.NETWORK_ERROR: 15,       # 15 seconds
-    ErrorType.OTHER: 60,               # 1 minute
+    ErrorType.UPSTREAM_5XX: 30,  # 30 seconds
+    ErrorType.NETWORK_ERROR: 15,  # 15 seconds
+    ErrorType.OTHER: 60,  # 1 minute
 }
 
 
@@ -129,16 +133,17 @@ def classify_error(
 # Circuit Breaker
 # ---------------------------------------------------------------------------
 
+
 class CircuitState(str, Enum):
     """Circuit breaker states."""
 
-    CLOSED = "closed"        # Normal operation
-    OPEN = "open"            # All requests rejected
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # All requests rejected
     HALF_OPEN = "half_open"  # One probe request allowed
 
 
 # Circuit breaker defaults
-CIRCUIT_BREAKER_THRESHOLD = 5       # Consecutive 5xx failures to trip
+CIRCUIT_BREAKER_THRESHOLD = 5  # Consecutive 5xx failures to trip
 CIRCUIT_BREAKER_RESET_TIMEOUT = 300  # Seconds before OPEN → HALF_OPEN
 
 
@@ -692,7 +697,7 @@ class APIKeyPool:
 
         # Exponential backoff: 60s * 2^count, capped at 600s (10 min)
         base_cooldown = _ERROR_COOLDOWNS[ErrorType.RATE_LIMITED]
-        cooldown = base_cooldown * (2.0 ** count)
+        cooldown = base_cooldown * (2.0**count)
         cooldown = min(cooldown, 600)
 
         # Add jitter to prevent thundering herd

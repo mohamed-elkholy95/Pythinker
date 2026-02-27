@@ -1247,10 +1247,7 @@ class PlaywrightBrowser:
         try:
             await self.page.set_viewport_size(DEFAULT_VIEWPORT)
             self._current_viewport = DEFAULT_VIEWPORT
-            logger.info(
-                f"Viewport reset to {DEFAULT_VIEWPORT['width']}x{DEFAULT_VIEWPORT['height']} "
-                "after recovery"
-            )
+            logger.info(f"Viewport reset to {DEFAULT_VIEWPORT['width']}x{DEFAULT_VIEWPORT['height']} after recovery")
         except Exception as e:
             logger.warning(f"Failed to reset viewport after recovery: {e}")
 
@@ -1261,17 +1258,14 @@ class PlaywrightBrowser:
             result = await cdp_session.send("Browser.getWindowForTarget")
             window_id = result.get("windowId")
             if window_id:
-                readback = await cdp_session.send(
-                    "Browser.getWindowBounds", {"windowId": window_id}
-                )
+                readback = await cdp_session.send("Browser.getWindowBounds", {"windowId": window_id})
                 actual = readback.get("bounds", {})
                 actual_left = actual.get("left", 0)
                 actual_top = actual.get("top", 0)
 
                 if actual_left != 0 or actual_top != 0:
                     logger.warning(
-                        f"Window displaced after recovery: ({actual_left}, {actual_top}). "
-                        "Forcing to (0, 0)."
+                        f"Window displaced after recovery: ({actual_left}, {actual_top}). Forcing to (0, 0)."
                     )
                     await self._force_window_position(self.page)
                 else:

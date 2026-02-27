@@ -473,8 +473,7 @@ class FastPathRouter:
                     for esc_pattern in KNOWLEDGE_ESCALATION_PATTERNS:
                         if re.search(esc_pattern, message_lower):
                             logger.info(
-                                "Query matched KNOWLEDGE but escalated to TASK "
-                                "(escalation pattern: %s)",
+                                "Query matched KNOWLEDGE but escalated to TASK (escalation pattern: %s)",
                                 esc_pattern,
                             )
                             return QueryIntent.TASK, {}
@@ -486,8 +485,7 @@ class FastPathRouter:
                     conjunction_count = len(re.findall(r"\band\b", message_lower))
                     if conjunction_count >= 3:
                         logger.info(
-                            "Query matched KNOWLEDGE but escalated to TASK "
-                            "(multi-sub-question: %d conjunctions)",
+                            "Query matched KNOWLEDGE but escalated to TASK (multi-sub-question: %d conjunctions)",
                             conjunction_count,
                         )
                         return QueryIntent.TASK, {}

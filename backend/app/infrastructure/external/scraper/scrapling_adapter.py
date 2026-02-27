@@ -218,9 +218,7 @@ class ScraplingAdapter:
 
     # ── Structured extraction ─────────────────────────────────────────────────
 
-    async def extract_structured(
-        self, url: str, selectors: dict[str, str], **kwargs: object
-    ) -> StructuredData:
+    async def extract_structured(self, url: str, selectors: dict[str, str], **kwargs: object) -> StructuredData:
         """Extract structured data using CSS selectors after fetching via escalation.
 
         When scraping_adaptive_tracking=True, uses Scrapling's adaptive element
@@ -256,11 +254,7 @@ class ScraplingAdapter:
             page = Adaptor(fetched.html, url=url, **adaptor_kwargs)
             data: dict[str, list[str] | str] = {}
             for field_name, selector in selectors.items():
-                matches = (
-                    page.css(selector, auto_save=True, adaptive=True)
-                    if adaptive_mode
-                    else page.css(selector)
-                )
+                matches = page.css(selector, auto_save=True, adaptive=True) if adaptive_mode else page.css(selector)
                 if matches:
                     values = [str(el.text or "").strip() for el in matches]
                     data[field_name] = values if len(values) > 1 else values[0]
@@ -274,9 +268,7 @@ class ScraplingAdapter:
 
     # ── Batch fetch ───────────────────────────────────────────────────────────
 
-    async def fetch_batch(
-        self, urls: list[str], concurrency: int = 5, **kwargs: object
-    ) -> list[ScrapedContent]:
+    async def fetch_batch(self, urls: list[str], concurrency: int = 5, **kwargs: object) -> list[ScrapedContent]:
         """Fetch multiple URLs concurrently.
 
         Uses ResearchSpider when scraping_spider_enabled=True for per-domain

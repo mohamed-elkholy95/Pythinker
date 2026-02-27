@@ -13,16 +13,16 @@ ESCALATION_STATUS_CODES = frozenset({403, 429, 503})
 
 # Text signals that indicate a bot challenge or block page
 _BLOCK_SIGNALS = (
-    "just a moment",          # Cloudflare interstitial
+    "just a moment",  # Cloudflare interstitial
     "checking your browser",  # Cloudflare
-    "enable javascript",      # JS-gated content
+    "enable javascript",  # JS-gated content
     "please enable cookies",  # bot check
     "access denied",
     "403 forbidden",
     "ddos-guard",
     "datadome",
     "please verify you are a human",
-    "ray id",                 # Cloudflare Ray ID
+    "ray id",  # Cloudflare Ray ID
 )
 
 

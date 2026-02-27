@@ -49,14 +49,10 @@ class Scraper(Protocol):
         """Fetch with automatic tier escalation on failure (HTTP → Dynamic → Stealthy)."""
         ...
 
-    async def extract_structured(
-        self, url: str, selectors: dict[str, str], **kwargs: object
-    ) -> StructuredData:
+    async def extract_structured(self, url: str, selectors: dict[str, str], **kwargs: object) -> StructuredData:
         """Extract structured data using CSS selectors."""
         ...
 
-    async def fetch_batch(
-        self, urls: list[str], concurrency: int = 5, **kwargs: object
-    ) -> list[ScrapedContent]:
+    async def fetch_batch(self, urls: list[str], concurrency: int = 5, **kwargs: object) -> list[ScrapedContent]:
         """Fetch multiple URLs concurrently."""
         ...
