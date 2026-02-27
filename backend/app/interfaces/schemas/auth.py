@@ -180,6 +180,7 @@ class LoginResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    expires_in: int
 
 
 class RegisterResponse(BaseModel):
@@ -189,6 +190,7 @@ class RegisterResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    expires_in: int
 
 
 class AuthStatusResponse(BaseModel):
@@ -202,3 +204,4 @@ class RefreshTokenResponse(BaseModel):
 
     access_token: str
     token_type: str = "bearer"
+    expires_in: int
