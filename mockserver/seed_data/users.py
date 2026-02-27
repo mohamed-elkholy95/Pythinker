@@ -1,5 +1,6 @@
 from stores import auth_store
 
+
 def seed_users() -> None:
     """Ensure demo user exists and has a token pair."""
     user = auth_store.DEMO_USER

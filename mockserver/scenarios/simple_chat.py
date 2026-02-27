@@ -2,40 +2,61 @@ from __future__ import annotations
 from typing import AsyncGenerator
 from scenarios.engine import eid, ts, delay
 
+
 async def run(message: str, session_id: str) -> AsyncGenerator[tuple[str, dict], None]:
     await delay(0.5)
 
-    yield "progress", {
-        "event_id": eid(), "timestamp": ts(),
-        "phase": "received", "message": "Processing your message...",
-    }
+    yield (
+        "progress",
+        {
+            "event_id": eid(),
+            "timestamp": ts(),
+            "phase": "received",
+            "message": "Processing your message...",
+        },
+    )
     await delay(0.8)
 
     # Generate a contextual response
     response = _generate_response(message)
 
-    yield "message", {
-        "event_id": eid(), "timestamp": ts(),
-        "content": response, "role": "assistant", "attachments": [],
-    }
+    yield (
+        "message",
+        {
+            "event_id": eid(),
+            "timestamp": ts(),
+            "content": response,
+            "role": "assistant",
+            "attachments": [],
+        },
+    )
     await delay(0.3)
 
-    yield "suggestion", {
-        "event_id": eid(), "timestamp": ts(),
-        "suggestions": [
-            "Tell me more about this topic",
-            "Can you provide examples?",
-            "What are the alternatives?",
-        ],
-    }
+    yield (
+        "suggestion",
+        {
+            "event_id": eid(),
+            "timestamp": ts(),
+            "suggestions": [
+                "Tell me more about this topic",
+                "Can you provide examples?",
+                "What are the alternatives?",
+            ],
+        },
+    )
     await delay(0.1)
 
-    yield "title", {
-        "event_id": eid(), "timestamp": ts(),
-        "title": message[:50] + ("..." if len(message) > 50 else ""),
-    }
+    yield (
+        "title",
+        {
+            "event_id": eid(),
+            "timestamp": ts(),
+            "title": message[:50] + ("..." if len(message) > 50 else ""),
+        },
+    )
 
     yield "done", {"event_id": eid(), "timestamp": ts()}
+
 
 def _generate_response(message: str) -> str:
     msg = message.lower()
