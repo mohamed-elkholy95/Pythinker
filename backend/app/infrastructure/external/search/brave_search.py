@@ -2,9 +2,17 @@
 
 Brave Search API implementation with privacy-focused search results.
 Requires a Brave Search API key from https://brave.com/search/api/
+
+Uses APIKeyPool for production-grade multi-key management:
+- FAILOVER strategy: primary key preferred, fallbacks only when exhausted
+- TTL-based recovery: keys auto-recover after cooldown
+- Redis coordination: distributed key health tracking across instances
+- Wait-for-recovery: waits up to 120s for soonest-recovering key (MCP Rotator pattern)
+- Per-request auth: X-Subscription-Token injected per-request, connection pool survives rotation
 """
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -21,6 +29,9 @@ from app.infrastructure.external.search.base import SearchEngineBase, SearchEngi
 from app.infrastructure.external.search.factory import SearchProviderRegistry
 
 logger = logging.getLogger(__name__)
+
+# HTTP status codes that indicate the API key should be rotated
+_ROTATE_STATUS_CODES = {401, 402, 403, 429}
 
 
 @SearchProviderRegistry.register("brave")
@@ -74,32 +85,16 @@ class BraveSearchEngine(SearchEngineBase):
         self.base_url = "https://api.search.brave.com/res/v1/web/search"
         logger.info(f"Brave search initialized with {len(key_configs)} API key(s)")
 
-    @property
-    async def api_key(self) -> str | None:
-        """Get the currently active API key from pool."""
-        return await self._key_pool.get_healthy_key()
-
-    async def _get_headers(self) -> dict[str, str]:
-        """Get Brave API headers with authentication."""
-        key = await self.api_key
-        if not key:
-            raise RuntimeError("All Brave API keys exhausted")
-
-        return {
-            "Accept": "application/json",
-            "Accept-Encoding": "gzip",
-            "X-Subscription-Token": key,
-        }
-
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with connection pooling.
+        """Get or create shared HTTP client.
 
-        Overrides base class to support async header generation.
+        Auth header (X-Subscription-Token) is NOT baked in here - it is injected
+        as a per-request header in search() so the connection pool is reused
+        across all key rotations without needing to close and recreate the client.
         """
         if self._client is None or self._client.is_closed:
-            headers = await self._get_headers()
             self._client = httpx.AsyncClient(
-                headers=headers,
+                headers={"Accept": "application/json", "Accept-Encoding": "gzip"},
                 timeout=httpx.Timeout(self.timeout, connect=10.0),
                 follow_redirects=True,
             )
@@ -172,17 +167,24 @@ class BraveSearchEngine(SearchEngineBase):
         Returns:
             ToolResult containing SearchResults
         """
-        # Status codes that trigger key rotation
-        rotate_status_codes = {401, 402, 403, 429}
-
         # Check retry limit to prevent stack overflow
         if _attempt >= self._max_retries:
             return self._create_error_result(
                 query, date_range, f"All {len(self._key_pool.keys)} Brave API keys exhausted after {_attempt} attempts"
             )
 
-        # Get healthy key from pool
-        key = await self.api_key
+        # Sanitize query: collapse newlines/control chars, strip, cap length
+        query = re.sub(r"[\r\n\t\x00-\x1f\x7f]+", " ", query).strip()
+        query = re.sub(r" {2,}", " ", query)
+        if not query:
+            return self._create_error_result(query, date_range, "Brave bad request: empty search query")
+        if len(query) > 500:
+            logger.warning(f"Brave query truncated from {len(query)} to 500 chars")
+            query = query[:500]
+
+        # Wait up to 120s for a key to become available (MCP Rotator pattern).
+        # Falls through to fallback provider when cooldowns exceed the budget.
+        key = await self._key_pool.get_healthy_key_or_wait(max_wait_seconds=120.0)
         if not key:
             return self._create_error_result(
                 query, date_range, f"All {len(self._key_pool.keys)} Brave API keys exhausted"
@@ -191,13 +193,22 @@ class BraveSearchEngine(SearchEngineBase):
         try:
             client = await self._get_client()
             params = self._build_request_params(query, date_range)
-            response = await self._execute_request(client, params)
+
+            # Per-request auth injection: key header overrides the pool-level client
+            # so the connection pool is reused across all key rotations.
+            response = await client.get(
+                self.base_url,
+                params=params,
+                headers={"X-Subscription-Token": key},
+            )
 
             # Check for quota/auth errors
-            if response.status_code in rotate_status_codes:
+            if response.status_code in _ROTATE_STATUS_CODES:
                 body = response.text[:200] if hasattr(response, "text") else ""
+                logger.warning(
+                    "Brave key error (HTTP %d%s), rotating", response.status_code, f": {body}" if body else ""
+                )
                 await self._key_pool.handle_error(key, status_code=response.status_code, body_text=body)
-                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
             response.raise_for_status()
@@ -208,17 +219,15 @@ class BraveSearchEngine(SearchEngineBase):
             if _text_has_quota_keywords(response_text):
                 logger.warning("Brave quota keyword detected in response body, rotating key")
                 await self._key_pool.handle_error(key, body_text=response_text)
-                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
 
             self._key_pool.record_success(key)
             return self._create_success_result(query, date_range, results, total_results)
 
         except httpx.HTTPStatusError as e:
-            if e.response.status_code in rotate_status_codes:
+            if e.response.status_code in _ROTATE_STATUS_CODES:
                 body = e.response.text[:200] if hasattr(e.response, "text") else ""
                 await self._key_pool.handle_error(key, status_code=e.response.status_code, body_text=body)
-                await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)
             return self._create_error_result(query, date_range, self._handle_http_error(e))
 
