@@ -647,9 +647,27 @@ class ResponseGenerator:
             return False
         return bool(_META_COMMENTARY_RE.search(content))
 
-    def is_low_quality_summary(self, content: str) -> bool:
-        """Structural quality gate for summarization output."""
-        if not content or len(content) > 1200:
+    def is_low_quality_summary(self, content: str, research_depth: str = "STANDARD") -> bool:
+        """Structural quality gate for summarization output.
+
+        Args:
+            content: The summarization output to check.
+            research_depth: One of QUICK, STANDARD, DEEP, DEAL. Controls minimum length threshold.
+        """
+        if not content:
+            return True
+
+        # Depth-aware minimum lengths
+        depth_min_chars: dict[str, int] = {
+            "QUICK": 300,
+            "STANDARD": 800,
+            "DEEP": 1500,
+            "DEAL": 500,
+        }
+        min_chars = depth_min_chars.get(research_depth.upper(), 800)
+
+        # Long content is unlikely to be low quality
+        if len(content) > max(1200, min_chars * 2):
             return False
 
         has_headings = bool(re.search(r"^#{1,3}\s+\S", content, re.MULTILINE))
@@ -661,10 +679,39 @@ class ResponseGenerator:
         if has_excuse:
             return True
 
-        return len(content) < 400
+        return len(content) < min_chars
+
+    def is_research_report_quality(self, content: str) -> tuple[bool, list[str]]:
+        """Check research-specific quality indicators.
+
+        Returns:
+            Tuple of (passed, issues) where issues lists specific problems found.
+        """
+        if not content:
+            return False, ["empty_content"]
+
+        issues: list[str] = []
+
+        # Check for References section
+        has_references = bool(re.search(r"^##\s+References?\s*$", content, re.MULTILINE | re.IGNORECASE))
+        if not has_references:
+            issues.append("missing_references_section")
+
+        # Check for inline citations (at least 2)
+        citation_count = len(set(re.findall(r"\[\d+\]", content)))
+        if citation_count < 2:
+            issues.append(f"insufficient_citations:{citation_count}")
+
+        # Check for comparison tables (if applicable — informational, not blocking)
+        has_table = bool(re.search(r"\|.*\|.*\|", content))
+        if not has_table:
+            issues.append("no_comparison_table")
+
+        passed = "missing_references_section" not in issues and citation_count >= 2
+        return passed, issues
 
     def is_report_structure(self, content: str) -> bool:
-        """Check if content has report-like structure (headings, sections)."""
+        """Check if content has report-like structure (headings, sections, or citations)."""
         if not content:
             return False
 
@@ -677,7 +724,12 @@ class ResponseGenerator:
             return True
 
         numbered_sections = len(re.findall(r"^\d+\.\s+[A-Z]", content, re.MULTILINE))
-        return numbered_sections >= 2
+        if numbered_sections >= 2:
+            return True
+
+        # Also detect citation-heavy content + sufficient length as report-like
+        citation_count = len(re.findall(r"\[\d+\]", content))
+        return bool(citation_count >= 3 and len(content) > 1000)
 
     # ── Title Extraction ───────────────────────────────────────────────
 
@@ -980,7 +1032,27 @@ class ResponseGenerator:
         return transcript[:max_chars]
 
     def _extract_topic_hint(self, text: str) -> str | None:
-        """Extract a compact topic hint from free text for fallback suggestion templates."""
+        """Extract a compact topic hint from free text for fallback suggestion templates.
+
+        Extraction priority:
+        1. Quoted phrases ("noise-canceling headphones")
+        2. Capitalized multi-word entities (FastAPI, Claude Code)
+        3. Naive tokenization fallback (longest non-stopword tokens)
+        """
+        if not text:
+            return None
+
+        # Priority 1: quoted phrases
+        quoted = re.findall(r'"([^"]{3,40})"', text)
+        if quoted:
+            return quoted[0]
+
+        # Priority 2: capitalized multi-word entities (2-4 words starting with uppercase)
+        entities = re.findall(r"\b([A-Z][a-zA-Z0-9]*(?:\s+[A-Z][a-zA-Z0-9]*){1,3})\b", text)
+        if entities:
+            return entities[0]
+
+        # Priority 3: naive tokenization
         cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower())
         tokens = [token for token in cleaned.split() if len(token) >= 4]
         if not tokens:
@@ -1008,6 +1080,14 @@ class ResponseGenerator:
             "only",
             "more",
             "next",
+            "compare",
+            "research",
+            "find",
+            "best",
+            "like",
+            "also",
+            "some",
+            "very",
         }
         filtered = [token for token in tokens if token not in stopwords]
         candidates = filtered or tokens
