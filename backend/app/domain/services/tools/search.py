@@ -344,6 +344,10 @@ class SearchTool(BaseTool):
         self._max_wide_queries = settings.max_wide_research_queries
         self._dedup_skip = settings.search_dedup_skip_existing
 
+        # Consecutive dedup rejection counter: escalates the rejection message
+        # so the LLM stops retrying with slight query variations
+        self._consecutive_dedup_rejections = 0
+
         # Cache for pre-planning search results.  When the planner ran
         # pre-planning web searches, the execution agent propagates the
         # context here so that dedup-blocked queries can return cached
@@ -866,21 +870,43 @@ class SearchTool(BaseTool):
 
                 return ToolResult(
                     success=True,
-                    message=(
-                        f"Results for '{query}' (from pre-planning search):\n\n"
-                        f"{self._pre_planning_context}"
-                    ),
+                    message=(f"Results for '{query}' (from pre-planning search):\n\n{self._pre_planning_context}"),
                     data=SearchResults(query=query, date_range=date_range),
                 )
 
-            logger.info(f"Skipping duplicate search (dedup_skip=True): {query}")
+            self._consecutive_dedup_rejections += 1
+            logger.info(
+                f"Skipping duplicate search (dedup_skip=True, "
+                f"consecutive={self._consecutive_dedup_rejections}): {query}"
+            )
             from app.domain.models.search import SearchResults
+
+            # Escalating rejection message: gentle → firm → hard-stop
+            if self._consecutive_dedup_rejections >= 3:
+                msg = (
+                    f"STOP SEARCHING. You have attempted {self._consecutive_dedup_rejections} "
+                    f"duplicate searches in a row. All variations of this query have already "
+                    f"been executed. You MUST proceed with the information you already have. "
+                    f"Do NOT call any search tool again — synthesize your answer from "
+                    f"existing results and move to the next step."
+                )
+            elif self._consecutive_dedup_rejections >= 2:
+                msg = (
+                    f"Already searched: '{query}'. This is the {self._consecutive_dedup_rejections}th "
+                    f"consecutive duplicate. You have sufficient search results — proceed with "
+                    f"writing your answer using the information already gathered. Do not search again."
+                )
+            else:
+                msg = f"Already searched: '{query}'. Use different keywords for new results."
 
             return ToolResult(
                 success=False,
-                message=f"Already searched: '{query}'. Use different keywords for new results.",
+                message=msg,
                 data=SearchResults(query=query, date_range=date_range),
             )
+
+        # Query is new (passed dedup check) — reset consecutive rejection counter
+        self._consecutive_dedup_rejections = 0
 
         # Try browser-based search first only when explicitly enabled via settings
         if self._should_use_browser_search():
@@ -1014,9 +1040,7 @@ wide_research(
 
         # Clamp queries list to configured maximum
         if len(queries) > self._max_wide_queries:
-            logger.warning(
-                f"Wide research queries clamped: {len(queries)} → {self._max_wide_queries}"
-            )
+            logger.warning(f"Wide research queries clamped: {len(queries)} → {self._max_wide_queries}")
             queries = queries[: self._max_wide_queries]
 
         # Parse search types
@@ -1043,9 +1067,7 @@ wide_research(
         # Trim to remaining budget
         remaining = self._budget.remaining()
         if len(all_queries) > remaining:
-            logger.warning(
-                f"Wide research queries trimmed to budget: {len(all_queries)} → {remaining}"
-            )
+            logger.warning(f"Wide research queries trimmed to budget: {len(all_queries)} → {remaining}")
             all_queries = all_queries[:remaining]
 
         logger.info(f"Wide research on '{topic}': {len(all_queries)} total queries across {len(stypes)} search types")
@@ -1111,18 +1133,14 @@ wide_research(
                     )
                     try:
                         fetched = await self._scraper.fetch_batch(top_urls)
-                        url_to_content = {
-                            r.url: r for r in fetched if r.success and len(r.text) > 200
-                        }
+                        url_to_content = {r.url: r for r in fetched if r.success and len(r.text) > 200}
                         for item in all_items:
                             if item.link in url_to_content:
                                 r = url_to_content[item.link]
                                 item.snippet = r.text[:2000]
                                 if r.title and not item.title:
                                     item.title = r.title
-                        logger.info(
-                            "Spider enriched %d/%d URLs", len(url_to_content), len(top_urls)
-                        )
+                        logger.info("Spider enriched %d/%d URLs", len(url_to_content), len(top_urls))
                     except Exception as exc:
                         logger.warning("Spider enrichment failed for '%s': %s", topic, exc)
 
