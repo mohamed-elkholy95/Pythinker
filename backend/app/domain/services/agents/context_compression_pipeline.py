@@ -61,19 +61,21 @@ class CompressionResult:
 
 
 # Tool functions whose output is typically verbose and safe to summarize
-_VERBOSE_TOOL_FUNCTIONS = frozenset({
-    "browser_view",
-    "browser_navigate",
-    "browser_get_content",
-    "shell_exec",
-    "file_read",
-    "file_list",
-    "file_list_directory",
-    "info_search_web",
-    "wide_research",
-    "code_execute",
-    "code_execute_python",
-})
+_VERBOSE_TOOL_FUNCTIONS = frozenset(
+    {
+        "browser_view",
+        "browser_navigate",
+        "browser_get_content",
+        "shell_exec",
+        "file_read",
+        "file_list",
+        "file_list_directory",
+        "info_search_web",
+        "wide_research",
+        "code_execute",
+        "code_execute_python",
+    }
+)
 
 # Maximum characters to preserve when summarizing tool output
 _SUMMARIZE_MAX_CHARS = 500
@@ -165,7 +167,7 @@ class ContextCompressionPipeline:
             )
 
         # Stage 3: Drop low-priority messages
-        compressed, dropped_tokens = self._token_manager.trim_messages(
+        compressed, _dropped_tokens = self._token_manager.trim_messages(
             compressed,
             preserve_recent=preserve_recent,
         )
@@ -262,8 +264,7 @@ class ContextCompressionPipeline:
             if isinstance(content, str) and len(content) > self._truncate_max_chars:
                 truncated = dict(msg)
                 truncated["content"] = (
-                    content[:self._truncate_max_chars]
-                    + "\n\n[... content truncated for context management ...]"
+                    content[: self._truncate_max_chars] + "\n\n[... content truncated for context management ...]"
                 )
                 result.append(truncated)
                 truncated_count += 1
@@ -278,14 +279,8 @@ class ContextCompressionPipeline:
         total_lines = len(lines)
 
         # Common patterns
-        has_error = any(
-            kw in content.lower()
-            for kw in ("error", "exception", "traceback", "failed")
-        )
-        has_success = any(
-            kw in content.lower()
-            for kw in ("success", "completed", "done", "ok")
-        )
+        has_error = any(kw in content.lower() for kw in ("error", "exception", "traceback", "failed"))
+        has_success = any(kw in content.lower() for kw in ("success", "completed", "done", "ok"))
 
         status = "ERROR" if has_error else ("SUCCESS" if has_success else "OK")
 
@@ -304,15 +299,12 @@ class ContextCompressionPipeline:
                 f"First content: {lines[0][:200] if lines else ''}"
             )
 
-        if func_name in ("shell_exec",):
+        if func_name == "shell_exec":
             # Preserve exit code and first/last lines
             first_lines = "\n".join(lines[:3])
             last_lines = "\n".join(lines[-3:]) if total_lines > 6 else ""
-            return (
-                f"[{func_name} summary] Status: {status}, "
-                f"{total_lines} lines output.\n"
-                f"Start:\n{first_lines}\n"
-                + (f"...\nEnd:\n{last_lines}" if last_lines else "")
+            return f"[{func_name} summary] Status: {status}, {total_lines} lines output.\nStart:\n{first_lines}\n" + (
+                f"...\nEnd:\n{last_lines}" if last_lines else ""
             )
 
         if func_name in ("info_search_web", "wide_research"):
