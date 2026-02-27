@@ -29,14 +29,18 @@ export interface CreateSessionOptions {
  */
 export async function createSession(
   mode: AgentMode = 'agent',
-  options?: CreateSessionOptions
+  options?: CreateSessionOptions & { idempotencyKey?: string }
 ): Promise<CreateSessionResponse> {
-  const { research_mode, ...restOptions } = options || {};
+  const { research_mode, idempotencyKey, ...restOptions } = options || {};
+  const headers: Record<string, string> = {};
+  if (idempotencyKey) {
+    headers['X-Idempotency-Key'] = idempotencyKey;
+  }
   const response = await apiClient.put<ApiResponse<CreateSessionResponse>>('/sessions', {
     mode,
     research_mode: research_mode || 'deep_research',
     ...restOptions,
-  });
+  }, { headers });
   return response.data.data;
 }
 
