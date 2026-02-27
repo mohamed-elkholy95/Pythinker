@@ -23,6 +23,7 @@
         <PopoverTrigger as-child>
           <button
             class="report-menu-btn"
+            aria-label="Report options"
             @click.stop
           >
             <MoreHorizontal class="w-4 h-4" />
@@ -457,7 +458,10 @@ const _handleSaveToOneDriveWork = () => {
 .content-preview-scale {
   transform: scale(0.72);
   transform-origin: top left;
+  /* 1/0.72 = 138.889% fills container at scaled size. Use max-width to prevent
+     the pre-transform width from overflowing the parent's box. */
   width: 138.889%;
+  max-width: 138.889%;
   height: 138.889%;
 }
 
