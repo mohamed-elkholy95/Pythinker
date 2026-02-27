@@ -127,12 +127,12 @@ class OpenAILLM(LLM):
         # Detect if using local MLX server (doesn't support native tool calling)
         self._is_mlx_mode = self._detect_mlx_mode()
 
-        # Detect if using Kimi Code API or similar with extended thinking enabled
-        self._is_thinking_api = self._detect_thinking_api()
-
         # Detect if using ZhipuAI GLM API (z.ai / bigmodel.cn) — has strict message schema
         # GLM-5 requires: system as first message only, strict alternation, no json_object format
         self._is_glm_api = self._detect_glm_api()
+
+        # Detect if using Kimi Code API, GLM, or similar with extended thinking enabled
+        self._is_thinking_api = self._detect_thinking_api()
 
         # Detect if using OpenRouter API — supports native json_schema structured outputs
         self._is_openrouter = self._detect_openrouter()
@@ -257,8 +257,9 @@ class OpenAILLM(LLM):
     def _detect_thinking_api(self) -> bool:
         """Detect if using an API with extended thinking that requires reasoning_content handling.
 
-        APIs like Kimi Code API enable extended thinking by default for Claude models.
+        APIs like Kimi Code API and Z.AI GLM enable extended thinking by default.
         When replaying messages, reasoning_content must be preserved or stripped.
+        Disabling thinking reduces latency significantly for agentic tool-calling flows.
         """
         if not self._api_base:
             return False
@@ -267,6 +268,12 @@ class OpenAILLM(LLM):
 
         # Kimi Code API has extended thinking enabled for Claude models
         if "kimi.com" in base or "kimi.ai" in base:
+            return True
+
+        # Z.AI GLM-5/4.7 APIs have thinking enabled by default.
+        # Controlled by GLM_DISABLE_THINKING env var (default: true).
+        settings = get_settings()
+        if getattr(settings, "glm_disable_thinking", True) and getattr(self, "_is_glm_api", False):
             return True
 
         # Check for Claude models that might have thinking enabled
@@ -1748,6 +1755,15 @@ To extract data from a webpage:
             except json.JSONDecodeError as e:
                 logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
+                    # Track semantic failure (HTTP 200 but invalid JSON)
+                    try:
+                        from app.core.prometheus_metrics import llm_json_parse_failures_total
+
+                        llm_json_parse_failures_total.inc(
+                            {"model": self._model_name, "method": "ask_structured"}
+                        )
+                    except Exception:
+                        logger.debug("Failed to record ask_structured parse failure metric", exc_info=True)
                     raise LLMException(f"Failed to parse JSON response: {e}") from e
             except RateLimitError as e:
                 retry_after = None
