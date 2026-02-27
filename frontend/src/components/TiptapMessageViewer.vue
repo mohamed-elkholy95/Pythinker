@@ -71,6 +71,7 @@ import { common, createLowlight } from 'lowlight';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { normalizeVerificationMarkers, linkifyInlineCitations } from './report/reportContentNormalizer';
+import { MermaidBlock } from './report/tiptapMermaidExtension';
 import { getFaviconUrl } from '@/utils/toolDisplay';
 import type { SourceCitation } from '@/types/message';
 
@@ -358,10 +359,67 @@ const addReferenceAnchors = () => {
   }
 };
 
+// ── GitHub-style alert blockquote enhancement ──────────────────────────────
+// Converts blockquotes starting with [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]
+// into styled alert cards with icons and color-coded classes.
+const ALERT_TYPES: Record<string, { icon: string; label: string }> = {
+  NOTE: { icon: 'ℹ️', label: 'Note' },
+  TIP: { icon: '💡', label: 'Tip' },
+  IMPORTANT: { icon: '❗', label: 'Important' },
+  WARNING: { icon: '⚠️', label: 'Warning' },
+  CAUTION: { icon: '🔴', label: 'Caution' },
+};
+
+const enhanceAlertBlockquotes = () => {
+  const proseMirror = contentRef.value?.querySelector('.ProseMirror');
+  if (!proseMirror) return;
+
+  const blockquotes = Array.from(proseMirror.querySelectorAll('blockquote'));
+  for (const bq of blockquotes) {
+    if (bq.classList.contains('gh-alert')) continue; // Already processed
+
+    const firstP = bq.querySelector('p');
+    if (!firstP) continue;
+
+    const text = firstP.textContent?.trim() ?? '';
+    const match = text.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i);
+    if (!match) continue;
+
+    const type = match[1].toUpperCase();
+    const alertMeta = ALERT_TYPES[type];
+    if (!alertMeta) continue;
+
+    bq.classList.add('gh-alert', `gh-alert-${type.toLowerCase()}`);
+
+    // Create the header element
+    const header = document.createElement('div');
+    header.className = 'gh-alert-header';
+    header.innerHTML = `<span class="gh-alert-icon">${alertMeta.icon}</span>${alertMeta.label}`;
+
+    // Remove the [!TYPE] marker from the first paragraph text
+    firstP.innerHTML = firstP.innerHTML.replace(/\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i, '');
+    if (!firstP.textContent?.trim()) {
+      // If the paragraph is now empty (marker was on its own line), remove it
+      firstP.remove();
+    }
+
+    // Insert header at the top of the blockquote
+    bq.insertBefore(header, bq.firstChild);
+  }
+};
+
+const postRenderEnhance = () => {
+  addReferenceAnchors();
+  enhanceAlertBlockquotes();
+};
+
 const editor = useEditor({
   content: htmlContent.value,
   editable: false,
   extensions: [
+    // MermaidBlock must come before CodeBlockLowlight so its parseHTML rule
+    // takes precedence for `language-mermaid` code fences.
+    MermaidBlock,
     StarterKit.configure({
       codeBlock: false,
       link: false,
@@ -403,8 +461,8 @@ const editor = useEditor({
       class: 'focus:outline-none select-text',
     },
   },
-  onCreate: () => { nextTick(addReferenceAnchors); },
-  onUpdate: () => { nextTick(addReferenceAnchors); },
+  onCreate: () => { nextTick(postRenderEnhance); },
+  onUpdate: () => { nextTick(postRenderEnhance); },
 });
 
 watch(
@@ -412,16 +470,16 @@ watch(
   () => {
     if (editor.value && htmlContent.value !== editor.value.getHTML()) {
       // emitUpdate: false avoids infinite loops, but onUpdate won't fire —
-      // so re-run addReferenceAnchors manually after the DOM settles.
+      // so re-run enhancements manually after the DOM settles.
       editor.value.commands.setContent(htmlContent.value, { emitUpdate: false });
-      nextTick(addReferenceAnchors);
+      nextTick(postRenderEnhance);
     }
   }
 );
 
 // Re-run anchoring when structured sources arrive (may come after content)
 watch(() => props.sources, () => {
-  nextTick(addReferenceAnchors);
+  nextTick(postRenderEnhance);
 }, { deep: true });
 
 // ── Citation popup card handlers ───────────────────────────────────────────
@@ -771,6 +829,84 @@ defineExpose({ contentRef });
   margin: 0;
 }
 
+/* ── GitHub-style alert callouts ─────────────────── */
+:deep(.tiptap blockquote.gh-alert) {
+  font-style: normal;
+  padding: 0.875rem 1rem 0.875rem 1rem;
+  margin: 1rem 0;
+  border-radius: 8px;
+  border-left-width: 4px;
+}
+
+:deep(.tiptap blockquote.gh-alert .gh-alert-header) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 6px;
+}
+
+:deep(.tiptap blockquote.gh-alert .gh-alert-icon) {
+  font-size: 1em;
+  line-height: 1;
+}
+
+:deep(.tiptap blockquote.gh-alert p) {
+  color: var(--text-primary);
+  font-size: 0.925em;
+  line-height: 1.6;
+}
+
+:deep(.tiptap blockquote.gh-alert-note) {
+  border-left-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.06);
+}
+:deep(.tiptap blockquote.gh-alert-note .gh-alert-header) {
+  color: #3b82f6;
+}
+
+:deep(.tiptap blockquote.gh-alert-tip) {
+  border-left-color: #10b981;
+  background: rgba(16, 185, 129, 0.06);
+}
+:deep(.tiptap blockquote.gh-alert-tip .gh-alert-header) {
+  color: #10b981;
+}
+
+:deep(.tiptap blockquote.gh-alert-important) {
+  border-left-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.06);
+}
+:deep(.tiptap blockquote.gh-alert-important .gh-alert-header) {
+  color: #8b5cf6;
+}
+
+:deep(.tiptap blockquote.gh-alert-warning) {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.06);
+}
+:deep(.tiptap blockquote.gh-alert-warning .gh-alert-header) {
+  color: #f59e0b;
+}
+
+:deep(.tiptap blockquote.gh-alert-caution) {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.06);
+}
+:deep(.tiptap blockquote.gh-alert-caution .gh-alert-header) {
+  color: #ef4444;
+}
+
+/* Dark mode alert callout backgrounds */
+:global(.dark) :deep(.tiptap blockquote.gh-alert-note) { background: rgba(59, 130, 246, 0.1); }
+:global(.dark) :deep(.tiptap blockquote.gh-alert-tip) { background: rgba(16, 185, 129, 0.1); }
+:global(.dark) :deep(.tiptap blockquote.gh-alert-important) { background: rgba(139, 92, 246, 0.1); }
+:global(.dark) :deep(.tiptap blockquote.gh-alert-warning) { background: rgba(245, 158, 11, 0.1); }
+:global(.dark) :deep(.tiptap blockquote.gh-alert-caution) { background: rgba(239, 68, 68, 0.1); }
+
 /* ── Horizontal rule — matching report modal ─────── */
 :deep(.tiptap hr) {
   border: none;
@@ -812,40 +948,82 @@ defineExpose({ contentRef });
   border: 1px solid var(--border-light) !important;
 }
 
-/* ── Tables ──────────────────────────────────────── */
+/* ── Tables — premium styling ────────────────────── */
 :deep(.tiptap table) {
   width: 100%;
-  border-collapse: collapse;
-  margin: 1rem 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 1.25rem 0;
   font-size: 0.9em;
   table-layout: auto;
-  overflow-x: auto;
-  display: block;
+  overflow: hidden;
+  display: table;
+  border-radius: 10px;
+  border: 1px solid var(--border-main);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 :deep(.tiptap th) {
-  background-color: var(--fill-tsp-gray-main);
-  border: 1px solid var(--border-main);
-  padding: 0.6rem 0.75rem;
+  background: linear-gradient(180deg, var(--fill-tsp-gray-main) 0%, rgba(0, 0, 0, 0.025) 100%);
+  border-bottom: 2px solid var(--border-main);
+  border-right: 1px solid var(--border-light);
+  padding: 0.7rem 0.85rem;
   text-align: left;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+:deep(.tiptap th:last-child) {
+  border-right: none;
 }
 
 :deep(.tiptap td) {
-  border: 1px solid var(--border-light);
-  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border-light);
+  border-right: 1px solid var(--border-light);
+  padding: 0.65rem 0.85rem;
   vertical-align: top;
   color: var(--text-primary);
+  transition: background-color 0.1s ease;
 }
 
-:deep(.tiptap tr:nth-child(even) td) {
-  background-color: var(--fill-tsp-gray-main);
+:deep(.tiptap td:last-child) {
+  border-right: none;
+}
+
+:deep(.tiptap tr:last-child td) {
+  border-bottom: none;
+}
+
+:deep(.tiptap tbody tr:nth-child(even) td) {
+  background-color: rgba(0, 0, 0, 0.015);
+}
+
+:deep(.tiptap tbody tr:hover td) {
+  background-color: rgba(26, 115, 232, 0.04);
 }
 
 :deep(.tiptap th p),
 :deep(.tiptap td p) {
   margin: 0;
+}
+
+:global(.dark) :deep(.tiptap table) {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+:global(.dark) :deep(.tiptap th) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+}
+
+:global(.dark) :deep(.tiptap tbody tr:nth-child(even) td) {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+:global(.dark) :deep(.tiptap tbody tr:hover td) {
+  background-color: rgba(124, 179, 224, 0.06);
 }
 
 /* ── Images ──────────────────────────────────────── */
