@@ -110,8 +110,12 @@ class AnthropicLLM(LLM):
         )
 
     async def get_api_key(self) -> str | None:
-        """Get currently active API key from pool."""
-        return await self._key_pool.get_healthy_key()
+        """Get currently active API key from pool.
+
+        Uses wait-for-recovery (MCP Rotator pattern): if all keys are in cooldown,
+        waits up to 120s for the soonest-recovering key instead of failing immediately.
+        """
+        return await self._key_pool.get_healthy_key_or_wait(max_wait_seconds=120.0)
 
     async def _get_client(self) -> Any:
         """Get Anthropic client with current active key."""
