@@ -328,6 +328,39 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=response_data,
         )
 
+    @app.exception_handler(ExceptionGroup)
+    async def exception_group_handler(request: Request, exc: ExceptionGroup) -> JSONResponse:
+        """Handle ExceptionGroup from asyncio TaskGroups.
+
+        Unwraps and logs each sub-exception for diagnostics instead of
+        dumping an opaque traceback.
+        """
+        record_error("exception_group", "api")
+
+        sub_count = len(exc.exceptions)
+        logger.error(
+            "ExceptionGroup with %d sub-exception(s): %s",
+            sub_count,
+            exc,
+        )
+        for i, sub_exc in enumerate(exc.exceptions, 1):
+            logger.error(
+                "  Sub-exception %d/%d: %s",
+                i,
+                sub_count,
+                sub_exc,
+                exc_info=sub_exc,
+            )
+
+        return JSONResponse(
+            status_code=500,
+            content=APIResponse(
+                code=500,
+                msg=f"Internal error ({sub_count} concurrent sub-errors)",
+                data=None,
+            ).model_dump(),
+        )
+
     @app.exception_handler(Exception)
     async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """Handle all uncaught exceptions"""

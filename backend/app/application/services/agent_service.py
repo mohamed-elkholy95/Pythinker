@@ -1205,7 +1205,9 @@ class AgentService:
         try:
             uuid.UUID(shell_session_id)
         except (ValueError, AttributeError) as exc:
-            raise ValueError(
+            from app.domain.exceptions.base import InvalidStateException
+
+            raise InvalidStateException(
                 f"Invalid shell_session_id '{shell_session_id}' — expected a UUID. "
                 "The LLM may have passed a tool name instead of the session ID."
             ) from exc
