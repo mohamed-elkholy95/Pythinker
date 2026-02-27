@@ -214,7 +214,7 @@ class StreamGuard:
                 yield event
 
         except asyncio.CancelledError:
-            logger.info("StreamGuard: generator cancelled for session %s", self.session_id)
+            logger.debug("StreamGuard: generator cancelled for session %s", self.session_id)
             self.metrics.record_cancellation()
             self.metrics.record_error(
                 StreamErrorCode.CANCELLED,
