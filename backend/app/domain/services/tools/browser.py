@@ -375,8 +375,10 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
             del self._url_cache[url]
 
         # Cancel any background browsing (from info_search_web) to avoid racing for the page
+        _cancelled_bg = False
         if hasattr(self.browser, "cancel_background_browsing"):
             self.browser.cancel_background_browsing()
+            _cancelled_bg = True
 
         # Start browser navigation concurrently so live preview shows activity immediately
         nav_task: asyncio.Task[None] | None = None
@@ -477,6 +479,10 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                 nav_task.cancel()
                 with contextlib.suppress(Exception):
                     await nav_task
+        finally:
+            # Re-enable background browsing so future search enrichment can work
+            if _cancelled_bg and hasattr(self.browser, "allow_background_browsing"):
+                self.browser.allow_background_browsing()
 
         # Fallback to full browser navigation with focus
         if focus:
