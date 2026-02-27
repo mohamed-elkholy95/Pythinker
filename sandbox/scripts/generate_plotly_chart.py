@@ -22,7 +22,6 @@ Input (JSON via stdin):
   "theme": "plotly_white",
   "output_html": "/home/ubuntu/chart-<id>.html",
   "output_png": "/home/ubuntu/chart-<id>.png",
-  "output_json": "/home/ubuntu/chart-<id>.plotly.json"
 }
 
 Output (JSON to stdout):
@@ -30,11 +29,8 @@ Output (JSON to stdout):
   "success": true,
   "html_path": "...",
   "png_path": "...",
-  "plotly_json_path": "...",
   "html_size": 48000,
   "png_size": 125000,
-  "plotly_json_size": 32000,
-  "render_contract_version": "plotly-json-v1",
   "chart_type": "bar",
   "data_points": 3,
   "series_count": 2
@@ -105,7 +101,6 @@ class ChartSpec(TypedDict, total=False):
     theme: str
     output_html: str
     output_png: str
-    output_json: str
     parents: list[str]  # For treemap hierarchy
     reference: float  # For indicator delta calculation
 
@@ -1640,8 +1635,6 @@ def _success_response(
     png_path: str,
     html_size: int,
     png_size: int,
-    plotly_json_path: str | None,
-    plotly_json_size: int | None,
     chart_type: str,
     data_points: int,
     series_count: int,
@@ -1654,9 +1647,6 @@ def _success_response(
             "png_path": png_path,
             "html_size": html_size,
             "png_size": png_size,
-            "plotly_json_path": plotly_json_path,
-            "plotly_json_size": plotly_json_size,
-            "render_contract_version": "plotly-json-v1",
             "chart_type": chart_type,
             "data_points": data_points,
             "series_count": series_count,
@@ -1695,53 +1685,32 @@ def main() -> int:
         print(_error_response(f"Chart generation failed: {exc}"))
         return 2
 
-    # --- Output paths (HTML and PNG are optional) ---
+    # --- Output paths ---
     output_html: str | None = input_data.get("output_html")
     output_png: str | None = input_data.get("output_png")
-    output_json: str = input_data.get("output_json") or ""
     width: int = input_data.get("width", 1000)
     height: int = input_data.get("height", 600)
     html_size: int = 0
     png_size: int = 0
-    plotly_json_size: int | None = None
-    plotly_json_path: str | None = None
 
-    # Derive output_json from output_html if neither is provided
-    if not output_json and output_html:
-        output_json = str(Path(output_html).with_suffix(".plotly.json"))
-    elif not output_json:
-        # Must have at least one output path
-        print(_error_response("No output path provided (need output_html, output_png, or output_json)"))
+    if not output_html and not output_png:
+        print(_error_response("No output path provided (need output_html or output_png)"))
         return 1
 
-    # --- Write Plotly JSON render contract (primary output) ---
-    try:
-        figure_json = fig.to_plotly_json()
-        with Path(output_json).open("w", encoding="utf-8") as json_file:
-            json.dump(figure_json, json_file, separators=(",", ":"))
-        plotly_json_size = Path(output_json).stat().st_size
-        if plotly_json_size == 0:
-            Path(output_json).unlink(missing_ok=True)
-            print(_error_response("Plotly JSON write produced 0-byte file"))
-            return 3
-        plotly_json_path = output_json
-    except Exception as exc:
-        print(_error_response(f"Plotly JSON write failed: {exc}"))
-        return 3
-
-    # --- Write HTML (optional — only if output_html provided) ---
+    # --- Write HTML (interactive chart with Plotly.js CDN) ---
     if output_html:
         try:
             fig.write_html(output_html, include_plotlyjs="cdn")
             html_size = Path(output_html).stat().st_size
             if html_size == 0:
                 Path(output_html).unlink(missing_ok=True)
-                output_html = None
+                print(_error_response("HTML write produced 0-byte file"))
+                return 3
         except Exception as exc:
-            print(f"WARNING: HTML write failed: {exc}", file=sys.stderr)
-            output_html = None
+            print(_error_response(f"HTML write failed: {exc}"))
+            return 3
 
-    # --- Write PNG (optional — only if output_png provided) ---
+    # --- Write PNG (static preview) ---
     if output_png:
         try:
             fig.write_image(output_png, width=width, height=height, scale=2)
@@ -1761,8 +1730,6 @@ def main() -> int:
             png_path=output_png or "",
             html_size=html_size,
             png_size=png_size,
-            plotly_json_path=plotly_json_path,
-            plotly_json_size=plotly_json_size,
             chart_type=input_data["chart_type"],
             data_points=len(labels),
             series_count=len(input_data["datasets"]),

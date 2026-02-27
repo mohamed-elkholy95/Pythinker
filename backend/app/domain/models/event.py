@@ -272,13 +272,9 @@ class ChartToolContent(BaseModel):
     title: str
     html_file_id: str | None = None  # MinIO file ID for interactive HTML
     png_file_id: str | None = None  # MinIO file ID for static PNG
-    plotly_json_file_id: str | None = None  # MinIO file ID for Plotly JSON contract
     html_filename: str | None = None
     png_filename: str | None = None
-    plotly_json_filename: str | None = None
     html_size: int | None = None  # HTML file size in bytes (for frontend display)
-    plotly_json_size: int | None = None
-    render_contract_version: str | None = None
     data_points: int = 0
     series_count: int = 0
     execution_time_ms: int | None = None
