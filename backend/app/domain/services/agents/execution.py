@@ -385,7 +385,6 @@ class ExecutionAgent(BaseAgent):
                     )
                     yield StepEvent(status=StepStatus.FAILED, step=step)
                 elif isinstance(event, MessageEvent):
-                    step.status = ExecutionStatus.COMPLETED
                     parsed_response: Any = None
                     try:
                         parsed_response = await self.json_parser.parse(event.message)
@@ -393,10 +392,16 @@ class ExecutionAgent(BaseAgent):
                         logger.warning(f"Failed to parse step response as JSON: {parse_err}")
 
                     # Validate structured output and degrade safely when malformed.
-                    if not self._apply_step_result_payload(
+                    payload_valid = self._apply_step_result_payload(
                         step=step, parsed_response=parsed_response, raw_message=event.message
-                    ):
+                    )
+                    if not payload_valid:
                         logger.warning("Step response payload missing/invalid schema; marking step as unsuccessful")
+                        step.status = ExecutionStatus.FAILED
+                        yield StepEvent(status=StepStatus.FAILED, step=step)
+                        continue
+
+                    step.status = ExecutionStatus.COMPLETED
 
                     # Apply hallucination verification on step results
                     if step.result and self._user_request:
@@ -587,7 +592,7 @@ class ExecutionAgent(BaseAgent):
             stream_messages = list(self.memory.get_messages())
             stream_metadata: dict[str, Any] = {}
             truncation_exhausted = False
-            max_stream_continuations = 2 if delivery_integrity_enabled else 0
+            max_stream_continuations = 2 if delivery_integrity_enabled else 1
             stream_attempt = 0
 
             # Use fast model for report streaming — long-form text generation doesn't need 80B.
@@ -927,6 +932,7 @@ class ExecutionAgent(BaseAgent):
                         # Up to 2 continuation attempts for pattern-based detection
                         # (first with fast model, second escalates to powerful model if still truncated)
                         _max_pattern_continuations = 2
+                        _stage2_resolved = False
                         for _pattern_attempt in range(1, _max_pattern_continuations + 1):
                             _cont_model = _summarize_model
                             # Escalate to powerful model on 2nd attempt
@@ -975,6 +981,7 @@ class ExecutionAgent(BaseAgent):
                             if not truncation_detector.should_request_continuation(
                                 post_assessment, confidence_threshold=0.85
                             ):
+                                _stage2_resolved = True
                                 break  # Content looks complete
 
                             # Update continuation messages for next attempt
@@ -984,13 +991,25 @@ class ExecutionAgent(BaseAgent):
                                 {"role": "user", "content": post_assessment.continuation_prompt},
                             ]
 
+                        # Mark exhausted if Stage 2 failed to resolve truncation
+                        # (covers both loop exhaustion AND early break without resolution)
+                        if not _stage2_resolved:
+                            truncation_exhausted = True
+                            logger.warning(
+                                "Stage 2 pattern-based truncation exhausted after %d attempts "
+                                "(type=%s, confidence=%.2f)",
+                                _max_pattern_continuations,
+                                truncation_assessment.truncation_type or "unknown",
+                                post_assessment.confidence if post_assessment else truncation_assessment.confidence,
+                            )
+
                         # Record outcome
                         _metrics.increment(
                             "pythinker_output_truncations_total",
                             labels={
                                 "detection_method": "pattern",
                                 "truncation_type": truncation_assessment.truncation_type or "unknown",
-                                "confidence_tier": "continuation_completed",
+                                "confidence_tier": "exhausted" if truncation_exhausted else "continuation_completed",
                             },
                         )
 

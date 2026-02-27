@@ -289,16 +289,25 @@ class OutputVerifier:
                         },
                     )
 
-                    # Do NOT inline-replace with verification tags — that
-                    # breaks markdown tables, sentences, and structured output.
-                    # Instead, append a brief disclaimer when the hallucination
-                    # ratio is significant enough to warrant user notice.
-                    if result.hallucination_ratio > 0.2:
+                    # Tiered response based on hallucination severity:
+                    # - >25%: disclaimer (too many spans to redact cleanly)
+                    # - 10-25%: redact individual spans with […] markers
+                    # - <10%: pass through (noise-level, not actionable)
+                    if result.hallucination_ratio > 0.25:
                         disclaimer = (
                             "\n\n> **Note:** Some information in this response "
                             "could not be fully verified against available sources."
                         )
                         return content + disclaimer
+                    if result.hallucination_ratio > 0.10:
+                        # Redact individual hallucinated spans with neutral markers
+                        redacted = verifier.redact_hallucinations(content, result.hallucinated_spans)
+                        logger.info(
+                            "LettuceDetect: redacted %d span(s) (ratio=%.1f%%)",
+                            len(result.hallucinated_spans),
+                            result.hallucination_ratio * 100,
+                        )
+                        return redacted
                     return content
 
                 if not result.skipped:
