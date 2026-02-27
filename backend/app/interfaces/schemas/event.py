@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.models.event import (
     AgentEvent,
+    MCPHealthEvent,
     MessageEvent,
     PlanEvent,
     ProgressEvent,
@@ -696,6 +697,36 @@ class WorkspaceSSEEvent(BaseSSEEvent):
         )
 
 
+class MCPHealthEventData(BaseEventData):
+    """SSE data for MCP server health status."""
+
+    server_name: str
+    healthy: bool
+    degraded: bool = False
+    error: str | None = None
+    tools_available: int = 0
+    avg_response_time_ms: float = 0.0
+    success_rate: float = 1.0
+    last_check: str | None = None  # ISO format timestamp
+
+
+class MCPHealthSSEEvent(BaseSSEEvent):
+    event: Literal["mcp_health"] = "mcp_health"
+    data: MCPHealthEventData
+
+    @classmethod
+    def from_event(cls, event: MCPHealthEvent) -> Self:
+        return cls(
+            data=MCPHealthEventData(
+                **BaseEventData.base_event_data(event),
+                server_name=event.server_name,
+                healthy=event.healthy,
+                error=event.error,
+                tools_available=event.tools_available,
+            )
+        )
+
+
 AgentSSEEvent = (
     CommonSSEEvent
     | PlanSSEEvent
@@ -718,6 +749,7 @@ AgentSSEEvent = (
     | SkillActivationSSEEvent
     | ThoughtSSEEvent
     | WorkspaceSSEEvent
+    | MCPHealthSSEEvent
 )
 
 

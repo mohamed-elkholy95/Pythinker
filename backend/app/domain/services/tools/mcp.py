@@ -1344,6 +1344,8 @@ class MCPTool(BaseTool):
         self._config: MCPConfig | None = None
         self._lazy_init_pending = False  # Phase 5: Track if lazy init is pending
         self._init_lock = asyncio.Lock()  # Prevent concurrent initialization races
+        self._health_monitor: MCPHealthMonitor | None = None
+        self._health_callback: Any = None
 
     async def initialized(self, config: MCPConfig | None = None):
         """Ensure manager is initialized.
@@ -1389,6 +1391,22 @@ class MCPTool(BaseTool):
         self._lazy_init_pending = False
         logger.info(f"MCP initialized with {len(self._tools)} tools")
 
+        # Start health monitor
+        try:
+            from app.core.config import get_settings
+
+            settings = get_settings()
+            self._health_monitor = MCPHealthMonitor(
+                self.manager,
+                check_interval_seconds=settings.mcp_health_check_interval,
+                recovery_interval_seconds=settings.mcp_recovery_interval,
+            )
+            if self._health_callback is not None:
+                self._health_monitor.add_health_callback(self._health_callback)
+            await self._health_monitor.start()
+        except Exception as e:
+            logger.warning(f"MCP health monitor failed to start: {e}")
+
     async def _ensure_initialized(self):
         """Ensure MCP is initialized before use (for lazy init).
 
@@ -1418,6 +1436,46 @@ class MCPTool(BaseTool):
             all_tools.extend(self.RESOURCE_TOOLS)
 
         return all_tools
+
+    def set_health_callback(self, callback: Any) -> None:
+        """Store a health callback; wire it to the monitor if already running."""
+        self._health_callback = callback
+        if self._health_monitor is not None:
+            self._health_monitor.add_health_callback(callback)
+
+    @property
+    def health_monitor(self) -> MCPHealthMonitor | None:
+        """Expose the health monitor for REST route access."""
+        return self._health_monitor
+
+    def generate_prompt_context(self) -> str | None:
+        """Return a system-prompt snippet listing available MCP tools grouped by server.
+
+        Returns None when no MCP tools are loaded.
+        """
+        if not self.manager or not self._tools:
+            return None
+
+        health_status = self.manager.get_health_status()
+        tools_by_server: dict[str, list[str]] = {}
+
+        for tool_def in self._tools:
+            func = tool_def.get("function", {})
+            tool_name: str = func.get("name", "unknown")
+            # Derive server from the mcp__ prefix convention
+            parts = tool_name.split("__")
+            server = parts[1] if len(parts) >= 3 else "default"
+            tools_by_server.setdefault(server, []).append(tool_name)
+
+        lines: list[str] = ["## Connected MCP Servers"]
+        for server, tool_names in sorted(tools_by_server.items()):
+            health = health_status.get(server)
+            status = "healthy" if (health and health.healthy) else "unknown"
+            lines.append(f"\n### {server} ({status})")
+            lines.append(f"Tools ({len(tool_names)}):")
+            lines.extend(f"  - {tn}" for tn in sorted(tool_names))
+
+        return "\n".join(lines)
 
     def has_function(self, function_name: str) -> bool:
         """Check if specified function exists (including dynamic MCP tools)"""
@@ -1616,5 +1674,11 @@ class MCPTool(BaseTool):
 
     async def cleanup(self):
         """Cleanup resources"""
+        if self._health_monitor:
+            try:
+                await self._health_monitor.stop()
+            except Exception as e:
+                logger.debug(f"Health monitor stop error during cleanup: {e}")
+            self._health_monitor = None
         if self.manager:
             await self.manager.cleanup()
