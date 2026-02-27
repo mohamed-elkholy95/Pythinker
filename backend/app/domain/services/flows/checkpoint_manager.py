@@ -190,7 +190,7 @@ class CheckpointManager:
         # Save to storage
         key = self._get_key(workflow.id, session_id)
 
-        if self._collection:
+        if self._collection is not None:
             try:
                 await self._collection.update_one(
                     {"workflow_id": workflow.id, "session_id": session_id}, {"$set": checkpoint.to_dict()}, upsert=True
@@ -222,7 +222,7 @@ class CheckpointManager:
         """
         key = self._get_key(workflow_id, session_id)
 
-        if self._collection:
+        if self._collection is not None:
             try:
                 doc = await self._collection.find_one(
                     {
@@ -262,7 +262,7 @@ class CheckpointManager:
         """
         key = self._get_key(workflow_id, session_id)
 
-        if self._collection:
+        if self._collection is not None:
             try:
                 result = await self._collection.delete_one(
                     {
@@ -300,7 +300,7 @@ class CheckpointManager:
         """
         checkpoints = []
 
-        if self._collection:
+        if self._collection is not None:
             try:
                 query: dict[str, Any] = {}
                 if session_id:
@@ -442,7 +442,7 @@ class CheckpointManager:
 
         key = self._get_key(workflow_id, session_id)
 
-        if self._collection:
+        if self._collection is not None:
             try:
                 await self._collection.update_one(
                     {"workflow_id": workflow_id, "session_id": session_id},
@@ -470,7 +470,7 @@ class CheckpointManager:
         """
         cleaned = 0
 
-        if self._collection:
+        if self._collection is not None:
             try:
                 result = await self._collection.delete_many({"expires_at": {"$lt": datetime.now(UTC).isoformat()}})
                 cleaned = result.deleted_count
@@ -555,7 +555,7 @@ class CheckpointManager:
 
             key = self._get_key(plan_id, session_id)
 
-            if self._collection:
+            if self._collection is not None:
                 try:
                     await self._collection.update_one(
                         {"workflow_id": plan_id, "session_id": session_id},
