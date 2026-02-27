@@ -112,7 +112,7 @@ class TestQueryClassification:
             # Legal / regulatory
             "is it legal to download torrents",
             "what are the tax implications of freelancing",
-            # Multi-sub-question (3+ conjunctions)
+            # Multi-sub-question (3+ conjunctions):
             "what is X and Y and Z and how does it work",
         ],
     )
@@ -120,9 +120,7 @@ class TestQueryClassification:
         """Queries matching KNOWLEDGE patterns but containing escalation
         indicators (health, comparisons, safety, etc.) should be escalated to TASK."""
         intent, _ = self.router.classify(message)
-        assert intent == QueryIntent.TASK, (
-            f"Expected TASK (escalated) but got {intent.value} for: {message!r}"
-        )
+        assert intent == QueryIntent.TASK, f"Expected TASK (escalated) but got {intent.value} for: {message!r}"
 
     # Ensure simple knowledge questions are NOT escalated
     @pytest.mark.parametrize(
@@ -140,9 +138,7 @@ class TestQueryClassification:
     def test_simple_knowledge_not_escalated(self, message: str):
         """Simple factual questions should remain KNOWLEDGE, not be escalated."""
         intent, params = self.router.classify(message)
-        assert intent == QueryIntent.KNOWLEDGE, (
-            f"Expected KNOWLEDGE but got {intent.value} for: {message!r}"
-        )
+        assert intent == QueryIntent.KNOWLEDGE, f"Expected KNOWLEDGE but got {intent.value} for: {message!r}"
         assert "question" in params
 
     # Task tests (should go to full workflow)

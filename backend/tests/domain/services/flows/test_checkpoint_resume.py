@@ -6,14 +6,13 @@ Tests verify:
 - save_plan_checkpoint() stores correct step data in memory storage.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.domain.services.flows.checkpoint_manager import (
     CheckpointManager,
     CheckpointStatus,
-    WorkflowCheckpoint,
 )
 
 

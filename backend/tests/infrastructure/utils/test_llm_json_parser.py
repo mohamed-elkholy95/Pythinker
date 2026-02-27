@@ -29,7 +29,8 @@ async def test_llm_json_parser_fallback_returns_structured_default_without_warni
     # noise on common non-raw-JSON responses.  The "All parsing strategies failed"
     # warning uses _warn_once so it should fire exactly once despite two calls.
     all_failed_warning_count = sum(
-        1 for record in caplog.records
+        1
+        for record in caplog.records
         if record.levelno == logging.WARNING and "All parsing strategies failed" in record.message
     )
     assert all_failed_warning_count == 1

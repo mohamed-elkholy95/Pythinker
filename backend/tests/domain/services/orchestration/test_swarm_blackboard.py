@@ -8,8 +8,6 @@ Fix: session_id parameter added to Swarm.__init__; UUID generated when not provi
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from app.domain.models.state_manifest import StateManifest
 from app.domain.services.orchestration.swarm import Swarm, SwarmConfig
 
@@ -52,9 +50,7 @@ def test_swarm_shared_state_accepts_entries():
     from app.domain.models.state_manifest import StateEntry
 
     swarm = Swarm(agent_factory=_make_agent_factory(), session_id="s-test")
-    swarm._shared_state.post(
-        StateEntry(key="result", value={"answer": 42}, posted_by="agent-1")
-    )
+    swarm._shared_state.post(StateEntry(key="result", value={"answer": 42}, posted_by="agent-1"))
     entry = swarm._shared_state.get("result")
     assert entry is not None
     assert entry.value == {"answer": 42}

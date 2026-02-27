@@ -5,7 +5,7 @@ Integration tests that make real HTTP requests are excluded from the unit suite.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -74,9 +74,7 @@ class TestResearchSpiderParseOutput:
         mock_response.url = "https://example.com"
         mock_response.status = 200
 
-        items = []
-        async for item in spider.parse(mock_response):
-            items.append(item)
+        items = [item async for item in spider.parse(mock_response)]
 
         assert len(items) == 1
         item = items[0]
@@ -97,9 +95,7 @@ class TestResearchSpiderParseOutput:
         mock_response.url = "https://example.com"
         mock_response.status = 200
 
-        items = []
-        async for item in spider.parse(mock_response):
-            items.append(item)
+        items = [item async for item in spider.parse(mock_response)]
 
         assert len(items[0]["text"]) <= 100
 
@@ -113,9 +109,7 @@ class TestResearchSpiderParseOutput:
         mock_response.url = "https://example.com"
         mock_response.status = 200
 
-        items = []
-        async for item in spider.parse(mock_response):
-            items.append(item)
+        items = [item async for item in spider.parse(mock_response)]
 
         assert items[0]["title"] is None
 
