@@ -196,6 +196,8 @@ class FeatureFlagsSettingsMixin:
     enable_search_fidelity_guardrail: bool = False
     # Phase 5: Contradictory prompt detection
     enable_contradiction_clarification: bool = False
+    # Research Report: brief confirmation MessageEvent after ReportEvent delivery
+    confirmation_summary_enabled: bool = False
 
     # Pre-Planning Search: inject real-time web results into planning prompts
     feature_pre_planning_search: bool = False
