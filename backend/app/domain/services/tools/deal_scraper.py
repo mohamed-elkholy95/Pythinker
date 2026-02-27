@@ -74,6 +74,13 @@ def _build_deal_report_message(comparison: DealComparison) -> str:
         f"Found {len(comparison.deals)} deal(s) across {len(comparison.searched_stores)} stores. {best_summary}"
     )
 
+    # Community/web sources
+    if comparison.community_sources_searched:
+        lines.append(
+            f"Also found {comparison.community_sources_searched} community/web deal mention(s) "
+            "(Reddit, Slickdeals, forums — prices may be approximate)"
+        )
+
     # Failed stores
     if comparison.store_errors:
         failed_names = [e["store"] for e in comparison.store_errors]
