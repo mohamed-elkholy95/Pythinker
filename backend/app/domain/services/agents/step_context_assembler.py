@@ -68,6 +68,7 @@ class StepContextAssembler:
         conversation_context: str | None = None,
         request_contract: RequestContract | None = None,
         profile_patch_text: str | None = None,
+        mcp_context: str | None = None,
     ) -> StepExecutionContext:
         """Assemble all context for a step execution.
 
@@ -125,6 +126,7 @@ class StepContextAssembler:
             blocker_warnings=blocker_warnings,
             error_pattern_signal=error_pattern_signal,
             locked_entity_reminder=locked_entity_reminder,
+            mcp_context=mcp_context,
             signal_config=self._signal_config,
             profile_patch_text=profile_patch_text,
         )

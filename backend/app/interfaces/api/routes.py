@@ -8,6 +8,7 @@ from . import (
     health_routes,
     knowledge_base_routes,
     maintenance_routes,
+    mcp_routes,
     metrics_routes,
     monitoring_routes,
     prompt_optimization_routes,
@@ -40,6 +41,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(rating_routes.router)
     api_router.include_router(workspace_routes.router)
     api_router.include_router(knowledge_base_routes.router)
+    api_router.include_router(mcp_routes.router)
     api_router.include_router(prompt_optimization_routes.router)  # PR-6: Prompt optimization admin API
 
     return api_router

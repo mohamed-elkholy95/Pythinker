@@ -9,7 +9,7 @@ research quality settings, and typo correction.
 class SearchSettingsMixin:
     """Search engine API keys and provider configuration."""
 
-    search_provider: str | None = "duckduckgo"  # "google", "bing", "duckduckgo", "brave", "tavily", "serper"
+    search_provider: str | None = "duckduckgo"  # "google", "bing", "duckduckgo", "brave", "tavily", "serper", "exa"
     search_prefer_browser: bool = (
         False  # API search is faster; browser search is only useful for live preview visibility
     )
@@ -36,6 +36,18 @@ class SearchSettingsMixin:
     serper_api_key_7: str | None = None  # Seventh fallback Serper key
     serper_api_key_8: str | None = None  # Eighth fallback Serper key
     serper_api_key_9: str | None = None  # Ninth fallback Serper key
+    exa_api_key: str | None = None  # Exa AI Search API key (neural/semantic search)
+    exa_api_key_2: str | None = None  # Fallback Exa key #2
+    exa_api_key_3: str | None = None  # Fallback Exa key #3
+    exa_api_key_4: str | None = None  # Fallback Exa key #4
+    exa_api_key_5: str | None = None  # Fallback Exa key #5
+
+    # Search API budget limits (per agent task)
+    max_search_api_calls_per_task: int = 30  # Hard cap on API calls per task
+    max_wide_research_queries: int = 5  # Max queries in a single wide_research call
+    max_wide_research_calls_per_task: int = 3  # Max wide_research invocations per task
+    search_cache_ttl: int = 3600  # Cache TTL in seconds (default 1h)
+    search_dedup_skip_existing: bool = True  # Skip API call if TaskStateManager says already searched
 
 
 class AgentSafetySettingsMixin:
@@ -86,6 +98,9 @@ class ObservabilitySettingsMixin:
 
     # MCP configuration
     mcp_config_path: str = "/etc/mcp.json"
+    mcp_tool_output_limit: int = 12000  # Max chars for MCP tool observation output
+    mcp_health_check_interval: float = 300.0  # Seconds between health checks (5 min)
+    mcp_recovery_interval: float = 60.0  # Seconds between recovery attempts (1 min)
 
     # Logging configuration
     log_level: str = "INFO"
