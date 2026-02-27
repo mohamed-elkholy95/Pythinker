@@ -44,9 +44,15 @@ def test_compression_limits():
 
     # Test compression of large content
     large_content = "A" * 8000
-    compressed_large = compressor.compress(large_content, VerbosityMode.CONCISE, max_chars=4000)
-    assert len(compressed_large) <= 4000, f"Expected ≤4000 chars, got {len(compressed_large)}"
-    print(f"✅ ResponseCompressor compresses 8000 → {len(compressed_large)} chars (limit: 4000)")
+    compressed_large = compressor.compress(
+        large_content, VerbosityMode.CONCISE, max_chars=4000
+    )
+    assert len(compressed_large) <= 4000, (
+        f"Expected ≤4000 chars, got {len(compressed_large)}"
+    )
+    print(
+        f"✅ ResponseCompressor compresses 8000 → {len(compressed_large)} chars (limit: 4000)"
+    )
 
     print()
 
@@ -96,7 +102,9 @@ This implementation has some limitations.
 Run the application with `python src/main.py`.
 """
 
-    compressed = compressor.compress(test_content.strip(), VerbosityMode.CONCISE, max_chars=4000)
+    compressed = compressor.compress(
+        test_content.strip(), VerbosityMode.CONCISE, max_chars=4000
+    )
 
     # Check that multiple blocks are preserved
     block_count = compressed.count("##")
@@ -104,13 +112,17 @@ Run the application with `python src/main.py`.
 
     # Check that artifacts are preserved
     artifact_count = compressed.count("src/")
-    print(f"✅ Compressed output preserves {artifact_count} artifact references (was limited to 3)")
+    print(
+        f"✅ Compressed output preserves {artifact_count} artifact references (was limited to 3)"
+    )
 
     # Verify caveat and next step are included
     assert "limitation" in compressed.lower(), "Caveat should be preserved"
     print("✅ Caveat preserved in compressed output")
 
-    assert "next step" in compressed.lower() or "run" in compressed.lower(), "Next step should be preserved"
+    assert "next step" in compressed.lower() or "run" in compressed.lower(), (
+        "Next step should be preserved"
+    )
     print("✅ Next step preserved in compressed output")
 
     print()
@@ -158,9 +170,13 @@ def test_task_assessment():
         status = "✅" if policy.mode == expected else "❌"
         print(f"{status} {description}")
         print(f"   Request: '{request[:60]}...'")
-        print(f"   Risk: {assessment.risk_score:.2f}, Complexity: {assessment.complexity_score:.2f}, Ambiguity: {assessment.ambiguity_score:.2f}")
+        print(
+            f"   Risk: {assessment.risk_score:.2f}, Complexity: {assessment.complexity_score:.2f}, Ambiguity: {assessment.ambiguity_score:.2f}"
+        )
         print(f"   Mode: {policy.mode.value} (expected: {expected.value})")
-        print(f"   Compression: {policy.allow_compression}, Max chars: {policy.max_chars}")
+        print(
+            f"   Compression: {policy.allow_compression}, Max chars: {policy.max_chars}"
+        )
         print()
 
 
@@ -177,17 +193,23 @@ def test_policy_max_chars_decision():
     simple_policy = engine.decide_policy(simple_assessment)
 
     if simple_policy.mode == VerbosityMode.CONCISE:
-        assert simple_policy.max_chars == 4000, f"CONCISE mode should have max_chars=4000, got {simple_policy.max_chars}"
+        assert simple_policy.max_chars == 4000, (
+            f"CONCISE mode should have max_chars=4000, got {simple_policy.max_chars}"
+        )
         print(f"✅ CONCISE mode: max_chars = {simple_policy.max_chars}")
     else:
         print(f"⚠️  Simple task assessed as {simple_policy.mode.value}, not CONCISE")
 
     # Complex task → DETAILED → max_chars should be 12000
-    complex_assessment = engine.assess_task("Implement secure payment processing with encryption")
+    complex_assessment = engine.assess_task(
+        "Implement secure payment processing with encryption"
+    )
     complex_policy = engine.decide_policy(complex_assessment)
 
     if complex_policy.mode == VerbosityMode.DETAILED:
-        assert complex_policy.max_chars == 12000, f"DETAILED mode should have max_chars=12000, got {complex_policy.max_chars}"
+        assert complex_policy.max_chars == 12000, (
+            f"DETAILED mode should have max_chars=12000, got {complex_policy.max_chars}"
+        )
         print(f"✅ DETAILED mode: max_chars = {complex_policy.max_chars}")
     else:
         print(f"⚠️  Complex task assessed as {complex_policy.mode.value}, not DETAILED")

@@ -9,7 +9,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "backend"))
 
 from app.core.config import get_settings
-from app.infrastructure.external.browser.playwright_browser import BLOCKABLE_RESOURCE_TYPES
+from app.infrastructure.external.browser.playwright_browser import (
+    BLOCKABLE_RESOURCE_TYPES,
+)
 
 
 async def test_settings():
@@ -24,19 +26,19 @@ async def test_settings():
     print("✓ Settings loaded successfully!")
     print()
     print(f"1. Default blocking enabled: {settings.browser_block_resources_default}")
-    print(f"   → Expected: False (disabled by default)")
+    print("   → Expected: False (disabled by default)")
     print()
 
     print(f"2. Blocked resource types: {settings.browser_blocked_resource_types}")
-    print(f"   → Expected: 'image,media' (only heavy resources)")
+    print("   → Expected: 'image,media' (only heavy resources)")
     print()
 
     print(f"3. Parsed as set: {settings.browser_blocked_types_set}")
-    print(f"   → Expected: {{'image', 'media'}}")
+    print("   → Expected: {'image', 'media'}")
     print()
 
     print(f"4. All blockable types: {BLOCKABLE_RESOURCE_TYPES}")
-    print(f"   → These CAN be blocked: image, media, font, stylesheet")
+    print("   → These CAN be blocked: image, media, font, stylesheet")
     print()
 
     # Verify the configuration
@@ -44,7 +46,9 @@ async def test_settings():
 
     if settings.browser_block_resources_default:
         issues.append("⚠️  WARNING: Resource blocking is ENABLED by default")
-        issues.append("   This will block resources on all pages unless explicitly disabled")
+        issues.append(
+            "   This will block resources on all pages unless explicitly disabled"
+        )
 
     if "stylesheet" in settings.browser_blocked_types_set:
         issues.append("⚠️  WARNING: Stylesheets are being blocked!")
