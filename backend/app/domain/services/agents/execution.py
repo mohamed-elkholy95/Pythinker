@@ -134,6 +134,7 @@ class ExecutionAgent(BaseAgent):
 
         # Pre-planning search context for real-time web info propagation
         self._pre_planning_search_context: str | None = None
+        self._pre_planning_search_queries: list[str] = []
 
         # Context manager for execution continuity (Phase 1)
         self._context_manager = ContextManager(max_context_tokens=8000)
@@ -262,6 +263,14 @@ class ExecutionAgent(BaseAgent):
         # Store user request for critic context
         self._user_request = message.message
 
+        # Propagate pre-planning search context to SearchTool so dedup-blocked
+        # queries return cached results instead of failing with 0 results.
+        if self._pre_planning_search_context:
+            for t in self.tools:
+                if hasattr(t, "_pre_planning_context"):
+                    t._pre_planning_context = self._pre_planning_search_context
+                    break
+
         # Set current step for inter-step context synthesis (Phase 2.5)
         self._context_manager.set_current_step(step.id)
 
@@ -321,6 +330,13 @@ class ExecutionAgent(BaseAgent):
         # Increment iteration counter for prompt adapter
         self._prompt_adapter.increment_iteration()
 
+        # Generate MCP context snippet for prompt injection
+        mcp_context: str | None = None
+        for t in self.tools:
+            if t.name == "mcp" and hasattr(t, "generate_prompt_context"):
+                mcp_context = t.generate_prompt_context()
+                break
+
         # Assemble all context signals via StepContextAssembler
         ctx = await self._context_assembler.assemble(
             plan=plan,
@@ -332,6 +348,7 @@ class ExecutionAgent(BaseAgent):
             conversation_context=conversation_context,
             request_contract=self._request_contract,
             profile_patch_text=profile_patch_text,
+            mcp_context=mcp_context,
         )
 
         # Build execution prompt from assembled context (includes all appendages)
@@ -527,6 +544,16 @@ class ExecutionAgent(BaseAgent):
             summarize_prompt = f"{CITATION_AWARE_SUMMARIZE_PROMPT}\n\n## Available Sources\n{source_list}"
         else:
             summarize_prompt = STREAMING_SUMMARIZE_PROMPT
+
+        # Topic anchor: prevent hallucination by pinning the user's original question
+        if self._user_request:
+            topic_anchor = (
+                f"\n\n## TOPIC ANCHOR (MANDATORY)\n"
+                f"The user's original request was:\n"
+                f'"""\n{self._user_request}\n"""\n'
+                f"Your report MUST address THIS topic. Do NOT write about any other topic."
+            )
+            summarize_prompt = topic_anchor + "\n\n" + summarize_prompt
 
         if active_policy.mode == VerbosityMode.CONCISE:
             summarize_prompt += (
