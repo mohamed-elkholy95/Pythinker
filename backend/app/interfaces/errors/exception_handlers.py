@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -218,6 +219,29 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status_code,
             content=response_data,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Handle request validation errors with consistent APIResponse envelope.
+
+        Formats Pydantic validation details into human-readable field→message pairs.
+        """
+        record_error("validation_error", "api")
+
+        errors = []
+        for err in exc.errors():
+            loc = " → ".join(str(part) for part in err.get("loc", []))
+            errors.append({"field": loc, "message": err.get("msg", "Invalid value")})
+
+        logger.warning("Request validation failed: %s", errors)
+        return JSONResponse(
+            status_code=422,
+            content=APIResponse(
+                code=422,
+                msg="Validation error",
+                data={"errors": errors},
+            ).model_dump(),
         )
 
     @app.exception_handler(AppError)
