@@ -5,6 +5,8 @@ The domain layer depends only on this abstraction — never imports
 infrastructure adapters directly.
 """
 
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -45,6 +47,15 @@ class CouponInfo:
 
 
 @dataclass
+class CouponSearchResult:
+    """Result of a coupon search with structured failure info."""
+
+    coupons: list[CouponInfo] = field(default_factory=list)
+    source_failures: list[dict[str, str]] = field(default_factory=list)
+    urls_checked: list[str] = field(default_factory=list)
+
+
+@dataclass
 class DealComparison:
     """Result of a multi-store deal search or price comparison."""
 
@@ -79,7 +90,7 @@ class DealFinder(Protocol):
         store: str,
         product_url: str | None = None,
         progress: DealProgressCallback | None = None,
-    ) -> list[CouponInfo]:
+    ) -> CouponSearchResult:
         """Find coupons/promo codes for a specific store."""
         ...
 

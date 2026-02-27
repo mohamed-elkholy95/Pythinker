@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 from app.core.config import get_settings
 from app.domain.external.deal_finder import (
     CouponInfo,
+    CouponSearchResult,
     DealComparison,
     DealProgressCallback,
     DealResult,
@@ -192,8 +193,8 @@ class DealFinderAdapter:
                 searched_stores=[],
             )
 
-        # steps: 1 (init) + N stores + 1 (coupons) + 1 (scoring)
-        total_steps = len(active_stores) + 2
+        # steps: 1 (init) + N stores + 1 (coupons) + 1 (scoring) = N + 3
+        total_steps = len(active_stores) + 3
         step = 0
 
         async def _report(msg: str) -> None:
@@ -239,17 +240,25 @@ class DealFinderAdapter:
                         logger.debug("Retry search failed for %s: %s", store_domain, exc)
             await _report(f"Searched {store_name} ({count} results)")
 
-        # Find coupons for the query
+        # Find coupons for stores that returned results
         await _report("Aggregating coupons")
         coupon_sources = settings.deal_scraper_coupon_sources.split(",")
         coupons: list[CouponInfo] = []
+        # Search coupons per store (not per product query) for meaningful matches
+        coupon_stores = searched_stores or [_store_from_url(f"https://{d}") for d in active_stores[:3]]
+        coupon_tasks = [
+            aggregate_coupons(self._scraper, store=s, sources=coupon_sources, ttl=settings.deal_scraper_cache_ttl)
+            for s in coupon_stores
+        ]
         try:
-            coupons = await aggregate_coupons(
-                self._scraper,
-                store=query,  # Use query as store for broad coupon search
-                sources=coupon_sources,
-                ttl=settings.deal_scraper_cache_ttl,
-            )
+            coupon_results = await asyncio.gather(*coupon_tasks, return_exceptions=True)
+            for result in coupon_results:
+                if isinstance(result, BaseException):
+                    logger.debug("Coupon fetch failed for a store: %s", result)
+                elif isinstance(result, tuple):
+                    # aggregate_coupons returns (coupons, source_failures)
+                    found_coupons, _failures = result
+                    coupons.extend(found_coupons)
         except Exception as exc:
             logger.warning("Coupon aggregation failed: %s", exc)
 
@@ -362,21 +371,39 @@ class DealFinderAdapter:
         store: str,
         product_url: str | None = None,
         progress: DealProgressCallback | None = None,
-    ) -> list[CouponInfo]:
+    ) -> CouponSearchResult:
         """Find coupons for a specific store."""
         if progress:
             await progress(f"Searching coupons for {store}", 1, 2)
         settings = get_settings()
         sources = settings.deal_scraper_coupon_sources.split(",")
-        coupons = await aggregate_coupons(
+        coupons, source_failures = await aggregate_coupons(
             self._scraper,
             store=store,
             sources=sources,
             ttl=settings.deal_scraper_cache_ttl,
         )
+
+        # Build list of URLs that were checked for structured feedback
+        from app.infrastructure.external.deal_finder.coupon_aggregator import (
+            _extract_store_name,
+        )
+
+        clean_name = _extract_store_name(store)
+        store_slug_dot = clean_name.replace(" ", "").replace("'", "")
+        store_slug_dash = clean_name.replace(" ", "-").replace("'", "")
+        urls_checked = [
+            f"https://www.retailmenot.com/view/{store_slug_dot}.com",
+            f"https://www.coupons.com/coupon-codes/{store_slug_dash}",
+        ]
+
         if progress:
             await progress(f"Found {len(coupons)} coupons", 2, 2)
-        return coupons
+        return CouponSearchResult(
+            coupons=coupons,
+            source_failures=source_failures,
+            urls_checked=urls_checked,
+        )
 
     async def compare_prices(
         self,
@@ -385,6 +412,7 @@ class DealFinderAdapter:
     ) -> DealComparison:
         """Compare prices across specific product URLs.
 
+        Fetches all URLs in parallel for speed, then scores and ranks.
         Collects structured errors for URLs that fail extraction.
         """
         settings = get_settings()
@@ -393,60 +421,70 @@ class DealFinderAdapter:
         searched_stores: list[str] = []
         store_errors: list[dict[str, str]] = []
         capped_urls = product_urls[:10]
-        # steps: N urls + 1 (comparing)
-        total_steps = len(capped_urls) + 1
-        step = 0
+        total_steps = 2
 
-        for url in capped_urls:
-            step += 1
+        if progress:
+            await progress(f"Fetching prices from {len(capped_urls)} stores", 1, total_steps)
+
+        async def _fetch_one(url: str) -> DealResult | dict[str, str] | None:
+            """Fetch and extract price from a single URL.
+
+            Returns DealResult on success, error dict on failure, None on skip.
+            """
             store = _store_from_url(url)
-            if progress:
-                await progress(f"Fetching price from {store}", step, total_steps)
             try:
                 scraped = await asyncio.wait_for(
                     self._scraper.fetch_with_escalation(url),
                     timeout=timeout,
                 )
                 if not scraped.success or not scraped.text:
-                    store_errors.append({"store": store, "error": "Page fetch failed"})
-                    continue
+                    return {"store": store, "error": "Page fetch failed"}
 
                 html = scraped.html or scraped.text
                 price_data = extract_price(html, url)
 
                 if price_data.price is not None and price_data.price > 0:
-                    deals.append(
-                        DealResult(
-                            product_name=price_data.product_name or f"Product from {store}",
-                            store=store,
-                            price=price_data.price,
-                            original_price=price_data.original_price,
-                            discount_percent=(
-                                round(
-                                    (price_data.original_price - price_data.price) / price_data.original_price * 100,
-                                    1,
-                                )
-                                if price_data.original_price and price_data.original_price > price_data.price
-                                else None
-                            ),
-                            url=url,
-                            in_stock=price_data.in_stock,
-                            image_url=price_data.image_url,
-                            extraction_strategy=price_data.strategy_used,
-                            extraction_confidence=price_data.confidence,
-                        )
+                    return DealResult(
+                        product_name=price_data.product_name or f"Product from {store}",
+                        store=store,
+                        price=price_data.price,
+                        original_price=price_data.original_price,
+                        discount_percent=(
+                            round(
+                                (price_data.original_price - price_data.price) / price_data.original_price * 100,
+                                1,
+                            )
+                            if price_data.original_price and price_data.original_price > price_data.price
+                            else None
+                        ),
+                        url=url,
+                        in_stock=price_data.in_stock,
+                        image_url=price_data.image_url,
+                        extraction_strategy=price_data.strategy_used,
+                        extraction_confidence=price_data.confidence,
                     )
-                    if store not in searched_stores:
-                        searched_stores.append(store)
-                else:
-                    store_errors.append({"store": store, "error": "Could not extract price"})
+                return {"store": store, "error": "Could not extract price"}
 
             except TimeoutError:
                 logger.warning("Price comparison timed out for %s", url)
-                store_errors.append({"store": store, "error": f"Timed out after {timeout}s"})
+                return {"store": store, "error": f"Timed out after {timeout}s"}
             except Exception as exc:
                 logger.warning("Price comparison failed for %s: %s", url, exc)
-                store_errors.append({"store": store, "error": str(exc)})
+                return {"store": store, "error": str(exc)}
+
+        # Fetch all URLs in parallel
+        results = await asyncio.gather(*[_fetch_one(url) for url in capped_urls], return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning("Unexpected error in price comparison: %s", result)
+                continue
+            if isinstance(result, DealResult):
+                deals.append(result)
+                if result.store not in searched_stores:
+                    searched_stores.append(result.store)
+            elif isinstance(result, dict):
+                store_errors.append(result)
 
         # Score deals
         if progress:
