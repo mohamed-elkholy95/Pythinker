@@ -276,8 +276,9 @@ class PlanActFlow(BaseFlow):
         # Verification state (Phase 1: Plan-Verify-Execute)
         self._verification_verdict: str | None = None
         self._verification_feedback: str | None = None
+        self._verification_confidence: float | None = None
         self._verification_loops = 0
-        self._max_verification_loops = 1  # Reduced from 2 to 1 for faster response
+        self._max_verification_loops = 2  # Allow one revision-and-reverify cycle before summarizing
 
         # Plan validation failure tracking
         self._plan_validation_failures = 0
@@ -1290,7 +1291,21 @@ class PlanActFlow(BaseFlow):
         """Determine next status when verifier requests plan revision.
 
         The workflow should never execute an unrevised plan after a revision request.
+
+        Good-enough acceptance: After at least 1 revision loop, if confidence >= 0.7,
+        accept the plan to prevent death loops where borderline confidence (e.g. 0.75)
+        causes endless revisions that never converge.
         """
+        # Good-enough acceptance: confidence >= 0.7 after at least 1 revision loop
+        confidence = self._verification_confidence or 0.0
+        if self._verification_loops >= 1 and confidence >= 0.7:
+            logger.info(
+                "Accepting 'good enough' plan: confidence=%.2f after %d revision loop(s)",
+                confidence,
+                self._verification_loops,
+            )
+            return AgentStatus.EXECUTING, "plan accepted as good-enough after revision"
+
         if self._verification_loops < self._max_verification_loops:
             return AgentStatus.PLANNING, "verification requested plan revision"
 
@@ -2246,6 +2261,10 @@ class PlanActFlow(BaseFlow):
                                 # Propagate pre-planning search context to execution agent
                                 if hasattr(self.planner, "_last_search_context") and self.planner._last_search_context:
                                     self.executor._pre_planning_search_context = self.planner._last_search_context
+                                    # Also propagate queries so SearchTool can return cached
+                                    # results instead of failing on dedup hits
+                                    if hasattr(self.planner, "_last_search_queries"):
+                                        self.executor._pre_planning_search_queries = self.planner._last_search_queries
                                     logger.info("Propagated pre-planning search context to execution agent")
 
                                 # Infer smart dependencies for BLOCKED cascade and parallel execution
@@ -2330,6 +2349,7 @@ class PlanActFlow(BaseFlow):
                                 elif event.status == VerificationStatus.REVISION_NEEDED:
                                     self._verification_verdict = "revise"
                                     self._verification_feedback = event.revision_feedback
+                                    self._verification_confidence = event.confidence
                                     self._verification_loops += 1
                                     verify_span.set_attribute("verification.verdict", "revise")
                                 elif event.status == VerificationStatus.FAILED:
@@ -2353,7 +2373,19 @@ class PlanActFlow(BaseFlow):
                             self._transition_to(AgentStatus.EXECUTING)
                     elif self._verification_verdict == "revise":
                         next_status, transition_reason = self._route_after_revision_needed()
-                        if next_status == AgentStatus.SUMMARIZING:
+                        if next_status == AgentStatus.EXECUTING:
+                            logger.info(f"Agent {self._agent_id} plan accepted as good-enough, proceeding to execution")
+                            if not self._validate_plan_before_execution():
+                                self._plan_validation_failures += 1
+                                if self._plan_validation_failures >= self._max_plan_validation_failures:
+                                    self._transition_to(
+                                        AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures"
+                                    )
+                                else:
+                                    self._transition_to(AgentStatus.PLANNING)
+                            else:
+                                self._transition_to(AgentStatus.EXECUTING)
+                        elif next_status == AgentStatus.SUMMARIZING:
                             logger.warning(
                                 f"Agent {self._agent_id} max verification revisions reached, summarizing "
                                 "instead of executing unrevised plan"
@@ -2801,6 +2833,29 @@ class PlanActFlow(BaseFlow):
                     await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started summarizing")
 
+                    # Research-conducted gate: refuse to generate a report from nothing
+                    completed_steps = (
+                        [s for s in self.plan.steps if s.status == ExecutionStatus.COMPLETED]
+                        if self.plan and self.plan.steps
+                        else []
+                    )
+                    if not completed_steps and self.plan and self.plan.steps:
+                        logger.error(
+                            "Agent %s reached SUMMARIZING with 0/%d steps completed — "
+                            "aborting report to prevent hallucination",
+                            self._agent_id,
+                            len(self.plan.steps),
+                        )
+                        yield ErrorEvent(
+                            error=(
+                                "Research could not be completed: the plan was created but "
+                                "no research steps were executed. This may be due to repeated "
+                                "verification failures. Please try again or rephrase your request."
+                            ),
+                        )
+                        self._transition_to(AgentStatus.COMPLETED, force=True, reason="no steps completed")
+                        continue
+
                     # Sweep workspace for untracked files before summarizing
                     if self._file_sweep_callback:
                         try:
@@ -2861,6 +2916,11 @@ class PlanActFlow(BaseFlow):
                             logger.debug(f"Found {len(session_files)} session files to include in report")
                     except Exception as e:
                         logger.warning(f"Failed to fetch session files: {e}")
+
+                    # Fallback: ensure executor has user_request for topic anchoring,
+                    # even when no steps executed (normally set in execute_step()).
+                    if not self.executor._user_request and message.message:
+                        self.executor._user_request = message.message
 
                     summarization_start = time.perf_counter()
                     metrics_port = get_metrics()

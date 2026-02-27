@@ -10,12 +10,14 @@ def _make_flow(
     max_verification_loops: int,
     plan_validation_failures: int,
     max_plan_validation_failures: int,
+    verification_confidence: float | None = None,
 ) -> PlanActFlow:
     flow = PlanActFlow.__new__(PlanActFlow)
     flow._verification_loops = verification_loops
     flow._max_verification_loops = max_verification_loops
     flow._plan_validation_failures = plan_validation_failures
     flow._max_plan_validation_failures = max_plan_validation_failures
+    flow._verification_confidence = verification_confidence
     return flow
 
 
