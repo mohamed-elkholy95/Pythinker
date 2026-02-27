@@ -1273,8 +1273,10 @@ Continue with clear, factual content.
 ## Conclusion
 Key takeaways and recommendations.
 
-## References
+## References (MANDATORY — NON-NEGOTIABLE)
 [1] Source Name - URL
+[2] Source Name - URL
+(List ALL sources cited in the report. This section MUST be present and complete.)
 
 DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
 - Use emoji prefixes on section headings (## 🎯 Section, ## 📊 Data, ## 🔍 Analysis, ## 💡 Insights, ## 🏆 Results)
@@ -1309,6 +1311,7 @@ QUALITY STANDARDS:
 - Every comparison should be in a table
 - Every workflow or process should use a Mermaid diagram when possible
 - Use alerts sparingly for genuinely important callouts
+- The ## References section MUST list ALL cited sources with their [N] numbers and URLs
 
 FORBIDDEN (your response will be REJECTED if it contains any of these):
 - Starting with "I'll create...", "I will write...", "Let me...", "Based on the research findings..."
@@ -1324,8 +1327,9 @@ FORBIDDEN (your response will be REJECTED if it contains any of these):
 - Excuses about token limits, context budget, or inability to generate the report
 - JSON objects with "success" keys — write Markdown, not JSON
 - Any text before the first # heading
+- Omitting or truncating the ## References section
 
-CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete report using all available information from the conversation.
+CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete report using all available information from the conversation. The ## References section is MANDATORY and must appear at the end with ALL cited sources.
 """
 
 # Citation-aware summarization prompt (MindSearch-inspired)
@@ -1362,8 +1366,9 @@ Continue with clear, factual content and citations [2][3].
 ## Conclusion
 Key takeaways and recommendations.
 
-## References
-List all cited sources with their numbers matching the inline citations.
+## References (MANDATORY — NON-NEGOTIABLE)
+List ALL cited sources with their numbers matching the inline citations. Every [N] citation
+in the report MUST have a corresponding entry here. This section MUST be present and complete.
 
 DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
 - Use emoji prefixes on section headings (## 🎯 Section, ## 📊 Data, ## 🔍 Analysis, ## 💡 Insights, ## 🏆 Results)
@@ -1394,6 +1399,7 @@ QUALITY STANDARDS:
 - Every comparison should be in a table
 - Every workflow or process should use a Mermaid diagram when possible
 - Use alerts sparingly for genuinely important callouts
+- The ## References section MUST list ALL cited sources with their [N] numbers and URLs
 
 FORBIDDEN (your response will be REJECTED if it contains any of these):
 - Starting with "I'll create...", "I will write...", "Let me...", "Based on the research findings..."
@@ -1403,8 +1409,9 @@ FORBIDDEN (your response will be REJECTED if it contains any of these):
 - Excuses about token limits, context budget, or inability to generate the report
 - JSON objects with "success" keys — write Markdown, not JSON
 - Any text before the first # heading
+- Omitting or truncating the ## References section
 
-CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete report using all available research findings.
+CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete report using all available research findings. The ## References section is MANDATORY and must appear at the end with ALL cited sources.
 """
 
 # Confirmation summary prompt - emitted as a MessageEvent before the ReportEvent
