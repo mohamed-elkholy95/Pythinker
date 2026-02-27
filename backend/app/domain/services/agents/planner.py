@@ -689,7 +689,7 @@ class PlannerAgent(BaseAgent):
             # Completed and remaining steps in current plan
             remaining_pending = [s for s in plan.steps if not s.is_done()]
 
-            # SAFEGUARD: If LLM returns empty steps but we still have pending steps,
+            # SAFEGUARD 1: If LLM returns empty steps but we still have pending steps,
             # keep the original pending steps (prevent premature task completion)
             if len(new_steps) == 0 and len(remaining_pending) >= 1:
                 logger.info(
@@ -697,6 +697,28 @@ class PlannerAgent(BaseAgent):
                     "Keeping original pending steps (safeguard working as designed)."
                 )
                 # Ensure the just-completed step is marked done
+                for s in plan.steps:
+                    if s.id == step.id and not s.is_done():
+                        s.status = ExecutionStatus.COMPLETED
+                        s.success = True
+                        break
+                new_steps = [s for s in plan.steps if not s.is_done()]
+
+            # SAFEGUARD 2: Prevent aggressive step collapse.
+            # If the LLM drops more than half of the remaining steps in a single
+            # update pass, keep the original pending steps instead.  This stops
+            # a 6-step plan from collapsing to 1-2 steps after one execution.
+            if (
+                len(remaining_pending) > 2
+                and 0 < len(new_steps) < len(remaining_pending) * 0.5
+            ):
+                logger.warning(
+                    "Plan update collapsed %d→%d steps (>50%% reduction). "
+                    "Keeping original pending steps to prevent premature completion.",
+                    len(remaining_pending),
+                    len(new_steps),
+                )
+                # Mark the just-completed step done and keep original remaining
                 for s in plan.steps:
                     if s.id == step.id and not s.is_done():
                         s.status = ExecutionStatus.COMPLETED
