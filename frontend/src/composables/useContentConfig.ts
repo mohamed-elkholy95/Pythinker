@@ -3,6 +3,7 @@ import type { ToolContent } from '../types/message';
 import {
   TOOL_CONTENT_CONFIG,
   FUNCTION_VIEW_OVERRIDES,
+  FUNCTION_CONTENT_TYPE_OVERRIDES,
   TEXT_ONLY_FUNCTIONS,
   ContentConfig,
   ViewMode,
@@ -74,6 +75,13 @@ export function useContentConfig(toolContent: Ref<ToolContent | undefined>) {
 
   // Get the current content view type based on view mode
   const currentViewType = computed<ContentViewType | null>(() => {
+    // Check function-specific content type overrides first
+    // (e.g. file_find_by_name → 'generic' instead of parent tool's 'editor')
+    const func = toolContent.value?.function;
+    if (func && FUNCTION_CONTENT_TYPE_OVERRIDES[func]) {
+      return FUNCTION_CONTENT_TYPE_OVERRIDES[func]!;
+    }
+
     if (!contentConfig.value) return null;
 
     switch (currentViewMode.value) {

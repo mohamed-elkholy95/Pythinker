@@ -1,3 +1,9 @@
+/**
+ * @deprecated Stale detection and connection health monitoring have been
+ * consolidated into `useConnectionStore` (Pinia). This composable remains
+ * as a thin facade for backward compatibility but should not be used by
+ * new consumers. Prefer `useConnectionStore` directly.
+ */
 import { ref, computed, onScopeDispose } from 'vue'
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'degraded'

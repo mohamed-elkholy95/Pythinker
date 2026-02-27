@@ -90,7 +90,26 @@
       />
     </div>
 
+    <!-- Test Connection -->
+    <div v-if="testResult" class="test-result" :class="testResult.success ? 'test-success' : 'test-error'">
+      <CheckCircle v-if="testResult.success" class="w-4 h-4" />
+      <AlertCircle v-else class="w-4 h-4" />
+      <span v-if="testResult.success">
+        Connected in {{ testResult.latency_ms }}ms — {{ testResult.tools_count }} tool(s) found
+      </span>
+      <span v-else>{{ testResult.error || 'Connection failed' }}</span>
+    </div>
+
     <div class="custom-form-actions">
+      <button
+        type="button"
+        class="custom-form-test"
+        :disabled="!isValid || isTesting"
+        @click="handleTestConnection"
+      >
+        {{ isTesting ? t('Testing...') : t('Test Connection') }}
+      </button>
+      <div class="actions-spacer" />
       <button type="button" class="custom-form-cancel" @click="$emit('cancel')">{{ t('Cancel') }}</button>
       <button type="submit" class="custom-form-submit" :disabled="!isValid">{{ t('Create') }}</button>
     </div>
@@ -100,8 +119,10 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { X, Plus } from 'lucide-vue-next';
+import { X, Plus, CheckCircle, AlertCircle } from 'lucide-vue-next';
 import type { CreateCustomMcpRequest } from '@/api/connectors';
+import type { McpTestConnectionResponse } from '@/api/mcp';
+import { testMcpConnection } from '@/api/mcp';
 
 const { t } = useI18n();
 
@@ -136,6 +157,38 @@ const isValid = computed(() => {
   }
   return true;
 });
+
+const isTesting = ref(false);
+const testResult = ref<McpTestConnectionResponse | null>(null);
+
+async function handleTestConnection() {
+  if (!isValid.value || isTesting.value) return;
+  isTesting.value = true;
+  testResult.value = null;
+  try {
+    const parsedArgs = argsString.value.split(',').map((a) => a.trim()).filter(Boolean);
+    const headersObj = kvToObj(headers.value);
+    const envObj = kvToObj(envVars.value);
+    testResult.value = await testMcpConnection({
+      name: formData.name.trim(),
+      transport: formData.transport,
+      command: formData.transport === 'stdio' ? formData.command : undefined,
+      args: parsedArgs.length > 0 ? parsedArgs : undefined,
+      url: formData.transport !== 'stdio' ? formData.url.trim() : undefined,
+      headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
+      env: Object.keys(envObj).length > 0 ? envObj : undefined,
+    });
+  } catch (e) {
+    testResult.value = {
+      success: false,
+      latency_ms: 0,
+      tools_count: 0,
+      error: e instanceof Error ? e.message : 'Connection test failed',
+    };
+  } finally {
+    isTesting.value = false;
+  }
+}
 
 function addHeader() {
   if (headers.value.length < 20) {
@@ -326,5 +379,45 @@ function handleSubmit() {
 
 .custom-form-submit:not(:disabled):hover {
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.custom-form-test {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-main);
+  background: var(--fill-tsp-gray-main);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.custom-form-test:hover:not(:disabled) {
+  background: var(--fill-tsp-gray-hover);
+  color: var(--text-primary);
+}
+.custom-form-test:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.actions-spacer {
+  flex: 1;
+}
+
+.test-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.test-success {
+  background: rgba(34, 197, 94, 0.08);
+  color: #16a34a;
+}
+.test-error {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
 }
 </style>
