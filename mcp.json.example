@@ -1,43 +1,43 @@
 {
   "mcpServers": {
     "filesystem": {
+      "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
         "/tmp"
-      ],
-      "transport": "stdio",
-      "enabled": true,
-      "description": "Access to local filesystem"
+      ]
     },
     "github": {
+      "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
         "@modelcontextprotocol/server-github"
       ],
-      "transport": "stdio",
-      "enabled": true,
-      "description": "GitHub API integration",
       "env": {
-        "GITHUB_TOKEN": "your-github-token"
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
       }
     },
-    "example-http": {
-      "url": "http://localhost:8080/mcp",
-      "transport": "sse",
-      "enabled": true,
-      "description": "Example HTTP MCP server",
-      "headers": {
-        "Authorization": "Bearer your-token"
+    "tavily": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "tavily-mcp@latest"
+      ],
+      "env": {
+        "TAVILY_API_KEY": "${TAVILY_API_KEY}"
       }
     },
-    "example-streamable": {
-      "url": "http://localhost:9090/mcp",
-      "transport": "streamable-http",
-      "enabled": true,
-      "description": "Example streamable HTTP MCP server"
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
     }
   }
-} 
+}
