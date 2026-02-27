@@ -949,8 +949,22 @@ export const createSSEConnection = async <T = unknown>(
             // Handle heartbeat events silently (update lastEventTime via custom event)
             // Heartbeat events are keep-alive signals that don't require UI updates
             if (event.event === 'progress') {
-              const progressData = parsedData as { phase?: string };
+              const progressData = parsedData as { phase?: string; token_expires_at?: number };
               if (progressData.phase === 'heartbeat') {
+                // Check if token is nearing expiry (within 5 minutes)
+                if (typeof progressData.token_expires_at === 'number') {
+                  const secondsUntilExpiry = progressData.token_expires_at - Math.floor(Date.now() / 1000);
+                  if (secondsUntilExpiry > 0 && secondsUntilExpiry <= 300) {
+                    // Token expires within 5 minutes — trigger proactive refresh
+                    refreshAuthToken().then((newToken) => {
+                      if (newToken) {
+                        requestHeaders.Authorization = `Bearer ${newToken}`;
+                      }
+                    }).catch(() => {
+                      // Refresh failed — will be handled by 401 interceptor on next request
+                    });
+                  }
+                }
                 // Emit custom event for heartbeat tracking without UI notification
                 window.dispatchEvent(new CustomEvent('sse:heartbeat', { detail: { eventId } }));
                 // Don't pass heartbeat to onMessage callback - it's silent
