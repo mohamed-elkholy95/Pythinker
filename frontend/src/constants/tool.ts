@@ -171,6 +171,11 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "deep_scan_dependencies": "Analyzing",
   "deep_scan_project": "Scanning",
 
+  // === DEAL SCRAPER ===
+  "deal_search": "Finding Deals",
+  "deal_compare_prices": "Comparing Prices",
+  "deal_find_coupons": "Finding Coupons",
+
   // === REPO MAP ===
   "repo_map": "Mapping",
 
@@ -343,6 +348,11 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
   "deep_scan_dependencies": "path",
   "deep_scan_project": "path",
 
+  // Deal Scraper
+  "deal_search": "query",
+  "deal_compare_prices": "urls",
+  "deal_find_coupons": "store_name",
+
   // Repo Map
   "repo_map": "path",
 
@@ -415,6 +425,9 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
   "deep_scan_analyzer": "Analyzer",
   "deep_scan": "Analyzer",
 
+  // === DEAL SCRAPER ===
+  "deal_scraper": "Deal Finder",
+
   // === CANVAS ===
   "canvas": "Canvas",
   "chart": "Chart",
@@ -436,7 +449,7 @@ import AgentModeIcon from '../components/icons/AgentModeIcon.vue';
 import MousePointerClickIcon from '../components/icons/MousePointerClickIcon.vue';
 import MonitorIcon from '../components/icons/MonitorIcon.vue';
 import TerminalIcon from '../components/icons/TerminalIcon.vue';
-import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Palette, BarChart3 } from 'lucide-vue-next';
+import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Palette, BarChart3, Tag } from 'lucide-vue-next';
 
 /**
  * Tool icon mapping - Consistent visual identity for each tool
@@ -461,6 +474,9 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
   "info_search_web": SearchIcon,
   "web_search": SearchIcon,
   "wide_research": SearchIcon,
+
+  // === DEAL SCRAPER ===
+  "deal_scraper": Tag,
 
   // === VERSION CONTROL ===
   "git": GitBranch,
@@ -542,6 +558,7 @@ export const TOOL_TIMELINE_COLORS: Record<string, string> = {
   code_dev: 'bg-emerald-400',
   file: 'bg-slate-400',
   git: 'bg-slate-400',
+  deal_scraper: 'bg-amber-400',
   chart: 'bg-violet-400',
   message: 'bg-gray-300',
 };
@@ -684,6 +701,15 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
     showTabs: false
   },
   web_search: {
+    primaryView: 'search',
+    secondaryView: 'live_preview',
+    tabLabels: [],
+    defaultView: 'primary',
+    showTabs: false
+  },
+
+  // === DEAL SCRAPER ===
+  deal_scraper: {
     primaryView: 'search',
     secondaryView: 'live_preview',
     tabLabels: [],
