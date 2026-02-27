@@ -37,9 +37,7 @@ class TestUniversalLLMJsonTracking:
             result = await llm.ask_json(messages=[{"role": "user", "content": "test"}])
 
             assert result is None
-            mock_counter.inc.assert_called_once_with(
-                {"model": "test-model", "method": "ask_json"}
-            )
+            mock_counter.inc.assert_called_once_with({"model": "test-model", "method": "ask_json"})
 
     @pytest.mark.asyncio
     async def test_ask_json_no_counter_on_success(self):
@@ -102,6 +100,4 @@ class TestAskJsonValidatedTracking:
                     max_retries=0,  # No retries - fail immediately
                 )
 
-            mock_counter.inc.assert_called_once_with(
-                {"model": "test-model", "method": "ask_json_validated"}
-            )
+            mock_counter.inc.assert_called_once_with({"model": "test-model", "method": "ask_json_validated"})

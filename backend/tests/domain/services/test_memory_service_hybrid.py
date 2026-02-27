@@ -36,9 +36,7 @@ def mock_memory_repo():
 
 
 @pytest.mark.asyncio
-async def test_search_hybrid_called_when_flag_enabled_and_sparse_nonempty(
-    mock_llm, mock_vector_repo, mock_memory_repo
-):
+async def test_search_hybrid_called_when_flag_enabled_and_sparse_nonempty(mock_llm, mock_vector_repo, mock_memory_repo):
     """search_hybrid() is invoked when qdrant_use_hybrid_search=True and BM25 returns vectors."""
     from app.domain.services.memory_service import MemoryService
 
@@ -80,9 +78,7 @@ async def test_search_hybrid_called_when_flag_enabled_and_sparse_nonempty(
 
 
 @pytest.mark.asyncio
-async def test_search_similar_fallback_when_sparse_empty(
-    mock_llm, mock_vector_repo, mock_memory_repo
-):
+async def test_search_similar_fallback_when_sparse_empty(mock_llm, mock_vector_repo, mock_memory_repo):
     """search_similar() is used when sparse vector is empty (BM25 not fitted yet)."""
     from app.domain.services.memory_service import MemoryService
 

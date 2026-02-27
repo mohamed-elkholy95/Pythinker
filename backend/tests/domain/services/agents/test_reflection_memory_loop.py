@@ -12,7 +12,6 @@ These tests verify:
 - should_reflect() triggers correctly on error/stall conditions.
 """
 
-from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -87,14 +86,16 @@ async def test_reflect_calls_store_memory_with_task_outcome_type():
     progress = ProgressMetrics(steps_completed=2, total_steps=5)
     plan = _make_minimal_plan()
 
-    events = []
-    async for event in agent.reflect(
-        goal="Complete the task",
-        plan=plan,
-        progress=progress,
-        trigger_type=ReflectionTriggerType.STEP_INTERVAL,
-    ):
-        events.append(event)
+    _events = [
+        event
+        async for event in agent.reflect(
+            goal="Complete the task",
+            plan=plan,
+            progress=progress,
+            trigger_type=ReflectionTriggerType.STEP_INTERVAL,
+        )
+    ]
+    assert _events  # exhaust generator to trigger memory write-back
 
     # Verify memory write-back occurred
     mock_memory.store_memory.assert_awaited_once()
@@ -117,21 +118,19 @@ async def test_reflect_skips_memory_write_when_no_memory_service():
     progress = ProgressMetrics(steps_completed=1, total_steps=3)
     plan = _make_minimal_plan()
 
-    events = []
-    async for event in agent.reflect(
-        goal="Do the thing",
-        plan=plan,
-        progress=progress,
-        trigger_type=ReflectionTriggerType.STEP_INTERVAL,
-    ):
-        events.append(event)
+    events = [
+        event
+        async for event in agent.reflect(
+            goal="Do the thing",
+            plan=plan,
+            progress=progress,
+            trigger_type=ReflectionTriggerType.STEP_INTERVAL,
+        )
+    ]
 
     from app.domain.models.event import ReflectionEvent, ReflectionStatus
 
-    assert any(
-        isinstance(e, ReflectionEvent) and e.status == ReflectionStatus.COMPLETED
-        for e in events
-    )
+    assert any(isinstance(e, ReflectionEvent) and e.status == ReflectionStatus.COMPLETED for e in events)
 
 
 def test_should_reflect_returns_none_when_disabled():
