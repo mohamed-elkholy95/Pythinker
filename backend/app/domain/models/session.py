@@ -54,6 +54,7 @@ class ResearchMode(str, Enum):
 
     FAST_SEARCH = "fast_search"
     DEEP_RESEARCH = "deep_research"
+    DEAL_FINDING = "deal_finding"
 
 
 class Session(BaseModel):
