@@ -34,6 +34,7 @@ from app.core.config_database import (
     DatabaseSettingsMixin,
     QdrantSettingsMixin,
     RedisSettingsMixin,
+    SLOSettingsMixin,
     StorageSettingsMixin,
 )
 from app.core.config_deals import DealScraperSettingsMixin
@@ -105,6 +106,7 @@ class Settings(
     KnowledgeBaseSettingsMixin,
     ScrapingSettingsMixin,
     DealScraperSettingsMixin,
+    SLOSettingsMixin,
     # BaseSettings must come last
     BaseSettings,
 ):
