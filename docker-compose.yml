@@ -244,17 +244,45 @@ services:
       retries: 3
       start_period: 10s
 
+  minio-init:
+    image: minio/mc:RELEASE.2025-02-15T09-07-37Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      - MINIO_SERVICE_USER=${MINIO_SERVICE_USER:-pythinker-svc}
+      - MINIO_SERVICE_PASSWORD=${MINIO_SERVICE_PASSWORD:-pythinker-svc-secret-change-me}
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        mc alias set myminio http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
+        mc admin user add myminio "$${MINIO_SERVICE_USER}" "$${MINIO_SERVICE_PASSWORD}" 2>/dev/null || true && \
+        mc admin policy attach myminio readwrite --user "$${MINIO_SERVICE_USER}" 2>/dev/null || true && \
+        echo "MinIO service user '$$MINIO_SERVICE_USER' ready with readwrite policy"
+    networks:
+      - pythinker-network
+    restart: "no"
+
   mongodb:
     image: mongo:7.0
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.5"]
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped
+    mem_limit: 1g  # Standalone Compose memory limit (deploy.resources only works in Swarm)
     #ports:
     #  - "27017:27017"
     networks:
       - pythinker-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     healthcheck:
-      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet" ]
+      test: [ "CMD", "mongosh", "--norc", "--eval", "db.runCommand('ping').ok", "--quiet" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -262,6 +290,7 @@ services:
 
   redis:
     image: redis:8.4-alpine
+    mem_limit: 768m
     command:
       - redis-server
       - --save
@@ -307,6 +336,7 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.16.3
     container_name: pythinker-qdrant
+    mem_limit: 2g
     ports:
       - "6333:6333" # REST API
       - "6334:6334" # gRPC (2x faster)
