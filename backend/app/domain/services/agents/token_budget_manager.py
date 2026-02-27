@@ -116,16 +116,16 @@ class TokenBudgetManager:
 
     Default allocations:
     - System prompt: 15% (fixed overhead)
-    - Planning: 10% (plan generation)
-    - Execution: 50% (tool calls + responses)
+    - Planning: 15% (plan generation + pre-planning search context)
+    - Execution: 45% (tool calls + responses)
     - Memory context: 10% (retrieved memories, step context)
     - Summarization: 15% (final synthesis)
     """
 
     DEFAULT_ALLOCATIONS: ClassVar[dict[BudgetPhase, float]] = {
         BudgetPhase.SYSTEM_PROMPT: 0.15,
-        BudgetPhase.PLANNING: 0.10,
-        BudgetPhase.EXECUTION: 0.50,
+        BudgetPhase.PLANNING: 0.15,
+        BudgetPhase.EXECUTION: 0.45,
         BudgetPhase.MEMORY_CONTEXT: 0.10,
         BudgetPhase.SUMMARIZATION: 0.15,
     }
