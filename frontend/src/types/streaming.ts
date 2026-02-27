@@ -59,6 +59,11 @@ export function detectContentType(functionName: string): StreamingContentType {
     'wide_research': 'search',
     'search': 'search',
 
+    // Deal scraper operations
+    'deal_search': 'search',
+    'deal_compare_prices': 'search',
+    'deal_find_coupons': 'search',
+
     // Browser operations
     'browser_view': 'text',
     'browser_console_view': 'terminal',
