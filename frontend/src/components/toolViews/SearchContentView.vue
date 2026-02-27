@@ -121,11 +121,11 @@
           </p>
         </div>
 
-        <EmptyState
-          v-if="showEmptyState"
-          message="No results from provider"
-          icon="search"
-        />
+        <div v-if="showEmptyState" class="search-empty-state">
+          <Search :size="32" class="search-empty-icon" />
+          <p class="search-empty-text">No results found</p>
+          <p v-if="query" class="search-empty-query">for "{{ query }}"</p>
+        </div>
       </div>
     </div>
   </ContentContainer>
@@ -136,7 +136,6 @@ import { computed, reactive, toRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Search, Loader2, Check } from 'lucide-vue-next';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
-import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import { getFaviconUrl } from '@/utils/toolDisplay';
 import { useStaggeredResults } from '@/composables/useStaggeredResults';
 
@@ -515,17 +514,33 @@ function handleResultClick(result: SearchResult) {
   font-weight: 500;
 }
 
-/* Empty State Adjustments */
-.search-view :deep(.empty-state) {
+/* Empty State */
+.search-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   padding: 48px 24px;
+  text-align: center;
 }
 
-.search-view :deep(.empty-icon) {
+.search-empty-icon {
   color: var(--text-tertiary);
+  opacity: 0.5;
+  margin-bottom: 12px;
 }
 
-.search-view :deep(.empty-message) {
+.search-empty-text {
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-secondary);
-  font-weight: 400;
+  margin: 0;
+}
+
+.search-empty-query {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 4px 0 0;
+  font-style: italic;
 }
 </style>
