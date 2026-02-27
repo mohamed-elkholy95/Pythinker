@@ -65,7 +65,7 @@ class SourceTracker:
 
         access_time = event.started_at or datetime.now(UTC)
 
-        if event.function_name == ToolName.INFO_SEARCH_WEB:
+        if event.function_name in {ToolName.INFO_SEARCH_WEB, ToolName.WIDE_RESEARCH}:
             self._extract_search_sources(event, access_time)
         elif event.function_name in {
             ToolName.BROWSER_NAVIGATE,

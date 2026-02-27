@@ -1664,9 +1664,23 @@ class BaseAgent:
         # Stage 2: Hard-limit trim if still over after compaction.
         if not self._token_manager.is_within_limit(current_messages):
             logger.warning("Memory exceeds token limit, trimming...")
+            # Capture the first user message before trimming — it contains the original
+            # request and must survive trimming to prevent topic drift / hallucination.
+            first_user_msg = next((m for m in current_messages if m.get("role") == "user"), None)
             trimmed_messages, tokens_removed = self._token_manager.trim_messages(
                 current_messages, preserve_system=True, preserve_recent=6
             )
+            # Re-inject first user message if it was lost during trimming
+            if first_user_msg and not any(m is first_user_msg for m in trimmed_messages):
+                # Insert after system messages, before the remaining conversation
+                insert_idx = 0
+                for i, m in enumerate(trimmed_messages):
+                    if m.get("role") == "system":
+                        insert_idx = i + 1
+                    else:
+                        break
+                trimmed_messages.insert(insert_idx, first_user_msg)
+                logger.info("Re-injected first user message after trimming to preserve topic anchor")
             self.memory.messages = trimmed_messages
             await self._repository.save_memory(self._agent_id, self.name, self.memory)
             logger.info(f"Trimmed memory, removed {tokens_removed} tokens")
@@ -1683,11 +1697,24 @@ class BaseAgent:
         self.memory.smart_compact()
 
         # Then trim messages (fast, in-memory)
+        all_messages = self.memory.get_messages()
+        # Capture the first user message before trimming for topic preservation
+        first_user_msg = next((m for m in all_messages if m.get("role") == "user"), None)
         trimmed_messages, tokens_removed = self._token_manager.trim_messages(
-            self.memory.get_messages(),
+            all_messages,
             preserve_system=True,
             preserve_recent=4,  # More aggressive trim
         )
+        # Re-inject first user message if lost during aggressive trimming
+        if first_user_msg and not any(m is first_user_msg for m in trimmed_messages):
+            insert_idx = 0
+            for i, m in enumerate(trimmed_messages):
+                if m.get("role") == "system":
+                    insert_idx = i + 1
+                else:
+                    break
+            trimmed_messages.insert(insert_idx, first_user_msg)
+            logger.info("Re-injected first user message after aggressive trim to preserve topic anchor")
         self.memory.messages = trimmed_messages
 
         # Save to MongoDB in background (non-blocking) to avoid delaying retry
