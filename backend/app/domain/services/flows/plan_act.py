@@ -2268,7 +2268,10 @@ class PlanActFlow(BaseFlow):
                                 self.plan = event.plan
 
                                 # Propagate pre-planning search context to execution agent
-                                if hasattr(self.planner, "_last_search_context") and self.planner._last_search_context:
+                                if (
+                                    hasattr(self.planner, "_last_search_context")
+                                    and self.planner._last_search_context is not None
+                                ):
                                     self.executor._pre_planning_search_context = self.planner._last_search_context
                                     # Also propagate queries so SearchTool can return cached
                                     # results instead of failing on dedup hits
