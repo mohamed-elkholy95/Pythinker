@@ -1,12 +1,16 @@
 """Tests for APIKeyPool enhancements: error classification, circuit breaker,
-consecutive rate limit tracking, and dual quota detection.
+consecutive rate limit tracking, dual quota detection, adaptive TTL, and
+per-provider cooldown overrides.
 """
 
+import asyncio
 import time
+from unittest.mock import AsyncMock
 
 import pytest
 
 from app.infrastructure.external.key_pool import (
+    _ERROR_COOLDOWNS,
     QUOTA_KEYWORDS,
     APIKeyConfig,
     APIKeyPool,
@@ -473,3 +477,309 @@ class TestStatusReport:
         await pool.mark_invalid("key-0")
         report = pool.status_report()
         assert "INVALID" in report
+
+
+# ─────────────────────────────────────────────────────────────────
+# 7. Per-provider cooldown overrides
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestCooldownOverrides:
+    """Test per-provider cooldown override mechanism."""
+
+    @pytest.mark.asyncio
+    async def test_cooldown_override_respected(self):
+        """Per-provider override replaces default cooldown for that error type."""
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="serper",
+            keys=keys,
+            strategy=RotationStrategy.FAILOVER,
+            redis_client=None,
+            cooldown_overrides={ErrorType.QUOTA_EXHAUSTED: 14400},  # 4h
+        )
+        assert pool._cooldowns[ErrorType.QUOTA_EXHAUSTED] == 14400
+
+        # Trigger quota exhaustion — should use 14400s, not 86400s
+        await pool.handle_error("key-0", status_code=402)
+        key_hash = pool._hash_key("key-0")
+        expiry = pool._memory_exhausted[key_hash]
+        # The TTL should be ~14400s from now (with adaptive multiplier=1.0)
+        remaining = expiry - time.time()
+        assert 14300 < remaining < 14500
+
+    def test_default_cooldown_unchanged(self):
+        """Without overrides, defaults match module-level _ERROR_COOLDOWNS."""
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+        )
+        for error_type, default in _ERROR_COOLDOWNS.items():
+            assert pool._cooldowns[error_type] == default
+
+    def test_partial_override_preserves_others(self):
+        """Only specified types are overridden; others keep defaults."""
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+            cooldown_overrides={ErrorType.QUOTA_EXHAUSTED: 7200},
+        )
+        assert pool._cooldowns[ErrorType.QUOTA_EXHAUSTED] == 7200
+        assert pool._cooldowns[ErrorType.AUTH_ERROR] == _ERROR_COOLDOWNS[ErrorType.AUTH_ERROR]
+        assert pool._cooldowns[ErrorType.RATE_LIMITED] == _ERROR_COOLDOWNS[ErrorType.RATE_LIMITED]
+
+
+# ─────────────────────────────────────────────────────────────────
+# 8. Expanded QUOTA_KEYWORDS
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestExpandedQuotaKeywords:
+    """Test newly added quota keywords."""
+
+    def test_credits_keyword(self):
+        assert "credits" in QUOTA_KEYWORDS
+        assert _text_has_quota_keywords("You have 0 credits remaining")
+
+    def test_insufficient_keyword(self):
+        assert "insufficient" in QUOTA_KEYWORDS
+        assert _text_has_quota_keywords("Insufficient balance for this request")
+        assert _text_has_quota_keywords("insufficient credits")
+
+    def test_credits_triggers_quota_exhausted(self):
+        error_type, _ = classify_error(status_code=200, body_text="0 credits remaining")
+        assert error_type == ErrorType.QUOTA_EXHAUSTED
+
+    def test_insufficient_triggers_quota_exhausted(self):
+        error_type, _ = classify_error(status_code=200, body_text="insufficient quota")
+        assert error_type == ErrorType.QUOTA_EXHAUSTED
+
+
+# ─────────────────────────────────────────────────────────────────
+# 9. Redis TTL sync
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestRedisTTLSync:
+    """Test that _is_healthy uses actual Redis TTL for in-memory sync."""
+
+    @pytest.mark.asyncio
+    async def test_redis_ttl_sync(self):
+        """_is_healthy uses actual Redis TTL, not hardcoded 60s."""
+        mock_redis = AsyncMock()
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=mock_redis,
+        )
+        key_hash = pool._hash_key("key-0")
+
+        # Simulate Redis: key not invalid, but exhausted with 7200s TTL
+        mock_redis.call = AsyncMock(
+            side_effect=lambda cmd, *args: (
+                0
+                if cmd == "exists"
+                # not invalid
+                else 7200
+                if cmd == "ttl"
+                else 0
+            )
+        )
+
+        healthy = await pool._is_healthy("key-0")
+        assert not healthy
+
+        # Verify in-memory expiry is ~7200s from now (not 60s)
+        remaining = pool._memory_exhausted[key_hash] - time.time()
+        assert 7100 < remaining < 7300
+
+    @pytest.mark.asyncio
+    async def test_redis_ttl_negative_means_healthy(self):
+        """TTL -2 (key doesn't exist) means the key is healthy."""
+        mock_redis = AsyncMock()
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=mock_redis,
+        )
+
+        # Simulate Redis: not invalid, TTL=-2 (key doesn't exist = healthy)
+        mock_redis.call = AsyncMock(side_effect=lambda cmd, *args: 0 if cmd == "exists" else -2 if cmd == "ttl" else 0)
+
+        healthy = await pool._is_healthy("key-0")
+        assert healthy
+
+
+# ─────────────────────────────────────────────────────────────────
+# 10. Adaptive TTL learning
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestAdaptiveTTL:
+    """Test adaptive TTL multiplier shrinks on early recovery."""
+
+    @pytest.mark.asyncio
+    async def test_adaptive_ttl_shrinks_on_early_recovery(self):
+        """Multiplier decreases when key recovers before 75% of configured TTL."""
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+            cooldown_overrides={ErrorType.QUOTA_EXHAUSTED: 10000},
+        )
+        assert pool._adaptive_ttl_multiplier == 1.0
+
+        key_hash = pool._hash_key("key-0")
+        # Simulate: key was marked exhausted 1000s ago (well under 75% of 10000s)
+        pool._exhaustion_timestamps[key_hash] = time.time() - 1000
+
+        pool.record_success("key-0")
+
+        # Multiplier should shrink by 0.7
+        assert abs(pool._adaptive_ttl_multiplier - 0.7) < 0.01
+
+    @pytest.mark.asyncio
+    async def test_adaptive_ttl_floor(self):
+        """Multiplier never drops below 0.25."""
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+        )
+        key_hash = pool._hash_key("key-0")
+
+        # Simulate many early recoveries to push multiplier toward floor
+        for _ in range(20):
+            pool._exhaustion_timestamps[key_hash] = time.time() - 10
+            pool.record_success("key-0")
+
+        assert pool._adaptive_ttl_multiplier >= 0.25
+
+    @pytest.mark.asyncio
+    async def test_adaptive_multiplier_applied_to_mark_exhausted(self):
+        """mark_exhausted applies the adaptive multiplier to TTL."""
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+        )
+        # Force a low multiplier
+        pool._adaptive_ttl_multiplier = 0.5
+
+        await pool.mark_exhausted("key-0", ttl_seconds=10000)
+        key_hash = pool._hash_key("key-0")
+        remaining = pool._memory_exhausted[key_hash] - time.time()
+        # Should be ~5000s (10000 * 0.5), not 10000s
+        assert 4900 < remaining < 5100
+
+    @pytest.mark.asyncio
+    async def test_adaptive_not_applied_to_rate_limit(self):
+        """Rate limit cooldowns bypass adaptive multiplier."""
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+        )
+        pool._adaptive_ttl_multiplier = 0.25  # Would drastically reduce if applied
+
+        await pool.handle_error("key-0", status_code=429)
+        key_hash = pool._hash_key("key-0")
+        remaining = pool._memory_exhausted[key_hash] - time.time()
+        # Rate limit base = 60s; if adaptive were applied it'd be 15s
+        # It should be 60+ (not reduced)
+        assert remaining >= 55
+
+
+# ─────────────────────────────────────────────────────────────────
+# 11. Background health probe
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestHealthProbe:
+    """Test background health probe lifecycle."""
+
+    @pytest.mark.asyncio
+    async def test_health_probe_clears_expired(self):
+        """Probe removes expired in-memory entries."""
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+        )
+        key_hash = pool._hash_key("key-0")
+
+        # Set an already-expired entry
+        pool._memory_exhausted[key_hash] = time.time() - 10
+        pool._exhaustion_timestamps[key_hash] = time.time() - 100
+
+        # Start probe with very short interval
+        pool.start_health_probe(interval_seconds=0.05)
+        try:
+            await asyncio.sleep(0.15)  # Wait for at least one probe cycle
+            assert key_hash not in pool._memory_exhausted
+            assert key_hash not in pool._exhaustion_timestamps
+        finally:
+            pool.stop_health_probe()
+
+    @pytest.mark.asyncio
+    async def test_health_probe_cancellation(self):
+        """Probe stops cleanly on stop_health_probe()."""
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+        )
+
+        pool.start_health_probe(interval_seconds=0.05)
+        assert pool._health_probe_task is not None
+        assert not pool._health_probe_task.done()
+
+        pool.stop_health_probe()
+        assert pool._health_probe_task is None
+
+    @pytest.mark.asyncio
+    async def test_health_probe_redis_sync(self):
+        """Probe clears in-memory entries when Redis TTL shows key expired."""
+        mock_redis = AsyncMock()
+        keys = [APIKeyConfig(key="key-0")]
+        pool = APIKeyPool(
+            provider="test",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=mock_redis,
+        )
+        key_hash = pool._hash_key("key-0")
+
+        # Entry still in memory (not yet expired locally) but Redis says TTL=-2
+        pool._memory_exhausted[key_hash] = time.time() + 9999
+
+        mock_redis.call = AsyncMock(return_value=-2)
+
+        pool.start_health_probe(interval_seconds=0.05)
+        try:
+            await asyncio.sleep(0.15)
+            assert key_hash not in pool._memory_exhausted
+        finally:
+            pool.stop_health_probe()
