@@ -105,7 +105,7 @@ const isConnectorBannerClosed = ref(false);
 const showConnectorRow = computed(() => !!props.showConnectorBanner && !isConnectorBannerClosed.value);
 
 const MIN_TEXTAREA_HEIGHT = 46;
-const MAX_TEXTAREA_HEIGHT = 220;
+const MAX_TEXTAREA_HEIGHT = 216;
 const ESTIMATED_LINE_HEIGHT = 24;
 const ESTIMATED_VERTICAL_PADDING = 20;
 
@@ -273,7 +273,7 @@ onMounted(async () => {
     border-radius: 22px;
     border: 1px solid var(--border-main);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.02);
-    overflow: visible;
+    overflow: hidden;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -299,6 +299,7 @@ onMounted(async () => {
     padding-right: 8px;
     min-height: 50px;
     max-height: 216px;
+    overflow-y: auto;
 }
 
 .chatbox-textarea {
@@ -317,8 +318,11 @@ onMounted(async () => {
     box-shadow: none;
     resize: none;
     min-height: 40px;
+    max-height: 216px;
     outline: none;
     transition: padding-right 0.2s ease;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 /* Custom scrollbar - only visible on hover */
