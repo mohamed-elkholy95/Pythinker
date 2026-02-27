@@ -1269,6 +1269,10 @@ Continue with clear, factual content.
 ## Conclusion
 Key takeaways and recommendations.
 
+## 📎 Deliverables
+If any files, charts, documents, or artifacts were created during this session, list them here with descriptions.
+If no files were created, omit this section entirely.
+
 ## References
 [1] Source Name - URL
 
@@ -1357,6 +1361,10 @@ Continue with clear, factual content and citations [2][3].
 
 ## Conclusion
 Key takeaways and recommendations.
+
+## 📎 Deliverables
+If any files, charts, documents, or artifacts were created during this session, list them here with descriptions.
+If no files were created, omit this section entirely.
 
 ## References
 List all cited sources with their numbers matching the inline citations.
