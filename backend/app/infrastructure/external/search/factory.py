@@ -199,6 +199,27 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
             kwargs["redis_client"] = redis_client
         return kwargs
 
+    if provider == "exa":
+        if not settings.exa_api_key:
+            logger.warning("Exa Search not configured: missing API key")
+            return None
+        kwargs = {"api_key": settings.exa_api_key}
+        fallback_keys = [
+            key
+            for key in [
+                settings.exa_api_key_2,
+                settings.exa_api_key_3,
+                settings.exa_api_key_4,
+                settings.exa_api_key_5,
+            ]
+            if key
+        ]
+        if fallback_keys:
+            kwargs["fallback_api_keys"] = fallback_keys
+        if redis_client:
+            kwargs["redis_client"] = redis_client
+        return kwargs
+
     # Providers without required API key config (duckduckgo, bing, etc.)
     return {}
 
@@ -244,6 +265,11 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         logger.debug("Serper search provider not available")
 
     try:
+        importlib.import_module("app.infrastructure.external.search.exa_search")
+    except ImportError:
+        logger.debug("Exa search provider not available")
+
+    try:
         importlib.import_module("app.infrastructure.external.search.bing_search")
     except ImportError:
         logger.debug("Bing search provider not available")
@@ -277,9 +303,11 @@ def get_search_engine_from_factory() -> SearchEngine | None:
     # Each provider still does its own API key rotation internally.
     provider_chain: list[str]
     if provider == "tavily":
-        provider_chain = ["tavily", "serper", "duckduckgo"]
+        provider_chain = ["tavily", "serper", "exa", "duckduckgo"]
     elif provider == "serper":
-        provider_chain = ["serper", "tavily", "duckduckgo"]
+        provider_chain = ["serper", "tavily", "exa", "duckduckgo"]
+    elif provider == "exa":
+        provider_chain = ["exa", "tavily", "serper", "duckduckgo"]
     else:
         provider_chain = [provider]
 
