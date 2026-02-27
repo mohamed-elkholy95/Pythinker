@@ -96,6 +96,13 @@ pyotp>=2.9.0
 prometheus_client>=0.21.0
 structlog>=24.4.0
 
+# OpenTelemetry distributed tracing (optional — graceful no-op when not installed)
+opentelemetry-api>=1.29.0
+opentelemetry-sdk>=1.29.0
+opentelemetry-exporter-otlp-proto-grpc>=1.29.0
+opentelemetry-instrumentation-httpx>=0.50b0
+opentelemetry-instrumentation-fastapi>=0.50b0
+
 # Knowledge Base (RAG-Anything multimodal document processing)
 # Base package only — MinerU/LightRAG are transitive dependencies; imported lazily.
 # Enable with KNOWLEDGE_BASE_ENABLED=true in .env

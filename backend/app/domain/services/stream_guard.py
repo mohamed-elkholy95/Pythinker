@@ -22,6 +22,79 @@ from app.domain.utils.cancellation import CancellationToken
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Module-level shutdown coordination
+#
+# asyncio primitives are lazily created to avoid binding to a non-existent
+# event loop at import time (Python 3.10+ raises DeprecationWarning / error).
+# With multi-worker uvicorn each fork gets its own loop, so module-level
+# Event/Lock objects from the parent process would be invalid in children.
+# ---------------------------------------------------------------------------
+_shutdown_event: asyncio.Event | None = None
+_drain_complete: asyncio.Event | None = None
+
+
+def _get_shutdown_event() -> asyncio.Event:
+    global _shutdown_event
+    if _shutdown_event is None:
+        _shutdown_event = asyncio.Event()
+    return _shutdown_event
+
+
+def _get_drain_complete() -> asyncio.Event:
+    global _drain_complete
+    if _drain_complete is None:
+        _drain_complete = asyncio.Event()
+    return _drain_complete
+
+
+def signal_shutdown() -> None:
+    """Signal all active SSE streams to gracefully close."""
+    _get_shutdown_event().set()
+    # Do NOT set drain_complete here — _check_drain_complete() handles it
+    # safely under the lock when streams unregister. drain_active_streams()
+    # has a timeout safety net if no streams are active.
+
+
+def is_shutdown_signaled() -> bool:
+    """Return whether the shutdown signal has been set."""
+    return _get_shutdown_event().is_set()
+
+
+def _check_drain_complete() -> None:
+    """Set the drain-complete event if all streams have exited during shutdown."""
+    if _get_shutdown_event().is_set() and not _active_streams:
+        _get_drain_complete().set()
+
+
+async def drain_active_streams(drain_timeout: float = 5.0) -> int:
+    """Wait for active streams to drain after shutdown signal.
+
+    Sets the shutdown event so that every ``StreamGuard.wrap()`` loop notices
+    the signal and emits a terminal *server_shutdown* error before exiting.
+    Returns the number of streams that were active when drain started.
+    """
+    signal_shutdown()
+    initial_count = len(_active_streams)
+    if initial_count == 0:
+        return 0
+    try:
+        async with asyncio.timeout(drain_timeout):
+            await _get_drain_complete().wait()
+    except TimeoutError:
+        pass
+    remaining = len(_active_streams)
+    if remaining:
+        logger.warning(
+            "Stream drain: %d/%d streams did not close in %.1fs",
+            remaining,
+            initial_count,
+            drain_timeout,
+        )
+    else:
+        logger.info("Stream drain: all %d streams closed gracefully", initial_count)
+    return initial_count
+
 
 class StreamErrorCode(str, Enum):
     """Standardized error codes for streaming failures."""
@@ -183,6 +256,24 @@ class StreamGuard:
                 now = time.monotonic()
                 if now - self._last_cancel_check >= self.check_interval:
                     self._last_cancel_check = now
+                    # Check for server shutdown first (takes priority)
+                    if is_shutdown_signaled():
+                        logger.info(
+                            "StreamGuard: shutdown signal detected for session %s, closing stream",
+                            self.session_id,
+                        )
+                        yield ErrorEvent(
+                            error="Server is restarting. Please wait a moment.",
+                            error_type="server_shutdown",
+                            error_code=StreamErrorCode.CANCELLED.value,
+                            error_category=StreamErrorCategory.TRANSPORT.value,
+                            recoverable=True,
+                            can_resume=True,
+                            retry_after_ms=3000,
+                            retry_hint="Server is restarting. Your session will resume automatically.",
+                        )
+                        return
+
                     if self.cancel_token.is_cancelled():
                         logger.info(
                             "StreamGuard: cancellation detected for session %s, stopping stream",
@@ -393,7 +484,16 @@ class ActiveStreamInfo:
 _stream_metrics: deque[StreamMetrics] = deque(maxlen=500)
 _active_streams: dict[str, ActiveStreamInfo] = {}
 _reconnection_events: deque[tuple[float, str]] = deque()
-_metrics_lock = asyncio.Lock()
+_metrics_lock: asyncio.Lock | None = None
+
+
+def _get_metrics_lock() -> asyncio.Lock:
+    global _metrics_lock
+    if _metrics_lock is None:
+        _metrics_lock = asyncio.Lock()
+    return _metrics_lock
+
+
 _RECONNECTION_WINDOW_SECONDS = 300.0  # 5 minutes
 
 
@@ -420,7 +520,7 @@ async def register_active_stream(session_id: str, endpoint: str) -> str:
     stream_key = f"{session_id}:{endpoint}:{uuid4()}"
     now_monotonic = time.monotonic()
     now_unix = time.time()
-    async with _metrics_lock:
+    async with _get_metrics_lock():
         _active_streams[stream_key] = ActiveStreamInfo(
             stream_key=stream_key,
             session_id=session_id,
@@ -433,13 +533,14 @@ async def register_active_stream(session_id: str, endpoint: str) -> str:
 
 async def unregister_active_stream(stream_key: str) -> None:
     """Remove a stream from the active registry."""
-    async with _metrics_lock:
+    async with _get_metrics_lock():
         _active_streams.pop(stream_key, None)
+        _check_drain_complete()
 
 
 async def has_active_stream(session_id: str, endpoint: str | None = None) -> bool:
     """Return whether a session currently has any active stream (optionally by endpoint)."""
-    async with _metrics_lock:
+    async with _get_metrics_lock():
         for stream in _active_streams.values():
             if stream.session_id != session_id:
                 continue
@@ -452,7 +553,7 @@ async def has_active_stream(session_id: str, endpoint: str | None = None) -> boo
 async def record_stream_reconnection(session_id: str, endpoint: str) -> None:
     """Record that a client attempted to resume/reconnect an SSE stream."""
     now_monotonic = time.monotonic()
-    async with _metrics_lock:
+    async with _get_metrics_lock():
         _reconnection_events.append((now_monotonic, endpoint))
         _prune_reconnection_events(now_monotonic)
     logger.debug("Recorded stream reconnection: session_id=%s endpoint=%s", session_id, endpoint)
@@ -460,13 +561,13 @@ async def record_stream_reconnection(session_id: str, endpoint: str) -> None:
 
 async def record_stream_metrics(metrics: StreamMetrics) -> None:
     """Record completed stream metrics for health monitoring."""
-    async with _metrics_lock:
+    async with _get_metrics_lock():
         _stream_metrics.append(metrics)
 
 
 async def get_aggregate_stream_metrics() -> dict[str, Any]:
     """Get aggregate streaming metrics for health endpoint."""
-    async with _metrics_lock:
+    async with _get_metrics_lock():
         now_monotonic = time.monotonic()
         _prune_reconnection_events(now_monotonic)
 
