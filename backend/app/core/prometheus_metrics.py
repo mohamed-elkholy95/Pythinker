@@ -869,6 +869,12 @@ api_key_latency_seconds = Histogram(
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
 )
 
+api_key_early_recoveries_total = Counter(
+    name="pythinker_api_key_early_recoveries_total",
+    help_text="Total early key recoveries detected (adaptive TTL trigger)",
+    labels=["provider"],
+)
+
 # Plan Quality Metrics
 plan_modifications_total = Counter(
     name="pythinker_plan_modifications_total",
@@ -1200,6 +1206,7 @@ _metrics_registry.extend(
         api_key_exhaustions_total,
         api_key_health_score,
         api_key_latency_seconds,
+        api_key_early_recoveries_total,
         workflow_phase_duration,
         workflow_phase_transitions,
         tool_selection_accuracy,
