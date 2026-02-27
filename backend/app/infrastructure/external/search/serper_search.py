@@ -22,6 +22,7 @@ from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.key_pool import (
     APIKeyConfig,
     APIKeyPool,
+    ErrorType,
     RotationStrategy,
     _text_has_quota_keywords,
 )
@@ -77,11 +78,13 @@ class SerperSearchEngine(SearchEngineBase):
         key_configs = [APIKeyConfig(key=k, priority=i) for i, k in enumerate(all_keys) if k and k.strip()]
 
         # Initialize key pool with FAILOVER strategy
+        # Serper free-tier resets credits faster than 24h — use 4h cooldown
         self._key_pool = APIKeyPool(
             provider="serper",
             keys=key_configs,
             redis_client=redis_client,
             strategy=RotationStrategy.FAILOVER,
+            cooldown_overrides={ErrorType.QUOTA_EXHAUSTED: 14400},
         )
 
         # Set max retries to number of keys to prevent unbounded recursion
