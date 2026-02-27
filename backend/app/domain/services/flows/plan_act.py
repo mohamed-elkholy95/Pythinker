@@ -211,6 +211,7 @@ class PlanActFlow(BaseFlow):
         checkpoint_manager=None,
     ):
         self._feature_flags = feature_flags
+        self._deal_finder = deal_finder
         self._research_mode = research_mode
         self._workspace_output_path: str | None = None  # Set during run() for deep_research
         # PR-7: lazy PromptProfileResolver — built on first use if feature flags are active
@@ -325,7 +326,7 @@ class PlanActFlow(BaseFlow):
         if deal_finder:
             from app.domain.services.tools.deal_scraper import DealScraperTool
 
-            tools.append(DealScraperTool(deal_finder=deal_finder))
+            tools.append(DealScraperTool(deal_finder=deal_finder, browser=self._browser))
             logger.info(f"DealScraperTool enabled for Agent {agent_id}")
 
         # Add skill creator tools for custom skill creation (Phase 3: Custom Skills)
@@ -841,6 +842,22 @@ class PlanActFlow(BaseFlow):
     async def _get_executor_for_step(self, step: Step) -> BaseAgent:
         """Select the appropriate executor for a step (delegated to FlowStepExecutor)."""
         return await self._flow_step_executor.get_executor_for_step(step)
+
+    def _infer_research_depth(self) -> str:
+        """Infer research depth from plan step count and deal-finder presence.
+
+        Returns one of: QUICK, STANDARD, DEEP, DEAL.
+        """
+        # Deal-finding tasks get their own depth tier
+        if self._deal_finder is not None:
+            return "DEAL"
+
+        step_count = len(self.plan.steps) if self.plan and self.plan.steps else 0
+        if step_count <= 2:
+            return "QUICK"
+        if step_count <= 4:
+            return "STANDARD"
+        return "DEEP"
 
     def _background_compact_memory(self, force: bool = False, reason: str = "") -> None:
         """Schedule memory compaction as a non-blocking background task with debouncing.
@@ -2972,11 +2989,23 @@ class PlanActFlow(BaseFlow):
                     if not self.executor._user_request and message.message:
                         self.executor._user_request = message.message
 
+                    # Propagate research depth to executor for depth-aware summarization
+                    self.executor._research_depth = self._infer_research_depth()
+
                     summarization_start = time.perf_counter()
                     metrics_port = get_metrics()
                     _eval_final_content = ""  # WP-3: capture last summary content for eval gate
+                    _all_steps_done = bool(
+                        completed_steps
+                        and self.plan
+                        and self.plan.steps
+                        and len(completed_steps) == len(self.plan.steps)
+                    )
                     with trace_ctx.span("summarizing", "agent_step") as summary_span:
-                        async for event in self.executor.summarize(response_policy=self._response_policy):
+                        async for event in self.executor.summarize(
+                            response_policy=self._response_policy,
+                            all_steps_completed=_all_steps_done,
+                        ):
                             await self._check_cancelled()
                             if isinstance(event, ErrorEvent):
                                 logger.warning(f"Agent {self._agent_id} summarization failed: {event.error}")
