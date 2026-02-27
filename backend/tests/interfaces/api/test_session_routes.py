@@ -288,6 +288,7 @@ async def test_chat_completed_session_no_input_returns_done_event():
     session = _make_completed_session(session_id, title="Finished task")
     agent_service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
         chat=AsyncMock(),  # Should NOT be called
     )
     current_user = SimpleNamespace(id="user-1")
@@ -343,6 +344,7 @@ async def test_chat_completed_session_with_resume_cursor_replays_tail_events():
     )
     agent_service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
         chat=AsyncMock(),  # Should NOT be called
     )
     current_user = SimpleNamespace(id="user-1")
@@ -378,6 +380,7 @@ async def test_chat_completed_session_with_stale_resume_cursor_emits_gap_then_do
     )
     agent_service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
         chat=AsyncMock(),  # Should NOT be called
     )
     current_user = SimpleNamespace(id="user-1")
@@ -414,6 +417,7 @@ async def test_chat_completed_session_with_message_proceeds_to_agent_chat():
 
     agent_service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
         chat=fake_chat,
     )
     current_user = SimpleNamespace(id="user-1")
@@ -448,6 +452,7 @@ async def test_chat_completed_session_with_follow_up_proceeds_to_agent_chat():
 
     agent_service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
         chat=fake_chat,
     )
     current_user = SimpleNamespace(id="user-1")
@@ -486,6 +491,7 @@ async def test_chat_forwards_last_event_id_header_when_request_event_id_missing(
 
     agent_service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
         chat=fake_chat,
     )
     current_user = SimpleNamespace(id="user-1")
@@ -525,6 +531,7 @@ async def test_chat_reconnect_records_latency_and_phase_metrics():
 
     agent_service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
         chat=fake_chat,
     )
     current_user = SimpleNamespace(id="user-1")
@@ -567,7 +574,8 @@ async def test_chat_stream_exhausted_uses_terminal_close_reason_when_session_com
         yield DoneEvent(title="done")
 
     agent_service = SimpleNamespace(
-        get_session=AsyncMock(side_effect=[initial_session, terminal_session]),
+        get_session=AsyncMock(return_value=terminal_session),
+        get_session_full=AsyncMock(return_value=initial_session),
         chat=fake_chat,
     )
     current_user = SimpleNamespace(id="user-1")
@@ -598,7 +606,8 @@ async def test_chat_stream_exhausted_uses_non_terminal_close_reason_when_session
         yield DoneEvent(title="done")
 
     agent_service = SimpleNamespace(
-        get_session=AsyncMock(side_effect=[running_session, running_session]),
+        get_session=AsyncMock(return_value=running_session),
+        get_session_full=AsyncMock(return_value=running_session),
         chat=fake_chat,
     )
     current_user = SimpleNamespace(id="user-1")
@@ -632,6 +641,7 @@ async def test_chat_stream_error_emits_schema_compliant_error_event():
 
     agent_service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
         chat=exploding_chat,
     )
     current_user = SimpleNamespace(id="user-1")
@@ -668,6 +678,7 @@ async def test_chat_failed_session_no_input_returns_done_event():
     session = SimpleNamespace(id=session_id, status="failed", title="Failed task")
     agent_service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
         chat=AsyncMock(),
     )
     current_user = SimpleNamespace(id="user-1")
