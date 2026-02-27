@@ -51,7 +51,7 @@
                 <FileText :size="16" />
               </div>
               <div class="flex flex-col min-w-0 flex-1">
-                <span class="text-sm font-medium text-[var(--text-primary)] truncate">{{ file.filename }}</span>
+                <span class="text-sm font-medium text-[var(--text-primary)] truncate" :title="file.filename">{{ file.filename }}</span>
                 <span class="text-xs text-[var(--text-tertiary)]">{{ formatFileSize(file.size) }}</span>
               </div>
             </div>
