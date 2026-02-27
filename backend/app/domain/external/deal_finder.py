@@ -31,6 +31,7 @@ class DealResult:
     score: int = 0  # 0-100 deal quality score
     extraction_strategy: str | None = None  # "json_ld", "css", "generic"
     extraction_confidence: float = 0.0  # 0-1 price reliability
+    source_type: str = "store"  # "store" | "community" | "open_web"
 
 
 @dataclass
@@ -66,6 +67,7 @@ class DealComparison:
     searched_stores: list[str] = field(default_factory=list)
     error: str | None = None
     store_errors: list[dict[str, str]] = field(default_factory=list)
+    community_sources_searched: int = 0
 
 
 class DealFinder(Protocol):
