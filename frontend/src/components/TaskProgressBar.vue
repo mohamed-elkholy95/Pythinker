@@ -250,6 +250,7 @@ import LiveMiniPreview from './LiveMiniPreview.vue'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState'
+import { useElapsedTimer } from '@/composables/useElapsedTimer'
 import { extractToolPreview } from '@/utils/toolPreviewFormatter'
 
 interface Props {
@@ -396,10 +397,8 @@ const handleResize = () => {
   if (tooltipVisible.value) updateTooltipPosition()
 }
 
-// Task timer
-const taskStartTime = ref<number | null>(null)
-const taskElapsedSeconds = ref(0)
-let timerIntervalId: ReturnType<typeof setInterval> | null = null
+// Task timer — shared composable replaces local interval logic
+const timer = useElapsedTimer()
 
 const isVisible = computed(() => {
   return props.plan && props.plan.steps.length > 0
@@ -414,12 +413,7 @@ const previousStepStatuses = ref<Map<string, string>>(new Map())
 const completedCount = computed(() => steps.value.filter(s => s.status === 'completed').length)
 const totalCount = computed(() => steps.value.length)
 
-const formattedElapsedTime = computed(() => {
-  const seconds = taskElapsedSeconds.value
-  const mins = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-})
+const formattedElapsedTime = timer.formatted
 
 const currentTaskDescription = computed(() => {
   const runningStep = steps.value.find(s => s.status === 'running')
@@ -512,23 +506,8 @@ const toggleExpand = () => {
   isExpanded.value = !isExpanded.value
 }
 
-const startTimer = () => {
-  if (timerIntervalId) return
-  taskStartTime.value = Date.now()
-  taskElapsedSeconds.value = 0
-  timerIntervalId = setInterval(() => {
-    if (taskStartTime.value) {
-      taskElapsedSeconds.value = Math.floor((Date.now() - taskStartTime.value) / 1000)
-    }
-  }, 1000)
-}
-
-const stopTimer = () => {
-  if (timerIntervalId) {
-    clearInterval(timerIntervalId)
-    timerIntervalId = null
-  }
-}
+const startTimer = () => timer.start()
+const stopTimer = () => timer.stop()
 
 // Start/stop animations based on loading/thinking state
 watch(() => props.isLoading, (loading) => {

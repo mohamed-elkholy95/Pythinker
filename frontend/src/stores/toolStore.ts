@@ -5,8 +5,8 @@
  * buffers, and panel selection state. Composables become thin facades.
  */
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import type { ToolContent } from '../types/message'
+import { ref, shallowRef, computed } from 'vue'
+import type { ToolContent, SourceCitation } from '../types/message'
 
 // ── Interfaces ──────────────────────────────────────────────────────
 
@@ -36,13 +36,27 @@ export interface ActiveToolCall {
   streamingContent?: string
 }
 
+/** Buffered streaming content entry keyed by tool_call_id. */
+export interface StreamingBufferEntry {
+  content: string
+  functionName: string
+  contentType: string
+}
+
 export const useToolStore = defineStore('tool', () => {
   // ── State ────────────────────────────────────────────────────────
   const lastTool = ref<ToolContent | null>(null)
+  const lastNoMessageTool = ref<ToolContent | null>(null)
   const toolTimeline = ref<ToolTimelineEntry[]>([])
   const panelToolId = ref<string | null>(null)
-  const streamingContentBuffer = ref<string>('')
+  const realTime = ref(true)
   const activeToolCalls = ref<Map<string, ActiveToolCall>>(new Map())
+
+  /** Per-tool_call_id streaming content buffer (replaces string buffer). */
+  const streamingContentBuffer = ref<Map<string, StreamingBufferEntry>>(new Map())
+
+  /** Search sources cache keyed by tool_call_id. */
+  const searchSourcesCache = shallowRef<Map<string, SourceCitation[]>>(new Map())
 
   // ── Computed ─────────────────────────────────────────────────────
   const timelineCount = computed(() => toolTimeline.value.length)
@@ -58,6 +72,10 @@ export const useToolStore = defineStore('tool', () => {
 
   function recordToolCall(tool: ToolContent) {
     lastTool.value = tool
+    // Track last non-message tool for panel display
+    if (tool.name !== 'message') {
+      lastNoMessageTool.value = tool
+    }
 
     const entry: ToolTimelineEntry = {
       toolCallId: tool.tool_call_id,
@@ -114,28 +132,84 @@ export const useToolStore = defineStore('tool', () => {
     panelToolId.value = toolId
   }
 
-  function clearTimeline() {
+  // ── Streaming content buffer (per-tool_call_id) ─────────────────
+
+  function setStreamingContent(
+    toolCallId: string,
+    content: string,
+    functionName: string,
+    contentType: string,
+  ) {
+    const newMap = new Map(streamingContentBuffer.value)
+    newMap.set(toolCallId, { content, functionName, contentType })
+    streamingContentBuffer.value = newMap
+  }
+
+  function getStreamingContent(toolCallId: string): StreamingBufferEntry | undefined {
+    return streamingContentBuffer.value.get(toolCallId)
+  }
+
+  function deleteStreamingContent(toolCallId: string) {
+    const newMap = new Map(streamingContentBuffer.value)
+    newMap.delete(toolCallId)
+    streamingContentBuffer.value = newMap
+  }
+
+  // ── Search sources cache ────────────────────────────────────────
+
+  function cacheSearchSources(toolCallId: string, sources: SourceCitation[]) {
+    const newMap = new Map(searchSourcesCache.value)
+    newMap.set(toolCallId, sources)
+    searchSourcesCache.value = newMap
+  }
+
+  function getSearchSources(toolCallId: string): SourceCitation[] | undefined {
+    return searchSourcesCache.value.get(toolCallId)
+  }
+
+  // ── Real-time toggle ────────────────────────────────────────────
+
+  function setRealTime(value: boolean) {
+    realTime.value = value
+  }
+
+  // ── Full reset ──────────────────────────────────────────────────
+
+  function clearAll() {
     toolTimeline.value = []
     lastTool.value = null
+    lastNoMessageTool.value = null
     activeToolCalls.value.clear()
     panelToolId.value = null
-    streamingContentBuffer.value = ''
+    streamingContentBuffer.value = new Map()
+    searchSourcesCache.value = new Map()
+    realTime.value = true
   }
 
-  function appendStreamContent(content: string) {
-    streamingContentBuffer.value += content
+  /** @deprecated Use clearAll() instead */
+  function clearTimeline() {
+    clearAll()
   }
 
+  /** @deprecated Use setStreamingContent() per tool_call_id instead */
+  function appendStreamContent(_content: string) {
+    // Legacy no-op — streaming is now per-tool_call_id
+  }
+
+  /** @deprecated Use clearAll() instead */
   function clearStreamBuffer() {
-    streamingContentBuffer.value = ''
+    streamingContentBuffer.value = new Map()
   }
 
   return {
     // State
     lastTool,
+    lastNoMessageTool,
     toolTimeline,
     panelToolId,
+    realTime,
     streamingContentBuffer,
+    searchSourcesCache,
     activeToolCalls,
     // Computed
     timelineCount,
@@ -145,6 +219,13 @@ export const useToolStore = defineStore('tool', () => {
     recordToolCall,
     updateToolResult,
     selectTool,
+    setStreamingContent,
+    getStreamingContent,
+    deleteStreamingContent,
+    cacheSearchSources,
+    getSearchSources,
+    setRealTime,
+    clearAll,
     clearTimeline,
     appendStreamContent,
     clearStreamBuffer,

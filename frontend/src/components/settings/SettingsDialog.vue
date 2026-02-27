@@ -41,6 +41,10 @@
           <SkillsSettings @buildWithPythinker="handleBuildWithPythinker" />
         </template>
 
+        <template #mcp>
+          <McpSettings @open-connectors="handleOpenConnectors" />
+        </template>
+
         <template #usage>
           <UsageSettings />
         </template>
@@ -54,7 +58,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { UserRound, Settings2, Bot, Search, Workflow, BarChart2, Puzzle } from 'lucide-vue-next'
+import { UserRound, Settings2, Bot, Search, Workflow, BarChart2, Puzzle, Plug } from 'lucide-vue-next'
 import {
   Dialog,
   DialogContent,
@@ -62,6 +66,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import { useSettingsDialog } from '@/composables/useSettingsDialog'
+import { useConnectorDialog } from '@/composables/useConnectorDialog'
 import SettingsTabs from './SettingsTabs.vue'
 import AccountSettings from './AccountSettings.vue'
 import GeneralSettings from './GeneralSettings.vue'
@@ -71,6 +76,7 @@ import SearchSettings from './SearchSettings.vue'
 import AgentSettings from './AgentSettings.vue'
 import SkillsSettings from './SkillsSettings.vue'
 import UsageSettings from './UsageSettings.vue'
+import McpSettings from './McpSettings.vue'
 import type { TabItem, SubPageConfig } from './SettingsTabs.vue'
 
 const router = useRouter()
@@ -114,6 +120,11 @@ const tabs: TabItem[] = [
     icon: Puzzle
   },
   {
+    id: 'mcp',
+    label: 'MCP Servers',
+    icon: Plug
+  },
+  {
     id: 'usage',
     label: 'Usage',
     icon: BarChart2
@@ -143,6 +154,13 @@ const navigateToProfile = () => {
 // Go back to main view
 const goBack = () => {
   currentSubPage.value = null
+}
+
+// Open Connectors dialog on custom-mcp tab (from MCP Settings)
+const handleOpenConnectors = () => {
+  isSettingsDialogOpen.value = false
+  const { openConnectorDialog } = useConnectorDialog()
+  openConnectorDialog('custom-mcp')
 }
 
 // Handle "Build with Pythinker" - insert skill creation prompt into chat input

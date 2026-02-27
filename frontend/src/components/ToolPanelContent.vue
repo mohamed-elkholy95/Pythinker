@@ -72,21 +72,30 @@
           v-if="contentConfig && (!embedded || forceViewType)"
           class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[14px] relative">
 
-          <!-- Left: Activity indicator (absolute positioned) -->
+          <!-- Left: Activity indicator + elapsed timer (absolute positioned) -->
           <div v-if="isWriting" class="absolute left-3 flex items-center gap-2">
             <div class="flex items-center gap-1.5">
               <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
               <span class="text-xs text-blue-500 font-medium">Writing</span>
             </div>
+            <span v-if="isLoading" class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)]">{{ headerTimer.formatted.value }}</span>
           </div>
           <div v-else-if="shellProgress" class="absolute left-3 flex items-center gap-2">
             <div class="flex items-center gap-1.5">
               <div class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
               <span class="text-xs text-emerald-600 font-medium">{{ shellProgress }}</span>
             </div>
+            <span v-if="isLoading" class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)]">{{ headerTimer.formatted.value }}</span>
+          </div>
+          <div v-else-if="isLoading" class="absolute left-3 flex items-center gap-2">
+            <div class="flex items-center gap-1.5">
+              <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+              <span class="text-xs text-blue-500 font-medium">Running</span>
+            </div>
+            <span class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)]">{{ headerTimer.formatted.value }}</span>
           </div>
 
-          <!-- Center: Operation label or resource -->
+          <!-- Center: Operation label + step counter -->
           <div class="text-[var(--text-tertiary)] text-sm font-medium max-w-[300px] flex items-center justify-center gap-1.5 min-w-0">
             <BarChart3
               v-if="currentViewType === 'chart'"
@@ -99,6 +108,7 @@
               class="flex-shrink-0 text-[var(--text-tertiary)]"
             />
             <span class="truncate">{{ contentHeaderLabel }}</span>
+            <span v-if="stepInfo" class="text-[var(--text-quaternary)] text-xs flex-shrink-0">&middot; Step {{ stepInfo.current }}/{{ stepInfo.total }}</span>
           </div>
 
           <!-- Right: View mode tabs (absolute positioned) -->
@@ -166,6 +176,15 @@
             >
               {{ chartTypeBadge }}
             </span>
+          </div>
+
+          <!-- Connection status dot (overlays near right edge, independent of tab v-if chain) -->
+          <div
+            v-if="connectionDot && !contentConfig?.showTabs && currentViewType !== 'chart' && !(currentViewType === 'editor' && isHtmlFile)"
+            class="absolute right-3 flex items-center gap-1"
+          >
+            <div class="w-1.5 h-1.5 rounded-full" :class="[connectionDot.color, connectionDot.pulse ? 'animate-pulse' : '']"></div>
+            <span v-if="connectionDot.label" class="text-[10px] text-[var(--text-quaternary)]">{{ connectionDot.label }}</span>
           </div>
         </div>
 
@@ -441,7 +460,9 @@
             :can-step-forward="!!timelineCanStepForward"
             :can-step-backward="!!timelineCanStepBackward"
             :show-timestamp-on-interact="true"
-            :screenshots="replayScreenshots"
+            :tool-timeline="toolTimeline"
+            :current-step="timelineCurrentStep"
+            :total-steps="timelineTotalSteps"
             @jump-to-live="jumpToRealTime"
             @step-forward="handleStepForward"
             @step-backward="handleStepBackward"
@@ -498,6 +519,8 @@ const UnifiedStreamingView = defineAsyncComponent(() => import('@/components/too
 const WideResearchOverlay = defineAsyncComponent(() => import('@/components/WideResearchOverlay.vue'));
 const ScreenshotReplayViewer = defineAsyncComponent(() => import('@/components/ScreenshotReplayViewer.vue'));
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
+import { useElapsedTimer } from '@/composables/useElapsedTimer';
+import { useConnectionStore } from '@/stores/connectionStore';
 import { normalizeSearchResults } from '@/utils/searchResults';
 import { isCanvasDomainTool } from '@/utils/viewRouting';
 import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
@@ -517,6 +540,12 @@ const props = defineProps<{
   timelineTimestamp?: number;
   timelineCanStepForward?: boolean;
   timelineCanStepBackward?: boolean;
+  /** Tool timeline entries for scrubber markers and hover labels */
+  toolTimeline?: ToolContent[];
+  /** 1-based current step in the tool timeline */
+  timelineCurrentStep?: number;
+  /** Total steps in the tool timeline */
+  timelineTotalSteps?: number;
   plan?: PlanEventData;
   isLoading?: boolean;
   isThinking?: boolean;
@@ -526,13 +555,47 @@ const props = defineProps<{
   replayScreenshots?: ScreenshotMetadata[];
   summaryStreamText?: string;
   isSummaryStreaming?: boolean;
-  /** When true, hides the frame header and outer card styling (used inside WorkspacePanel) */
+  /** When true, hides the frame header and outer card styling (used in embedded/workspace mode) */
   embedded?: boolean;
   /** Override the auto-detected content view type (used for workspace tab switching) */
   forceViewType?: ContentViewType;
   /** Active canvas project ID from SSE canvas_update events */
   activeCanvasProjectId?: string | null;
 }>();
+
+// ── Elapsed timer + connection status for header ──────────────────
+const headerTimer = useElapsedTimer()
+const connectionStore = useConnectionStore()
+
+// Start/stop timer based on loading state
+watch(() => props.isLoading, (loading) => {
+  if (loading) {
+    headerTimer.start()
+  } else {
+    headerTimer.stop()
+  }
+}, { immediate: true })
+
+/** Step progress derived from plan prop. */
+const stepInfo = computed(() => {
+  if (!props.plan?.steps?.length) return null
+  const steps = props.plan.steps
+  const runningIdx = steps.findIndex(s => s.status === 'running')
+  const current = runningIdx >= 0
+    ? runningIdx + 1
+    : steps.filter(s => s.status === 'completed').length
+  return { current, total: steps.length }
+})
+
+/** Connection status dot color/pulse for header. */
+const connectionDot = computed(() => {
+  const p = connectionStore.phase
+  if (p === 'streaming') return { color: 'bg-emerald-500', pulse: false, label: '' }
+  if (p === 'degraded') return { color: 'bg-amber-400', pulse: true, label: 'Slow' }
+  if (p === 'reconnecting') return { color: 'bg-amber-400', pulse: true, label: '' }
+  if (p === 'error') return { color: 'bg-red-500', pulse: false, label: '' }
+  return null // idle/settled → hidden
+})
 
 // Computed for TaskProgressBar current tool
 const currentToolForProgress = computed(() => {
@@ -991,7 +1054,7 @@ const terminalContent = computed(() => {
     const content = props.toolContent?.content;
     if (!content) {
       // Live shell streaming: show command prefix + real-time output
-      if (isActiveOperation.value && props.toolContent?.streaming_content) {
+      if (props.toolContent?.streaming_content) {
         const prefix = command ? `$ ${command}\n` : '';
         return `${prefix}${props.toolContent.streaming_content}`;
       }
