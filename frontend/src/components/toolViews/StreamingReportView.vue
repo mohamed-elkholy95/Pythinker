@@ -29,7 +29,7 @@ const contentRef = ref<HTMLElement | null>(null);
 
 const renderedHtml = computed(() => {
   if (!props.text) return '';
-  const raw = marked.parse(props.text, { async: false }) as string;
+  const raw = marked.parse(props.text, { async: false, breaks: true, gfm: true }) as string;
   return DOMPurify.sanitize(raw);
 });
 
