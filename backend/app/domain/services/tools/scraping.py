@@ -63,7 +63,7 @@ RETURNS: Dict mapping field names to extracted values (list if multiple matches,
             },
             "selectors": {
                 "type": "object",
-                "description": "Map of field names to CSS selectors, e.g. {\"price\": \".price\", \"title\": \"h1\"}",
+                "description": 'Map of field names to CSS selectors, e.g. {"price": ".price", "title": "h1"}',
             },
         },
         required=["url", "selectors"],
@@ -187,9 +187,7 @@ adaptive_scrape(
         },
         required=["url", "selectors"],
     )
-    async def adaptive_scrape(
-        self, url: str, selectors: dict, context: str | None = None
-    ) -> ToolResult:
+    async def adaptive_scrape(self, url: str, selectors: dict, context: str | None = None) -> ToolResult:
         """Scrape with adaptive element tracking and optional memory persistence."""
         from app.core.config import get_settings
 
@@ -232,9 +230,7 @@ adaptive_scrape(
 
             domain = urlparse(url).netloc
             successful_fields = [
-                f"{field_name}={selector}"
-                for field_name, selector in selectors.items()
-                if data.get(field_name)
+                f"{field_name}={selector}" for field_name, selector in selectors.items() if data.get(field_name)
             ]
             if not successful_fields:
                 return

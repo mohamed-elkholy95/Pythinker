@@ -99,9 +99,9 @@ def _configure_dspy_lm(
         model=f"openai/{model_name}",
         api_key=api_key,
         api_base=api_base,
-        cache=True,           # Enable LiteLLM in-process response cache
-        track_usage=True,     # Expose token counts via get_lm_usage()
-        temperature=0.0,      # Deterministic outputs for reproducible evals
+        cache=True,  # Enable LiteLLM in-process response cache
+        track_usage=True,  # Expose token counts via get_lm_usage()
+        temperature=0.0,  # Deterministic outputs for reproducible evals
     )
     dspy.configure(lm=lm)
     logger.info("DSPy LM configured: %s @ %s (threads=%d)", model_name, api_base, num_threads)

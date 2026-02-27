@@ -40,8 +40,8 @@ class HTTPClientConfig:
     pool_timeout: float = 10.0
 
     max_connections: int = 100
-    max_keepalive_connections: int = 20
-    keepalive_expiry: float = 5.0
+    max_keepalive_connections: int = 40  # Scaled for multi-user concurrent API calls
+    keepalive_expiry: float = 30.0  # 30s keeps connections warm between rapid LLM calls
 
     headers: dict[str, str] = field(default_factory=dict)
 

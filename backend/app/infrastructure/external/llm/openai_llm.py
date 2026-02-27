@@ -1630,9 +1630,7 @@ To extract data from a webpage:
                             self._model_name,
                         )
                     else:
-                        logger.debug(
-                            "Using prompt-based JSON fallback for %s", self._model_name
-                        )
+                        logger.debug("Using prompt-based JSON fallback for %s", self._model_name)
                     json_instruction = (
                         "\n\nCRITICAL: You must respond with valid JSON matching this schema:\n"
                         f"{json.dumps(schema, indent=2)}\n\n"
@@ -1759,9 +1757,7 @@ To extract data from a webpage:
                     try:
                         from app.core.prometheus_metrics import llm_json_parse_failures_total
 
-                        llm_json_parse_failures_total.inc(
-                            {"model": self._model_name, "method": "ask_structured"}
-                        )
+                        llm_json_parse_failures_total.inc({"model": self._model_name, "method": "ask_structured"})
                     except Exception:
                         logger.debug("Failed to record ask_structured parse failure metric", exc_info=True)
                     raise LLMException(f"Failed to parse JSON response: {e}") from e

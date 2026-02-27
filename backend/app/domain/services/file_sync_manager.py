@@ -416,9 +416,7 @@ class FileSyncManager:
 
             # Filter out orphaned exec temp files (exec_{hex}.py etc.)
             pre_filter_count = len(discovered_paths)
-            discovered_paths = [
-                p for p in discovered_paths if not _EXEC_TEMP_FILE_RE.match(os.path.basename(p))
-            ]
+            discovered_paths = [p for p in discovered_paths if not _EXEC_TEMP_FILE_RE.match(os.path.basename(p))]
             if len(discovered_paths) < pre_filter_count:
                 logger.debug(
                     "Agent %s: Filtered %d exec temp files from sweep",

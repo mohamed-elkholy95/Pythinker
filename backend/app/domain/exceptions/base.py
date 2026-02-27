@@ -226,7 +226,7 @@ class ToolNotFoundException(ToolException):
     def __init__(self, tool_name: str, correction: str | None = None) -> None:
         self.tool_name = tool_name
         self.correction = correction
-        msg = correction if correction else f"Tool '{tool_name}' not found"
+        msg = correction or f"Tool '{tool_name}' not found"
         super().__init__(msg, error_code="TOOL_NOT_FOUND")
 
 

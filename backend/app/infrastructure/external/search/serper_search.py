@@ -222,7 +222,9 @@ class SerperSearchEngine(SearchEngineBase):
             # Check for quota/auth errors (400 = "Not enough credits" from Serper)
             if response.status_code in _ROTATE_STATUS_CODES:
                 body = response.text[:200]
-                logger.warning("Serper key error (HTTP %d%s), rotating", response.status_code, f": {body}" if body else "")
+                logger.warning(
+                    "Serper key error (HTTP %d%s), rotating", response.status_code, f": {body}" if body else ""
+                )
                 await self._key_pool.handle_error(key, status_code=response.status_code, body_text=body)
                 await self.close()
                 return await self.search(query, date_range, _attempt=_attempt + 1)

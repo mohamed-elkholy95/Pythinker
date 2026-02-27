@@ -165,11 +165,7 @@ class ExaSearchEngine(SearchEngineBase):
         data = response.json()
         raw_results = data.get("results", [])
 
-        results = [
-            result
-            for item in raw_results
-            if (result := self._parse_exa_result(item))
-        ]
+        results = [result for item in raw_results if (result := self._parse_exa_result(item))]
 
         return results, len(results)
 
