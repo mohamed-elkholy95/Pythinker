@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Optional
@@ -641,7 +642,7 @@ class ExecutionAgent(BaseAgent):
                             stream_messages = [
                                 *stream_messages,
                                 {"role": "assistant", "content": assistant_fragment},
-                                {"role": "user", "content": self._build_continuation_prompt()},
+                                {"role": "user", "content": self._build_continuation_prompt(accumulated_text)},
                             ]
                             escalation_text = ""
                             stream_iter = self.llm.ask_stream(
@@ -695,7 +696,7 @@ class ExecutionAgent(BaseAgent):
                 stream_messages = [
                     *stream_messages,
                     {"role": "assistant", "content": assistant_fragment},
-                    {"role": "user", "content": self._build_continuation_prompt()},
+                    {"role": "user", "content": self._build_continuation_prompt(accumulated_text)},
                 ]
                 self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="continuation_requested")
 
@@ -1016,6 +1017,9 @@ class ExecutionAgent(BaseAgent):
                 except Exception as e:
                     logger.debug(f"Pattern-based truncation detection failed: {e}")
 
+            # Guaranteed fallback: inject complete References section if truncated/missing
+            message_content = self._ensure_complete_references(message_content)
+
             # Extract title from first # heading
             message_title = self._extract_title(message_content)
 
@@ -1235,9 +1239,63 @@ class ExecutionAgent(BaseAgent):
         async for event in self._response_generator.iter_coalesced_stream_events(stream_iter, phase=phase):
             yield event
 
-    def _build_continuation_prompt(self) -> str:
+    def _build_continuation_prompt(self, accumulated_text: str = "") -> str:
         """Prompt used when stream truncation is detected (delegated)."""
-        return self._response_generator.build_continuation_prompt()
+        source_list = self._build_numbered_source_list() if self._collected_sources else ""
+        return self._response_generator.build_continuation_prompt(
+            accumulated_text=accumulated_text,
+            source_list=source_list,
+        )
+
+    def _ensure_complete_references(self, content: str) -> str:
+        """Inject authoritative References section if truncated or missing.
+
+        Guaranteed fallback: if collected sources exist and the markdown has a
+        truncated/missing References section, appends the source list from
+        SourceTracker. Skips injection if the LLM-generated reference count
+        already meets or exceeds the expected count.
+        """
+        if not self._collected_sources:
+            return content
+
+        source_list = self._build_numbered_source_list()
+        if not source_list.strip():
+            return content
+
+        expected_count = len(self._collected_sources)
+
+        # Check if References heading exists
+        ref_match = re.search(r"^##\s+References?\s*$", content, re.MULTILINE | re.IGNORECASE)
+
+        if ref_match:
+            ref_section = content[ref_match.end() :].strip()
+            existing_count = len(re.findall(r"^\s*\[?\d+\]", ref_section, re.MULTILINE))
+
+            # Duplication guard: if LLM already generated enough references, leave untouched
+            if existing_count >= expected_count:
+                return content
+
+            # Replace the incomplete References section with the authoritative one
+            logger.info(
+                "Injecting complete References section (had %d/%d entries)",
+                existing_count,
+                expected_count,
+            )
+            content_before_refs = content[: ref_match.start()].rstrip()
+            return f"{content_before_refs}\n\n## References\n{source_list}\n"
+
+        # No References heading — check if content looks like a report with inline citations
+        has_inline_citations = bool(re.search(r"\[\d+\]", content))
+        has_headings = bool(re.search(r"^#{1,3}\s+", content, re.MULTILINE))
+
+        if has_inline_citations and has_headings:
+            logger.info(
+                "Appending missing References section (%d sources)",
+                expected_count,
+            )
+            return f"{content.rstrip()}\n\n## References\n{source_list}\n"
+
+        return content
 
     def _merge_stream_continuation(self, base_text: str, continuation_text: str) -> str:
         """Merge continuation output (delegated to ResponseGenerator)."""

@@ -225,12 +225,52 @@ class ResponseGenerator:
 
     # ── Continuation / Merging ─────────────────────────────────────────
 
-    def build_continuation_prompt(self) -> str:
-        """Prompt used when stream truncation is detected."""
-        return (
+    def build_continuation_prompt(
+        self,
+        accumulated_text: str = "",
+        source_list: str = "",
+    ) -> str:
+        """Prompt used when stream truncation is detected.
+
+        When the accumulated text has an incomplete References section and sources
+        are available, appends the authoritative numbered source list so the LLM
+        can complete the section deterministically.
+        """
+        base_prompt = (
             "Your previous response was truncated by token limits. Continue exactly where you stopped, "
             "without repeating prior sections. Complete any unfinished heading, list, or code block."
         )
+
+        if not accumulated_text or not source_list:
+            return base_prompt
+
+        # Detect if the References section is incomplete or missing
+        has_ref_heading = bool(re.search(r"^##\s+References?\s*$", accumulated_text, re.MULTILINE | re.IGNORECASE))
+        has_inline_citations = bool(re.search(r"\[\d+\]", accumulated_text))
+
+        needs_references = False
+        if has_ref_heading:
+            # References heading exists — check if section is incomplete
+            ref_match = re.search(r"^##\s+References?\s*$", accumulated_text, re.MULTILINE | re.IGNORECASE)
+            if ref_match:
+                ref_section = accumulated_text[ref_match.end() :].strip()
+                ref_entry_count = len(re.findall(r"^\s*\[?\d+\]", ref_section, re.MULTILINE))
+                source_line_count = source_list.count("\n") + 1
+                if ref_entry_count < source_line_count:
+                    needs_references = True
+        elif has_inline_citations:
+            # Inline citations exist but no References heading at all
+            needs_references = True
+
+        if needs_references:
+            return (
+                f"{base_prompt}\n\n"
+                "IMPORTANT: The ## References section is incomplete or missing. "
+                "You MUST write the complete ## References section using EXACTLY these sources:\n\n"
+                f"{source_list}"
+            )
+
+        return base_prompt
 
     def merge_stream_continuation(self, base_text: str, continuation_text: str) -> str:
         """Merge continuation output while avoiding duplicated overlap."""
