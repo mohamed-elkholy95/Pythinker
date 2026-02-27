@@ -39,7 +39,9 @@ _SCREENSHOT_TIMEOUT_SECONDS = 5.0
 _DISPLAY_NAME = ":1"
 _CACHE_TTL_SECONDS = 30.0  # Return stale cache up to 30s old
 _CACHE_MAX_ENTRIES = 3  # Keep last few frames (different quality/scale combos)
-_HARD_MAX_STALE_SECONDS = 120.0  # Absolute ceiling — never serve screenshots older than this
+_HARD_MAX_STALE_SECONDS = (
+    120.0  # Absolute ceiling — never serve screenshots older than this
+)
 
 
 # ---------------------------------------------------------------------------
@@ -214,14 +216,20 @@ async def _capture_with_cdp(
     # P1.3: Check cooldown and reset under lock
     should_invalidate = False
     async with _cdp_failure_lock:
-        if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD and now < _cdp_skip_until:
+        if (
+            _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD
+            and now < _cdp_skip_until
+        ):
             logger.debug(
                 f"[Screenshot] Skipping CDP tier (in cooldown, {_cdp_consecutive_failures} failures)"
             )
             return None
 
         # When cooldown expires, reset failures and flag for cache invalidation
-        if _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD and now >= _cdp_skip_until:
+        if (
+            _cdp_consecutive_failures >= _CDP_FAILURE_THRESHOLD
+            and now >= _cdp_skip_until
+        ):
             logger.info(
                 "[Screenshot] CDP cooldown expired, invalidating cache for fresh page discovery"
             )
