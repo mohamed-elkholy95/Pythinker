@@ -3716,6 +3716,10 @@ const restoreSession = async () => {
   const session = await agentApi.getSession(sessionId.value);
   sessionStatus.value = session.status as SessionStatus;
   sessionResearchMode.value = (session.research_mode as agentApi.ResearchMode) || 'deep_research';
+  // Set title from session data so it doesn't stay as "New Chat"
+  if (session.title?.trim()) {
+    title.value = session.title;
+  }
   console.log('[RESTORE] Session:', sessionId.value, 'Status:', sessionStatus.value, 'ResearchMode:', sessionResearchMode.value, 'LastEventId:', lastEventId.value);
 
   // Initialize share mode based on session state
