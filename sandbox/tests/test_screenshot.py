@@ -10,7 +10,9 @@ from app.api.v1 import screenshot as screenshot_module
 @pytest.fixture
 def client() -> TestClient:
     app = FastAPI()
-    app.include_router(screenshot_module.router, prefix="/api/v1/screenshot", tags=["screenshot"])
+    app.include_router(
+        screenshot_module.router, prefix="/api/v1/screenshot", tags=["screenshot"]
+    )
     with TestClient(app) as test_client:
         yield test_client
 
@@ -57,7 +59,9 @@ def test_screenshot_falls_back_to_xwd_when_cdp_unavailable(
 
     monkeypatch.setattr(screenshot_module, "_capture_with_cdp", _fake_cdp_capture)
     monkeypatch.setattr(screenshot_module, "_xwd_pipeline_available", lambda: True)
-    monkeypatch.setattr(screenshot_module, "_capture_with_xwd_pipeline", _fake_xwd_capture)
+    monkeypatch.setattr(
+        screenshot_module, "_capture_with_xwd_pipeline", _fake_xwd_capture
+    )
 
     response = client.get("/api/v1/screenshot?quality=80&scale=0.5&format=jpeg")
 

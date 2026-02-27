@@ -139,9 +139,7 @@ class ShellService:
         if not settings.ALLOW_SUDO:
             stripped = command.strip()
             if stripped == "sudo" or stripped.startswith("sudo "):
-                logger.warning(
-                    f"Rejected sudo command (ALLOW_SUDO=false): {command}"
-                )
+                logger.warning(f"Rejected sudo command (ALLOW_SUDO=false): {command}")
                 raise BadRequestException(
                     "sudo commands are disabled in this sandbox (ALLOW_SUDO=false)"
                 )

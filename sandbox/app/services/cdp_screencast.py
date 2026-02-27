@@ -48,10 +48,14 @@ _STREAM_FRAME_TIMEOUT = settings.CDP_STREAM_FRAME_TIMEOUT
 _STREAM_HEALTH_CHECK_INTERVAL = settings.CDP_STREAM_HEALTH_CHECK_INTERVAL
 
 # Page recovery thresholds
-_PAGE_RECOVERY_FAILURE_THRESHOLD = 5   # Consecutive same-page failures before tab replacement
+_PAGE_RECOVERY_FAILURE_THRESHOLD = (
+    5  # Consecutive same-page failures before tab replacement
+)
 _CHROME_RESTART_FAILURE_THRESHOLD = 6  # Total failures before Chrome restart
-_CHROME_RESTART_COOLDOWN = 30.0        # Minimum seconds between Chrome restarts
-_SAME_URL_REDISCOVERY_THRESHOLD = 4    # Times same broken URL rediscovered after cache invalidation
+_CHROME_RESTART_COOLDOWN = 30.0  # Minimum seconds between Chrome restarts
+_SAME_URL_REDISCOVERY_THRESHOLD = (
+    4  # Times same broken URL rediscovered after cache invalidation
+)
 
 
 @dataclass
@@ -108,11 +112,13 @@ class CDPScreencastService:
     # WebSocket URL and re-discover the active page target.
     # NOTE: "Internal error" removed — CDP -32603 is too broad (transient Chrome
     # hiccups). Use _is_internal_error() for code-based detection instead.
-    _PAGE_DETACHED_INDICATORS = frozenset({
-        "Not attached to an active page",
-        "Target closed",
-        "Session with given id not found",
-    })
+    _PAGE_DETACHED_INDICATORS = frozenset(
+        {
+            "Not attached to an active page",
+            "Target closed",
+            "Session with given id not found",
+        }
+    )
 
     def __init__(self, config: ScreencastConfig | None = None):
         self.config = config or ScreencastConfig()
@@ -196,7 +202,8 @@ class CDPScreencastService:
             if cache_age > _WS_URL_CACHE_TTL:
                 logger.info(
                     "CDP -32603 with stale WS URL (age=%.1fs > TTL=%.1fs) — treating as page detach",
-                    cache_age, _WS_URL_CACHE_TTL,
+                    cache_age,
+                    _WS_URL_CACHE_TTL,
                 )
                 return True
             logger.debug(
@@ -265,11 +272,13 @@ class CDPScreencastService:
         return url
 
     # URLs considered "idle" — not worth streaming over a page with real content.
-    _IDLE_PAGE_URLS: ClassVar[frozenset[str]] = frozenset({
-        "about:blank",
-        "chrome://newtab/",
-        "chrome://new-tab-page/",
-    })
+    _IDLE_PAGE_URLS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "about:blank",
+            "chrome://newtab/",
+            "chrome://new-tab-page/",
+        }
+    )
     # URL prefixes for default homepages (Google, data: URIs).
     _IDLE_PAGE_PREFIXES: ClassVar[tuple[str, ...]] = (
         "https://www.google.com/",
@@ -538,14 +547,10 @@ class CDPScreencastService:
                     timeout=aiohttp.ClientTimeout(total=_CONNECT_TIMEOUT),
                 ) as resp:
                     if resp.status != 200:
-                        logger.warning(
-                            f"Failed to create new tab: HTTP {resp.status}"
-                        )
+                        logger.warning(f"Failed to create new tab: HTTP {resp.status}")
                         return False
                     new_target = await resp.json()
-                    logger.info(
-                        f"Created new tab: {new_target.get('id', 'unknown')}"
-                    )
+                    logger.info(f"Created new tab: {new_target.get('id', 'unknown')}")
 
                 # NOTE: Old tab is intentionally NOT closed.  Playwright (running
                 # in the backend) may be controlling it.  Closing it would crash
@@ -580,9 +585,7 @@ class CDPScreencastService:
         now = time.monotonic()
         if (now - self._last_chrome_restart) < _CHROME_RESTART_COOLDOWN:
             remaining = _CHROME_RESTART_COOLDOWN - (now - self._last_chrome_restart)
-            logger.info(
-                f"Chrome restart cooldown active ({remaining:.0f}s remaining)"
-            )
+            logger.info(f"Chrome restart cooldown active ({remaining:.0f}s remaining)")
             return False
 
         logger.warning("Restarting Chrome via supervisord for CDP recovery")
@@ -599,15 +602,10 @@ class CDPScreencastService:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=15.0
-            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             success = proc.returncode == 0
             if success:
-                logger.info(
-                    f"Chrome restarted successfully: "
-                    f"{stdout.decode().strip()}"
-                )
+                logger.info(f"Chrome restarted successfully: {stdout.decode().strip()}")
                 # Full reset — give Chrome time to start and register targets
                 self.invalidate_cache()
                 async with self._command_lock:
@@ -681,8 +679,7 @@ class CDPScreencastService:
 
             if needs_chrome_restart:
                 logger.warning(
-                    "Escalating to Chrome restart "
-                    "(total_failures=%d >= threshold=%d)",
+                    "Escalating to Chrome restart (total_failures=%d >= threshold=%d)",
                     self._total_consecutive_failures,
                     _CHROME_RESTART_FAILURE_THRESHOLD,
                 )
@@ -1024,21 +1021,15 @@ class CDPScreencastService:
                                     timestamp=time.monotonic(),
                                     metadata={"synthetic": True},
                                 )
-                                logger.debug(
-                                    "Sent fallback screenshot for static page"
-                                )
+                                logger.debug("Sent fallback screenshot for static page")
                     except Exception as e:
-                        logger.debug(
-                            f"Fallback screenshot capture failed: {e}"
-                        )
+                        logger.debug(f"Fallback screenshot capture failed: {e}")
 
                     # Check if Playwright is browsing on a different tab.
                     # If a page with real content exists, break the stream
                     # so the recovery loop reconnects to the active page.
                     if await self._has_better_page_target():
-                        logger.info(
-                            "Breaking stream to switch to active page target"
-                        )
+                        logger.info("Breaking stream to switch to active page target")
                         # Invalidate so reconnection discovers the better page
                         self.invalidate_cache()
                         async with self._command_lock:
@@ -1130,7 +1121,9 @@ class CDPScreencastService:
             image_format: Override format for this capture (default: use config)
         """
         capture_quality = quality if quality is not None else self.config.quality
-        capture_format = image_format if image_format is not None else self.config.format
+        capture_format = (
+            image_format if image_format is not None else self.config.format
+        )
 
         # Pre-check: escalate if thresholds were met by a previous call's failures.
         # This covers the case where previous bursts accumulated enough failures
@@ -1196,9 +1189,7 @@ class CDPScreencastService:
 
                 # Command returned error - check if page is detached
                 if "error" in result:
-                    logger.warning(
-                        "CDP capture error response: %s", result["error"]
-                    )
+                    logger.warning("CDP capture error response: %s", result["error"])
                     self._record_page_failure(current_ws_url)
 
                     # Inline escalation check — fires immediately when thresholds

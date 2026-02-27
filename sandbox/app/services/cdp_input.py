@@ -256,9 +256,7 @@ class CDPInputService:
                         aiohttp.WSMsgType.CLOSED,
                     ):
                         self._connected = False
-                        raise RuntimeError(
-                            "WebSocket closed before response received"
-                        )
+                        raise RuntimeError("WebSocket closed before response received")
             except RuntimeError:
                 raise
             except Exception as e:

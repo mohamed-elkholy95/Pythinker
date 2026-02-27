@@ -32,7 +32,9 @@ async def get_navigation_history():
         raise
     except Exception as e:
         logger.error("Failed to fetch navigation history: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch navigation history") from e
+        raise HTTPException(
+            status_code=500, detail="Failed to fetch navigation history"
+        ) from e
     finally:
         await service.disconnect()
 

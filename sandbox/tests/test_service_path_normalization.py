@@ -24,7 +24,9 @@ class TestSafeResolve:
         return str(self._ALLOWED[0].resolve())
 
     def test_path_within_base_is_allowed(self) -> None:
-        result = safe_resolve("/home/ubuntu/project/file.py", allowed_dirs=self._ALLOWED)
+        result = safe_resolve(
+            "/home/ubuntu/project/file.py", allowed_dirs=self._ALLOWED
+        )
         assert result.startswith(self._resolved_base())
 
     def test_base_dir_itself_is_allowed(self) -> None:
@@ -168,7 +170,9 @@ class TestFileServiceMethodTraversal:
     async def test_upload_file_blocks_traversal(self) -> None:
         fake_upload = AsyncMock()
         with pytest.raises(BadRequestException, match="Path traversal denied"):
-            await self.service.upload_file(path="/tmp/evil.bin", file_stream=fake_upload)
+            await self.service.upload_file(
+                path="/tmp/evil.bin", file_stream=fake_upload
+            )
 
     def test_ensure_file_blocks_traversal(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
