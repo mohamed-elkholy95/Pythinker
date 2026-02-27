@@ -90,20 +90,20 @@
     </div>
 
     <!-- Loading State -->
-    <div v-if="loading" class="loading-state">
+    <div v-if="loading && userSkills.length === 0" class="loading-state">
       <div class="loading-spinner"></div>
       <span>Loading skills...</span>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="error-state">
+    <div v-else-if="error && userSkills.length === 0" class="error-state">
       <AlertCircle class="w-5 h-5" />
       <span>{{ error }}</span>
       <button @click="loadSkills" class="retry-btn">Retry</button>
     </div>
 
     <!-- Skills Grid -->
-    <div v-else class="skills-grid">
+    <div v-else-if="userSkills.length > 0" class="skills-grid">
       <div
         v-for="userSkill in userSkills"
         :key="userSkill.skill.id"
