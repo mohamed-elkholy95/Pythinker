@@ -183,7 +183,7 @@ TOOL_OBSERVATION_LIMITS = {
     "shell": 5000,  # Command output usually shorter
     "file": 8000,  # File content moderate
     "search": 8000,  # Search results moderate
-    "mcp": 6000,  # MCP resources varied
+    "mcp": 12000,  # MCP resources varied (configurable via mcp_tool_output_limit)
     "message": 2000,  # Messages should be concise
 }
 
