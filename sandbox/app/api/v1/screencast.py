@@ -241,7 +241,9 @@ async def stream_frames_ws(
             if stop_event.is_set():
                 await websocket.close(code=1001, reason="Preempted by newer connection")
             else:
-                await websocket.send_json({"error": "Failed to start screencast after retries"})
+                await websocket.send_json(
+                    {"error": "Failed to start screencast after retries"}
+                )
                 await websocket.close()
             return
 
@@ -367,9 +369,7 @@ async def stream_frames_ws(
                         stream_cancel.set()
                         break
                     except Exception as e:
-                        logger.debug(
-                            f"[CDP Stream] Fallback screenshot failed: {e}"
-                        )
+                        logger.debug(f"[CDP Stream] Fallback screenshot failed: {e}")
                     await asyncio.sleep(2.0)
                     continue
 
@@ -381,9 +381,11 @@ async def stream_frames_ws(
                         "Closing stream."
                     )
                     try:
-                        await websocket.send_json({
-                            "error": "Chrome became unresponsive after multiple recovery attempts"
-                        })
+                        await websocket.send_json(
+                            {
+                                "error": "Chrome became unresponsive after multiple recovery attempts"
+                            }
+                        )
                     except (RuntimeError, WebSocketDisconnect):
                         pass
                     break
@@ -400,11 +402,13 @@ async def stream_frames_ws(
                 await asyncio.sleep(_RETRY_DELAY)
 
                 if not await _start_screencast_with_retries():
-                    logger.error("[CDP Stream] Recovery failed — cannot restart screencast")
+                    logger.error(
+                        "[CDP Stream] Recovery failed — cannot restart screencast"
+                    )
                     try:
-                        await websocket.send_json({
-                            "error": "Failed to recover screencast after Chrome hang"
-                        })
+                        await websocket.send_json(
+                            {"error": "Failed to recover screencast after Chrome hang"}
+                        )
                     except (RuntimeError, WebSocketDisconnect):
                         pass
                     break

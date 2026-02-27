@@ -63,7 +63,9 @@ class CDPNavigationService:
             self._connected = True
             return True
         except Exception as e:
-            logger.error("Failed to connect CDP navigation service: %s", e, exc_info=True)
+            logger.error(
+                "Failed to connect CDP navigation service: %s", e, exc_info=True
+            )
             return False
 
     async def disconnect(self) -> None:
@@ -110,9 +112,13 @@ class CDPNavigationService:
                     raise RuntimeError(f"CDP command timed out: {method}")
 
                 try:
-                    ws_msg = await asyncio.wait_for(self.ws.receive(), timeout=remaining)
+                    ws_msg = await asyncio.wait_for(
+                        self.ws.receive(), timeout=remaining
+                    )
                 except asyncio.TimeoutError as e:
-                    raise RuntimeError(f"CDP command timed out waiting response: {method}") from e
+                    raise RuntimeError(
+                        f"CDP command timed out waiting response: {method}"
+                    ) from e
 
                 if ws_msg.type == aiohttp.WSMsgType.TEXT:
                     data = ws_msg.json()
@@ -152,7 +158,9 @@ class CDPNavigationService:
         if current_index <= 0 or current_index >= len(entries):
             return False, "No previous history entry"
         target = entries[current_index - 1]
-        await self._send_command("Page.navigateToHistoryEntry", {"entryId": int(target["id"])})
+        await self._send_command(
+            "Page.navigateToHistoryEntry", {"entryId": int(target["id"])}
+        )
         return True, "Navigated back"
 
     async def go_forward(self) -> tuple[bool, str]:
@@ -162,7 +170,9 @@ class CDPNavigationService:
         if current_index < 0 or current_index >= len(entries) - 1:
             return False, "No forward history entry"
         target = entries[current_index + 1]
-        await self._send_command("Page.navigateToHistoryEntry", {"entryId": int(target["id"])})
+        await self._send_command(
+            "Page.navigateToHistoryEntry", {"entryId": int(target["id"])}
+        )
         return True, "Navigated forward"
 
     async def reload(self) -> tuple[bool, str]:

@@ -146,7 +146,9 @@ def generate_bar_chart(
     orientation = _auto_orientation(labels)
 
     # Per-bar coloring from qualitative palette
-    colors = [PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(labels))]
+    colors = [
+        PLOTLY_QUALITATIVE[i % len(PLOTLY_QUALITATIVE)] for i in range(len(labels))
+    ]
 
     if orientation == "h":
         bar_x, bar_y = values, labels
@@ -159,7 +161,10 @@ def generate_bar_chart(
                 x=bar_x,
                 y=bar_y,
                 orientation=orientation,
-                marker={"color": colors, "line": {"color": "rgba(255,255,255,0.8)", "width": 2}},
+                marker={
+                    "color": colors,
+                    "line": {"color": "rgba(255,255,255,0.8)", "width": 2},
+                },
                 text=display_values,
                 textposition="outside",
                 textfont={
