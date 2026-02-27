@@ -10,7 +10,7 @@ from minio.error import S3Error
 from app.core.config import get_settings
 from app.domain.external.file import FileStorage
 from app.domain.models.file import FileInfo
-from app.infrastructure.storage.minio_storage import MinIOStorage
+from app.infrastructure.storage.minio_storage import MinIOStorage, _minio_retry
 
 logger = logging.getLogger(__name__)
 
@@ -72,26 +72,47 @@ class MinIOFileStorage(FileStorage):
     def _download_file_sync(
         self, bucket: str, file_id: str
     ) -> tuple[io.BytesIO, dict[str, str], str | None, int | None, datetime | None]:
-        """Synchronous download -- returns raw data + stat info for building FileInfo."""
+        """Synchronous download with retry -- returns raw data + stat info."""
         client = self._minio.client
 
-        stat = client.stat_object(bucket, file_id)
+        stat = _minio_retry(
+            client.stat_object,
+            bucket,
+            file_id,
+            max_attempts=self._settings.minio_retry_max_attempts,
+            base_delay=self._settings.minio_retry_base_delay,
+            operation="download_stat",
+        )
         obj_metadata = stat.metadata or {}
 
-        response = client.get_object(bucket, file_id)
-        try:
-            data = io.BytesIO(response.read())
-        finally:
-            response.close()
-            response.release_conn()
+        def _do_get() -> io.BytesIO:
+            response = client.get_object(bucket, file_id)
+            try:
+                return io.BytesIO(response.read())
+            finally:
+                response.close()
+                response.release_conn()
 
+        data = _minio_retry(
+            _do_get,
+            max_attempts=self._settings.minio_retry_max_attempts,
+            base_delay=self._settings.minio_retry_base_delay,
+            operation="download_get",
+        )
         return data, dict(obj_metadata), stat.content_type, stat.size, stat.last_modified
 
     def _delete_file_sync(self, bucket: str, file_id: str) -> dict[str, str]:
-        """Synchronous delete -- returns object metadata for ownership check."""
+        """Synchronous stat for ownership check (with retry)."""
         client = self._minio.client
 
-        stat = client.stat_object(bucket, file_id)
+        stat = _minio_retry(
+            client.stat_object,
+            bucket,
+            file_id,
+            max_attempts=self._settings.minio_retry_max_attempts,
+            base_delay=self._settings.minio_retry_base_delay,
+            operation="delete_stat",
+        )
         obj_metadata = stat.metadata or {}
         return dict(obj_metadata)
 
@@ -149,15 +170,51 @@ class MinIOFileStorage(FileStorage):
             content_length = file_data.tell()
             file_data.seek(0)  # seek back to start
 
-            result = await asyncio.to_thread(
-                client.put_object,
-                self._bucket,
-                object_key,
-                file_data,
-                length=content_length,
-                content_type=content_type or "application/octet-stream",
-                metadata=s3_metadata,
-            )
+            # Use multipart upload for large files (SDK auto-chunks when length=-1)
+            threshold = self._settings.minio_multipart_threshold_bytes
+            effective_content_type = content_type or "application/octet-stream"
+            if content_length > threshold:
+                part_size = self._settings.minio_multipart_part_size
+
+                def _do_multipart_upload() -> object:
+                    file_data.seek(0)
+                    return client.put_object(
+                        self._bucket,
+                        object_key,
+                        file_data,
+                        length=-1,
+                        content_type=effective_content_type,
+                        metadata=s3_metadata,
+                        part_size=part_size,
+                    )
+
+                result = await asyncio.to_thread(
+                    _minio_retry,
+                    _do_multipart_upload,
+                    max_attempts=self._settings.minio_retry_max_attempts,
+                    base_delay=self._settings.minio_retry_base_delay,
+                    operation="upload_multipart",
+                )
+            else:
+
+                def _do_upload() -> object:
+                    file_data.seek(0)
+                    return client.put_object(
+                        self._bucket,
+                        object_key,
+                        file_data,
+                        length=content_length,
+                        content_type=effective_content_type,
+                        metadata=s3_metadata,
+                    )
+
+                result = await asyncio.to_thread(
+                    _minio_retry,
+                    _do_upload,
+                    max_attempts=self._settings.minio_retry_max_attempts,
+                    base_delay=self._settings.minio_retry_base_delay,
+                    operation="upload_file",
+                )
 
             logger.info(
                 "File uploaded to MinIO: %s (key: %s, etag: %s) for user %s",
@@ -313,3 +370,14 @@ class MinIOFileStorage(FileStorage):
         except Exception as e:
             logger.error("Failed to generate download URL for %s: %s", file_id, e)
             raise
+
+    async def download_file_range(self, file_id: str, offset: int, length: int) -> bytes:
+        """Download a byte range from a file (non-blocking).
+
+        Uses HTTP Range GET to avoid loading entire objects into memory.
+        Useful for streaming large files or resumable downloads.
+        """
+        from app.infrastructure.storage.minio_storage import get_minio_storage
+
+        storage = get_minio_storage()
+        return await storage.get_object_range(self._bucket, file_id, offset, length)
