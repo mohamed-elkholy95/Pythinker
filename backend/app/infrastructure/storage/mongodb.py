@@ -28,6 +28,8 @@ class MongoDB:
             "connectTimeoutMS": self._settings.mongodb_connect_timeout_ms,
             "serverSelectionTimeoutMS": self._settings.mongodb_server_selection_timeout_ms,
             "socketTimeoutMS": self._settings.mongodb_socket_timeout_ms,
+            "retryWrites": self._settings.mongodb_retry_writes,
+            "retryReads": self._settings.mongodb_retry_reads,
         }
 
         if self._settings.mongodb_username and self._settings.mongodb_password:
@@ -87,10 +89,13 @@ class MongoDB:
                 if attempt == max_retries:
                     logger.error("Failed to connect to MongoDB after %d attempts: %s", max_retries, e)
                     raise
-                delay = 2 ** attempt  # 2, 4, 8 seconds
+                delay = 2**attempt  # 2, 4, 8 seconds
                 logger.warning(
                     "MongoDB connection attempt %d/%d failed, retrying in %ds: %s",
-                    attempt, max_retries, delay, e,
+                    attempt,
+                    max_retries,
+                    delay,
+                    e,
                 )
                 await asyncio.sleep(delay)
 
