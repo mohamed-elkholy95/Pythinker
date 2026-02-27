@@ -68,7 +68,7 @@ COMPARISON & CATEGORICAL DATA:
   • Use when: You have discrete categories and want to show which is larger/smaller
   • Variable type: Categorical + Numerical metric
   • Example: "Compare average response time across 5 LLM models"
-  • Orientation: Vertical (default) for short labels; Horizontal ('h') for labels >4 characters
+  • Orientation: Always use vertical (default). Only pass 'h' if user explicitly requests horizontal.
 
 - grouped_bar: Compare multiple series across categories (Q1 vs Q2 sales by region)
   • Use when: Multiple metrics per category need side-by-side comparison
@@ -113,8 +113,9 @@ PART-TO-WHOLE:
   • AVOID when: More than 7 categories (use bar instead), or values are similar (hard to distinguish)
 
 STEP 3: APPLY BEST PRACTICES
-- Vertical bars (default): Best for rankings, histograms, categorical comparisons
-- Horizontal bars ('h'): Switch when labels are longer than 3-4 characters to prevent rotation
+- Vertical bars (default): ALWAYS prefer vertical bars — they are the standard for comparisons and rankings
+- Horizontal bars ('h'): ONLY use when the user explicitly asks for horizontal. Do NOT switch automatically based on label length.
+- Orientation: Leave as 'auto' (default) and the system will handle it. Never pass 'h' unless user specifically requests horizontal.
 - Sorting: Charts auto-sort by value (descending) for optimal readability in comparisons
 - Colors: Professional Plotly qualitative palette applied automatically (10 distinct colors)
 - Theme: 'plotly_white' recommended for clean, professional appearance
@@ -126,7 +127,7 @@ STEP 4: AVOID COMMON MISTAKES
 - Don't use pie charts for >7 categories or similar values → Use bar chart instead
 - Don't use line charts for unordered categories → Use bar chart
 - Don't use bar charts for time-series → Use line chart
-- Don't use vertical bars with long labels → Use horizontal orientation ('h')
+- Don't force horizontal orientation — let auto-orientation handle it
 
 FINANCIAL & CUMULATIVE DATA:
 - waterfall: Show cumulative effect of sequential values (P&L, budget changes)
@@ -235,7 +236,7 @@ Returns both interactive HTML and static PNG files.""",
             },
             "orientation": {
                 "type": "string",
-                "description": "Chart orientation: 'auto' (DEFAULT - intelligently chooses based on label length, count, and temporal patterns), 'v' for vertical, 'h' for horizontal.",
+                "description": "Chart orientation: 'auto' (DEFAULT - strongly biased toward vertical). Only pass 'h' if user explicitly requests horizontal bars. Leave as 'auto' for best results.",
                 "enum": ["auto", "v", "h"],
             },
             "lower_is_better": {
