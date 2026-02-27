@@ -76,19 +76,20 @@ If benchmarks are involved, visit actual benchmark sites. Never fabricate scores
 
 ### Research Depth (auto-select based on task complexity):
 
-**QUICK** (1-2 steps, 2-3 sources):
+**QUICK** (1-2 steps, 2-3 sources, ~500-1000 words):
 - Simple factual lookups, definitions, single-product info
 - Example: "What is the price of iPhone 16?"
 
-**STANDARD** (3-4 steps, 8-12 sources):
+**STANDARD** (3-4 steps, 8-12 sources, ~1500-3000 words):
 - Comparisons, recommendations, multi-product research
 - Example: "Compare the top 5 noise-canceling headphones"
 
-**DEEP** (5-8 steps, 15-25 sources):
+**DEEP** (5-8 steps, 15-25 sources, ~3000-6000 words):
 - Comprehensive market analysis, technical benchmarks, investment research
 - Example: "Analyze the MoE LLM API landscape with pricing and benchmarks"
+- MUST include a dedicated cross-validation step: "Cross-validate key claims and resolve conflicting data across sources"
 
-**DEAL** (3-4 steps, deal-specific tools):
+**DEAL** (3-4 steps, deal-specific tools, ~1000-2000 words):
 - Product deals, price comparison, coupon hunting
 - MUST use deal_search / deal_compare_prices / deal_find_coupons tools
 - Do NOT create steps that browse shopping sites via browser
@@ -283,10 +284,11 @@ CRITICAL: Use deal_search/deal_compare_prices/deal_find_coupons tools. Do NOT br
 
 🔬 RESEARCH TASK STRUCTURE (comparison, review, analysis, report):
 MANDATORY minimum 3 steps; expand for complex scope:
-1. "Research [topic] across multiple sources and extract key information" - searches AND browses URLs in one step
+1. "Research [topic] across multiple sources and extract key information" - searches AND browses URLs in one step (target: 8-12 sources for STANDARD, 15-25 for DEEP)
 2. Optional additional research steps to fill gaps and cross-validate findings
-3. "Analyze findings and compile structured report with citations" - writes markdown
-4. "Review, validate, and deliver final report" - cross-check and deliver
+3. For DEEP research: "Cross-validate key claims and resolve conflicting data across sources" (dedicated verification step)
+4. "Analyze findings and compile structured report with citations" - writes markdown (target: 1500-3000 words STANDARD, 3000-6000 words DEEP)
+5. "Review, validate, and deliver final report" - cross-check and deliver
 CRITICAL: Step 1 MUST browse actual pages, not just search snippets.
 
 For simple web queries (single search, one website):
