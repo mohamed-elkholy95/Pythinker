@@ -236,7 +236,7 @@ describe('useSessionStreamController', () => {
       onRetryConnection,
       pollFallbackStatus,
       autoRetryDelaysMs: [25],
-      fallbackPollIntervalMs: 25,
+      fallbackPollInitialIntervalMs: 25,
       fallbackPollMaxAttempts: 2,
       maxAutoRetries: 4,
     })
@@ -268,7 +268,7 @@ describe('useSessionStreamController', () => {
       onRetryConnection,
       pollFallbackStatus,
       autoRetryDelaysMs: [25],
-      fallbackPollIntervalMs: 25,
+      fallbackPollInitialIntervalMs: 25,
       fallbackPollMaxAttempts: 4,
       maxAutoRetries: 4,
     })
@@ -280,7 +280,9 @@ describe('useSessionStreamController', () => {
     expect(pollFallbackStatus).toHaveBeenCalledTimes(1)
     expect(onRetryConnection).not.toHaveBeenCalled()
 
-    await vi.advanceTimersByTimeAsync(25)
+    // Exponential backoff with ±20% jitter: first interval is 25 * 2^0 * [0.8..1.2] = 20..30ms
+    // Advance well past the max jittered interval to guarantee the timer fires
+    await vi.advanceTimersByTimeAsync(60)
     await Promise.resolve()
     expect(pollFallbackStatus).toHaveBeenCalledTimes(2)
     expect(isFallbackStatusPolling.value).toBe(false)

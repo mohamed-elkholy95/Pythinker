@@ -1954,7 +1954,7 @@ const showTaskProgressBar = computed(() =>
   !isChatMode.value &&
   !showSessionWarmupMessage.value &&
   !isToolPanelOpen.value &&
-  (!!plan.value?.steps?.length || (!!lastNoMessageTool.value && !isTaskCompleted.value) || isInitializing.value || isSandboxInitializing.value)
+  (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
 );
 
 const showPlanningCard = computed(() =>
@@ -2009,6 +2009,10 @@ const shouldShowThumbnail = computed(() => {
   // 5. A tool was invoked and the session hasn't finished yet
   //    (lastNoMessageTool persists after completion — gate on !isTaskCompleted)
   if (lastNoMessageTool.value && !isTaskCompleted.value) return true;
+
+  // 6. Completed session with tool history — show final screenshot / last tool preview
+  //    LiveMiniPreview renders shouldShowFinalScreenshot for this case.
+  if (isTaskCompleted.value && lastNoMessageTool.value) return true;
 
   return false;
 });
