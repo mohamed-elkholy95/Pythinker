@@ -814,13 +814,19 @@ const showLiveViewSkeleton = computed(() => {
   return !noSkeleton.has(currentViewType.value ?? '');
 });
 
-// Shell execution progress badge (from ToolProgressEvent)
+// Tool execution progress badge (from ToolProgressEvent)
 const shellProgress = computed(() => {
   if (!isActiveOperation.value) return '';
   const tc = props.toolContent;
   if (!tc?.elapsed_ms) return '';
   const seconds = Math.round(tc.elapsed_ms / 1000);
   const pct = tc.progress_percent;
+  const step = tc.current_step;
+  // Rich progress: show step description when available (deal_scraper, etc.)
+  if (step) {
+    return pct && pct > 0 ? `${step} (${pct}%, ${seconds}s)` : `${step} (${seconds}s)`;
+  }
+  // Fallback: generic progress for shell/other tools
   if (pct !== undefined && pct > 0) {
     return `Running ${seconds}s (${pct}%)`;
   }
