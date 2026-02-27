@@ -1,6 +1,10 @@
 <template>
   <div class="px-2">
     <div @click="handleSessionClick"
+      role="button"
+      tabindex="0"
+      @keydown.enter="handleSessionClick"
+      @keydown.space.prevent="handleSessionClick"
       class="group flex h-10 cursor-pointer items-center gap-3 rounded-lg px-2 transition-colors border border-transparent"
       :class="isCurrentSession ? 'bg-[var(--background-white-main)] border-[var(--border-main)] shadow-[0_6px_14px_rgba(15,23,42,0.08)]' : 'hover:bg-[var(--fill-tsp-gray-main)]'">
 
