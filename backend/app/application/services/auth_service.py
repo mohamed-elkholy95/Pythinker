@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import hashlib
 import hmac
@@ -123,7 +124,7 @@ class AuthService:
         return salt + hash_bytes.hex()
 
     def _verify_password(self, password: str, password_hash: str) -> bool:
-        """Verify password against hash using constant-time comparison.
+        """Verify password against hash using constant-time comparison (sync).
 
         SECURITY NOTE: The caller MUST always supply a valid hash (use
         ``_get_dummy_hash()`` when the real hash is unavailable).  This
@@ -139,6 +140,18 @@ class AuthService:
         except Exception as e:
             logger.error(f"Password verification error: {e}")
             return False
+
+    async def _verify_password_async(self, password: str, password_hash: str) -> bool:
+        """Non-blocking password verification — offloads PBKDF2 to thread pool.
+
+        Prevents the CPU-bound PBKDF2 computation (600K rounds, ~10-20ms)
+        from blocking the async event loop under concurrent login load.
+        """
+        return await asyncio.to_thread(self._verify_password, password, password_hash)
+
+    async def _hash_password_async(self, password: str) -> str:
+        """Non-blocking password hashing — offloads PBKDF2 to thread pool."""
+        return await asyncio.to_thread(self._hash_password, password)
 
     # =========================================================================
     # PASSWORD VALIDATION
@@ -279,8 +292,8 @@ class AuthService:
         if await self.user_repository.email_exists(email):
             raise ValidationError("Email already exists")
 
-        # Hash password
-        password_hash = self._hash_password(password)
+        # Hash password (non-blocking to avoid stalling the event loop)
+        password_hash = await self._hash_password_async(password)
 
         # Create user
         user = User(
@@ -372,7 +385,7 @@ class AuthService:
             # If the user doesn't exist or has no stored hash, use the
             # pre-computed dummy hash so the timing is identical.
             stored_hash = user.password_hash if user and user.password_hash else self._get_dummy_hash()
-            password_is_valid = self._verify_password(password, stored_hash)
+            password_is_valid = await self._verify_password_async(password, stored_hash)
 
             # Step 3: Determine authentication outcome AFTER password hashing.
             # All denial reasons funnel into the same failure block.
@@ -525,8 +538,8 @@ class AuthService:
         if not user.is_active:
             raise UnauthorizedError("User account is inactive")
 
-        # Verify old password
-        if not user.password_hash or not self._verify_password(old_password, user.password_hash):
+        # Verify old password (non-blocking)
+        if not user.password_hash or not await self._verify_password_async(old_password, user.password_hash):
             raise UnauthorizedError("Invalid old password")
 
         # Validate new password complexity
@@ -537,8 +550,8 @@ class AuthService:
         if not is_valid:
             raise ValidationError("; ".join(password_errors))
 
-        # Hash new password
-        new_password_hash = self._hash_password(new_password)
+        # Hash new password (non-blocking)
+        new_password_hash = await self._hash_password_async(new_password)
 
         # Update user password
         user.password_hash = new_password_hash
@@ -632,8 +645,8 @@ class AuthService:
         if not is_valid:
             raise ValidationError("; ".join(password_errors))
 
-        # Hash new password
-        new_password_hash = self._hash_password(new_password)
+        # Hash new password (non-blocking)
+        new_password_hash = await self._hash_password_async(new_password)
 
         # Update user password
         user.password_hash = new_password_hash
