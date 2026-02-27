@@ -192,7 +192,10 @@ export const _responseInterceptorRejected = async (error: AxiosError) => {
   }
 
   // Handle 401 Unauthorized errors with token refresh
-  if (error.response?.status === 401 && !originalRequest._retry) {
+  // Skip refresh for auth endpoints — a 401 on login/register means bad credentials, not an expired token
+  const requestUrl = originalRequest.url ?? '';
+  const isAuthEndpoint = /\/auth\/(login|logout|register)/.test(requestUrl);
+  if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
     originalRequest._retry = true;
 
     try {
