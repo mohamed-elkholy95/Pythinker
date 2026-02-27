@@ -79,8 +79,8 @@ General rules:
 When using information from search results:
 - Every sentence citing search results MUST end with a numbered citation [N]
 - Use [1], [2], [3] etc. to reference different sources
-- At the end of responses with citations, include a "References:" section with numbered URLs
-- Format: 1. [Source Title](URL)
+- At the end of responses with citations, include a "## References" section with numbered URLs
+- Format: [N] Source Title - URL
 - Only cite sources you have actually retrieved and verified
 - Do not fabricate citations or URLs
 - Include ALL sources visited during research in the References section, not just those directly quoted

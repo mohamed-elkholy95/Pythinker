@@ -1248,133 +1248,140 @@ EXECUTION_SYSTEM_PROMPT = ENHANCED_EXECUTION_SYSTEM_PROMPT
 EXECUTION_PROMPT = ENHANCED_EXECUTION_PROMPT
 SUMMARIZE_PROMPT = ENHANCED_SUMMARIZE_PROMPT
 
-STREAMING_SUMMARIZE_PROMPT = """Write the research report NOW. Start your response with a # heading on the VERY FIRST LINE.
 
-REPORT STRUCTURE (follow this format exactly):
+# ============================================================================
+# UNIFIED SUMMARIZE PROMPT BUILDER
+# ============================================================================
 
-# 🔬 [Clear, Descriptive Title]
+# Length guidance per research depth
+_DEPTH_LENGTH_GUIDANCE: dict[str, str] = {
+    "QUICK": "Target length: ~500-1000 words. Be concise but complete.",
+    "STANDARD": (
+        "Target length: ~1500-3000 words. Provide thorough analysis with supporting evidence. "
+        "Each section should contain 2-4 paragraphs minimum."
+    ),
+    "DEEP": (
+        "Target length: ~3000-6000 words. Provide comprehensive, in-depth analysis with extensive evidence. "
+        "Each section should contain 3-5 paragraphs minimum. Include a ## Methodology section describing "
+        "the research approach, sources consulted, and any limitations."
+    ),
+    "DEAL": "Target length: ~1000-2000 words. Focus on actionable pricing data and recommendations.",
+}
 
----
+_COMPARISON_MATRIX_TEMPLATE = """
+COMPARISON TASK DETECTED — include a **Weighted Scoring Matrix**:
 
-## Introduction
-Brief context and scope of the research (2-3 sentences).
+| Criteria | Weight | Option A | Option B | Option C |
+|----------|--------|----------|----------|----------|
+| [Key metric 1] | High | Score/value [N] | Score/value [N] | Score/value [N] |
+| [Key metric 2] | Medium | Score/value [N] | Score/value [N] | Score/value [N] |
+| **Weighted Total** | — | **X/10** | **X/10** | **X/10** |
 
-## 📊 [Main Section 1]
-### [Subsection if needed]
-Content with **bold** for key terms. Use RICH TABLES for comparisons:
-
-| Category | Details | Notes |
-|----------|---------|-------|
-| Item 1   | Value   | Info  |
-
-## 🔍 [Main Section 2]
-Continue with clear, factual content.
-
-## Conclusion
-Key takeaways and recommendations.
-
-## References (MANDATORY — NON-NEGOTIABLE)
-[1] Source Name - URL
-[2] Source Name - URL
-(List ALL sources cited in the report. This section MUST be present and complete.)
-
-DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
-- Use emoji prefixes on section headings (## 🎯 Section, ## 📊 Data, ## 🔍 Analysis, ## 💡 Insights, ## 🏆 Results)
-- Use horizontal rules (---) to separate major sections for visual clarity
-- Use TABLES extensively for any structured data, comparisons, feature lists, pricing, or specifications
-- For comparisons/versus reports: include a dedicated comparison table with numeric metrics
-- For workflows, architectures, or relationships: use Mermaid diagrams:
-  ```mermaid
-  graph LR
-    A[Step 1] --> B[Step 2] --> C[Step 3]
-  ```
-- For important callouts, use GitHub-style alert blockquotes:
-  > [!NOTE]
-  > Background context or helpful information
-
-  > [!TIP]
-  > Optimization or best practice suggestion
-
-  > [!IMPORTANT]
-  > Critical requirement or must-know information
-
-  > [!WARNING]
-  > Potential problems or breaking changes
-- Use **bold** for key terms within paragraphs
-- Use bullet points for lists
-- Include numbered references at the end
-- Write in professional, direct tone
-
-QUALITY STANDARDS:
-- Be THOROUGH — include full detail from all sources gathered during research
-- Do NOT summarize or condense findings — present comprehensive evidence and analysis
-- Write full paragraphs with supporting evidence, not abbreviated bullet points
-- Each section should contain 2-4 paragraphs minimum for research tasks
-- Include ALL references gathered during research — every URL visited, every search result used
-- Focus on FACTS, FINDINGS, and EVIDENCE with proper attribution
-- Every comparison should be in a table
-- Every workflow or process should use a Mermaid diagram when possible
-- Use alerts sparingly for genuinely important callouts
-- No filler text or meta-commentary (but DO include substantive detail)
-- The ## References section MUST list ALL cited sources with their [N] numbers and URLs
-
-FORBIDDEN (your response will be REJECTED if it contains any of these):
-- Starting with "I'll create...", "I will write...", "Let me...", "Based on the research findings..."
-- "This report has been revised..."
-- "Changes Made:" sections
-- "IMPORTANT DISCLAIMER:"
-- Meta-commentary about the report itself or the research process
-- Work-in-progress language
-- Excessive caveats or hedging
-- Tool call XML (e.g. <tool_call>, <function_call>) — you cannot call tools here
-- Generic boilerplate like "The requested work has been completed as summarized above"
-- "Artifact References" sections listing no artifacts
-- Excuses about token limits, context budget, or inability to generate the report
-- JSON objects with "success" keys — write Markdown, not JSON
-- Any text before the first # heading
-- Omitting or truncating the ## References section
-
-CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete, detailed report using ALL available information from the conversation — do not abbreviate or over-summarize. The ## References section is MANDATORY and must list EVERY source consulted during research.
+Assign weights (High/Medium/Low) based on the user's priorities. Score each option per criterion.
+Include a brief rationale for the final recommendation based on the weighted totals.
 """
 
-# Citation-aware summarization prompt (MindSearch-inspired)
-# Used when collected sources are available, instructs LLM to use inline [N] citations
-CITATION_AWARE_SUMMARIZE_PROMPT = """Write the research report NOW. Start your response with a # heading on the VERY FIRST LINE. Do NOT start with any preamble, introduction, or statement about what you will do.
+_COMPARISON_KEYWORDS = frozenset(
+    {
+        "compare",
+        "comparison",
+        "vs",
+        "versus",
+        "better",
+        "best",
+        "difference",
+        "differences",
+        "which one",
+        "which is",
+        "pros and cons",
+        "advantages",
+        "alternatives",
+    }
+)
 
+
+def build_summarize_prompt(
+    *,
+    has_sources: bool = False,
+    source_list: str = "",
+    research_depth: str = "STANDARD",
+    is_comparison: bool = False,
+) -> str:
+    """Build the summarization prompt with depth-aware length guidance and optional citations.
+
+    Args:
+        has_sources: Whether collected source citations are available.
+        source_list: Numbered bibliography string (e.g. "[1] Title - URL\\n[2] ...").
+        research_depth: One of QUICK, STANDARD, DEEP, DEAL.
+        is_comparison: Whether the task is a comparison/versus query.
+
+    Returns:
+        Complete summarization prompt string.
+    """
+    depth = research_depth.upper() if research_depth else "STANDARD"
+
+    parts: list[str] = []
+
+    # Opening instruction
+    parts.append("Write the research report NOW. Start your response with a # heading on the VERY FIRST LINE.")
+    if has_sources:
+        parts.append("Do NOT start with any preamble, introduction, or statement about what you will do.")
+
+    # Citation requirements (only when sources available)
+    if has_sources:
+        parts.append("""
 CITATION REQUIREMENTS:
 - Each key claim MUST be marked with the source reference from the Available Sources list below.
 - Use inline citations in the format [N] where N matches the source number, e.g. [1], [2].
 - If multiple sources support a claim, use multiple citations: [1][3].
 - ONLY cite sources listed in the Available Sources section — do not fabricate citations.
-- Every factual statement should have at least one citation.
+- Every factual statement should have at least one citation.""")
 
+    # Report structure
+    source_col = "Source" if has_sources else "Notes"
+    source_cell = "[1]" if has_sources else "Info"
+    citation_hint = " with inline citations [1]" if has_sources else ""
+    citation_inline = " and citations [2][3]" if has_sources else ""
+
+    parts.append(f"""
 REPORT STRUCTURE (follow this format exactly):
 
 # 🔬 [Clear, Descriptive Title]
 
 ---
 
+## Key Findings
+- **[Finding 1]**: One-sentence summary of the most important discovery{" [N]" if has_sources else ""}
+- **[Finding 2]**: Second key insight{" [N]" if has_sources else ""}
+- **[Finding 3]**: Third key insight{" [N]" if has_sources else ""}
+
 ## Introduction
 Brief context and scope of the research (2-3 sentences).
 
 ## 📊 [Main Section 1]
 ### [Subsection if needed]
-Content with inline citations [1]. Use RICH TABLES for comparisons:
+Content{citation_hint}. Use RICH TABLES for comparisons:
 
-| Category | Details | Source |
-|----------|---------|--------|
-| Item 1   | Value   | [1]    |
+| Category | Details | {source_col} |
+|----------|---------|{"--------|" if has_sources else "-------|"}
+| Item 1   | Value   | {source_cell}    |
 
 ## 🔍 [Main Section 2]
-Continue with clear, factual content and citations [2][3].
+Continue with clear, factual content{citation_inline}.
 
 ## Conclusion
 Key takeaways and recommendations.
 
 ## References (MANDATORY — NON-NEGOTIABLE)
-List ALL cited sources with their numbers matching the inline citations. Every [N] citation
-in the report MUST have a corresponding entry here. This section MUST be present and complete.
+{"List ALL cited sources with their numbers matching the inline citations. Every [N] citation" + chr(10) + "in the report MUST have a corresponding entry here." if has_sources else "[1] Source Name - URL" + chr(10) + "[2] Source Name - URL" + chr(10) + "(List ALL sources cited in the report.)"}
+This section MUST be present and complete.""")
 
+    # Comparison matrix template
+    if is_comparison:
+        parts.append(_COMPARISON_MATRIX_TEMPLATE)
+
+    # Design & formatting guidelines (shared)
+    parts.append("""
 DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
 - Use emoji prefixes on section headings (## 🎯 Section, ## 📊 Data, ## 🔍 Analysis, ## 💡 Insights, ## 🏆 Results)
 - Use horizontal rules (---) to separate major sections for visual clarity
@@ -1394,35 +1401,76 @@ DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
   > [!WARNING]
   > Potential problems or breaking changes
 - Use **bold** for key terms within paragraphs
-- Write in professional, rigorous tone
-- Maintain consistent citation usage throughout
-- Synthesize findings into coherent prose — do NOT include raw Q&A pairs
+- Write in professional, rigorous tone""")
 
-QUALITY STANDARDS:
+    if has_sources:
+        parts.append(
+            "- Maintain consistent citation usage throughout\n"
+            "- Synthesize findings into coherent prose — do NOT include raw Q&A pairs"
+        )
+
+    # Length guidance (depth-aware)
+    length_guidance = _DEPTH_LENGTH_GUIDANCE.get(depth, _DEPTH_LENGTH_GUIDANCE["STANDARD"])
+    parts.append(f"""
+LENGTH & QUALITY STANDARDS:
+- {length_guidance}
 - Be THOROUGH — include full detail from all sources gathered during research
 - Do NOT summarize or condense findings — present comprehensive evidence and analysis
 - Write full paragraphs with supporting evidence, not abbreviated bullet points
-- Each section should contain 2-4 paragraphs minimum for research tasks
 - Include ALL references gathered during research — every URL visited, every search result used
 - Focus on FACTS, FINDINGS, and EVIDENCE with proper attribution
 - Every comparison should be in a table
 - Every workflow or process should use a Mermaid diagram when possible
 - Use alerts sparingly for genuinely important callouts
 - No filler text or meta-commentary (but DO include substantive detail)
-- The ## References section MUST list ALL cited sources with their [N] numbers and URLs
+- The ## References section MUST list ALL cited sources with their [N] numbers and URLs""")
 
+    # Forbidden patterns (shared)
+    forbidden_extra = (
+        '- "This report has been revised..."\n- "Changes Made:" sections\n- "IMPORTANT DISCLAIMER:"\n'
+        "- Work-in-progress language\n- Excessive caveats or hedging\n"
+        '- Generic boilerplate like "The requested work has been completed as summarized above"\n'
+        '- "Artifact References" sections listing no artifacts'
+        if not has_sources
+        else "- Fabricated citations or source numbers not in the Available Sources list"
+    )
+    parts.append(f"""
 FORBIDDEN (your response will be REJECTED if it contains any of these):
 - Starting with "I'll create...", "I will write...", "Let me...", "Based on the research findings..."
-- Fabricated citations or source numbers not in the Available Sources list
+{forbidden_extra}
 - Meta-commentary about the report itself or the research process
-- Tool call XML (e.g. <tool_call>, <function_call>)
+- Tool call XML (e.g. <tool_call>, <function_call>) — you cannot call tools here
 - Excuses about token limits, context budget, or inability to generate the report
 - JSON objects with "success" keys — write Markdown, not JSON
 - Any text before the first # heading
-- Omitting or truncating the ## References section
+- Omitting or truncating the ## References section""")
 
-CRITICAL: Your response MUST begin with "# " (a markdown heading). Any other starting text is invalid and will be stripped. Write the complete, detailed report using ALL available research findings — do not abbreviate or over-summarize. The ## References section is MANDATORY and must list EVERY source consulted during research.
-"""
+    # Critical closing instruction
+    parts.append(
+        '\nCRITICAL: Your response MUST begin with "# " (a markdown heading). '
+        "Any other starting text is invalid and will be stripped. Write the complete, detailed report "
+        "using ALL available information from the conversation — do not abbreviate or over-summarize. "
+        "The ## References section is MANDATORY and must list EVERY source consulted during research."
+    )
+
+    return "\n".join(parts)
+
+
+def detect_comparison_intent(text: str) -> bool:
+    """Detect if a user request is a comparison/versus task."""
+    if not text:
+        return False
+    text_lower = text.lower()
+    return any(kw in text_lower for kw in _COMPARISON_KEYWORDS)
+
+
+# ============================================================================
+# BACKWARD COMPATIBILITY ALIASES (kept for any external references)
+# ============================================================================
+
+STREAMING_SUMMARIZE_PROMPT = build_summarize_prompt(has_sources=False, research_depth="STANDARD")
+
+CITATION_AWARE_SUMMARIZE_PROMPT = build_summarize_prompt(has_sources=True, research_depth="STANDARD")
 
 # Confirmation summary prompt - emitted as a MessageEvent before the ReportEvent
 CONFIRMATION_SUMMARY_PROMPT = """Given this completed report, write a brief confirmation message for the user.
@@ -1431,7 +1479,7 @@ FORMAT (follow exactly):
 1. Opening sentence: "I have completed [what was done]." — confident, conversational tone
 2. "The [report/guide/analysis] covers:" followed by 3-5 bullet points
 3. Each bullet: "- **Bold Key Topic**: one-sentence description"
-4. Closing line: "You can find the detailed report below."
+4. Closing line: "You can find the detailed report above."
 
 RULES:
 - Be specific — reference actual topics and findings from the report
