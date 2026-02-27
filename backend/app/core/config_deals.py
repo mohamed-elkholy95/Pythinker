@@ -18,5 +18,10 @@ class DealScraperSettingsMixin:
     # Coupon sources (comma-separated)
     deal_scraper_coupon_sources: str = "slickdeals,retailmenot,couponscom"
 
+    # Community & open-web search
+    deal_scraper_community_search: bool = True  # Reddit/forums/deal sites
+    deal_scraper_open_web_search: bool = True  # Unrestricted web search
+    deal_scraper_community_max_queries: int = 3  # Budget cap on community API calls
+
     # Cache TTL for deal results (seconds)
     deal_scraper_cache_ttl: int = 3600  # 1 hour
