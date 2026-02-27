@@ -10,10 +10,11 @@ Features deduplication, code validation, and confidence scoring.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.domain.external.deal_finder import CouponInfo
 
@@ -99,6 +100,33 @@ def _extract_store_name(raw: str) -> str:
 # Simple in-memory cache for coupon results
 _coupon_cache: dict[str, tuple[float, list[CouponInfo]]] = {}
 
+# Feed-level cache for Slickdeals RSS — keyed by feed URL, stores parsed entries.
+# Prevents redundant HTTP fetches when the same feed is queried for different stores.
+_feed_cache: dict[str, tuple[float, list[Any]]] = {}
+
+# Negative result cache — remembers sources that returned 404 / no page.
+# Keyed by "source:store", value is (timestamp, reason_string).
+# 2-hour TTL so we don't permanently block a source if the page appears later.
+_NEGATIVE_CACHE_TTL = 7200  # 2 hours
+_negative_cache: dict[str, tuple[float, str]] = {}
+
+
+def _negative_cache_check(key: str) -> str | None:
+    """Return the cached failure reason if the key is negatively cached, else None."""
+    entry = _negative_cache.get(key)
+    if entry is None:
+        return None
+    ts, reason = entry
+    if time.time() - ts >= _NEGATIVE_CACHE_TTL:
+        del _negative_cache[key]
+        return None
+    return reason
+
+
+def _negative_cache_set(key: str, reason: str) -> None:
+    """Record a negative cache entry with the current timestamp."""
+    _negative_cache[key] = (time.time(), reason)
+
 
 def _cache_get(key: str, ttl: int) -> list[CouponInfo] | None:
     """Get cached coupon results if not expired."""
@@ -168,7 +196,8 @@ async def fetch_slickdeals_coupons(
     Returns:
         List of CouponInfo from Slickdeals.
     """
-    cache_key = f"slickdeals:{store or 'all'}"
+    clean_store = _extract_store_name(store) if store else "all"
+    cache_key = f"slickdeals:{clean_store}"
     cached = _cache_get(cache_key, ttl)
     if cached is not None:
         return cached
@@ -182,12 +211,21 @@ async def fetch_slickdeals_coupons(
 
     for feed_name, feed_url in SLICKDEALS_FEEDS.items():
         try:
-            result = await scraper.fetch(feed_url)
-            if not result.success or not result.text:
-                continue
+            # Use feed-level cache to avoid re-fetching the same RSS feed
+            # for different store-name queries
+            feed_cached = _feed_cache.get(feed_url)
+            if feed_cached and time.time() - feed_cached[0] < ttl:
+                entries = feed_cached[1]
+            else:
+                result = await scraper.fetch(feed_url)
+                if not result.success or not result.text:
+                    continue
 
-            feed = feedparser.parse(result.text)
-            for entry in feed.entries[:20]:
+                feed = feedparser.parse(result.text)
+                entries = feed.entries[:20]
+                _feed_cache[feed_url] = (time.time(), list(entries))
+
+            for entry in entries:
                 title = getattr(entry, "title", "")
                 summary = getattr(entry, "summary", "")
 
@@ -234,19 +272,34 @@ async def fetch_retailmenot_coupons(
     Returns:
         List of CouponInfo from RetailMeNot.
     """
-    cache_key = f"retailmenot:{store.lower()}"
+    # Normalize cache key using extracted store name for consistent caching
+    clean_name = _extract_store_name(store)
+    cache_key = f"retailmenot:{clean_name}"
+
+    # Short-circuit on negative cache (previous 404 / no-page)
+    neg_reason = _negative_cache_check(cache_key)
+    if neg_reason is not None:
+        logger.debug("RetailMeNot negative cache hit for %s: %s", clean_name, neg_reason)
+        return []
+
     cached = _cache_get(cache_key, ttl)
     if cached is not None:
         return cached
 
     coupons: list[CouponInfo] = []
-    # Extract core store name from potentially verbose LLM input
-    clean_name = _extract_store_name(store)
     store_slug = clean_name.replace(" ", "").replace("'", "")
     url = f"https://www.retailmenot.com/view/{store_slug}.com"
 
     try:
         result = await scraper.fetch_with_escalation(url)
+
+        # Detect HTTP 404 — store has no RetailMeNot page
+        if hasattr(result, "status") and result.status == 404:
+            reason = f"RetailMeNot has no page for '{clean_name}' (HTTP 404)"
+            _negative_cache_set(cache_key, reason)
+            logger.debug(reason)
+            return coupons
+
         if not result.success or not result.text:
             return coupons
 
@@ -314,19 +367,34 @@ async def fetch_couponscom_coupons(
     Returns:
         List of CouponInfo from Coupons.com.
     """
-    cache_key = f"couponscom:{store.lower()}"
+    # Normalize cache key using extracted store name for consistent caching
+    clean_name = _extract_store_name(store)
+    cache_key = f"couponscom:{clean_name}"
+
+    # Short-circuit on negative cache (previous 404 / no-page)
+    neg_reason = _negative_cache_check(cache_key)
+    if neg_reason is not None:
+        logger.debug("Coupons.com negative cache hit for %s: %s", clean_name, neg_reason)
+        return []
+
     cached = _cache_get(cache_key, ttl)
     if cached is not None:
         return cached
 
     coupons: list[CouponInfo] = []
-    # Extract core store name from potentially verbose LLM input
-    clean_name = _extract_store_name(store)
     store_slug = clean_name.replace(" ", "-").replace("'", "")
     url = f"https://www.coupons.com/coupon-codes/{store_slug}"
 
     try:
         result = await scraper.fetch_with_escalation(url)
+
+        # Detect HTTP 404 — store has no Coupons.com page
+        if hasattr(result, "status") and result.status == 404:
+            reason = f"Coupons.com has no page for '{clean_name}' (HTTP 404)"
+            _negative_cache_set(cache_key, reason)
+            logger.debug(reason)
+            return coupons
+
         if not result.success or not result.text:
             return coupons
 
@@ -382,7 +450,7 @@ async def aggregate_coupons(
     store: str,
     sources: list[str] | None = None,
     ttl: int = 3600,
-) -> list[CouponInfo]:
+) -> tuple[list[CouponInfo], list[dict[str, str]]]:
     """Aggregate coupons from multiple sources with deduplication.
 
     Args:
@@ -392,31 +460,57 @@ async def aggregate_coupons(
         ttl: Cache TTL in seconds.
 
     Returns:
-        Deduplicated list of CouponInfo from all sources, sorted by confidence.
+        Tuple of (deduplicated coupons sorted by confidence, source_failures).
+        Each source_failure is ``{"source": str, "reason": str}``.
     """
     if sources is None:
         sources = ["slickdeals", "retailmenot", "couponscom"]
 
-    all_coupons: list[CouponInfo] = []
+    # Normalize store name once at entry so all sources use the same cache keys
+    store = _extract_store_name(store) if store else store
 
+    # Map source names to their fetch coroutines
+    _fetchers: dict[str, Any] = {
+        "slickdeals": lambda: fetch_slickdeals_coupons(scraper, store=store, ttl=ttl),
+        "retailmenot": lambda: fetch_retailmenot_coupons(scraper, store, ttl=ttl),
+        "couponscom": lambda: fetch_couponscom_coupons(scraper, store, ttl=ttl),
+    }
+
+    # Build tasks for known sources only
+    tasks: list[tuple[str, Any]] = []
     for source in sources:
         source_lower = source.lower().strip()
-        try:
-            if source_lower == "slickdeals":
-                coupons = await fetch_slickdeals_coupons(scraper, store=store, ttl=ttl)
-                all_coupons.extend(coupons)
-            elif source_lower == "retailmenot":
-                coupons = await fetch_retailmenot_coupons(scraper, store, ttl=ttl)
-                all_coupons.extend(coupons)
-            elif source_lower == "couponscom":
-                coupons = await fetch_couponscom_coupons(scraper, store, ttl=ttl)
-                all_coupons.extend(coupons)
-            else:
-                logger.debug("Unknown coupon source: %s", source_lower)
-        except Exception as exc:
-            logger.debug("Coupon aggregation error for %s/%s: %s", source_lower, store, exc)
+        fetcher = _fetchers.get(source_lower)
+        if fetcher is None:
+            logger.debug("Unknown coupon source: %s", source_lower)
+            continue
+        tasks.append((source_lower, fetcher()))
+
+    all_coupons: list[CouponInfo] = []
+    source_failures: list[dict[str, str]] = []
+
+    if not tasks:
+        return all_coupons, source_failures
+
+    # Fetch all sources concurrently
+    results = await asyncio.gather(
+        *(coro for _, coro in tasks), return_exceptions=True,
+    )
+
+    for (source_lower, _), result in zip(tasks, results, strict=True):
+        if isinstance(result, BaseException):
+            logger.debug("Coupon aggregation error for %s/%s: %s", source_lower, store, result)
+            source_failures.append({"source": source_lower, "reason": str(result)})
+        elif result:
+            all_coupons.extend(result)
+        else:
+            # Empty result — check if there's a negative cache reason
+            neg_key = f"{source_lower}:{store}"
+            neg_reason = _negative_cache_check(neg_key)
+            reason = neg_reason or f"No coupons found for '{store}' on {source_lower}"
+            source_failures.append({"source": source_lower, "reason": reason})
 
     # Deduplicate and sort by confidence (highest first)
     deduplicated = _deduplicate_coupons(all_coupons)
     deduplicated.sort(key=lambda c: c.confidence, reverse=True)
-    return deduplicated
+    return deduplicated, source_failures
