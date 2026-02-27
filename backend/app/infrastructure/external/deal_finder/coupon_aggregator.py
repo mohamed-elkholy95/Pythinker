@@ -31,6 +31,71 @@ SLICKDEALS_FEEDS: dict[str, str] = {
 # Coupon code format validation
 COUPON_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{3,30}$")
 
+# Words that are noise in LLM-generated store names — strip these to extract
+# just the store/brand name.  Kept as a set for O(1) lookup.
+_STORE_NOISE_WORDS: set[str] = {
+    "coupon",
+    "coupons",
+    "code",
+    "codes",
+    "promo",
+    "promos",
+    "promotion",
+    "discount",
+    "discounts",
+    "deal",
+    "deals",
+    "offer",
+    "offers",
+    "sale",
+    "free",
+    "trial",
+    "subscription",
+    "annual",
+    "monthly",
+    "pricing",
+    "plan",
+    "plans",
+    "student",
+    "best",
+    "top",
+    "latest",
+    "new",
+    "online",
+    "2024",
+    "2025",
+    "2026",
+    "2027",
+}
+
+
+def _extract_store_name(raw: str) -> str:
+    """Extract the core store/brand name from a verbose LLM-generated string.
+
+    Examples:
+        "Cursor AI IDE Subscription Discount Promo Code 2026" → "cursor"
+        "Best Buy"                                            → "best buy"
+        "retailmenot.com/view/amazon"                         → "amazon"
+        "Amazon"                                              → "amazon"
+    """
+    name = raw.strip().lower()
+
+    # If it already looks like a domain (e.g. "cursor.sh"), extract the base
+    domain_match = re.match(r"^(?:https?://)?(?:www\.)?([a-z0-9-]+)\.[a-z]{2,}", name)
+    if domain_match:
+        return domain_match.group(1)
+
+    # Strip noise words and keep the first 1-3 meaningful tokens
+    tokens = re.split(r"[\s,\-/]+", name)
+    meaningful = [t for t in tokens if t and t not in _STORE_NOISE_WORDS and len(t) > 1]
+    if not meaningful:
+        # All words were noise — fall back to first non-empty token
+        meaningful = [t for t in tokens if t][:1]
+
+    # Keep at most 3 tokens (enough for "best buy electronics" but not verbose junk)
+    return " ".join(meaningful[:3])
+
+
 # Simple in-memory cache for coupon results
 _coupon_cache: dict[str, tuple[float, list[CouponInfo]]] = {}
 
@@ -175,8 +240,9 @@ async def fetch_retailmenot_coupons(
         return cached
 
     coupons: list[CouponInfo] = []
-    # Normalize store name for URL
-    store_slug = store.lower().replace(" ", "").replace("'", "")
+    # Extract core store name from potentially verbose LLM input
+    clean_name = _extract_store_name(store)
+    store_slug = clean_name.replace(" ", "").replace("'", "")
     url = f"https://www.retailmenot.com/view/{store_slug}.com"
 
     try:
@@ -254,7 +320,9 @@ async def fetch_couponscom_coupons(
         return cached
 
     coupons: list[CouponInfo] = []
-    store_slug = store.lower().replace(" ", "-").replace("'", "")
+    # Extract core store name from potentially verbose LLM input
+    clean_name = _extract_store_name(store)
+    store_slug = clean_name.replace(" ", "-").replace("'", "")
     url = f"https://www.coupons.com/coupon-codes/{store_slug}"
 
     try:
