@@ -1352,8 +1352,8 @@ const refreshSessionStatus = async (targetSessionId?: string) => {
   }
 
   try {
-    const session = await agentApi.getSession(activeSessionId);
-    sessionStatus.value = session.status as SessionStatus;
+    const statusResp = await agentApi.getSessionStatus(activeSessionId);
+    sessionStatus.value = statusResp.status as SessionStatus;
     if (sessionStatus.value !== SessionStatus.INITIALIZING) {
       sessionInitTimedOut.value = false;
     }
@@ -1488,14 +1488,15 @@ watch(sessionStatus, (status) => {
   }
 });
 
-// Watch sessionId changes to update status
-watch(sessionId, async (newSessionId) => {
+// Watch sessionId changes to update status (skip initial mount — restoreSession handles it)
+watch(sessionId, async (newSessionId, oldSessionId) => {
+  if (!oldSessionId) return;
   // Clear session-level skills when switching sessions
   clearSessionSkills();
 
   await refreshSessionStatus(newSessionId);
   await waitForSessionIfInitializing();
-}, { immediate: true });
+});
 
 /** Set lastError from SSE transport errors (client-side, not backend event). */
 const setLastErrorFromTransportError = (error: Error) => {
