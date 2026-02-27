@@ -56,12 +56,12 @@
         </div>
         <div class="session-content">
           <div class="session-header">
-            <h3 class="session-title">{{ session.title || 'Untitled Session' }}</h3>
+            <h3 class="session-title">{{ session.title || deriveTitle(session) }}</h3>
             <span class="session-status" :class="session.status">
               {{ session.status }}
             </span>
           </div>
-          <p v-if="session.latest_message" class="session-preview">
+          <p v-if="session.latest_message && session.title" class="session-preview">
             {{ truncateMessage(session.latest_message) }}
           </p>
           <div class="session-meta">
@@ -164,6 +164,14 @@ function copyShareLink(session: SessionItem): void {
   const url = `${window.location.origin}/share/${session.session_id}`
   navigator.clipboard.writeText(url)
   // Could show a toast notification here
+}
+
+function deriveTitle(session: SessionItem): string {
+  if (session.latest_message) {
+    const trimmed = session.latest_message.trim()
+    return trimmed.length > 50 ? trimmed.substring(0, 50) + '...' : trimmed
+  }
+  return 'New Session'
 }
 
 function truncateMessage(message: string): string {
