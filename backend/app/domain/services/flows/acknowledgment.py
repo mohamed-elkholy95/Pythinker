@@ -418,9 +418,7 @@ class AcknowledgmentGenerator:
         # Pattern: multi-sentence instruction where last sentence is the query
         # e.g., "Act as X. Do Y. Find Z. best coupon for cursor ai"
         sentences = re.split(r"(?<=[.!?])\s+", text.strip())
-        if len(sentences) > 2 and re.match(
-            r"^(?:act\s+as|you\s+are|imagine\s+you)", sentences[0], re.IGNORECASE
-        ):
+        if len(sentences) > 2 and re.match(r"^(?:act\s+as|you\s+are|imagine\s+you)", sentences[0], re.IGNORECASE):
             # Last sentence is likely the actual user query
             return sentences[-1].strip().rstrip(".!?")
 

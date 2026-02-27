@@ -127,10 +127,17 @@ class ToolEventData(BaseEventData):
         return v
 
 
-_SEARCH_FUNCTIONS = frozenset({
-    "info_search_web", "web_search", "search", "wide_research",
-    "deal_search", "deal_compare_prices", "deal_find_coupons",
-})
+_SEARCH_FUNCTIONS = frozenset(
+    {
+        "info_search_web",
+        "web_search",
+        "search",
+        "wide_research",
+        "deal_search",
+        "deal_compare_prices",
+        "deal_find_coupons",
+    }
+)
 
 
 def _derive_search_content(event: ToolEvent) -> SearchToolContent | None:

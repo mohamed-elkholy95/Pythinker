@@ -77,9 +77,7 @@ class ResearchSpider(Spider):
             default=True,
         )
 
-    async def parse(
-        self, response: Response
-    ) -> AsyncGenerator[dict | Request | None, None]:
+    async def parse(self, response: Response) -> AsyncGenerator[dict | Request | None, None]:
         """Extract text content from each fetched page."""
         text = str(response.get_all_text(separator="\n\n"))
         if len(text) > self._max_text_length:
