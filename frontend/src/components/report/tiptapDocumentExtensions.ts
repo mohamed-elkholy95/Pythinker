@@ -18,13 +18,15 @@ import Superscript from '@tiptap/extension-superscript';
 import Subscript from '@tiptap/extension-subscript';
 import { common, createLowlight } from 'lowlight';
 import { PlotlyChartBlock } from './tiptapPlotlyExtension';
+import { MermaidBlock } from './tiptapMermaidExtension';
 
 const lowlight = createLowlight(common);
 
 export const createTiptapDocumentExtensions = () => [
-  // PlotlyChartBlock must come before CodeBlockLowlight so its parseHTML
-  // rule takes precedence for `language-chart` / `language-plotly` code fences.
+  // PlotlyChartBlock and MermaidBlock must come before CodeBlockLowlight so their
+  // parseHTML rules take precedence for matching language code fences.
   PlotlyChartBlock,
+  MermaidBlock,
   StarterKit.configure({
     codeBlock: false,
     link: false,
