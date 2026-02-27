@@ -212,7 +212,7 @@ const getSessionDisplayTitle = (session: ListSessionItem): string | null => {
     return normalizedLatestMessage
   }
 
-  const optimisticTitle = optimisticTitleHints.value[session.session_id]?.trim()
+  const optimisticTitle = optimisticTitleHints.value[session.session_id]?.title?.trim()
   if (optimisticTitle) {
     return optimisticTitle
   }
