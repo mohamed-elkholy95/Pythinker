@@ -12,6 +12,8 @@ from app.schemas.file import (
     FileReplaceRequest,
     FileSearchRequest,
     FileFindRequest,
+    FileDeleteRequest,
+    FileListRequest,
 )
 from app.schemas.response import Response
 from app.services.file import SANDBOX_ALLOWED_DIRS, file_service
@@ -108,6 +110,37 @@ async def find_files(request: FileFindRequest):
     return Response(
         success=True,
         message=f"Search completed, found {len(result.files)} files",
+        data=result.model_dump(),
+    )
+
+
+@router.post("/delete", response_model=Response)
+async def delete_file(request: FileDeleteRequest):
+    """
+    Delete file or directory
+    """
+    result = await file_service.delete_file(path=request.path, sudo=request.sudo)
+
+    return Response(
+        success=True,
+        message="Path deleted successfully",
+        data=result.model_dump(),
+    )
+
+
+@router.post("/list", response_model=Response)
+async def list_directory(request: FileListRequest):
+    """
+    List directory entries
+    """
+    result = await file_service.list_dir(
+        path=request.path,
+        include_hidden=bool(request.include_hidden),
+    )
+
+    return Response(
+        success=True,
+        message=f"Listed {len(result.entries)} entries",
         data=result.model_dump(),
     )
 
