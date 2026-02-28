@@ -5,7 +5,7 @@ import time
 from collections import OrderedDict
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from app.domain.external.search import SearchEngine
 from app.domain.models.tool_result import ToolResult
@@ -274,6 +274,19 @@ class SearchTool(BaseTool):
 
     _cache_ttl: ClassVar[int] = 3600  # 1 hour cache TTL
     _cache_max_size: ClassVar[int] = 100  # Maximum cache entries
+    _preview_url_cache_max_size: ClassVar[int] = 200
+    _tracking_query_params: ClassVar[set[str]] = {
+        "fbclid",
+        "gclid",
+        "igshid",
+        "mc_cid",
+        "mc_eid",
+        "msclkid",
+        "ref",
+        "ref_src",
+        "source",
+        "sourceid",
+    }
     # prevent GC of fire-and-forget browse tasks
     _background_tasks: ClassVar[set[asyncio.Task[None]]] = set()
 
@@ -334,6 +347,8 @@ class SearchTool(BaseTool):
         self._current_browse_task: asyncio.Task[None] | None = None
         # Instance-level cache with O(1) LRU eviction
         self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
+        # Session-scoped LRU set of URLs already shown in live preview.
+        self._previewed_result_urls: OrderedDict[str, float] = OrderedDict()
 
         # Budget enforcement (per-task, since SearchTool is instantiated per task)
         from app.core.config import get_settings
@@ -355,6 +370,41 @@ class SearchTool(BaseTool):
         # context here so that dedup-blocked queries can return cached
         # results instead of failing with 0 results.
         self._pre_planning_context: str | None = None
+
+    @classmethod
+    def _is_tracking_query_param(cls, key: str) -> bool:
+        key_lower = key.lower()
+        return key_lower.startswith("utm_") or key_lower in cls._tracking_query_params
+
+    @classmethod
+    def _normalize_preview_url(cls, url: str) -> str:
+        """Normalize URL for live-preview deduplication."""
+        stripped = url.strip()
+        if not stripped:
+            return stripped
+
+        parsed = urlsplit(stripped)
+        if not parsed.netloc:
+            return stripped.split("#", 1)[0].rstrip("/").lower()
+
+        scheme = (parsed.scheme or "https").lower()
+        netloc = parsed.netloc.lower()
+        path = parsed.path or "/"
+        if path != "/":
+            path = path.rstrip("/")
+
+        filtered_query = [
+            (k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=False) if not cls._is_tracking_query_param(k)
+        ]
+        filtered_query.sort(key=lambda item: (item[0].lower(), item[1]))
+        query = urlencode(filtered_query, doseq=True)
+        return urlunsplit((scheme, netloc, path, query, ""))
+
+    def _mark_previewed_url(self, normalized_url: str) -> None:
+        self._previewed_result_urls[normalized_url] = time.time()
+        self._previewed_result_urls.move_to_end(normalized_url)
+        while len(self._previewed_result_urls) > self._preview_url_cache_max_size:
+            self._previewed_result_urls.popitem(last=False)
 
     def _should_use_browser_search(self) -> bool:
         """Check if browser-based search should be used.
@@ -730,20 +780,41 @@ class SearchTool(BaseTool):
             else:
                 return
 
-            urls: list[str] = []
-            for item in items[:count]:
+            candidate_urls: list[tuple[str, str]] = []
+            seen_this_batch: set[str] = set()
+            skipped_already_previewed = 0
+            for item in items:
                 url = getattr(item, "link", None) or (item.get("link") if isinstance(item, dict) else None)
-                if url:
-                    urls.append(url)
+                if not url:
+                    continue
+                normalized_url = self._normalize_preview_url(url)
+                if normalized_url in seen_this_batch:
+                    continue
+                seen_this_batch.add(normalized_url)
+                if normalized_url in self._previewed_result_urls:
+                    skipped_already_previewed += 1
+                    continue
+                candidate_urls.append((url, normalized_url))
+                if len(candidate_urls) >= count:
+                    break
 
-            if not urls:
+            if not candidate_urls:
+                if skipped_already_previewed:
+                    logger.info(
+                        "_browse_top_results: skipped %d URLs already shown in live preview",
+                        skipped_already_previewed,
+                    )
                 return
 
-            logger.info(f"Browsing top {len(urls)} search results for live preview visibility")
+            logger.info(
+                "Browsing top %d search results for live preview visibility (%d already shown skipped)",
+                len(candidate_urls),
+                skipped_already_previewed,
+            )
             consecutive_failures = 0
             max_failures = 2
             navigation_timeout_seconds = 20.0
-            for url in urls:
+            for url, normalized_url in candidate_urls:
                 # Check if a foreground browser operation cancelled us
                 if getattr(self._browser, "_background_browse_cancelled", False):
                     logger.info("_browse_top_results: cancelled by foreground browser operation")
@@ -758,12 +829,17 @@ class SearchTool(BaseTool):
                             consecutive_failures += 1
                         else:
                             consecutive_failures = 0
+                            self._mark_previewed_url(normalized_url)
                     else:
-                        await asyncio.wait_for(
+                        nav_result = await asyncio.wait_for(
                             self._browser.navigate(url),
                             timeout=navigation_timeout_seconds,
                         )
-                        consecutive_failures = 0
+                        if nav_result.success:
+                            consecutive_failures = 0
+                            self._mark_previewed_url(normalized_url)
+                        else:
+                            consecutive_failures += 1
                     # Dwell time for live preview — long enough for users to see each page
                     await asyncio.sleep(5.0)
                 except Exception as e:

@@ -24,6 +24,15 @@ from app.domain.models.tool_result import ToolResult
 logger = logging.getLogger(__name__)
 
 CHINESE_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
+_EXPECTED_TRANSIENT_ERROR_PATTERNS = (
+    "api key",
+    "keys exhausted",
+    "quota",
+    "rate limit",
+    "timed out",
+    "timeout",
+    "temporarily unavailable",
+)
 
 
 class SearchEngineType(str, Enum):
@@ -236,7 +245,12 @@ class SearchEngineBase(ABC, SearchEngine):
             ToolResult with success=False
         """
         message = str(error) if isinstance(error, str) else f"{self.provider_name} Search failed: {error}"
-        logger.error(message)
+        lowered_message = message.lower()
+        is_expected_transient = any(pattern in lowered_message for pattern in _EXPECTED_TRANSIENT_ERROR_PATTERNS)
+        if is_expected_transient:
+            logger.warning(message)
+        else:
+            logger.error(message)
         return ToolResult.error(
             message=message,
             data=SearchResults(

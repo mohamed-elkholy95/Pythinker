@@ -1,3 +1,5 @@
+import logging
+
 from app.domain.models.search import SearchResultItem
 from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 
@@ -42,3 +44,26 @@ def test_filter_english_results_keeps_non_chinese_items():
     filtered = engine._filter_english_results(results)
 
     assert len(filtered) == 2
+
+
+def test_create_error_result_logs_expected_exhaustion_as_warning(caplog):
+    engine = DummySearchEngine()
+
+    caplog.set_level(logging.WARNING)
+    result = engine._create_error_result("gpu deals", None, "All 6 Serper API keys exhausted")
+
+    assert result.success is False
+    warning_messages = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    assert any("All 6 Serper API keys exhausted" in message for message in warning_messages)
+    assert not any(record.levelname == "ERROR" for record in caplog.records)
+
+
+def test_create_error_result_logs_unexpected_failure_as_error(caplog):
+    engine = DummySearchEngine()
+
+    caplog.set_level(logging.ERROR)
+    result = engine._create_error_result("gpu deals", None, "Unexpected parser failure")
+
+    assert result.success is False
+    error_messages = [record.getMessage() for record in caplog.records if record.levelname == "ERROR"]
+    assert any("Unexpected parser failure" in message for message in error_messages)
