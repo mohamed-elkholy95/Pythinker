@@ -80,6 +80,12 @@ async def health_check():
     return {"status": "ok", "service": "pythinker-agent"}
 
 
+@app.get("/api/health", tags=["Health"], include_in_schema=False)
+async def health_check_api_alias():
+    """Backward-compatible alias for clients probing /api/health."""
+    return await health_check()
+
+
 @app.get("/health/ready", tags=["Health"])
 async def readiness_check():
     """
