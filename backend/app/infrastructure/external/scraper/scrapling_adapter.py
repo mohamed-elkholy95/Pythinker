@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from scrapling.fetchers import AsyncFetcher
 
 from app.domain.external.scraper import ScrapedContent, StructuredData
-from app.infrastructure.external.scraper.escalation import should_escalate
+from app.infrastructure.external.scraper.escalation import has_http2_transport_error, should_escalate
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -86,15 +86,32 @@ class ScraplingAdapter:
         """Tier 1: HTTP fetch with TLS fingerprint impersonation."""
         proxy = self._proxy_rotator.get_proxy() if self._proxy_rotator else None
         auth_headers = self._get_auth_headers(url)
+        fetch_kwargs: dict[str, object] = {
+            "impersonate": self._settings.scraping_default_impersonate,
+            "timeout": self._settings.scraping_http_timeout,
+            "proxy": proxy,
+            "follow_redirects": True,
+            **({"headers": auth_headers} if auth_headers else {}),
+        }
         try:
-            page = await AsyncFetcher.get(
-                url,
-                impersonate=self._settings.scraping_default_impersonate,
-                timeout=self._settings.scraping_http_timeout,
-                proxy=proxy,
-                follow_redirects=True,
-                **({"headers": auth_headers} if auth_headers else {}),
-            )
+            page = await AsyncFetcher.get(url, **fetch_kwargs)
+        except Exception as exc:
+            exc_str = str(exc)
+            if self._settings.scraping_http1_fallback_enabled and has_http2_transport_error(exc_str):
+                # HTTP/2 transport error (curl: 92 / NGHTTP2_INTERNAL_ERROR).
+                # Attempt exactly one HTTP/1.1 fetch (retries=0: one shot, then let
+                # fetch_with_escalation() promote to the Dynamic/Playwright tier).
+                logger.info("Scrapling Tier 1 HTTP/2 transport error; one-shot HTTP/1.1 fallback for %s", url)
+                try:
+                    page = await AsyncFetcher.get(url, http_version="v1", retries=0, **fetch_kwargs)
+                except Exception as retry_exc:
+                    logger.debug("Scrapling Tier 1 HTTP/1.1 fallback failed for %s: %s", url, retry_exc)
+                    return ScrapedContent(success=False, url=url, text="", error=str(retry_exc), tier_used="http")
+            else:
+                logger.debug("Scrapling Tier 1 failed for %s: %s", url, exc_str)
+                return ScrapedContent(success=False, url=url, text="", error=exc_str, tier_used="http")
+
+        try:
             text = str(page.get_all_text(separator="\n\n"))
             # Trim to configured max
             if len(text) > self._settings.scraping_max_content_length:
