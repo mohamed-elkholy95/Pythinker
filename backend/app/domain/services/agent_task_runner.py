@@ -1287,6 +1287,7 @@ class AgentTaskRunner(TaskRunner):
                 if message:
                     await self._set_current_task(message)
 
+                _flow_ended_with_error = False
                 async for event in self._run_flow(message_obj, task):
                     # Check if task is paused (for user takeover)
                     while task.paused:
@@ -1310,13 +1311,27 @@ class AgentTaskRunner(TaskRunner):
                     elif isinstance(event, WaitEvent):
                         await self._session_repository.update_status(self._session_id, SessionStatus.WAITING)
                         return
+                    # Track whether the flow itself terminated with an error signal.
+                    # If so, skip DoneEvent — emitting it would race with the domain
+                    # service's FAILED write and non-deterministically flip the status
+                    # back to COMPLETED.
+                    _flow_ended_with_error = isinstance(event, ErrorEvent)
                     if not await task.input_stream.is_empty():
                         break
 
-            # Send DoneEvent when task completes normally
-            await self._put_and_add_event(task, DoneEvent())
-            await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
-            logger.info(f"Agent {self._agent_id} task completed successfully")
+            if _flow_ended_with_error:
+                # Flow signalled a terminal error (e.g. delivery-gate block). The
+                # domain service already writes FAILED when it reads the ErrorEvent;
+                # reinforce here to eliminate the race.
+                await self._session_repository.update_status(self._session_id, SessionStatus.FAILED)
+                logger.warning(
+                    f"Agent {self._agent_id} flow ended with ErrorEvent — marking FAILED, skipping DoneEvent"
+                )
+            else:
+                # Send DoneEvent when task completes normally
+                await self._put_and_add_event(task, DoneEvent())
+                await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+                logger.info(f"Agent {self._agent_id} task completed successfully")
         except asyncio.CancelledError:
             logger.info(f"Agent {self._agent_id} task cancelled")
             # Cancellation terminal status is managed by the caller path:
