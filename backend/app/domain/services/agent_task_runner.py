@@ -1343,19 +1343,22 @@ class AgentTaskRunner(TaskRunner):
 
         mode_switch_task: str | None = None
 
-        # Detect deal/price intent from user query for badge auto-switch
-        _is_deal_query = (
-            not self._deal_mode_emitted
-            and self._research_mode != ResearchMode.DEAL_FINDING
-            and re.search(
-                r"\b(deal|deals|price|prices|pricing|cheap|cheapest|coupon|coupons|"
-                r"discount|discounts|promo|sale|bargain|offer|offers|cost|affordable|"
-                r"buy|purchase|lowest.price|best.price|compare.prices?)\b",
-                message.message,
-                re.IGNORECASE,
+        # Deal intent can dynamically switch deep_research -> deal_finding to avoid
+        # browser-first behavior for shopping tasks.
+        from app.domain.services.prompts.deal_finding import detect_deal_intent
+
+        is_deal_intent = detect_deal_intent(message.message)
+        if is_deal_intent and self._research_mode != ResearchMode.DEAL_FINDING:
+            previous_mode = self._research_mode
+            self._research_mode = ResearchMode.DEAL_FINDING
+            if self._plan_act_flow and hasattr(self._plan_act_flow, "set_research_mode"):
+                self._plan_act_flow.set_research_mode(ResearchMode.DEAL_FINDING.value)
+            logger.info(
+                "Dynamic research mode switch applied: %s -> %s (session=%s)",
+                previous_mode.value,
+                ResearchMode.DEAL_FINDING.value,
+                self._session_id,
             )
-            is not None
-        )
 
         async with self._usage_context():
             async for event in self._flow.run(message):
@@ -1365,9 +1368,8 @@ class AgentTaskRunner(TaskRunner):
                         logger.debug(f"Agent {self._agent_id} paused in flow, waiting for resume...")
                         await asyncio.sleep(0.5)
 
-                # Intercept the flow's ResearchModeEvent and replace with deal_finding
-                # when the user query contains deal/price keywords
-                if isinstance(event, ResearchModeEvent) and _is_deal_query and not self._deal_mode_emitted:
+                # Backward-compatible UI badge forcing for deal intent in non-deal sessions.
+                if isinstance(event, ResearchModeEvent) and is_deal_intent and not self._deal_mode_emitted:
                     self._deal_mode_emitted = True
                     yield ResearchModeEvent(research_mode="deal_finding")
                     continue

@@ -588,6 +588,20 @@ class PlanActFlow(BaseFlow):
         """Inject or replace cancellation token for cooperative cancellation checks."""
         self._cancel_token = cancel_token or CancellationToken.null()
 
+    def set_research_mode(self, research_mode: str) -> None:
+        """Update flow research mode for upcoming planning/execution passes."""
+        previous = self._research_mode
+        self._research_mode = research_mode
+        if research_mode != "deep_research":
+            # Deep-research workspace hints are mode-specific and should not leak.
+            self._workspace_output_path = None
+        logger.info(
+            "PlanActFlow research mode switched: %s -> %s (session=%s)",
+            previous,
+            research_mode,
+            self._session_id,
+        )
+
     async def _check_cancelled(self) -> None:
         """Raise CancelledError when cancellation has been requested."""
         await self._cancel_token.check_cancelled()
@@ -1648,14 +1662,14 @@ class PlanActFlow(BaseFlow):
             subdirs = " ".join(f"{workspace_path}/{d}" for d in workspace_structure)
             mkdir_cmd = f"mkdir -p {subdirs}"
             try:
-                result = await self._sandbox.exec_command(self._session_id, workspace_base, mkdir_cmd)
+                result = await self._sandbox.exec_command(self._session_id, "/workspace", mkdir_cmd)
                 if result.success:
                     self._workspace_output_path = workspace_path
                     logger.info("Deep Research workspace created: %s", workspace_path)
 
                     # Verify directories were actually created
                     verify_cmd = " && ".join(f"test -d {workspace_path}/{d}" for d in workspace_structure)
-                    verify_result = await self._sandbox.exec_command(self._session_id, workspace_base, verify_cmd)
+                    verify_result = await self._sandbox.exec_command(self._session_id, "/workspace", verify_cmd)
                     if not verify_result.success:
                         logger.warning("Workspace directory verification failed — some dirs may be missing")
                 else:
