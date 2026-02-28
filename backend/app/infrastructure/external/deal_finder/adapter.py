@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from app.core.config import get_settings
@@ -27,8 +27,10 @@ from app.domain.external.deal_finder import (
 )
 from app.infrastructure.external.deal_finder.coupon_aggregator import aggregate_coupons
 from app.infrastructure.external.deal_finder.price_extractor import extract_price
+from app.infrastructure.external.deal_finder.price_voter import VotingResult, vote_on_price
 
 if TYPE_CHECKING:
+    from app.domain.external.llm import LLM
     from app.domain.external.scraper import Scraper
     from app.domain.external.search import SearchEngine
 
@@ -269,19 +271,49 @@ def _extract_deals_from_snippets(
     return deals
 
 
+def _voting_result_to_deal(
+    voting: VotingResult,
+    url: str,
+    title: str = "",
+) -> DealResult | None:
+    """Convert a VotingResult to a DealResult, or None if no price."""
+    if voting.price is None or voting.price <= 0:
+        return None
+
+    discount_pct = None
+    if voting.original_price and voting.original_price > voting.price:
+        discount_pct = round((voting.original_price - voting.price) / voting.original_price * 100, 1)
+
+    return DealResult(
+        product_name=voting.product_name or title,
+        store=_store_from_url(url),
+        price=voting.price,
+        original_price=voting.original_price,
+        discount_percent=discount_pct,
+        url=url,
+        in_stock=voting.in_stock,
+        image_url=voting.image_url,
+        extraction_strategy=voting.winning_strategy,
+        extraction_confidence=voting.confidence,
+    )
+
+
 class DealFinderAdapter:
     """Infrastructure adapter that implements the DealFinder Protocol.
 
     Uses Scraper for HTTP fetching and SearchEngine for product discovery.
+    Supports price voting (multi-method consensus) and optional LLM fallback.
     """
 
     def __init__(
         self,
         scraper: Scraper,
         search_engine: SearchEngine | None = None,
+        llm: LLM | None = None,
     ) -> None:
         self._scraper = scraper
         self._search_engine = search_engine
+        self._llm = llm
 
     async def search_deals(
         self,
@@ -318,53 +350,53 @@ class DealFinderAdapter:
         total_steps = len(active_stores) + 3 + (1 if community_enabled else 0)
         step = 0
 
-        async def _report(msg: str) -> None:
+        async def _report(msg: str, partial_deals: list[DealResult] | None = None) -> None:
             nonlocal step
             step += 1
             if progress:
-                await progress(msg, step, total_steps)
+                partial_data: dict[str, Any] | None = None
+                if partial_deals:
+                    partial_data = {
+                        "deals": [
+                            {
+                                "product_name": d.product_name,
+                                "store": d.store,
+                                "price": d.price,
+                                "original_price": d.original_price,
+                                "discount_percent": d.discount_percent,
+                                "url": d.url,
+                                "score": d.score,
+                                "in_stock": d.in_stock,
+                                "coupon_code": d.coupon_code,
+                                "image_url": d.image_url,
+                            }
+                            for d in partial_deals[:5]
+                        ],
+                    }
+                await progress(msg, step, total_steps, partial_data)
 
         await _report(f'Searching {len(active_stores)} stores for "{query}"')
 
-        # Search for products with store-specific queries + community (concurrent).
-        # Uses price-focused query variant for better deal extraction.
-        search_tasks = []
-        for store_domain in active_stores:
-            search_query = f"{query} price deal site:{store_domain}"
-            search_tasks.append(self._search_store(search_query, store_domain, timeout))
-
-        # Community search runs concurrently with store searches
-        community_task_idx: int | None = None
-        if community_enabled:
-            community_task_idx = len(search_tasks)
-            search_tasks.append(self._search_community(query, timeout))
-
-        results = await asyncio.gather(*search_tasks, return_exceptions=True)
-
-        # Separate community results from store results
-        community_deals: list[DealResult] = []
-        if community_task_idx is not None:
-            community_result = results[community_task_idx]
-            if isinstance(community_result, list):
-                community_deals = community_result
-            elif isinstance(community_result, Exception):
-                logger.warning("Community search failed: %s", community_result)
-            # Remove community result so store iteration below is clean
-            results = list(results[:community_task_idx]) + list(results[community_task_idx + 1 :])
-
-        for store_domain, result in zip(active_stores, results, strict=False):
+        # Per-store wrapper: search + report progress as each store completes
+        async def _search_and_report(store_domain: str) -> list[DealResult]:
+            """Search a single store and report progress immediately on completion."""
             store_name = _store_from_url(f"https://{store_domain}")
-            if isinstance(result, Exception):
-                error_msg = str(result) or type(result).__name__
+            search_query = f"{query} price deal site:{store_domain}"
+            try:
+                result = await self._search_store(search_query, store_domain, timeout)
+            except Exception as exc:
+                error_msg = str(exc) or type(exc).__name__
                 logger.warning("Search failed for %s: %s", store_domain, error_msg)
                 store_errors.append({"store": store_name, "error": error_msg})
                 await _report(f"Searched {store_name} (failed)")
-                continue
+                return []
+
             count = len(result) if result else 0
             if result:
                 deals.extend(result)
                 searched_stores.append(store_name)
-            elif count == 0:
+                await _report(f"Searched {store_name} ({count} results)", result)
+            else:
                 # Try simplified query as retry
                 simplified = _simplify_query(query)
                 if simplified and simplified != query:
@@ -377,7 +409,26 @@ class DealFinderAdapter:
                             count = len(retry_result)
                     except Exception as exc:
                         logger.debug("Retry search failed for %s: %s", store_domain, exc)
-            await _report(f"Searched {store_name} ({count} results)")
+                await _report(f"Searched {store_name} ({count} results)", result or [])
+            return result or []
+
+        # Run store searches + community concurrently; each store fires progress on completion
+        store_tasks = [_search_and_report(sd) for sd in active_stores]
+
+        community_deals: list[DealResult] = []
+        community_task = asyncio.create_task(self._search_community(query, timeout)) if community_enabled else None
+
+        # Gather stores (each reports individually as it finishes)
+        await asyncio.gather(*store_tasks, return_exceptions=True)
+
+        # Collect community results
+        if community_task is not None:
+            try:
+                community_result = await community_task
+                if isinstance(community_result, list):
+                    community_deals = community_result
+            except Exception as exc:
+                logger.warning("Community search failed: %s", exc)
 
         # Merge community deals (dedup by URL against store results)
         community_sources_searched = 0
@@ -432,6 +483,18 @@ class DealFinderAdapter:
 
         best_deal = deals[0] if deals else None
 
+        # Persist price history (fire-and-forget, never blocks search)
+        if settings.deal_scraper_history_enabled and deals:
+            try:
+                from app.infrastructure.repositories.deal_history_repository import (
+                    record_prices_bulk,
+                )
+
+                task = asyncio.create_task(record_prices_bulk(deals, query=query))
+                task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+            except Exception as exc:
+                logger.debug("Price history recording skipped: %s", exc)
+
         return DealComparison(
             query=query,
             deals=deals,
@@ -476,6 +539,12 @@ class DealFinderAdapter:
             if url and store_domain in _domain_from_url(url):
                 urls_to_scrape.append((url, getattr(item, "title", "")))
 
+        settings = get_settings()
+        use_voting = settings.deal_scraper_price_voting_enabled
+        use_llm = settings.deal_scraper_llm_extraction_enabled and self._llm is not None
+        llm_budget = settings.deal_scraper_llm_max_per_search
+        llm_used = 0
+
         for url, title in urls_to_scrape:
             try:
                 scraped = await asyncio.wait_for(
@@ -486,30 +555,57 @@ class DealFinderAdapter:
                     continue
 
                 html = scraped.html or scraped.text
-                price_data = extract_price(html, url)
 
-                if price_data.price is not None and price_data.price > 0:
-                    deals.append(
-                        DealResult(
-                            product_name=price_data.product_name or title,
-                            store=_store_from_url(url),
-                            price=price_data.price,
-                            original_price=price_data.original_price,
-                            discount_percent=(
-                                round(
-                                    (price_data.original_price - price_data.price) / price_data.original_price * 100,
-                                    1,
-                                )
-                                if price_data.original_price and price_data.original_price > price_data.price
-                                else None
-                            ),
-                            url=url,
-                            in_stock=price_data.in_stock,
-                            image_url=price_data.image_url,
-                            extraction_strategy=price_data.strategy_used,
-                            extraction_confidence=price_data.confidence,
+                if use_voting:
+                    # Multi-method consensus extraction
+                    voting = vote_on_price(html, url)
+
+                    # LLM fallback when no consensus and budget remains
+                    if use_llm and voting.consensus_method == "best_confidence" and llm_used < llm_budget:
+                        try:
+                            from app.infrastructure.external.deal_finder.llm_price_extractor import (
+                                extract_price_with_llm,
+                            )
+                            from app.infrastructure.external.deal_finder.price_voter import (
+                                add_llm_vote,
+                            )
+
+                            llm_vote = await extract_price_with_llm(html, url, self._llm, product_hint=title)
+                            voting = add_llm_vote(voting, llm_vote)
+                            llm_used += 1
+                        except Exception as exc:
+                            logger.debug("LLM extraction skipped for %s: %s", url[:50], exc)
+
+                    deal = _voting_result_to_deal(voting, url, title)
+                    if deal:
+                        deals.append(deal)
+                else:
+                    # Legacy waterfall extraction
+                    price_data = extract_price(html, url)
+                    if price_data.price is not None and price_data.price > 0:
+                        deals.append(
+                            DealResult(
+                                product_name=price_data.product_name or title,
+                                store=_store_from_url(url),
+                                price=price_data.price,
+                                original_price=price_data.original_price,
+                                discount_percent=(
+                                    round(
+                                        (price_data.original_price - price_data.price)
+                                        / price_data.original_price
+                                        * 100,
+                                        1,
+                                    )
+                                    if price_data.original_price and price_data.original_price > price_data.price
+                                    else None
+                                ),
+                                url=url,
+                                in_stock=price_data.in_stock,
+                                image_url=price_data.image_url,
+                                extraction_strategy=price_data.strategy_used,
+                                extraction_confidence=price_data.confidence,
+                            )
                         )
-                    )
 
             except TimeoutError:
                 logger.warning("Price scrape timed out for %s", url)
@@ -587,7 +683,7 @@ class DealFinderAdapter:
     ) -> CouponSearchResult:
         """Find coupons for a specific store."""
         if progress:
-            await progress(f"Searching coupons for {store}", 1, 2)
+            await progress(f"Searching coupons for {store}", 1, 2, None)
         settings = get_settings()
         sources = settings.deal_scraper_coupon_sources.split(",")
         coupons, source_failures = await aggregate_coupons(
@@ -611,7 +707,7 @@ class DealFinderAdapter:
         ]
 
         if progress:
-            await progress(f"Found {len(coupons)} coupons", 2, 2)
+            await progress(f"Found {len(coupons)} coupons", 2, 2, None)
         return CouponSearchResult(
             coupons=coupons,
             source_failures=source_failures,
@@ -637,7 +733,9 @@ class DealFinderAdapter:
         total_steps = 2
 
         if progress:
-            await progress(f"Fetching prices from {len(capped_urls)} stores", 1, total_steps)
+            await progress(f"Fetching prices from {len(capped_urls)} stores", 1, total_steps, None)
+
+        use_voting = settings.deal_scraper_price_voting_enabled
 
         async def _fetch_one(url: str) -> DealResult | dict[str, str] | None:
             """Fetch and extract price from a single URL.
@@ -654,8 +752,16 @@ class DealFinderAdapter:
                     return {"store": store, "error": "Page fetch failed"}
 
                 html = scraped.html or scraped.text
-                price_data = extract_price(html, url)
 
+                if use_voting:
+                    voting = vote_on_price(html, url)
+                    deal = _voting_result_to_deal(voting, url, f"Product from {store}")
+                    if deal:
+                        return deal
+                    return {"store": store, "error": "Could not extract price"}
+
+                # Legacy waterfall
+                price_data = extract_price(html, url)
                 if price_data.price is not None and price_data.price > 0:
                     return DealResult(
                         product_name=price_data.product_name or f"Product from {store}",
@@ -701,7 +807,7 @@ class DealFinderAdapter:
 
         # Score deals
         if progress:
-            await progress(f"Comparing {len(deals)} prices", total_steps, total_steps)
+            await progress(f"Comparing {len(deals)} prices", total_steps, total_steps, None)
         all_prices = [d.price for d in deals if d.price > 0]
         for deal in deals:
             deal.score = _score_deal(
