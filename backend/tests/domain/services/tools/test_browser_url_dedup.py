@@ -41,3 +41,22 @@ async def test_browser_navigate_keeps_real_query_variants_distinct() -> None:
     assert first.success is True
     assert second.success is True
     assert mock_browser.navigate.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_browser_navigate_treats_http_https_as_same_page() -> None:
+    """Scheme-only variants should be treated as repeated page visits."""
+    mock_browser = MagicMock()
+    mock_browser.navigate = AsyncMock(
+        return_value=ToolResult(success=True, message="ok", data={"content": "page"}),
+    )
+
+    tool = BrowserTool(browser=mock_browser)
+
+    first = await tool.browser_navigate("http://example.com/deals")
+    second = await tool.browser_navigate("https://example.com/deals")
+
+    assert first.success is True
+    assert second.success is True
+    assert "already visited" in (second.message or "").lower()
+    assert mock_browser.navigate.await_count == 1

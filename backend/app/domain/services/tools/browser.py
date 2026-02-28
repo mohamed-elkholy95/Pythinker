@@ -239,6 +239,11 @@ class BrowserTool(BaseTool):
             return stripped.split("#", 1)[0].rstrip("/").lower()
 
         scheme = (parsed.scheme or "https").lower()
+        # Treat http/https as the same document for repeat-visit tracking.
+        # Most real visits are redirected to https anyway; keeping them distinct
+        # causes redundant revisits to slip past duplicate guards.
+        if scheme in {"http", "https"}:
+            scheme = "https"
         netloc = parsed.netloc.lower()
         path = parsed.path or "/"
         if path != "/":
