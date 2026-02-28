@@ -7,6 +7,7 @@ import os
 import re
 import glob
 import asyncio
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -20,6 +21,9 @@ from app.models.file import (
     FileSearchResult,
     FileFindResult,
     FileUploadResult,
+    FileDeleteResult,
+    FileListEntry,
+    FileListResult,
 )
 from app.core.exceptions import (
     AppException,
@@ -403,6 +407,82 @@ class FileService:
             if isinstance(e, (BadRequestException, ResourceNotFoundException)):
                 raise e
             raise AppException(message=f"Failed to upload file: {str(e)}")
+
+    async def delete_file(self, path: str, sudo: bool = False) -> FileDeleteResult:
+        """
+        Delete a file or directory.
+
+        Args:
+            path: Target path to delete
+            sudo: Whether to use sudo privileges
+        """
+        path = self._normalize_path(path)
+        if sudo and not settings.ALLOW_SUDO:
+            raise BadRequestException("sudo is not allowed in this sandbox")
+        if not os.path.exists(path):
+            raise ResourceNotFoundException(f"Path does not exist: {path}")
+
+        try:
+            if sudo:
+                command = f"sudo rm -rf -- '{path}'"
+                process = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await process.communicate()
+                if process.returncode != 0:
+                    raise BadRequestException(f"Failed to delete path: {stderr.decode()}")
+            else:
+                if os.path.isdir(path):
+                    await asyncio.to_thread(shutil.rmtree, path)
+                else:
+                    await asyncio.to_thread(os.remove, path)
+
+            return FileDeleteResult(path=path, deleted=True)
+        except Exception as e:
+            if isinstance(e, (BadRequestException, ResourceNotFoundException)):
+                raise e
+            raise AppException(message=f"Failed to delete path: {str(e)}")
+
+    async def list_dir(self, path: str, include_hidden: bool = False) -> FileListResult:
+        """
+        List entries in a directory.
+
+        Args:
+            path: Directory path
+            include_hidden: Whether to include dot-prefixed entries
+        """
+        path = self._normalize_path(path)
+        if not os.path.exists(path):
+            raise ResourceNotFoundException(f"Directory does not exist: {path}")
+        if not os.path.isdir(path):
+            raise BadRequestException(f"Path is not a directory: {path}")
+
+        def _list_entries() -> list[FileListEntry]:
+            entries: list[FileListEntry] = []
+            for entry in sorted(os.scandir(path), key=lambda item: item.name.lower()):
+                if not include_hidden and entry.name.startswith("."):
+                    continue
+                is_dir = entry.is_dir(follow_symlinks=False)
+                size = 0 if is_dir else int(entry.stat(follow_symlinks=False).st_size)
+                entries.append(
+                    FileListEntry(
+                        name=entry.name,
+                        path=entry.path,
+                        is_dir=is_dir,
+                        size_bytes=size,
+                    )
+                )
+            return entries
+
+        try:
+            entries = await asyncio.to_thread(_list_entries)
+            return FileListResult(path=path, entries=entries)
+        except Exception as e:
+            if isinstance(e, (BadRequestException, ResourceNotFoundException)):
+                raise e
+            raise AppException(message=f"Failed to list directory: {str(e)}")
 
     def ensure_file(self, path: str) -> None:
         """

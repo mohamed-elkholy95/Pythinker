@@ -55,3 +55,17 @@ class FileFindRequest(BaseModel):
 
     path: str = Field(..., description="Directory path to search")
     glob: str = Field(..., description="Filename pattern (glob syntax)")
+
+
+class FileDeleteRequest(BaseModel):
+    """File delete request."""
+
+    path: str = Field(..., description="Absolute path of file/directory to delete")
+    sudo: Optional[bool] = Field(False, description="Whether to use sudo privileges")
+
+
+class FileListRequest(BaseModel):
+    """Directory listing request."""
+
+    path: str = Field(..., description="Directory path to list")
+    include_hidden: Optional[bool] = Field(False, description="Whether to include dotfiles")
