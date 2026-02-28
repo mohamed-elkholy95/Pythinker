@@ -329,6 +329,7 @@
               :tool-name="toolContent?.name"
               :function-name="toolContent?.function"
               :args="toolContent?.args"
+              :status="toolStatus"
               :result="toolContent?.content?.result"
               :content="toolContent?.content"
               :is-executing="false"
@@ -411,6 +412,7 @@
               :tool-name="toolContent?.name"
               :function-name="toolContent?.function"
               :args="toolContent?.args"
+              :status="toolStatus"
               :result="toolContent?.content?.result"
               :content="toolContent?.content"
               :is-executing="isActiveOperation"
@@ -456,6 +458,7 @@
               :tool-name="toolContent?.name"
               :function-name="toolContent?.function"
               :args="toolContent?.args"
+              :status="toolStatus"
               :result="toolContent?.content?.result"
               :content="toolContent?.content"
               :is-executing="isActiveOperation"
@@ -807,7 +810,8 @@ const toolDisplay = computed(() => {
 
 // Activity detection
 const isActiveOperation = computed(() => {
-  return toolStatus.value === 'calling' || toolStatus.value === 'running';
+  const isToolActive = toolStatus.value === 'calling' || toolStatus.value === 'running';
+  return isToolActive && props.live;
 });
 
 /**
