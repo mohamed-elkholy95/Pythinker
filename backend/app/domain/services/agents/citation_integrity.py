@@ -151,6 +151,60 @@ def prune_phantom_references(report_content: str) -> str:
     return repaired
 
 
+def rebase_continuation_citations(base_text: str, continuation_text: str) -> str:
+    """Shift [N] citation numbers in continuation_text to be sequential after base_text.
+
+    When an LLM continuation restarts citation numbering from [1], merging it
+    directly with the base chunk produces citation collisions (two different sources
+    both labelled [1]).  This function detects that case and shifts every [N] in
+    continuation_text — both inline references and ## References entries — by the
+    maximum citation number already present in base_text.
+
+    Example:
+        base ends with … [3] Smith 2024 …
+        continuation starts [1] Jones 2025 …
+        → continuation is rebased to [4] Jones 2025 …
+
+    No-ops when:
+    - Either argument is empty
+    - base_text contains no citations (no conflict possible)
+    - continuation_text contains no citations
+    - continuation numbering is already sequential (min > max_base)
+    """
+    if not base_text or not continuation_text:
+        return continuation_text
+
+    base_nums = [int(m) for m in _INLINE_CITATION_RE.findall(base_text)]
+    if not base_nums:
+        return continuation_text  # No citations in base — no conflict possible
+
+    max_base = max(base_nums)
+
+    cont_nums = [int(m) for m in _INLINE_CITATION_RE.findall(continuation_text)]
+    if not cont_nums:
+        return continuation_text  # Continuation has no citations — nothing to rebase
+
+    min_cont = min(cont_nums)
+    if min_cont > max_base:
+        return continuation_text  # Already sequential — no action needed
+
+    offset = max_base
+
+    def _shift(m: re.Match) -> str:
+        return f"[{int(m.group(1)) + offset}]"
+
+    rebased = _INLINE_CITATION_RE.sub(_shift, continuation_text)
+    logger.debug(
+        "rebase_continuation_citations: offset=%d, cont_range=[%d..%d] → [%d..%d]",
+        offset,
+        min_cont,
+        max(cont_nums),
+        min_cont + offset,
+        max(cont_nums) + offset,
+    )
+    return rebased
+
+
 def repair_citations(report_content: str, source_list: str) -> str:
     """Attempt to repair citation integrity issues by appending missing reference entries.
 

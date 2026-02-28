@@ -273,7 +273,14 @@ class ResponseGenerator:
         return base_prompt
 
     def merge_stream_continuation(self, base_text: str, continuation_text: str) -> str:
-        """Merge continuation output while avoiding duplicated overlap."""
+        """Merge continuation output while avoiding duplicated overlap.
+
+        Rebases citation numbers in the continuation before overlap detection so
+        that a continuation restarting from [1] does not collide with citations
+        already established in the base chunk.
+        """
+        from app.domain.services.agents.citation_integrity import rebase_continuation_citations
+
         base = base_text or ""
         continuation = continuation_text or ""
 
@@ -281,6 +288,11 @@ class ResponseGenerator:
             return base
         if not base.strip():
             return continuation
+
+        # Rebase citation numbers before any overlap/merge logic so that
+        # repair_citations() later sees a fully sequential reference list.
+        continuation = rebase_continuation_citations(base, continuation)
+
         if continuation in base:
             return base
         if base in continuation and len(continuation) >= int(len(base) * 0.8):
@@ -394,6 +406,8 @@ class ResponseGenerator:
         coverage_result: Any,
         stream_metadata: dict[str, Any],
         truncation_exhausted: bool,
+        additional_issues: list[str] | None = None,
+        additional_warnings: list[str] | None = None,
     ) -> tuple[bool, list[str]]:
         """Fail-closed delivery gate for truncation/completeness risks."""
         flags = self._resolve_feature_flags_fn() if self._resolve_feature_flags_fn else {}
@@ -433,6 +447,11 @@ class ResponseGenerator:
                         warnings.append(f"coverage_missing:{missing_text}")
             else:
                 warnings.append("coverage_relevance_low")
+
+        if additional_warnings:
+            warnings.extend(additional_warnings)
+        if additional_issues:
+            issues.extend(additional_issues)
 
         if warnings:
             logger.warning("Delivery integrity warnings: %s", "; ".join(warnings))
