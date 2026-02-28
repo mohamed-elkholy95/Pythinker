@@ -171,6 +171,7 @@ function formatCents(price: number): string {
 .deal-card--best {
   border-color: rgba(234, 88, 12, 0.3);
   background: linear-gradient(160deg, #fffcfa, #fff8f3 40%, var(--background-white-main));
+  padding-top: 22px; /* clearance for the absolutely-positioned ribbon */
 }
 
 :global(.dark) .deal-card--best {
@@ -217,6 +218,8 @@ function formatCents(price: number): string {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .store-avatar {
@@ -250,6 +253,11 @@ function formatCents(price: number): string {
   font-weight: 500;
   color: var(--text-secondary);
   letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .stock-pill {
@@ -261,6 +269,8 @@ function formatCents(price: number): string {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .stock-dot {
