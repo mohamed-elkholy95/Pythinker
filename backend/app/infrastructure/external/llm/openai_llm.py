@@ -1199,6 +1199,15 @@ To extract data from a webpage:
         if enable_caching and self._cache_manager:
             request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
 
+        settings = get_settings()
+        llm_tool_max_tokens = max(0, int(getattr(settings, "llm_tool_max_tokens", 0) or 0))
+        llm_tool_request_timeout = max(0.0, float(getattr(settings, "llm_tool_request_timeout", 0.0) or 0.0))
+        llm_tool_timeout_max_retries = max(0, int(getattr(settings, "llm_tool_timeout_max_retries", 0) or 0))
+        timeout_fallback_fast_model = str(getattr(settings, "fast_model", "") or "").strip()
+        model_override_for_attempt = model
+        tool_timeout_retries = 0
+        timeout_fallback_used = False
+
         max_retries = 3
         base_delay = 1.0
         validation_recovery_attempted = False
@@ -1212,9 +1221,17 @@ To extract data from a webpage:
                     await asyncio.sleep(delay)
 
                 # Use overrides if provided (Unified Adaptive Routing)
-                effective_model = self._resolve_model_override(model)
+                effective_model = self._resolve_model_override(model_override_for_attempt)
                 effective_temperature = temperature if temperature is not None else self._temperature
                 effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
+                if request_tools and llm_tool_max_tokens > 0 and effective_max_tokens > llm_tool_max_tokens:
+                    logger.debug(
+                        "Capping tool-call max_tokens from %s to %s for model %s",
+                        effective_max_tokens,
+                        llm_tool_max_tokens,
+                        effective_model,
+                    )
+                    effective_max_tokens = llm_tool_max_tokens
 
                 # GPT-5 nano/mini and o1/o3 models have different parameter requirements
                 is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
@@ -1252,13 +1269,17 @@ To extract data from a webpage:
                     # Some providers (DeepSeek, etc.) don't support response_format with tools
                     # Only pass response_format for official OpenAI endpoints
                     use_response_format = response_format if self._supports_response_format_with_tools() else None
-                    response = await client.chat.completions.create(
+                    tool_call = client.chat.completions.create(
                         **params,
                         tools=request_tools,
                         response_format=use_response_format,
                         tool_choice=tool_choice,
                         parallel_tool_calls=self._supports_parallel_tool_calls(),
                     )
+                    if llm_tool_request_timeout > 0:
+                        response = await asyncio.wait_for(tool_call, timeout=llm_tool_request_timeout)
+                    else:
+                        response = await tool_call
                 else:
                     # MLX mode or no tools
                     logger.debug(
@@ -1308,6 +1329,44 @@ To extract data from a webpage:
                         return parsed_tool_call
 
                 return result
+
+            except TimeoutError as e:
+                timeout_seconds = (
+                    llm_tool_request_timeout
+                    if request_tools and llm_tool_request_timeout > 0
+                    else settings.llm_request_timeout
+                )
+                logger.warning(
+                    "LLM request timed out after %.1fs (model=%s, tools=%s, attempt=%s/%s)",
+                    timeout_seconds,
+                    effective_model,
+                    "yes" if request_tools else "no",
+                    attempt + 1,
+                    max_retries + 1,
+                )
+
+                if request_tools and tool_timeout_retries < llm_tool_timeout_max_retries:
+                    tool_timeout_retries += 1
+                    if timeout_fallback_fast_model and not timeout_fallback_used:
+                        model_override_for_attempt = timeout_fallback_fast_model
+                        timeout_fallback_used = True
+                        logger.warning(
+                            "Retrying timed-out tool call with fast model '%s' (retry %s/%s)",
+                            timeout_fallback_fast_model,
+                            tool_timeout_retries,
+                            llm_tool_timeout_max_retries,
+                        )
+                    else:
+                        logger.warning(
+                            "Retrying timed-out tool call (retry %s/%s)",
+                            tool_timeout_retries,
+                            llm_tool_timeout_max_retries,
+                        )
+                    continue
+
+                raise LLMException(
+                    f"LLM request timed out after {timeout_seconds:.1f}s (model={effective_model}, tools={'yes' if request_tools else 'no'})"
+                ) from e
 
             except RateLimitError as e:
                 # Parse rate limit TTL and mark key exhausted
