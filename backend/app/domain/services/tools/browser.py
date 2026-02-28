@@ -5,7 +5,7 @@ import re
 import time
 from enum import Enum
 from typing import ClassVar
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 import aiohttp
 
@@ -195,6 +195,18 @@ class BrowserTool(BaseTool):
     _url_cache: ClassVar[dict[str, tuple[float, str]]] = {}
     _url_cache_ttl: ClassVar[int] = 300  # 5 minutes
     _url_cache_max: ClassVar[int] = 50
+    _tracking_query_params: ClassVar[set[str]] = {
+        "fbclid",
+        "gclid",
+        "igshid",
+        "mc_cid",
+        "mc_eid",
+        "msclkid",
+        "ref",
+        "ref_src",
+        "source",
+        "sourceid",
+    }
 
     def __init__(
         self,
@@ -214,6 +226,32 @@ class BrowserTool(BaseTool):
         self._scraper = scraper
         # Per-session URL visit counter to warn/reject repeated visits
         self._url_visit_counts: dict[str, int] = {}
+
+    @classmethod
+    def _normalize_url_for_visit_tracking(cls, url: str) -> str:
+        """Normalize URL to detect repeat visits reliably across superficial variants."""
+        stripped = url.strip()
+        if not stripped:
+            return stripped
+
+        parsed = urlsplit(stripped)
+        if not parsed.netloc:
+            return stripped.split("#", 1)[0].rstrip("/").lower()
+
+        scheme = (parsed.scheme or "https").lower()
+        netloc = parsed.netloc.lower()
+        path = parsed.path or "/"
+        if path != "/":
+            path = path.rstrip("/")
+
+        filtered_query = [
+            (k, v)
+            for k, v in parse_qsl(parsed.query, keep_blank_values=False)
+            if not (k.lower().startswith("utm_") or k.lower() in cls._tracking_query_params)
+        ]
+        filtered_query.sort(key=lambda item: (item[0].lower(), item[1]))
+        query = urlencode(filtered_query, doseq=True)
+        return urlunsplit((scheme, netloc, path, query, ""))
 
     def _extract_focused_content(self, text: str, focus: str | None, max_length: int = 50000) -> str:
         """Extract content relevant to the focus area.
@@ -335,7 +373,7 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
             logger.debug("Failed to record URL visit in task state", exc_info=True)
 
         # Track per-session visit count and warn/reject repeated visits
-        normalized_url = url.split("#")[0].rstrip("/")
+        normalized_url = self._normalize_url_for_visit_tracking(url)
         visit_count = self._url_visit_counts.get(normalized_url, 0) + 1
         self._url_visit_counts[normalized_url] = visit_count
 
@@ -494,9 +532,14 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
         description="""View current browser page content and interactive elements.
 
 USE WHEN:
-- Checking latest page state after clicks, scrolls, or other interactions
-- Verifying page content has loaded after waiting
-- Re-extracting interactive elements after page updates
+- Checking latest page state AFTER clicks, scrolls, or form interactions
+- Re-extracting interactive elements after a dynamic page update
+- Verifying content has loaded after an explicit wait
+
+DO NOT USE:
+- Immediately after browser_navigate — navigation already extracts full page content
+  and returns interactive elements in the same call. Calling browser_view right after
+  browser_navigate is redundant and wastes a tool call.
 
 RETURNS: Page content, interactive elements list with indices, current URL, title.
 Use element indices with browser_click, browser_input, etc.""",
@@ -565,7 +608,7 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
             logger.debug("Failed to record URL visit in task state", exc_info=True)
 
         # Track per-session visit count and warn/reject repeated visits
-        nav_normalized_url = url.split("#")[0].rstrip("/")
+        nav_normalized_url = self._normalize_url_for_visit_tracking(url)
         nav_visit_count = self._url_visit_counts.get(nav_normalized_url, 0) + 1
         self._url_visit_counts[nav_normalized_url] = nav_visit_count
 
