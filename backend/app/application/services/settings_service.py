@@ -8,6 +8,7 @@ from functools import lru_cache
 from typing import Any
 
 from app.core.config import get_settings
+from app.core.search_provider_policy import normalize_search_provider_chain
 from app.infrastructure.storage.mongodb import get_mongodb
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,11 @@ class SettingsService:
         self._skill_policy_cache_lock = asyncio.Lock()
         self._skill_policy_user_locks: dict[str, asyncio.Lock] = {}
 
+    @classmethod
+    def _normalize_search_provider_chain(cls, raw: Any) -> list[str]:
+        """Normalize persisted/env chain values into canonical provider order."""
+        return normalize_search_provider_chain(raw)
+
     @staticmethod
     def get_default_settings() -> dict[str, Any]:
         config = get_settings()
@@ -34,6 +40,9 @@ class SettingsService:
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
             "search_provider": config.search_provider or "bing",
+            "search_provider_chain": SettingsService._normalize_search_provider_chain(
+                getattr(config, "search_provider_chain", None)
+            ),
             "browser_agent_max_steps": config.browser_agent_max_steps,
             "browser_agent_timeout": config.browser_agent_timeout,
             "browser_agent_use_vision": config.browser_agent_use_vision,
@@ -53,21 +62,23 @@ class SettingsService:
         settings_collection = self._get_settings_collection()
         settings_doc = await settings_collection.find_one({"user_id": user_id})
         if settings_doc:
+            config = get_settings()
             return {
                 "llm_provider": settings_doc.get("llm_provider", "openai"),
                 "model_name": settings_doc.get("model_name", "gpt-4"),
                 "temperature": settings_doc.get("temperature", 0.7),
                 "max_tokens": settings_doc.get("max_tokens", 8000),
                 "search_provider": settings_doc.get("search_provider", "bing"),
+                "search_provider_chain": self._normalize_search_provider_chain(
+                    settings_doc.get("search_provider_chain", getattr(config, "search_provider_chain", None))
+                ),
                 "browser_agent_max_steps": settings_doc.get("browser_agent_max_steps", 25),
                 "browser_agent_timeout": settings_doc.get("browser_agent_timeout", 300),
                 "browser_agent_use_vision": settings_doc.get("browser_agent_use_vision", True),
                 "response_verbosity_preference": settings_doc.get("response_verbosity_preference", "adaptive"),
                 "clarification_policy": settings_doc.get("clarification_policy", "auto"),
                 "quality_floor_enforced": settings_doc.get("quality_floor_enforced", True),
-                "skill_auto_trigger_enabled": settings_doc.get(
-                    "skill_auto_trigger_enabled", get_settings().skill_auto_trigger_enabled
-                ),
+                "skill_auto_trigger_enabled": settings_doc.get("skill_auto_trigger_enabled", config.skill_auto_trigger_enabled),
             }
         return self.get_default_settings()
 
@@ -107,7 +118,10 @@ class SettingsService:
             settings_doc = {"user_id": user_id, **self.get_default_settings()}
 
         for key, value in updates.items():
-            settings_doc[key] = value
+            if key == "search_provider_chain":
+                settings_doc[key] = self._normalize_search_provider_chain(value)
+            else:
+                settings_doc[key] = value
 
         await settings_collection.update_one({"user_id": user_id}, {"$set": settings_doc}, upsert=True)
         resolved = await self.get_user_settings(user_id)

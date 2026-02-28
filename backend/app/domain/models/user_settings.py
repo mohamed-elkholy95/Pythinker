@@ -1,7 +1,12 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.search_provider_policy import (
+    DEFAULT_SEARCH_PROVIDER_CHAIN,
+    normalize_search_provider_chain,
+)
 
 
 class UserSettings(BaseModel):
@@ -18,6 +23,10 @@ class UserSettings(BaseModel):
 
     # Search Provider settings
     search_provider: str = "duckduckgo"  # "bing", "google", "duckduckgo", "brave", "tavily", "serper"
+    search_provider_chain: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_SEARCH_PROVIDER_CHAIN),
+        description="Ordered search fallback chain policy",
+    )
 
     # Browser Agent settings
     browser_agent_max_steps: int = 25
@@ -41,6 +50,11 @@ class UserSettings(BaseModel):
     # Timestamps
     created_at: datetime = datetime.now(UTC)
     updated_at: datetime = datetime.now(UTC)
+
+    @field_validator("search_provider_chain", mode="before")
+    @classmethod
+    def _normalize_provider_chain(cls, value: Any) -> list[str]:
+        return normalize_search_provider_chain(value)
 
     def update(self, **kwargs) -> None:
         """Update settings with provided values"""
