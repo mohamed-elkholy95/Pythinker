@@ -16,7 +16,7 @@ export interface ToolTimelineEntry {
   name: string
   functionName: string
   args: Record<string, unknown>
-  status: 'calling' | 'called'
+  status: 'calling' | 'running' | 'called' | 'interrupted'
   startedAt: number
   completedAt?: number
   /** Human-readable description (e.g., "Search for OpenRouter models") */
@@ -102,14 +102,14 @@ export const useToolStore = defineStore('tool', () => {
     }
 
     // Track active calls
-    if (tool.status === 'calling') {
+    if (tool.status === 'calling' || tool.status === 'running') {
       activeToolCalls.value.set(tool.tool_call_id, {
         toolCallId: tool.tool_call_id,
         name: tool.name,
         functionName: tool.function,
         startedAt: tool.timestamp ?? Date.now(),
       })
-    } else if (tool.status === 'called') {
+    } else if (tool.status === 'called' || tool.status === 'interrupted') {
       activeToolCalls.value.delete(tool.tool_call_id)
     }
   }
