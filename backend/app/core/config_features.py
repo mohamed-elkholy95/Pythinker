@@ -60,7 +60,11 @@ class AgentSafetySettingsMixin:
     max_iterations: int = 400  # Maximum loop iterations per run (doubled for complex tasks)
     max_tool_calls: int = 500  # Maximum tool invocations per run (increased for codebase analysis)
     max_execution_time_seconds: int = 3600  # 60 minutes wall-clock ceiling
-    workflow_idle_timeout_seconds: int = 300  # 5 minutes between events before idle timeout
+    # Idle timeout: resets on every yielded event. Must exceed llm_request_timeout x 2 + retry
+    # overhead so a slow provider can complete one full attempt + one retry before the watchdog
+    # fires. Settings.effective_workflow_idle_timeout auto-floors this when it is too small.
+    # Formula: 2 x LLM_REQUEST_TIMEOUT (300s) + 60s margin = 660s.
+    workflow_idle_timeout_seconds: int = 660  # 11 min — survives full LLM attempt + one retry
     max_tokens_per_run: int = 500000  # Token limit across all LLM calls
     max_cost_usd: float | None = None  # Optional cost limit
 
