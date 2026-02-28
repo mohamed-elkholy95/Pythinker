@@ -6,8 +6,10 @@ Catches:
 - Citation gaps: non-sequential numbering
 - Duplicate URLs in References
 
-Includes a repair() method that appends missing reference entries from the
-known source list when available.
+Includes repair helpers that:
+- append missing reference entries from the known source list when available
+- prune phantom references
+- normalize numbering to a contiguous [1..N] sequence when gaps remain
 """
 
 from __future__ import annotations
@@ -142,13 +144,44 @@ def prune_phantom_references(report_content: str) -> str:
         kept_lines.append(line)
 
     kept_ref_block = "\n".join(kept_lines).strip()
-    if kept_ref_block:
-        repaired = f"{body.rstrip()}\n\n## References\n{kept_ref_block}\n"
-    else:
-        repaired = body.rstrip() + "\n"
+    repaired = f"{body.rstrip()}\n\n## References\n{kept_ref_block}\n" if kept_ref_block else body.rstrip() + "\n"
 
     logger.info("Pruned %d phantom reference(s)", removed)
     return repaired
+
+
+def normalize_citation_numbering(report_content: str) -> str:
+    """Reindex citation numbers to a contiguous [1..N] sequence.
+
+    This is useful after truncation/continuation stitching where both inline
+    citations and reference entries may be internally consistent but sparse
+    (for example: [4], [6], [7]). The function remaps all citation tokens
+    deterministically while preserving relative ordering.
+    """
+    if not report_content:
+        return report_content
+
+    observed_numbers = sorted({int(m.group(1)) for m in _INLINE_CITATION_RE.finditer(report_content)})
+    if not observed_numbers:
+        return report_content
+
+    expected_numbers = list(range(1, len(observed_numbers) + 1))
+    if observed_numbers == expected_numbers:
+        return report_content
+
+    remap = {old_num: new_num for new_num, old_num in enumerate(observed_numbers, start=1)}
+
+    def _renumber(match: re.Match) -> str:
+        old_num = int(match.group(1))
+        return f"[{remap.get(old_num, old_num)}]"
+
+    normalized = _INLINE_CITATION_RE.sub(_renumber, report_content)
+    logger.info(
+        "Normalized citation numbering to contiguous range [1..%d] (observed=%s)",
+        len(observed_numbers),
+        observed_numbers,
+    )
+    return normalized
 
 
 def rebase_continuation_citations(base_text: str, continuation_text: str) -> str:
@@ -218,7 +251,7 @@ def repair_citations(report_content: str, source_list: str) -> str:
     Returns:
         Report with missing reference entries appended, or original if no repairs needed.
     """
-    if not report_content or not source_list:
+    if not report_content:
         return report_content
 
     result = validate_citations(report_content)
@@ -248,5 +281,11 @@ def repair_citations(report_content: str, source_list: str) -> str:
 
     # Remove references that are never cited inline.
     repaired = prune_phantom_references(repaired)
+
+    # Normalize sparse numbering caused by continuation stitching when all
+    # inline citations are still backed by References entries.
+    post_prune = validate_citations(repaired)
+    if post_prune.citation_gaps and not post_prune.orphan_citations:
+        repaired = normalize_citation_numbering(repaired)
 
     return repaired
