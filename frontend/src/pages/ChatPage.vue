@@ -600,6 +600,7 @@ import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 import { toEpochSeconds } from '@/utils/time';
 import { getRestoreAbortReason, isTerminalSessionStatus } from '@/utils/chatRestoreGuards';
 import { normalizeTransientTools } from '@/utils/sessionFinalization';
+import { shouldPreserveDealToolInLiveView } from '@/utils/dealLiveViewSelection';
 import {
   isStructuredSummaryAssistantMessage,
   shouldNestAssistantMessageInStep,
@@ -2375,15 +2376,32 @@ const handleToolStreamEvent = (data: ToolStreamEventData) => {
   }
 }
 
+const applyToolProgressUpdate = (
+  tool: ToolContent | undefined,
+  data: import('../types/event').ToolProgressEventData,
+): boolean => {
+  if (!tool || tool.tool_call_id !== data.tool_call_id) return false;
+  tool.progress_percent = data.progress_percent;
+  tool.current_step = data.current_step;
+  tool.elapsed_ms = data.elapsed_ms;
+  if (data.checkpoint_data) {
+    tool.checkpoint_data = data.checkpoint_data;
+  }
+  return true;
+};
+
 // Handle tool_progress event — update progress on active tool
 const handleToolProgressEvent = (data: import('../types/event').ToolProgressEventData) => {
-  if (lastTool.value && lastTool.value.tool_call_id === data.tool_call_id) {
-    lastTool.value.progress_percent = data.progress_percent;
-    lastTool.value.current_step = data.current_step;
-    lastTool.value.elapsed_ms = data.elapsed_ms;
-    if (data.checkpoint_data) {
-      lastTool.value.checkpoint_data = data.checkpoint_data;
-    }
+  applyToolProgressUpdate(lastTool.value, data);
+  applyToolProgressUpdate(lastNoMessageTool.value, data);
+
+  const timelineTool = toolTimeline.value.find((tool) => tool.tool_call_id === data.tool_call_id);
+  applyToolProgressUpdate(timelineTool, data);
+
+  const lastStep = getLastStep();
+  if (lastStep) {
+    const stepTool = lastStep.tools.find((tool) => tool.tool_call_id === data.tool_call_id);
+    applyToolProgressUpdate(stepTool, data);
   }
 }
 
@@ -2461,7 +2479,14 @@ const handleToolEvent = (toolData: ToolEventData) => {
     lastTool.value = toolContent;
   }
   if (toolContent.name !== 'message') {
-    lastNoMessageTool.value = toolContent;
+    const preservedTool = shouldPreserveDealToolInLiveView(lastNoMessageTool.value, toolContent)
+      ? lastNoMessageTool.value
+      : undefined;
+    const panelTool = preservedTool ?? toolContent;
+
+    if (!preservedTool) {
+      lastNoMessageTool.value = toolContent;
+    }
     upsertToolTimeline(toolContent);
 
     // Auto-resume to real-time when a new tool starts during a live session
@@ -2471,13 +2496,13 @@ const handleToolEvent = (toolData: ToolEventData) => {
     }
 
     if (realTime.value && canOpenLiveViewPanel.value) {
-      panelToolId.value = toolContent.tool_call_id;
+      panelToolId.value = panelTool.tool_call_id;
       if (isToolPanelOpen.value) {
         // Auto-switch panel content when panel is open and new tool starts
-        showToolPanelIfAllowed(toolContent, isLiveTool(toolContent));
+        showToolPanelIfAllowed(panelTool, isLiveTool(panelTool));
       } else if (!userDismissedPanel.value) {
         // Auto-open panel on first tool event (user hasn't dismissed it yet)
-        showToolPanelIfAllowed(toolContent, isLiveTool(toolContent));
+        showToolPanelIfAllowed(panelTool, isLiveTool(panelTool));
       }
     }
   }
