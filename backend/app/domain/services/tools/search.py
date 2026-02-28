@@ -349,6 +349,9 @@ class SearchTool(BaseTool):
         self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         # Session-scoped LRU set of URLs already shown in live preview.
         self._previewed_result_urls: OrderedDict[str, float] = OrderedDict()
+        # URLs currently being previewed by background tasks. Prevents duplicate
+        # navigation when multiple search calls race.
+        self._previewing_result_urls: set[str] = set()
 
         # Budget enforcement (per-task, since SearchTool is instantiated per task)
         from app.core.config import get_settings
@@ -388,7 +391,14 @@ class SearchTool(BaseTool):
             return stripped.split("#", 1)[0].rstrip("/").lower()
 
         scheme = (parsed.scheme or "https").lower()
-        netloc = parsed.netloc.lower()
+        # Treat http/https as the same target page to suppress scheme-only duplicates.
+        if scheme in {"http", "https"}:
+            scheme = "https"
+
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+        netloc = (f"{host}:{port}" if port and port not in {80, 443} else host) if host else parsed.netloc.lower()
+
         path = parsed.path or "/"
         if path != "/":
             path = path.rstrip("/")
@@ -791,10 +801,11 @@ class SearchTool(BaseTool):
                 if normalized_url in seen_this_batch:
                     continue
                 seen_this_batch.add(normalized_url)
-                if normalized_url in self._previewed_result_urls:
+                if normalized_url in self._previewed_result_urls or normalized_url in self._previewing_result_urls:
                     skipped_already_previewed += 1
                     continue
                 candidate_urls.append((url, normalized_url))
+                self._previewing_result_urls.add(normalized_url)
                 if len(candidate_urls) >= count:
                     break
 
@@ -819,6 +830,7 @@ class SearchTool(BaseTool):
                 if getattr(self._browser, "_background_browse_cancelled", False):
                     logger.info("_browse_top_results: cancelled by foreground browser operation")
                     break
+                navigation_succeeded = False
                 try:
                     if hasattr(self._browser, "navigate_for_display"):
                         success = await asyncio.wait_for(
@@ -829,7 +841,7 @@ class SearchTool(BaseTool):
                             consecutive_failures += 1
                         else:
                             consecutive_failures = 0
-                            self._mark_previewed_url(normalized_url)
+                            navigation_succeeded = True
                     else:
                         nav_result = await asyncio.wait_for(
                             self._browser.navigate(url),
@@ -837,7 +849,7 @@ class SearchTool(BaseTool):
                         )
                         if nav_result.success:
                             consecutive_failures = 0
-                            self._mark_previewed_url(normalized_url)
+                            navigation_succeeded = True
                         else:
                             consecutive_failures += 1
                     # Dwell time for live preview — long enough for users to see each page
@@ -845,6 +857,10 @@ class SearchTool(BaseTool):
                 except Exception as e:
                     consecutive_failures += 1
                     logger.debug(f"Failed to browse {url}: {e}")
+                finally:
+                    self._previewing_result_urls.discard(normalized_url)
+                    if navigation_succeeded:
+                        self._mark_previewed_url(normalized_url)
 
                 if consecutive_failures >= max_failures:
                     logger.info(
