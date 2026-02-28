@@ -1576,17 +1576,21 @@ class PlanActFlow(BaseFlow):
                     while True:
                         await self._check_cancelled()
                         try:
-                            # Idle timeout (default 5 min) resets on every yielded event
-                            async with asyncio.timeout(settings.workflow_idle_timeout_seconds):
+                            # Idle timeout resets on every yielded event.
+                            # Uses effective_workflow_idle_timeout which is auto-floored to
+                            # 2x llm_request_timeout + 60s so a slow provider can complete
+                            # one full attempt + one retry before the watchdog fires.
+                            idle_timeout = settings.effective_workflow_idle_timeout
+                            async with asyncio.timeout(idle_timeout):
                                 event = await inner.__anext__()
                         except StopAsyncIteration:
                             break
                         except TimeoutError:
-                            idle_mins = settings.workflow_idle_timeout_seconds // 60
+                            idle_mins = settings.effective_workflow_idle_timeout // 60
                             logger.warning(
                                 "Agent %s idle timeout after %ds for session %s",
                                 self._agent_id,
-                                settings.workflow_idle_timeout_seconds,
+                                settings.effective_workflow_idle_timeout,
                                 self._session_id,
                             )
                             yield ErrorEvent(
