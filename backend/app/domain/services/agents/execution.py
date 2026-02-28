@@ -568,6 +568,14 @@ class ExecutionAgent(BaseAgent):
                     is_comparison=_is_comparison,
                 )
                 + f"\n\n## Available Sources\n{source_list}"
+                # Pre-baked references anchor: injecting the complete numbered list
+                # here guarantees the LLM can copy it verbatim at the end of its
+                # response, even when output is near the token budget.  This is the
+                # root-cause fix for phantom/orphan citations: the LLM always has the
+                # full list in context and is explicitly instructed to include it.
+                + "\n\n⚠️ MANDATORY: Your response MUST end with a `## References` section "
+                "that lists **every** source from 'Available Sources' above, in the same "
+                "numbered format `[N] Title - URL`. Do NOT omit any entries."
             )
         else:
             summarize_prompt = build_summarize_prompt(
@@ -650,10 +658,35 @@ class ExecutionAgent(BaseAgent):
                     accumulated_text = self._merge_stream_continuation(accumulated_text, attempt_text)
 
                 stream_metadata = self._get_last_stream_metadata()
+                # ── Multi-signal truncation detection ──────────────────────────
+                # Signal 1: explicit "truncated" flag from response_generator
+                # Signal 2: LLM provider set finish_reason="length" (reliable providers)
+                # Signal 3: Token-count heuristic — catches GLM-5 and other providers
+                #   that silently truncate at their output-token budget without setting
+                #   finish_reason="length".  If estimated output tokens (chars ÷ 4) reach
+                #   ≥ 85 % of the configured max_tokens budget, the output was almost
+                #   certainly cut off.  The 0.85 ratio provides a safe margin: a complete
+                #   response can reach up to ~75 % of max_tokens before this fires.
+                _est_output_tokens = max(len(attempt_text) // 4, 1)
+                _near_token_limit = _est_output_tokens >= int(_summarize_max_tokens * 0.85)
                 is_truncated_stream = (
-                    bool(stream_metadata.get("truncated")) or stream_metadata.get("finish_reason") == "length"
+                    bool(stream_metadata.get("truncated"))
+                    or stream_metadata.get("finish_reason") == "length"
+                    or _near_token_limit
                 )
                 if delivery_integrity_enabled and is_truncated_stream:
+                    if _near_token_limit and not (
+                        bool(stream_metadata.get("truncated"))
+                        or stream_metadata.get("finish_reason") == "length"
+                    ):
+                        logger.warning(
+                            "Truncation heuristic: ~%d est. output tokens at %.0f%% of %d-token "
+                            "budget (finish_reason=%r) — treating as silently truncated",
+                            _est_output_tokens,
+                            _est_output_tokens * 100.0 / _summarize_max_tokens,
+                            _summarize_max_tokens,
+                            stream_metadata.get("finish_reason"),
+                        )
                     self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="detected")
                 if not (delivery_integrity_enabled and is_truncated_stream):
                     break
@@ -1301,19 +1334,23 @@ class ExecutionAgent(BaseAgent):
                 message_event_id = message_event.id
                 yield message_event
 
-            suggestions = await self._generate_follow_up_suggestions(
-                title=message_title or "Summary",
-                content=message_content,
-            )
-            if suggestions:
-                # Emit suggestion with session-anchored metadata
-                content_excerpt = message_content[:500] + ("..." if len(message_content) > 500 else "")
-                yield SuggestionEvent(
-                    suggestions=suggestions,
-                    source="completion",
-                    anchor_event_id=report_event_id or message_event_id,
-                    anchor_excerpt=content_excerpt,
+            # Follow-up suggestions — graceful degradation (non-critical)
+            try:
+                suggestions = await self._generate_follow_up_suggestions(
+                    title=message_title or "Summary",
+                    content=message_content,
                 )
+                if suggestions:
+                    # Emit suggestion with session-anchored metadata
+                    content_excerpt = message_content[:500] + ("..." if len(message_content) > 500 else "")
+                    yield SuggestionEvent(
+                        suggestions=suggestions,
+                        source="completion",
+                        anchor_event_id=report_event_id or message_event_id,
+                        anchor_excerpt=content_excerpt,
+                    )
+            except Exception as _se:
+                logger.debug("Follow-up suggestions skipped: %s", _se)
 
         except asyncio.CancelledError:
             logger.info("Summarization cancelled")
