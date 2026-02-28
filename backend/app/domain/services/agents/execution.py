@@ -676,8 +676,7 @@ class ExecutionAgent(BaseAgent):
                 )
                 if delivery_integrity_enabled and is_truncated_stream:
                     if _near_token_limit and not (
-                        bool(stream_metadata.get("truncated"))
-                        or stream_metadata.get("finish_reason") == "length"
+                        bool(stream_metadata.get("truncated")) or stream_metadata.get("finish_reason") == "length"
                     ):
                         logger.warning(
                             "Truncation heuristic: ~%d est. output tokens at %.0f%% of %d-token "
@@ -1112,6 +1111,8 @@ class ExecutionAgent(BaseAgent):
 
             # Guaranteed fallback: inject complete References section if truncated/missing
             message_content = self._ensure_complete_references(message_content)
+            delivery_gate_additional_issues: list[str] = []
+            delivery_gate_additional_warnings: list[str] = []
 
             # Citation integrity: validate and auto-repair orphan citations
             try:
@@ -1128,6 +1129,11 @@ class ExecutionAgent(BaseAgent):
                     if cite_result.is_valid:
                         logger.info("Citation integrity auto-repair resolved detected issues")
                     else:
+                        severe_citation_issue = bool(cite_result.orphan_citations)
+                        if severe_citation_issue:
+                            delivery_gate_additional_issues.append("citation_integrity_unresolved")
+                        else:
+                            delivery_gate_additional_warnings.append("citation_integrity_warning")
                         logger.warning(
                             "Citation integrity issues: orphans=%s, phantoms=%s, gaps=%s, dupes=%d",
                             cite_result.orphan_citations,
@@ -1141,6 +1147,7 @@ class ExecutionAgent(BaseAgent):
                         )
             except Exception as e:
                 logger.debug("Citation integrity check failed: %s", e)
+                delivery_gate_additional_warnings.append("citation_integrity_check_failed")
 
             # Extract title from first # heading
             message_title = self._extract_title(message_content)
@@ -1162,7 +1169,17 @@ class ExecutionAgent(BaseAgent):
                         step_type=StepType.FINALIZATION,
                     ),
                 )
-                message_content = await self._apply_hallucination_verification(message_content, self._user_request)
+                verification_result = await self._verify_hallucination(message_content, self._user_request)
+                message_content = verification_result.content
+                if verification_result.blocking_issues:
+                    for issue in verification_result.blocking_issues:
+                        if issue == "hallucination_ratio_critical" and self._is_deal_finding_request():
+                            delivery_gate_additional_warnings.append("hallucination_ratio_critical_deal_downgraded")
+                            logger.warning("Deal-finding context: downgrading hallucination_ratio_critical to warning")
+                            continue
+                        delivery_gate_additional_issues.append(issue)
+                if verification_result.warnings:
+                    delivery_gate_additional_warnings.extend(verification_result.warnings)
 
                 # Emit verification complete so the frontend shows it as done
                 yield StepEvent(
@@ -1222,6 +1239,8 @@ class ExecutionAgent(BaseAgent):
                 coverage_result=coverage_result,
                 stream_metadata=stream_metadata,
                 truncation_exhausted=truncation_exhausted,
+                additional_issues=delivery_gate_additional_issues,
+                additional_warnings=delivery_gate_additional_warnings,
             )
             if not gate_passed and self._can_auto_repair_delivery_integrity(gate_issues, message_content):
                 repaired_content = self._append_delivery_integrity_fallback(message_content, gate_issues)
@@ -1238,6 +1257,8 @@ class ExecutionAgent(BaseAgent):
                     coverage_result=repaired_coverage,
                     stream_metadata=stream_metadata,
                     truncation_exhausted=False,
+                    additional_issues=delivery_gate_additional_issues,
+                    additional_warnings=delivery_gate_additional_warnings,
                 )
                 if repaired_passed:
                     logger.info(
@@ -1253,7 +1274,7 @@ class ExecutionAgent(BaseAgent):
 
             if not gate_passed:
                 issue_text = "; ".join(gate_issues)
-                if all_steps_completed:
+                if all_steps_completed and self._can_downgrade_delivery_integrity_issues(gate_issues):
                     # All plan steps succeeded — blocking the report is worse than
                     # delivering it with minor integrity gaps.  Downgrade to warning
                     # and proceed with delivery so the user sees their completed work.
@@ -1469,12 +1490,50 @@ class ExecutionAgent(BaseAgent):
         coverage_result: Any,
         stream_metadata: dict[str, Any],
         truncation_exhausted: bool,
+        additional_issues: list[str] | None = None,
+        additional_warnings: list[str] | None = None,
     ) -> tuple[bool, list[str]]:
         """Fail-closed delivery gate (delegated to ResponseGenerator)."""
         self._response_generator._metrics = _metrics  # sync module-level metrics
         return self._response_generator.run_delivery_integrity_gate(
-            content, response_policy, coverage_result, stream_metadata, truncation_exhausted
+            content,
+            response_policy,
+            coverage_result,
+            stream_metadata,
+            truncation_exhausted,
+            additional_issues=additional_issues,
+            additional_warnings=additional_warnings,
         )
+
+    def _can_downgrade_delivery_integrity_issues(self, issues: list[str]) -> bool:
+        """Allow downgrade only for non-critical integrity failures."""
+        critical_issue_tokens = {
+            "stream_truncation_unresolved",
+            "hallucination_ratio_critical",
+            "citation_integrity_unresolved",
+        }
+        for issue in issues:
+            token = (issue or "").split(":", 1)[0].strip().lower()
+            if token in critical_issue_tokens:
+                return False
+        return True
+
+    def _is_deal_finding_request(self) -> bool:
+        """Return True when current request is clearly deal-finding oriented."""
+        query = (self._user_request or "").lower()
+        if not query:
+            return False
+        deal_keywords = (
+            "deal",
+            "deals",
+            "coupon",
+            "coupons",
+            "best price",
+            "discount",
+            "sale",
+            "price comparison",
+        )
+        return any(keyword in query for keyword in deal_keywords)
 
     def _can_auto_repair_delivery_integrity(self, issues: list[str], content: str = "") -> bool:
         """Allow safe remediation for coverage-only misses (delegated)."""
@@ -1551,6 +1610,11 @@ class ExecutionAgent(BaseAgent):
         """Apply hallucination verification (delegated to OutputVerifier)."""
         self._output_verifier._metrics = _metrics  # sync module-level metrics
         return await self._output_verifier.apply_hallucination_verification(content, query)
+
+    async def _verify_hallucination(self, content: str, query: str):
+        """Run hallucination verification and return structured gating signals."""
+        self._output_verifier._metrics = _metrics  # sync module-level metrics
+        return await self._output_verifier.verify_hallucination(content, query)
 
     def _build_source_context(self) -> list[str]:
         """Build grounding context from collected sources (delegated to OutputVerifier)."""
