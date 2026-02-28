@@ -1,9 +1,11 @@
 <template>
   <form class="custom-form" @submit.prevent="handleSubmit">
     <div class="custom-form-field">
-      <label class="custom-form-label">{{ t('Name') }} *</label>
+      <label class="custom-form-label" for="custom-mcp-name">{{ t('Name') }} *</label>
       <input
         v-model="formData.name"
+        id="custom-mcp-name"
+        name="name"
         type="text"
         class="custom-form-input"
         :placeholder="t('My MCP Server')"
@@ -13,8 +15,14 @@
     </div>
 
     <div class="custom-form-field">
-      <label class="custom-form-label">{{ t('Transport') }} *</label>
-      <select v-model="formData.transport" class="custom-form-input" required>
+      <label class="custom-form-label" for="custom-mcp-transport">{{ t('Transport') }} *</label>
+      <select
+        id="custom-mcp-transport"
+        name="transport"
+        v-model="formData.transport"
+        class="custom-form-input"
+        required
+      >
         <option value="stdio">stdio</option>
         <option value="sse">SSE</option>
         <option value="streamable-http">Streamable HTTP</option>
@@ -22,17 +30,25 @@
     </div>
 
     <div v-if="formData.transport === 'stdio'" class="custom-form-field">
-      <label class="custom-form-label">{{ t('Command') }} *</label>
-      <select v-model="formData.command" class="custom-form-input" required>
+      <label class="custom-form-label" for="custom-mcp-command">{{ t('Command') }} *</label>
+      <select
+        id="custom-mcp-command"
+        name="command"
+        v-model="formData.command"
+        class="custom-form-input"
+        required
+      >
         <option value="">{{ t('Select command...') }}</option>
         <option v-for="cmd in allowedCommands" :key="cmd" :value="cmd">{{ cmd }}</option>
       </select>
     </div>
 
     <div v-if="formData.transport === 'stdio'" class="custom-form-field">
-      <label class="custom-form-label">{{ t('Arguments') }}</label>
+      <label class="custom-form-label" for="custom-mcp-args">{{ t('Arguments') }}</label>
       <input
         v-model="argsString"
+        id="custom-mcp-args"
+        name="args"
         type="text"
         class="custom-form-input"
         :placeholder="t('Comma-separated args, e.g. -y,@modelcontextprotocol/server-everything')"
@@ -40,9 +56,11 @@
     </div>
 
     <div v-if="formData.transport !== 'stdio'" class="custom-form-field">
-      <label class="custom-form-label">{{ t('URL') }} *</label>
+      <label class="custom-form-label" for="custom-mcp-url">{{ t('URL') }} *</label>
       <input
         v-model="formData.url"
+        id="custom-mcp-url"
+        name="url"
         type="url"
         class="custom-form-input"
         placeholder="https://mcp-server.example.com/sse"
@@ -54,8 +72,20 @@
     <div v-if="formData.transport !== 'stdio'" class="custom-form-field">
       <label class="custom-form-label">{{ t('Headers') }}</label>
       <div v-for="(header, idx) in headers" :key="idx" class="custom-form-kv-row">
-        <input v-model="header.key" class="custom-form-input custom-form-kv-key" :placeholder="t('Key')" />
-        <input v-model="header.value" class="custom-form-input custom-form-kv-value" :placeholder="t('Value')" />
+        <input
+          v-model="header.key"
+          :id="`custom-mcp-header-key-${idx}`"
+          :name="`headers[${idx}][key]`"
+          class="custom-form-input custom-form-kv-key"
+          :placeholder="t('Key')"
+        />
+        <input
+          v-model="header.value"
+          :id="`custom-mcp-header-value-${idx}`"
+          :name="`headers[${idx}][value]`"
+          class="custom-form-input custom-form-kv-value"
+          :placeholder="t('Value')"
+        />
         <button type="button" class="custom-form-kv-remove" @click="removeHeader(idx)">
           <X :size="14" />
         </button>
@@ -68,8 +98,20 @@
     <div class="custom-form-field">
       <label class="custom-form-label">{{ t('Environment Variables') }}</label>
       <div v-for="(envVar, idx) in envVars" :key="idx" class="custom-form-kv-row">
-        <input v-model="envVar.key" class="custom-form-input custom-form-kv-key" :placeholder="t('Key')" />
-        <input v-model="envVar.value" class="custom-form-input custom-form-kv-value" :placeholder="t('Value')" />
+        <input
+          v-model="envVar.key"
+          :id="`custom-mcp-env-key-${idx}`"
+          :name="`env[${idx}][key]`"
+          class="custom-form-input custom-form-kv-key"
+          :placeholder="t('Key')"
+        />
+        <input
+          v-model="envVar.value"
+          :id="`custom-mcp-env-value-${idx}`"
+          :name="`env[${idx}][value]`"
+          class="custom-form-input custom-form-kv-value"
+          :placeholder="t('Value')"
+        />
         <button type="button" class="custom-form-kv-remove" @click="removeEnvVar(idx)">
           <X :size="14" />
         </button>
@@ -80,9 +122,11 @@
     </div>
 
     <div class="custom-form-field">
-      <label class="custom-form-label">{{ t('Description') }}</label>
+      <label class="custom-form-label" for="custom-mcp-description">{{ t('Description') }}</label>
       <input
         v-model="formData.description"
+        id="custom-mcp-description"
+        name="description"
         type="text"
         class="custom-form-input"
         :placeholder="t('Optional description')"

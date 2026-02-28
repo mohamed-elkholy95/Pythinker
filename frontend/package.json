@@ -9,6 +9,7 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint . --fix",
     "lint:check": "eslint .",
+    "check:forms": "bash ./scripts/check-form-controls.sh",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",

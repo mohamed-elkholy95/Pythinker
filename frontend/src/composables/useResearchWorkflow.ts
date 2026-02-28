@@ -2,6 +2,7 @@ import { computed, readonly, ref } from 'vue'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import type {
   CheckpointSavedEventData,
+  DeepResearchEventData,
   PhaseTransitionEventData,
   StreamEventData,
   WideResearchEventData,
@@ -19,6 +20,18 @@ export interface WorkspaceInfo {
   workspaceType: string | null
   structure: Record<string, string> | null
   deliverablesCount: number
+}
+
+export interface DeepResearchWorkflowState {
+  research_id: string
+  status: string
+  total_queries: number
+  completed_queries: number
+  auto_run: boolean
+  phase: string | null
+  phase_label: string | null
+  checkpoints: ResearchCheckpointSummary[]
+  latest_reflection: ResearchReflectionSummary | null
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -85,6 +98,8 @@ export function useResearchWorkflow() {
 
   const widePhase = ref<string | null>(null)
   const sessionPhase = ref<string | null>(null)
+  const activeDeepResearchId = ref<string | null>(null)
+  const deepResearchStates = ref<Record<string, DeepResearchWorkflowState>>({})
   const checkpoints = ref<ResearchCheckpointSummary[]>([])
   const latestReflection = ref<ResearchReflectionSummary | null>(null)
   const reflectionBuffer = ref('')
@@ -99,6 +114,46 @@ export function useResearchWorkflow() {
 
   const activePhase = computed(() => widePhase.value ?? sessionPhase.value)
   const activePhaseLabel = computed(() => toPhaseLabel(activePhase.value))
+
+  const getDeepResearchState = (
+    researchId: string,
+    fallbackStatus: string = 'started',
+  ): DeepResearchWorkflowState => {
+    const existing = deepResearchStates.value[researchId]
+    if (existing) {
+      return existing
+    }
+
+    const initialState: DeepResearchWorkflowState = {
+      research_id: researchId,
+      status: fallbackStatus,
+      total_queries: 0,
+      completed_queries: 0,
+      auto_run: false,
+      phase: null,
+      phase_label: null,
+      checkpoints: [],
+      latest_reflection: null,
+    }
+    deepResearchStates.value = {
+      ...deepResearchStates.value,
+      [researchId]: initialState,
+    }
+    return initialState
+  }
+
+  const updateDeepResearchState = (
+    researchId: string,
+    updater: (state: DeepResearchWorkflowState) => DeepResearchWorkflowState,
+    fallbackStatus: string = 'started',
+  ): DeepResearchWorkflowState => {
+    const nextState = updater(getDeepResearchState(researchId, fallbackStatus))
+    deepResearchStates.value = {
+      ...deepResearchStates.value,
+      [researchId]: nextState,
+    }
+    return nextState
+  }
 
   const wideOverlayState = computed<WideResearchState | null>(() => {
     const state = wideResearch.overlayState.value
@@ -150,11 +205,37 @@ export function useResearchWorkflow() {
     }
   }
 
+  const handleDeepResearchEvent = (data: DeepResearchEventData) => {
+    activeDeepResearchId.value = data.research_id
+
+    updateDeepResearchState(
+      data.research_id,
+      (state) => ({
+        ...state,
+        status: data.status,
+        total_queries: data.total_queries ?? state.total_queries,
+        completed_queries: data.completed_queries ?? state.completed_queries,
+        auto_run: data.auto_run ?? state.auto_run,
+      }),
+      data.status,
+    )
+  }
+
   const handlePhaseTransitionEvent = (data: PhaseTransitionEventData) => {
     setSessionPhase(data.phase)
 
     if (data.source === 'wide_research') {
       widePhase.value = data.phase
+      return
+    }
+
+    if (data.research_id) {
+      activeDeepResearchId.value = data.research_id
+      updateDeepResearchState(data.research_id, (state) => ({
+        ...state,
+        phase: data.phase,
+        phase_label: data.label ?? toPhaseLabel(data.phase),
+      }))
     }
   }
 
@@ -168,6 +249,17 @@ export function useResearchWorkflow() {
 
     checkpoints.value = [...checkpoints.value, checkpoint]
     setSessionPhase(data.phase)
+
+    const researchId = data.research_id ?? activeDeepResearchId.value
+    if (researchId) {
+      activeDeepResearchId.value = researchId
+      updateDeepResearchState(researchId, (state) => ({
+        ...state,
+        phase: data.phase,
+        phase_label: toPhaseLabel(data.phase),
+        checkpoints: [...state.checkpoints, checkpoint],
+      }))
+    }
   }
 
   const handleStreamEvent = (data: StreamEventData) => {
@@ -176,6 +268,13 @@ export function useResearchWorkflow() {
       const parsed = parseReflection(reflectionBuffer.value)
       if (parsed) {
         latestReflection.value = parsed
+        const researchId = activeDeepResearchId.value
+        if (researchId) {
+          updateDeepResearchState(researchId, (state) => ({
+            ...state,
+            latest_reflection: parsed,
+          }))
+        }
       }
       if (data.is_final) {
         reflectionBuffer.value = ''
@@ -215,6 +314,8 @@ export function useResearchWorkflow() {
     wideResearch.clearResearch()
     widePhase.value = null
     sessionPhase.value = null
+    activeDeepResearchId.value = null
+    deepResearchStates.value = {}
     checkpoints.value = []
     latestReflection.value = null
     reflectionBuffer.value = ''
@@ -232,15 +333,19 @@ export function useResearchWorkflow() {
     wideIsActive: wideResearch.isActive,
     activePhase: readonly(activePhase),
     activePhaseLabel: readonly(activePhaseLabel),
+    activeDeepResearchId: readonly(activeDeepResearchId),
+    deepResearchStates: readonly(deepResearchStates),
     checkpoints: readonly(checkpoints),
     latestReflection: readonly(latestReflection),
     workspaceInfo: readonly(workspaceInfo),
 
     handleWideResearchEvent,
+    handleDeepResearchEvent,
     handlePhaseTransitionEvent,
     handleCheckpointSavedEvent,
     handleStreamEvent,
     handleWorkspaceEvent,
+    getDeepResearchState,
     reset,
   }
 }

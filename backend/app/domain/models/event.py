@@ -326,6 +326,9 @@ class DealToolContent(BaseModel):
     best_deal_index: int | None = None
     searched_stores: list[str] = Field(default_factory=list)
     store_errors: list[dict[str, str]] = Field(default_factory=list)
+    empty_reason: str | None = None
+    stores_attempted: int | None = None
+    stores_with_results: int | None = None
 
 
 ToolContent = (

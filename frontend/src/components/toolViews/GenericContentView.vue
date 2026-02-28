@@ -72,6 +72,7 @@ const props = defineProps<{
   toolName?: string;
   functionName?: string;
   args?: Record<string, unknown>;
+  status?: 'calling' | 'running' | 'called' | 'interrupted' | string;
   result?: unknown;
   content?: unknown;
   error?: string;
@@ -214,9 +215,10 @@ const isLoading = computed(() => !!props.isExecuting && !toolDisplayLabel.value 
 const showEmpty = computed(() =>
   !isLoading.value && !errorMessage.value && !toolDisplayLabel.value && !hasContent.value && !hasResult.value
 );
-const statusMessage = computed(() =>
-  props.isExecuting ? t('Tool is executing...') : t('Waiting for result...')
-);
+const statusMessage = computed(() => {
+  if (props.status === 'interrupted') return t('Tool execution was interrupted');
+  return props.isExecuting ? t('Tool is executing...') : t('Waiting for result...');
+});
 </script>
 
 <style scoped>

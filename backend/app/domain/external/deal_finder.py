@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, Protocol
 
 # Callback signature: (current_step, steps_completed, steps_total | None, checkpoint_data | None) → awaitable
@@ -56,6 +57,14 @@ class CouponSearchResult:
     urls_checked: list[str] = field(default_factory=list)
 
 
+class EmptyReason(StrEnum):
+    """Structured reason for an empty deal-search result set."""
+
+    NO_MATCHES = "no_matches"
+    ALL_STORE_FAILURES = "all_store_failures"
+    SEARCH_UNAVAILABLE = "search_unavailable"
+
+
 @dataclass
 class DealComparison:
     """Result of a multi-store deal search or price comparison."""
@@ -68,6 +77,7 @@ class DealComparison:
     error: str | None = None
     store_errors: list[dict[str, str]] = field(default_factory=list)
     community_sources_searched: int = 0
+    empty_reason: EmptyReason | None = None
 
 
 class DealFinder(Protocol):

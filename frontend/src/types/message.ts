@@ -55,7 +55,7 @@ export interface ToolContent extends BaseContent {
   function: string;
   args: Record<string, unknown>;
   content?: ToolContentPayload;
-  status: "calling" | "called";
+  status: "calling" | "running" | "called" | "interrupted";
   // Display metadata (Pythinker-style human-readable descriptions)
   display_command?: string;      // Full human-readable description: "Search for OpenRouter free tier LLM models"
   command_category?: string;     // Category: "search", "browse", "file", "shell", etc.

@@ -162,7 +162,7 @@ import SessionItem from './SessionItem.vue';
 import { useLeftPanel } from '../composables/useLeftPanel';
 import { ref, nextTick, onMounted, watch, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getSessionsSSE, getSessions, stopSession } from '../api/agent';
+import { stopSession } from '../api/agent';
 import { ListSessionItem, SessionStatus } from '../types/response';
 import { useI18n } from 'vue-i18n';
 import { useSettingsDialog } from '@/composables/useSettingsDialog';
@@ -170,6 +170,7 @@ import { useAuth } from '@/composables/useAuth';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import UserMenu from './UserMenu.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
+import { useSessionListFeed } from '@/composables/useSessionListFeed';
 
 const { t } = useI18n()
 const { isLeftPanelShow, toggleLeftPanel, hideLeftPanel } = useLeftPanel()
@@ -178,6 +179,7 @@ const { currentUser } = useAuth()
 const { onStatusChange } = useSessionStatus()
 const route = useRoute()
 const router = useRouter()
+const { sessions: liveSessions, refresh: refreshSessionFeed } = useSessionListFeed()
 
 const sessions = ref<ListSessionItem[]>([])
 const optimisticTitleHints = ref<Record<string, { title: string; createdAt: number }>>({})
@@ -255,7 +257,6 @@ const handleSessionStatusChange = (sessionId: string, status: SessionStatus) => 
     session.status = status;
   }
 };
-const cancelGetSessionsSSE = ref<(() => void) | null>(null)
 const avatarLetter = computed(() => {
   return currentUser.value?.fullname?.charAt(0)?.toUpperCase() || 'M';
 })
@@ -290,6 +291,14 @@ const mergeWithOptimisticSession = (serverSessions: ListSessionItem[]): ListSess
   }, ...serverSessions]
 }
 
+watch(
+  liveSessions,
+  (serverSessions) => {
+    sessions.value = mergeWithOptimisticSession(serverSessions)
+  },
+  { immediate: true, deep: true },
+)
+
 const handleSessionTitleHint = (event: Event) => {
   const detail = (event as CustomEvent<SessionTitleHintDetail>).detail
   if (!detail?.sessionId) return
@@ -321,42 +330,6 @@ const handleSessionTitleHint = (event: Event) => {
   }
 
   sessions.value = mergeWithOptimisticSession(sessions.value)
-}
-
-// Function to fetch sessions data
-const updateSessions = async () => {
-  try {
-    const response = await getSessions()
-    sessions.value = mergeWithOptimisticSession(response.sessions)
-  } catch {
-    // Session fetch failed - will retry on next navigation
-  }
-}
-
-// Function to fetch sessions data
-const fetchSessions = async () => {
-  try {
-    if (cancelGetSessionsSSE.value) {
-      cancelGetSessionsSSE.value()
-      cancelGetSessionsSSE.value = null
-    }
-    cancelGetSessionsSSE.value = await getSessionsSSE({
-      onOpen: () => {
-        // SSE connection opened
-      },
-      onMessage: (event) => {
-        sessions.value = mergeWithOptimisticSession(event.data.sessions)
-      },
-      onError: () => {
-        // SSE error - will reconnect automatically
-      },
-      onClose: () => {
-        // SSE connection closed
-      }
-    })
-  } catch {
-    // SSE connection failed - will use cached sessions
-  }
 }
 
 const handleNewTaskClick = async () => {
@@ -403,9 +376,6 @@ const handleKeydown = (event: KeyboardEvent) => {
 let unsubscribeStatusChange: (() => void) | null = null;
 
 onMounted(async () => {
-  // Initial fetch of sessions
-  fetchSessions()
-
   // Add keyboard event listener
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('pythinker:session-title-hint', handleSessionTitleHint as EventListener)
@@ -415,11 +385,6 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if (cancelGetSessionsSSE.value) {
-    cancelGetSessionsSSE.value()
-    cancelGetSessionsSSE.value = null
-  }
-
   // Remove keyboard event listener
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('pythinker:session-title-hint', handleSessionTitleHint as EventListener)
@@ -440,7 +405,7 @@ watch(() => route.path, async (newPath, oldPath) => {
     (newPath === '/' && oldPath !== '/');
 
   if (isSessionChange) {
-    await updateSessions();
+    await refreshSessionFeed();
   }
 })
 </script>

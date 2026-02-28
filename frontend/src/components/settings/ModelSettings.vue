@@ -86,7 +86,7 @@
           <div class="setting-label-group">
             <Thermometer class="w-4 h-4 text-[var(--icon-tertiary)]" />
             <div class="setting-text">
-              <span class="setting-label">{{ t('Temperature') }}</span>
+              <label class="setting-label" for="model-temperature">{{ t('Temperature') }}</label>
               <span class="setting-hint">Controls randomness in responses</span>
             </div>
           </div>
@@ -95,6 +95,8 @@
         <div class="slider-container">
           <input
             type="range"
+            id="model-temperature"
+            name="temperature"
             min="0"
             max="2"
             step="0.1"
@@ -115,7 +117,7 @@
           <div class="setting-label-group">
             <Hash class="w-4 h-4 text-[var(--icon-tertiary)]" />
             <div class="setting-text">
-              <span class="setting-label">{{ t('Max Tokens') }}</span>
+              <label class="setting-label" for="model-max-tokens">{{ t('Max Tokens') }}</label>
               <span class="setting-hint">Maximum response length (1000-32000)</span>
             </div>
           </div>
@@ -123,6 +125,8 @@
         <div class="input-container">
           <input
             type="number"
+            id="model-max-tokens"
+            name="max_tokens"
             v-model.number="localSettings.max_tokens"
             @change="saveSettings"
             min="1000"
