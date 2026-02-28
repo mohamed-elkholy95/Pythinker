@@ -1437,13 +1437,16 @@ class AgentService:
     async def get_session_files(self, session_id: str, user_id: str | None = None) -> list[FileInfo]:
         """Get files for a session, ensuring it belongs to the user"""
         logger.info(f"Getting files for session {session_id} for user {user_id}")
-        session = await self.get_session(session_id, user_id)
+        session = await self.get_session_full(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            raise NotFoundError("Session not found")
         return session.files
 
     async def get_shared_session_files(self, session_id: str) -> list[FileInfo]:
         """Get files for a shared session"""
         logger.info(f"Getting files for shared session {session_id}")
-        session = await self._session_repository.find_by_id(session_id)
+        session = await self._session_repository.find_by_id_full(session_id)
         if not session or not session.is_shared:
             logger.error(f"Shared session {session_id} not found or not shared")
             raise NotFoundError("Session not found")
