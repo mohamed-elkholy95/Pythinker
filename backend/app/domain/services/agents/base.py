@@ -1032,10 +1032,11 @@ class BaseAgent:
             if tool_name in SAFE_PARALLEL_TOOLS:
                 continue
 
-            # Check MCP read-only prefixes (dynamic tools from MCP servers)
-            if any(
-                tool_name.startswith(prefix) or f"_{prefix.split('_')[-1]}" in tool_name for prefix in SAFE_MCP_PREFIXES
-            ):
+            # Check MCP read-only prefixes (dynamic tools from MCP servers).
+            # Use strict prefix matching only; substring matching is unsafe and
+            # can accidentally classify unrelated tools (e.g. any name with "_")
+            # as MCP read tools.
+            if tool_name.startswith(SAFE_MCP_PREFIXES):
                 continue
 
             # Tool not in safe list

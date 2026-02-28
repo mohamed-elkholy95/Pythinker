@@ -3,8 +3,10 @@
 Tests verify:
 - detect_dependencies() prevents write-then-read same file from running in parallel
 - Pure read-only calls on different paths batch correctly into parallel
+- _can_parallelize_tools() rejects non-MCP tools with underscore names
 """
 
+from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.parallel_executor import ParallelToolExecutor, ToolCall
 
 
@@ -72,3 +74,27 @@ def test_can_parallelize_returns_false_for_write_then_read(monkeypatch):
     # file_write after file_read on same path creates a dependency
     write_call = executor._pending_calls[1]
     assert write_call.depends_on, "write after read on same path should create dependency"
+
+
+def test_can_parallelize_rejects_deal_tools_even_with_underscores():
+    """Only explicit safe tools/MCP read prefixes should parallelize.
+
+    Regression guard for an overly-permissive MCP heuristic that treated any
+    tool containing "_" as safe for parallel execution.
+    """
+    agent = BaseAgent.__new__(BaseAgent)
+    calls = [
+        make_tc("1", "deal_search", {"query": "rtx 5090"}),
+        make_tc("2", "deal_find_coupons", {"store_name": "Amazon"}),
+    ]
+    assert BaseAgent._can_parallelize_tools(agent, calls) is False
+
+
+def test_can_parallelize_accepts_safe_mcp_read_prefixes():
+    """Read-only MCP dynamic tools should remain parallelizable."""
+    agent = BaseAgent.__new__(BaseAgent)
+    calls = [
+        make_tc("1", "mcp_get_docs", {"topic": "gpu"}),
+        make_tc("2", "mcp_list_resources", {"server_name": "ref"}),
+    ]
+    assert BaseAgent._can_parallelize_tools(agent, calls) is True
