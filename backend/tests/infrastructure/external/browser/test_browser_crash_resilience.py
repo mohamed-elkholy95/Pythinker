@@ -244,6 +244,50 @@ class TestBrowseTopResultsResilience:
 
         assert search_tool._browser.navigate_for_display.await_count == 3
 
+    @pytest.mark.asyncio
+    async def test_skips_urls_already_shown_in_live_preview(self, search_tool):
+        """_browse_top_results does not re-open URLs already previewed in this session."""
+        with patch("app.domain.services.tools.search.asyncio.sleep", new=AsyncMock()):
+            await search_tool._browse_top_results(
+                {
+                    "results": [
+                        {"link": "https://example.com/deals?utm_source=google&utm_medium=cpc"},
+                        {"link": "https://example.com/deals/"},
+                    ]
+                },
+                count=2,
+            )
+            await search_tool._browse_top_results(
+                {
+                    "results": [
+                        {"link": "https://example.com/deals?ref=newsletter"},
+                        {"link": "https://example.com/new-offer"},
+                    ]
+                },
+                count=2,
+            )
+
+        called_urls = [call.args[0] for call in search_tool._browser.navigate_for_display.await_args_list]
+        assert called_urls == [
+            "https://example.com/deals?utm_source=google&utm_medium=cpc",
+            "https://example.com/new-offer",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_skips_batch_when_all_urls_already_previewed(self, search_tool):
+        """_browse_top_results exits without navigation when all candidates were previously shown."""
+        with patch("app.domain.services.tools.search.asyncio.sleep", new=AsyncMock()):
+            await search_tool._browse_top_results(
+                {"results": [{"link": "https://example.com/same-page"}]},
+                count=1,
+            )
+            await search_tool._browse_top_results(
+                {"results": [{"link": "https://example.com/same-page/"}]},
+                count=1,
+            )
+
+        assert search_tool._browser.navigate_for_display.await_count == 1
+
 
 # --- 6. BrowserTool search live-preview guard ---
 
