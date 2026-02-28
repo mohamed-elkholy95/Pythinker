@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -37,6 +38,18 @@ if TYPE_CHECKING:
     from app.domain.services.agents.source_tracker import SourceTracker
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class HallucinationVerificationResult:
+    """Structured result for hallucination verification and delivery gating."""
+
+    content: str
+    blocking_issues: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    hallucination_ratio: float | None = None
+    span_count: int = 0
+    skipped: bool = False
 
 
 class OutputVerifier:
@@ -243,6 +256,11 @@ class OutputVerifier:
         Returns:
             Verified content (hallucinated spans redacted if detected).
         """
+        result = await self.verify_hallucination(content, query)
+        return result.content
+
+    async def verify_hallucination(self, content: str, query: str) -> HallucinationVerificationResult:
+        """Run hallucination verification and return structured severity information."""
         from app.domain.services.agents.context_manager import InsightType
 
         flags = self._resolve_feature_flags()
@@ -257,24 +275,24 @@ class OutputVerifier:
                 # Build grounding context from collected sources
                 source_context = self.build_source_context()
 
-                result = verifier.verify(
+                lettuce_result = verifier.verify(
                     context=source_context,
                     question=query,
                     answer=content,
                 )
 
-                if not result.skipped and result.has_hallucinations:
+                if not lettuce_result.skipped and lettuce_result.has_hallucinations:
                     logger.warning(
                         "LettuceDetect: %d hallucinated span(s), confidence: %.2f, ratio: %.1f%%",
-                        len(result.hallucinated_spans),
-                        result.confidence_score,
-                        result.hallucination_ratio * 100,
+                        len(lettuce_result.hallucinated_spans),
+                        lettuce_result.confidence_score,
+                        lettuce_result.hallucination_ratio * 100,
                     )
                     self._context_manager.add_insight(
                         insight_type=InsightType.ERROR_LEARNING,
                         content=(
-                            f"LettuceDetect found {len(result.hallucinated_spans)} hallucinated span(s) "
-                            f"({result.hallucination_ratio:.1%} of text)"
+                            f"LettuceDetect found {len(lettuce_result.hallucinated_spans)} hallucinated span(s) "
+                            f"({lettuce_result.hallucination_ratio:.1%} of text)"
                         ),
                         confidence=0.9,
                         tags=["hallucination", "lettuce", "verification"],
@@ -285,7 +303,7 @@ class OutputVerifier:
                         "pythinker_hallucination_detections_total",
                         labels={
                             "method": "lettuce",
-                            "span_count": str(len(result.hallucinated_spans)),
+                            "span_count": str(len(lettuce_result.hallucinated_spans)),
                         },
                     )
 
@@ -293,27 +311,49 @@ class OutputVerifier:
                     # - >25%: disclaimer (too many spans to redact cleanly)
                     # - 10-25%: redact individual spans with […] markers
                     # - <10%: pass through (noise-level, not actionable)
-                    if result.hallucination_ratio > 0.25:
+                    if lettuce_result.hallucination_ratio > 0.25:
                         disclaimer = (
                             "\n\n> **Note:** Some information in this response "
                             "could not be fully verified against available sources."
                         )
-                        return content + disclaimer
-                    if result.hallucination_ratio > 0.10:
+                        return HallucinationVerificationResult(
+                            content=content + disclaimer,
+                            blocking_issues=["hallucination_ratio_critical"],
+                            warnings=["hallucination_detected"],
+                            hallucination_ratio=lettuce_result.hallucination_ratio,
+                            span_count=len(lettuce_result.hallucinated_spans),
+                        )
+                    if lettuce_result.hallucination_ratio > 0.10:
                         # Redact individual hallucinated spans with neutral markers
-                        redacted = verifier.redact_hallucinations(content, result.hallucinated_spans)
+                        redacted = verifier.redact_hallucinations(content, lettuce_result.hallucinated_spans)
                         logger.info(
                             "LettuceDetect: redacted %d span(s) (ratio=%.1f%%)",
-                            len(result.hallucinated_spans),
-                            result.hallucination_ratio * 100,
+                            len(lettuce_result.hallucinated_spans),
+                            lettuce_result.hallucination_ratio * 100,
                         )
-                        return redacted
-                    return content
+                        return HallucinationVerificationResult(
+                            content=redacted,
+                            warnings=["hallucination_ratio_moderate"],
+                            hallucination_ratio=lettuce_result.hallucination_ratio,
+                            span_count=len(lettuce_result.hallucinated_spans),
+                        )
+                    return HallucinationVerificationResult(
+                        content=content,
+                        warnings=["hallucination_ratio_low"],
+                        hallucination_ratio=lettuce_result.hallucination_ratio,
+                        span_count=len(lettuce_result.hallucinated_spans),
+                    )
 
-                if not result.skipped:
-                    logger.info("LettuceDetect: %s", result.get_summary())
+                if not lettuce_result.skipped:
+                    logger.info("LettuceDetect: %s", lettuce_result.get_summary())
+                else:
+                    return HallucinationVerificationResult(
+                        content=content,
+                        warnings=["hallucination_verification_skipped"],
+                        skipped=True,
+                    )
 
-                return content
+                return HallucinationVerificationResult(content=content)
 
             except Exception as e:
                 logger.warning("LettuceDetect failed, falling back to CoVe: %s", e)
@@ -321,9 +361,9 @@ class OutputVerifier:
         # Fallback: CoVe (deprecated, disabled by default)
         if self._cove_enabled and flags.get("chain_of_verification", False):
             verified, _ = await self.apply_cove_verification(content, query)
-            return verified
+            return HallucinationVerificationResult(content=verified)
 
-        return content
+        return HallucinationVerificationResult(content=content)
 
     # ── Chain-of-Verification (Deprecated Fallback) ────────────────────
 

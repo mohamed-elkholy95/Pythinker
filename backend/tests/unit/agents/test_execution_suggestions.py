@@ -1,6 +1,7 @@
 """Tests for ExecutionAgent suggestion generation with session context."""
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -501,6 +502,63 @@ class TestExecutionAgentDeliveryIntegrityGate:
 
         assert any(isinstance(event, ReportEvent) for event in events)
         assert not any(isinstance(event, ErrorEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_delivery_integrity_does_not_downgrade_critical_issues_when_all_steps_complete(
+        self, executor, mock_llm
+    ):
+        """Critical integrity issues must still block delivery even when all steps completed."""
+        mock_llm.ask.return_value = {"content": '["Suggestion 1"]'}
+
+        async def complete_stream(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield "# Report\nFindings collected."
+
+        mock_llm.ask_stream = complete_stream
+        executor._run_delivery_integrity_gate = MagicMock(return_value=(False, ["hallucination_ratio_critical"]))
+        executor._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+
+        events = [event async for event in executor.summarize(all_steps_completed=True)]
+
+        assert any(isinstance(event, ErrorEvent) for event in events)
+        assert not any(isinstance(event, ReportEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_deal_context_downgrades_hallucination_block_to_warning(self, executor, mock_llm):
+        """Deal-finding reports should not be hard-blocked by high-ratio hallucination false positives."""
+        executor._user_request = "find best deals for macbook air m3 with coupons"
+        mock_llm.ask.return_value = {"content": '["Suggestion 1"]'}
+        long_report = "# Report\\n" + ("Deal findings collected with price/coupon evidence. " * 12)
+
+        async def complete_stream(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield long_report
+
+        executor._needs_verification = MagicMock(return_value=True)
+        executor._verify_hallucination = AsyncMock(
+            return_value=SimpleNamespace(
+                content=long_report,
+                blocking_issues=["hallucination_ratio_critical"],
+                warnings=["hallucination_detected"],
+            )
+        )
+        executor._run_delivery_integrity_gate = MagicMock(return_value=(True, []))
+        mock_llm.ask_stream = complete_stream
+
+        events = [event async for event in executor.summarize()]
+
+        assert any(isinstance(event, ReportEvent) for event in events)
+        kwargs = executor._run_delivery_integrity_gate.call_args.kwargs
+        assert "hallucination_ratio_critical" not in (kwargs.get("additional_issues") or [])
+        assert "hallucination_ratio_critical_deal_downgraded" in (kwargs.get("additional_warnings") or [])
 
     @staticmethod
     def _has_counter_call(metrics_spy: MagicMock, metric_name: str, **expected_labels: str) -> bool:
