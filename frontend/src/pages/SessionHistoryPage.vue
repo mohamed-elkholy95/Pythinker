@@ -88,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -98,22 +98,15 @@ import {
   Clock,
   Share2
 } from 'lucide-vue-next'
-import { getSessions } from '../api/agent'
+import { useSessionListFeed } from '@/composables/useSessionListFeed'
+import type { ListSessionItem } from '@/types/response'
 
-interface SessionItem {
-  session_id: string
-  title: string | null
-  status: string
-  latest_message: string | null
-  latest_message_at: number | null
-  is_shared: boolean
-}
+type SessionItem = ListSessionItem
 
 const router = useRouter()
 
 // State
-const sessions = ref<SessionItem[]>([])
-const isLoading = ref(true)
+const { sessions, isLoading } = useSessionListFeed({ initialFetch: true })
 const searchQuery = ref('')
 const statusFilter = ref('')
 
@@ -137,20 +130,6 @@ const filteredSessions = computed(() => {
 
   return result
 })
-
-// Load sessions
-async function loadSessions(): Promise<void> {
-  isLoading.value = true
-  try {
-    const response = await getSessions()
-     
-    sessions.value = response.sessions as SessionItem[]
-  } catch {
-    // Session history load failed
-  } finally {
-    isLoading.value = false
-  }
-}
 
 function goBack(): void {
   router.back()
@@ -207,9 +186,6 @@ function formatDate(timestamp: number | null): string {
   return date.toLocaleDateString()
 }
 
-onMounted(() => {
-  loadSessions()
-})
 </script>
 
 <style scoped>

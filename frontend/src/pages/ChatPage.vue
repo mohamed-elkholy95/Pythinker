@@ -598,6 +598,8 @@ import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 import { useErrorBoundary } from '@/composables/useErrorBoundary';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 import { toEpochSeconds } from '@/utils/time';
+import { getRestoreAbortReason, isTerminalSessionStatus } from '@/utils/chatRestoreGuards';
+import { normalizeTransientTools } from '@/utils/sessionFinalization';
 import {
   isStructuredSummaryAssistantMessage,
   shouldNestAssistantMessageInStep,
@@ -1439,7 +1441,7 @@ const initializePendingSession = async () => {
       maybeSendPendingInitialMessage();
     } else {
       await refreshSessionStatus(session.session_id);
-      await restoreSession();
+      await restoreSession(session.session_id, 'session_create');
     }
   } catch {
     transitionTo('error')
@@ -1579,13 +1581,7 @@ const reconcileSessionStatus = async () => {
       status === SessionStatus.CANCELLED
     ) {
       logChatSseDiagnostics('reconcile:settled', { status });
-      sessionStatus.value = status;
-      realTime.value = false;
-      receivedDoneEvent.value = true;
-      transitionTo('settled');
-      cleanupStreamingState();
-      emitStatusChange(sid, status);
-      replay.loadScreenshots();
+      finalizeSession('reconcile', status);
     } else {
       logChatSseDiagnostics('reconcile:still_running', { status });
     }
@@ -1612,6 +1608,7 @@ const streamController = useSessionStreamController({
 
 // Reset all refs to their initial values
 const resetState = () => {
+  invalidateRestoreEpoch('reset_state');
   beginStreamAttempt();
   // Cancel any existing chat connection
   if (cancelCurrentChat.value) {
@@ -1708,22 +1705,18 @@ const pollSessionStatusFallback = async (): Promise<'continue' | 'stop'> => {
   try {
     const statusResp = await agentApi.getSessionStatus(sessionId.value);
     const status = statusResp.status as SessionStatus;
-    if (status === SessionStatus.COMPLETED || status === SessionStatus.FAILED || status === SessionStatus.CANCELLED) {
-      sessionStatus.value = status;
-      emitStatusChange(sessionId.value, status);
-      if (status === SessionStatus.COMPLETED || status === SessionStatus.CANCELLED) {
-        transitionTo('completing');
-        await replay.loadScreenshots();
-      } else {
+    if (isTerminalSessionStatus(status)) {
+      if (status === SessionStatus.FAILED && !lastError.value) {
+        lastError.value = {
+          message: 'Task failed while reconnecting.',
+          type: 'session_failed',
+          recoverable: true,
+          hint: 'Retry the connection to inspect details.',
+        };
+      }
+      finalizeSession('reconcile', status);
+      if (status === SessionStatus.FAILED) {
         transitionTo('error');
-        if (!lastError.value) {
-          lastError.value = {
-            message: 'Task failed while reconnecting.',
-            type: 'session_failed',
-            recoverable: true,
-            hint: 'Retry the connection to inspect details.',
-          };
-        }
       }
       return 'stop';
     }
@@ -3286,29 +3279,60 @@ const shouldReplayHistoryEvent = (event: AgentSSEEvent): boolean => {
 };
 
 // ── Extracted event handlers for registry dispatch ──────────────────
-const handleDoneEvent = () => {
+const finalizeSession = (
+  reason: 'done' | 'stop' | 'reconcile' | 'visibility' | 'retry_reconcile',
+  status: SessionStatus = SessionStatus.COMPLETED,
+  options: { cleanupStorage?: boolean } = {},
+) => {
+  if (
+    receivedDoneEvent.value &&
+    sessionStatus.value === status &&
+    isTerminalSessionStatus(status)
+  ) {
+    return;
+  }
+
+  console.log('[FINALIZE]', reason, 'sessionId:', sessionId.value, 'status:', status);
+
+  normalizeTransientTools({
+    messages: messages.value,
+    toolTimeline: toolTimeline.value,
+    lastTool: lastTool.value,
+    lastNoMessageTool: lastNoMessageTool.value,
+  });
+
   activeReasoningState.value = 'completed';
-  dismissConnectionBanner();
-  logChatSseDiagnostics('event:done_received', {
-    eventId: null,
-    queuedAfterDone: streamController.getPendingEventCount(),
-  })
-  receivedDoneEvent.value = true;
   follow.value = false;
   planningProgress.value = null;
   stopPlanningMessageCycle();
-  ensureCompletionSuggestions();
-  markShortAssistantCompletion();
   isWaitingForReply.value = false;
   clearTakeoverCta();
-  transitionTo('completing')
+  dismissConnectionBanner();
+  cleanupStreamingState();
+  realTime.value = false;
+
+  transitionTo(reason === 'stop' ? 'stopped' : 'completing');
+
   if (sessionId.value) {
-    emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
-    cleanupSessionStorage(sessionId.value);
+    emitStatusChange(sessionId.value, status);
+    if (options.cleanupStorage ?? true) {
+      cleanupSessionStorage(sessionId.value);
+    }
   }
-  sessionStatus.value = SessionStatus.COMPLETED;
+  sessionStatus.value = status;
+  receivedDoneEvent.value = true;
   replay.loadScreenshots();
-}
+};
+
+const handleDoneEvent = () => {
+  logChatSseDiagnostics('event:done_received', {
+    eventId: null,
+    queuedAfterDone: streamController.getPendingEventCount(),
+  });
+  ensureCompletionSuggestions();
+  markShortAssistantCompletion();
+  finalizeSession('done', SessionStatus.COMPLETED);
+};
 
 const handleWaitEvent = (data: unknown) => {
   dismissConnectionBanner();
@@ -3711,116 +3735,158 @@ const chat = async (
   }
 }
 
-const restoreSession = async () => {
-  if (!sessionId.value) {
+let restoreEpoch = 0;
+
+const invalidateRestoreEpoch = (reason: string) => {
+  restoreEpoch += 1;
+  console.log('[RESTORE] Invalidate restore epoch', restoreEpoch, 'reason:', reason);
+};
+
+type RestoreContext = 'mount' | 'route_update' | 'session_create';
+
+const restoreSession = async (
+  targetSessionId: string,
+  context: RestoreContext,
+) => {
+  if (!targetSessionId) {
     showErrorToast(t('Session not found'));
     return;
   }
 
-  // Load lastEventId from sessionStorage for proper event resumption
-  const savedEventId = _getPersistedEventId(sessionId.value);
-  if (savedEventId) {
-    lastEventId.value = savedEventId;
-    console.log('[RESTORE] Loaded lastEventId from sessionStorage:', savedEventId);
-  }
+  const epoch = ++restoreEpoch;
+  const shouldAbortRestore = (checkpoint: string): boolean => {
+    const reason = getRestoreAbortReason({
+      epoch,
+      activeEpoch: restoreEpoch,
+      targetSessionId,
+      currentSessionId: sessionId.value,
+    });
+    if (!reason) return false;
+    console.log('[RESTORE] Stale epoch detected, aborting', {
+      checkpoint,
+      reason,
+      context,
+      targetSessionId,
+      epoch,
+      activeEpoch: restoreEpoch,
+      currentSessionId: sessionId.value,
+    });
+    return true;
+  };
 
+  if (shouldAbortRestore('start')) return;
 
-  const session = await agentApi.getSession(sessionId.value);
-  sessionStatus.value = session.status as SessionStatus;
-  sessionResearchMode.value = (session.research_mode as agentApi.ResearchMode) || 'deep_research';
-  // Set title from session data so it doesn't stay as "New Chat"
-  if (session.title?.trim()) {
-    title.value = session.title;
-  }
-  console.log('[RESTORE] Session:', sessionId.value, 'Status:', sessionStatus.value, 'ResearchMode:', sessionResearchMode.value, 'LastEventId:', lastEventId.value);
-
-  // Initialize share mode based on session state
-  shareMode.value = session.is_shared ? 'public' : 'private';
-  realTime.value = false;
-
-  // Drain any pending batched events before replaying persisted history.
-  streamController.flushPendingEvents();
-
-  for (const event of session.events) {
-    if (!shouldReplayHistoryEvent(event)) continue;
-    handleEvent(event);
-  }
-
-  // Flush replayed history immediately so auto-resume evaluates fully
-  // hydrated state (prevents footer/order races after refresh).
-  streamController.flushPendingEvents();
-
-  realTime.value = true;
-  if (sessionStatus.value === SessionStatus.INITIALIZING) {
-    await waitForSessionIfInitializing();
-  }
-  if (sessionStatus.value === SessionStatus.RUNNING || sessionStatus.value === SessionStatus.PENDING) {
-    transitionTo('connecting') // Will transition to 'streaming' on first event
-    receivedDoneEvent.value = false;
-
-
-    // Defense-in-depth: if event replay already set status to COMPLETED (via DoneEvent
-    // handler), the condition above will be false and we skip auto-resume. But if the
-    // server returned "running" AND events didn't include a DoneEvent (edge case),
-    // do a lightweight status re-check to avoid restarting a completed task.
-    const freshStatus = await agentApi.getSessionStatus(sessionId.value);
-    if (freshStatus && ['completed', 'failed', 'cancelled'].includes(freshStatus.status)) {
-      console.log('[RESTORE] Status re-check shows session is', freshStatus.status, '- not resuming');
-      const statusMap: Record<string, SessionStatus> = { completed: SessionStatus.COMPLETED, failed: SessionStatus.FAILED, cancelled: SessionStatus.CANCELLED };
-      sessionStatus.value = statusMap[freshStatus.status] ?? SessionStatus.FAILED;
-      realTime.value = false;
-      transitionTo('settled')
-      receivedDoneEvent.value = true;
-      replay.loadScreenshots();
-      return;
+  try {
+    // Load lastEventId from sessionStorage for proper event resumption
+    const savedEventId = _getPersistedEventId(targetSessionId);
+    if (shouldAbortRestore('after_get_persisted_event_id')) return;
+    if (savedEventId) {
+      lastEventId.value = savedEventId;
+      console.log('[RESTORE] Loaded lastEventId from sessionStorage:', savedEventId);
     }
 
-    // Check if this session was manually stopped (prevents auto-resume on page refresh)
-    // Using sessionStorage: persists on refresh, cleared on tab close
-    const stoppedKey = `pythinker-stopped-${sessionId.value}`;
-    const wasManuallyStopped = sessionStorage.getItem(stoppedKey);
+    const session = await agentApi.getSession(targetSessionId);
+    if (shouldAbortRestore('after_get_session')) return;
 
-    if (wasManuallyStopped) {
-      // Parse timestamp-based stop flag (new format: JSON with timestamp)
-      // Old format ('true') is treated as stale
-      let isStale = true;
-      try {
-        const parsed = JSON.parse(wasManuallyStopped);
-        if (parsed?.timestamp) {
-          const ageMs = Date.now() - parsed.timestamp;
-          isStale = ageMs > 60_000; // >60s old = stale
-        }
-      } catch {
-        // Old 'true' format or invalid JSON — treat as stale
-      }
+    sessionStatus.value = session.status as SessionStatus;
+    sessionResearchMode.value = (session.research_mode as agentApi.ResearchMode) || 'deep_research';
+    // Set title from session data so it doesn't stay as "New Chat"
+    if (session.title?.trim()) {
+      title.value = session.title;
+    }
+    console.log('[RESTORE] Session:', targetSessionId, 'Status:', sessionStatus.value, 'ResearchMode:', sessionResearchMode.value, 'LastEventId:', lastEventId.value);
 
-      if (isStale) {
-        console.log('[RESTORE] Stop flag is stale (>60s or old format), removing and resuming');
-        sessionStorage.removeItem(stoppedKey);
-        // Fall through to auto-resume below
-      } else {
-        console.log('[RESTORE] Session was recently stopped, not auto-resuming');
-        sessionStorage.removeItem(stoppedKey);
+    // Initialize share mode based on session state
+    shareMode.value = session.is_shared ? 'public' : 'private';
+    realTime.value = false;
+
+    // Drain any pending batched events before replaying persisted history.
+    streamController.flushPendingEvents();
+
+    for (const event of session.events) {
+      if (shouldAbortRestore('history_replay')) return;
+      if (!shouldReplayHistoryEvent(event)) continue;
+      handleEvent(event);
+    }
+
+    // Flush replayed history immediately so auto-resume evaluates fully
+    // hydrated state (prevents footer/order races after refresh).
+    streamController.flushPendingEvents();
+    if (shouldAbortRestore('after_history_replay')) return;
+
+    realTime.value = true;
+    if (sessionStatus.value === SessionStatus.INITIALIZING) {
+      await waitForSessionIfInitializing();
+      if (shouldAbortRestore('after_wait_for_session_ready')) return;
+    }
+    if (sessionStatus.value === SessionStatus.RUNNING || sessionStatus.value === SessionStatus.PENDING) {
+      transitionTo('connecting'); // Will transition to 'streaming' on first event
+      receivedDoneEvent.value = false;
+
+      // Defense-in-depth: if event replay already set status to COMPLETED (via DoneEvent
+      // handler), the condition above will be false and we skip auto-resume. But if the
+      // server returned "running" AND events didn't include a DoneEvent (edge case),
+      // do a lightweight status re-check to avoid restarting a completed task.
+      const freshStatus = await agentApi.getSessionStatus(targetSessionId);
+      if (shouldAbortRestore('after_status_recheck')) return;
+      if (freshStatus && isTerminalSessionStatus(freshStatus.status as SessionStatus)) {
+        console.log('[RESTORE] Status re-check shows session is', freshStatus.status, '- not resuming');
+        finalizeSession('reconcile', freshStatus.status as SessionStatus);
         return;
       }
+
+      // Check if this session was manually stopped (prevents auto-resume on page refresh)
+      // Using sessionStorage: persists on refresh, cleared on tab close
+      const stoppedKey = `pythinker-stopped-${targetSessionId}`;
+      const wasManuallyStopped = sessionStorage.getItem(stoppedKey);
+
+      if (wasManuallyStopped) {
+        // Parse timestamp-based stop flag (new format: JSON with timestamp)
+        // Old format ('true') is treated as stale
+        let isStale = true;
+        try {
+          const parsed = JSON.parse(wasManuallyStopped);
+          if (parsed?.timestamp) {
+            const ageMs = Date.now() - parsed.timestamp;
+            isStale = ageMs > 60_000; // >60s old = stale
+          }
+        } catch {
+          // Old 'true' format or invalid JSON — treat as stale
+        }
+
+        if (isStale) {
+          console.log('[RESTORE] Stop flag is stale (>60s or old format), removing and resuming');
+          sessionStorage.removeItem(stoppedKey);
+          // Fall through to auto-resume below
+        } else {
+          console.log('[RESTORE] Session was recently stopped, not auto-resuming');
+          sessionStorage.removeItem(stoppedKey);
+          return;
+        }
+      }
+
+      if (shouldAbortRestore('before_auto_resume')) return;
+
+      // No stop flag - safe to auto-resume
+      console.log('[RESTORE] No stop flag, auto-resuming session');
+      await chat('', [], { skipOptimistic: true });
+      if (shouldAbortRestore('after_auto_resume')) return;
+    } else if (isTerminalSessionStatus(sessionStatus.value)) {
+      // Session already finished — settle immediately and load replay data
+      finalizeSession('reconcile', sessionStatus.value);
     }
 
-    // No stop flag - safe to auto-resume
-    console.log('[RESTORE] No stop flag, auto-resuming session');
-    await chat();
-  } else if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED || sessionStatus.value === SessionStatus.CANCELLED) {
-    // Session already finished — settle immediately and load replay data
-    realTime.value = false;
-    transitionTo('settled')
-    receivedDoneEvent.value = true;
-    replay.loadScreenshots()
+    if (shouldAbortRestore('before_clear_unread')) return;
+    await agentApi.clearUnreadMessageCount(targetSessionId);
+  } catch (error) {
+    if (shouldAbortRestore('error')) return;
+    console.error('[RESTORE] Failed to restore session', { targetSessionId, context, error });
+    transitionTo('error');
+    showErrorToast(t('Failed to restore session'));
   }
-  agentApi.clearUnreadMessageCount(sessionId.value);
-}
+};
 
-
-
-onBeforeRouteUpdate(async (to, from, next) => {
+onBeforeRouteUpdate(async (to, from) => {
   const targetSessionId = String(to.params.sessionId || '');
   if (skipResetForSessionId.value && skipResetForSessionId.value === targetSessionId) {
     skipResetForSessionId.value = null;
@@ -3829,7 +3895,6 @@ onBeforeRouteUpdate(async (to, from, next) => {
       // Clear stale search sources from previous session even when skipping full reset
       searchSourcesCache.value = new Map();
     }
-    next();
     return;
   }
   // Clear stale skip target if navigating elsewhere
@@ -3837,12 +3902,15 @@ onBeforeRouteUpdate(async (to, from, next) => {
 
   // Only reset state when actually switching to a different session
   // This prevents cancelling the active chat on same-session route updates
-  const prevSessionId = from.params.sessionId as string | undefined;
-  const nextSessionId = to.params.sessionId as string | undefined;
+  const prevSessionId = typeof from.params.sessionId === 'string' ? from.params.sessionId : undefined;
+  const nextSessionId = typeof to.params.sessionId === 'string' ? to.params.sessionId : undefined;
   const isSwitchingSession = prevSessionId !== nextSessionId;
+  if (!isSwitchingSession) return;
+
+  invalidateRestoreEpoch('route_update');
 
   // Stop the current session if it's still running AND we're switching sessions
-  if (isSwitchingSession && prevSessionId && shouldStopSessionOnExit(sessionStatus.value)) {
+  if (prevSessionId && shouldStopSessionOnExit(sessionStatus.value)) {
     try {
       await agentApi.stopSession(prevSessionId);
       emitStatusChange(prevSessionId, SessionStatus.COMPLETED);
@@ -3852,18 +3920,19 @@ onBeforeRouteUpdate(async (to, from, next) => {
   }
 
   // Only reset state and clear UI when actually switching sessions
-  if (isSwitchingSession) {
-    toolPanel.value?.clearContent();  // Clear tool panel content when switching sessions
-    hideFilePanel();
-    resetState();  // This cancels the chat - only do it when switching sessions
-    if (nextSessionId) {
-      messages.value = [];
-      sessionId.value = nextSessionId;
-      restoreSession();
-    }
+  toolPanel.value?.clearContent(); // Clear tool panel content when switching sessions
+  hideFilePanel();
+  resetState(); // This cancels the chat - only do it when switching sessions
+
+  messages.value = [];
+  if (nextSessionId) {
+    sessionId.value = nextSessionId;
+    await restoreSession(nextSessionId, 'route_update');
+    return;
   }
-  next();
-})
+
+  sessionId.value = undefined;
+});
 
 // Initialize active conversation
 // Handle insert message event from settings (e.g., "Build with Pythinker" button)
@@ -3910,7 +3979,7 @@ onMounted(async () => {
     if ((history.state as PendingSessionCreateState | null)?.pendingSessionCreate) {
       history.replaceState({}, document.title);
     }
-    await restoreSession();
+    await restoreSession(String(routeParams.sessionId), 'mount');
   }
 });
 
@@ -3927,14 +3996,16 @@ watch(documentVisibility, async (newVisibility) => {
   if (!sessionStatus.value || !activeStatuses.includes(sessionStatus.value)) return;
 
   try {
-    const status = await agentApi.getSessionStatus(sessionId.value);
+    const activeSessionId = sessionId.value;
+    const status = await agentApi.getSessionStatus(activeSessionId);
+    if (sessionId.value !== activeSessionId) return;
     if (status.status !== sessionStatus.value) {
       console.log('[VISIBILITY] Session status changed while away:', sessionStatus.value, '->', status.status);
-      sessionStatus.value = status.status as SessionStatus;
-
-      // If session completed/failed while tab was hidden, load final state
-      if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
-        replay.loadScreenshots();
+      const nextStatus = status.status as SessionStatus;
+      if (isTerminalSessionStatus(nextStatus)) {
+        finalizeSession('visibility', nextStatus);
+      } else {
+        sessionStatus.value = nextStatus;
       }
     }
   } catch {
@@ -3950,6 +4021,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 });
 
 onUnmounted(() => {
+  invalidateRestoreEpoch('unmount');
   beginStreamAttempt();
   window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage);
   window.removeEventListener('resize', handleViewportResize);
@@ -4090,32 +4162,27 @@ const handleStop = async () => {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
   }
-  if (sessionId.value) {
+  const activeSessionId = sessionId.value;
+  if (activeSessionId) {
     // Clear lastEventId from sessionStorage since session is stopped (use centralized cleanup)
-    cleanupSessionStorage(sessionId.value);
+    cleanupSessionStorage(activeSessionId);
     // Mark this session as manually stopped to prevent auto-resume on page refresh
     // Set AFTER cleanup so the flag isn't immediately removed
-    sessionStorage.setItem(`pythinker-stopped-${sessionId.value}`, JSON.stringify({ timestamp: Date.now() }));
+    sessionStorage.setItem(`pythinker-stopped-${activeSessionId}`, JSON.stringify({ timestamp: Date.now() }));
     // Await the stop request so backend teardown completes before the user
     // can trigger a new message (prevents stop/chat race condition).
     try {
-      await agentApi.stopSession(sessionId.value);
+      await agentApi.stopSession(activeSessionId);
     } catch {
       // Non-critical — backend safety net will clean up
     }
-    // Notify sidebar that session is no longer running
-    emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
   }
-  // Reset to stopped state
-  transitionTo('stopped')
+
+  // Reset stale-state indicator immediately before finalization transition.
   isStale.value = false;
-  isWaitingForReply.value = false;
-  clearTakeoverCta();
-  cleanupStreamingState();
-  // NO ensureCompletionSuggestions() — user intentionally stopped
-  sessionStatus.value = SessionStatus.COMPLETED;
-  // Load screenshots so replay mode activates after stopping
-  replay.loadScreenshots();
+  // NO ensureCompletionSuggestions() — user intentionally stopped.
+  // Preserve stop marker in sessionStorage so refresh does not auto-resume.
+  finalizeSession('stop', SessionStatus.COMPLETED, { cleanupStorage: false });
 }
 
 const handleContinueAfterTimeout = () => {
@@ -4138,11 +4205,8 @@ const handleRetryConnection = async () => {
   try {
     const statusResp = await agentApi.getSessionStatus(sessionId.value);
     const status = statusResp.status as SessionStatus;
-    if (status === SessionStatus.COMPLETED || status === SessionStatus.FAILED || status === SessionStatus.CANCELLED) {
-      sessionStatus.value = status;
-      emitStatusChange(sessionId.value, status);
-      transitionTo('completing');
-      await replay.loadScreenshots();
+    if (isTerminalSessionStatus(status)) {
+      finalizeSession('retry_reconcile', status);
       return;
     }
   } catch {

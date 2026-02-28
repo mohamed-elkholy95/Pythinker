@@ -24,7 +24,9 @@ from app.domain.external.deal_finder import (
     DealComparison,
     DealProgressCallback,
     DealResult,
+    EmptyReason,
 )
+from app.domain.models.search import SearchResults
 from app.infrastructure.external.deal_finder.coupon_aggregator import aggregate_coupons
 from app.infrastructure.external.deal_finder.price_extractor import extract_price
 from app.infrastructure.external.deal_finder.price_voter import VotingResult, vote_on_price
@@ -188,7 +190,7 @@ def _score_deal(
 
 
 def _extract_deals_from_snippets(
-    search_results: object,
+    search_results: SearchResults | None,
     query: str,
     source_type: str,
 ) -> list[DealResult]:
@@ -201,17 +203,17 @@ def _extract_deals_from_snippets(
     deals: list[DealResult] = []
     seen_urls: set[str] = set()
 
-    if not search_results or not hasattr(search_results, "results"):
+    if not search_results or not search_results.results:
         return deals
 
     for item in search_results.results[:10]:
-        url = getattr(item, "url", None) or getattr(item, "link", "")
+        url = item.link
         if not url or url in seen_urls:
             continue
         seen_urls.add(url)
 
-        title = getattr(item, "title", "") or ""
-        snippet = getattr(item, "snippet", "") or getattr(item, "description", "") or ""
+        title = item.title or ""
+        snippet = item.snippet or ""
         combined_text = f"{title} {snippet}"
 
         # Detect store name from URL or community domain map
@@ -339,8 +341,8 @@ class DealFinderAdapter:
         if not self._search_engine:
             return DealComparison(
                 query=query,
-                error="Search engine not available",
                 searched_stores=[],
+                empty_reason=EmptyReason.SEARCH_UNAVAILABLE,
             )
 
         # Check if community search is enabled
@@ -495,6 +497,13 @@ class DealFinderAdapter:
             except Exception as exc:
                 logger.debug("Price history recording skipped: %s", exc)
 
+        empty_reason: EmptyReason | None = None
+        if not deals:
+            if active_stores and len(store_errors) == len(active_stores):
+                empty_reason = EmptyReason.ALL_STORE_FAILURES
+            else:
+                empty_reason = EmptyReason.NO_MATCHES
+
         return DealComparison(
             query=query,
             deals=deals,
@@ -503,6 +512,7 @@ class DealFinderAdapter:
             searched_stores=searched_stores,
             store_errors=store_errors,
             community_sources_searched=community_sources_searched,
+            empty_reason=empty_reason,
         )
 
     async def _search_store(
@@ -518,7 +528,7 @@ class DealFinderAdapter:
             return deals
 
         try:
-            search_results = await asyncio.wait_for(
+            tool_result = await asyncio.wait_for(
                 self._search_engine.search(search_query),
                 timeout=timeout,
             )
@@ -529,15 +539,29 @@ class DealFinderAdapter:
             logger.warning("Search error for %s: %s", store_domain, exc)
             return deals
 
+        # Unwrap ToolResult envelope → SearchResults
+        if not tool_result or not tool_result.success or not tool_result.data:
+            logger.debug("Search returned no data for %s", store_domain)
+            return deals
+        search_results: SearchResults = tool_result.data
+
         # Extract prices from search result URLs
-        if not search_results or not hasattr(search_results, "results"):
+        if not search_results.results:
+            logger.debug("Search returned 0 results for query: %s", search_query)
             return deals
 
         urls_to_scrape = []
         for item in search_results.results[:10]:  # Top 10 results per store
-            url = getattr(item, "url", None) or getattr(item, "link", "")
+            url = item.link
             if url and store_domain in _domain_from_url(url):
-                urls_to_scrape.append((url, getattr(item, "title", "")))
+                urls_to_scrape.append((url, item.title))
+
+        logger.debug(
+            "Store %s: %d search results → %d URLs matched domain filter",
+            store_domain,
+            len(search_results.results),
+            len(urls_to_scrape),
+        )
 
         settings = get_settings()
         use_voting = settings.deal_scraper_price_voting_enabled
@@ -649,11 +673,14 @@ class DealFinderAdapter:
 
         async def _run_one(search_query: str, source_type: str) -> list[DealResult]:
             try:
-                search_results = await asyncio.wait_for(
+                tool_result = await asyncio.wait_for(
                     self._search_engine.search(search_query),
                     timeout=timeout,
                 )
-                return _extract_deals_from_snippets(search_results, query, source_type)
+                # Unwrap ToolResult envelope → SearchResults
+                if not tool_result or not tool_result.success or not tool_result.data:
+                    return []
+                return _extract_deals_from_snippets(tool_result.data, query, source_type)
             except TimeoutError:
                 logger.debug("Community search timed out for: %s", search_query)
                 return []

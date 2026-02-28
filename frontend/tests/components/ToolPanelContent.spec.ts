@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { shallowMount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
 import ToolPanelContent from '@/components/ToolPanelContent.vue';
 import type { ToolContent } from '@/types/message';
 
@@ -14,37 +15,42 @@ const baseToolContent: ToolContent = {
 };
 
 const mountToolPanelContent = (overrides: Record<string, unknown> = {}) => (
-  shallowMount(ToolPanelContent, {
-    props: {
-      sessionId: 'session-1',
-      realTime: true,
-      toolContent: baseToolContent,
-      live: true,
-      isShare: false,
-      ...overrides,
-    },
-    global: {
-      config: {
-        globalProperties: {
-          $t: (key: string) => key,
+  (() => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    return shallowMount(ToolPanelContent, {
+      props: {
+        sessionId: 'session-1',
+        realTime: true,
+        toolContent: baseToolContent,
+        live: true,
+        isShare: false,
+        ...overrides,
+      },
+      global: {
+        plugins: [pinia],
+        config: {
+          globalProperties: {
+            $t: (key: string) => key,
+          },
+        },
+        stubs: {
+          TimelineControls: true,
+          TaskProgressBar: true,
+          LiveViewer: true,
+          LoadingState: true,
+          InactiveState: true,
+          TerminalContentView: true,
+          EditorContentView: true,
+          SearchContentView: true,
+          GenericContentView: true,
+          StreamingReportView: true,
+          WideResearchOverlay: true,
+          ScreenshotReplayViewer: true,
         },
       },
-      stubs: {
-        TimelineControls: true,
-        TaskProgressBar: true,
-        LiveViewer: true,
-        LoadingState: true,
-        InactiveState: true,
-        TerminalContentView: true,
-        EditorContentView: true,
-        SearchContentView: true,
-        GenericContentView: true,
-        StreamingReportView: true,
-        WideResearchOverlay: true,
-        ScreenshotReplayViewer: true,
-      },
-    },
-  })
+    });
+  })()
 );
 
 describe('ToolPanelContent', () => {

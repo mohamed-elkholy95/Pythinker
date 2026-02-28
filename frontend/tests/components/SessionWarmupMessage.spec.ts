@@ -37,6 +37,7 @@ describe('SessionWarmupMessage', () => {
     })
 
     expect(wrapper.text()).toContain('Thinking')
-    expect(wrapper.findAll('.warmup-dot')).toHaveLength(3)
+    expect(wrapper.find('.warmup-thinking-indicator').exists()).toBe(true)
+    expect(wrapper.findAll('.warmup-dot')).toHaveLength(0)
   })
 })
