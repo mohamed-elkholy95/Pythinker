@@ -111,6 +111,7 @@ export interface ToolProgressEventData extends BaseEventData {
   steps_total?: number;
   elapsed_ms: number;
   estimated_remaining_ms?: number;
+  checkpoint_data?: Record<string, unknown> | null;
 }
 
 export interface ToolEventData extends BaseEventData {
