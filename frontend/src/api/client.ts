@@ -995,11 +995,14 @@ export const createSSEConnection = async <T = unknown>(
 
           const noEventsAfterMessage = messageSent && !receivedMeaningfulEvents;
           const noEventsOnResume = !hasFreshInput && receivedAnyEvents && !receivedMeaningfulEvents;
+          // Zero events on a resume means the session is already done — not a network issue
+          const noEventsAtAllOnResume = !hasFreshInput && !messageSent && !receivedAnyEvents;
           const reachedMaxRetries = retryCount >= activeRetryPolicy.maxRetries;
           const willRetry = !abortController.signal.aborted
             && !reachedMaxRetries
             && !streamCompleted
             && !noEventsOnResume
+            && !noEventsAtAllOnResume
             && (!noEventsAfterMessage || serverRequestedRetry);
           const retryAttempt = willRetry ? retryCount + 1 : null;
           const retryDelayMs = willRetry
@@ -1008,7 +1011,7 @@ export const createSSEConnection = async <T = unknown>(
           let reason: SSECloseInfo['reason'] = 'closed';
           if (streamCompleted) {
             reason = 'completed';
-          } else if (noEventsAfterMessage || noEventsOnResume) {
+          } else if (noEventsAfterMessage || noEventsOnResume || noEventsAtAllOnResume) {
             reason = 'no_events_after_message';
           } else if (abortController.signal.aborted) {
             reason = 'aborted';
@@ -1025,6 +1028,7 @@ export const createSSEConnection = async <T = unknown>(
             messageSent,
             receivedAnyEvents,
             receivedMeaningfulEvents,
+            noEventsAtAllOnResume,
             retryCount,
             maxRetries: activeRetryPolicy.maxRetries,
             resumeEventId: lastReceivedEventId ?? null,
@@ -1050,7 +1054,7 @@ export const createSSEConnection = async <T = unknown>(
           // Don't reconnect if stream completed normally (received done/complete/end event)
           // Also don't reconnect if the stream closed without any events at all — this
           // indicates the session/task already completed (not a network interruption)
-          if (streamCompleted || (noEventsAfterMessage && !serverRequestedRetry) || noEventsOnResume) {
+          if (streamCompleted || (noEventsAfterMessage && !serverRequestedRetry) || noEventsOnResume || noEventsAtAllOnResume) {
             return;
           }
 
