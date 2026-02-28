@@ -69,6 +69,9 @@ services:
       dockerfile: Dockerfile
     command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "app", "--reload-exclude", "tests/*", "--reload-exclude", "docs/*", "--reload-exclude", "*.md", "--timeout-graceful-shutdown", "3" ]
     volumes:
+      # Fallback bind mount keeps backend source in sync even when `docker compose watch`
+      # is not running (common in local dev sessions).
+      - ./backend/app:/app/app
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - dspy_cache:/app/data/dspy_cache
     ports:
