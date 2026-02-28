@@ -114,6 +114,29 @@ async def test_chat_no_active_task_and_running_session_emits_error_and_tears_dow
 
 
 @pytest.mark.asyncio
+async def test_chat_no_active_task_running_with_persisted_done_event_emits_done() -> None:
+    """When status is stale RUNNING but a DoneEvent is already persisted, recover as COMPLETED."""
+    task = None
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.RUNNING,
+        task_id=None,
+        sandbox_id="sandbox-id",
+        sandbox_owned=True,
+        events=[DoneEvent()],
+    )
+
+    service, teardown = _build_service(session, task)
+    events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
+
+    assert len(events) == 1
+    assert isinstance(events[0], DoneEvent)
+    teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
+
+
+@pytest.mark.asyncio
 async def test_chat_cancellation_marks_session_cancelled() -> None:
     task = SimpleNamespace(
         id="task-id",

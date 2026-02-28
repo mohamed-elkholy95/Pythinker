@@ -734,15 +734,35 @@ class AgentDomainService:
                             yield ErrorEvent(error="Task failed in a previous execution cycle.")
                             terminal_status = SessionStatus.FAILED
                     elif persisted_status == SessionStatus.RUNNING:
-                        # Orphaned session — task lost but status never updated.
-                        # This happens when cancel() races with SSE reconnect.
-                        logger.warning(
-                            "Session %s is RUNNING but has no active task; marking FAILED",
-                            session_id,
-                        )
-                        await self._session_repository.update_status(session_id, SessionStatus.FAILED)
-                        yield ErrorEvent(error="Session task was interrupted. Please retry.")
-                        terminal_status = SessionStatus.FAILED
+                        terminal_event = self._get_persisted_terminal_event(session)
+                        if isinstance(terminal_event, DoneEvent):
+                            logger.info(
+                                "Session %s status is RUNNING with no active task, but DoneEvent is persisted — "
+                                "recovering as COMPLETED",
+                                session_id,
+                            )
+                            await self._session_repository.update_status(session_id, SessionStatus.COMPLETED)
+                            yield DoneEvent()
+                            terminal_status = SessionStatus.COMPLETED
+                        elif isinstance(terminal_event, ErrorEvent):
+                            logger.info(
+                                "Session %s status is RUNNING with no active task, but ErrorEvent is persisted — "
+                                "recovering as FAILED",
+                                session_id,
+                            )
+                            await self._session_repository.update_status(session_id, SessionStatus.FAILED)
+                            yield ErrorEvent(error=terminal_event.error or "Task failed in a previous execution cycle.")
+                            terminal_status = SessionStatus.FAILED
+                        else:
+                            # Orphaned session — task lost but status never updated.
+                            # This happens when cancel() races with SSE reconnect.
+                            logger.warning(
+                                "Session %s is RUNNING but has no active task; marking FAILED",
+                                session_id,
+                            )
+                            await self._session_repository.update_status(session_id, SessionStatus.FAILED)
+                            yield ErrorEvent(error="Session task was interrupted. Please retry.")
+                            terminal_status = SessionStatus.FAILED
                     else:
                         logger.info(
                             "Session %s has no active task and no new input; ending stream without completion event",
@@ -787,6 +807,16 @@ class AgentDomainService:
                 with contextlib.suppress(Exception):
                     task = asyncio.ensure_future(self._extract_session_memories(session_id, user_id))
                     self._register_background_task(task)
+
+    @staticmethod
+    def _get_persisted_terminal_event(session: Session | None) -> AgentEvent | None:
+        """Return the latest terminal event already persisted on the session."""
+        if not session or not session.events:
+            return None
+        for event in reversed(session.events):
+            if isinstance(event, (DoneEvent, ErrorEvent)):
+                return event
+        return None
 
     def _record_conversation_turn(self, event: BaseEvent, session_id: str, user_id: str) -> None:
         """Fire-and-forget: extract and buffer a conversation turn from an SSE event.
