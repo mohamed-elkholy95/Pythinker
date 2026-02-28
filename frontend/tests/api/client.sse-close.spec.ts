@@ -78,7 +78,7 @@ describe('createSSEConnection close behavior', () => {
       reason: 'retrying',
       retryAttempt: 1,
     })
-    expect(onRetry).toHaveBeenCalledWith(1, 7)
+    expect(onRetry).toHaveBeenCalledWith(1, 5)
 
     cancel()
   })
@@ -114,7 +114,7 @@ describe('createSSEConnection close behavior', () => {
     )
 
     expect(onRetry).toHaveBeenCalledTimes(1)
-    expect(onRetry).toHaveBeenCalledWith(1, 7)
+    expect(onRetry).toHaveBeenCalledWith(1, 5)
     expect(onError).not.toHaveBeenCalled()
 
     cancel()
@@ -290,7 +290,7 @@ describe('createSSEConnection close behavior', () => {
       streamCompleted: false,
       retryDelayMs: 1200,
     })
-    expect(onRetry).toHaveBeenCalledWith(1, 7)
+    expect(onRetry).toHaveBeenCalledWith(1, 5)
 
     cancel()
   })
