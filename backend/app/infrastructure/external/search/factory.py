@@ -9,11 +9,18 @@ import logging
 from typing import ClassVar
 
 from app.core.config import get_settings
+from app.core.search_provider_policy import (
+    ALLOWED_SEARCH_PROVIDERS,
+    DEFAULT_SEARCH_PROVIDER_CHAIN,
+    parse_search_provider_chain,
+)
 from app.domain.external.search import SearchEngine
 from app.domain.models.search import SearchResults
 from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_PROVIDER_CHAIN = list(DEFAULT_SEARCH_PROVIDER_CHAIN)
 
 
 class SearchProviderRegistry:
@@ -234,6 +241,27 @@ def _create_provider_engine(provider: str, redis_client=None) -> SearchEngine | 
     return SearchProviderRegistry.get(provider, **kwargs)
 
 
+def _resolve_provider_chain(provider: str | None, configured_chain: str | list[str] | None) -> list[str]:
+    """Resolve final chain with defaults, configured-provider append, and dedupe."""
+    chain = parse_search_provider_chain(configured_chain)
+    if not chain:
+        chain = list(DEFAULT_SEARCH_PROVIDER_CHAIN)
+
+    if provider and provider in ALLOWED_SEARCH_PROVIDERS and provider not in chain:
+        chain.append(provider)
+    elif provider and provider not in ALLOWED_SEARCH_PROVIDERS:
+        logger.warning("Ignoring unsupported search provider in chain resolution: %s", provider)
+
+    unique_chain: list[str] = []
+    for candidate in chain:
+        if candidate not in unique_chain:
+            unique_chain.append(candidate)
+
+    if unique_chain:
+        return unique_chain
+    return list(DEFAULT_SEARCH_PROVIDER_CHAIN)
+
+
 def get_search_engine_from_factory() -> SearchEngine | None:
     """Get search engine instance based on configuration.
 
@@ -282,11 +310,11 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         logger.debug("Google search provider not available")
 
     settings = get_settings()
-    provider = settings.search_provider
+    configured_provider = getattr(settings, "search_provider", None)
+    provider = configured_provider.strip().lower() if isinstance(configured_provider, str) else ""
 
     if not provider:
-        logger.warning("No search provider configured")
-        return None
+        logger.warning("No search provider configured; resolving from provider chain/defaults")
 
     if provider == "baidu":
         logger.warning("Baidu provider has been removed; falling back to duckduckgo")
@@ -301,22 +329,8 @@ def get_search_engine_from_factory() -> SearchEngine | None:
     except Exception as e:
         logger.warning(f"Failed to get Redis client for search key pool: {e}")
 
-    # Provider-level failover chain for API-backed search reliability.
-    # Each provider still does its own API key rotation internally.
-    provider_chain: list[str]
-    if provider == "tavily":
-        provider_chain = ["tavily", "serper", "exa", "duckduckgo"]
-    elif provider == "serper":
-        provider_chain = ["serper", "tavily", "exa", "duckduckgo"]
-    elif provider == "exa":
-        provider_chain = ["exa", "tavily", "serper", "duckduckgo"]
-    else:
-        provider_chain = [provider]
-
-    unique_chain: list[str] = []
-    for candidate in provider_chain:
-        if candidate not in unique_chain:
-            unique_chain.append(candidate)
+    chain_setting = getattr(settings, "search_provider_chain", None)
+    unique_chain = _resolve_provider_chain(provider=provider, configured_chain=chain_setting)
 
     engines: list[tuple[str, SearchEngine]] = []
     for candidate in unique_chain:

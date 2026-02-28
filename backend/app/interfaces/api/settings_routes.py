@@ -51,12 +51,13 @@ LLM_PROVIDERS = [
 ]
 
 SEARCH_PROVIDERS = [
-    {"id": "bing", "name": "Bing Search", "requires_api_key": False},
-    {"id": "google", "name": "Google Search", "requires_api_key": True},
-    {"id": "duckduckgo", "name": "DuckDuckGo", "requires_api_key": False},
-    {"id": "brave", "name": "Brave Search", "requires_api_key": True},
-    {"id": "tavily", "name": "Tavily", "requires_api_key": True},
-    {"id": "serper", "name": "Serper (Google)", "requires_api_key": True},
+    {"id": "bing", "name": "Bing Search", "requires_api_key": False, "default_chain_rank": None},
+    {"id": "google", "name": "Google Search", "requires_api_key": True, "default_chain_rank": None},
+    {"id": "duckduckgo", "name": "DuckDuckGo", "requires_api_key": False, "default_chain_rank": 2},
+    {"id": "brave", "name": "Brave Search", "requires_api_key": True, "default_chain_rank": None},
+    {"id": "tavily", "name": "Tavily", "requires_api_key": True, "default_chain_rank": 1},
+    {"id": "serper", "name": "Serper (Google)", "requires_api_key": True, "default_chain_rank": 3},
+    {"id": "exa", "name": "Exa", "requires_api_key": True, "default_chain_rank": None},
 ]
 
 
