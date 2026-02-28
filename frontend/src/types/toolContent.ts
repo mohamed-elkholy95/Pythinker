@@ -189,6 +189,8 @@ export interface StoreError {
   error: string;
 }
 
+export type DealEmptyReason = 'no_matches' | 'all_store_failures' | 'search_unavailable';
+
 export interface DealToolContent extends ToolContentBase {
   deals: DealItem[];
   coupons: CouponItem[];
@@ -196,6 +198,9 @@ export interface DealToolContent extends ToolContentBase {
   best_deal_index: number | null;
   searched_stores?: string[];
   store_errors?: StoreError[];
+  empty_reason?: DealEmptyReason;
+  stores_attempted?: number;
+  stores_with_results?: number;
 }
 
 // ── Deal Progress (live view checkpoint_data) ──
