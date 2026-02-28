@@ -2,6 +2,7 @@
 
 from app.domain.services.agents.citation_integrity import (
     CitationIntegrityResult,
+    normalize_citation_numbering,
     repair_citations,
     validate_citations,
 )
@@ -124,3 +125,33 @@ class TestRepairCitations:
     def test_empty_inputs(self):
         assert repair_citations("", "[1] X - https://x.com") == ""
         assert repair_citations("# R\n\nClaim [1].\n", "") == "# R\n\nClaim [1].\n"
+
+    def test_repair_normalizes_sparse_numbering(self):
+        report = (
+            "# Report\n\n"
+            "Claim [4]. Another [6].\n\n"
+            "## References\n"
+            "[4] Source A - https://a.com\n"
+            "[6] Source B - https://b.com\n"
+        )
+
+        repaired = repair_citations(report, "")
+
+        assert "Claim [1]. Another [2]." in repaired
+        assert "[1] Source A - https://a.com" in repaired
+        assert "[2] Source B - https://b.com" in repaired
+        assert validate_citations(repaired).is_valid
+
+
+class TestNormalizeCitationNumbering:
+    """Tests for normalize_citation_numbering()."""
+
+    def test_noop_when_already_contiguous(self):
+        report = (
+            "# Report\n\n"
+            "Claim [1]. Another [2].\n\n"
+            "## References\n"
+            "[1] Source A - https://a.com\n"
+            "[2] Source B - https://b.com\n"
+        )
+        assert normalize_citation_numbering(report) == report
