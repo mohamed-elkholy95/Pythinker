@@ -115,7 +115,8 @@ describe('shouldPreserveDealToolInLiveView', () => {
     expect(shouldPreserveDealToolInLiveView(current, incoming)).toBe(false);
   });
 
-  it('does not preserve when current tool is not a deal search result', () => {
+  it('preserves browser panel when coupon result is empty (real-world sequence)', () => {
+    // browser_navigate → deal_find_coupons(0 results) must not overwrite browser view
     const current = makeTool({
       tool_call_id: 'browser-tool',
       name: 'browser',
@@ -130,6 +131,34 @@ describe('shouldPreserveDealToolInLiveView', () => {
       content: makeDealContent(),
     });
 
-    expect(shouldPreserveDealToolInLiveView(current, incoming)).toBe(false);
+    expect(shouldPreserveDealToolInLiveView(current, incoming)).toBe(true);
+  });
+
+  it('preserves browser panel while coupons are in-flight (calling)', () => {
+    const current = makeTool({
+      tool_call_id: 'browser-tool',
+      name: 'browser',
+      function: 'browser_navigate',
+      status: 'called',
+      content: undefined,
+    });
+    const incoming = makeTool({
+      tool_call_id: 'coupon-search',
+      function: 'deal_find_coupons',
+      status: 'calling',
+    });
+
+    expect(shouldPreserveDealToolInLiveView(current, incoming)).toBe(true);
+  });
+
+  it('returns false when current is undefined and coupons are empty', () => {
+    const incoming = makeTool({
+      tool_call_id: 'coupon-search',
+      function: 'deal_find_coupons',
+      status: 'called',
+      content: makeDealContent(),
+    });
+
+    expect(shouldPreserveDealToolInLiveView(undefined, incoming)).toBe(false);
   });
 });
