@@ -115,6 +115,42 @@ def validate_citations(report_content: str) -> CitationIntegrityResult:
     )
 
 
+def prune_phantom_references(report_content: str) -> str:
+    """Remove reference entries that are never cited inline."""
+    if not report_content:
+        return report_content
+
+    validation = validate_citations(report_content)
+    if not validation.phantom_references:
+        return report_content
+
+    ref_match = _REF_SECTION_RE.search(report_content)
+    if not ref_match:
+        return report_content
+
+    body = report_content[: ref_match.start()]
+    ref_section = report_content[ref_match.end() :]
+    phantom_set = set(validation.phantom_references)
+
+    kept_lines: list[str] = []
+    removed = 0
+    for line in ref_section.splitlines():
+        entry_match = _REF_ENTRY_RE.match(line)
+        if entry_match and int(entry_match.group(1)) in phantom_set:
+            removed += 1
+            continue
+        kept_lines.append(line)
+
+    kept_ref_block = "\n".join(kept_lines).strip()
+    if kept_ref_block:
+        repaired = f"{body.rstrip()}\n\n## References\n{kept_ref_block}\n"
+    else:
+        repaired = body.rstrip() + "\n"
+
+    logger.info("Pruned %d phantom reference(s)", removed)
+    return repaired
+
+
 def repair_citations(report_content: str, source_list: str) -> str:
     """Attempt to repair citation integrity issues by appending missing reference entries.
 
@@ -132,31 +168,31 @@ def repair_citations(report_content: str, source_list: str) -> str:
         return report_content
 
     result = validate_citations(report_content)
-    if result.is_valid or not result.orphan_citations:
+    if result.is_valid:
         return report_content
 
-    # Parse source_list into a lookup: number → full entry line
-    source_entries: dict[int, str] = {}
-    for m in _REF_ENTRY_RE.finditer(source_list):
-        source_entries[int(m.group(1))] = m.group(0).strip()
+    repaired = report_content
 
-    # Find entries we can repair
-    repairs = [source_entries[num] for num in result.orphan_citations if num in source_entries]
+    # Repair orphan citations from provided source list when possible.
+    if result.orphan_citations and source_list:
+        source_entries: dict[int, str] = {}
+        for m in _REF_ENTRY_RE.finditer(source_list):
+            source_entries[int(m.group(1))] = m.group(0).strip()
 
-    if not repairs:
-        return report_content
+        repairs = [source_entries[num] for num in result.orphan_citations if num in source_entries]
+        if repairs:
+            ref_match = _REF_SECTION_RE.search(repaired)
+            if ref_match:
+                repaired = repaired.rstrip() + "\n" + "\n".join(repairs) + "\n"
+            else:
+                repaired = repaired.rstrip() + "\n\n## References\n" + "\n".join(repairs) + "\n"
 
-    # Append to the References section
-    ref_match = _REF_SECTION_RE.search(report_content)
-    if ref_match:
-        # Append after existing References section
-        repaired = report_content.rstrip() + "\n" + "\n".join(repairs) + "\n"
-    else:
-        # No References section exists — create one
-        repaired = report_content.rstrip() + "\n\n## References\n" + "\n".join(repairs) + "\n"
+            logger.info(
+                "Repaired %d orphan citation(s) by appending reference entries from source list",
+                len(repairs),
+            )
 
-    logger.info(
-        "Repaired %d orphan citation(s) by appending reference entries from source list",
-        len(repairs),
-    )
+    # Remove references that are never cited inline.
+    repaired = prune_phantom_references(repaired)
+
     return repaired
