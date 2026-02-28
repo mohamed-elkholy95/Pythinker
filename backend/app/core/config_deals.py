@@ -25,3 +25,18 @@ class DealScraperSettingsMixin:
 
     # Cache TTL for deal results (seconds)
     deal_scraper_cache_ttl: int = 3600  # 1 hour
+
+    # --- Phase 1 Enhancements ---
+
+    # Price Voting: Run all extraction methods and vote on correct price
+    # (vs waterfall which stops at first hit). Catches ~40-60% more errors.
+    deal_scraper_price_voting_enabled: bool = True
+
+    # LLM Fallback: Use AI to extract price when traditional methods disagree.
+    # Requires LLM service. ~$0.001 per extraction with fast-tier models.
+    deal_scraper_llm_extraction_enabled: bool = False
+    deal_scraper_llm_max_per_search: int = 5  # Cap LLM extractions per search call
+
+    # Price History: Persist results to MongoDB for trend analysis.
+    # Enables sparkline charts, all-time-low detection, seasonal patterns.
+    deal_scraper_history_enabled: bool = True
