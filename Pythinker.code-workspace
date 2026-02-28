@@ -20,6 +20,7 @@
 		}
 	],
 	"settings": {
+		"ruff.path": ["/home/mac/.local/bin/ruff"],
 		"files.exclude": {
 			"**/__pycache__": true,
 			"**/.pytest_cache": true,
@@ -35,7 +36,7 @@
 		"typescript.preferences.importModuleSpecifier": "relative",
 		"python.analysis.typeCheckingMode": "basic",
 		"[python]": {
-			"editor.defaultFormatter": "charliermarsh.ruff",
+			"editor.defaultFormatter": "astral-sh.ruff",
 			"editor.formatOnSave": true,
 			"editor.codeActionsOnSave": {
 				"source.fixAll.ruff": "explicit",
@@ -156,7 +157,7 @@
 		"recommendations": [
 			"ms-python.python",
 			"ms-python.vscode-pylance",
-			"charliermarsh.ruff",
+			"astral-sh.ruff",
 			"ms-python.debugpy",
 			"Vue.volar",
 			"dbaeumer.vscode-eslint",
