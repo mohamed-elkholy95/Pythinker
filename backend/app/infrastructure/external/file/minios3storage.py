@@ -65,6 +65,16 @@ class MinIOFileStorage(FileStorage):
 
         return normalized
 
+    @staticmethod
+    def _sanitize_metadata_value(value: str) -> str:
+        """Strip non-ASCII characters from S3 metadata values.
+
+        MinIO (and S3) metadata is transmitted via HTTP headers which only
+        support US-ASCII visible characters.  Emoji and other Unicode code
+        points cause ``ValueError`` deep in the SDK signing layer.
+        """
+        return value.encode("ascii", errors="ignore").decode("ascii")
+
     # ------------------------------------------------------------------
     # Synchronous helpers (run inside thread pool via asyncio.to_thread)
     # ------------------------------------------------------------------
@@ -154,16 +164,16 @@ class MinIOFileStorage(FileStorage):
             client = self._minio.client
             object_key = self._make_object_key(user_id, filename)
 
-            # Build S3 metadata (all values must be strings)
+            # Build S3 metadata (all values must be US-ASCII strings per RFC 7230)
             s3_metadata = {
                 "user-id": user_id,
-                "original-filename": filename,
+                "original-filename": self._sanitize_metadata_value(filename),
             }
             if metadata:
                 for k, v in metadata.items():
                     normalized_key = self._normalize_metadata_key(str(k))
                     if normalized_key:
-                        s3_metadata[normalized_key] = str(v)
+                        s3_metadata[normalized_key] = self._sanitize_metadata_value(str(v))
 
             # Determine content length by seeking
             file_data.seek(0, 2)  # seek to end
