@@ -174,6 +174,16 @@ class TestFileServiceMethodTraversal:
                 path="/tmp/evil.bin", file_stream=fake_upload
             )
 
+    @pytest.mark.asyncio
+    async def test_delete_file_blocks_traversal(self) -> None:
+        with pytest.raises(BadRequestException, match="Path traversal denied"):
+            await self.service.delete_file(path="/etc/passwd")
+
+    @pytest.mark.asyncio
+    async def test_list_dir_blocks_traversal(self) -> None:
+        with pytest.raises(BadRequestException, match="Path traversal denied"):
+            await self.service.list_dir(path="/etc")
+
     def test_ensure_file_blocks_traversal(self) -> None:
         with pytest.raises(BadRequestException, match="Path traversal denied"):
             self.service.ensure_file(path="/root/.ssh/id_rsa")
