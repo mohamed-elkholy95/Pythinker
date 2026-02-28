@@ -48,8 +48,8 @@ class UserSettings(BaseModel):
     )
 
     # Timestamps
-    created_at: datetime = datetime.now(UTC)
-    updated_at: datetime = datetime.now(UTC)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_validator("search_provider_chain", mode="before")
     @classmethod
