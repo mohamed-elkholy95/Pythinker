@@ -545,6 +545,9 @@ class BaseAgent:
                 # Extract store metadata (always present even when deals are empty)
                 searched_stores: list[str] = data.get("searched_stores", []) if isinstance(data, dict) else []
                 store_errors: list[dict[str, str]] = data.get("store_errors", []) if isinstance(data, dict) else []
+                empty_reason = data.get("empty_reason") if isinstance(data, dict) else None
+                stores_attempted = data.get("stores_attempted") if isinstance(data, dict) else None
+                stores_with_results = data.get("stores_with_results") if isinstance(data, dict) else None
                 tool_content = DealToolContent(
                     deals=deal_items,
                     coupons=coupon_items,
@@ -552,6 +555,9 @@ class BaseAgent:
                     best_deal_index=best_idx,
                     searched_stores=searched_stores,
                     store_errors=store_errors,
+                    empty_reason=empty_reason if isinstance(empty_reason, str) else None,
+                    stores_attempted=stores_attempted if isinstance(stores_attempted, int) else None,
+                    stores_with_results=stores_with_results if isinstance(stores_with_results, int) else None,
                 )
                 logger.info(
                     f"DealToolContent created with {len(deal_items)} deals, "

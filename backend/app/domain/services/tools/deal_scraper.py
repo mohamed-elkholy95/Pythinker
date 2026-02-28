@@ -402,6 +402,9 @@ class DealScraperTool(BaseTool):
             return ToolResult(success=False, message=comparison.error)
 
         if not comparison.deals:
+            stores_attempted = (
+                len(stores) if stores is not None else len(comparison.searched_stores) + len(comparison.store_errors)
+            )
             return ToolResult(
                 success=True,
                 message=f"No deals found for '{query}' across {len(comparison.searched_stores)} stores",
@@ -410,6 +413,9 @@ class DealScraperTool(BaseTool):
                     "deals": [],
                     "searched_stores": comparison.searched_stores,
                     "store_errors": comparison.store_errors,
+                    "empty_reason": comparison.empty_reason.value if comparison.empty_reason else "no_matches",
+                    "stores_attempted": stores_attempted,
+                    "stores_with_results": len(comparison.searched_stores),
                 },
             )
 
