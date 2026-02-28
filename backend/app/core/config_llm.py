@@ -97,6 +97,19 @@ class LLMTimeoutSettingsMixin:
     # fast while slow-but-alive providers get the full budget.
     llm_request_timeout: float = 300.0
 
+    # Tool-enabled calls usually need concise JSON/function outputs; capping token
+    # budget reduces slow turns and limits runaway verbose generations.
+    # Set to 0 to disable this cap.
+    llm_tool_max_tokens: int = 2048
+
+    # Guardrail timeout for tool-enabled calls. This prevents multi-minute stalls
+    # from slow providers during orchestration-heavy sessions.
+    # Set to 0 to disable.
+    llm_tool_request_timeout: float = 60.0
+
+    # Maximum retry attempts after a tool-call timeout before surfacing an error.
+    llm_tool_timeout_max_retries: int = 1
+
 
 class LLMConcurrencySettingsMixin:
     """LLM concurrency, token management, and semantic cache configuration."""
