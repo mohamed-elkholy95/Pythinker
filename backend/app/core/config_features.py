@@ -214,7 +214,10 @@ class FeatureFlagsSettingsMixin:
 
     # Agent Enhancement Feature Flags (Phases 1-5)
     # Phase 1: Python 3.11+ TaskGroup Migration
-    feature_taskgroup_enabled: bool = False  # Use TaskGroup instead of asyncio.gather
+    # Default flipped to True (2026-02): gather_compat() + sandbox_manager +
+    # parallel_executor + memory_service are all TaskGroup-ready. Python 3.11+
+    # confirmed in project.  Set FEATURE_TASKGROUP_ENABLED=false to revert.
+    feature_taskgroup_enabled: bool = True  # Use TaskGroup instead of asyncio.gather
     # Phase 2: SSE Streaming v2
     feature_sse_v2: bool = False  # Enhanced streaming API with structured events
     # Phase 3: Zero-Hallucination Defense
@@ -254,6 +257,28 @@ class FeatureFlagsSettingsMixin:
 
     # Architecture Enhancement Plan — Phase 2: Token Budget Manager & Context Handler
     feature_token_budget_manager: bool = False  # Proactive phase-level token budgeting
+
+    # ── LLM Middleware Pipeline (Enhancement Plan 2026-02) ──────────────────
+    # Phase 1: Middleware pipeline — compose cross-cutting concerns as chainable
+    # middlewares instead of inline retry/error code in each provider.
+    # Zero behaviour change when False.
+    feature_llm_middleware_pipeline: bool = False
+
+    # Phase 2: Retry budget — cap total retries across all middleware layers
+    # per task to prevent cascading quota exhaustion.
+    feature_llm_retry_budget: bool = False
+
+    # Phase 3: Provider fallback — on primary exhaustion, try next provider in
+    # llm_provider_fallback_chain before raising.
+    feature_llm_provider_fallback: bool = False
+
+    # Phase 3: Health scoring — weight provider selection by sliding-window
+    # latency + error rate (shadow mode: compute + log only, no routing).
+    feature_llm_health_scoring: bool = False
+
+    # Phase 5: Dynamic context windows — derive token budget from model's
+    # actual max_context_window via the capabilities registry.
+    feature_llm_dynamic_context: bool = False
 
     # NOTE: Phase 1 (ToolName enum) and Phase 3 (God Class Decomposition) are
     # permanently enabled — no rollback flags needed. ToolName, StepExecutor,
