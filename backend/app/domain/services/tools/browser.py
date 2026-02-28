@@ -244,7 +244,9 @@ class BrowserTool(BaseTool):
         # causes redundant revisits to slip past duplicate guards.
         if scheme in {"http", "https"}:
             scheme = "https"
-        netloc = parsed.netloc.lower()
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+        netloc = (f"{host}:{port}" if port and port not in {80, 443} else host) if host else parsed.netloc.lower()
         path = parsed.path or "/"
         if path != "/":
             path = path.rstrip("/")
