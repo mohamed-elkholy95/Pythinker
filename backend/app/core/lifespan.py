@@ -31,6 +31,7 @@ from app.infrastructure.models.prompt_optimization_documents import (
     OptimizationRunDocument,
     PromptProfileDocument,
 )
+from app.infrastructure.repositories.event_store_repository import AgentEventDocument
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.qdrant import get_qdrant
 from app.infrastructure.storage.redis import get_cache_redis, get_redis
@@ -39,6 +40,25 @@ from app.interfaces.dependencies import get_agent_service
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+BEANIE_DOCUMENT_MODELS = [
+    AgentDocument,
+    AgentEventDocument,
+    CanvasProjectDocument,
+    CanvasVersionDocument,
+    ConnectorDocument,
+    OptimizationRunDocument,
+    PromptProfileDocument,
+    RatingDocument,
+    ScreenshotDocument,
+    SessionDocument,
+    SkillDocument,
+    SnapshotDocument,
+    UserConnectorDocument,
+    UserDocument,
+    UsageDocument,
+    DailyUsageDocument,
+]
 
 # Health check state
 _health_state = {
@@ -101,7 +121,13 @@ async def _run_periodic_event_archival(
             from app.core.prometheus_metrics import event_store_archival_runs
 
             event_store_archival_runs.inc(labels={"status": "error"})
-            logger.warning("Periodic event archival failed: %s", e)
+            error_text = str(e).strip() or repr(e)
+            logger.warning(
+                "Periodic event archival failed (%s): %s",
+                type(e).__name__,
+                error_text,
+                exc_info=True,
+            )
         await asyncio.sleep(interval_seconds)
 
 
@@ -204,23 +230,7 @@ async def lifespan(app: FastAPI):
         # Initialize Beanie
         await init_beanie(
             database=get_mongodb().client[settings.mongodb_database],
-            document_models=[
-                AgentDocument,
-                CanvasProjectDocument,
-                CanvasVersionDocument,
-                ConnectorDocument,
-                OptimizationRunDocument,
-                PromptProfileDocument,
-                RatingDocument,
-                ScreenshotDocument,
-                SessionDocument,
-                SkillDocument,
-                SnapshotDocument,
-                UserConnectorDocument,
-                UserDocument,
-                UsageDocument,
-                DailyUsageDocument,
-            ],
+            document_models=BEANIE_DOCUMENT_MODELS,
         )
         logger.info("Successfully initialized Beanie")
 
