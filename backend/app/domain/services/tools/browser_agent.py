@@ -5,6 +5,8 @@ import logging
 import re
 from typing import Any
 
+import httpx
+
 # browser_use is an optional dependency
 try:
     from browser_use import Agent, Browser, ChatOpenAI
@@ -212,19 +214,28 @@ class BrowserAgentTool(BaseTool):
         return self._browser
 
     def _get_llm(self) -> SanitizedChatOpenAI:
-        """Create LLM instance for browser agent using app config
+        """Create LLM instance for browser agent using app config.
 
         Uses SanitizedChatOpenAI wrapper to handle malformed JSON responses
         from LLMs that return trailing characters or multiple JSON objects.
 
+        Applies an HTTP-level timeout via ``httpx.Timeout`` so that stalled
+        LLM providers (GLM, OpenRouter) cannot block indefinitely — even when
+        browser-use shields internal coroutines from ``asyncio.wait_for()``.
+
         Returns:
             SanitizedChatOpenAI instance configured with application settings
         """
+        llm_timeout = float(self._settings.browser_agent_llm_timeout)  # 90s default
         return SanitizedChatOpenAI(
             model=self._settings.model_name,
             api_key=self._settings.api_key,
             base_url=self._settings.api_base,
             temperature=0.0,  # Zero temperature for deterministic JSON output
+            timeout=httpx.Timeout(
+                timeout=llm_timeout,
+                connect=10.0,
+            ),
         )
 
     def _sanitize_task_prompt(self, task: str) -> str:
@@ -324,9 +335,25 @@ CRITICAL INSTRUCTIONS:
             final_response_after_failure=True,  # Attempt final response even after failures
         )
 
+        # ── Two-layer timeout defence ───────────────────────────────────
+        # Layer 1 (HTTP): httpx.Timeout on the LLM client — prevents any
+        #   single LLM call from blocking indefinitely (set in _get_llm()).
+        # Layer 2 (Task): asyncio.timeout() context manager (Python 3.11+) —
+        #   hard-stops the entire agent run after (browser_agent_timeout + 30s)
+        #   grace period.  asyncio.timeout() is preferred over the previous
+        #   manual watchdog-task pattern because:
+        #   • It uses the stdlib cancellation mechanism directly (no background task)
+        #   • It transforms CancelledError → TimeoutError natively (per Python docs)
+        #   • It is safely nestable with other timeout contexts
+        #   browser-use shields its internal coroutines via asyncio.shield(), so the
+        #   underlying browser steps continue briefly in the background after our task
+        #   is cancelled — this is acceptable: we stop *waiting*, the browser cleans up
+        #   on its own schedule.  The primary (httpx) layer should fire first anyway.
+        watchdog_deadline = timeout + 30  # 30s grace beyond overall timeout
+
         try:
-            # Run with overall timeout protection
-            history = await asyncio.wait_for(agent.run(max_steps=effective_max_steps), timeout=timeout)
+            async with asyncio.timeout(watchdog_deadline):
+                history = await agent.run(max_steps=effective_max_steps)
 
             # Extract result information using AgentHistoryList methods
             final_result = history.final_result() if history else None
@@ -367,14 +394,30 @@ CRITICAL INSTRUCTIONS:
             return result
 
         except TimeoutError:
-            logger.warning(f"Browser agent task timed out after {timeout}s: {task[:50]}...")
+            # Raised by asyncio.timeout() (Layer 2) or propagated from httpx (Layer 1).
+            # Both are caught here for uniform handling.
+            logger.warning(
+                "Browser agent timed out after %ds (deadline=%ds): %s...",
+                timeout,
+                watchdog_deadline,
+                task[:50],
+            )
             return {
                 "success": False,
-                "error": f"Task timed out after {timeout} seconds",
+                "error": f"Task timed out after {watchdog_deadline}s",
+                "result": None,
+            }
+        except httpx.TimeoutException as exc:
+            # httpx-level timeout that escaped asyncio.timeout() (should be rare).
+            logger.warning("Browser agent HTTP timeout: %s — task: %s...", exc, task[:50])
+            return {
+                "success": False,
+                "error": f"LLM HTTP timeout: {exc}",
                 "result": None,
             }
         except asyncio.CancelledError:
-            logger.info(f"Browser agent task was cancelled: {task[:50]}...")
+            # External cancellation (user cancelled session) — propagate cleanly.
+            logger.info("Browser agent task was cancelled externally: %s...", task[:50])
             return {
                 "success": False,
                 "error": "Task was cancelled",
