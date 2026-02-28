@@ -704,8 +704,17 @@ class ExecutionAgent(BaseAgent):
                         )
                         assistant_fragment = attempt_text.strip() or accumulated_text[-4000:]
                         if assistant_fragment.strip():
+                            # Same minimal-context trim as regular continuation path —
+                            # by escalation time stream_messages may hold several rounds
+                            # of appended fragments, leaving the powerful model even less
+                            # output budget.  Reset to system + last user msg only.
+                            _esc_sys = [m for m in stream_messages if m.get("role") == "system"]
+                            _esc_last_user = next(
+                                (m for m in reversed(stream_messages) if m.get("role") == "user"), None
+                            )
+                            _esc_base = [*_esc_sys, *([_esc_last_user] if _esc_last_user else [])]
                             stream_messages = [
-                                *stream_messages,
+                                *_esc_base,
                                 {"role": "assistant", "content": assistant_fragment},
                                 {"role": "user", "content": self._build_continuation_prompt(accumulated_text)},
                             ]
@@ -762,8 +771,15 @@ class ExecutionAgent(BaseAgent):
                     self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="unresolved")
                     break
 
+                # Trim to minimal context: system msg + last user summarize prompt only.
+                # Appending the full stream_messages history on each retry causes context
+                # explosion — GLM-5 and similar models shrink their output budget as the
+                # prompt grows, causing every continuation to also truncate.
+                _sys_msgs = [m for m in stream_messages if m.get("role") == "system"]
+                _last_user = next((m for m in reversed(stream_messages) if m.get("role") == "user"), None)
+                _continuation_base = [*_sys_msgs, *([_last_user] if _last_user else [])]
                 stream_messages = [
-                    *stream_messages,
+                    *_continuation_base,
                     {"role": "assistant", "content": assistant_fragment},
                     {"role": "user", "content": self._build_continuation_prompt(accumulated_text)},
                 ]
@@ -1103,21 +1119,26 @@ class ExecutionAgent(BaseAgent):
 
                 cite_result = validate_citations(message_content)
                 if not cite_result.is_valid:
-                    logger.warning(
-                        "Citation integrity issues: orphans=%s, phantoms=%s, gaps=%s, dupes=%d",
-                        cite_result.orphan_citations,
-                        cite_result.phantom_references,
-                        cite_result.citation_gaps,
-                        len(cite_result.duplicate_urls),
-                    )
-                    _metrics.record_counter(
-                        "pythinker_citation_integrity_issues_total",
-                        labels={"type": "orphan" if cite_result.orphan_citations else "other"},
-                    )
-                    # Auto-repair orphan citations when source list is available
-                    if cite_result.orphan_citations and self._collected_sources:
-                        source_list = self._build_numbered_source_list()
-                        message_content = repair_citations(message_content, source_list)
+                    source_list = self._build_numbered_source_list() if self._collected_sources else ""
+                    repaired_content = repair_citations(message_content, source_list)
+                    if repaired_content != message_content:
+                        message_content = repaired_content
+                        cite_result = validate_citations(message_content)
+
+                    if cite_result.is_valid:
+                        logger.info("Citation integrity auto-repair resolved detected issues")
+                    else:
+                        logger.warning(
+                            "Citation integrity issues: orphans=%s, phantoms=%s, gaps=%s, dupes=%d",
+                            cite_result.orphan_citations,
+                            cite_result.phantom_references,
+                            cite_result.citation_gaps,
+                            len(cite_result.duplicate_urls),
+                        )
+                        _metrics.record_counter(
+                            "pythinker_citation_integrity_issues_total",
+                            labels={"type": "orphan" if cite_result.orphan_citations else "other"},
+                        )
             except Exception as e:
                 logger.debug("Citation integrity check failed: %s", e)
 
