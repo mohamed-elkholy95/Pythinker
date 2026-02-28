@@ -18,6 +18,7 @@ Concise instructions for automated agents working in this repo.
 - **Plan execution**: complete all phases; priorities indicate order, not optional steps.
 - **Backend env**: always use `conda activate pythinker`.
 - **Context7 validation (always)**: validate all new implementations, files, and configurations against fetched Context7 MCP documentation to ensure accuracy and compliance before deployment.
+- **Ref MCP source priority (always)**: for latest documentation lookup and web search tasks, use `Ref` MCP tools first (`ref_search_documentation`, `ref_read_url`), then use other sources only as fallback/cross-check.
 - **Research-backed implementation (absolute)**: for every debug task, new feature, refactor, or architecture change, validate decisions against up-to-date reliable sources using Context7 MCP and internet browsing (prefer official/primary sources). Prioritize thoroughness and quality over brevity.
 - **Durable solution standard (absolute)**: provide comprehensive reasoning with explicit assumptions, step-by-step decisions, and long-term sustainability considerations (robustness, maintainability, scalability). Include necessary refactoring to reduce technical debt when justified by evidence.
 - **Development-only environment**: this repo is development-only with no production users. Prioritize flexibility and experimentation; unrestricted iteration and breaking changes are allowed, and no decisions need to optimize for production stability, data retention, or user impact.
