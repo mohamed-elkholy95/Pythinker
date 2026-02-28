@@ -11,18 +11,21 @@ Enabled via DEAL_SCRAPER_ENABLED=true in .env.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import time
+import urllib.parse
 from collections.abc import AsyncGenerator
 from dataclasses import asdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.domain.models.event import ToolProgressEvent
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 
 if TYPE_CHECKING:
+    from app.domain.external.browser import Browser
     from app.domain.external.deal_finder import CouponSearchResult, DealComparison, DealFinder
 
 logger = logging.getLogger(__name__)
@@ -53,6 +56,49 @@ _COUPON_NOISE_WORDS: frozenset[str] = frozenset(
         "online",
     }
 )
+
+
+def _build_progress_html(query: str, action: str = "Searching Deals") -> str:
+    """Build an inline HTML progress page for the CDP screencast live view.
+
+    Displayed in the sandbox browser while deal tools fetch data via HTTP,
+    so the user sees activity instead of a blank/stale page.
+    """
+    safe_query = query[:80].replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
+    safe_action = action.replace("&", "&amp;").replace("<", "&lt;")
+    return f"""\
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:#1a1a2e;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100vh;text-align:center;padding:24px}}
+.ring{{width:56px;height:56px;border:4px solid #2d2d4e;border-top-color:#6c5ce7;
+  border-radius:50%;animation:spin .9s linear infinite;margin-bottom:28px}}
+@keyframes spin{{to{{transform:rotate(360deg)}}}}
+h2{{font-size:1.4rem;margin-bottom:10px;font-weight:600}}
+.query{{color:#a29bfe;font-size:1.05rem;margin-bottom:20px;
+  max-width:480px;word-break:break-word}}
+.stores{{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:420px}}
+.chip{{background:#2d2d4e;border-radius:6px;padding:5px 12px;font-size:.8rem;
+  color:#888;animation:fade 2s ease-in-out infinite alternate}}
+@keyframes fade{{from{{opacity:.5}}to{{opacity:1}}}}
+.chip:nth-child(2){{animation-delay:.3s}}
+.chip:nth-child(3){{animation-delay:.6s}}
+.chip:nth-child(4){{animation-delay:.9s}}
+.chip:nth-child(5){{animation-delay:1.2s}}
+</style></head><body>
+<div class="ring"></div>
+<h2>{safe_action}</h2>
+<p class="query">{safe_query}</p>
+<div class="stores">
+  <span class="chip">Amazon</span>
+  <span class="chip">Walmart</span>
+  <span class="chip">Best Buy</span>
+  <span class="chip">SlickDeals</span>
+  <span class="chip">RetailMeNot</span>
+</div>
+</body></html>"""
 
 
 def _build_deal_report_message(comparison: DealComparison) -> str:
@@ -123,10 +169,12 @@ class DealScraperTool(BaseTool):
     def __init__(
         self,
         deal_finder: DealFinder,
+        browser: Browser | None = None,
         max_observe: int | None = None,
     ) -> None:
         super().__init__(max_observe=max_observe)
         self._deal_finder = deal_finder
+        self._browser = browser
         self._progress_queue: asyncio.Queue[ToolProgressEvent] = asyncio.Queue(
             maxsize=_QUEUE_MAX_SIZE,
         )
@@ -136,6 +184,12 @@ class DealScraperTool(BaseTool):
         # Session-level store dedup: prevents LLM from re-searching same store
         # with name variations like "Anthropic coupons" then "anthropic promo codes"
         self._coupon_searched_stores: set[str] = set()
+        # Accumulates partial deal state for live-view checkpoint_data
+        self._partial_state: dict[str, Any] = {
+            "store_statuses": [],
+            "partial_deals": [],
+            "query": "",
+        }
 
     # ── Progress helpers ──────────────────────────────────────────
 
@@ -144,6 +198,7 @@ class DealScraperTool(BaseTool):
         current_step: str,
         steps_completed: int,
         steps_total: int | None,
+        checkpoint_data: dict[str, Any] | None = None,
     ) -> None:
         """Enqueue a ToolProgressEvent (non-blocking, drops if queue full)."""
         pct = min(99, int(steps_completed / steps_total * 100)) if steps_total and steps_total > 0 else 0
@@ -157,6 +212,7 @@ class DealScraperTool(BaseTool):
             steps_completed=steps_completed,
             steps_total=steps_total,
             elapsed_ms=elapsed,
+            checkpoint_data=checkpoint_data,
         )
         try:
             self._progress_queue.put_nowait(event)
@@ -168,9 +224,43 @@ class DealScraperTool(BaseTool):
         current_step: str,
         steps_completed: int,
         steps_total: int | None,
+        partial_data: dict[str, Any] | None = None,
     ) -> None:
-        """Async callback passed to the DealFinder adapter."""
-        self._enqueue_progress(current_step, steps_completed, steps_total)
+        """Async callback passed to the DealFinder adapter.
+
+        Parses current_step messages to build store_statuses and accumulates
+        partial deals into checkpoint_data for the live frontend view.
+        """
+        # Parse store status from step message (e.g. "Searched Amazon (5 results)")
+        import re as _re
+
+        store_match = _re.match(r"Searched (\S.*?) \((\d+) results?\)", current_step)
+        fail_match = _re.match(r"Searched (\S.*?) \(failed\)", current_step)
+        if store_match:
+            store_name, count_str = store_match.group(1), store_match.group(2)
+            count = int(count_str)
+            status = "found" if count > 0 else "empty"
+            self._partial_state["store_statuses"].append(
+                {"store": store_name, "status": status, "result_count": count},
+            )
+        elif fail_match:
+            store_name = fail_match.group(1)
+            self._partial_state["store_statuses"].append(
+                {"store": store_name, "status": "failed", "result_count": 0},
+            )
+
+        # Accumulate partial deals from adapter (capped at 10)
+        if partial_data and "deals" in partial_data:
+            for deal in partial_data["deals"]:
+                if len(self._partial_state["partial_deals"]) < 10:
+                    self._partial_state["partial_deals"].append(deal)
+
+        self._enqueue_progress(
+            current_step,
+            steps_completed,
+            steps_total,
+            checkpoint_data=dict(self._partial_state),
+        )
 
     async def drain_progress_events(self) -> AsyncGenerator[ToolProgressEvent, None]:
         """Drain all queued progress events (non-blocking)."""
@@ -197,6 +287,22 @@ class DealScraperTool(BaseTool):
         if not meaningful:
             meaningful = [t for t in tokens if t][:1]
         return " ".join(meaningful[:3])
+
+    async def _show_progress_page(self, query: str, action: str = "Searching Deals") -> None:
+        """Navigate sandbox browser to a visual progress page (best-effort).
+
+        Fires-and-forgets so HTTP deal fetching runs concurrently.
+        The CDP screencast immediately shows the progress page instead of
+        a blank/stale browser tab.
+        """
+        if not self._browser:
+            return
+        html = _build_progress_html(query, action)
+        data_uri = f"data:text/html,{urllib.parse.quote(html)}"
+        with contextlib.suppress(Exception):
+            self._display_task = asyncio.create_task(
+                self._browser.navigate_for_display(data_uri),
+            )
 
     # ── Tool methods ──────────────────────────────────────────────
 
@@ -268,6 +374,14 @@ class DealScraperTool(BaseTool):
         if not query.strip():
             return ToolResult(success=False, message="query must not be empty")
 
+        # Reset partial state for this search
+        self._partial_state = {
+            "store_statuses": [],
+            "partial_deals": [],
+            "query": query,
+        }
+
+        await self._show_progress_page(query, "Searching Deals")
         self._start_time = time.monotonic()
 
         try:
@@ -370,6 +484,7 @@ class DealScraperTool(BaseTool):
             return ToolResult(success=False, message="urls list must not be empty")
 
         urls = urls[:10]  # Hard cap
+        await self._show_progress_page(", ".join(urls[:3]), "Comparing Prices")
         self._start_time = time.monotonic()
 
         try:
@@ -483,6 +598,8 @@ class DealScraperTool(BaseTool):
         """Find coupons and promo codes for a store."""
         if not store_name.strip():
             return ToolResult(success=False, message="store_name must not be empty")
+
+        await self._show_progress_page(store_name, "Finding Coupons")
 
         # Session-level store dedup: normalize and check if already searched
         normalized_store = self._normalize_store_name(store_name)

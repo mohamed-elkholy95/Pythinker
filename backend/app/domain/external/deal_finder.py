@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
-# Callback signature: (current_step, steps_completed, steps_total | None) → awaitable
-DealProgressCallback = Callable[[str, int, int | None], Awaitable[None]]
+# Callback signature: (current_step, steps_completed, steps_total | None, checkpoint_data | None) → awaitable
+DealProgressCallback = Callable[[str, int, int | None, dict[str, Any] | None], Awaitable[None]]
 
 
 @dataclass
