@@ -5,11 +5,15 @@ multi-agent orchestration, observability (logging, OTel, alerting), search provi
 research quality settings, and typo correction.
 """
 
+from app.core.search_provider_policy import DEFAULT_SEARCH_PROVIDER_CHAIN
+
 
 class SearchSettingsMixin:
     """Search engine API keys and provider configuration."""
 
     search_provider: str | None = "duckduckgo"  # "google", "bing", "duckduckgo", "brave", "tavily", "serper", "exa"
+    search_provider_chain: str | list[str] | None = ",".join(DEFAULT_SEARCH_PROVIDER_CHAIN)
+    # Explicit fallback policy chain. Supports JSON list strings or comma-separated strings.
     search_prefer_browser: bool = (
         False  # API search is faster; browser search is only useful for live preview visibility
     )
