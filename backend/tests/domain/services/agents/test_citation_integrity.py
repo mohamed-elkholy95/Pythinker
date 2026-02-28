@@ -112,6 +112,15 @@ class TestRepairCitations:
         # No source_list entry for [99], so nothing to repair with
         assert repaired == report
 
+    def test_repair_removes_phantom_references(self):
+        report = "# Report\n\nClaim [1].\n\n## References\n[1] Source A - https://a.com\n[2] Source B - https://b.com\n"
+        source_list = "[1] Source A - https://a.com\n[2] Source B - https://b.com\n"
+
+        repaired = repair_citations(report, source_list)
+
+        assert "[1] Source A - https://a.com" in repaired
+        assert "[2] Source B - https://b.com" not in repaired
+
     def test_empty_inputs(self):
         assert repair_citations("", "[1] X - https://x.com") == ""
         assert repair_citations("# R\n\nClaim [1].\n", "") == "# R\n\nClaim [1].\n"
