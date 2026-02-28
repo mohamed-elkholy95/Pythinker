@@ -83,6 +83,7 @@ export interface ToolContent extends BaseContent {
   progress_percent?: number;
   current_step?: string;
   elapsed_ms?: number;
+  checkpoint_data?: Record<string, unknown> | null;
 }
 
 export interface StepContent extends BaseContent {
