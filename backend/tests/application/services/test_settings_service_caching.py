@@ -39,7 +39,8 @@ def test_get_default_settings_surfaces_normalized_search_provider_chain():
         "[duckduckgo, serper]",
     ],
 )
-def test_normalize_search_provider_chain_rejects_json_like_non_list(raw_chain: str):
+def test_normalize_search_provider_chain_falls_back_for_non_provider_values(raw_chain: str):
+    """Non-list JSON, bare scalars, and malformed arrays all fall back to defaults."""
     assert SettingsService._normalize_search_provider_chain(raw_chain) == list(DEFAULT_SEARCH_PROVIDER_CHAIN)
 
 
