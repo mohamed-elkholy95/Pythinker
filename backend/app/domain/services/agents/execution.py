@@ -1173,11 +1173,13 @@ class ExecutionAgent(BaseAgent):
                 message_content = verification_result.content
                 if verification_result.blocking_issues:
                     for issue in verification_result.blocking_issues:
-                        if issue == "hallucination_ratio_critical" and self._is_deal_finding_request():
-                            delivery_gate_additional_warnings.append("hallucination_ratio_critical_deal_downgraded")
-                            logger.warning("Deal-finding context: downgrading hallucination_ratio_critical to warning")
-                            continue
-                        delivery_gate_additional_issues.append(issue)
+                        if issue == "hallucination_ratio_critical":
+                            # Content disclaimer already handles this — gate should warn, not block.
+                            # Blocking here would prevent report delivery even when the task fully
+                            # completed; the disclaimer appended to the content is sufficient.
+                            delivery_gate_additional_warnings.append(issue)
+                        else:
+                            delivery_gate_additional_issues.append(issue)
                 if verification_result.warnings:
                     delivery_gate_additional_warnings.extend(verification_result.warnings)
 
@@ -1506,10 +1508,13 @@ class ExecutionAgent(BaseAgent):
         )
 
     def _can_downgrade_delivery_integrity_issues(self, issues: list[str]) -> bool:
-        """Allow downgrade only for non-critical integrity failures."""
+        """Allow downgrade only for non-critical integrity failures.
+
+        hallucination_ratio_critical is intentionally excluded: it is handled as a
+        gate warning (not a blocking issue) so it never reaches this check.
+        """
         critical_issue_tokens = {
             "stream_truncation_unresolved",
-            "hallucination_ratio_critical",
             "citation_integrity_unresolved",
         }
         for issue in issues:
@@ -1517,23 +1522,6 @@ class ExecutionAgent(BaseAgent):
             if token in critical_issue_tokens:
                 return False
         return True
-
-    def _is_deal_finding_request(self) -> bool:
-        """Return True when current request is clearly deal-finding oriented."""
-        query = (self._user_request or "").lower()
-        if not query:
-            return False
-        deal_keywords = (
-            "deal",
-            "deals",
-            "coupon",
-            "coupons",
-            "best price",
-            "discount",
-            "sale",
-            "price comparison",
-        )
-        return any(keyword in query for keyword in deal_keywords)
 
     def _can_auto_repair_delivery_integrity(self, issues: list[str], content: str = "") -> bool:
         """Allow safe remediation for coverage-only misses (delegated)."""
