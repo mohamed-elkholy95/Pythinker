@@ -141,13 +141,14 @@
       <!-- Enhanced Empty State -->
       <div v-else class="deal-empty-state">
         <div class="empty-icon-wrap">
-          <SearchX :size="22" />
+          <component :is="emptyIcon" :size="22" />
         </div>
-        <p class="deal-empty-title">No deals found</p>
-        <p v-if="content?.query" class="deal-empty-query">for "{{ content.query }}"</p>
+        <p class="deal-empty-title">{{ emptyTitle }}</p>
+        <p v-if="emptySubtitle" class="deal-empty-subtitle">{{ emptySubtitle }}</p>
+        <p v-if="emptyReason === 'no_matches' && content?.query" class="deal-empty-query">for "{{ content.query }}"</p>
 
         <!-- Final store status grid (shows which stores were checked) -->
-        <div v-if="finalStoreStatuses.length > 0" class="empty-stores-searched">
+        <div v-if="showStoreDiagnostics && finalStoreStatuses.length > 0" class="empty-stores-searched">
           <div class="empty-stores-header">
             <Store :size="11" />
             <span>Searched {{ finalStoreStatuses.length }} store{{ finalStoreStatuses.length !== 1 ? 's' : '' }}</span>
@@ -170,7 +171,7 @@
         </div>
 
         <!-- Fallback: show searchedStores if no checkpoint data -->
-        <div v-else-if="searchedStores.length > 0" class="empty-stores-searched">
+        <div v-else-if="showStoreDiagnostics && searchedStores.length > 0" class="empty-stores-searched">
           <div class="empty-stores-header">
             <Store :size="11" />
             <span>Searched {{ searchedStores.length }} store{{ searchedStores.length !== 1 ? 's' : '' }}</span>
@@ -189,13 +190,13 @@
         </div>
 
         <!-- Store errors detail -->
-        <div v-if="errorStoreCount > 0" class="empty-errors-note">
+        <div v-if="showStoreDiagnostics && errorStoreCount > 0" class="empty-errors-note">
           <AlertTriangle :size="11" />
           <span>{{ errorStoreCount }} store{{ errorStoreCount !== 1 ? 's' : '' }} had issues</span>
         </div>
 
         <!-- Suggestions -->
-        <div class="empty-suggestions">
+        <div v-if="emptyReason === 'no_matches'" class="empty-suggestions">
           <p class="empty-suggestions-label">Suggestions</p>
           <ul class="empty-suggestions-list">
             <li>Try a more specific product name</li>
@@ -210,11 +211,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Tag, Ticket, SearchX, Store, AlertTriangle, Check, X, Loader2, Minus } from 'lucide-vue-next';
+import { Tag, Ticket, SearchX, Store, AlertTriangle, Check, X, Loader2, Minus, CloudOff } from 'lucide-vue-next';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import DealCard from '@/components/toolViews/shared/DealCard.vue';
 import CouponCard from '@/components/toolViews/shared/CouponCard.vue';
-import type { DealToolContent, DealItem, DealProgressData, StoreStatus } from '@/types/toolContent';
+import type { DealEmptyReason, DealToolContent, DealItem, DealProgressData, StoreStatus } from '@/types/toolContent';
 
 const props = defineProps<{
   content: DealToolContent | null;
@@ -296,6 +297,43 @@ const sortedCoupons = computed(() => {
     return a.store.localeCompare(b.store);
   });
 });
+
+const emptyReason = computed<DealEmptyReason>(() => props.content?.empty_reason ?? 'no_matches');
+
+const emptyTitle = computed(() => {
+  switch (emptyReason.value) {
+    case 'all_store_failures':
+      return 'All stores failed to respond';
+    case 'search_unavailable':
+      return 'Deal search unavailable';
+    default:
+      return 'No deals found';
+  }
+});
+
+const emptySubtitle = computed(() => {
+  switch (emptyReason.value) {
+    case 'all_store_failures':
+      return 'This is usually temporary. Try again in a moment.';
+    case 'search_unavailable':
+      return 'Search services are unavailable for this session.';
+    default:
+      return null;
+  }
+});
+
+const emptyIcon = computed(() => {
+  switch (emptyReason.value) {
+    case 'all_store_failures':
+      return AlertTriangle;
+    case 'search_unavailable':
+      return CloudOff;
+    default:
+      return SearchX;
+  }
+});
+
+const showStoreDiagnostics = computed(() => emptyReason.value !== 'search_unavailable');
 
 // Empty-state context
 const searchedStores = computed(() => props.content?.searched_stores ?? []);
@@ -755,6 +793,12 @@ function handleDealClick(deal: DealItem) {
   font-weight: 600;
   color: var(--text-secondary);
   margin: 0;
+}
+
+.deal-empty-subtitle {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  margin: 4px 0 0;
 }
 
 .deal-empty-query {
