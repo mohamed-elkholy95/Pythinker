@@ -55,6 +55,10 @@ class RedisSettingsMixin:
     redis_scan_count: int = 1000  # SCAN batch size for pattern operations (replaces KEYS)
     redis_stream_max_len: int = 10000  # Stream retention cap per stream (0 disables auto-trim)
     redis_stream_poll_block_ms: int = 1000  # Blocking read window for SSE Redis stream polling
+    # TTL applied to task I/O streams on completion (not deleted — allows SSE replay window).
+    # Must be long enough for SSE reconnect; short enough to avoid unbounded memory growth.
+    # Formula: >= JWT_ACCESS_TOKEN_EXPIRE_MINUTES x 60 so a valid session can always replay.
+    redis_stream_ttl_seconds: int = 300  # 5 minutes — matches JWT access token window
     # TTL jitter to prevent thundering herd on mass cache expiry (Phase 2A)
     redis_cache_ttl_jitter_percent: float = 0.1  # ±10% jitter on TTL
     # Stale-while-revalidate pattern (Phase 2B)

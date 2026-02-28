@@ -60,6 +60,11 @@ class RedisStreamTask(Task):
     def cancel(self) -> bool:
         """Cancel the task.
 
+        Registry cleanup is deferred to ``_on_task_done()`` so that the task
+        remains visible in the registry until the asyncio.Task actually stops.
+        This prevents SSE reconnects from seeing an orphaned RUNNING session
+        with no corresponding task object.
+
         Returns:
             bool: True if the task is cancelled, False otherwise
         """
@@ -73,9 +78,11 @@ class RedisStreamTask(Task):
         if not self.done:
             self._execution_task.cancel()
             logger.info(f"Task {self._id} cancelled")
-            self._cleanup_registry()
+            # DO NOT call _cleanup_registry() here — task is still stopping.
+            # Cleanup happens in _on_task_done() once the task is truly done.
             return True
 
+        # Already done — safe to clean up now
         self._cleanup_registry()
         return False
 
@@ -148,13 +155,33 @@ class RedisStreamTask(Task):
         task.add_done_callback(self._background_tasks.discard)
 
     async def _cleanup_redis_streams(self) -> None:
-        """Cleanup Redis streams for this task to prevent memory leak."""
+        """Schedule stream expiry instead of immediate deletion.
+
+        Allows SSE consumers to replay recent events after task completion.
+        Streams auto-expire after a configurable TTL (default 5 minutes).
+        The TTL is read from ``Settings.redis_stream_ttl_seconds`` so it can be
+        tuned via the ``REDIS_STREAM_TTL_SECONDS`` environment variable without
+        a code change.
+        """
         try:
-            await self._input_stream.delete_stream()
-            await self._output_stream.delete_stream()
-            logger.info(f"Cleaned up Redis streams for task {self._id}")
+            from app.core.config import get_settings
+
+            ttl_seconds = get_settings().redis_stream_ttl_seconds
+        except Exception:
+            ttl_seconds = 300  # safe fallback if settings unavailable at teardown
+        try:
+            await self._input_stream._ensure_initialized()
+            redis_client = self._input_stream._redis.client
+            await redis_client.expire(self._input_stream._stream_name, ttl_seconds)
+            await redis_client.expire(self._output_stream._stream_name, ttl_seconds)
+            logger.info("Set %ds TTL on Redis streams for task %s", ttl_seconds, self._id)
         except Exception as e:
-            logger.warning(f"Failed to cleanup Redis streams for task {self._id}: {e}")
+            logger.warning("Failed to set stream TTL for task %s, falling back to delete: %s", self._id, e)
+            try:
+                await self._input_stream.delete_stream()
+                await self._output_stream.delete_stream()
+            except Exception:
+                logger.debug("Fallback stream delete also failed for task %s", self._id)
 
     async def _execute_task(self):
         """Execute the task using the TaskRunner."""
