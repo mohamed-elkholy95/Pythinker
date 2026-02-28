@@ -24,7 +24,6 @@ class SettingsService:
         # user_id -> (value, expires_at_monotonic)
         self._skill_policy_cache: OrderedDict[str, tuple[bool, float]] = OrderedDict()
         self._skill_policy_cache_lock = asyncio.Lock()
-        self._skill_policy_user_locks: dict[str, asyncio.Lock] = {}
 
     @classmethod
     def _normalize_search_provider_chain(cls, raw: Any) -> list[str]:
@@ -88,28 +87,24 @@ class SettingsService:
         if cached is not None:
             return cached
 
-        user_lock = self._skill_policy_user_locks.setdefault(user_id, asyncio.Lock())
-        async with user_lock:
-            # Double-check cache after waiting for lock.
-            cached = await self._get_cached_skill_policy(user_id)
-            if cached is not None:
-                return cached
+        # The global _skill_policy_cache_lock already serializes cache reads/writes.
+        # asyncio is single-threaded so no per-user lock is needed — just re-check
+        # the cache after the await to handle concurrent callers for the same user_id.
+        fallback = get_settings().skill_auto_trigger_enabled
+        value = fallback
+        try:
+            settings_collection = self._get_settings_collection()
+            settings_doc = await settings_collection.find_one(
+                {"user_id": user_id},
+                {"skill_auto_trigger_enabled": 1},
+            )
+            if settings_doc is not None:
+                value = bool(settings_doc.get("skill_auto_trigger_enabled", fallback))
+        except Exception as e:
+            logger.warning("Failed to load skill auto-trigger policy for user %s: %s", user_id, e)
 
-            fallback = get_settings().skill_auto_trigger_enabled
-            value = fallback
-            try:
-                settings_collection = self._get_settings_collection()
-                settings_doc = await settings_collection.find_one(
-                    {"user_id": user_id},
-                    {"skill_auto_trigger_enabled": 1},
-                )
-                if settings_doc is not None:
-                    value = bool(settings_doc.get("skill_auto_trigger_enabled", fallback))
-            except Exception as e:
-                logger.warning("Failed to load skill auto-trigger policy for user %s: %s", user_id, e)
-
-            await self._set_cached_skill_policy(user_id, value)
-            return value
+        await self._set_cached_skill_policy(user_id, value)
+        return value
 
     async def update_user_settings(self, user_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         settings_collection = self._get_settings_collection()
