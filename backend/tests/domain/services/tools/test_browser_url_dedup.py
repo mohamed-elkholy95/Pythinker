@@ -60,3 +60,22 @@ async def test_browser_navigate_treats_http_https_as_same_page() -> None:
     assert second.success is True
     assert "already visited" in (second.message or "").lower()
     assert mock_browser.navigate.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_browser_navigate_treats_default_ports_as_same_page() -> None:
+    """Default 80/443 ports should not bypass duplicate-visit suppression."""
+    mock_browser = MagicMock()
+    mock_browser.navigate = AsyncMock(
+        return_value=ToolResult(success=True, message="ok", data={"content": "page"}),
+    )
+
+    tool = BrowserTool(browser=mock_browser)
+
+    first = await tool.browser_navigate("http://example.com:80/deals")
+    second = await tool.browser_navigate("https://example.com:443/deals")
+
+    assert first.success is True
+    assert second.success is True
+    assert "already visited" in (second.message or "").lower()
+    assert mock_browser.navigate.await_count == 1
