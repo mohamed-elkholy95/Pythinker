@@ -176,6 +176,37 @@ class TokenBudgetManager:
         )
         return budget
 
+    def create_dynamic_budget(
+        self,
+        model_name: str,
+        api_base: str | None = None,
+    ) -> TokenBudget:
+        """Create a ``TokenBudget`` scaled to the model's actual context window.
+
+        Delegates to ``ContextWindowManager`` which reads the capabilities
+        registry (Phase 3) when ``feature_llm_dynamic_context=True``.
+        Falls back to ``create_budget(max_tokens=None)`` when the flag is off.
+
+        Args:
+            model_name: Full model identifier (e.g. ``"qwen/qwen3-coder-next"``).
+            api_base: Optional base URL for capability override.
+
+        Returns:
+            ``TokenBudget`` with per-phase allocations scaled to the model's
+            actual context window.
+        """
+        try:
+            from app.domain.services.llm.context_window_manager import get_context_window_manager
+
+            manager = get_context_window_manager()
+            limit = manager.get_effective_limit(model_name, api_base)
+            return self.create_budget(max_tokens=limit)
+        except Exception as exc:
+            logger.warning(
+                "create_dynamic_budget fallback (model=%s): %s", model_name, exc
+            )
+            return self.create_budget()
+
     def check_before_call(
         self,
         budget: TokenBudget,

@@ -289,6 +289,43 @@ class UniversalLLM:
         self._backend = self._create_backend(self._provider_name)
         logger.info(f"UniversalLLM: switched provider {old_provider} → {self._provider_name}")
 
+    # ─────────── Provider fallback helpers ───────────
+
+    def _get_fallback_chain(self) -> list[str]:
+        """Return the ordered list of fallback providers (excluding primary).
+
+        Reads ``llm_provider_fallback_chain`` from settings (comma-separated).
+        Returns empty list when Phase 3 flag is off.
+        """
+        try:
+            from app.core.config import get_settings
+
+            settings = get_settings()
+            if not getattr(settings, "feature_llm_provider_fallback", False):
+                return []
+            chain_str: str = getattr(settings, "llm_provider_fallback_chain", "") or ""
+            providers = [p.strip().lower() for p in chain_str.split(",") if p.strip()]
+            # Remove the already-active primary provider from fallback list
+            return [p for p in providers if p != self._provider_name]
+        except Exception:
+            return []
+
+    def _record_health(self, provider: str, latency_ms: float, success: bool) -> None:
+        """Record a call result into the ProviderHealthTracker (never raises)."""
+        try:
+            from app.core.config import get_settings
+
+            settings = get_settings()
+            if not getattr(settings, "feature_llm_health_scoring", False):
+                return
+            from app.domain.services.llm.provider_health import get_provider_health_tracker
+
+            get_provider_health_tracker().record(
+                provider=provider, latency_ms=latency_ms, success=success
+            )
+        except Exception:
+            pass
+
     @property
     def provider(self) -> str:
         """Active provider name."""
@@ -330,6 +367,10 @@ class UniversalLLM:
     ) -> dict[str, Any]:
         """Send a chat request, delegating to the active provider.
 
+        When ``feature_llm_provider_fallback=True`` and the primary provider
+        fails after exhausting its own retries, automatically tries each
+        provider in ``llm_provider_fallback_chain`` before raising.
+
         All arguments identical to the LLM Protocol — fully interchangeable.
         Errors from the underlying provider are re-raised as-is (they already
         use the standardized hierarchy: LLMException, TokenLimitExceededError, etc.)
@@ -337,7 +378,9 @@ class UniversalLLM:
         Returns:
             OpenAI-format message dict with role/content/tool_calls
         """
-        return await self._backend.ask(
+        import time
+
+        kwargs: dict[str, Any] = dict(
             messages=messages,
             tools=tools,
             response_format=response_format,
@@ -347,6 +390,46 @@ class UniversalLLM:
             temperature=temperature,
             max_tokens=max_tokens,
         )
+
+        # ── Primary provider attempt ──
+        t0 = time.monotonic()
+        try:
+            result = await self._backend.ask(**kwargs)
+            self._record_health(self._provider_name, (time.monotonic() - t0) * 1000, True)
+            return result
+        except Exception as primary_exc:
+            self._record_health(self._provider_name, (time.monotonic() - t0) * 1000, False)
+            fallback_chain = self._get_fallback_chain()
+            if not fallback_chain:
+                raise
+
+            logger.warning(
+                "UniversalLLM: primary provider=%s failed (%s), trying fallback chain: %s",
+                self._provider_name,
+                type(primary_exc).__name__,
+                fallback_chain,
+            )
+
+        # ── Fallback chain ──
+        last_exc = primary_exc  # type: ignore[assignment]
+        for fallback_provider in fallback_chain:
+            try:
+                self.switch_provider(fallback_provider)
+                t0 = time.monotonic()
+                result = await self._backend.ask(**kwargs)
+                self._record_health(fallback_provider, (time.monotonic() - t0) * 1000, True)
+                logger.info("UniversalLLM: fallback succeeded with provider=%s", fallback_provider)
+                return result
+            except Exception as exc:
+                self._record_health(fallback_provider, (time.monotonic() - t0) * 1000, False)
+                logger.warning(
+                    "UniversalLLM: fallback provider=%s also failed: %s",
+                    fallback_provider,
+                    type(exc).__name__,
+                )
+                last_exc = exc
+
+        raise last_exc
 
     async def ask_structured(
         self,
