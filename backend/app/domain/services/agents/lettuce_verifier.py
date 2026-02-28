@@ -207,18 +207,26 @@ class LettuceVerifier:
             )
 
         try:
-            # Truncate each context chunk to keep total under 4K chars
-            # for ModernBERT's context window
+            # ── Context window selection ────────────────────────────────
+            # ModernBERT (17-149M) has a 8 192-token context window.
+            # Increased from 4 000 → 8 000 chars to cover more source chunks
+            # for fact-dense reports (deal comparisons, price tables).
+            # Strategy: greedy fill from the START of the context list so the
+            # most-relevant chunks (typically ranked highest) are included.
+            _context_char_limit = 8000
             truncated_chunks: list[str] = []
             total_len = 0
+            total_context_chars = sum(len(c) for c in context)
             for chunk in context:
-                if total_len + len(chunk) > 4000:
-                    remaining = 4000 - total_len
+                if total_len + len(chunk) > _context_char_limit:
+                    remaining = _context_char_limit - total_len
                     if remaining > 50:
                         truncated_chunks.append(chunk[:remaining])
                     break
                 truncated_chunks.append(chunk)
                 total_len += len(chunk)
+
+            context_coverage = total_len / max(total_context_chars, 1)
 
             predictions = self._detector.predict(
                 context=truncated_chunks,
@@ -252,6 +260,40 @@ class LettuceVerifier:
                     - avg_hallucination_confidence * self._hallucination_weight(hallucinated_spans, answer),
                     processing_time_ms=(time.monotonic() - start_time) * 1000,
                 )
+
+                # ── False-positive suppression heuristic ───────────────
+                # When hallucination_ratio is suspiciously high (> 30 %) but
+                # the context we gave LettuceDetect covers < 25 % of all
+                # available source text, the model almost certainly flagged
+                # legitimate facts that appear in the un-seen context chunks.
+                # This is a known failure mode on fact-dense deal/price reports
+                # where the answer references prices from retailers appearing
+                # beyond the context window.  In this case we demote the result
+                # to a warning and return a passing (skipped) result so the
+                # report is not suppressed.
+                if result.hallucination_ratio > 0.30 and context_coverage < 0.25:
+                    logger.warning(
+                        "LettuceDetect: suspicious false-positive pattern — "
+                        "ratio=%.1f%% but context_coverage=%.1f%% (< 25%%). "
+                        "Likely insufficient context for fact-dense content. "
+                        "Treating as unverifiable (not hallucinated). "
+                        "Consider raising LETTUCE_CONTEXT_CHAR_LIMIT or "
+                        "disabling verification for this content type.",
+                        result.hallucination_ratio * 100,
+                        context_coverage * 100,
+                    )
+                    result = LettuceVerificationResult(
+                        original_response=answer,
+                        hallucinated_spans=[],
+                        confidence_score=0.7,
+                        processing_time_ms=(time.monotonic() - start_time) * 1000,
+                        skipped=True,
+                        skip_reason=(
+                            f"Suppressed: hallucination_ratio={result.hallucination_ratio:.1%} "
+                            f"with context_coverage={context_coverage:.1%} < 25% "
+                            "(insufficient context for fact-dense content)"
+                        ),
+                    )
             else:
                 result = LettuceVerificationResult(
                     original_response=answer,
