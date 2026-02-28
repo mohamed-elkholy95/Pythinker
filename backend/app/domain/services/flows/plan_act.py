@@ -286,6 +286,10 @@ class PlanActFlow(BaseFlow):
         # Plan validation failure tracking
         self._plan_validation_failures = 0
         self._max_plan_validation_failures = 3
+        # Zero-progress dead-end recovery:
+        # if execution ends with no completed/skipped steps, replan once before failing.
+        self._zero_progress_dead_end_replans = 0
+        self._max_zero_progress_dead_end_replans = 1
 
         # Phase 2: Proactive token budget management (feature-flagged)
         self._token_budget = None  # Created at flow start if flag enabled
@@ -1484,6 +1488,39 @@ class PlanActFlow(BaseFlow):
         """Check step dependencies (delegated to FlowStepExecutor)."""
         return self._flow_step_executor.check_step_dependencies(self.plan, step)
 
+    def _count_plan_step_statuses(self) -> dict[ExecutionStatus, int]:
+        """Return status counts for the current plan."""
+        counts = dict.fromkeys(ExecutionStatus, 0)
+        if not self.plan or not self.plan.steps:
+            return counts
+
+        for step in self.plan.steps:
+            counts[step.status] += 1
+        return counts
+
+    def _is_zero_progress_dead_end(self) -> bool:
+        """Detect a terminal execution dead-end with no successful progress.
+
+        True when:
+        - no pending/running steps remain
+        - at least one step failed or blocked
+        - zero steps completed or skipped
+        """
+        counts = self._count_plan_step_statuses()
+        if counts[ExecutionStatus.PENDING] > 0 or counts[ExecutionStatus.RUNNING] > 0:
+            return False
+
+        has_failures = counts[ExecutionStatus.FAILED] > 0 or counts[ExecutionStatus.BLOCKED] > 0
+        has_success = counts[ExecutionStatus.COMPLETED] > 0 or counts[ExecutionStatus.SKIPPED] > 0
+        return has_failures and not has_success
+
+    def _consume_zero_progress_replan_attempt(self) -> bool:
+        """Consume one dead-end replan attempt if available."""
+        if self._zero_progress_dead_end_replans >= self._max_zero_progress_dead_end_replans:
+            return False
+        self._zero_progress_dead_end_replans += 1
+        return True
+
     @asynccontextmanager
     async def state_context(self, new_status: AgentStatus):
         """
@@ -2515,6 +2552,52 @@ class PlanActFlow(BaseFlow):
                                 f"that cannot be unblocked: "
                                 f"{[s.description[:60] for s in blocked]}"
                             )
+                        if self._is_zero_progress_dead_end():
+                            if self._consume_zero_progress_replan_attempt():
+                                logger.warning(
+                                    "Agent %s hit zero-progress dead-end; forcing replanning (%d/%d)",
+                                    self._agent_id,
+                                    self._zero_progress_dead_end_replans,
+                                    self._max_zero_progress_dead_end_replans,
+                                )
+                                yield ProgressEvent(
+                                    phase=PlanningPhase.ANALYZING,
+                                    message=(
+                                        "Execution stalled before collecting findings. "
+                                        "Replanning with a fallback strategy..."
+                                    ),
+                                    progress_percent=20,
+                                )
+                                self._transition_to(
+                                    AgentStatus.PLANNING,
+                                    force=True,
+                                    reason="zero-progress execution dead-end",
+                                )
+                                continue
+
+                            logger.error(
+                                "Agent %s remained in zero-progress dead-end after %d replans; failing workflow",
+                                self._agent_id,
+                                self._max_zero_progress_dead_end_replans,
+                            )
+                            self._error_recovery.record_error_context(
+                                ErrorContext(
+                                    error_type=ErrorType.TOOL_EXECUTION,
+                                    message=(
+                                        "Execution failed before any plan step could complete. "
+                                        "Dependent steps were blocked due to upstream failures."
+                                    ),
+                                    recoverable=False,
+                                    recovery_strategy="start a fresh run with a narrower query",
+                                ),
+                                status=AgentStatus.EXECUTING,
+                            )
+                            self._transition_to(
+                                AgentStatus.ERROR,
+                                force=True,
+                                reason="zero-progress execution dead-end",
+                            )
+                            continue
                         logger.info(
                             f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}"
                         )
