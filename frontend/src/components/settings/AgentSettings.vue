@@ -17,7 +17,7 @@
           <div class="setting-label-group">
             <Footprints class="w-4 h-4 text-[var(--icon-tertiary)]" />
             <div class="setting-text">
-              <span class="setting-label">{{ t('Browser Max Steps') }}</span>
+              <label class="setting-label" for="agent-browser-max-steps">{{ t('Browser Max Steps') }}</label>
               <span class="setting-hint">Maximum actions the agent can take (5-100)</span>
             </div>
           </div>
@@ -26,6 +26,8 @@
         <div class="slider-container">
           <input
             type="range"
+            id="agent-browser-max-steps"
+            name="browser_agent_max_steps"
             :min="5"
             :max="100"
             :step="5"
@@ -49,7 +51,7 @@
           <div class="setting-label-group">
             <Timer class="w-4 h-4 text-[var(--icon-tertiary)]" />
             <div class="setting-text">
-              <span class="setting-label">{{ t('Browser Timeout (seconds)') }}</span>
+              <label class="setting-label" for="agent-browser-timeout">{{ t('Browser Timeout (seconds)') }}</label>
               <span class="setting-hint">Maximum time for browser operations</span>
             </div>
           </div>
@@ -58,6 +60,8 @@
           <div class="input-container">
             <input
               type="number"
+              id="agent-browser-timeout"
+              name="browser_agent_timeout"
               v-model.number="localSettings.browser_agent_timeout"
               @change="saveSettings"
               min="60"
@@ -98,13 +102,15 @@
         <div class="setting-row-header">
           <div class="setting-label-group">
             <div class="setting-text">
-              <span class="setting-label">Response Verbosity</span>
+              <label class="setting-label" for="agent-response-verbosity">Response Verbosity</label>
               <span class="setting-hint">Adaptive keeps answers short unless task risk/complexity is high</span>
             </div>
           </div>
         </div>
         <div class="input-container">
           <select
+            id="agent-response-verbosity"
+            name="response_verbosity_preference"
             v-model="localSettings.response_verbosity_preference"
             @change="saveSettings"
             class="settings-input"
@@ -120,13 +126,15 @@
         <div class="setting-row-header">
           <div class="setting-label-group">
             <div class="setting-text">
-              <span class="setting-label">Clarification Policy</span>
+              <label class="setting-label" for="agent-clarification-policy">Clarification Policy</label>
               <span class="setting-hint">Choose when the agent pauses to ask follow-up questions</span>
             </div>
           </div>
         </div>
         <div class="input-container">
           <select
+            id="agent-clarification-policy"
+            name="clarification_policy"
             v-model="localSettings.clarification_policy"
             @change="saveSettings"
             class="settings-input"
