@@ -59,6 +59,8 @@ class AgentService:
     CHAT_RESUME_MAX_SKIP_SECONDS = 60.0  # Upper bound to avoid infinite resume skipping (slow LLMs can take 120s+).
     CHAT_WARMUP_WAIT_SECONDS = 10.0
     CHAT_WAIT_BEACON_INTERVAL_SECONDS = 20.0  # Emit non-heartbeat wait progress during long-running operations.
+    FILE_VIEW_CACHE_TTL_SECONDS = 2.0
+    FILE_VIEW_CACHE_MAX_ENTRIES = 256
 
     def __init__(
         self,
@@ -104,6 +106,26 @@ class AgentService:
         self._sandbox_warm_locks: dict[str, asyncio.Lock] = {}
         self._sandbox_warm_tasks: dict[str, asyncio.Task] = {}
         self._session_cancel_events: dict[str, asyncio.Event] = {}
+        self._file_view_cache: dict[str, tuple[float, FileViewResponse]] = {}
+        self._file_view_inflight: dict[str, asyncio.Task[FileViewResponse]] = {}
+        self._file_view_lock = asyncio.Lock()
+
+    @staticmethod
+    def _file_view_cache_key(session_id: str, user_id: str, file_path: str) -> str:
+        return f"{session_id}:{user_id}:{file_path}"
+
+    def _prune_file_view_cache_locked(self, now: float) -> None:
+        expired_keys = [key for key, (expires_at, _) in self._file_view_cache.items() if expires_at <= now]
+        for key in expired_keys:
+            self._file_view_cache.pop(key, None)
+
+        if len(self._file_view_cache) <= self.FILE_VIEW_CACHE_MAX_ENTRIES:
+            return
+
+        # Keep cache bounded by dropping the oldest-expiring entries first.
+        overflow = len(self._file_view_cache) - self.FILE_VIEW_CACHE_MAX_ENTRIES
+        for key, _entry in sorted(self._file_view_cache.items(), key=lambda item: item[1][0])[:overflow]:
+            self._file_view_cache.pop(key, None)
 
     def request_cancellation(self, session_id: str) -> None:
         """Signal that a session's processing should stop (e.g. SSE disconnect)."""
@@ -1244,6 +1266,43 @@ class AgentService:
     async def file_view(self, session_id: str, file_path: str, user_id: str) -> FileViewResponse:
         """View file content, ensuring session belongs to the user"""
         logger.info(f"Getting file view for session {session_id} for user {user_id}")
+        cache_key = self._file_view_cache_key(session_id, user_id, file_path)
+        now = time.monotonic()
+
+        async with self._file_view_lock:
+            self._prune_file_view_cache_locked(now)
+            cached = self._file_view_cache.get(cache_key)
+            if cached and cached[0] > now:
+                return cached[1]
+
+            in_flight = self._file_view_inflight.get(cache_key)
+            owner = False
+            if in_flight is None:
+                in_flight = asyncio.create_task(self._read_file_view_uncached(session_id, file_path, user_id))
+                self._file_view_inflight[cache_key] = in_flight
+                owner = True
+
+        try:
+            response = await asyncio.shield(in_flight)
+        except Exception:
+            if owner:
+                async with self._file_view_lock:
+                    current = self._file_view_inflight.get(cache_key)
+                    if current is in_flight:
+                        self._file_view_inflight.pop(cache_key, None)
+            raise
+
+        async with self._file_view_lock:
+            if owner:
+                self._file_view_cache[cache_key] = (time.monotonic() + self.FILE_VIEW_CACHE_TTL_SECONDS, response)
+                current = self._file_view_inflight.get(cache_key)
+                if current is in_flight:
+                    self._file_view_inflight.pop(cache_key, None)
+                self._prune_file_view_cache_locked(time.monotonic())
+
+        return response
+
+    async def _read_file_view_uncached(self, session_id: str, file_path: str, user_id: str) -> FileViewResponse:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")

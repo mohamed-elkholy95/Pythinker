@@ -4,6 +4,32 @@ import { AgentSSEEvent, FollowUp } from '../types/event';
 import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse, StreamingMode, SessionStatus } from '../types/response';
 import type { FileInfo } from './file';
 
+const FILE_VIEW_CACHE_TTL_MS = 1500;
+const FILE_VIEW_CACHE_MAX_ENTRIES = 128;
+const fileViewResponseCache = new Map<string, { expiresAt: number; response: FileViewResponse }>();
+const fileViewInFlightRequests = new Map<string, Promise<FileViewResponse>>();
+
+const pruneFileViewCache = (): void => {
+  const now = Date.now();
+  for (const [key, value] of fileViewResponseCache.entries()) {
+    if (value.expiresAt <= now) {
+      fileViewResponseCache.delete(key);
+    }
+  }
+
+  if (fileViewResponseCache.size <= FILE_VIEW_CACHE_MAX_ENTRIES) {
+    return;
+  }
+
+  const overflow = fileViewResponseCache.size - FILE_VIEW_CACHE_MAX_ENTRIES;
+  const oldest = [...fileViewResponseCache.entries()]
+    .sort((a, b) => a[1].expiresAt - b[1].expiresAt)
+    .slice(0, overflow);
+  for (const [key] of oldest) {
+    fileViewResponseCache.delete(key);
+  }
+};
+
 
 
 /**
@@ -386,11 +412,35 @@ export async function confirmToolAction(sessionId: string, actionId: string, acc
  * @returns File content
  */
 export async function viewFile(sessionId: string, file: string): Promise<FileViewResponse> {
-  const response = await apiClient.post<ApiResponse<FileViewResponse>>(
+  const cacheKey = `${sessionId}::${file}`;
+  const now = Date.now();
+  const cached = fileViewResponseCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.response;
+  }
+
+  const inFlight = fileViewInFlightRequests.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const requestPromise = apiClient.post<ApiResponse<FileViewResponse>>(
     `/sessions/${sessionId}/file`,
     { file }
-  );
-  return response.data.data;
+  ).then((response) => {
+    const payload = response.data.data;
+    fileViewResponseCache.set(cacheKey, {
+      expiresAt: Date.now() + FILE_VIEW_CACHE_TTL_MS,
+      response: payload,
+    });
+    pruneFileViewCache();
+    return payload;
+  }).finally(() => {
+    fileViewInFlightRequests.delete(cacheKey);
+  });
+
+  fileViewInFlightRequests.set(cacheKey, requestPromise);
+  return requestPromise;
 }
 
 export async function getSessionFiles(sessionId: string): Promise<FileInfo[]> {
