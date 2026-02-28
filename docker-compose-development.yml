@@ -86,6 +86,7 @@ services:
       - ./backend/app:/app/app
       # Non-source mount required by the sandbox tooling.
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - dspy_cache:/app/data/dspy_cache
     ports:
       - "8000:8000"
     depends_on:
@@ -115,7 +116,7 @@ services:
       - SANDBOX_IMAGE=pythinker/pythinker-sandbox
       - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
-      - "LOCAL_AUTH_PASSWORD=AdminPy@2026!"
+      - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-changeme}
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
     healthcheck:
@@ -330,6 +331,8 @@ volumes:
     name: pythinker-qdrant-data
   minio_data:
     name: pythinker-minio-data
+  dspy_cache:
+    name: pythinker-dspy-cache
 
 networks:
   pythinker-network:
