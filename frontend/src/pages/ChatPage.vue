@@ -2388,6 +2388,9 @@ const handleToolProgressEvent = (data: import('../types/event').ToolProgressEven
     lastTool.value.progress_percent = data.progress_percent;
     lastTool.value.current_step = data.current_step;
     lastTool.value.elapsed_ms = data.elapsed_ms;
+    if (data.checkpoint_data) {
+      lastTool.value.checkpoint_data = data.checkpoint_data;
+    }
   }
 }
 

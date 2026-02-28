@@ -375,6 +375,10 @@
             <DealContentView
               :content="dealContent"
               :is-searching="isDealSearching"
+              :progress-percent="toolContent?.progress_percent"
+              :current-step="toolContent?.current_step"
+              :checkpoint-data="dealCheckpointData"
+              :active-stores="dealActiveStores"
               @browseUrl="handleBrowseUrl"
             />
           </div>
@@ -1455,6 +1459,27 @@ const dealContent = computed((): DealToolContent | null => {
 const isDealSearching = computed(() => {
   const isDealTool = toolDisplay.value?.toolKey === 'deal_scraper';
   return isDealTool && toolStatus.value === 'calling';
+});
+
+// Default store domains that match adapter.py DEFAULT_STORES
+const DEFAULT_DEAL_STORES = [
+  'Amazon', 'Walmart', 'Best Buy', 'Target', 'eBay',
+  'Newegg', 'Costco', 'B&H Photo', 'Adorama', 'Micro Center',
+];
+
+const dealCheckpointData = computed(() => {
+  const raw = props.toolContent?.checkpoint_data;
+  if (!raw || typeof raw !== 'object') return null;
+  return raw as import('@/types/toolContent').DealProgressData;
+});
+
+const dealActiveStores = computed((): string[] => {
+  // Try to derive from tool args first
+  const args = props.toolContent?.args;
+  if (args?.stores && Array.isArray(args.stores)) {
+    return args.stores as string[];
+  }
+  return DEFAULT_DEAL_STORES;
 });
 
 // ============ Event Handlers ============
