@@ -550,7 +550,10 @@ class AgentTaskRunner(TaskRunner):
     ) -> FileInfo | None:
         """Sync file to storage with retries (delegated to FileSyncManager)."""
         return await self._file_sync_manager.sync_file_to_storage_with_retry(
-            file_path, content_type, max_attempts, initial_delay_seconds
+            file_path,
+            content_type=content_type,
+            max_attempts=max_attempts,
+            initial_delay_seconds=initial_delay_seconds,
         )
 
     async def _sync_file_to_sandbox(self, file_id: str) -> FileInfo | None:

@@ -733,6 +733,16 @@ class AgentDomainService:
                         else:
                             yield ErrorEvent(error="Task failed in a previous execution cycle.")
                             terminal_status = SessionStatus.FAILED
+                    elif persisted_status == SessionStatus.RUNNING:
+                        # Orphaned session — task lost but status never updated.
+                        # This happens when cancel() races with SSE reconnect.
+                        logger.warning(
+                            "Session %s is RUNNING but has no active task; marking FAILED",
+                            session_id,
+                        )
+                        await self._session_repository.update_status(session_id, SessionStatus.FAILED)
+                        yield ErrorEvent(error="Session task was interrupted. Please retry.")
+                        terminal_status = SessionStatus.FAILED
                     else:
                         logger.info(
                             "Session %s has no active task and no new input; ending stream without completion event",
@@ -740,11 +750,12 @@ class AgentDomainService:
                         )
                         return
 
-                logger.warning(f"Session {session_id} task completed without producing events")
-                session = await self._session_repository.find_by_id(session_id)
-                title = session.title if session else "Task completed"
-                yield DoneEvent(title=title, summary="Session completed.")
-                terminal_status = SessionStatus.COMPLETED
+                if terminal_status is None:
+                    logger.warning(f"Session {session_id} task completed without producing events")
+                    session = await self._session_repository.find_by_id(session_id)
+                    title = session.title if session else "Task completed"
+                    yield DoneEvent(title=title, summary="Session completed.")
+                    terminal_status = SessionStatus.COMPLETED
 
             if terminal_status is not None:
                 await self._teardown_session_runtime(session_id, status=terminal_status, destroy_sandbox=False)
