@@ -95,8 +95,8 @@ export async function deleteSession(sessionId: string): Promise<void> {
     await apiClient.delete<ApiResponse<void>>(`/sessions/${sessionId}`);
   } catch (error: unknown) {
     // Session already gone — caller's intent is satisfied
-    const code = (error as { code?: number })?.code
-    if (code === 404) return
+    const status = (error as { response?: { status?: number } })?.response?.status
+    if (status === 404) return
     throw error
   }
 }
@@ -106,8 +106,8 @@ export async function stopSession(sessionId: string): Promise<void> {
     await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/stop`);
   } catch (error: unknown) {
     // Session already stopped/gone — caller's intent is satisfied
-    const code = (error as { code?: number })?.code
-    if (code === 404) return
+    const status = (error as { response?: { status?: number } })?.response?.status
+    if (status === 404) return
     throw error
   }
 }
