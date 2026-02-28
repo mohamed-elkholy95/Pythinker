@@ -212,6 +212,39 @@ class Settings(
 
     @computed_field
     @property
+    def effective_workflow_idle_timeout(self) -> int:
+        """Idle timeout enforced in the event-streaming loop (seconds).
+
+        Guarantees that the configured value is always large enough for an LLM
+        call to complete a full attempt *plus one retry* before the watchdog fires:
+
+            min_required = 2 x llm_request_timeout + 60s margin
+
+        If ``workflow_idle_timeout_seconds`` is already >= min_required the
+        configured value is returned unchanged.  When it is smaller (e.g. left at
+        a legacy 300s default while llm_request_timeout is also 300s) the floor is
+        applied and a warning is emitted at startup so operators can correct their
+        config.
+        """
+        # +60s = safety buffer covering: first-retry delay (1s base_delay in openai_llm.py)
+        # plus network jitter and queue overhead. Default of 660s satisfies this exactly.
+        min_required = int(self.llm_request_timeout * 2) + 60
+        configured = self.workflow_idle_timeout_seconds
+        if configured < min_required:
+            logger.warning(
+                "workflow_idle_timeout_seconds=%d is less than the LLM retry budget "
+                "(%ds = 2x llm_request_timeout %.0fs + 60s margin); "
+                "auto-flooring to %d to prevent idle-timeout races with slow providers.",
+                configured,
+                min_required,
+                self.llm_request_timeout,
+                min_required,
+            )
+            return min_required
+        return configured
+
+    @computed_field
+    @property
     def browser_blocked_types_set(self) -> set[str]:
         """Parse browser_blocked_resource_types into a set."""
         if not self.browser_blocked_resource_types:
