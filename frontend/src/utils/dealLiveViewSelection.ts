@@ -1,7 +1,6 @@
 import type { ToolContent } from '@/types/message';
 import type { DealToolContent } from '@/types/toolContent';
 
-const PRIMARY_DEAL_FUNCTIONS = new Set(['deal_search', 'deal_compare_prices']);
 const COUPON_FUNCTION = 'deal_find_coupons';
 
 const asDealToolContent = (tool: ToolContent | undefined): DealToolContent | null => {
@@ -18,18 +17,21 @@ const hasDealOrCouponResults = (tool: ToolContent | undefined): boolean => {
 };
 
 /**
- * Keep the currently visible deal tool on the live panel when coupon follow-up calls
- * would otherwise overwrite richer deal results with an empty payload.
+ * Keep whatever tool is currently visible on the live panel when a coupon follow-up
+ * call would otherwise overwrite it with an empty payload.
+ *
+ * Guards ANY current panel (browser, search, deal) — not only deal tools — because
+ * real sessions often sequence browser_navigate → deal_find_coupons (0 results).
  */
 export const shouldPreserveDealToolInLiveView = (
   current: ToolContent | undefined,
   incoming: ToolContent,
 ): boolean => {
-  if (!current) return false;
-  if (!PRIMARY_DEAL_FUNCTIONS.has(current.function)) return false;
+  // Only intercept coupon calls — everything else goes through normally.
   if (incoming.function !== COUPON_FUNCTION) return false;
+  if (!current) return false;
 
-  // While coupons are in-flight, keep showing deal search/compare progress/results.
+  // While coupons are in-flight, keep showing the current panel (any tool type).
   if (incoming.status === 'calling' || incoming.status === 'running') {
     return true;
   }
@@ -39,9 +41,6 @@ export const shouldPreserveDealToolInLiveView = (
     return false;
   }
 
-  // Completed coupon call without output: preserve any active or non-empty deal result.
-  if (current.status === 'calling' || current.status === 'running') {
-    return true;
-  }
-  return hasDealOrCouponResults(current);
+  // Completed coupon call with empty results: always preserve the current panel.
+  return true;
 };
