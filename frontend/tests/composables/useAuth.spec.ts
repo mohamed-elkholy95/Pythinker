@@ -17,11 +17,19 @@ vi.mock('@/api/auth', () => ({
   getStoredToken: vi.fn(),
   getStoredRefreshToken: vi.fn(),
   clearStoredTokens: vi.fn(),
+  migrateStaleTokens: vi.fn(),
   getCachedAuthProvider: vi.fn(),
 }))
 
 import { useAuth } from '@/composables/useAuth'
 import * as authApi from '@/api/auth'
+
+const makeValidJwt = (expiresInSeconds: number = 3600): string => {
+  const now = Math.floor(Date.now() / 1000)
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const payload = Buffer.from(JSON.stringify({ exp: now + expiresInSeconds })).toString('base64url')
+  return `${header}.${payload}.signature`
+}
 
 describe('useAuth', () => {
   beforeEach(() => {
@@ -81,13 +89,13 @@ describe('useAuth', () => {
       }
 
       vi.mocked(authApi.getCachedAuthProvider).mockResolvedValue('password')
-      vi.mocked(authApi.getStoredToken).mockReturnValue('valid-token')
+      vi.mocked(authApi.getStoredToken).mockReturnValue(makeValidJwt())
       vi.mocked(authApi.getCurrentUser).mockResolvedValue(mockUser)
 
       const { initAuth, isAuthenticated, currentUser } = useAuth()
       await initAuth()
 
-      expect(authApi.setAuthToken).toHaveBeenCalledWith('valid-token')
+      expect(authApi.setAuthToken).toHaveBeenCalledWith(expect.stringContaining('.'))
       expect(isAuthenticated.value).toBe(true)
       expect(currentUser.value).toEqual(mockUser)
     })
@@ -167,7 +175,7 @@ describe('useAuth', () => {
       }
 
       vi.mocked(authApi.getCachedAuthProvider).mockResolvedValue('password')
-      vi.mocked(authApi.getStoredToken).mockReturnValue('valid-token')
+      vi.mocked(authApi.getStoredToken).mockReturnValue(makeValidJwt())
       vi.mocked(authApi.getCurrentUser).mockResolvedValue(mockUser)
 
       const { initAuth, hasRole, isAdmin } = useAuth()
