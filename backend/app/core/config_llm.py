@@ -67,6 +67,15 @@ class LLMSettingsMixin:
     # Set to true to send thinking.type=disabled on every GLM API call.
     glm_disable_thinking: bool = True
 
+    # ── LLM Provider Fallback Chain (Phase 3) ───────────────────────────────
+    # Comma-separated ordered list of provider names to try when the primary
+    # provider fails after exhausting retries.  Empty string = no fallback.
+    llm_provider_fallback_chain: str = ""
+
+    # ── Dynamic Context Window (Phase 5) ────────────────────────────────────
+    # Override the auto-detected context window size (0 = use registry value).
+    llm_context_window_override: int = 0
+
 
 class EmbeddingSettingsMixin:
     """Embedding model configuration (separate from chat model)."""
@@ -102,6 +111,12 @@ class LLMConcurrencySettingsMixin:
     token_safety_margin: int = 2048  # Reduced from hardcoded 4096 - most responses under 2K
     token_early_warning_threshold: float = 0.60  # New early warning threshold
     token_critical_threshold: float = 0.80  # Raised from 0.70 to allow more context
+
+    # ── Retry Budget (Phase 2) ───────────────────────────────────────────────
+    # Maximum LLM retries per task (across all middleware layers).
+    llm_retry_budget_per_task: int = 15
+    # Maximum LLM retries per minute (token-bucket rate limit).
+    llm_retry_budget_per_minute: int = 30
 
     # Semantic Cache configuration (Phase 3 Enhancement)
     semantic_cache_enabled: bool = False

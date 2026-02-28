@@ -305,6 +305,64 @@ TRANSIENT_EXCEPTIONS = (
 )
 
 
+# ── Per-provider retry configurations ─────────────────────────────────────────
+# Used by RetryMiddleware in middleware_impl.py.  Keyed by provider name as
+# returned by detect_provider() / request.metadata["provider"].
+#
+# Tuning rationale:
+#   GLM-5 / BigModel: slow inference (60-120s), fewer retries, longer delays.
+#   Anthropic: stable API, moderate retries.
+#   OpenAI / OpenRouter: fast recovery, more retries, shorter delays.
+#   DeepSeek: similar to Anthropic in practice.
+PROVIDER_RETRY_CONFIGS: dict[str, "RetryConfig"] = {}
+
+
+def _build_provider_retry_configs() -> dict[str, "RetryConfig"]:
+    """Build provider-specific retry configs (deferred so RetryConfig is defined)."""
+    return {
+        "default": RetryConfig(
+            max_attempts=3,
+            base_delay=2.0,
+            max_delay=30.0,
+            retryable_exceptions=TRANSIENT_EXCEPTIONS,
+        ),
+        "glm": RetryConfig(
+            max_attempts=2,
+            base_delay=3.0,
+            max_delay=30.0,
+            retryable_exceptions=TRANSIENT_EXCEPTIONS,
+        ),
+        "anthropic": RetryConfig(
+            max_attempts=3,
+            base_delay=2.0,
+            max_delay=30.0,
+            retryable_exceptions=TRANSIENT_EXCEPTIONS,
+        ),
+        "openai": RetryConfig(
+            max_attempts=3,
+            base_delay=1.0,
+            max_delay=20.0,
+            retryable_exceptions=TRANSIENT_EXCEPTIONS,
+        ),
+        "deepseek": RetryConfig(
+            max_attempts=3,
+            base_delay=2.0,
+            max_delay=30.0,
+            retryable_exceptions=TRANSIENT_EXCEPTIONS,
+        ),
+        "ollama": RetryConfig(
+            max_attempts=2,
+            base_delay=1.0,
+            max_delay=10.0,
+            retryable_exceptions=TRANSIENT_EXCEPTIONS,
+        ),
+    }
+
+
+# Populate after RetryConfig is defined (same module, so available immediately)
+PROVIDER_RETRY_CONFIGS = _build_provider_retry_configs()
+
+
 # LLM retry - handles rate limits and timeouts
 llm_retry = with_retry(
     RetryConfig(
