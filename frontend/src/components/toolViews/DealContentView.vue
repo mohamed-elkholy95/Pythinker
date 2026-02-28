@@ -601,8 +601,8 @@ function handleDealClick(deal: DealItem) {
   flex-direction: column;
   flex: 1;
   overflow-y: auto;
-  padding: 4px 8px 8px;
-  gap: 5px;
+  padding: 6px 10px 10px;
+  gap: 8px;
 }
 
 /* ── Card slide-in transition ── */
