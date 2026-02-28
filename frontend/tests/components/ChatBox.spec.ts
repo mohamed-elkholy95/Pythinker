@@ -375,10 +375,14 @@ describe('ChatBox', () => {
 
     const textarea = wrapper.find('textarea')
     const textareaEl = textarea.element as HTMLTextAreaElement
+    Object.defineProperty(textareaEl, 'scrollHeight', {
+      configurable: true,
+      get: () => 400,
+    })
     await textarea.setValue('line\n'.repeat(80))
     await wrapper.vm.$nextTick()
 
-    expect(textareaEl.style.height).toBe('220px')
+    expect(textareaEl.style.height).toBe('216px')
     expect(textareaEl.style.overflowY).toBe('auto')
   })
 

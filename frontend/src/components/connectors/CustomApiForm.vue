@@ -1,9 +1,11 @@
 <template>
   <form class="custom-form" @submit.prevent="handleSubmit">
     <div class="custom-form-field">
-      <label class="custom-form-label">{{ t('Name') }} *</label>
+      <label class="custom-form-label" for="custom-api-name">{{ t('Name') }} *</label>
       <input
         v-model="formData.name"
+        id="custom-api-name"
+        name="name"
         type="text"
         class="custom-form-input"
         :placeholder="t('My API Connector')"
@@ -13,9 +15,11 @@
     </div>
 
     <div class="custom-form-field">
-      <label class="custom-form-label">{{ t('Base URL') }} *</label>
+      <label class="custom-form-label" for="custom-api-base-url">{{ t('Base URL') }} *</label>
       <input
         v-model="formData.base_url"
+        id="custom-api-base-url"
+        name="base_url"
         type="url"
         class="custom-form-input"
         placeholder="https://api.example.com"
@@ -25,8 +29,13 @@
     </div>
 
     <div class="custom-form-field">
-      <label class="custom-form-label">{{ t('Auth Type') }}</label>
-      <select v-model="formData.auth_type" class="custom-form-input">
+      <label class="custom-form-label" for="custom-api-auth-type">{{ t('Auth Type') }}</label>
+      <select
+        id="custom-api-auth-type"
+        name="auth_type"
+        v-model="formData.auth_type"
+        class="custom-form-input"
+      >
         <option value="none">{{ t('None') }}</option>
         <option value="api_key">{{ t('API Key') }}</option>
         <option value="bearer">{{ t('Bearer Token') }}</option>
@@ -35,9 +44,11 @@
     </div>
 
     <div v-if="formData.auth_type !== 'none'" class="custom-form-field">
-      <label class="custom-form-label">{{ t('API Key / Token') }} *</label>
+      <label class="custom-form-label" for="custom-api-auth-token">{{ t('API Key / Token') }} *</label>
       <input
         v-model="formData.api_key"
+        id="custom-api-auth-token"
+        name="api_key"
         type="password"
         class="custom-form-input"
         :placeholder="t('Enter your key or token')"
@@ -48,8 +59,20 @@
     <div class="custom-form-field">
       <label class="custom-form-label">{{ t('Headers') }}</label>
       <div v-for="(header, idx) in headers" :key="idx" class="custom-form-kv-row">
-        <input v-model="header.key" class="custom-form-input custom-form-kv-key" :placeholder="t('Key')" />
-        <input v-model="header.value" class="custom-form-input custom-form-kv-value" :placeholder="t('Value')" />
+        <input
+          v-model="header.key"
+          :id="`custom-api-header-key-${idx}`"
+          :name="`headers[${idx}][key]`"
+          class="custom-form-input custom-form-kv-key"
+          :placeholder="t('Key')"
+        />
+        <input
+          v-model="header.value"
+          :id="`custom-api-header-value-${idx}`"
+          :name="`headers[${idx}][value]`"
+          class="custom-form-input custom-form-kv-value"
+          :placeholder="t('Value')"
+        />
         <button type="button" class="custom-form-kv-remove" @click="removeHeader(idx)">
           <X :size="14" />
         </button>
@@ -60,9 +83,11 @@
     </div>
 
     <div class="custom-form-field">
-      <label class="custom-form-label">{{ t('Description') }}</label>
+      <label class="custom-form-label" for="custom-api-description">{{ t('Description') }}</label>
       <input
         v-model="formData.description"
+        id="custom-api-description"
+        name="description"
         type="text"
         class="custom-form-input"
         :placeholder="t('Optional description')"

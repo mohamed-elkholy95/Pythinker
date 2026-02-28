@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, withDefaults } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   BarChart2, Check, CheckSquare, Chrome, Code, Cpu, Database, Eye, FileEdit,
   FileText, GitBranch, Globe, Layers3, Lightbulb, Minus, MousePointer, Pause, Play,

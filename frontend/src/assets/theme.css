@@ -158,7 +158,7 @@
   --status-warning: #f79009;
 }
 
-:root[data-theme="dark"],
+:root[data-theme='dark'],
 .dark {
   /* Warm charcoal palette — Manus-inspired neutral grays */
   --bolt-elements-borderColor: rgba(255, 255, 255, 0.1);

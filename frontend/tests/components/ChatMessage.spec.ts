@@ -510,7 +510,7 @@ describe('ChatMessage', () => {
           status: 'running',
           tools: [
             { ...mockToolMessage.content, tool_call_id: 'tool-1', status: 'called' as const },
-            { ...mockToolMessage.content, tool_call_id: 'tool-2', status: 'called' as const },
+            { ...mockToolMessage.content, tool_call_id: 'tool-2', function: 'open_url', status: 'called' as const },
           ],
         },
       }

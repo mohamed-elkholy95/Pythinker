@@ -958,6 +958,9 @@ class CDPScreencastService:
                     logger.info("Stream cancelled by caller (client disconnect)")
                     break
                 try:
+                    # Guard against concurrent disconnect setting _ws to None
+                    if not self._ws or self._ws.closed:
+                        break
                     # Wait for next message with timeout — prevents indefinite hang
                     # when Chrome stops producing frames
                     msg = await asyncio.wait_for(

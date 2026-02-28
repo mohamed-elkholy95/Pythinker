@@ -30,6 +30,7 @@ export type AgentSSEEvent = {
     | 'stream'
     | 'progress'
     | 'wide_research'
+    | 'deep_research'
     | 'phase_transition'
     | 'checkpoint_saved'
     | 'skill_delivery'
@@ -60,6 +61,7 @@ export type AgentSSEEvent = {
     | StreamEventData
     | ProgressEventData
     | WideResearchEventData
+    | DeepResearchEventData
     | PhaseTransitionEventData
     | CheckpointSavedEventData
     | SkillDeliveryEventData
@@ -117,7 +119,7 @@ export interface ToolProgressEventData extends BaseEventData {
 export interface ToolEventData extends BaseEventData {
   tool_call_id: string;
   name: string;
-  status: "calling" | "called";
+  status: "calling" | "running" | "called";
   function: string;
   args: Record<string, unknown>;
   content?: ToolContentPayload;
@@ -243,6 +245,17 @@ export interface WideResearchEventData extends BaseEventData {
   errors?: string[];
 }
 
+export type DeepResearchStatus = 'started' | 'running' | 'waiting' | 'completed' | 'failed' | string;
+
+export interface DeepResearchEventData extends BaseEventData {
+  research_id: string;
+  status: DeepResearchStatus;
+  total_queries?: number;
+  completed_queries?: number;
+  queries?: string[];
+  auto_run?: boolean;
+}
+
 export type ResearchWorkflowPhase =
   | 'planning'
   | 'phase_1'
@@ -258,7 +271,7 @@ export interface PhaseTransitionEventData extends BaseEventData {
   phase: ResearchWorkflowPhase;
   label?: string;
   research_id?: string;
-  source?: 'wide_research' | 'session';
+  source?: 'wide_research' | 'deep_research' | 'session';
 }
 
 export interface CheckpointSavedEventData extends BaseEventData {
