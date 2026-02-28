@@ -21,6 +21,7 @@ class ScrapingSettingsMixin:
     # HTTP Fetcher (Tier 1)
     scraping_default_impersonate: str = "chrome"  # TLS fingerprint: chrome, firefox, edge
     scraping_http_timeout: int = 15  # HTTP fetch timeout (seconds)
+    scraping_http1_fallback_enabled: bool = True  # Retry once with HTTP/1.1 on HTTP/2 transport failures
 
     # Browser Fetcher (Tier 2-3)
     scraping_headless: bool = True  # Run browsers headless
