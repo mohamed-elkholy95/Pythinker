@@ -381,44 +381,142 @@ class OpenAILLM(LLM):
 
     @staticmethod
     def _repair_tool_args_json(args_str: str) -> str:
-        """Attempt to repair malformed/truncated JSON in tool call arguments.
+        """Repair malformed or truncated JSON in tool call arguments.
 
-        GLM-5 streaming has a known bug where tool call argument JSON is sometimes
-        emitted without closing braces (e.g. {"query": "foo" instead of {"query": "foo"}).
-        This tries a fast heuristic repair before falling back to the raw string.
+        LLMs can truncate tool call argument JSON when hitting output token
+        limits.  Common failure modes:
+          - Missing closing braces/brackets (e.g. ``{"query": "foo"``)
+          - Truncation mid-string-value (e.g. ``{"content": "# Cla``)
+          - Trailing text after valid JSON (e.g. ``{"a": 1} extra``)
+
+        The repair pipeline is **provider-agnostic** — it works for GLM,
+        OpenAI, Anthropic, DeepSeek, Ollama, and any future provider.
 
         Args:
-            args_str: Raw arguments string from tool call
+            args_str: Raw arguments string from tool call.
 
         Returns:
-            Valid JSON string (repaired if needed), or original on failure
+            Valid JSON string.  On total failure, returns ``"{}"``.
         """
         if not args_str or not args_str.strip():
             return "{}"
 
         stripped = args_str.strip()
 
-        # Fast path — already valid JSON
+        # ── Fast path: already valid JSON ────────────────────────────
         try:
             json.loads(stripped)
             return stripped
         except json.JSONDecodeError:
             pass
 
-        # Heuristic repair: balance unclosed braces/brackets
-        try:
-            open_braces = stripped.count("{") - stripped.count("}")
-            open_brackets = stripped.count("[") - stripped.count("]")
-            repaired = stripped + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
-            json.loads(repaired)
-            logger.debug(f"Repaired malformed tool args JSON: added {open_braces} brace(s)")
-            return repaired
-        except (json.JSONDecodeError, Exception) as exc:
-            logger.debug(f"Heuristic JSON repair failed: {exc}")
+        # ── Stage 1: Close open string literals ──────────────────────
+        # Walk the string tracking whether we're inside a JSON string.
+        # If the text ends mid-string, close it so brace-balancing works.
+        repaired = OpenAILLM._close_truncated_json(stripped)
 
-        # Last resort: return empty object to avoid breaking the tool call
-        logger.warning(f"Could not repair tool args JSON, using empty object. Original: {args_str[:100]!r}")
+        # ── Stage 2: Try parsing the closed version directly ─────────
+        try:
+            json.loads(repaired)
+            logger.debug("Repaired truncated tool args JSON (string closure)")
+            return repaired
+        except json.JSONDecodeError:
+            pass
+
+        # ── Stage 3: Balance unclosed braces / brackets ──────────────
+        try:
+            open_braces = repaired.count("{") - repaired.count("}")
+            open_brackets = repaired.count("[") - repaired.count("]")
+            balanced = repaired + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
+            json.loads(balanced)
+            logger.debug(
+                "Repaired truncated tool args JSON (string closure + %d brace(s), %d bracket(s))",
+                max(0, open_braces),
+                max(0, open_brackets),
+            )
+            return balanced
+        except Exception:
+            logger.debug("Stage 3 brace-balancing failed, trying next strategy")
+
+        # ── Stage 4: Strip trailing garbage after valid JSON ─────────
+        # Some providers append extra text after the JSON object.
+        try:
+            first_brace = stripped.find("{")
+            if first_brace >= 0:
+                depth = 0
+                in_str = False
+                escape = False
+                end_idx = -1
+                for i in range(first_brace, len(stripped)):
+                    ch = stripped[i]
+                    if escape:
+                        escape = False
+                        continue
+                    if ch == "\\":
+                        escape = True
+                        continue
+                    if ch == '"':
+                        in_str = not in_str
+                        continue
+                    if in_str:
+                        continue
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            end_idx = i
+                            break
+                if end_idx > 0:
+                    candidate = stripped[first_brace : end_idx + 1]
+                    json.loads(candidate)
+                    logger.debug("Extracted valid JSON from tool args (stripped trailing text)")
+                    return candidate
+        except Exception:
+            logger.debug("Stage 4 trailing-garbage extraction failed")
+
+        # ── Stage 5: Last resort — return empty object ───────────────
+        logger.warning(
+            "Could not repair tool args JSON, using empty object. Original: %s",
+            args_str[:120],
+        )
         return "{}"
+
+    @staticmethod
+    def _close_truncated_json(text: str) -> str:
+        """Close an open string literal at the end of truncated JSON.
+
+        Walks the text tracking JSON string state (respecting backslash
+        escapes).  If the text ends inside a string, appends a closing
+        ``"``.  Also strips a trailing incomplete escape (``\\``).
+
+        This is the key piece that makes brace-balancing reliable: once
+        every string is properly closed, counting ``{`` vs ``}`` reflects
+        the actual structure depth.
+        """
+        in_string = False
+        i = 0
+        length = len(text)
+        while i < length:
+            ch = text[i]
+            if in_string:
+                if ch == "\\":
+                    i += 2  # skip escaped character
+                    continue
+                if ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+            i += 1
+
+        if in_string:
+            # Truncated inside a string — strip trailing incomplete escape
+            # then close the string.
+            text = text.removesuffix("\\")
+            text += '"'
+
+        return text
 
     async def _record_usage(self, response: Any) -> None:
         """Record usage from OpenAI response if usage context is set.
@@ -961,9 +1059,9 @@ To extract data from a webpage:
                             func["arguments"] = "{}"
                         elif not isinstance(func["arguments"], str):
                             func["arguments"] = json.dumps(func["arguments"])
-                        elif getattr(self, "_is_glm_api", False):
-                            # GLM-5 streaming sometimes emits truncated JSON in tool args.
-                            # Attempt repair to avoid downstream JSON parse errors.
+                        else:
+                            # Any provider can truncate tool call JSON when hitting
+                            # output token limits.  Apply universal repair.
                             func["arguments"] = self._repair_tool_args_json(func["arguments"])
                         valid_calls.append(tc)
                 if valid_calls:
@@ -1322,8 +1420,16 @@ To extract data from a webpage:
                 # Check finish_reason for truncation detection
                 finish_reason = response.choices[0].finish_reason
                 if finish_reason == "length":
-                    logger.warning(f"LLM response truncated (finish_reason=length, max_tokens={self._max_tokens})")
+                    logger.warning(
+                        "LLM response truncated (finish_reason=length, max_tokens=%s)",
+                        self._max_tokens,
+                    )
                     result["_finish_reason"] = "length"
+                    # Flag tool calls as potentially truncated so the agent
+                    # layer can avoid executing garbage args and instead
+                    # request a retry with a smaller payload.
+                    if result.get("tool_calls"):
+                        result["_tool_args_truncated"] = True
                 elif finish_reason not in ("stop", "end_turn", "tool_calls"):
                     logger.debug(f"LLM finish_reason: {finish_reason}")
 
