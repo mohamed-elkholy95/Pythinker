@@ -115,8 +115,16 @@ class DockerLogMonitor:
             return
         if self._is_mongodb_info_log(line):
             return
+        if self._is_benign_buildkit_warning(container_name, line):
+            return
         # Ignore known benign containerized Chrome D-Bus errors
-        if "dbus" in line.lower() and ("Failed to connect to the bus" in line or "NameHasOwner" in line):
+        lower_line = line.lower()
+        if "dbus" in lower_line and (
+            "failed to connect to the bus" in lower_line
+            or "namehasowner" in lower_line
+            or "org.freedesktop.upower" in lower_line
+            or "dbus.error.serviceunknown" in lower_line
+        ):
             return
         # Ignore GCM deprecation/auth errors (expected in sandboxed Chrome)
         if "gcm" in line.lower() and ("DEPRECATED_ENDPOINT" in line or "Authentication Failed" in line):
@@ -158,3 +166,16 @@ class DockerLogMonitor:
         except Exception:
             return False
         return payload.get("s") == "I"
+
+    @staticmethod
+    def _is_benign_buildkit_warning(container_name: str, line: str) -> bool:
+        """Return True for known BuildKit startup warnings in constrained envs."""
+        if "buildkit" not in container_name.lower():
+            return False
+        lowered = line.lower()
+        benign_markers = (
+            "using host network as the default",
+            "skipping containerd worker",
+            "only the default worker can be used",
+        )
+        return any(marker in lowered for marker in benign_markers)
