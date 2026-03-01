@@ -183,6 +183,11 @@ class BaseAgent:
         self._compression_cycles_this_step: int = 0
         self._step_start_time: float | None = None
 
+        # Per-session hallucination rate tracking (for model escalation)
+        self._total_hallucinations: int = 0
+        self._total_tool_calls: int = 0
+        self._hallucination_escalated: bool = False
+
         # Phase 2: Proactive token budget manager (feature-flagged)
         self._token_budget: Any = None  # TokenBudget — set by orchestrator via set_token_budget()
         self._token_budget_manager: Any = None  # TokenBudgetManager
@@ -238,17 +243,24 @@ class BaseAgent:
             if allowed is not None:  # None means all tools
                 available_tools = [t for t in available_tools if t.get("function", {}).get("name", "") in allowed]
 
-        # Block search tools when efficiency monitor signals hard stop (analysis paralysis)
+        # Block tools when efficiency monitor signals hard stop
         # Guard with hasattr: get_available_tools() is called during __init__ before _efficiency_monitor is set
-        if (
-            hasattr(self, "_efficiency_monitor")
-            and self._efficiency_monitor._consecutive_reads >= self._efficiency_monitor.strong_threshold
-        ):
-            available_tools = [
-                t
-                for t in available_tools
-                if not self._efficiency_monitor._is_read_tool(t.get("function", {}).get("name", ""))
-            ]
+        if hasattr(self, "_efficiency_monitor"):
+            signal = self._efficiency_monitor.check_efficiency()
+            if signal.hard_stop:
+                if signal.signal_type == "repetitive_tool":
+                    # Block only the specific repeated tool
+                    blocked_tool = self._efficiency_monitor._last_tool_name
+                    available_tools = [
+                        t for t in available_tools if t.get("function", {}).get("name", "") != blocked_tool
+                    ]
+                else:
+                    # Original behavior: block all read tools
+                    available_tools = [
+                        t
+                        for t in available_tools
+                        if not self._efficiency_monitor._is_read_tool(t.get("function", {}).get("name", ""))
+                    ]
 
         return available_tools
 
@@ -634,6 +646,8 @@ class BaseAgent:
             parameters=arguments,
         )
 
+        self._total_tool_calls += 1
+
         if not validation_result.is_valid:
             logger.warning(
                 f"Tool hallucination detected: {validation_result.error_message}",
@@ -649,6 +663,36 @@ class BaseAgent:
             correction_message = validation_result.error_message or "Tool validation failed"
             if validation_result.suggestions:
                 correction_message += f" Suggestions: {', '.join(validation_result.suggestions)}"
+
+            self._total_hallucinations += 1
+
+            # Check if hallucination rate warrants escalation
+            try:
+                from app.core.config import get_settings
+
+                _settings = get_settings()
+                if (
+                    getattr(_settings, "feature_hallucination_escalation_enabled", False)
+                    and not self._hallucination_escalated
+                    and self._total_tool_calls >= getattr(_settings, "hallucination_escalation_min_samples", 10)
+                ):
+                    rate = self._total_hallucinations / max(1, self._total_tool_calls)
+                    threshold = getattr(_settings, "hallucination_escalation_threshold", 0.15)
+                    if rate >= threshold:
+                        self._hallucination_escalated = True
+                        logger.warning(
+                            "Hallucination rate escalation triggered: rate=%.2f "
+                            "(threshold=%.2f, calls=%d, hallucinations=%d)",
+                            rate,
+                            threshold,
+                            self._total_tool_calls,
+                            self._total_hallucinations,
+                        )
+            except Exception:
+                logger.debug(
+                    "Hallucination escalation check failed (non-critical)",
+                    exc_info=True,
+                )
 
             return ToolResult(success=False, message=correction_message)
 

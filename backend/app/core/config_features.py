@@ -267,6 +267,17 @@ class FeatureFlagsSettingsMixin:
     # Architecture Enhancement Plan — Phase 2: Token Budget Manager & Context Handler
     feature_token_budget_manager: bool = False  # Proactive phase-level token budgeting
 
+    # Repetitive same-tool loop detection (2026-03-01 session reliability fixes)
+    feature_repetitive_tool_detection_enabled: bool = False
+
+    # Hallucination rate escalation (2026-03-01 session reliability fixes)
+    feature_hallucination_escalation_enabled: bool = False
+    hallucination_escalation_threshold: float = 0.15  # 15% hallucination rate triggers escalation
+    hallucination_escalation_min_samples: int = 10  # Min tool calls before rate is meaningful
+
+    # Compression context preservation — inject failure lessons during token budget compression
+    feature_compression_context_preservation_enabled: bool = False
+
     # ── LLM Middleware Pipeline (Enhancement Plan 2026-02) ──────────────────
     # Phase 1: Middleware pipeline — compose cross-cutting concerns as chainable
     # middlewares instead of inline retry/error code in each provider.
