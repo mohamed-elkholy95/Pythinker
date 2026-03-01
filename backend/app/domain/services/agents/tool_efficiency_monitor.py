@@ -65,6 +65,7 @@ class ToolEfficiencyMonitor:
     LOOP_EXEMPT_TOOLS: ClassVar[frozenset[str]] = frozenset(
         {
             "file_write",  # Multi-file implementations write many files sequentially
+            "file_read",  # Already covered by existing read-balance detection
         }
     )
 
