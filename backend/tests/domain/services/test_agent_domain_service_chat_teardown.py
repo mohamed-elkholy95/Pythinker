@@ -92,7 +92,7 @@ async def test_chat_wait_event_does_not_trigger_runtime_teardown() -> None:
 @pytest.mark.asyncio
 async def test_chat_no_active_task_and_running_session_emits_error_and_tears_down() -> None:
     """An orphaned RUNNING session with no active task should emit an ErrorEvent
-    and be torn down as FAILED, rather than silently returning empty events."""
+    and be torn down as CANCELLED, rather than silently returning empty events."""
     task = None
     session = Session(
         id="session-id",
@@ -110,7 +110,7 @@ async def test_chat_no_active_task_and_running_session_emits_error_and_tears_dow
     assert len(events) == 1
     assert isinstance(events[0], ErrorEvent)
     assert "interrupted" in events[0].error.lower()
-    teardown.assert_awaited_once_with(session.id, status=SessionStatus.FAILED, destroy_sandbox=False)
+    teardown.assert_awaited_once_with(session.id, status=SessionStatus.CANCELLED, destroy_sandbox=False)
 
 
 @pytest.mark.asyncio
