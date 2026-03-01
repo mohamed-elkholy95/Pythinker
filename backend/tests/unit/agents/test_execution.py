@@ -235,6 +235,57 @@ class TestExecutionAgent:
         assert step_events[-1].step.result == "plain text response without expected schema"
         assert step_events[-1].step.error is not None
 
+    @pytest.mark.asyncio
+    async def test_execute_step_uses_json_repair_fallback_when_parser_fails(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """When parser fails, execution should still recover JSON from mixed prose output."""
+        message = mock_message(message="Run task with mixed prose and JSON output")
+
+        executor.llm.ask = AsyncMock(
+            return_value={
+                "role": "assistant",
+                "content": (
+                    "Let me create the file in multiple parts.\n"
+                    '{"success": true, "result": "Step completed", "attachments": []}\n'
+                    "Done."
+                ),
+            }
+        )
+        executor.json_parser.parse = AsyncMock(side_effect=ValueError("Failed to parse JSON from LLM output"))
+
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, message)]
+
+        step_events = [e for e in events if isinstance(e, StepEvent)]
+        assert step_events
+        assert step_events[-1].step.success is True
+        assert step_events[-1].step.result == "Step completed"
+
+    @pytest.mark.asyncio
+    async def test_retry_step_result_json_retries_twice_and_recovers(self, executor):
+        """Correction retry should recover on the second attempt."""
+        executor.llm.ask = AsyncMock(
+            side_effect=[
+                {"content": "not-json"},
+                {"content": '{"success": true, "result": "Recovered", "attachments": []}'},
+            ]
+        )
+
+        recovered = await executor._retry_step_result_json("Malformed response")
+
+        assert recovered == {"success": True, "result": "Recovered", "attachments": []}
+        assert executor.llm.ask.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_step_result_json_stops_after_two_attempts(self, executor):
+        """Correction retry should stop after two failed attempts."""
+        executor.llm.ask = AsyncMock(side_effect=[{"content": "bad"}, {"content": "still bad"}])
+
+        recovered = await executor._retry_step_result_json("Malformed response")
+
+        assert recovered is None
+        assert executor.llm.ask.await_count == 2
+
 
 class TestToolExecution:
     """Tests for tool execution behavior."""

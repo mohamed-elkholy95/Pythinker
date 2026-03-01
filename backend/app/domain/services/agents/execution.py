@@ -52,6 +52,7 @@ from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.tool_tracing import get_tool_tracer
 from app.domain.utils.json_parser import JsonParser
+from app.infrastructure.external.llm.json_repair import parse_json_response
 
 # Module-level metrics instance (can be overridden for testing)
 _metrics: MetricsPort = get_null_metrics()
@@ -391,6 +392,11 @@ class ExecutionAgent(BaseAgent):
                         parsed_response = await self.json_parser.parse(event.message)
                     except Exception as parse_err:
                         logger.warning(f"Failed to parse step response as JSON: {parse_err}")
+                        parsed_response = parse_json_response(event.message, default=None)
+                        if parsed_response is not None:
+                            logger.info("Recovered step response JSON via local repair fallback")
+                        else:
+                            parsed_response = await self._retry_step_result_json(event.message)
 
                     # Validate structured output and degrade safely when malformed.
                     payload_valid = self._apply_step_result_payload(
@@ -1590,6 +1596,56 @@ class ExecutionAgent(BaseAgent):
     def _apply_step_result_payload(self, step: Step, parsed_response: Any, raw_message: str) -> bool:
         """Apply step result payload (delegated to StepExecutor)."""
         return StepExecutor.apply_step_result_payload(step, parsed_response, raw_message)
+
+    async def _retry_step_result_json(self, raw_message: str) -> dict[str, Any] | None:
+        """Two-pass correction retry for non-JSON step outputs.
+
+        Uses the LLM as a strict formatter and then runs local JSON extraction/repair
+        on the correction result to avoid hard failing on prose-prefixed responses.
+        """
+        schema = '{"success": boolean, "result": string|null, "attachments": string[]}'
+        preview = raw_message[:1800]
+        correction_prompts = [
+            (
+                "Your previous response was not valid JSON.\n"
+                f"Previous response:\n\"\"\"\n{preview}\n\"\"\"\n\n"
+                f"You MUST respond with ONLY valid JSON matching this schema: {schema}\n"
+                "No prose. No markdown. JSON object only."
+            ),
+            (
+                "Return ONLY a valid JSON object. "
+                f"Schema: {schema}. "
+                "No explanation, no markdown, and no surrounding text."
+            ),
+        ]
+
+        for attempt_index, correction_prompt in enumerate(correction_prompts, start=1):
+            try:
+                correction = await self.llm.ask(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a strict JSON formatter. Output valid JSON only.",
+                        },
+                        {"role": "user", "content": correction_prompt},
+                    ],
+                    tools=None,
+                    response_format={"type": "json_object"},
+                    enable_caching=False,
+                    model=self._step_model_override,
+                )
+            except Exception as correction_err:
+                logger.warning("Step JSON correction retry failed on attempt %d: %s", attempt_index, correction_err)
+                continue
+
+            corrected_content = str(correction.get("content", "") or "")
+            corrected = parse_json_response(corrected_content, default=None)
+            if isinstance(corrected, dict):
+                logger.info("Recovered step response JSON via correction retry (attempt %d)", attempt_index)
+                return corrected
+            logger.warning("Correction retry attempt %d did not return a valid JSON object", attempt_index)
+
+        return None
 
     # ── Output verification helpers (delegated to OutputVerifier) ─────
 
