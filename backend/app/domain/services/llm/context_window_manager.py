@@ -71,9 +71,7 @@ class ContextWindowManager:
 
                 caps = get_capabilities(model_name, api_base)
                 limit = caps.max_context_window
-                logger.debug(
-                    "Dynamic context window: model=%s → %d tokens", model_name, limit
-                )
+                logger.debug("Dynamic context window: model=%s → %d tokens", model_name, limit)
                 return limit
             except Exception as exc:
                 logger.warning("Dynamic context detection failed: %s — using fallback", exc)

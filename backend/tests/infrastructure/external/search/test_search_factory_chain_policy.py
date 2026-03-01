@@ -13,7 +13,9 @@ from app.infrastructure.external.search.factory import (
 
 
 class _DummyEngine:
-    async def search(self, query: str, date_range: str | None = None):  # pragma: no cover - not exercised in this unit test
+    async def search(
+        self, query: str, date_range: str | None = None
+    ):  # pragma: no cover - not exercised in this unit test
         raise NotImplementedError
 
 

@@ -79,11 +79,7 @@ def _strip_reasoning_content(messages: list[dict[str, Any]]) -> list[dict[str, A
         msg_copy = dict(msg)
         msg_copy.pop("reasoning_content", None)
         # Ensure content is present for assistant messages with tool_calls
-        if (
-            msg_copy.get("role") == "assistant"
-            and msg_copy.get("tool_calls")
-            and msg_copy.get("content") is None
-        ):
+        if msg_copy.get("role") == "assistant" and msg_copy.get("tool_calls") and msg_copy.get("content") is None:
             msg_copy["content"] = ""
         cleaned.append(msg_copy)
     return cleaned

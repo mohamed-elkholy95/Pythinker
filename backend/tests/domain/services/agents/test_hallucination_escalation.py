@@ -46,7 +46,6 @@ class TestHallucinationRateCalculation:
         """Zero tool calls should not cause division by zero."""
         total_tool_calls = 0
         total_hallucinations = 0
-        threshold = 0.15
 
         rate = total_hallucinations / max(1, total_tool_calls)
         assert rate == 0.0

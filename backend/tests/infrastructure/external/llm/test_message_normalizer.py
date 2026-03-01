@@ -6,8 +6,6 @@ reasoning_content stripping, orphaned tool_call handling.
 
 from __future__ import annotations
 
-import pytest
-
 from app.domain.external.llm_capabilities import ProviderCapabilities
 from app.infrastructure.external.llm.message_normalizer import (
     _coerce_content_to_text,

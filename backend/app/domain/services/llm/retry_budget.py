@@ -63,9 +63,7 @@ class RetryBudget:
         self._max_per_minute = max_retries_per_minute
 
         # Per-task counters: task_id → RetryBudgetUsage
-        self._task_usage: dict[str, RetryBudgetUsage] = defaultdict(
-            lambda: RetryBudgetUsage(task_id="")
-        )
+        self._task_usage: dict[str, RetryBudgetUsage] = defaultdict(lambda: RetryBudgetUsage(task_id=""))
         # Sliding-window timestamps for the global rate limit
         self._global_retry_times: list[float] = []
         self._lock = threading.Lock()

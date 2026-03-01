@@ -122,8 +122,7 @@ class BingSearchEngine(SearchEngineBase):
         """Extract snippet from Bing result item."""
         # Look for description in known Bing CSS classes
         snippet_tags = item.css(
-            "p.b_lineclamp, p.b_descript, p.b_caption, "
-            "div.b_lineclamp, div.b_descript, div.b_caption"
+            "p.b_lineclamp, p.b_descript, p.b_caption, div.b_lineclamp, div.b_descript, div.b_caption"
         )
         if snippet_tags:
             return extract_text_from_tag(snippet_tags.first)
