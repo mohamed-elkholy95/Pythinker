@@ -204,6 +204,12 @@ def add_log_level(logger: logging.Logger, method_name: str, event_dict: EventDic
     return event_dict
 
 
+def drop_color_message_key(logger: logging.Logger, method_name: str, event_dict: EventDict) -> EventDict:
+    """Remove uvicorn's colorized duplicate message field."""
+    event_dict.pop("color_message", None)
+    return event_dict
+
+
 def _rich_traceback_no_locals(sio: io.StringIO, exc_info: tuple) -> None:
     """Rich-formatted traceback without local variables to prevent secret leakage.
 
@@ -254,6 +260,7 @@ def setup_structured_logging() -> None:
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         add_correlation_ids,
+        drop_color_message_key,
         redact_event_dict,
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
@@ -344,7 +351,13 @@ def setup_structured_logging() -> None:
     logging.getLogger("sse_starlette.sse").setLevel(logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    uvicorn_access = logging.getLogger("uvicorn.access")
+    uvicorn_error.handlers = []
+    uvicorn_access.handlers = []
+    uvicorn_error.propagate = True
+    uvicorn_access.propagate = True
+    uvicorn_access.setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
     # Log initialization
