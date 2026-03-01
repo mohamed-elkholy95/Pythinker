@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -83,6 +84,14 @@ class BaseAgent:
     iteration_warning_threshold: float = 0.8  # Warn at 80% of limit
     read_only_iteration_weight: float = 0.3  # Read-only ops count as 30% (reduced from 50%)
     max_step_iterations: int = 50  # Max iterations for a single step before auto-failing
+
+    # Per-step hallucination injection cap: if correction prompts are injected
+    # this many times in one step, the model is fundamentally confused — force-advance.
+    max_hallucinations_per_step: int = 3
+
+    # Per-step compression cycle cap: prevents oscillation where compression
+    # reduces context, execution adds tokens, triggering compression again.
+    max_compression_cycles_per_step: int = 5
 
     # Phase-based tool filtering: keeps active tool count <20 per phase
     # to reduce hallucination (OpenAI guidance: accuracy drops above ~20 tools)
@@ -168,6 +177,11 @@ class BaseAgent:
 
         # Flag set when stuck recovery is exhausted — signals callers to force-advance
         self._stuck_recovery_exhausted: bool = False
+
+        # Per-step counters for stability guards (reset at top of execute())
+        self._hallucination_count_this_step: int = 0
+        self._compression_cycles_this_step: int = 0
+        self._step_start_time: float | None = None
 
         # Phase 2: Proactive token budget manager (feature-flagged)
         self._token_budget: Any = None  # TokenBudget — set by orchestrator via set_token_budget()
@@ -1120,6 +1134,11 @@ class BaseAgent:
         warning_emitted = False
         graceful_completion_requested = False
 
+        # Reset per-step stability counters
+        self._hallucination_count_this_step = 0
+        self._compression_cycles_this_step = 0
+        self._step_start_time = time.monotonic()
+
         while iteration_spent < iteration_budget:
             if not message.get("tool_calls"):
                 break
@@ -1129,10 +1148,19 @@ class BaseAgent:
 
             # Check for hallucination loop escalation
             if self._hallucination_detector.should_inject_correction_prompt():
+                self._hallucination_count_this_step += 1
+                if self._hallucination_count_this_step >= self.max_hallucinations_per_step:
+                    logger.warning(
+                        "Hallucination cap reached (%d/%d injections this step), force-advancing",
+                        self._hallucination_count_this_step,
+                        self.max_hallucinations_per_step,
+                    )
+                    self._stuck_recovery_exhausted = True
+                    break
                 correction = self._hallucination_detector.get_correction_prompt()
                 logger.warning(
                     f"Hallucination loop detected ({self._hallucination_detector.hallucination_count} consecutive), "
-                    f"injecting correction prompt"
+                    f"injecting correction prompt ({self._hallucination_count_this_step}/{self.max_hallucinations_per_step})"
                 )
                 correction_messages = [{"role": "user", "content": correction}]
                 message = await self.ask_with_messages(correction_messages)
@@ -1152,6 +1180,22 @@ class BaseAgent:
                 )
                 self._stuck_recovery_exhausted = True
                 break
+
+            # Check per-step wall-clock limit
+            if self._step_start_time is not None:
+                from app.core.config import get_settings
+
+                wall_limit = getattr(get_settings(), "max_step_wall_clock_seconds", 600.0)
+                if wall_limit > 0:
+                    elapsed = time.monotonic() - self._step_start_time
+                    if elapsed > wall_limit:
+                        logger.warning(
+                            "Step wall-clock limit exceeded (%.0fs > %.0fs). Force-advancing.",
+                            elapsed,
+                            wall_limit,
+                        )
+                        self._stuck_recovery_exhausted = True
+                        break
 
             # Check if we're approaching the limit
             remaining_budget = iteration_budget - iteration_spent
@@ -1764,6 +1808,16 @@ class BaseAgent:
                 current_messages,
             )
             if not ok:
+                self._compression_cycles_this_step += 1
+                if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
+                    logger.warning(
+                        "Compression oscillation guard triggered (%d/%d cycles this step). "
+                        "Skipping further compression to break feedback loop.",
+                        self._compression_cycles_this_step,
+                        self.max_compression_cycles_per_step,
+                    )
+                    self._stuck_recovery_exhausted = True
+                    return
                 logger.info("Token budget exceeded (%s), compressing to fit", reason)
                 compressed = self._token_budget_manager.compress_to_fit(
                     self._token_budget,
@@ -1779,6 +1833,16 @@ class BaseAgent:
         token_count = self._token_manager.count_messages_tokens(current_messages)
         early_threshold = self._token_manager.PRESSURE_THRESHOLDS["early_warning"]
         if token_count > self._token_manager._effective_limit * early_threshold:
+            self._compression_cycles_this_step += 1
+            if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
+                logger.warning(
+                    "Compression oscillation guard triggered (%d/%d cycles this step, legacy stage 1). "
+                    "Skipping further compression.",
+                    self._compression_cycles_this_step,
+                    self.max_compression_cycles_per_step,
+                )
+                self._stuck_recovery_exhausted = True
+                return
             self.memory.smart_compact()
             current_messages = self.memory.get_messages()
             logger.debug(
@@ -1788,6 +1852,16 @@ class BaseAgent:
 
         # Stage 2: Hard-limit trim if still over after compaction.
         if not self._token_manager.is_within_limit(current_messages):
+            self._compression_cycles_this_step += 1
+            if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
+                logger.warning(
+                    "Compression oscillation guard triggered (%d/%d cycles this step, legacy stage 2). "
+                    "Skipping further compression.",
+                    self._compression_cycles_this_step,
+                    self.max_compression_cycles_per_step,
+                )
+                self._stuck_recovery_exhausted = True
+                return
             logger.warning("Memory exceeds token limit, trimming...")
             # Capture the first user message before trimming — it contains the original
             # request and must survive trimming to prevent topic drift / hallucination.
@@ -1963,6 +2037,11 @@ class BaseAgent:
         """
         self._stuck_detector.reset()
         self._stuck_recovery_exhausted = False
+
+        # Reset per-step stability counters
+        self._hallucination_count_this_step = 0
+        self._compression_cycles_this_step = 0
+        self._step_start_time = None
 
         # Reset per-agent efficiency monitor
         self._efficiency_monitor.reset()
