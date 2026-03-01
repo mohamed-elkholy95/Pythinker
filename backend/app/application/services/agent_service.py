@@ -26,7 +26,7 @@ from app.application.services.usage_service import get_usage_service
 from app.core import prometheus_metrics as pm
 from app.core.config import get_settings
 from app.core.sandbox_pool import get_sandbox_pool
-from app.domain.exceptions.base import SecurityViolation
+from app.domain.exceptions.base import InvalidStateException, SecurityViolation
 from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
@@ -1238,8 +1238,6 @@ class AgentService:
         try:
             uuid.UUID(shell_session_id)
         except (ValueError, AttributeError) as exc:
-            from app.domain.exceptions.base import InvalidStateException
-
             raise InvalidStateException(
                 f"Invalid shell_session_id '{shell_session_id}' — expected a UUID. "
                 "The LLM may have passed a tool name instead of the session ID."
@@ -1261,7 +1259,13 @@ class AgentService:
         result = await sandbox.view_shell(shell_session_id, console=True)
         if result.success:
             return ShellViewResponse(**result.data)
-        raise RuntimeError(f"Failed to get shell output: {result.message}")
+
+        error_message = result.message or "Unknown sandbox error"
+        if "HTTP 404" in error_message:
+            raise NotFoundError(error_message)
+        if "HTTP 409" in error_message:
+            raise InvalidStateException(error_message)
+        raise RuntimeError(f"Failed to get shell output: {error_message}")
 
     async def file_view(self, session_id: str, file_path: str, user_id: str) -> FileViewResponse:
         """View file content, ensuring session belongs to the user"""
