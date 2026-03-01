@@ -142,6 +142,10 @@ The agent will WAIT for user response between steps. Do NOT combine question + c
 - Match user's language throughout
 - DO NOT explain or acknowledge - just create the plan
 - If insufficient context, embed question in first step ("Clarify X requirement, then analyze")
+- Prefer independent/fan-out steps over linear dependency chains
+- Avoid plans where every later step depends on step 1
+- Keep dependency depth shallow (max 2 levels) unless strictly required
+- Design downstream steps to continue with partial results when possible
 
 ## Phase-Structured Flow
 
