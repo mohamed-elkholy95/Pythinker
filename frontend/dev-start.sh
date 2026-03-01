@@ -6,7 +6,7 @@ STAMPFILE=".deps-lock-sha"
 
 if [ ! -f "$LOCKFILE" ]; then
   echo "Missing $LOCKFILE in /app; cannot verify dependency state."
-  exec npx vite --host 0.0.0.0
+  exec ./node_modules/.bin/vite --host 0.0.0.0
 fi
 
 CURRENT_HASH="$(sha256sum "$LOCKFILE" | awk '{print $1}')"
@@ -22,4 +22,4 @@ if [ ! -d "node_modules" ] || [ "$CURRENT_HASH" != "$INSTALLED_HASH" ]; then
   echo "$CURRENT_HASH" > "$STAMPFILE"
 fi
 
-exec npx vite --host 0.0.0.0
+exec ./node_modules/.bin/vite --host 0.0.0.0
