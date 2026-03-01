@@ -441,6 +441,19 @@ class AuthService:
             logger.warning("Refresh token missing 'sub' claim")
             raise UnauthorizedError("Invalid refresh token")
 
+        # Local/none auth: reconstruct user from JWT claims (no DB record exists).
+        # Mirrors the pattern in verify_token() and verify_token_secure().
+        if self.settings.auth_provider in ("local", "none"):
+            user = User(
+                id=user_id,
+                fullname=payload.get("fullname", "Local Admin"),
+                email=payload.get("email"),
+                role=UserRole(payload.get("role", "admin")),
+                is_active=payload.get("is_active", True),
+            )
+            new_access_token = self.token_service.create_access_token(user)
+            return AuthToken(access_token=new_access_token, token_type="bearer")
+
         user = await self.user_repository.get_user_by_id(user_id)
 
         if not user:
