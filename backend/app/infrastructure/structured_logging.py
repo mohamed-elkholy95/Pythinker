@@ -223,6 +223,19 @@ def _rich_traceback_no_locals(sio: io.StringIO, exc_info: tuple) -> None:
         structlog.dev.plain_traceback(sio, exc_info)
 
 
+class _StructlogQueueHandler(logging.handlers.QueueHandler):
+    """QueueHandler that preserves structlog event dicts.
+
+    The default QueueHandler.prepare() calls self.format() which converts
+    dict messages to strings via str(). This destroys the event dict that
+    ProcessorFormatter needs for .copy(). By skipping prepare(), we let
+    the ProcessorFormatter on the QueueListener side do the formatting.
+    """
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        return record
+
+
 def setup_structured_logging() -> None:
     """
     Configure the application logging system with structlog.
@@ -305,7 +318,7 @@ def setup_structured_logging() -> None:
     console_handler.setLevel(log_level)
 
     log_queue: SimpleQueue[logging.LogRecord] = SimpleQueue()
-    queue_handler = logging.handlers.QueueHandler(log_queue)
+    queue_handler = _StructlogQueueHandler(log_queue)
     queue_handler.setLevel(log_level)
     root_logger.addHandler(queue_handler)
 
