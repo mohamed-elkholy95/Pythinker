@@ -8,7 +8,7 @@ All field names map directly to environment variables via pydantic-settings.
 class DatabaseSettingsMixin:
     """MongoDB connection and pooling configuration."""
 
-    mongodb_uri: str = "mongodb://mongodb:27017"
+    mongodb_uri: str = "mongodb://mongodb:27017/pythinker?authSource=admin"
     mongodb_database: str = "pythinker"
     mongodb_username: str | None = None
     mongodb_password: str | None = None
