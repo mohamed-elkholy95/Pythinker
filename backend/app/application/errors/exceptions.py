@@ -1,14 +1,21 @@
+from typing import Any
+
+
 class AppError(RuntimeError):
     def __init__(
         self,
         code: int,
         msg: str,
         status_code: int = 400,
+        data: Any = None,
+        headers: dict[str, str] | None = None,
     ):
         super().__init__(msg)
         self.code = code
         self.msg = msg
         self.status_code = status_code
+        self.data = data
+        self.headers = headers or {}
 
 
 class NotFoundError(AppError):
@@ -32,5 +39,12 @@ class ServerError(AppError):
 
 
 class UnauthorizedError(AppError):
-    def __init__(self, msg: str = "Authentication required"):
-        super().__init__(code=401, msg=msg, status_code=401)
+    def __init__(
+        self,
+        msg: str = "Authentication required",
+        *,
+        error_code: str | None = None,
+        headers: dict[str, str] | None = None,
+    ):
+        data = {"code": error_code} if error_code else None
+        super().__init__(code=401, msg=msg, status_code=401, data=data, headers=headers)

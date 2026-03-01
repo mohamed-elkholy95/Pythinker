@@ -256,7 +256,8 @@ def register_exception_handlers(app: FastAPI) -> None:
             logger.warning(f"APIException: {exc.msg}")
         return JSONResponse(
             status_code=exc.status_code,
-            content=APIResponse(code=exc.code, msg=exc.msg, data=None).model_dump(),
+            content=APIResponse(code=exc.code, msg=exc.msg, data=exc.data).model_dump(),
+            headers=exc.headers,
         )
 
     @app.exception_handler(StarletteHTTPException)
