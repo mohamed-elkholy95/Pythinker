@@ -34,7 +34,7 @@ services:
       # No VITE_USE_POLLING — native inotify works with compose watch (no polling overhead)
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
         required: true
     restart: unless-stopped
     networks:
@@ -120,8 +120,14 @@ services:
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
     healthcheck:
-      # OrbStack: exec-based health checks hang; backend responds fine on port 8000
-      test: ["NONE"]
+      # On Linux: exec-based health checks work normally.
+      # On macOS + OrbStack: exec-based health checks may hang — revert to test: ["NONE"]
+      # and change frontend-dev depends_on to condition: service_started.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     develop:
       watch:
         # Application source → uvicorn --reload detects via inotify
