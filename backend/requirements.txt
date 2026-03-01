@@ -1,6 +1,10 @@
 # AgentSkills standard (Anthropic open standard for portable skill packaging)
 skills-ref>=0.1.0
 
+# Build tooling compatibility for transient sdist metadata generation.
+# setuptools>=82 can break transitive legacy `pkg_resources` import paths.
+setuptools<82
+
 # Core web framework
 fastapi[standard]>=0.115.0
 uvicorn>=0.32.0
