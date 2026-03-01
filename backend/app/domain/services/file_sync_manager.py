@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -235,6 +236,26 @@ class FileSyncManager:
                     file_path,
                 )
 
+            # Content-hash dedup: skip re-upload when content is unchanged
+            content_md5 = hashlib.md5(file_data.getbuffer()).hexdigest()  # noqa: S324
+            new_size = file_data.getbuffer().nbytes
+            if existing_file and existing_file.file_id and existing_file.metadata:
+                existing_md5 = existing_file.metadata.get("content_md5")
+                existing_size = existing_file.size
+                if existing_md5 == content_md5 and existing_size == new_size:
+                    logger.debug(
+                        "Agent %s: File '%s' unchanged (md5=%s, size=%d), skipping re-upload",
+                        self._agent_id,
+                        file_path,
+                        content_md5,
+                        new_size,
+                    )
+                    # Merge any new metadata into existing file
+                    if metadata:
+                        existing_file.metadata = {**(existing_file.metadata or {}), **metadata}
+                        await self._session_repository.add_file(self._session_id, existing_file)
+                    return existing_file
+
             # Remove existing file if present (handle updates)
             if existing_file and existing_file.file_id:
                 logger.debug(
@@ -280,9 +301,13 @@ class FileSyncManager:
                 return None
 
             file_info.file_path = file_path
-            # Merge original metadata back (storage returns S3-level metadata only)
-            if metadata:
-                file_info.metadata = {**(file_info.metadata or {}), **metadata}
+            file_info.size = new_size
+            # Store content hash for future dedup checks
+            file_info.metadata = {
+                **(file_info.metadata or {}),
+                **(metadata or {}),
+                "content_md5": content_md5,
+            }
             await self._session_repository.add_file(self._session_id, file_info)
 
             logger.debug(
