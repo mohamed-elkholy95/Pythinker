@@ -13,9 +13,9 @@ class DatabaseSettingsMixin:
     mongodb_username: str | None = None
     mongodb_password: str | None = None
     # Connection pooling and timeouts
-    mongodb_max_pool_size: int = 100  # Max connections in pool
-    mongodb_min_pool_size: int = 5  # Min connections to maintain
-    mongodb_max_idle_time_ms: int = 300_000  # 5min idle timeout (prevents connection churn)
+    mongodb_max_pool_size: int = 20  # Max connections in pool (env-overridable for production)
+    mongodb_min_pool_size: int = 1  # Min connections to maintain
+    mongodb_max_idle_time_ms: int = 60_000  # 1min idle timeout (release idle connections faster)
     mongodb_connect_timeout_ms: int = 10_000  # 10s connection timeout
     mongodb_server_selection_timeout_ms: int = 30_000  # 30s server selection timeout
     mongodb_socket_timeout_ms: int = 20_000  # 20s socket timeout
