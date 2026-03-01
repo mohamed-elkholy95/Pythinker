@@ -282,3 +282,43 @@ class TestCodeExecutorShortcutMethodsSecurity:
         mock_security_critic.review_code.assert_called_once()
         call_args = mock_security_critic.review_code.call_args
         assert call_args[0][1] == "javascript"
+
+
+class TestCodeExecutorReturnCodeHandling:
+    """Tests for mapping sandbox returncode to tool success."""
+
+    @pytest.mark.asyncio
+    async def test_code_execute_python_marks_failure_when_returncode_non_zero(
+        self,
+        mock_sandbox: AsyncMock,
+        mock_security_critic: AsyncMock,
+    ) -> None:
+        mock_security_critic.review_code.return_value = SecurityResult(
+            safe=True,
+            risk_level=RiskLevel.LOW,
+            issues=[],
+        )
+        mock_sandbox.exec_command = AsyncMock(
+            side_effect=[
+                # Workspace init mkdir
+                AsyncMock(success=True, message="ok", data={"returncode": 0}),
+                # Actual python execution fails in sandbox process
+                AsyncMock(
+                    success=True,
+                    message="Traceback (most recent call last): boom",
+                    data={"returncode": 1, "output": "Traceback (most recent call last): boom"},
+                ),
+            ]
+        )
+        mock_sandbox.file_list = AsyncMock(return_value=AsyncMock(success=True, data={"entries": []}))
+
+        executor = CodeExecutorTool(
+            sandbox=mock_sandbox,
+            security_critic=mock_security_critic,
+        )
+
+        result = await executor.code_execute_python(code="raise RuntimeError('boom')")
+
+        assert result.success is False
+        assert isinstance(result.data, dict)
+        assert result.data["return_code"] == 1

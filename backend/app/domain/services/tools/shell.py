@@ -93,6 +93,22 @@ class ShellTool(BaseTool):
         # Default timeout for shell commands (5 minutes)
         shell_exec_timeout_seconds = 300
 
+        if not id or not id.strip():
+            return ToolResult(
+                success=False,
+                message="VALIDATION ERROR: Missing required parameter 'id' for shell_exec.",
+            )
+        if not exec_dir or not exec_dir.strip():
+            return ToolResult(
+                success=False,
+                message="VALIDATION ERROR: Missing required parameter 'exec_dir' for shell_exec.",
+            )
+        if not command or not command.strip():
+            return ToolResult(
+                success=False,
+                message="VALIDATION ERROR: Missing required parameter 'command' for shell_exec.",
+            )
+
         review = await self.security_critic.review_code(command, "bash")
         if not review.safe:
             allow_medium = get_settings().security_critic_allow_medium_risk
@@ -114,6 +130,17 @@ class ShellTool(BaseTool):
                 self.sandbox.exec_command(id, exec_dir, command),
                 timeout=shell_exec_timeout_seconds,
             )
+            data = result.data if isinstance(result.data, dict) else {}
+            raw_return_code = data.get("returncode", data.get("return_code"))
+            if isinstance(raw_return_code, int) and raw_return_code != 0:
+                output = data.get("output")
+                detail = result.message or (str(output) if output is not None else "")
+                result = ToolResult(
+                    success=False,
+                    message=f"Shell command failed (return code: {raw_return_code}).\n{detail}".strip(),
+                    data=result.data,
+                    suggested_filename=result.suggested_filename,
+                )
             return self._truncate_output(result)
         except TimeoutError:
             logger.warning(
