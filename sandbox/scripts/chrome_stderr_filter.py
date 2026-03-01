@@ -22,10 +22,11 @@ SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"google_apis/gcm/engine/mcs_client\.cc:702.*"
         r"Failed to log in to GCM, resetting connection\."
     ),
-    re.compile(
-        r"dbus/object_proxy\.cc:573.*org\.freedesktop\.DBus\.Properties\.GetAll:"
-        r".*UPower.*ServiceUnknown"
-    ),
+    # UPower D-Bus errors — UPower is not present in Docker containers.
+    # Chrome probes it via 3 separate calls (Properties.Get, GetDisplayDevice,
+    # EnumerateDevices) all logged via object_proxy.cc at varying line numbers
+    # depending on Chrome version. Match by content rather than line number.
+    re.compile(r"object_proxy\.cc.*UPower.*ServiceUnknown"),
     re.compile(r"GLib-GIO-CRITICAL.*g_settings_schema_source_lookup"),
     # GPU/EGL init failures — expected in headless/no-display containers
     re.compile(r"ui/gl/(angle_platform_impl|egl_util|gl_display)\.cc"),
