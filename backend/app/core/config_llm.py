@@ -91,11 +91,8 @@ class LLMTimeoutSettingsMixin:
     """LLM HTTP request timeout configuration."""
 
     # Total timeout for a single LLM HTTP request (connect + read + write).
-    # Generous default (300s / 5 min) because some providers (e.g. glm-4.7 via
-    # OpenRouter) can take 60-120s for a single completion.  The connect timeout
-    # is hardcoded to 10s inside the client factory so unreachable servers fail
-    # fast while slow-but-alive providers get the full budget.
-    llm_request_timeout: float = 300.0
+    # Keep this bounded to prevent multi-minute step stalls.
+    llm_request_timeout: float = 45.0
 
     # Duration (seconds) after which an LLM call is logged at WARNING instead of
     # INFO.  Raise this for slow providers (e.g. GLM-5) to reduce log noise.
@@ -110,7 +107,7 @@ class LLMTimeoutSettingsMixin:
     # from slow providers during orchestration-heavy sessions.
     # With exponential backoff (90s → 180s → 300s cap), 3 attempts cover slow
     # providers like GLM-5 (p95 ~75s under heavy context). Set to 0 to disable.
-    llm_tool_request_timeout: float = 90.0
+    llm_tool_request_timeout: float = 45.0
 
     # Maximum retry attempts after a tool-call timeout before surfacing an error.
     # 2 retries = 3 total attempts with exponential backoff.

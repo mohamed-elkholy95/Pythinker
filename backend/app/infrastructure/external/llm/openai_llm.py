@@ -56,6 +56,9 @@ class OpenAILLM(LLM):
         "parameter is illegal",
         "messages parameter is illegal",
     )
+    _SLOW_TOOL_CALL_THRESHOLD_SECONDS: ClassVar[float] = 60.0
+    _SLOW_TOOL_CALL_TRIP_COUNT: ClassVar[int] = 3
+    _SLOW_TOOL_CALL_COOLDOWN_SECONDS: ClassVar[float] = 300.0
 
     def __init__(
         self,
@@ -123,6 +126,8 @@ class OpenAILLM(LLM):
         self._api_base = api_base or settings.api_base
         self._supports_stream_usage = self._detect_stream_usage_support()
         self._last_stream_metadata: dict[str, Any] | None = None
+        self._slow_tool_call_streak: int = 0
+        self._slow_tool_call_breaker_until: float = 0.0
 
         # Detect if using local MLX server (doesn't support native tool calling)
         self._is_mlx_mode = self._detect_mlx_mode()
@@ -170,7 +175,94 @@ class OpenAILLM(LLM):
             return None
         return await self._key_pool.get_healthy_key_or_wait(max_wait_seconds=120.0)
 
-    async def _get_client(self) -> AsyncOpenAI:
+    def _create_timeout(
+        self,
+        *,
+        is_streaming: bool = False,
+        is_tool_call: bool = False,
+    ) -> httpx.Timeout:
+        """Build provider-aware HTTP timeout profile.
+
+        Timeout model follows HTTPX's connect/read/write/pool granularity.
+        ``read`` is the primary guardrail for stalled providers.
+        """
+        settings = get_settings()
+        global_timeout = max(0.0, float(getattr(settings, "llm_request_timeout", 0.0) or 0.0))
+
+        profiles: dict[str, dict[str, float]] = {
+            "default": {"connect": 10.0, "read": 300.0, "write": 30.0, "pool": 30.0},
+            "openai": {"connect": 5.0, "read": 120.0, "write": 30.0, "pool": 30.0},
+            "anthropic": {"connect": 5.0, "read": 180.0, "write": 30.0, "pool": 30.0},
+            "glm": {"connect": 10.0, "read": 90.0, "write": 30.0, "pool": 30.0},
+            "deepseek": {"connect": 5.0, "read": 180.0, "write": 30.0, "pool": 30.0},
+            "ollama": {"connect": 3.0, "read": 600.0, "write": 30.0, "pool": 10.0},
+        }
+
+        provider_key = "default"
+        api_base = (self._api_base or "").lower()
+        if getattr(self, "_is_glm_api", False):
+            provider_key = "glm"
+        elif getattr(self, "_is_deepseek", False):
+            provider_key = "deepseek"
+        elif any(marker in api_base for marker in ("openai.com", "openrouter.ai", "kimi.com", "kimi.ai")):
+            provider_key = "openai"
+        elif any(marker in api_base for marker in ("localhost", "127.0.0.1", "host.docker.internal", ":11434")):
+            provider_key = "ollama"
+        elif "anthropic.com" in api_base:
+            provider_key = "anthropic"
+
+        cfg = dict(profiles.get(provider_key, profiles["default"]))
+        if is_streaming:
+            cfg["read"] = min(cfg["read"], 30.0)
+        if is_tool_call:
+            cfg["read"] = min(cfg["read"], 90.0)
+        if global_timeout > 0:
+            cfg["read"] = min(cfg["read"], global_timeout)
+
+        return httpx.Timeout(
+            timeout=None,
+            connect=cfg["connect"],
+            read=cfg["read"],
+            write=cfg["write"],
+            pool=cfg["pool"],
+        )
+
+    def _is_slow_tool_breaker_active(self, now_monotonic: float | None = None) -> bool:
+        now = now_monotonic if now_monotonic is not None else time.monotonic()
+        return now < self._slow_tool_call_breaker_until
+
+    def _record_tool_call_latency(
+        self,
+        *,
+        duration_seconds: float,
+        has_tools: bool,
+        fast_model: str,
+        now_monotonic: float | None = None,
+    ) -> None:
+        """Track consecutive slow tool calls and trip fast-model breaker."""
+        if not has_tools:
+            return
+
+        now = now_monotonic if now_monotonic is not None else time.monotonic()
+        if duration_seconds >= self._SLOW_TOOL_CALL_THRESHOLD_SECONDS:
+            self._slow_tool_call_streak += 1
+            if self._slow_tool_call_streak >= self._SLOW_TOOL_CALL_TRIP_COUNT and fast_model:
+                self._slow_tool_call_breaker_until = now + self._SLOW_TOOL_CALL_COOLDOWN_SECONDS
+                logger.warning(
+                    "Slow tool-call circuit breaker tripped (%d calls >= %.0fs); "
+                    "using fast model '%s' for %.0fs",
+                    self._slow_tool_call_streak,
+                    self._SLOW_TOOL_CALL_THRESHOLD_SECONDS,
+                    fast_model,
+                    self._SLOW_TOOL_CALL_COOLDOWN_SECONDS,
+                )
+            return
+
+        if self._slow_tool_call_streak > 0:
+            logger.info("Slow tool-call streak reset after %.1fs response", duration_seconds)
+        self._slow_tool_call_streak = 0
+
+    async def _get_client(self, *, is_streaming: bool = False, is_tool_call: bool = False) -> AsyncOpenAI:
         """Get OpenAI client with current active key."""
         # If client already set (e.g., by tests), return it
         if hasattr(self, "client") and self.client is not None:
@@ -191,16 +283,11 @@ class OpenAILLM(LLM):
             }
             logger.debug("Using Kimi Code API headers")
 
-        settings = get_settings()
-        llm_timeout = getattr(settings, "llm_request_timeout", 300)
         return AsyncOpenAI(
             api_key=key,
             base_url=self._api_base,
             default_headers=default_headers,
-            timeout=httpx.Timeout(
-                timeout=float(llm_timeout),  # total request timeout
-                connect=10.0,  # fail fast on unreachable servers
-            ),
+            timeout=self._create_timeout(is_streaming=is_streaming, is_tool_call=is_tool_call),
         )
 
     def _parse_openai_rate_limit(self, error: Exception) -> int:
@@ -1273,13 +1360,6 @@ To extract data from a webpage:
             key_count = len(self._key_pool.keys) if hasattr(self, "_key_pool") else 1
             raise RuntimeError(f"All {key_count} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts")
 
-        # Get healthy key and create client
-        try:
-            client = await self._get_client()
-        except RuntimeError as e:
-            # All keys exhausted
-            raise RuntimeError(str(e)) from e
-
         # Validate and fix message sequence before sending
         base_messages = self._validate_and_fix_messages(messages)
 
@@ -1297,6 +1377,13 @@ To extract data from a webpage:
         if enable_caching and self._cache_manager:
             request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
 
+        # Get healthy key and create client after request shape is known.
+        try:
+            client = await self._get_client(is_tool_call=bool(request_tools))
+        except RuntimeError as e:
+            # All keys exhausted
+            raise RuntimeError(str(e)) from e
+
         settings = get_settings()
         llm_tool_max_tokens = max(0, int(getattr(settings, "llm_tool_max_tokens", 0) or 0))
         llm_tool_request_timeout = max(0.0, float(getattr(settings, "llm_tool_request_timeout", 0.0) or 0.0))
@@ -1306,6 +1393,17 @@ To extract data from a webpage:
         model_override_for_attempt = model
         tool_timeout_retries = 0
         timeout_fallback_used = False
+        if (
+            request_tools
+            and not model_override_for_attempt
+            and timeout_fallback_fast_model
+            and self._is_slow_tool_breaker_active()
+        ):
+            model_override_for_attempt = timeout_fallback_fast_model
+            logger.warning(
+                "Slow tool-call breaker active; routing tool call to fast model '%s'",
+                timeout_fallback_fast_model,
+            )
 
         max_retries = 3
         base_delay = 1.0
@@ -1396,6 +1494,11 @@ To extract data from a webpage:
                     )
 
                 llm_call_duration = time.monotonic() - llm_call_start
+                self._record_tool_call_latency(
+                    duration_seconds=llm_call_duration,
+                    has_tools=bool(request_tools),
+                    fast_model=timeout_fallback_fast_model,
+                )
                 _slow = get_settings().llm_slow_request_threshold
                 log_fn = logger.warning if llm_call_duration > _slow else logger.info
                 log_fn(
@@ -1697,7 +1800,7 @@ To extract data from a webpage:
             Validated Pydantic model instance
         """
         # Get client with current active key
-        client = await self._get_client()
+        client = await self._get_client(is_tool_call=bool(tools))
         # Validate and fix message sequence
         base_messages = self._validate_and_fix_messages(messages)
 
@@ -2134,7 +2237,7 @@ To extract data from a webpage:
 
         # Get healthy key and create client
         try:
-            client = await self._get_client()
+            client = await self._get_client(is_streaming=True, is_tool_call=bool(tools))
         except RuntimeError as e:
             # All keys exhausted
             self._last_stream_metadata = {

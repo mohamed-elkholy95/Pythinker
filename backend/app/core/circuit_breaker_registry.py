@@ -99,6 +99,12 @@ class CircuitBreakerConfig:
     sliding_window_size: int = 10
     """Size of sliding window for failure rate calculation."""
 
+    excluded_exceptions: tuple[type[Exception], ...] = ()
+    """Exception types that should not count as provider failures."""
+
+    excluded_error_patterns: tuple[str, ...] = ()
+    """Case-insensitive substrings that should not count as provider failures."""
+
 
 @dataclass
 class CircuitBreakerStats:
@@ -325,9 +331,23 @@ class CircuitBreaker:
         try:
             yield
             self.record_success()
-        except Exception:
+        except Exception as exc:
+            if self._is_excluded_exception(exc):
+                raise
             self.record_failure()
             raise
+
+    def _is_excluded_exception(self, exc: Exception) -> bool:
+        """Return True when an exception should not trip the breaker."""
+        config = self.config
+        if config.excluded_exceptions and isinstance(exc, config.excluded_exceptions):
+            return True
+        if config.excluded_error_patterns:
+            text = str(exc).lower()
+            for pattern in config.excluded_error_patterns:
+                if pattern.lower() in text:
+                    return True
+        return False
 
     def get_status(self) -> dict[str, Any]:
         """Get current status as a dictionary."""
