@@ -58,6 +58,7 @@ services:
       #- ./mcp.json:/etc/mcp.json # Mount MCP servers directory
     networks:
       - pythinker-network
+      - pythinker-backend-internal  # Can reach MongoDB, Redis, Qdrant, MinIO
       - traefik-public
     env_file:
       - .env
@@ -65,6 +66,9 @@ services:
       - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
       - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
       - GRPC_ENABLE_FORK_SUPPORT=0 # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation # Suppress Playwright url.parse() deprecation
       - FAST_MODEL=${FAST_MODEL:-qwen/qwen3-coder-next}
@@ -267,8 +271,11 @@ services:
     restart: "no"
 
   mongodb:
-    image: mongo:7.0
+    image: mongo:7.0.28
     command: ["mongod", "--wiredTigerCacheSizeGB", "0.5"]
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped
@@ -276,13 +283,13 @@ services:
     #ports:
     #  - "27017:27017"
     networks:
-      - pythinker-network
+      - pythinker-backend-internal  # Internal-only — no external access
     deploy:
       resources:
         limits:
           memory: 1G
     healthcheck:
-      test: [ "CMD", "mongosh", "--norc", "--eval", "db.runCommand('ping').ok", "--quiet" ]
+      test: [ "CMD-SHELL", "mongosh --norc --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.runCommand('ping').ok\" || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -371,6 +378,9 @@ networks:
   pythinker-network:
     name: pythinker-network
     driver: bridge
+  pythinker-backend-internal:
+    name: pythinker-backend-internal
+    internal: true  # No external access — containers only (defense-in-depth)
   traefik-public:
     name: traefik-public
     external: true
