@@ -16,7 +16,6 @@ from app.domain.services.llm.middleware import (
     LLMResponse,
 )
 
-
 # ─────────────────────────── Helpers ─────────────────────────────────────────
 
 

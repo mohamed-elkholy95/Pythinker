@@ -284,9 +284,7 @@ class RateLimitMiddleware:
                     retry_after_seconds = max(1, int(window_seconds - (time.time() - window_start)))
 
         if rate_limit_exceeded:
-            logger.warning(
-                "rate_limit_exceeded", client_id=client_id, path=path, fallback_mode=using_fallback
-            )
+            logger.warning("rate_limit_exceeded", client_id=client_id, path=path, fallback_mode=using_fallback)
             response = JSONResponse(
                 status_code=429,
                 content={

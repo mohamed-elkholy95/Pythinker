@@ -196,10 +196,7 @@ class RetryBudgetMiddleware(LLMMiddleware):
         budget = get_retry_budget()
 
         if not budget.can_retry(task_id):
-            raise RuntimeError(
-                f"Retry budget exhausted for task_id={task_id}. "
-                "Refusing further LLM retry attempts."
-            )
+            raise RuntimeError(f"Retry budget exhausted for task_id={task_id}. Refusing further LLM retry attempts.")
 
         try:
             return await next_handler(request)

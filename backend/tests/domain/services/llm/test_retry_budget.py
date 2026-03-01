@@ -5,11 +5,9 @@ Covers: per-task cap, global rate limit, record_retry, get_usage, reset_task.
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
-from app.domain.services.llm.retry_budget import RetryBudget, RetryBudgetUsage, reset_retry_budget
+from app.domain.services.llm.retry_budget import RetryBudget, reset_retry_budget
 
 
 @pytest.fixture(autouse=True)

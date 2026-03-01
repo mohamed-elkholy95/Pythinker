@@ -18,7 +18,7 @@ Usage::
 
     tracker = get_provider_health_tracker()
     tracker.record("anthropic", latency_ms=340.0, success=True)
-    score = tracker.score("anthropic")          # 0.0-1.0
+    score = tracker.score("anthropic")  # 0.0-1.0
     best = tracker.best_provider(["anthropic", "openai"])
 """
 
@@ -106,15 +106,10 @@ class ProviderHealthTracker:
         success_rate = sum(1 for s in samples if s.success) / len(samples)
 
         # Latency component: ratio of good-latency calls (≤ max_good_latency_ms)
-        good_latency = sum(
-            1 for s in samples if s.success and s.latency_ms <= self._max_good_latency_ms
-        )
+        good_latency = sum(1 for s in samples if s.success and s.latency_ms <= self._max_good_latency_ms)
         latency_score = good_latency / len(samples)
 
-        health = (
-            (1.0 - self._latency_weight) * success_rate
-            + self._latency_weight * latency_score
-        )
+        health = (1.0 - self._latency_weight) * success_rate + self._latency_weight * latency_score
         return round(max(0.0, min(1.0, health)), 4)
 
     def best_provider(self, candidates: list[str]) -> str:
