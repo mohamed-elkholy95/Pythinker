@@ -1,6 +1,25 @@
-"""Tests for TokenBudgetManager failure lesson extraction (compression context preservation)."""
+"""Tests for TokenBudgetManager policies and compression context preservation."""
 
-from app.domain.services.agents.token_budget_manager import TokenBudgetManager
+from app.domain.services.agents.token_budget_manager import BudgetAction, TokenBudgetManager
+
+
+class TestBudgetPolicy:
+    """Threshold policy mapping for token budget enforcement."""
+
+    def _make_manager(self):
+        from unittest.mock import MagicMock
+
+        token_manager = MagicMock()
+        token_manager.count_messages_tokens.return_value = 0
+        return TokenBudgetManager(token_manager)
+
+    def test_enforce_budget_policy_thresholds(self):
+        mgr = self._make_manager()
+        assert mgr.enforce_budget_policy(0.10) == BudgetAction.NORMAL
+        assert mgr.enforce_budget_policy(0.90) == BudgetAction.REDUCE_VERBOSITY
+        assert mgr.enforce_budget_policy(0.95) == BudgetAction.FORCE_CONCLUDE
+        assert mgr.enforce_budget_policy(0.98) == BudgetAction.FORCE_HARD_STOP_NUDGE
+        assert mgr.enforce_budget_policy(0.99) == BudgetAction.HARD_STOP_TOOLS
 
 
 class TestExtractFailureLessons:
