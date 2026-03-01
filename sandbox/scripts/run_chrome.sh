@@ -55,6 +55,7 @@ CHROME_FLAGS=(
     --disable-accelerated-jpeg-decoding
     --disable-accelerated-mjpeg-decode
     --disable-accelerated-video-decode
+    --disable-features=UseChromeOSDirectVideoDecoder
     --no-first-run
     --no-default-browser-check
     --test-type
@@ -90,6 +91,8 @@ CHROME_FLAGS=(
     --use-mock-keychain
     --force-color-profile=srgb
     --force-device-scale-factor=1
+    --use-gl=swiftshader
+    --disable-webrtc
     --disable-blink-features=AutomationControlled
     "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_UA_VERSION} Safari/537.36"
     --lang=en-US
