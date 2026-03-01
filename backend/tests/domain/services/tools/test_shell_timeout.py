@@ -50,3 +50,33 @@ async def test_shell_exec_returns_tool_result_when_command_succeeds():
     assert result.success is True
     assert result.message == "ok"
     sandbox.exec_command.assert_awaited_once_with("shell-2", "/workspace", "echo hello")
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_marks_failure_when_returncode_non_zero():
+    sandbox_result = ToolResult(
+        success=True,
+        message="command failed",
+        data={"returncode": 2, "output": "syntax error"},
+    )
+    sandbox = SimpleNamespace(exec_command=AsyncMock(return_value=sandbox_result))
+    tool = ShellTool(sandbox=sandbox, security_critic=_SafeSecurityCritic())
+
+    result = await tool.shell_exec(id="shell-3", exec_dir="/workspace", command="printf 'unterminated")
+
+    assert result.success is False
+    assert result.message is not None
+    assert "return code: 2" in result.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_rejects_missing_session_id_without_sandbox_call():
+    sandbox = SimpleNamespace(exec_command=AsyncMock())
+    tool = ShellTool(sandbox=sandbox, security_critic=_SafeSecurityCritic())
+
+    result = await tool.shell_exec(id="", exec_dir="/workspace", command="ls")
+
+    assert result.success is False
+    assert result.message is not None
+    assert "missing required parameter 'id'" in result.message.lower()
+    sandbox.exec_command.assert_not_awaited()
