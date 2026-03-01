@@ -507,9 +507,13 @@ class ExecutionAgent(BaseAgent):
                             return
                         continue
                 yield event
-            # Only mark as COMPLETED if not already set to FAILED
+            # Only mark as COMPLETED if not already set to FAILED.
+            # Also set step.success so plan_act.py's belt-and-suspenders
+            # status sync does not override COMPLETED → FAILED.
             if step.status != ExecutionStatus.FAILED:
                 step.status = ExecutionStatus.COMPLETED
+                if not step.success:
+                    step.success = True
         finally:
             # Always restore tools, system prompt, and model override after step
             self.tools = original_tools
