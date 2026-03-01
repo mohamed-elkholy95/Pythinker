@@ -51,6 +51,10 @@ class Language(str, Enum):
     SQL = "sql"
 
 
+# Maximum execution timeout to guard against LLM callers passing
+# millisecond values (e.g. 60000) instead of seconds.
+MAX_TIMEOUT_SECONDS = 600  # 10 minutes
+
 # Language configuration mapping
 LANGUAGE_CONFIG: dict[str, dict[str, Any]] = {
     Language.PYTHON: {
@@ -391,9 +395,11 @@ class CodeExecutorTool(BaseTool):
         # Ensure workspace exists
         await self._ensure_workspace()
 
-        # Use default timeout if not specified
+        # Use default timeout if not specified; cap to guard against
+        # LLM callers passing millisecond values (e.g. 60000).
         if timeout is None:
             timeout = config["timeout_default"]
+        timeout = min(timeout, MAX_TIMEOUT_SECONDS)
 
         # Set working directory
         work_dir = working_dir or self._workspace_path
