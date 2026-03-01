@@ -195,7 +195,30 @@ export const _responseInterceptorRejected = async (error: AxiosError) => {
   // Skip refresh for auth endpoints — a 401 on login/register means bad credentials, not an expired token
   const requestUrl = originalRequest.url ?? '';
   const isAuthEndpoint = /\/auth\/(login|logout|register)/.test(requestUrl);
+  const authErrorCode = (() => {
+    const payload = error.response?.data;
+    if (!payload || typeof payload !== 'object') return null;
+    const data = payload as Record<string, unknown>;
+    const detail = data.data;
+    if (!detail || typeof detail !== 'object') return null;
+    const codeValue = (detail as Record<string, unknown>).code;
+    return typeof codeValue === 'string' ? codeValue : null;
+  })();
+
+  const shouldAttemptRefresh = authErrorCode === null || authErrorCode === 'token_expired';
   if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
+    if (!shouldAttemptRefresh) {
+      clearStoredTokens();
+      delete apiClient.defaults.headers.Authorization;
+      window.dispatchEvent(new CustomEvent('auth:logout'));
+      redirectToLogin();
+      return Promise.reject({
+        code: 401,
+        message: 'Authentication required',
+        details: error.response?.data,
+      } satisfies ApiError);
+    }
+
     originalRequest._retry = true;
 
     try {

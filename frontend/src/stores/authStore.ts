@@ -25,14 +25,14 @@ import {
   type RegisterRequest,
 } from '../api/auth'
 
-/** Default token lifetime in seconds (2 hours) used when server doesn't provide expires_in */
-const DEFAULT_TOKEN_LIFETIME_SECONDS = 7200
+/** Default token lifetime in seconds (20 minutes) used when server doesn't provide expires_in */
+const DEFAULT_TOKEN_LIFETIME_SECONDS = 1200
 
-/** Minimum refresh interval to avoid tight loops (60 seconds) */
-const MIN_REFRESH_INTERVAL_SECONDS = 60
+/** Minimum refresh interval to avoid tight loops (10 seconds) */
+const MIN_REFRESH_INTERVAL_SECONDS = 10
 
-/** Proactive refresh fires at 75% of token lifetime */
-const REFRESH_LIFETIME_RATIO = 0.75
+/** Refresh 60 seconds before expiry when possible */
+const REFRESH_LEEWAY_SECONDS = 60
 
 let _refreshTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -217,14 +217,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * Schedule a proactive token refresh at 75% of token lifetime.
+   * Schedule a proactive token refresh 60 seconds before expiry.
    * Prevents SSE reconnection failures by refreshing before expiry.
    */
   function scheduleProactiveRefresh(expiresInSeconds: number) {
     cancelProactiveRefresh()
     const refreshAfter = Math.max(
       MIN_REFRESH_INTERVAL_SECONDS,
-      Math.floor(expiresInSeconds * REFRESH_LIFETIME_RATIO),
+      Math.floor(expiresInSeconds - REFRESH_LEEWAY_SECONDS),
     )
     _refreshTimer = setTimeout(() => {
       _refreshTimer = null
