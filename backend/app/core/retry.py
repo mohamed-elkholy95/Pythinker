@@ -327,9 +327,9 @@ def _build_provider_retry_configs() -> dict[str, "RetryConfig"]:
             retryable_exceptions=TRANSIENT_EXCEPTIONS,
         ),
         "glm": RetryConfig(
-            max_attempts=2,
+            max_attempts=3,
             base_delay=3.0,
-            max_delay=30.0,
+            max_delay=60.0,
             retryable_exceptions=TRANSIENT_EXCEPTIONS,
         ),
         "anthropic": RetryConfig(
