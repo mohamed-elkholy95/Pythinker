@@ -102,6 +102,15 @@ class BaseAgent:
         "verifying": ToolName.for_phase("verifying"),
     }
 
+    _TOKEN_BUDGET_FORCE_CONCLUDE_MESSAGE: ClassVar[str] = (
+        "TOKEN BUDGET CRITICAL (95%+). You MUST conclude your current step and summarize results now. "
+        "Do not start any new exploratory tool calls."
+    )
+    _TOKEN_BUDGET_HARD_STOP_MESSAGE: ClassVar[str] = (
+        "TOKEN BUDGET EMERGENCY (99%+). Tool calls are now disabled. "
+        "Provide the best possible final summary from gathered evidence."
+    )
+
     def __init__(
         self,
         agent_id: str,
@@ -247,6 +256,19 @@ class BaseAgent:
         # Guard with hasattr: get_available_tools() is called during __init__ before _efficiency_monitor is set
         if hasattr(self, "_efficiency_monitor"):
             signal = self._efficiency_monitor.check_efficiency()
+            usage_ratio = self._current_token_usage_ratio()
+
+            # At critical budget pressure, enforce loop breaks even when a tool
+            # would normally be exempt from repetitive-tool checks.
+            if usage_ratio >= 0.98:
+                repeated_tool = getattr(self._efficiency_monitor, "_last_tool_name", None)
+                repeated_count = getattr(self._efficiency_monitor, "_consecutive_same_tool", 0)
+                threshold = getattr(self._efficiency_monitor, "same_tool_threshold", 0)
+                if repeated_tool and repeated_count >= threshold:
+                    available_tools = [
+                        t for t in available_tools if t.get("function", {}).get("name", "") != repeated_tool
+                    ]
+
             if signal.hard_stop:
                 if signal.signal_type == "repetitive_tool":
                     # Only apply if feature flag is enabled
@@ -1182,6 +1204,7 @@ class BaseAgent:
         step_iteration_count = 0  # Per-step iteration counter
         warning_emitted = False
         graceful_completion_requested = False
+        wall_clock_warning_injected = False
 
         # Reset per-step stability counters
         self._hallucination_count_this_step = 0
@@ -1245,6 +1268,27 @@ class BaseAgent:
                         )
                         self._stuck_recovery_exhausted = True
                         break
+                    if not wall_clock_warning_injected and elapsed >= wall_limit * 0.8:
+                        wall_clock_warning_injected = True
+                        logger.warning(
+                            "Step wall-clock usage reached %.0f%% (%.0fs/%.0fs); forcing wrap-up guidance.",
+                            (elapsed / wall_limit) * 100,
+                            elapsed,
+                            wall_limit,
+                        )
+                        message = await self.ask_with_messages(
+                            [
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "STEP TIME WARNING: You have used 80% of the step time budget. "
+                                        "Conclude this step now, summarize current findings, and avoid "
+                                        "starting new tool calls."
+                                    ),
+                                }
+                            ]
+                        )
+                        continue
 
             # Check if we're approaching the limit
             remaining_budget = iteration_budget - iteration_spent
@@ -1616,6 +1660,54 @@ class BaseAgent:
         self.memory.roll_back()
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
 
+    def _current_token_usage_ratio(self) -> float:
+        """Return current memory token usage ratio against effective limit."""
+        if not self.memory:
+            return 0.0
+        token_count = self._token_manager.count_messages_tokens(self.memory.get_messages())
+        effective_limit = max(1, self._token_manager._effective_limit)
+        return token_count / effective_limit
+
+    def _resolve_budget_action(self, usage_ratio: float):
+        """Resolve token budget action with manager-aware fallback."""
+        from app.domain.services.agents.token_budget_manager import BudgetAction
+
+        manager = getattr(self, "_token_budget_manager", None)
+        if manager and hasattr(manager, "enforce_budget_policy"):
+            return manager.enforce_budget_policy(usage_ratio)
+
+        if usage_ratio >= 0.99:
+            return BudgetAction.HARD_STOP_TOOLS
+        if usage_ratio >= 0.98:
+            return BudgetAction.FORCE_HARD_STOP_NUDGE
+        if usage_ratio >= 0.95:
+            return BudgetAction.FORCE_CONCLUDE
+        if usage_ratio >= 0.90:
+            return BudgetAction.REDUCE_VERBOSITY
+        return BudgetAction.NORMAL
+
+    async def _inject_budget_notice_if_needed(self, notice: str) -> None:
+        """Append a budget notice once to avoid repeated duplicate injections."""
+        if not self.memory:
+            return
+        current_messages = self.memory.get_messages()
+        if current_messages:
+            last = current_messages[-1]
+            if last.get("role") == "user" and last.get("content") == notice:
+                return
+        await self._add_to_memory([{"role": "user", "content": notice}])
+
+    def _filter_read_tools(self, tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        """Drop read-only tools, keeping only action-capable tools."""
+        if tools is None:
+            return None
+        filtered = [
+            tool
+            for tool in tools
+            if not self._efficiency_monitor._is_read_tool(tool.get("function", {}).get("name", ""))
+        ]
+        return filtered or None
+
     async def ask_with_messages(self, messages: list[dict[str, Any]], format: str | None = None) -> dict[str, Any]:
         await self._add_to_memory(messages)
 
@@ -1638,17 +1730,38 @@ class BaseAgent:
         if format:
             response_format = {"type": format}
 
+        from app.domain.services.agents.token_budget_manager import BudgetAction
+
         empty_response_count = 0
         max_empty_responses = 5
 
         for _retry in range(self.max_retries + max_empty_responses):
+            usage_ratio = self._current_token_usage_ratio()
+            budget_action = self._resolve_budget_action(usage_ratio)
+            available_tools = self.get_available_tools()
+            max_tokens_override: int | None = None
+
+            if budget_action == BudgetAction.REDUCE_VERBOSITY:
+                llm_default_max = int(getattr(self.llm, "max_tokens", 2048) or 2048)
+                max_tokens_override = max(512, llm_default_max // 2)
+            elif budget_action == BudgetAction.FORCE_CONCLUDE:
+                await self._inject_budget_notice_if_needed(self._TOKEN_BUDGET_FORCE_CONCLUDE_MESSAGE)
+            elif budget_action == BudgetAction.FORCE_HARD_STOP_NUDGE:
+                await self._inject_budget_notice_if_needed(self._TOKEN_BUDGET_FORCE_CONCLUDE_MESSAGE)
+                available_tools = self._filter_read_tools(available_tools)
+            elif budget_action == BudgetAction.HARD_STOP_TOOLS:
+                await self._inject_budget_notice_if_needed(self._TOKEN_BUDGET_HARD_STOP_MESSAGE)
+                available_tools = None
+                self._active_phase = "summarizing"
+
             try:
                 message = await self.llm.ask(
                     self.memory.get_messages(),
-                    tools=self.get_available_tools(),
+                    tools=available_tools,
                     response_format=response_format,
                     tool_choice=self.tool_choice,
                     model=self._step_model_override,  # DeepCode Phase 1: Adaptive model selection
+                    max_tokens=max_tokens_override,
                 )
             except TokenLimitExceededError as e:
                 logger.warning(f"Token limit exceeded, trimming context: {e}")

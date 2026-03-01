@@ -41,6 +41,16 @@ class BudgetPhase(str, Enum):
     SUMMARIZATION = "summarization"
 
 
+class BudgetAction(str, Enum):
+    """Actions enforced as overall budget usage approaches exhaustion."""
+
+    NORMAL = "normal"
+    REDUCE_VERBOSITY = "reduce_verbosity"
+    FORCE_CONCLUDE = "force_conclude"
+    FORCE_HARD_STOP_NUDGE = "force_hard_stop_nudge"
+    HARD_STOP_TOOLS = "hard_stop_tools"
+
+
 @dataclass
 class PhaseAllocation:
     """Token allocation for a single phase."""
@@ -205,6 +215,25 @@ class TokenBudgetManager:
         except Exception as exc:
             logger.warning("create_dynamic_budget fallback (model=%s): %s", model_name, exc)
             return self.create_budget()
+
+    def enforce_budget_policy(self, usage_pct: float) -> BudgetAction:
+        """Map overall usage ratio to an enforcement action.
+
+        Thresholds:
+        - 90%: reduce verbosity
+        - 95%: force conclude
+        - 98%: force hard-stop nudge semantics
+        - 99%: hard-stop all tool calls
+        """
+        if usage_pct >= 0.99:
+            return BudgetAction.HARD_STOP_TOOLS
+        if usage_pct >= 0.98:
+            return BudgetAction.FORCE_HARD_STOP_NUDGE
+        if usage_pct >= 0.95:
+            return BudgetAction.FORCE_CONCLUDE
+        if usage_pct >= 0.90:
+            return BudgetAction.REDUCE_VERBOSITY
+        return BudgetAction.NORMAL
 
     def check_before_call(
         self,
