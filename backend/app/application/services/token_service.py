@@ -25,6 +25,11 @@ class TokenService:
     def __init__(self):
         self.settings = get_settings()
 
+    @property
+    def _refresh_secret(self) -> str:
+        """Separate signing secret for refresh tokens. Falls back to main secret."""
+        return self.settings.jwt_refresh_secret_key or self.settings.jwt_secret_key
+
     def create_access_token(self, user: User) -> str:
         """Create JWT access token for user"""
         now = datetime.now(UTC)
@@ -50,7 +55,7 @@ class TokenService:
             raise
 
     def create_refresh_token(self, user: User) -> str:
-        """Create JWT refresh token for user"""
+        """Create JWT refresh token for user (signed with separate refresh secret)"""
         now = datetime.now(UTC)
         expire = now + timedelta(days=self.settings.jwt_refresh_token_expire_days)
 
@@ -63,7 +68,7 @@ class TokenService:
         }
 
         try:
-            token = jwt.encode(payload, self.settings.jwt_secret_key, algorithm=self.settings.jwt_algorithm)
+            token = jwt.encode(payload, self._refresh_secret, algorithm=self.settings.jwt_algorithm)
             logger.debug(f"Created refresh token for user: {user.fullname}")
             return token
         except Exception as e:
@@ -72,48 +77,76 @@ class TokenService:
 
     def verify_token(self, token: str) -> dict[str, Any] | None:
         """Verify JWT token and return payload"""
+        payload, _ = self.verify_token_with_reason(token)
+        return payload
+
+    def verify_token_with_reason(
+        self, token: str, *, expected_type: str | None = None
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Verify JWT token and return payload plus machine-readable failure reason.
+
+        Args:
+            token: The JWT token string.
+            expected_type: If set, only accept tokens of this type ("access" or "refresh").
+                           Refresh tokens are verified against the refresh secret.
+        """
+        # Choose signing secret: refresh tokens use _refresh_secret
+        secret = self._refresh_secret if expected_type == "refresh" else self.settings.jwt_secret_key
+
         try:
             payload = jwt.decode(
                 token,
-                self.settings.jwt_secret_key,
+                secret,
                 algorithms=[self.settings.jwt_algorithm],
                 leeway=5,
                 options={"require": ["exp", "iat", "sub"]},
             )
 
+            # Enforce token type if caller specified it
+            if expected_type and payload.get("type") != expected_type:
+                logger.warning("Token type mismatch: expected %s, got %s", expected_type, payload.get("type"))
+                return None, "invalid_token"
+
             logger.debug(f"Token verified for user: {payload.get('fullname')}")
-            return payload
+            return payload, None
 
         except jwt.ExpiredSignatureError:
             logger.warning("Token has expired")
-            return None
+            return None, "token_expired"
         except jwt.InvalidTokenError as e:
             logger.warning(f"Invalid token: {e}")
-            return None
+            return None, "invalid_token"
         except Exception as e:
             logger.error(f"Token verification failed: {e}")
-            return None
+            return None, "token_verification_failed"
 
-    async def verify_token_async(self, token: str) -> dict[str, Any] | None:
+    async def verify_token_async(self, token: str, *, expected_type: str | None = None) -> dict[str, Any] | None:
         """Verify JWT token with blacklist and user revocation check (async version)"""
+        payload, _ = await self.verify_token_async_with_reason(token, expected_type=expected_type)
+        return payload
+
+    async def verify_token_async_with_reason(
+        self, token: str, *, expected_type: str | None = None
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Verify JWT token and include a machine-readable failure reason."""
         # First do basic JWT verification
-        payload = self.verify_token(token)
+        payload, reason = self.verify_token_with_reason(token, expected_type=expected_type)
         if not payload:
-            return None
+            return None, reason
 
         # Check if token is blacklisted
         if self.settings.jwt_token_blacklist_enabled and await self._is_token_blacklisted(token):
             logger.warning("Token is blacklisted")
-            return None
+            return None, "token_revoked"
 
         # Check if all user tokens were revoked (logout-all-devices)
         user_id = payload.get("sub")
         issued_at = payload.get("iat")
         if user_id and issued_at and await self.is_user_token_revoked(str(user_id), issued_at):
             logger.warning(f"Token revoked for user: {user_id}")
-            return None
+            return None, "token_revoked"
 
-        return payload
+        return payload, None
 
     async def _is_token_blacklisted(self, token: str) -> bool:
         """Check if token is in the blacklist.

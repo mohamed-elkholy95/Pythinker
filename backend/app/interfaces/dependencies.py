@@ -1,5 +1,6 @@
 import logging
 from functools import lru_cache
+from inspect import isawaitable
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -316,6 +317,57 @@ def increment_rating_unauthorized_attempts() -> None:
     rating_unauthorized_attempts_total.inc({})
 
 
+def _raise_auth_error(reason: str | None) -> None:
+    """Raise standardized UnauthorizedError with machine-readable code."""
+    headers = {"WWW-Authenticate": "Bearer"}
+    if reason == "token_expired":
+        raise UnauthorizedError(
+            "Access token has expired",
+            error_code="token_expired",
+            headers=headers,
+        )
+    if reason in {"invalid_token", "invalid_token_type", "token_verification_failed", "token_revoked", "user_inactive"}:
+        raise UnauthorizedError(
+            "Could not validate credentials",
+            error_code="invalid_token",
+            headers=headers,
+        )
+    raise UnauthorizedError(
+        "Authentication required",
+        error_code="auth_required",
+        headers=headers,
+    )
+
+
+async def _verify_token_with_reason(auth_service: AuthService, token: str) -> tuple[User | None, str | None]:
+    """Compatibility wrapper for auth_service token verification APIs."""
+    modern = getattr(auth_service, "verify_token_secure_with_reason", None)
+    if callable(modern):
+        modern_result = modern(token)
+        if isawaitable(modern_result):
+            modern_result = await modern_result
+        if (
+            isinstance(modern_result, tuple)
+            and len(modern_result) == 2
+            and (modern_result[0] is None or isinstance(modern_result[0], User))
+        ):
+            user_value = modern_result[0]
+            reason_value = modern_result[1]
+            if reason_value is None or isinstance(reason_value, str):
+                return user_value, reason_value
+
+    legacy = getattr(auth_service, "verify_token_secure", None)
+    if callable(legacy):
+        legacy_result = legacy(token)
+        if isawaitable(legacy_result):
+            legacy_result = await legacy_result
+        if legacy_result and isinstance(legacy_result, User):
+            return legacy_result, None
+        return None, "invalid_token"
+
+    return None, "invalid_token"
+
+
 async def require_admin_user(
     bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
     auth_service: AuthService = Depends(get_auth_service),
@@ -345,17 +397,17 @@ async def require_admin_user(
 
     # Check if bearer token is provided
     if not bearer_credentials:
-        raise UnauthorizedError("Authentication required")
+        _raise_auth_error("auth_required")
 
     try:
         # Verify bearer token with blacklist + revocation checks
-        user = await auth_service.verify_token_secure(bearer_credentials.credentials)
+        user, reason = await _verify_token_with_reason(auth_service, bearer_credentials.credentials)
 
         if not user:
-            raise UnauthorizedError("Invalid token")
+            _raise_auth_error(reason)
 
         if not user.is_active:
-            raise UnauthorizedError("User account is inactive")
+            _raise_auth_error("user_inactive")
 
         # Check admin role
         if user.role != UserRole.ADMIN:
@@ -401,20 +453,22 @@ async def get_current_user(
 
     # Check if bearer token is provided
     if not bearer_credentials:
-        raise UnauthorizedError("Authentication required")
+        _raise_auth_error("auth_required")
 
     try:
         # Verify bearer token with blacklist + revocation checks
-        user = await auth_service.verify_token_secure(bearer_credentials.credentials)
+        user, reason = await _verify_token_with_reason(auth_service, bearer_credentials.credentials)
 
         if not user:
-            raise UnauthorizedError("Invalid token")
+            _raise_auth_error(reason)
 
         if not user.is_active:
-            raise UnauthorizedError("User account is inactive")
+            _raise_auth_error("user_inactive")
 
         return user
 
+    except UnauthorizedError:
+        raise
     except Exception as e:
         logger.warning(f"Authentication failed: {e}")
         raise UnauthorizedError("Authentication failed") from e
@@ -440,15 +494,17 @@ async def get_eventsource_current_user(
 
     token = bearer_credentials.credentials if bearer_credentials else access_token
     if not token:
-        raise UnauthorizedError("Authentication required")
+        _raise_auth_error("auth_required")
 
     try:
-        user = await auth_service.verify_token_secure(token)
+        user, reason = await _verify_token_with_reason(auth_service, token)
         if not user:
-            raise UnauthorizedError("Invalid token")
+            _raise_auth_error(reason)
         if not user.is_active:
-            raise UnauthorizedError("User account is inactive")
+            _raise_auth_error("user_inactive")
         return user
+    except UnauthorizedError:
+        raise
     except Exception as e:
         logger.warning(f"EventSource authentication failed: {e}")
         raise UnauthorizedError("Authentication failed") from e
