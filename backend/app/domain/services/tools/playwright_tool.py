@@ -132,6 +132,7 @@ class PlaywrightTool(BaseTool):
     # Stealth Chromium args to disable automation detection
     STEALTH_ARGS: ClassVar[list[str]] = [
         "--disable-blink-features=AutomationControlled",
+        "--disable-features=UseChromeOSDirectVideoDecoder",
         "--disable-features=IsolateOrigins,site-per-process",
         "--disable-site-isolation-trials",
         "--disable-web-security",
@@ -139,6 +140,8 @@ class PlaywrightTool(BaseTool):
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
+        "--use-gl=swiftshader",
+        "--disable-webrtc",
         "--disable-accelerated-2d-canvas",
         "--no-first-run",
         "--no-zygote",
