@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -202,9 +203,7 @@ class TokenBudgetManager:
             limit = manager.get_effective_limit(model_name, api_base)
             return self.create_budget(max_tokens=limit)
         except Exception as exc:
-            logger.warning(
-                "create_dynamic_budget fallback (model=%s): %s", model_name, exc
-            )
+            logger.warning("create_dynamic_budget fallback (model=%s): %s", model_name, exc)
             return self.create_budget()
 
     def check_before_call(
@@ -299,6 +298,9 @@ class TokenBudgetManager:
             phase.value,
         )
 
+        # Extract failure lessons BEFORE any truncation
+        lessons = self._extract_failure_lessons(messages)
+
         # Stage 1: Summarize verbose tool outputs
         compressed = self._summarize_tool_outputs(messages, target_tokens)
         if self._token_manager.count_messages_tokens(compressed) <= target_tokens:
@@ -314,6 +316,14 @@ class TokenBudgetManager:
             compressed,
             preserve_recent=4,
         )
+
+        # Inject failure lessons as a system message (survives further compression)
+        if lessons:
+            insert_idx = next(
+                (i + 1 for i, m in enumerate(compressed) if m.get("role") == "system"),
+                0,
+            )
+            compressed.insert(insert_idx, {"role": "system", "content": lessons})
 
         return compressed
 
@@ -437,6 +447,62 @@ class TokenBudgetManager:
                 result.append(msg)
 
         return result
+
+    # ── Error patterns for lesson extraction ─────────────────────────
+    _ERROR_PATTERNS: ClassVar[list[re.Pattern]] = [
+        re.compile(r"(ModuleNotFoundError): No module named '([^']+)'"),
+        re.compile(r"(ImportError): (.{1,80})"),
+        re.compile(r"(FileNotFoundError): (.{1,80})"),
+        re.compile(r"(PermissionError|Permission denied): (.{1,80})"),
+        re.compile(r"(SyntaxError): (.{1,80})"),
+        re.compile(r"(exit code \d+)"),
+    ]
+
+    _MAX_LESSON_CHARS: ClassVar[int] = 500
+
+    def _extract_failure_lessons(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> str | None:
+        """Extract compact failure lessons from tool result messages.
+
+        Scans role=tool messages for error patterns, deduplicates, and
+        returns a compact string suitable for injection as a system message
+        that will survive subsequent compression stages.
+
+        Returns None if no actionable errors found.
+        """
+        seen: set[str] = set()
+        lessons: list[str] = []
+
+        for msg in messages:
+            if msg.get("role") != "tool":
+                continue
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                continue
+
+            for pattern in self._ERROR_PATTERNS:
+                match = pattern.search(content)
+                if match:
+                    # Build dedup key from the matched groups
+                    key = match.group(0)[:120]
+                    if key not in seen:
+                        seen.add(key)
+                        lessons.append(f"- {key}")
+
+        if not lessons:
+            return None
+
+        header = "[COMPRESSION_CONTEXT] Previous tool errors — do NOT retry these approaches:"
+        body = "\n".join(lessons)
+        full = f"{header}\n{body}"
+
+        # Cap size to avoid bloating context
+        if len(full) > self._MAX_LESSON_CHARS:
+            full = full[: self._MAX_LESSON_CHARS - 3] + "..."
+
+        return full
 
 
 # ── Singleton accessor ──────────────────────────────────────────────
