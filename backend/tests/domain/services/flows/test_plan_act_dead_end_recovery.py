@@ -52,9 +52,11 @@ def test_is_zero_progress_dead_end_false_when_plan_missing() -> None:
 
 def test_consume_zero_progress_replan_attempt_allows_once_then_blocks() -> None:
     flow = _make_flow_with_plan([ExecutionStatus.BLOCKED])
-    flow._max_zero_progress_dead_end_replans = 1
+    flow._max_zero_progress_dead_end_replans = 2
 
     assert flow._consume_zero_progress_replan_attempt() is True
     assert flow._zero_progress_dead_end_replans == 1
+    assert flow._consume_zero_progress_replan_attempt() is True
+    assert flow._zero_progress_dead_end_replans == 2
     assert flow._consume_zero_progress_replan_attempt() is False
-    assert flow._zero_progress_dead_end_replans == 1
+    assert flow._zero_progress_dead_end_replans == 2
