@@ -155,6 +155,9 @@ class PlaywrightBrowser:
         # Note: only protects navigate(); other page methods (click, type) rely on
         # SEQUENTIAL_ONLY_TOOLS enforcement in parallel_executor.py as primary safeguard.
         self._navigation_lock = asyncio.Lock()
+        # Track URLs that already triggered heavy-page warnings to reduce log noise.
+        # Each URL is warned once per browser instance lifetime.
+        self._heavy_page_warned_urls: set[str] = set()
         # Keeps strong references to fire-and-forget background tasks (satisfies RUF006).
         self._background_tasks: set[asyncio.Task] = set()
 
@@ -398,9 +401,12 @@ class PlaywrightBrowser:
             if isinstance(complexity, dict) and complexity.get("isHeavy"):
                 iframe_count = complexity.get("iframeCount", 0)
                 element_count = complexity.get("elementCount", 0)
-                logger.warning(
-                    f"Heavy page detected ({iframe_count} iframes, {element_count} elements), clearing to about:blank"
-                )
+                current_url = self.page.url if self.page else ""
+                if current_url not in self._heavy_page_warned_urls:
+                    self._heavy_page_warned_urls.add(current_url)
+                    logger.warning(
+                        f"Heavy page detected ({iframe_count} iframes, {element_count} elements), clearing to about:blank"
+                    )
                 try:
                     await self.page.goto("about:blank", timeout=5000)
                 except Exception as clear_error:
@@ -2039,10 +2045,13 @@ class PlaywrightBrowser:
             # Check page complexity before full extraction
             complexity = await self._get_page_complexity()
             if isinstance(complexity, dict) and complexity.get("isHeavy"):
-                logger.warning(
-                    f"Heavy page detected: {complexity.get('elementCount', 'unknown')} elements, "
-                    f"{complexity.get('interactiveCount', 'unknown')} interactive"
-                )
+                current_url = self.page.url if self.page else ""
+                if current_url not in self._heavy_page_warned_urls:
+                    self._heavy_page_warned_urls.add(current_url)
+                    logger.warning(
+                        f"Heavy page detected: {complexity.get('elementCount', 'unknown')} elements, "
+                        f"{complexity.get('interactiveCount', 'unknown')} interactive"
+                    )
 
             # Parallel extraction of elements and content (LangChain pattern)
             elements_task = asyncio.create_task(self._extract_interactive_elements())
@@ -2365,10 +2374,17 @@ class PlaywrightBrowser:
                 page_size = await self._quick_page_size_check()
                 if isinstance(page_size, dict) and page_size.get("isHeavy"):
                     is_heavy_page = True
-                    logger.warning(
-                        f"Heavy page detected early: {page_size.get('htmlSize', 0) // 1024}KB HTML, "
-                        f"{page_size.get('domCount', 0)} DOM elements - switching to lightweight mode"
-                    )
+                    # Rate-limit: warn once per URL per browser instance
+                    if url not in self._heavy_page_warned_urls:
+                        self._heavy_page_warned_urls.add(url)
+                        logger.warning(
+                            f"Heavy page detected early: {page_size.get('htmlSize', 0) // 1024}KB HTML, "
+                            f"{page_size.get('domCount', 0)} DOM elements - switching to lightweight mode"
+                        )
+                    else:
+                        logger.debug(
+                            f"Heavy page (repeat visit, suppressing warning): {page_size.get('domCount', 0)} DOM elements"
+                        )
                     from app.core.prometheus_metrics import (
                         browser_heavy_page_detections_total,
                     )

@@ -262,18 +262,24 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Failed to seed connectors (non-critical): {e}")
 
-        # Cleanup stale running sessions from previous crashes/restarts
+        # Cleanup stale running sessions from previous crashes/restarts.
+        # On startup, ANY session still marked RUNNING is orphaned — the backend
+        # just (re)started so no in-memory task can be alive.  Use threshold=0
+        # to catch sessions from hot-reloads that are only seconds old.
         try:
             from app.application.services.maintenance_service import MaintenanceService
 
             db = get_mongodb().client[settings.mongodb_database]
             maintenance_service = MaintenanceService(db)
             cleanup_result = await maintenance_service.cleanup_stale_running_sessions(
-                stale_threshold_minutes=settings.stale_session_startup_threshold_minutes,
+                stale_threshold_minutes=0,
                 dry_run=False,
             )
             if cleanup_result["sessions_cleaned"] > 0:
-                logger.info(f"Cleaned up {cleanup_result['sessions_cleaned']} stale sessions from previous run")
+                logger.info(
+                    "Startup: cleaned %d orphaned RUNNING sessions (threshold=0 min)",
+                    cleanup_result["sessions_cleaned"],
+                )
 
             periodic_cleanup_task = asyncio.create_task(
                 _run_periodic_session_cleanup(
