@@ -1396,7 +1396,8 @@ To extract data from a webpage:
                     )
 
                 llm_call_duration = time.monotonic() - llm_call_start
-                log_fn = logger.warning if llm_call_duration > 30 else logger.info
+                _slow = get_settings().llm_slow_request_threshold
+                log_fn = logger.warning if llm_call_duration > _slow else logger.info
                 log_fn(
                     f"LLM ask() completed in {llm_call_duration:.1f}s "
                     f"(model={effective_model}, tools={'yes' if request_tools else 'no'}, "
@@ -1835,7 +1836,8 @@ To extract data from a webpage:
                         **params,
                     )
                     llm_call_duration = time.monotonic() - llm_call_start
-                    log_fn = logger.warning if llm_call_duration > 30 else logger.info
+                    _slow = get_settings().llm_slow_request_threshold
+                    log_fn = logger.warning if llm_call_duration > _slow else logger.info
                     log_fn(
                         f"LLM ask_structured() [instructor] completed in {llm_call_duration:.1f}s "
                         f"(model={effective_model}, schema={response_model.__name__}, "
@@ -1847,7 +1849,8 @@ To extract data from a webpage:
                 # ── manual path (fallback) ───────────────────────────────
                 response = await client.chat.completions.create(**params)
                 llm_call_duration = time.monotonic() - llm_call_start
-                log_fn = logger.warning if llm_call_duration > 30 else logger.info
+                _slow = get_settings().llm_slow_request_threshold
+                log_fn = logger.warning if llm_call_duration > _slow else logger.info
                 log_fn(
                     f"LLM ask_structured() completed in {llm_call_duration:.1f}s "
                     f"(model={effective_model}, schema={response_model.__name__}, "
@@ -2249,7 +2252,8 @@ To extract data from a webpage:
                             )
 
                 stream_duration = time.monotonic() - stream_start
-                log_fn = logger.warning if stream_duration > 30 else logger.info
+                _slow = get_settings().llm_slow_request_threshold
+                log_fn = logger.warning if stream_duration > _slow else logger.info
                 log_fn(
                     f"LLM ask_stream() completed in {stream_duration:.1f}s "
                     f"(model={effective_model}, chars={len(''.join(completion_parts))})"
