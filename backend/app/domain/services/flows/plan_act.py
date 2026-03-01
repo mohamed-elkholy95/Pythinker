@@ -290,6 +290,10 @@ class PlanActFlow(BaseFlow):
         # if execution ends with no completed/skipped steps, replan once before failing.
         self._zero_progress_dead_end_replans = 0
         self._max_zero_progress_dead_end_replans = 2
+        # Anti-hallucination abort flag: when True, the COMPLETED handler skips
+        # the success ceremony (PlanEvent, prompt optimizer) and suppresses DoneEvent
+        # so ErrorEvent remains the terminal signal for agent_task_runner.
+        self._aborted_zero_progress = False
 
         # Phase 2: Proactive token budget management (feature-flagged)
         self._token_budget = None  # Created at flow start if flag enabled
@@ -2569,6 +2573,23 @@ class PlanActFlow(BaseFlow):
                         continue
 
                     self.plan.status = ExecutionStatus.RUNNING
+
+                    # Sweep orphaned RUNNING steps (left by error recovery)
+                    for s in self.plan.steps:
+                        if s.status == ExecutionStatus.RUNNING:
+                            s.status = ExecutionStatus.SKIPPED
+                            s.success = True
+                            s.notes = (
+                                "Error recovery: LLM timeout during execution. "
+                                "Partial work preserved."
+                            )
+                            self._steps_completed_count += 1
+                            logger.info(
+                                "Marked orphaned RUNNING step %s as SKIPPED "
+                                "(error recovery cleanup)",
+                                s.id,
+                            )
+
                     step = self.plan.get_next_step()
                     if not step:
                         # Before transitioning to SUMMARIZING, try to unblock steps
@@ -2658,7 +2679,10 @@ class PlanActFlow(BaseFlow):
                                     ProgressMetrics as _ProgressMetrics,
                                 )
 
-                                _completed = [s for s in self.plan.steps if s.status == ExecutionStatus.COMPLETED]
+                                _completed = [
+                                    s for s in self.plan.steps
+                                    if s.status.value in ExecutionStatus.get_success_statuses()
+                                ]
                                 _failed = [
                                     s for s in self.plan.steps if not s.success and s.status != ExecutionStatus.BLOCKED
                                 ]
@@ -3023,7 +3047,7 @@ class PlanActFlow(BaseFlow):
 
                     # Research-conducted gate: refuse to generate a report from nothing
                     completed_steps = (
-                        [s for s in self.plan.steps if s.status == ExecutionStatus.COMPLETED]
+                        [s for s in self.plan.steps if s.status.value in ExecutionStatus.get_success_statuses()]
                         if self.plan and self.plan.steps
                         else []
                     )
@@ -3034,6 +3058,8 @@ class PlanActFlow(BaseFlow):
                             self._agent_id,
                             len(self.plan.steps),
                         )
+                        self.plan.status = ExecutionStatus.FAILED
+                        self._aborted_zero_progress = True
                         yield ErrorEvent(
                             error=self._build_zero_progress_error_message(),
                         )
@@ -3364,6 +3390,19 @@ class PlanActFlow(BaseFlow):
                     )
                     self._transition_to(AgentStatus.COMPLETED)
                 elif self.status == AgentStatus.COMPLETED:
+                    if self._aborted_zero_progress:
+                        # Zero-progress abort: plan already marked FAILED and ErrorEvent
+                        # already emitted.  Skip the success ceremony so ErrorEvent
+                        # remains the terminal signal for agent_task_runner.
+                        logger.warning(
+                            "Agent %s completed via zero-progress abort — "
+                            "skipping success ceremony (plan status: %s)",
+                            self._agent_id,
+                            self.plan.status.value if self.plan else "N/A",
+                        )
+                        self._transition_to(AgentStatus.IDLE)
+                        break
+
                     # Reconcile: ensure every successful step carries COMPLETED status
                     # before emitting the final PlanEvent (guards against any missed updates).
                     for s in self.plan.steps:
@@ -3463,7 +3502,8 @@ class PlanActFlow(BaseFlow):
                     yield ErrorEvent(error=f"Unrecoverable error: {err_ctx.message}")
                     break
 
-        yield DoneEvent()
+        if not self._aborted_zero_progress:
+            yield DoneEvent()
 
         logger.info(f"Agent {self._agent_id} message processing completed")
 
