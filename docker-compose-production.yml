@@ -113,7 +113,8 @@ services:
       - knowledge_base_data:/app/data/knowledge_bases
       - dspy_cache:/app/data/dspy_cache
     networks:
-      - pythinker-prod
+      - pythinker-prod              # Frontend-facing network
+      - pythinker-backend-internal  # Can reach MongoDB
     env_file:
       - .env.production
     environment:
@@ -131,8 +132,10 @@ services:
       - DSPY_MINIBATCH_SIZE=${DSPY_MINIBATCH_SIZE:-25}
       # Production: connect to Redis with password
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
-      # Production: connect to MongoDB replica set
-      - MONGODB_URL=mongodb://mongodb:27017/?replicaSet=rs0
+      # Production: connect to authenticated MongoDB replica set
+      - MONGODB_URI=mongodb://mongodb:27017/${MONGODB_DATABASE:-pythinker}?authSource=admin&replicaSet=rs0
+      - MONGODB_USERNAME=${MONGODB_ROOT_USERNAME:?Set MONGODB_ROOT_USERNAME}
+      - MONGODB_PASSWORD=${MONGODB_ROOT_PASSWORD:?Set MONGODB_ROOT_PASSWORD}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pythinker-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`)"
@@ -200,7 +203,7 @@ services:
         reservations:
           memory: 512M
     networks:
-      - pythinker-prod
+      - pythinker-backend-internal  # Backend reaches sandbox; sandbox cannot reach frontend
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 30s
@@ -212,7 +215,7 @@ services:
   # MongoDB (Single-node Replica Set for oplog/change streams)
   # ---------------------------------------------------------------------------
   mongodb:
-    image: mongo:7.0
+    image: mongo:7.0.28
     container_name: pythinker-mongodb
     command:
       - mongod
@@ -223,9 +226,15 @@ services:
       - --setParameter=maxIndexBuildMemoryUsageMegabytes=200
     volumes:
       - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME_FILE: /run/secrets/mongo_root_username
+      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_root_password
+    secrets:
+      - mongo_root_username
+      - mongo_root_password
     restart: always
     networks:
-      - pythinker-prod
+      - pythinker-backend-internal  # Internal-only network — no external access
     deploy:
       resources:
         limits:
@@ -237,7 +246,7 @@ services:
       # Ping AND initialize replica set if not already configured.
       # rs.status() throws if uninitialized; initiate then re-check.
       test: >-
-        mongosh --norc --quiet --eval "
+        mongosh --norc --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "
           try { rs.status().ok }
           catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'mongodb:27017'}]}).ok }
         "
@@ -296,7 +305,7 @@ services:
       - redis_data:/data
     restart: always
     networks:
-      - pythinker-prod
+      - pythinker-backend-internal  # Only backend can reach Redis
     sysctls:
       - net.core.somaxconn=511
     deploy:
@@ -333,7 +342,7 @@ services:
       - QDRANT__STORAGE__OPTIMIZERS__FLUSH_INTERVAL_SEC=5
     restart: always
     networks:
-      - pythinker-prod
+      - pythinker-backend-internal  # Only backend can reach Qdrant
     deploy:
       resources:
         limits:
@@ -366,7 +375,7 @@ services:
     command: server /data --console-address ":9001"
     restart: always
     networks:
-      - pythinker-prod
+      - pythinker-backend-internal  # Only backend can reach MinIO
     deploy:
       resources:
         limits:
@@ -382,6 +391,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+# =============================================================================
+# Secrets (mounted at /run/secrets/ — never visible in docker inspect)
+# =============================================================================
+secrets:
+  mongo_root_username:
+    file: ./secrets/mongo_root_username.txt
+  mongo_root_password:
+    file: ./secrets/mongo_root_password.txt
 
 # =============================================================================
 # Volumes
@@ -409,3 +427,6 @@ networks:
   pythinker-prod:
     name: pythinker-prod
     driver: bridge
+  pythinker-backend-internal:
+    name: pythinker-backend-internal
+    internal: true  # No external access — containers only
