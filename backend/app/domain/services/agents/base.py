@@ -135,6 +135,7 @@ class BaseAgent:
 
         # Initialize reliability components
         self._stuck_detector = StuckDetector(window_size=5, threshold=3)
+        self._recent_truncation_count = 0  # Tracks consecutive truncated tool calls
         self._token_manager = TokenManager(model_name=getattr(llm, "model_name", "gpt-4"))
         self._error_handler = ErrorHandler()
 
@@ -1568,20 +1569,47 @@ class BaseAgent:
                 raise
 
             # Detect truncated responses via _finish_reason from LLM adapters
-            is_truncated = message.get("_finish_reason") == "length"
+            is_truncated = message.get("_finish_reason") == "length" or message.get("_tool_args_truncated", False)
+
+            # Also detect truncation heuristically: if tool calls have
+            # empty args (repaired from malformed JSON), the LLM likely
+            # hit its output limit without reporting finish_reason=length.
+            # This catches providers like GLM that always say "stop".
+            if not is_truncated and message.get("tool_calls"):
+                for tc in message.get("tool_calls", []):
+                    func = tc.get("function", {}) if isinstance(tc, dict) else {}
+                    args = func.get("arguments", "")
+                    if args in ("{}", "", "null"):
+                        tool_name = func.get("name", "unknown")
+                        logger.warning(
+                            "Tool call '%s' has empty args (likely truncated output) — treating as truncation",
+                            tool_name,
+                        )
+                        is_truncated = True
+                        break
 
             if is_truncated and message.get("tool_calls"):
-                # Truncated tool calls likely have malformed JSON — drop and retry
-                logger.error("LLM response truncated with partial tool_calls — dropping and requesting continuation")
+                # Truncated tool calls have malformed/empty JSON — drop and retry.
+                # Tell the LLM to break content into smaller pieces to avoid
+                # hitting the output limit again.
+                self._recent_truncation_count += 1
+                logger.warning(
+                    "LLM response truncated with partial tool_calls (consecutive: %d) — requesting smaller output",
+                    self._recent_truncation_count,
+                )
                 await self._add_to_memory(
                     [
                         {"role": "assistant", "content": message.get("content") or ""},
                         {
                             "role": "user",
                             "content": (
-                                "Your previous response was cut off due to length limits. "
-                                "Please continue from where you stopped. Do not use tools — "
-                                "provide your answer as text."
+                                "Your previous response was cut off due to output length limits, "
+                                "so the tool call arguments were lost. "
+                                "Please break your work into SMALLER pieces:\n"
+                                "- If writing a file, write it in sections using multiple smaller writes\n"
+                                "- If the content is long, summarize first then write details separately\n"
+                                "- Do NOT try to write the entire content in a single tool call\n"
+                                "Continue with a smaller action now."
                             ),
                         },
                     ]
@@ -1658,8 +1686,17 @@ class BaseAgent:
             if is_stuck and self._stuck_detector.can_attempt_recovery():
                 self._stuck_detector.record_recovery_attempt()
 
-                # Use enhanced guidance if we have action-level analysis
-                if action_analysis:
+                # Use truncation-specific recovery if the stuck loop was
+                # caused by repeated output truncation (e.g., LLM keeps
+                # trying to write a large file in one tool call).
+                if self._recent_truncation_count >= 2:
+                    recovery_prompt = self._stuck_detector.get_truncation_recovery_prompt()
+                    logger.warning(
+                        "Agent stuck due to output truncation (%d consecutive), injecting split-output prompt",
+                        self._recent_truncation_count,
+                    )
+                elif action_analysis:
+                    # Use enhanced guidance if we have action-level analysis
                     recovery_prompt = self._stuck_detector.get_recovery_guidance()
                     logger.warning(
                         f"Agent stuck detected ({action_analysis.loop_type.value}), "
@@ -1679,6 +1716,7 @@ class BaseAgent:
 
             await self._add_to_memory([filtered_message])
             empty_response_count = 0  # Reset on successful non-empty response
+            self._recent_truncation_count = 0  # Reset truncation counter on success
             return filtered_message
 
         # Retry loop exhausted — return graceful fallback instead of crashing
