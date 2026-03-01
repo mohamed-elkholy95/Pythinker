@@ -23,6 +23,7 @@ import logging
 import time
 from typing import Any
 
+from app.core.config import get_settings
 from app.domain.services.llm.middleware import LLMCallable, LLMMiddleware, LLMRequest, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -126,9 +127,18 @@ class RetryMiddleware(LLMMiddleware):
 
         provider = request.metadata.get("provider", "default")
         config: RetryConfig = PROVIDER_RETRY_CONFIGS.get(provider, PROVIDER_RETRY_CONFIGS["default"])
+        deadline = request.metadata.get("deadline_monotonic")
+        if isinstance(deadline, (int, float)):
+            remaining = float(deadline) - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("LLM retry deadline exceeded before first attempt")
 
         last_exc: Exception | None = None
         for attempt in range(1, config.max_attempts + 1):
+            if isinstance(deadline, (int, float)):
+                remaining = float(deadline) - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"LLM retry deadline exceeded after {attempt - 1} attempts")
             try:
                 return await next_handler(request)
             except Exception as exc:
@@ -138,6 +148,14 @@ class RetryMiddleware(LLMMiddleware):
                 if not is_retryable(exc, config):
                     raise
                 delay = calculate_delay(attempt, config)
+                if isinstance(deadline, (int, float)):
+                    remaining = float(deadline) - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(f"LLM retry deadline exceeded after {attempt} attempts") from exc
+                    if delay >= remaining:
+                        raise TimeoutError(
+                            f"LLM retry deadline exceeded before attempt {attempt + 1} (remaining={remaining:.2f}s)"
+                        ) from exc
                 logger.warning(
                     "LLM retry %d/%d for provider=%s after %.1fs: %s",
                     attempt,
@@ -240,9 +258,38 @@ class CircuitBreakerMiddleware(LLMMiddleware):
     The circuit name is ``llm:{provider}``.
     """
 
-    async def __call__(self, request: LLMRequest, next_handler: LLMCallable) -> LLMResponse:
-        from app.core.config import get_settings
+    @staticmethod
+    def _build_provider_config(provider: str):
+        from app.core.circuit_breaker_registry import CircuitBreakerConfig
 
+        base_config = CircuitBreakerConfig(
+            failure_threshold=5,
+            recovery_timeout=60,
+            sliding_window_size=20,
+            failure_rate_threshold=0.5,
+            excluded_error_patterns=(
+                " 401",
+                " 403",
+                " 429",
+                "unauthorized",
+                "forbidden",
+                "rate limit",
+                "quota",
+            ),
+        )
+
+        if provider == "glm":
+            return CircuitBreakerConfig(
+                failure_threshold=3,
+                recovery_timeout=120,
+                sliding_window_size=10,
+                failure_rate_threshold=0.4,
+                excluded_error_patterns=base_config.excluded_error_patterns,
+            )
+
+        return base_config
+
+    async def __call__(self, request: LLMRequest, next_handler: LLMCallable) -> LLMResponse:
         settings = get_settings()
         if not getattr(settings, "feature_llm_provider_fallback", False):
             return await next_handler(request)
@@ -250,7 +297,10 @@ class CircuitBreakerMiddleware(LLMMiddleware):
         from app.core.circuit_breaker_registry import CircuitBreakerRegistry
 
         provider = request.metadata.get("provider", "unknown")
-        cb = CircuitBreakerRegistry.get_or_create(f"llm:{provider}")
+        cb = CircuitBreakerRegistry.get_or_create(
+            name=f"llm:{provider}",
+            config=self._build_provider_config(provider),
+        )
 
         async with cb.execute():
             return await next_handler(request)

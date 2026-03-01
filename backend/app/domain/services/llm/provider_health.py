@@ -59,7 +59,7 @@ class ProviderHealthTracker:
         self,
         window_size: int = 100,
         latency_percentile_weight: float = 0.3,
-        max_good_latency_ms: float = 3_000.0,
+        max_good_latency_ms: float = 10_000.0,
     ) -> None:
         self._window_size = window_size
         self._latency_weight = latency_percentile_weight
