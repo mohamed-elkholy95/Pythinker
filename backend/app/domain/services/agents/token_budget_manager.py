@@ -298,18 +298,26 @@ class TokenBudgetManager:
             phase.value,
         )
 
-        # Extract failure lessons BEFORE any truncation
-        lessons = self._extract_failure_lessons(messages)
+        # Extract failure lessons BEFORE any truncation (feature-gated)
+        lessons: str | None = None
+        try:
+            from app.core.config import get_settings as _get_settings
+
+            _s = _get_settings()
+            if getattr(_s, "feature_compression_context_preservation_enabled", False):
+                lessons = self._extract_failure_lessons(messages)
+        except Exception:
+            logger.debug("Failed to check compression context preservation flag", exc_info=True)
 
         # Stage 1: Summarize verbose tool outputs
         compressed = self._summarize_tool_outputs(messages, target_tokens)
         if self._token_manager.count_messages_tokens(compressed) <= target_tokens:
-            return compressed
+            return self._inject_lessons(compressed, lessons)
 
         # Stage 2: Truncate long content
         compressed = self._truncate_long_content(compressed, target_tokens)
         if self._token_manager.count_messages_tokens(compressed) <= target_tokens:
-            return compressed
+            return self._inject_lessons(compressed, lessons)
 
         # Stage 3: Drop low-priority messages
         compressed, _ = self._token_manager.trim_messages(
@@ -317,15 +325,19 @@ class TokenBudgetManager:
             preserve_recent=4,
         )
 
-        # Inject failure lessons as a system message (survives further compression)
-        if lessons:
-            insert_idx = next(
-                (i + 1 for i, m in enumerate(compressed) if m.get("role") == "system"),
-                0,
-            )
-            compressed.insert(insert_idx, {"role": "system", "content": lessons})
+        return self._inject_lessons(compressed, lessons)
 
-        return compressed
+    @staticmethod
+    def _inject_lessons(messages: list[dict], lessons: str | None) -> list[dict]:
+        """Inject failure lessons as a system message after the first system message."""
+        if not lessons:
+            return messages
+        insert_idx = next(
+            (i + 1 for i, m in enumerate(messages) if m.get("role") == "system"),
+            0,
+        )
+        messages.insert(insert_idx, {"role": "system", "content": lessons})
+        return messages
 
     def rebalance(
         self,
