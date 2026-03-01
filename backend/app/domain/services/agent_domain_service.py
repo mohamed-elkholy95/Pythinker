@@ -769,11 +769,20 @@ class AgentDomainService:
                             yield interruption_event
                             terminal_status = SessionStatus.CANCELLED
                     else:
+                        # Session is idle — no active task, no new input.
+                        # Yield a DoneEvent so the frontend receives a terminal
+                        # signal and stops reconnecting.  Previously this path
+                        # returned silently (zero events), which the frontend
+                        # misinterpreted as a dropped connection and retried
+                        # indefinitely (~615 empty polls observed).
                         logger.info(
-                            "Session %s has no active task and no new input; ending stream without completion event",
+                            "Session %s has no active task and no new input; emitting done event",
                             session_id,
                         )
-                        return
+                        session = await self._session_repository.find_by_id(session_id)
+                        title = session.title if session else "Session idle"
+                        yield DoneEvent(title=title, summary="No active task.")
+                        terminal_status = SessionStatus.COMPLETED
 
                 if terminal_status is None:
                     logger.warning(f"Session {session_id} task completed without producing events")
