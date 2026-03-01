@@ -619,6 +619,25 @@ class StuckDetector:
             "Do not repeat previous actions."
         )
 
+    def get_truncation_recovery_prompt(self) -> str:
+        """Recovery prompt specifically for stuck loops caused by output truncation.
+
+        When the LLM keeps producing tool calls whose arguments get truncated
+        (typically large file writes), generic "try a different approach" prompts
+        don't help — the model needs explicit guidance to split its output.
+        """
+        return (
+            "IMPORTANT: You are stuck in a loop because your tool call output is too large "
+            "and keeps getting truncated before it can be delivered.\n\n"
+            "You MUST change your strategy:\n"
+            "1. NEVER write an entire large document in a single tool call\n"
+            "2. Break the content into MULTIPLE smaller writes (e.g., write sections one at a time)\n"
+            "3. Use 'append' mode or write to separate files, then combine\n"
+            "4. If summarizing research, write the summary first, then add detail sections\n\n"
+            "The maximum safe content size per tool call is roughly 2000 words. "
+            "Split anything larger."
+        )
+
     def reset(self) -> None:
         """Reset the detector state"""
         self._response_history.clear()
