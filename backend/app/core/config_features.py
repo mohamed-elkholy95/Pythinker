@@ -282,11 +282,11 @@ class FeatureFlagsSettingsMixin:
     # Phase 1: Middleware pipeline — compose cross-cutting concerns as chainable
     # middlewares instead of inline retry/error code in each provider.
     # Zero behaviour change when False.
-    feature_llm_middleware_pipeline: bool = False
+    feature_llm_middleware_pipeline: bool = True
 
     # Phase 2: Retry budget — cap total retries across all middleware layers
     # per task to prevent cascading quota exhaustion.
-    feature_llm_retry_budget: bool = False
+    feature_llm_retry_budget: bool = True
 
     # Phase 3: Provider fallback — on primary exhaustion, try next provider in
     # llm_provider_fallback_chain before raising.
@@ -294,7 +294,7 @@ class FeatureFlagsSettingsMixin:
 
     # Phase 3: Health scoring — weight provider selection by sliding-window
     # latency + error rate (shadow mode: compute + log only, no routing).
-    feature_llm_health_scoring: bool = False
+    feature_llm_health_scoring: bool = True
 
     # Phase 5: Dynamic context windows — derive token budget from model's
     # actual max_context_window via the capabilities registry.
