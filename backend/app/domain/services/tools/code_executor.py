@@ -469,11 +469,17 @@ class CodeExecutorTool(BaseTool):
         artifacts = await self._collect_artifacts()
         artifact_dicts = [a.to_dict() for a in artifacts]
 
+        # Determine actual process outcome from sandbox payload when available.
+        shell_data = exec_result.data if isinstance(exec_result.data, dict) else {}
+        raw_return_code = shell_data.get("returncode", shell_data.get("return_code"))
+        resolved_return_code = raw_return_code if isinstance(raw_return_code, int) else None
+        exec_success = (resolved_return_code == 0) if resolved_return_code is not None else exec_result.success
+
         # Build result
         result = ExecutionResult(
-            success=exec_result.success,
+            success=exec_success,
             output=exec_result.message or "",
-            return_code=0 if exec_result.success else 1,
+            return_code=resolved_return_code if resolved_return_code is not None else (0 if exec_success else 1),
             execution_time_ms=execution_time_ms,
             artifacts=artifact_dicts,
             packages_installed=packages_installed,
@@ -491,6 +497,9 @@ class CodeExecutorTool(BaseTool):
         if exec_result.message:
             message_parts.append(f"\n📤 Output:\n{exec_result.message}")
 
+        if result.return_code != 0:
+            message_parts.insert(0, f"❌ Execution failed with exit code {result.return_code}")
+
         if artifacts:
             message_parts.append(f"\n📁 Artifacts ({len(artifacts)} files):")
             message_parts.extend(
@@ -499,7 +508,7 @@ class CodeExecutorTool(BaseTool):
             if len(artifacts) > 5:
                 message_parts.append(f"  ... and {len(artifacts) - 5} more files")
 
-        return ToolResult(success=exec_result.success, message="\n".join(message_parts), data=result.to_dict())
+        return ToolResult(success=exec_success, message="\n".join(message_parts), data=result.to_dict())
 
     @tool(
         name="code_execute_python",
