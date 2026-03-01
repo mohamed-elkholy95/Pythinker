@@ -30,6 +30,11 @@ class SettingsService:
         """Normalize persisted/env chain values into canonical provider order."""
         return normalize_search_provider_chain(raw)
 
+    @classmethod
+    def _normalize_search_provider_chain(cls, raw: Any) -> list[str]:
+        """Normalize persisted/env chain values into canonical provider order."""
+        return normalize_search_provider_chain(raw)
+
     @staticmethod
     def get_default_settings() -> dict[str, Any]:
         config = get_settings()
@@ -77,7 +82,9 @@ class SettingsService:
                 "response_verbosity_preference": settings_doc.get("response_verbosity_preference", "adaptive"),
                 "clarification_policy": settings_doc.get("clarification_policy", "auto"),
                 "quality_floor_enforced": settings_doc.get("quality_floor_enforced", True),
-                "skill_auto_trigger_enabled": settings_doc.get("skill_auto_trigger_enabled", config.skill_auto_trigger_enabled),
+                "skill_auto_trigger_enabled": settings_doc.get(
+                    "skill_auto_trigger_enabled", config.skill_auto_trigger_enabled
+                ),
             }
         return self.get_default_settings()
 

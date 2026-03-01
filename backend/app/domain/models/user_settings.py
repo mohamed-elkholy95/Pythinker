@@ -56,6 +56,11 @@ class UserSettings(BaseModel):
     def _normalize_provider_chain(cls, value: Any) -> list[str]:
         return normalize_search_provider_chain(value)
 
+    @field_validator("search_provider_chain", mode="before")
+    @classmethod
+    def _normalize_provider_chain(cls, value: Any) -> list[str]:
+        return normalize_search_provider_chain(value)
+
     def update(self, **kwargs) -> None:
         """Update settings with provided values"""
         for key, value in kwargs.items():
