@@ -231,6 +231,37 @@ class TestResearchGate:
 
         assert not should_block  # Empty plan should not trigger gate
 
+    def test_zero_progress_error_message_mentions_timeout_when_present(self) -> None:
+        """Timeout failures should produce a timeout-specific user message."""
+        flow = PlanActFlow.__new__(PlanActFlow)
+        plan = _make_plan(step_statuses=[ExecutionStatus.FAILED, ExecutionStatus.BLOCKED])
+        plan.steps[0].error = "LLM request timed out after 60.0s"
+        flow.plan = plan
+
+        message = flow._build_zero_progress_error_message()
+
+        assert "timed out" in message.lower()
+
+    def test_zero_progress_error_message_mentions_dependency_blocking(self) -> None:
+        """Blocked-only plans should call out dependency blocking."""
+        flow = PlanActFlow.__new__(PlanActFlow)
+        flow.plan = _make_plan(step_statuses=[ExecutionStatus.BLOCKED, ExecutionStatus.BLOCKED])
+
+        message = flow._build_zero_progress_error_message()
+
+        assert "blocked" in message.lower()
+        assert "dependent" in message.lower()
+
+    def test_zero_progress_error_message_falls_back_to_generic_reason(self) -> None:
+        """Unknown failure details should still return a generic actionable reason."""
+        flow = PlanActFlow.__new__(PlanActFlow)
+        flow.plan = _make_plan(step_statuses=[ExecutionStatus.FAILED])
+
+        message = flow._build_zero_progress_error_message()
+
+        assert "no research steps were executed" in message.lower()
+        assert "please try again" in message.lower()
+
 
 # ── Fix 4: User message pinning in memory trimming ──────────────────────
 

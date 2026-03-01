@@ -1203,6 +1203,7 @@ To extract data from a webpage:
         llm_tool_max_tokens = max(0, int(getattr(settings, "llm_tool_max_tokens", 0) or 0))
         llm_tool_request_timeout = max(0.0, float(getattr(settings, "llm_tool_request_timeout", 0.0) or 0.0))
         llm_tool_timeout_max_retries = max(0, int(getattr(settings, "llm_tool_timeout_max_retries", 0) or 0))
+        llm_request_timeout = max(0.0, float(getattr(settings, "llm_request_timeout", 0.0) or 0.0))
         timeout_fallback_fast_model = str(getattr(settings, "fast_model", "") or "").strip()
         model_override_for_attempt = model
         tool_timeout_retries = 0
@@ -1214,6 +1215,12 @@ To extract data from a webpage:
 
         for attempt in range(max_retries + 1):  # every try
             response = None
+            tool_request_timeout = llm_tool_request_timeout
+            if request_tools and llm_tool_request_timeout > 0 and tool_timeout_retries > 0:
+                tool_request_timeout = llm_tool_request_timeout * (2**tool_timeout_retries)
+                if llm_request_timeout > 0:
+                    tool_request_timeout = min(tool_request_timeout, llm_request_timeout)
+
             try:
                 if attempt > 0:
                     delay = base_delay * (2 ** (attempt - 1))  # back off
@@ -1276,8 +1283,8 @@ To extract data from a webpage:
                         tool_choice=tool_choice,
                         parallel_tool_calls=self._supports_parallel_tool_calls(),
                     )
-                    if llm_tool_request_timeout > 0:
-                        response = await asyncio.wait_for(tool_call, timeout=llm_tool_request_timeout)
+                    if tool_request_timeout > 0:
+                        response = await asyncio.wait_for(tool_call, timeout=tool_request_timeout)
                     else:
                         response = await tool_call
                 else:
@@ -1332,9 +1339,7 @@ To extract data from a webpage:
 
             except TimeoutError as e:
                 timeout_seconds = (
-                    llm_tool_request_timeout
-                    if request_tools and llm_tool_request_timeout > 0
-                    else settings.llm_request_timeout
+                    tool_request_timeout if request_tools and tool_request_timeout > 0 else llm_request_timeout
                 )
                 logger.warning(
                     "LLM request timed out after %.1fs (model=%s, tools=%s, attempt=%s/%s)",

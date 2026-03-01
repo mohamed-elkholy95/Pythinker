@@ -105,3 +105,56 @@ async def test_ask_times_out_slow_tool_calls_with_guardrail() -> None:
         pytest.raises(LLMException, match="timed out"),
     ):
         await llm.ask(messages=messages, tools=tools)
+
+
+@pytest.mark.asyncio
+async def test_ask_tool_timeout_retries_increase_timeout_budget_with_backoff() -> None:
+    llm = _build_llm()
+
+    client = AsyncMock()
+    client.chat = AsyncMock()
+    client.chat.completions = AsyncMock()
+    client.chat.completions.create = AsyncMock(return_value=MagicMock())
+    llm._get_client = AsyncMock(return_value=client)
+
+    messages = [{"role": "user", "content": "use a tool"}]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_web",
+                "description": "Search web",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+
+    seen_timeouts: list[float] = []
+
+    async def _timeout_wait_for(awaitable, *args, **kwargs):
+        timeout_seconds = kwargs.get("timeout")
+        if timeout_seconds is None and args:
+            timeout_seconds = args[0]
+        seen_timeouts.append(float(timeout_seconds))
+        close = getattr(awaitable, "close", None)
+        if callable(close):
+            close()
+        raise TimeoutError("timed out")
+
+    with (
+        patch(
+            "app.infrastructure.external.llm.openai_llm.get_settings",
+            return_value=SimpleNamespace(
+                llm_tool_max_tokens=128,
+                llm_tool_request_timeout=0.01,
+                llm_tool_timeout_max_retries=1,
+                llm_request_timeout=1.0,
+                fast_model="",
+            ),
+        ),
+        patch("app.infrastructure.external.llm.openai_llm.asyncio.wait_for", side_effect=_timeout_wait_for),
+        pytest.raises(LLMException, match="timed out"),
+    ):
+        await llm.ask(messages=messages, tools=tools)
+
+    assert seen_timeouts == [0.01, 0.02]
