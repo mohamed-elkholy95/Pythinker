@@ -2,6 +2,7 @@
  * Tests for useAuth composable
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 // Mock the auth API module before importing the composable
 vi.mock('@/api/auth', () => ({
@@ -34,8 +35,7 @@ const makeValidJwt = (expiresInSeconds: number = 3600): string => {
 describe('useAuth', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Reset module state between tests
-    vi.resetModules()
+    setActivePinia(createPinia())
     // Clear global auth state from previous tests
     // Must mock getCachedAuthProvider before calling useAuth to prevent initAuth side effects
     vi.mocked(authApi.getCachedAuthProvider).mockResolvedValue('password')
@@ -121,6 +121,7 @@ describe('useAuth', () => {
       vi.mocked(authApi.getCachedAuthProvider).mockResolvedValue('password')
       vi.mocked(authApi.getStoredToken).mockReturnValue(null)
       vi.mocked(authApi.login).mockResolvedValue(mockResponse)
+      vi.mocked(authApi.getCurrentUser).mockResolvedValue(mockResponse.user)
 
       const { login, isAuthenticated, currentUser } = useAuth()
       const result = await login({ email: 'test@example.com', password: 'password123' })
