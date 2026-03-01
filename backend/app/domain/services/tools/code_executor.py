@@ -7,7 +7,6 @@ isolated execution directories, artifact collection, and resource limits.
 """
 
 import asyncio
-import contextlib
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -264,44 +263,43 @@ class CodeExecutorTool(BaseTool):
         if not result.success:
             return artifacts
 
-        # Parse file list from result
-        if isinstance(result.message, str):
-            # Try to parse as file listing
-            lines = result.message.strip().split("\n")
-            for line in lines:
-                if line.strip():
-                    # Skip directories, get file info
-                    parts = line.split()
-                    if len(parts) >= 1:
-                        filename = parts[-1]
-                        if filename not in [".", ".."] and not filename.startswith("."):
-                            file_path = f"{self._workspace_path}/{filename}"
-                            # Get file size
-                            size_result = await self.sandbox.exec_command(
-                                self.session_id,
-                                self._workspace_path,
-                                f"stat -f%z '{filename}' 2>/dev/null || stat -c%s '{filename}' 2>/dev/null || echo 0",
-                            )
-                            size = 0
-                            if size_result.success and size_result.message:
-                                with contextlib.suppress(ValueError):
-                                    size = int(size_result.message.strip())
+        # Use structured data from the sandbox API (result.data.entries)
+        # instead of parsing result.message which is a human-readable
+        # summary like "Listed 5 entries" — not a file listing.
+        entries = []
+        if isinstance(result.data, dict):
+            entries = result.data.get("entries", [])
+        elif isinstance(result.data, list):
+            entries = result.data
 
-                            # Get content preview for text files
-                            preview = None
-                            if size < 10000:  # Only preview small files
-                                preview_result = await self.sandbox.file_read(file_path, end_line=10)
-                                if preview_result.success:
-                                    preview = preview_result.message[:500] if preview_result.message else None
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            # Skip directories and hidden files
+            if entry.get("is_dir", False):
+                continue
+            name = entry.get("name", "")
+            if not name or name.startswith("."):
+                continue
 
-                            artifacts.append(
-                                Artifact(
-                                    filename=filename,
-                                    path=file_path,
-                                    size_bytes=size,
-                                    content_preview=preview,
-                                )
-                            )
+            file_path = entry.get("path") or f"{self._workspace_path}/{name}"
+            size = entry.get("size_bytes", 0)
+
+            # Get content preview for text files
+            preview = None
+            if size < 10000:  # Only preview small files
+                preview_result = await self.sandbox.file_read(file_path, end_line=10)
+                if preview_result.success:
+                    preview = preview_result.message[:500] if preview_result.message else None
+
+            artifacts.append(
+                Artifact(
+                    filename=name,
+                    path=file_path,
+                    size_bytes=size,
+                    content_preview=preview,
+                )
+            )
 
         return artifacts
 
