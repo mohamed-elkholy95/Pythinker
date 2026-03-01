@@ -23,6 +23,10 @@ class StepFailureHandler:
     def handle_failure(self, plan: Plan, failed_step: Step) -> list[str]:
         """Handle step failure by marking dependent steps as blocked.
 
+        If the failed step produced partial results (step.result is truthy),
+        immediately attempt to unblock dependents so they can proceed with
+        whatever data is available.
+
         Args:
             plan: The current plan
             failed_step: The step that failed
@@ -31,10 +35,26 @@ class StepFailureHandler:
             List of step IDs that were marked as blocked
         """
         reason = failed_step.error or failed_step.result or "Step execution failed"
-        return plan.mark_blocked_cascade(
+        blocked_ids = plan.mark_blocked_cascade(
             blocked_step_id=failed_step.id,
             reason=reason[:200],
         )
+
+        # If the failed step has partial results, try to unblock dependents
+        # immediately rather than waiting until get_next_step() returns None.
+        if failed_step.result and blocked_ids:
+            unblocked = plan.unblock_independent_steps()
+            if unblocked:
+                logger.info(
+                    "Partial-result propagation: step %s failed but had results — unblocked %d dependents: %s",
+                    failed_step.id,
+                    len(unblocked),
+                    unblocked,
+                )
+                # Remove unblocked IDs from the blocked list since they're now PENDING
+                blocked_ids = [sid for sid in blocked_ids if sid not in unblocked]
+
+        return blocked_ids
 
     def should_skip_step(self, plan: Plan, step: Step) -> tuple[bool, str]:
         """Check if a step should be skipped.

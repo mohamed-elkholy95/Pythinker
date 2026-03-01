@@ -409,7 +409,7 @@ class Plan(BaseModel):
                 prev_step = self.steps[i - 1]
                 step.dependencies = [prev_step.id]
 
-    def infer_smart_dependencies(self, use_sequential_fallback: bool = True) -> None:
+    def infer_smart_dependencies(self, use_sequential_fallback: bool = False) -> None:
         """Infer dependencies based on step descriptions.
 
         Analyzes step descriptions to identify logical dependencies
