@@ -4,12 +4,15 @@ Structured Logging with structlog
 Provides JSON-formatted logging with correlation ID propagation through async operations.
 """
 
+import atexit
 import io
 import logging
+import logging.handlers
 import re
 import sys
 from contextlib import suppress
 from contextvars import ContextVar, Token
+from queue import SimpleQueue
 from typing import Any
 
 import structlog
@@ -293,11 +296,22 @@ def setup_structured_logging() -> None:
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Create console handler with structlog formatter
+    # Create console handler with structlog formatter.
+    # Wrap in QueueHandler + QueueListener to prevent BlockingIOError
+    # when Docker's stdout pipe buffer fills under high log throughput
+    # (multi-worker uvicorn → EAGAIN / errno 11).
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
     console_handler.setLevel(log_level)
-    root_logger.addHandler(console_handler)
+
+    log_queue: SimpleQueue[logging.LogRecord] = SimpleQueue()
+    queue_handler = logging.handlers.QueueHandler(log_queue)
+    queue_handler.setLevel(log_level)
+    root_logger.addHandler(queue_handler)
+
+    listener = logging.handlers.QueueListener(log_queue, console_handler, respect_handler_level=True)
+    listener.start()
+    atexit.register(listener.stop)
 
     # Add alert webhook handler if configured
     if settings.alert_webhook_url:
