@@ -95,8 +95,9 @@ class LLMTimeoutSettingsMixin:
     llm_request_timeout: float = 300.0
 
     # Duration (seconds) after which an LLM call is logged at WARNING instead of
-    # INFO.  Raise this for slow providers (e.g. GLM-5) to reduce log noise.
-    llm_slow_request_threshold: float = 30.0
+    # INFO.  GLM-5 normal calls take 10-30s, so 45s avoids noisy warnings while
+    # still flagging genuinely slow requests.
+    llm_slow_request_threshold: float = 45.0
 
     # Tool-enabled calls usually need concise JSON/function outputs; capping token
     # budget reduces slow turns and limits runaway verbose generations.
@@ -105,9 +106,12 @@ class LLMTimeoutSettingsMixin:
 
     # Guardrail timeout for tool-enabled calls. This prevents multi-minute stalls
     # from slow providers during orchestration-heavy sessions.
-    # With exponential backoff (90s → 180s → 300s cap), 3 attempts cover slow
-    # providers like GLM-5 (p95 ~75s under heavy context). Set to 0 to disable.
-    llm_tool_request_timeout: float = 45.0
+    # GLM-5 p95 tool-call latency is ~75s under heavy context, so 90s base
+    # lets the first attempt succeed most of the time.
+    # With exponential backoff (90s → 180s → 300s cap), 3 attempts total
+    # worst-case ~570s, safely under the 600s step wall-clock limit.
+    # Set to 0 to disable.
+    llm_tool_request_timeout: float = 90.0
 
     # Maximum retry attempts after a tool-call timeout before surfacing an error.
     # 2 retries = 3 total attempts with exponential backoff.
