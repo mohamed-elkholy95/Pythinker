@@ -656,7 +656,12 @@ class DynamicToolsetManager:
         """Pre-warm cache with tools for common task types.
 
         Call during application startup to reduce cold-start latency.
+        Skips warming if no tools are registered yet (lazy loading at runtime).
         """
+        if not self._tools:
+            logger.debug("Skipping tool cache warmup: no tools registered yet")
+            return
+
         common_task_messages = {
             "research": "Research and find information about the topic",
             "coding": "Write code to implement the feature",
