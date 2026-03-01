@@ -280,7 +280,7 @@ def _extract_jsonld_original_price(result: ExtractedPrice, offers: dict) -> None
 
 
 def extract_price_from_css(html: str, url: str) -> ExtractedPrice:
-    """Extract price using store-specific CSS selectors via BeautifulSoup.
+    """Extract price using store-specific CSS selectors via Scrapling Adaptor.
 
     Also attempts to extract original price from strikethrough/was-price elements.
     """
@@ -292,14 +292,14 @@ def extract_price_from_css(html: str, url: str) -> ExtractedPrice:
         return result
 
     try:
-        from bs4 import BeautifulSoup
+        from scrapling.parser import Adaptor
 
-        soup = BeautifulSoup(html, "html.parser")
+        page = Adaptor(html)
 
         for selector in selectors:
-            elements = soup.select(selector)
+            elements = page.css(selector)
             for el in elements:
-                text = el.get_text(strip=True)
+                text = el.text
                 price = _parse_price_string(text)
                 if price and price > 0 and _validate_price(price):
                     result.price = price
@@ -311,9 +311,9 @@ def extract_price_from_css(html: str, url: str) -> ExtractedPrice:
         if result.price is not None:
             orig_selectors = ORIGINAL_PRICE_SELECTORS.get(domain, [])
             for selector in orig_selectors:
-                elements = soup.select(selector)
+                elements = page.css(selector)
                 for el in elements:
-                    text = el.get_text(strip=True)
+                    text = el.text
                     orig_price = _parse_price_string(text)
                     if orig_price and orig_price > 0 and _validate_price(orig_price) and orig_price > result.price:
                         result.original_price = orig_price
