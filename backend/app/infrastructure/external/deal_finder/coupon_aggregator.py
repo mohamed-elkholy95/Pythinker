@@ -303,22 +303,22 @@ async def fetch_retailmenot_coupons(
         if not result.success or not result.text:
             return coupons
 
-        from bs4 import BeautifulSoup
+        from scrapling.parser import Adaptor
 
-        soup = BeautifulSoup(result.text, "html.parser")
+        page = Adaptor(result.text)
 
         # Look for coupon code elements
-        for offer in soup.select("[data-offer-id], .offer-card, .coupon-card"):
-            code_el = offer.select_one(".coupon-code, .code, [data-code]")
-            desc_el = offer.select_one(".offer-title, .description, h3")
+        for offer in page.css("[data-offer-id], .offer-card, .coupon-card"):
+            code_el = offer.css(".coupon-code, .code, [data-code]").first
+            desc_el = offer.css(".offer-title, .description, h3").first
 
             code = ""
             if code_el:
-                code = code_el.get_text(strip=True)
-                if not code and code_el.has_attr("data-code"):
-                    code = code_el["data-code"]
+                code = code_el.text
+                if not code and "data-code" in code_el.attrib:
+                    code = code_el.attrib["data-code"]
 
-            description = desc_el.get_text(strip=True) if desc_el else "Unknown deal"
+            description = desc_el.text if desc_el else "Unknown deal"
 
             # Validate code format
             verified = bool(code) and _is_valid_coupon_code(code)
@@ -329,9 +329,9 @@ async def fetch_retailmenot_coupons(
 
             # Extract expiry if available
             expiry = None
-            expiry_el = offer.select_one(".expiry, .expiration-date, .expires")
+            expiry_el = offer.css(".expiry, .expiration-date, .expires").first
             if expiry_el:
-                expiry = expiry_el.get_text(strip=True)
+                expiry = expiry_el.text
 
             coupons.append(
                 CouponInfo(
@@ -398,21 +398,21 @@ async def fetch_couponscom_coupons(
         if not result.success or not result.text:
             return coupons
 
-        from bs4 import BeautifulSoup
+        from scrapling.parser import Adaptor
 
-        soup = BeautifulSoup(result.text, "html.parser")
+        page = Adaptor(result.text)
 
-        for offer in soup.select("[data-coupon-id], .coupon-offer, .offer-card"):
-            code_el = offer.select_one(".coupon-code, .code, [data-code]")
-            desc_el = offer.select_one(".offer-description, .offer-title, h3, p")
+        for offer in page.css("[data-coupon-id], .coupon-offer, .offer-card"):
+            code_el = offer.css(".coupon-code, .code, [data-code]").first
+            desc_el = offer.css(".offer-description, .offer-title, h3, p").first
 
             code = ""
             if code_el:
-                code = code_el.get_text(strip=True)
-                if not code and code_el.has_attr("data-code"):
-                    code = code_el["data-code"]
+                code = code_el.text
+                if not code and "data-code" in code_el.attrib:
+                    code = code_el.attrib["data-code"]
 
-            description = desc_el.get_text(strip=True) if desc_el else "Unknown deal"
+            description = desc_el.text if desc_el else "Unknown deal"
 
             verified = bool(code) and _is_valid_coupon_code(code)
             if code and not _is_valid_coupon_code(code):
@@ -422,9 +422,9 @@ async def fetch_couponscom_coupons(
 
             # Extract expiry
             expiry = None
-            expiry_el = offer.select_one(".expiry, .expiration-date, .expires")
+            expiry_el = offer.css(".expiry, .expiration-date, .expires").first
             if expiry_el:
-                expiry = expiry_el.get_text(strip=True)
+                expiry = expiry_el.text
 
             coupons.append(
                 CouponInfo(
