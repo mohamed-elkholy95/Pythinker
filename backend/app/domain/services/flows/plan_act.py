@@ -2398,8 +2398,9 @@ class PlanActFlow(BaseFlow):
                                         self.executor._pre_planning_search_queries = self.planner._last_search_queries
                                     logger.info("Propagated pre-planning search context to execution agent")
 
-                                # Infer smart dependencies for BLOCKED cascade and parallel execution
-                                self.plan.infer_smart_dependencies(use_sequential_fallback=True)
+                                # Infer smart dependencies while preferring parallel execution
+                                # to avoid single-point failure chains.
+                                self.plan.infer_smart_dependencies(use_sequential_fallback=False)
 
                                 # Build and assign phases based on complexity
                                 self._assign_phases_to_plan()
