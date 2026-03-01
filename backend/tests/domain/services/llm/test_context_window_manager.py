@@ -66,6 +66,7 @@ def test_dynamic_flag_returns_claude_context():
 
 def test_dynamic_fallback_on_exception():
     """If dynamic lookup raises, falls back gracefully (no exception raised)."""
+
     # Subclass overrides _dynamic_enabled to True and _settings_override to 0,
     # but its get_effective_limit will hit the capabilities registry (which is
     # real) and should succeed. We test that the method never raises even for
@@ -111,7 +112,5 @@ def test_create_dynamic_budget_uses_qwen_large_context():
         mock_token_manager = MagicMock()
         mock_token_manager._max_tokens = 16_000
 
-        budget = manager.create_dynamic_budget(
-            "qwen/qwen3-coder-next", token_manager=mock_token_manager
-        )
+        budget = manager.create_dynamic_budget("qwen/qwen3-coder-next", token_manager=mock_token_manager)
         assert budget.max_tokens == 262_144

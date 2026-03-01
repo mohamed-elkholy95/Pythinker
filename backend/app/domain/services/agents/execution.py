@@ -1608,7 +1608,7 @@ class ExecutionAgent(BaseAgent):
         correction_prompts = [
             (
                 "Your previous response was not valid JSON.\n"
-                f"Previous response:\n\"\"\"\n{preview}\n\"\"\"\n\n"
+                f'Previous response:\n"""\n{preview}\n"""\n\n'
                 f"You MUST respond with ONLY valid JSON matching this schema: {schema}\n"
                 "No prose. No markdown. JSON object only."
             ),

@@ -102,9 +102,7 @@ class TestExtractFailureLessons:
     def test_size_guard_caps_output(self):
         """Output should be capped at 500 characters."""
         mgr = self._make_manager()
-        messages = [
-            {"role": "tool", "content": f"ModuleNotFoundError: No module named 'pkg{i}'"} for i in range(50)
-        ]
+        messages = [{"role": "tool", "content": f"ModuleNotFoundError: No module named 'pkg{i}'"} for i in range(50)]
         result = mgr._extract_failure_lessons(messages)
         assert result is not None
         assert len(result) <= 500

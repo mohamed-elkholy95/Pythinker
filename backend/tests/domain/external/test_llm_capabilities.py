@@ -14,7 +14,6 @@ from app.domain.external.llm_capabilities import (
     get_capabilities,
 )
 
-
 # ─────────────────────────── Known providers ─────────────────────────────────
 
 
