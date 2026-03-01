@@ -266,7 +266,7 @@ class RateLimitMiddleware:
 
         except Exception as e:
             # SECURITY FIX: Fall back to in-memory rate limiting instead of allowing all requests
-            logger.warning(f"Redis unavailable for rate limiting, using in-memory fallback: {e}")
+            logger.warning("redis_rate_limit_fallback", error=str(e))
             using_fallback = True
             try:
                 from app.core.prometheus_metrics import rate_limit_fallback_total
@@ -285,7 +285,7 @@ class RateLimitMiddleware:
 
         if rate_limit_exceeded:
             logger.warning(
-                f"Rate limit exceeded for {client_id} on {path}{' (fallback mode)' if using_fallback else ''}"
+                "rate_limit_exceeded", client_id=client_id, path=path, fallback_mode=using_fallback
             )
             response = JSONResponse(
                 status_code=429,
