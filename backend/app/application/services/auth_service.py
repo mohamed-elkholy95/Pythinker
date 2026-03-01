@@ -427,13 +427,10 @@ class AuthService:
 
     async def refresh_access_token(self, refresh_token: str) -> AuthToken:
         """Refresh access token using refresh token"""
-        payload = await self.token_service.verify_token_async(refresh_token)
+        payload = await self.token_service.verify_token_async(refresh_token, expected_type="refresh")
 
         if not payload:
             raise UnauthorizedError("Invalid refresh token")
-
-        if payload.get("type") != "refresh":
-            raise UnauthorizedError("Invalid token type")
 
         # Get user from database
         user_id = payload.get("sub")
@@ -501,33 +498,41 @@ class AuthService:
         this method uses verify_token_async() to check the token blacklist
         and per-user revocation timestamp. Use this for route dependencies.
         """
-        payload = await self.token_service.verify_token_async(token)
+        user, _ = await self.verify_token_secure_with_reason(token)
+        return user
+
+    async def verify_token_secure_with_reason(self, token: str) -> tuple[User | None, str | None]:
+        """Verify JWT token and return user plus machine-readable failure reason."""
+        payload, reason = await self.token_service.verify_token_async_with_reason(token)
         if not payload:
-            return None
+            return None, reason
 
         # Ensure this is an access token (not refresh/resource)
         if payload.get("type") != "access":
             logger.warning("Non-access token used for authentication: type=%s", payload.get("type"))
-            return None
+            return None, "invalid_token_type"
 
         user_id = payload.get("sub")
         if not user_id:
-            return None
+            return None, "invalid_token"
 
         # For database users, verify user still exists and is active
         if self.settings.auth_provider == "password":
             user = await self.user_repository.get_user_by_id(user_id)
             if not user or not user.is_active:
-                return None
-            return user
+                return None, "user_inactive"
+            return user, None
 
         # For local/none authentication, create user from token payload
-        return User(
-            id=user_id,
-            fullname=payload.get("fullname", ""),
-            email=payload.get("email"),
-            role=UserRole(payload.get("role", "user")),
-            is_active=payload.get("is_active", True),
+        return (
+            User(
+                id=user_id,
+                fullname=payload.get("fullname", ""),
+                email=payload.get("email"),
+                role=UserRole(payload.get("role", "user")),
+                is_active=payload.get("is_active", True),
+            ),
+            None,
         )
 
     async def logout(self, token: str) -> bool:
