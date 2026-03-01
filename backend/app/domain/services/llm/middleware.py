@@ -72,18 +72,14 @@ class LLMMiddleware:
 
     Subclasses override ``__call__`` and must forward to ``next_handler``::
 
-        async def __call__(
-            self, request: LLMRequest, next_handler: LLMCallable
-        ) -> LLMResponse:
+        async def __call__(self, request: LLMRequest, next_handler: LLMCallable) -> LLMResponse:
             # pre-processing
             response = await next_handler(request)
             # post-processing
             return response
     """
 
-    async def __call__(
-        self, request: LLMRequest, next_handler: LLMCallable
-    ) -> LLMResponse:
+    async def __call__(self, request: LLMRequest, next_handler: LLMCallable) -> LLMResponse:
         return await next_handler(request)
 
 

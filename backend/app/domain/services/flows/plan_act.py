@@ -1520,10 +1520,7 @@ class PlanActFlow(BaseFlow):
 
     def _build_zero_progress_error_message(self) -> str:
         """Build a user-facing error for plans that completed zero execution steps."""
-        base = (
-            "Research could not be completed: the plan was created but no research "
-            "steps were executed."
-        )
+        base = "Research could not be completed: the plan was created but no research steps were executed."
         retry_hint = " Please try again or rephrase your request."
 
         if not self.plan or not self.plan.steps:
@@ -2579,14 +2576,10 @@ class PlanActFlow(BaseFlow):
                         if s.status == ExecutionStatus.RUNNING:
                             s.status = ExecutionStatus.SKIPPED
                             s.success = True
-                            s.notes = (
-                                "Error recovery: LLM timeout during execution. "
-                                "Partial work preserved."
-                            )
+                            s.notes = "Error recovery: LLM timeout during execution. Partial work preserved."
                             self._steps_completed_count += 1
                             logger.info(
-                                "Marked orphaned RUNNING step %s as SKIPPED "
-                                "(error recovery cleanup)",
+                                "Marked orphaned RUNNING step %s as SKIPPED (error recovery cleanup)",
                                 s.id,
                             )
 
@@ -2680,7 +2673,8 @@ class PlanActFlow(BaseFlow):
                                 )
 
                                 _completed = [
-                                    s for s in self.plan.steps
+                                    s
+                                    for s in self.plan.steps
                                     if s.status.value in ExecutionStatus.get_success_statuses()
                                 ]
                                 _failed = [
@@ -3395,8 +3389,7 @@ class PlanActFlow(BaseFlow):
                         # already emitted.  Skip the success ceremony so ErrorEvent
                         # remains the terminal signal for agent_task_runner.
                         logger.warning(
-                            "Agent %s completed via zero-progress abort — "
-                            "skipping success ceremony (plan status: %s)",
+                            "Agent %s completed via zero-progress abort — skipping success ceremony (plan status: %s)",
                             self._agent_id,
                             self.plan.status.value if self.plan else "N/A",
                         )

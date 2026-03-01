@@ -24,7 +24,9 @@ class _DummyPlanActFlow:
         yield ResearchModeEvent(research_mode=self.research_mode)
 
 
-def _build_runner(monkeypatch: pytest.MonkeyPatch, plan_flow: _DummyPlanActFlow, research_mode: ResearchMode) -> AgentTaskRunner:
+def _build_runner(
+    monkeypatch: pytest.MonkeyPatch, plan_flow: _DummyPlanActFlow, research_mode: ResearchMode
+) -> AgentTaskRunner:
     monkeypatch.setattr(
         AgentTaskRunner,
         "_init_plan_act_flow",
@@ -69,7 +71,9 @@ async def test_run_flow_switches_deal_intent_to_deal_finding_mode(monkeypatch: p
     plan_flow = _DummyPlanActFlow(research_mode=ResearchMode.DEEP_RESEARCH.value)
     runner = _build_runner(monkeypatch, plan_flow, research_mode=ResearchMode.DEEP_RESEARCH)
 
-    events = [event async for event in runner._run_flow(Message(message="Act as a professional deal finder for RTX 5090"))]
+    events = [
+        event async for event in runner._run_flow(Message(message="Act as a professional deal finder for RTX 5090"))
+    ]
 
     assert runner._research_mode == ResearchMode.DEAL_FINDING
     assert plan_flow.research_mode == ResearchMode.DEAL_FINDING.value
@@ -82,7 +86,9 @@ async def test_run_flow_keeps_non_deal_intent_mode_unchanged(monkeypatch: pytest
     plan_flow = _DummyPlanActFlow(research_mode=ResearchMode.DEEP_RESEARCH.value)
     runner = _build_runner(monkeypatch, plan_flow, research_mode=ResearchMode.DEEP_RESEARCH)
 
-    events = [event async for event in runner._run_flow(Message(message="Summarize the uploaded architecture document."))]
+    events = [
+        event async for event in runner._run_flow(Message(message="Summarize the uploaded architecture document."))
+    ]
 
     assert runner._research_mode == ResearchMode.DEEP_RESEARCH
     assert plan_flow.research_mode == ResearchMode.DEEP_RESEARCH.value
