@@ -23,7 +23,7 @@ pyhanko==0.31.0
 pyhanko-certvalidator==0.29.0
 
 # Web/API and parsing utilities
-beautifulsoup4==4.14.2
+scrapling>=0.4
 lxml==6.0.2
 flask==3.1.2
 

@@ -69,9 +69,6 @@ numpy>=1.24.0  # Required for MMR diversification
 # Hallucination detection (replaces CoVe LLM-based verification)
 lettucedetect>=0.1.0  # ModernBERT token-level hallucination detector
 
-# Web scraping
-beautifulsoup4>=4.12.0
-
 # Deal Scraper: RSS feed parsing + structured data extraction
 feedparser>=6.0
 extruct>=0.17
