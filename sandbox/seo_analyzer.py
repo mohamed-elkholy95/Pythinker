@@ -1,5 +1,5 @@
 import requests
-from bs4 import BeautifulSoup
+from scrapling.parser import Adaptor
 from collections import Counter
 import re
 
@@ -23,14 +23,15 @@ def extract_keywords(text, num_keywords=10):
 
 def analyze_content(html_content):
     """Analyzes content for SEO elements."""
-    soup = BeautifulSoup(html_content, "html.parser")
+    page = Adaptor(html_content)
 
-    title = soup.title.string if soup.title else "N/A"
-    meta_description = soup.find("meta", attrs={"name": "description"})
-    meta_description = meta_description["content"] if meta_description else "N/A"
-    h1_tags = [h1.get_text() for h1 in soup.find_all("h1")]
-    h2_tags = [h2.get_text() for h2 in soup.find_all("h2")]
-    all_text = soup.get_text()
+    title_el = page.find("title")
+    title = title_el.text if title_el else "N/A"
+    meta_description = page.find("meta", {"name": "description"})
+    meta_description = meta_description.attrib["content"] if meta_description else "N/A"
+    h1_tags = [h1.text for h1 in page.find_all("h1")]
+    h2_tags = [h2.text for h2 in page.find_all("h2")]
+    all_text = page.get_all_text()
     word_count = len(all_text.split())
 
     return {
@@ -111,7 +112,7 @@ if __name__ == "__main__":
     else:
         analysis = analyze_content(html_content)
         readability = calculate_readability(
-            BeautifulSoup(html_content, "html.parser").get_text()
+            Adaptor(html_content).get_all_text()
         )
         report_content = generate_seo_report(target_url, analysis, readability)
 
