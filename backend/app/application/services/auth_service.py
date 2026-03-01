@@ -442,12 +442,15 @@ class AuthService:
             raise UnauthorizedError("Invalid refresh token")
 
         # Local/none auth: reconstruct user from JWT claims (no DB record exists).
-        # Mirrors the pattern in verify_token() and verify_token_secure().
+        # Refresh tokens only carry {sub, fullname, iat, exp, type} — no email/role/is_active.
+        # Use the configured local_auth_email as the authoritative source (matches what
+        # authenticate_user() used when creating the local_admin user at login time).
         if self.settings.auth_provider in ("local", "none"):
+            email = payload.get("email") or getattr(self.settings, "local_auth_email", None) or f"{user_id}@localhost"
             user = User(
                 id=user_id,
                 fullname=payload.get("fullname", "Local Admin"),
-                email=payload.get("email"),
+                email=email,
                 role=UserRole(payload.get("role", "admin")),
                 is_active=payload.get("is_active", True),
             )
