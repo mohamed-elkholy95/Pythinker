@@ -104,11 +104,13 @@ class LLMTimeoutSettingsMixin:
 
     # Guardrail timeout for tool-enabled calls. This prevents multi-minute stalls
     # from slow providers during orchestration-heavy sessions.
-    # Set to 0 to disable.
-    llm_tool_request_timeout: float = 60.0
+    # With exponential backoff (90s → 180s → 300s cap), 3 attempts cover slow
+    # providers like GLM-5 (p95 ~75s under heavy context). Set to 0 to disable.
+    llm_tool_request_timeout: float = 90.0
 
     # Maximum retry attempts after a tool-call timeout before surfacing an error.
-    llm_tool_timeout_max_retries: int = 1
+    # 2 retries = 3 total attempts with exponential backoff.
+    llm_tool_timeout_max_retries: int = 2
 
 
 class LLMConcurrencySettingsMixin:
