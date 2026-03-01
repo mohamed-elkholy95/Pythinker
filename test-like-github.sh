@@ -65,7 +65,6 @@ run_backend_tests() {
     docker run -d --rm \
         --name test-mongodb \
         --network test-network \
-        -p 27017:27017 \
         --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'" \
         --health-interval 10s \
         --health-timeout 5s \
@@ -76,7 +75,6 @@ run_backend_tests() {
     docker run -d --rm \
         --name test-redis \
         --network test-network \
-        -p 6379:6379 \
         --health-cmd "redis-cli ping" \
         --health-interval 10s \
         --health-timeout 5s \
@@ -107,7 +105,7 @@ run_backend_tests() {
         python:3.11 \
         sh -c "
             pip install --quiet --upgrade pip && \
-            pip install --quiet ruff>=0.8.0 && \
+            pip install --quiet 'ruff>=0.8.0' && \
             echo 'Running ruff check...' && \
             ruff check . && \
             echo 'Running ruff format check...' && \
@@ -124,9 +122,9 @@ run_backend_tests() {
         -e PIP_NO_BUILD_ISOLATION=1 \
         python:3.11 \
         sh -c "
-            pip install --quiet --upgrade pip setuptools wheel Cython && \
+            pip install --quiet --upgrade pip 'setuptools<82' wheel Cython && \
             pip install --quiet --no-build-isolation -r requirements.txt && \
-            pip install --quiet pip-audit>=2.7.0 && \
+            pip install --quiet 'pip-audit>=2.7.0' && \
             pip-audit --strict
         " || warning "Backend security audit failed (non-blocking)"
 
@@ -149,7 +147,7 @@ run_backend_tests() {
         -e PIP_NO_BUILD_ISOLATION=1 \
         python:3.11 \
         sh -c "
-            pip install --quiet --upgrade pip setuptools wheel Cython && \
+            pip install --quiet --upgrade pip 'setuptools<82' wheel Cython && \
             pip install --quiet --no-build-isolation -r requirements.txt && \
             pip install --quiet --no-build-isolation -r tests/requirements.txt && \
             echo 'Skipping integration tests for faster feedback' && \
