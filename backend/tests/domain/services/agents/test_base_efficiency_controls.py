@@ -103,6 +103,29 @@ def test_hard_stop_filters_all_read_tools(
     assert "search" not in names
 
 
+def test_critical_budget_blocks_repeated_tool_even_if_exempt(
+    mock_agent_repository,
+    mock_llm,
+    mock_json_parser,
+    mixed_tool_registry,
+):
+    agent = BaseAgent(
+        agent_id="agent-test",
+        agent_repository=mock_agent_repository,
+        llm=mock_llm,
+        json_parser=mock_json_parser,
+        tools=[mixed_tool_registry],
+    )
+
+    # Simulate loop pressure on an exempt tool (file_write) while token budget is critical.
+    agent._efficiency_monitor._last_tool_name = "file_write"
+    agent._efficiency_monitor._consecutive_same_tool = agent._efficiency_monitor.same_tool_threshold
+    agent._current_token_usage_ratio = MagicMock(return_value=0.985)
+
+    names = {tool["function"]["name"] for tool in agent.get_available_tools() or []}
+    assert "file_write" not in names
+
+
 def test_tool_result_memory_compaction_caps_large_payload(
     mock_agent_repository,
     mock_llm,

@@ -110,6 +110,8 @@ class ToolEfficiencyMonitor:
         # Consecutive same-tool counter (detects repetitive loops)
         self._consecutive_same_tool: int = 0
         self._last_tool_name: str | None = None
+        self._same_tool_trigger_count: int = 0
+        self._last_same_tool_signal_at_count: int = 0
 
     def record(self, tool_name: str) -> None:
         """Record a tool call and update counters.
@@ -127,6 +129,8 @@ class ToolEfficiencyMonitor:
         else:
             self._consecutive_same_tool = 1
             self._last_tool_name = tool_name
+            self._same_tool_trigger_count = 0
+            self._last_same_tool_signal_at_count = 0
 
         # Update consecutive read counter
         if self._is_read_tool(tool_name):
@@ -153,7 +157,15 @@ class ToolEfficiencyMonitor:
             and self._last_tool_name is not None
             and self._last_tool_name not in self.LOOP_EXEMPT_TOOLS
         ):
-            hard_stop = self._consecutive_same_tool >= self.same_tool_strong_threshold
+            # Escalate on repeated loop detections within the same step:
+            # first trigger = warning, second trigger = hard stop.
+            if self._consecutive_same_tool != self._last_same_tool_signal_at_count:
+                self._same_tool_trigger_count += 1
+                self._last_same_tool_signal_at_count = self._consecutive_same_tool
+
+            hard_stop = (
+                self._consecutive_same_tool >= self.same_tool_strong_threshold or self._same_tool_trigger_count >= 2
+            )
             return EfficiencySignal(
                 is_balanced=False,
                 read_count=read_count,
@@ -219,6 +231,8 @@ class ToolEfficiencyMonitor:
         self._consecutive_reads = 0
         self._consecutive_same_tool = 0
         self._last_tool_name = None
+        self._same_tool_trigger_count = 0
+        self._last_same_tool_signal_at_count = 0
 
     def _is_read_tool(self, tool_name: str) -> bool:
         """Check if tool is a read operation.
