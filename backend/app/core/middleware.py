@@ -1,4 +1,3 @@
-import logging
 import time
 import uuid
 from collections.abc import Callable
@@ -74,8 +73,11 @@ class RequestLoggingMiddleware:
             raise
         finally:
             duration_ms = (time.time() - start_time) * 1000
-            log_level = logging.INFO if response_status < 400 else logging.WARNING
-            logger.log(log_level, f"[{request_id}] {request.method} {path} - {response_status} ({duration_ms:.2f}ms)")
+            msg = f"[{request_id}] {request.method} {path} - {response_status} ({duration_ms:.2f}ms)"
+            if response_status < 400:
+                logger.info(msg)
+            else:
+                logger.warning(msg)
             # Reset ContextVar to avoid request_id leaking into the next
             # request processed by the same asyncio task.
             request_id_var.reset(request_id_token)
