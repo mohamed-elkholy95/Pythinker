@@ -288,10 +288,15 @@ class Plan(BaseModel):
                 unblocked_ids.append(step.id)
                 continue
 
-            # Unblock if blocker completed (race condition fix) or has partial results
+            # Unblock if blocker completed (race condition fix), skipped, or has partial results
             if blocker.status == ExecutionStatus.COMPLETED:
                 step.status = ExecutionStatus.PENDING
                 step.notes = ""
+                step.blocked_by = None
+                unblocked_ids.append(step.id)
+            elif blocker.status == ExecutionStatus.SKIPPED:
+                step.status = ExecutionStatus.PENDING
+                step.notes = f"Unblocked: blocker {blocker.id} was skipped (error recovery)"
                 step.blocked_by = None
                 unblocked_ids.append(step.id)
             elif blocker.status == ExecutionStatus.FAILED and blocker.result:

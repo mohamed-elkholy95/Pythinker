@@ -92,7 +92,7 @@ class LLMTimeoutSettingsMixin:
 
     # Total timeout for a single LLM HTTP request (connect + read + write).
     # Keep this bounded to prevent multi-minute step stalls.
-    llm_request_timeout: float = 45.0
+    llm_request_timeout: float = 300.0
 
     # Duration (seconds) after which an LLM call is logged at WARNING instead of
     # INFO.  Raise this for slow providers (e.g. GLM-5) to reduce log noise.
