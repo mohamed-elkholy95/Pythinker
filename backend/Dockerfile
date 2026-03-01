@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 
+# Prevent BlockingIOError when Docker pipe buffer fills under high log throughput
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 # Install curl
