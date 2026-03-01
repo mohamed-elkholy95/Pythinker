@@ -518,18 +518,15 @@ class AgentTaskRunner(TaskRunner):
         return self._discuss_flow
 
     async def _put_and_add_event(self, task: Task, event: AgentEvent) -> None:
-        event_id = await task.output_stream.put(event.model_dump_json())
-        event.id = event_id
+        await task.output_stream.put(event.model_dump_json())
         await self._session_repository.add_event(self._session_id, event)
 
     async def _pop_event(self, task: Task) -> AgentEvent | None:
-        event_id, event_str = await task.input_stream.pop()
+        _redis_id, event_str = await task.input_stream.pop()
         if event_str is None:
             logger.warning(f"Agent {self._agent_id} received empty message")
             return None
-        event = TypeAdapter(AgentEvent).validate_json(event_str)
-        event.id = event_id
-        return event
+        return TypeAdapter(AgentEvent).validate_json(event_str)
 
     # ── File Sync (delegated to FileSyncManager — Phase 3C extraction) ──
 
