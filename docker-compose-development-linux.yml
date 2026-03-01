@@ -96,6 +96,9 @@ services:
       - SANDBOX_LIFECYCLE_MODE=static
       - SANDBOX_ADDRESS=sandbox
       - SANDBOX_IMAGE=pythinker/pythinker-sandbox
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
       - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
       - "LOCAL_AUTH_PASSWORD=change-me-local-password"
@@ -201,16 +204,19 @@ services:
           path: ./sandbox/requirements.runtime.txt
 
   mongodb:
-    image: mongo:7.0
+    image: mongo:7.0.28
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     networks:
       - pythinker-network
     healthcheck:
-      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet" ]
+      test: [ "CMD-SHELL", "mongosh --norc --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.runCommand('ping').ok\" || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
