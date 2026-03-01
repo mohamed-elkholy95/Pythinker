@@ -11,7 +11,6 @@ Tests cover:
 from app.domain.models.plan import ExecutionStatus, Plan, Step
 from app.domain.services.flows.plan_act import PlanActFlow
 
-
 # ── Fix 2: Anti-hallucination guard allows SKIPPED steps ─────────────────
 
 
@@ -20,10 +19,7 @@ class TestAntiHallucinationGuard:
 
     def _completed_steps_for_plan(self, steps: list[Step]) -> list[Step]:
         """Mirror the guard logic from plan_act.py SUMMARIZING block."""
-        return [
-            s for s in steps
-            if s.status.value in ExecutionStatus.get_success_statuses()
-        ]
+        return [s for s in steps if s.status.value in ExecutionStatus.get_success_statuses()]
 
     def test_anti_hallucination_allows_skipped(self) -> None:
         """Summarization should proceed when steps are SKIPPED but none COMPLETED."""
@@ -74,10 +70,7 @@ class TestOrphanedRunningStepCleanup:
             if s.status == ExecutionStatus.RUNNING:
                 s.status = ExecutionStatus.SKIPPED
                 s.success = True
-                s.notes = (
-                    "Error recovery: LLM timeout during execution. "
-                    "Partial work preserved."
-                )
+                s.notes = "Error recovery: LLM timeout during execution. Partial work preserved."
                 steps_completed_count += 1
 
         assert steps[0].status == ExecutionStatus.SKIPPED
@@ -258,10 +251,7 @@ class TestReflectionMetricsSkipped:
 
     def _count_completed(self, steps: list[Step]) -> list[Step]:
         """Mirror the reflection metrics logic from plan_act.py."""
-        return [
-            s for s in steps
-            if s.status.value in ExecutionStatus.get_success_statuses()
-        ]
+        return [s for s in steps if s.status.value in ExecutionStatus.get_success_statuses()]
 
     def test_reflection_counts_skipped_as_completed(self) -> None:
         """Reflection should include SKIPPED in completed count."""
@@ -292,22 +282,47 @@ class TestTimeoutConfig:
     """Verify the timeout config enables proper exponential backoff."""
 
     def test_backoff_cap_allows_escalation(self) -> None:
-        """llm_request_timeout must be >= 300 for 45→90→180 backoff chain."""
+        """llm_request_timeout must be >= 300 for 90→180→300 backoff chain."""
         from app.core.config_llm import LLMTimeoutSettingsMixin
 
         mixin = LLMTimeoutSettingsMixin()
-        tool_timeout = mixin.llm_tool_request_timeout  # 45s base
+        tool_timeout = mixin.llm_tool_request_timeout  # 90s base
         cap = mixin.llm_request_timeout  # Should be 300
 
-        # Simulate exponential backoff: base * 2^attempt, capped at llm_request_timeout
-        attempt_0 = min(tool_timeout * (2 ** 1), cap)  # 90
-        attempt_1 = min(tool_timeout * (2 ** 2), cap)  # 180
-        attempt_2 = min(tool_timeout * (2 ** 3), cap)  # 300 (capped)
+        assert tool_timeout == 90.0, f"Base tool timeout should be 90s, got {tool_timeout}"
 
-        assert attempt_0 == 90.0, f"First retry should be 90s, got {attempt_0}"
-        assert attempt_1 == 180.0, f"Second retry should be 180s, got {attempt_1}"
-        assert attempt_2 == 300.0, f"Third retry should be capped at 300s, got {attempt_2}"
+        # Simulate exponential backoff: base * 2^attempt, capped at llm_request_timeout
+        attempt_0 = min(tool_timeout * (2**1), cap)  # 180
+        attempt_1 = min(tool_timeout * (2**2), cap)  # 300 (capped)
+
+        assert attempt_0 == 180.0, f"First retry should be 180s, got {attempt_0}"
+        assert attempt_1 == 300.0, f"Second retry should be capped at 300s, got {attempt_1}"
         assert cap > tool_timeout, "Cap must exceed base timeout for backoff to work"
+
+    def test_worst_case_fits_step_wall_clock(self) -> None:
+        """Total timeout across all attempts must fit within 600s step limit."""
+        from app.core.config_llm import LLMTimeoutSettingsMixin
+
+        mixin = LLMTimeoutSettingsMixin()
+        base = mixin.llm_tool_request_timeout  # 90s
+        cap = mixin.llm_request_timeout  # 300s
+        max_retries = mixin.llm_tool_timeout_max_retries  # 2
+
+        # Worst-case: base + base*2 + base*4, each capped at llm_request_timeout
+        total = 0.0
+        for attempt in range(max_retries + 1):
+            total += min(base * (2**attempt), cap)
+
+        assert total < 580.0, f"Worst-case {total}s must fit within 580s (600s step - 20s margin)"
+
+    def test_slow_request_threshold_below_tool_timeout(self) -> None:
+        """Slow-request warning must fire before tool-call timeout."""
+        from app.core.config_llm import LLMTimeoutSettingsMixin
+
+        mixin = LLMTimeoutSettingsMixin()
+        assert mixin.llm_slow_request_threshold < mixin.llm_tool_request_timeout, (
+            "Slow-request threshold must be lower than tool-call timeout"
+        )
 
 
 # ── Fix 6: False-success completion after anti-hallucination abort ────────
