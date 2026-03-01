@@ -1514,6 +1514,40 @@ class PlanActFlow(BaseFlow):
         has_success = counts[ExecutionStatus.COMPLETED] > 0 or counts[ExecutionStatus.SKIPPED] > 0
         return has_failures and not has_success
 
+    def _build_zero_progress_error_message(self) -> str:
+        """Build a user-facing error for plans that completed zero execution steps."""
+        base = (
+            "Research could not be completed: the plan was created but no research "
+            "steps were executed."
+        )
+        retry_hint = " Please try again or rephrase your request."
+
+        if not self.plan or not self.plan.steps:
+            return base + retry_hint
+
+        failed_steps = [step for step in self.plan.steps if step.status == ExecutionStatus.FAILED]
+        blocked_steps = [step for step in self.plan.steps if step.status == ExecutionStatus.BLOCKED]
+
+        failure_details = " ".join(
+            detail
+            for step in failed_steps
+            for detail in (step.error, step.notes)
+            if isinstance(detail, str) and detail.strip()
+        ).lower()
+
+        if "timeout" in failure_details or "timed out" in failure_details:
+            reason = " Execution timed out before any step could complete."
+        elif blocked_steps and not failed_steps:
+            reason = " Dependent steps were blocked by unsatisfied dependencies."
+        elif blocked_steps:
+            reason = " Early step failures blocked dependent steps before findings were collected."
+        elif failed_steps:
+            reason = " Early step execution failed before findings were collected."
+        else:
+            reason = " Execution ended before any research step could complete."
+
+        return base + reason + retry_hint
+
     def _consume_zero_progress_replan_attempt(self) -> bool:
         """Consume one dead-end replan attempt if available."""
         if self._zero_progress_dead_end_replans >= self._max_zero_progress_dead_end_replans:
@@ -2990,11 +3024,7 @@ class PlanActFlow(BaseFlow):
                             len(self.plan.steps),
                         )
                         yield ErrorEvent(
-                            error=(
-                                "Research could not be completed: the plan was created but "
-                                "no research steps were executed. This may be due to repeated "
-                                "verification failures. Please try again or rephrase your request."
-                            ),
+                            error=self._build_zero_progress_error_message(),
                         )
                         self._transition_to(AgentStatus.COMPLETED, force=True, reason="no steps completed")
                         continue
