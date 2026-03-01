@@ -7,9 +7,8 @@ Shared utility functions for search engine implementations:
 """
 
 import re
+from typing import Any
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
-
-from bs4 import Tag
 
 
 def clean_redirect_url(url: str, base_url: str = "") -> str:
@@ -62,11 +61,11 @@ def clean_redirect_url(url: str, base_url: str = "") -> str:
     return url
 
 
-def extract_text_from_tag(tag: Tag | None, strip: bool = True) -> str:
-    """Safely extract text from a BeautifulSoup tag.
+def extract_text_from_tag(tag: Any | None, strip: bool = True) -> str:
+    """Safely extract text from a parsed HTML element.
 
     Args:
-        tag: BeautifulSoup Tag object (or None)
+        tag: Scrapling Adaptor element (or None)
         strip: Whether to strip whitespace
 
     Returns:
@@ -74,12 +73,12 @@ def extract_text_from_tag(tag: Tag | None, strip: bool = True) -> str:
     """
     if tag is None:
         return ""
-    text = tag.get_text(strip=strip)
+    text = tag.text if strip else tag.get_all_text()
     return text or ""
 
 
 def find_snippet_from_patterns(
-    container: Tag,
+    container: Any,
     class_patterns: list[str],
     min_length: int = 20,
 ) -> str:
@@ -89,19 +88,22 @@ def find_snippet_from_patterns(
     class patterns and returns the first text with sufficient length.
 
     Args:
-        container: BeautifulSoup element to search within
+        container: Scrapling Adaptor element to search within
         class_patterns: List of regex patterns for class attributes
         min_length: Minimum text length to accept
 
     Returns:
         First matching snippet text or empty string
     """
+    all_tags = container.find_all(["p", "div", "span"])
     for pattern in class_patterns:
-        tags = container.find_all(["p", "div", "span"], class_=re.compile(pattern))
-        for tag in tags:
-            text = extract_text_from_tag(tag)
-            if len(text) >= min_length:
-                return text
+        compiled = re.compile(pattern)
+        for tag in all_tags:
+            class_attr = tag.attrib.get("class", "")
+            if compiled.search(class_attr):
+                text = extract_text_from_tag(tag)
+                if len(text) >= min_length:
+                    return text
     return ""
 
 

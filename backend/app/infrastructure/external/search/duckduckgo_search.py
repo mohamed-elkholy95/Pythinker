@@ -7,7 +7,7 @@ No API key required.
 from typing import Any
 
 import httpx
-from bs4 import BeautifulSoup
+from scrapling.parser import Adaptor
 
 from app.domain.models.search import SearchResultItem
 from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
@@ -58,11 +58,11 @@ class DuckDuckGoSearchEngine(SearchEngineBase):
 
     def _parse_response(self, response: httpx.Response) -> tuple[list[SearchResultItem], int]:
         """Parse DuckDuckGo HTML response."""
-        soup = BeautifulSoup(response.text, "html.parser")
+        page = Adaptor(response.text)
         results: list[SearchResultItem] = []
 
         # DuckDuckGo HTML results are in divs with class 'result'
-        for item in soup.find_all("div", class_="result"):
+        for item in page.find_all("div", class_="result"):
             # Extract title and link from a.result__a
             title_tag = item.find("a", class_="result__a")
             if not title_tag:
@@ -72,7 +72,7 @@ class DuckDuckGoSearchEngine(SearchEngineBase):
             if not title:
                 continue
 
-            link = title_tag.get("href", "")
+            link = title_tag.attrib.get("href", "")
             link = clean_redirect_url(link)
 
             # Extract snippet from result__snippet
