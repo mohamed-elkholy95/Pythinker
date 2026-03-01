@@ -54,6 +54,64 @@ COLOR CODING:
 HELP
 }
 
+list_container_names() {
+    docker ps -a --format "{{.Names}}"
+}
+
+service_aliases() {
+    case "$1" in
+        frontend)
+            echo "frontend frontend-dev"
+            ;;
+        *)
+            echo "$1"
+            ;;
+    esac
+}
+
+resolve_container_name() {
+    local logical_service="$1"
+    local names
+    names="$(list_container_names)"
+
+    local service
+    for service in $(service_aliases "$logical_service"); do
+        local candidate_main="pythinker-main-${service}-1"
+        local candidate_legacy="pythinker-${service}-1"
+        if echo "$names" | grep -Fxq "$candidate_main"; then
+            echo "$candidate_main"
+            return 0
+        fi
+        if echo "$names" | grep -Fxq "$candidate_legacy"; then
+            echo "$candidate_legacy"
+            return 0
+        fi
+    done
+
+    for service in $(service_aliases "$logical_service"); do
+        local fallback
+        fallback="$(echo "$names" | grep -E "(^|-)${service}-1$" | head -n 1)"
+        if [ -n "$fallback" ]; then
+            echo "$fallback"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+require_container_name() {
+    local logical_service="$1"
+    local container
+    container="$(resolve_container_name "$logical_service")" || {
+        echo "No running container found for service '$logical_service'."
+        echo "Available containers:"
+        docker ps --format "table {{.Names}}\t{{.Status}}"
+        return 1
+    }
+    echo "$container"
+}
+
 monitor_all() {
     echo "╔════════════════════════════════════════════════════════════════╗"
     echo "║           MONITORING ALL PYTHINKER CONTAINERS                  ║"
@@ -68,11 +126,14 @@ monitor_sandbox() {
     echo "║              MONITORING SANDBOX CONTAINER                      ║"
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo ""
-    echo "Container: pythinker-sandbox-1"
+    local container
+    container="$(require_container_name sandbox)" || return 1
+
+    echo "Container: ${container}"
     echo "Focus: Context generation, CDP/Chrome, supervisord"
     echo ""
 
-    docker logs -f --tail=50 pythinker-sandbox-1
+    docker logs -f --tail=50 "${container}"
 }
 
 monitor_backend() {
@@ -80,11 +141,14 @@ monitor_backend() {
     echo "║              MONITORING BACKEND CONTAINER                      ║"
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo ""
-    echo "Container: pythinker-backend-1"
+    local container
+    container="$(require_container_name backend)" || return 1
+
+    echo "Container: ${container}"
     echo "Focus: API requests, context loading, agent execution"
     echo ""
 
-    docker logs -f --tail=50 pythinker-backend-1
+    docker logs -f --tail=50 "${container}"
 }
 
 monitor_frontend() {
@@ -92,11 +156,14 @@ monitor_frontend() {
     echo "║              MONITORING FRONTEND CONTAINER                     ║"
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo ""
-    echo "Container: pythinker-frontend-dev-1"
+    local container
+    container="$(require_container_name frontend)" || return 1
+
+    echo "Container: ${container}"
     echo "Focus: Vite dev server, HMR, build errors"
     echo ""
 
-    docker logs -f --tail=50 pythinker-frontend-dev-1
+    docker logs -f --tail=50 "${container}"
 }
 
 monitor_core() {
@@ -150,19 +217,25 @@ monitor_context() {
     echo "Filtering for: context, sandbox_context, environment scan"
     echo ""
 
-    docker logs -f --tail=100 pythinker-sandbox-1 | grep -iE "(context|environment|scan|generate|stdlib|builtin)"
+    local container
+    container="$(require_container_name sandbox)" || return 1
+    docker logs -f --tail=100 "${container}" | grep -iE "(context|environment|scan|generate|stdlib|builtin)"
 }
 
 show_logs() {
-    local container=$1
-    echo "Showing logs for: pythinker-${container}-1"
-    docker logs pythinker-${container}-1
+    local logical_service="$1"
+    local container
+    container="$(require_container_name "$logical_service")" || return 1
+    echo "Showing logs for: ${container}"
+    docker logs "${container}"
 }
 
 tail_logs() {
-    local container=$1
-    echo "Tailing logs for: pythinker-${container}-1"
-    docker logs -f --tail=50 pythinker-${container}-1
+    local logical_service="$1"
+    local container
+    container="$(require_container_name "$logical_service")" || return 1
+    echo "Tailing logs for: ${container}"
+    docker logs -f --tail=50 "${container}"
 }
 
 run_backend_watchdog() {
