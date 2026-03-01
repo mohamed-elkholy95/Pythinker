@@ -289,7 +289,7 @@ class PlanActFlow(BaseFlow):
         # Zero-progress dead-end recovery:
         # if execution ends with no completed/skipped steps, replan once before failing.
         self._zero_progress_dead_end_replans = 0
-        self._max_zero_progress_dead_end_replans = 1
+        self._max_zero_progress_dead_end_replans = 2
 
         # Phase 2: Proactive token budget management (feature-flagged)
         self._token_budget = None  # Created at flow start if flag enabled
@@ -2878,12 +2878,22 @@ class PlanActFlow(BaseFlow):
 
                         step_span.set_attribute("step.attempts", attempt + 1)
 
-                        # Mark step status based on actual success/failure
-                        # Belt-and-suspenders: explicitly sync step.status with step.success
-                        # to guarantee the final PlanEvent carries correct statuses.
+                        # Belt-and-suspenders: sync step.status with step.success.
+                        # Respect the executor's explicit COMPLETED status even if
+                        # step.success was not set (e.g. LLM didn't return structured
+                        # JSON but tools ran successfully).
                         if step.success:
                             step.status = ExecutionStatus.COMPLETED
                             await self._task_state_manager.update_step_status(str(step.id), "completed")
+                        elif step.status == ExecutionStatus.COMPLETED:
+                            # Executor marked COMPLETED — trust it, fix the inconsistency
+                            step.success = True
+                            await self._task_state_manager.update_step_status(str(step.id), "completed")
+                            logger.info(
+                                "Step %s status was COMPLETED but success=False; "
+                                "corrected to success=True (executor completed normally)",
+                                step.id,
+                            )
                         else:
                             step.status = ExecutionStatus.FAILED
                             await self._task_state_manager.update_step_status(str(step.id), "failed")
