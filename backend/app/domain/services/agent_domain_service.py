@@ -755,14 +755,19 @@ class AgentDomainService:
                             terminal_status = SessionStatus.FAILED
                         else:
                             # Orphaned session — task lost but status never updated.
-                            # This happens when cancel() races with SSE reconnect.
+                            # This commonly happens when cancellation/reload races
+                            # with SSE reconnect and no terminal event was persisted.
                             logger.warning(
-                                "Session %s is RUNNING but has no active task; marking FAILED",
+                                "Session %s is RUNNING but has no active task; marking CANCELLED",
                                 session_id,
                             )
-                            await self._session_repository.update_status(session_id, SessionStatus.FAILED)
-                            yield ErrorEvent(error="Session task was interrupted. Please retry.")
-                            terminal_status = SessionStatus.FAILED
+                            await self._session_repository.update_status(session_id, SessionStatus.CANCELLED)
+                            interruption_event = ErrorEvent(
+                                error="Session task was interrupted before completion (for example by cancellation or service reload). Please retry."
+                            )
+                            await self._session_repository.add_event(session_id, interruption_event)
+                            yield interruption_event
+                            terminal_status = SessionStatus.CANCELLED
                     else:
                         logger.info(
                             "Session %s has no active task and no new input; ending stream without completion event",
