@@ -240,6 +240,7 @@ class TestAskStructuredOpenRouter:
         with patch("app.infrastructure.external.llm.openai_llm.get_settings") as mock_settings:
             settings_obj = SimpleNamespace(
                 use_instructor_structured_output=False,
+                llm_slow_request_threshold=30.0,
             )
             mock_settings.return_value = settings_obj
 
@@ -273,6 +274,7 @@ class TestAskStructuredOpenRouter:
         with patch("app.infrastructure.external.llm.openai_llm.get_settings") as mock_settings:
             settings_obj = SimpleNamespace(
                 use_instructor_structured_output=False,
+                llm_slow_request_threshold=30.0,
             )
             mock_settings.return_value = settings_obj
 
@@ -309,6 +311,7 @@ class TestAskStructuredOpenRouter:
         ):
             settings_obj = SimpleNamespace(
                 use_instructor_structured_output=True,
+                llm_slow_request_threshold=30.0,
             )
             mock_settings.return_value = settings_obj
 

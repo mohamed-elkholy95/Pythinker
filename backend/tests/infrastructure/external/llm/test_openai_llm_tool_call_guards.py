@@ -58,7 +58,7 @@ async def test_ask_caps_max_tokens_for_tool_calls() -> None:
 
     with patch(
         "app.infrastructure.external.llm.openai_llm.get_settings",
-        return_value=SimpleNamespace(llm_tool_max_tokens=128),
+        return_value=SimpleNamespace(llm_tool_max_tokens=128, llm_slow_request_threshold=30.0),
     ):
         await llm.ask(messages=messages, tools=tools)
 
@@ -100,6 +100,7 @@ async def test_ask_times_out_slow_tool_calls_with_guardrail() -> None:
                 llm_tool_request_timeout=0.01,
                 llm_tool_timeout_max_retries=0,
                 fast_model="",
+                llm_slow_request_threshold=30.0,
             ),
         ),
         pytest.raises(LLMException, match="timed out"),
@@ -150,6 +151,7 @@ async def test_ask_tool_timeout_retries_increase_timeout_budget_with_backoff() -
                 llm_tool_timeout_max_retries=1,
                 llm_request_timeout=1.0,
                 fast_model="",
+                llm_slow_request_threshold=30.0,
             ),
         ),
         patch("app.infrastructure.external.llm.openai_llm.asyncio.wait_for", side_effect=_timeout_wait_for),

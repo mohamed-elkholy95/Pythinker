@@ -97,6 +97,10 @@ class LLMTimeoutSettingsMixin:
     # fast while slow-but-alive providers get the full budget.
     llm_request_timeout: float = 300.0
 
+    # Duration (seconds) after which an LLM call is logged at WARNING instead of
+    # INFO.  Raise this for slow providers (e.g. GLM-5) to reduce log noise.
+    llm_slow_request_threshold: float = 30.0
+
     # Tool-enabled calls usually need concise JSON/function outputs; capping token
     # budget reduces slow turns and limits runaway verbose generations.
     # Set to 0 to disable this cap.
