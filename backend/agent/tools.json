@@ -246,7 +246,7 @@
     "type": "function",
     "function": {
       "name": "shell_exec",
-      "description": "Execute commands in a specified shell session. Use for running code, installing packages, or managing files.",
+      "description": "Execute commands in a specified shell session. Use for running code, installing packages, or managing files. For multi-line file writes, prefer heredoc syntax (cat > file << 'EOF' ... EOF) instead of long printf strings.",
       "parameters": {
         "type": "object",
         "properties": {
