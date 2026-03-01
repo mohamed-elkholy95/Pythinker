@@ -322,6 +322,23 @@ class TestRepetitiveSameToolDetection:
         assert signal.hard_stop is True
         assert signal.signal_type == "repetitive_tool"
 
+    def test_second_repetitive_signal_escalates_to_hard_stop(self):
+        """Second repetitive-tool trigger in same sequence should hard-stop."""
+        monitor = ToolEfficiencyMonitor(
+            same_tool_threshold=4,
+            same_tool_strong_threshold=8,  # Keep strong threshold above second trigger.
+        )
+
+        for _ in range(4):
+            monitor.record("code_execute_python")
+        first_signal = monitor.check_efficiency()
+        assert first_signal.hard_stop is False
+
+        monitor.record("code_execute_python")
+        second_signal = monitor.check_efficiency()
+        assert second_signal.hard_stop is True
+        assert second_signal.signal_type == "repetitive_tool"
+
     def test_different_tools_do_not_trigger(self):
         """Alternating tools should not trigger repetitive detection."""
         monitor = ToolEfficiencyMonitor(same_tool_threshold=4)
