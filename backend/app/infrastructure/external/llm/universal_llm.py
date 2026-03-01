@@ -320,11 +320,9 @@ class UniversalLLM:
                 return
             from app.domain.services.llm.provider_health import get_provider_health_tracker
 
-            get_provider_health_tracker().record(
-                provider=provider, latency_ms=latency_ms, success=success
-            )
+            get_provider_health_tracker().record(provider=provider, latency_ms=latency_ms, success=success)
         except Exception:
-            pass
+            logger.debug("UniversalLLM: provider health record failed", exc_info=True)
 
     @property
     def provider(self) -> str:
@@ -380,24 +378,26 @@ class UniversalLLM:
         """
         import time
 
-        kwargs: dict[str, Any] = dict(
-            messages=messages,
-            tools=tools,
-            response_format=response_format,
-            tool_choice=tool_choice,
-            enable_caching=enable_caching,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        kwargs: dict[str, Any] = {
+            "messages": messages,
+            "tools": tools,
+            "response_format": response_format,
+            "tool_choice": tool_choice,
+            "enable_caching": enable_caching,
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
 
         # ── Primary provider attempt ──
+        last_exc: Exception | None = None
         t0 = time.monotonic()
         try:
             result = await self._backend.ask(**kwargs)
             self._record_health(self._provider_name, (time.monotonic() - t0) * 1000, True)
             return result
         except Exception as primary_exc:
+            last_exc = primary_exc
             self._record_health(self._provider_name, (time.monotonic() - t0) * 1000, False)
             fallback_chain = self._get_fallback_chain()
             if not fallback_chain:
@@ -411,7 +411,6 @@ class UniversalLLM:
             )
 
         # ── Fallback chain ──
-        last_exc = primary_exc  # type: ignore[assignment]
         for fallback_provider in fallback_chain:
             try:
                 self.switch_provider(fallback_provider)
@@ -429,6 +428,8 @@ class UniversalLLM:
                 )
                 last_exc = exc
 
+        if last_exc is None:
+            raise RuntimeError("UniversalLLM fallback failed without a captured exception")
         raise last_exc
 
     async def ask_structured(
