@@ -51,7 +51,7 @@ class RequestLoggingMiddleware:
 
         # Log request (sanitized)
         client_ip = request.client.host if request.client else "unknown"
-        logger.info(f"[{request_id}] {request.method} {path} - Client: {client_ip}")
+        logger.info("request_started", method=request.method, path=path, client_ip=client_ip)
 
         # Capture response status
         response_status = 500
@@ -68,16 +68,21 @@ class RequestLoggingMiddleware:
 
         try:
             await self.app(scope, receive, send_wrapper)
-        except Exception as e:
-            logger.error(f"[{request_id}] Request failed with exception: {e}")
+        except Exception:
+            logger.error("request_failed", exc_info=True)
             raise
         finally:
             duration_ms = (time.time() - start_time) * 1000
-            msg = f"[{request_id}] {request.method} {path} - {response_status} ({duration_ms:.2f}ms)"
+            log_kw = {
+                "method": request.method,
+                "path": path,
+                "status": response_status,
+                "duration_ms": round(duration_ms, 2),
+            }
             if response_status < 400:
-                logger.info(msg)
+                logger.info("request_completed", **log_kw)
             else:
-                logger.warning(msg)
+                logger.warning("request_completed", **log_kw)
             # Reset ContextVar to avoid request_id leaking into the next
             # request processed by the same asyncio task.
             request_id_var.reset(request_id_token)
