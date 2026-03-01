@@ -229,16 +229,17 @@ class FileSyncManager:
                 )
                 return None
 
-            if file_data.getbuffer().nbytes == 0:
-                logger.warning(
-                    "Agent %s: File '%s' is empty (0 bytes)",
+            new_size = file_data.getbuffer().nbytes
+            if new_size == 0:
+                logger.error(
+                    "Agent %s: Rejecting upload for empty file '%s' (0 bytes)",
                     self._agent_id,
                     file_path,
                 )
+                return None
 
             # Content-hash dedup: skip re-upload when content is unchanged
             content_md5 = hashlib.md5(file_data.getbuffer()).hexdigest()  # noqa: S324
-            new_size = file_data.getbuffer().nbytes
             if existing_file and existing_file.file_id and existing_file.metadata:
                 existing_md5 = existing_file.metadata.get("content_md5")
                 existing_size = existing_file.size
