@@ -157,7 +157,8 @@ class TestThresholdDetection:
 
     def test_soft_threshold_triggered(self):
         """At read_threshold should return soft nudge."""
-        monitor = ToolEfficiencyMonitor(read_threshold=5, strong_threshold=10)
+        # same_tool_threshold set above the loop count to isolate read-balance detection
+        monitor = ToolEfficiencyMonitor(read_threshold=5, strong_threshold=10, same_tool_threshold=20)
         for _ in range(5):
             monitor.record("file_read")
 
@@ -169,7 +170,8 @@ class TestThresholdDetection:
 
     def test_strong_threshold_triggered(self):
         """At strong_threshold should return hard-stop nudge."""
-        monitor = ToolEfficiencyMonitor(read_threshold=5, strong_threshold=10)
+        # same_tool_threshold set above the loop count to isolate read-balance detection
+        monitor = ToolEfficiencyMonitor(read_threshold=5, strong_threshold=10, same_tool_threshold=20)
         for _ in range(10):
             monitor.record("file_read")
 
@@ -278,3 +280,100 @@ class TestIntegration:
         monitor.record("file_write")
         signal = monitor.check_efficiency()
         assert signal.is_balanced is True
+
+
+# ============================================================================
+# Test Class 9: Repetitive Same-Tool Detection
+# ============================================================================
+
+
+class TestRepetitiveSameToolDetection:
+    """Test detection of consecutive identical tool calls."""
+
+    def test_consecutive_same_action_tool_triggers_nudge(self):
+        """4+ consecutive calls to the same action tool should trigger nudge."""
+        monitor = ToolEfficiencyMonitor(
+            read_threshold=10,
+            strong_threshold=15,
+            same_tool_threshold=4,
+            same_tool_strong_threshold=6,
+        )
+        for _ in range(4):
+            monitor.record("code_execute_python")
+
+        signal = monitor.check_efficiency()
+        assert signal.is_balanced is False
+        assert signal.nudge_message is not None
+        assert signal.hard_stop is False
+        assert signal.signal_type == "repetitive_tool"
+        assert "code_execute_python" in signal.nudge_message
+
+    def test_consecutive_same_tool_hard_stop(self):
+        """6+ consecutive calls to the same tool should trigger hard stop."""
+        monitor = ToolEfficiencyMonitor(
+            same_tool_threshold=4,
+            same_tool_strong_threshold=6,
+        )
+        for _ in range(6):
+            monitor.record("code_execute_python")
+
+        signal = monitor.check_efficiency()
+        assert signal.is_balanced is False
+        assert signal.hard_stop is True
+        assert signal.signal_type == "repetitive_tool"
+
+    def test_different_tools_do_not_trigger(self):
+        """Alternating tools should not trigger repetitive detection."""
+        monitor = ToolEfficiencyMonitor(same_tool_threshold=4)
+        monitor.record("code_execute_python")
+        monitor.record("file_write")
+        monitor.record("code_execute_python")
+        monitor.record("file_write")
+
+        signal = monitor.check_efficiency()
+        assert signal.is_balanced is True
+
+    def test_exempt_tools_do_not_trigger(self):
+        """Exempt tools (file_write) should not trigger repetitive detection."""
+        monitor = ToolEfficiencyMonitor(same_tool_threshold=4)
+        for _ in range(6):
+            monitor.record("file_write")
+
+        signal = monitor.check_efficiency()
+        # file_write is exempt from repetitive detection — either balanced or non-repetitive signal type
+        assert signal.signal_type != "repetitive_tool" or signal.is_balanced is True
+
+    def test_switching_tool_resets_counter(self):
+        """Switching to a different tool should reset the consecutive counter."""
+        monitor = ToolEfficiencyMonitor(same_tool_threshold=4)
+        monitor.record("code_execute_python")
+        monitor.record("code_execute_python")
+        monitor.record("code_execute_python")
+        # Switch tool — resets counter
+        monitor.record("file_write")
+        monitor.record("code_execute_python")
+
+        signal = monitor.check_efficiency()
+        assert signal.is_balanced is True
+
+    def test_reset_clears_same_tool_tracking(self):
+        """Reset should clear same-tool tracking state."""
+        monitor = ToolEfficiencyMonitor(same_tool_threshold=4)
+        monitor.record("code_execute_python")
+        monitor.record("code_execute_python")
+        monitor.record("code_execute_python")
+
+        monitor.reset()
+        assert monitor._consecutive_same_tool == 0
+        assert monitor._last_tool_name is None
+
+    def test_research_mode_relaxes_same_tool_thresholds(self):
+        """Research mode should relax same-tool thresholds."""
+        monitor = ToolEfficiencyMonitor(
+            same_tool_threshold=4,
+            same_tool_strong_threshold=6,
+            research_mode="deep_research",
+        )
+        # Research mode should increase thresholds
+        assert monitor.same_tool_threshold >= 8
+        assert monitor.same_tool_strong_threshold >= 10

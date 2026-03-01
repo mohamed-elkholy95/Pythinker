@@ -35,6 +35,7 @@ class EfficiencySignal:
     nudge_message: str | None = None
     confidence: float = 1.0
     hard_stop: bool = False  # When True, search tools should be blocked
+    signal_type: str = "balance"  # "balance" or "repetitive_tool"
 
 
 class ToolEfficiencyMonitor:
@@ -56,12 +57,25 @@ class ToolEfficiencyMonitor:
     _RESEARCH_READ_THRESHOLD: ClassVar[int] = 12
     _RESEARCH_STRONG_THRESHOLD: ClassVar[int] = 15
 
+    # Relaxed thresholds for same-tool repetition in research modes
+    _RESEARCH_SAME_TOOL_THRESHOLD: ClassVar[int] = 8
+    _RESEARCH_SAME_TOOL_STRONG_THRESHOLD: ClassVar[int] = 10
+
+    # Tools exempt from repetitive-tool detection (legitimately called in sequence)
+    LOOP_EXEMPT_TOOLS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "file_write",  # Multi-file implementations write many files sequentially
+        }
+    )
+
     def __init__(
         self,
         window_size: int = 10,
         read_threshold: int = 5,
         strong_threshold: int = 6,
         research_mode: str | None = None,
+        same_tool_threshold: int = 4,
+        same_tool_strong_threshold: int = 6,
     ):
         """Initialize tool efficiency monitor.
 
@@ -70,21 +84,31 @@ class ToolEfficiencyMonitor:
             read_threshold: Consecutive reads before nudge
             strong_threshold: Consecutive reads before strong nudge
             research_mode: If deep_research/wide_research, auto-relax thresholds
+            same_tool_threshold: Consecutive same-tool calls before nudge
+            same_tool_strong_threshold: Consecutive same-tool calls before hard stop
 
         Context7 validated: Constructor with sensible defaults.
         """
         if research_mode in ("deep_research", "wide_research"):
             read_threshold = max(read_threshold, self._RESEARCH_READ_THRESHOLD)
             strong_threshold = max(strong_threshold, self._RESEARCH_STRONG_THRESHOLD)
+            same_tool_threshold = max(same_tool_threshold, self._RESEARCH_SAME_TOOL_THRESHOLD)
+            same_tool_strong_threshold = max(same_tool_strong_threshold, self._RESEARCH_SAME_TOOL_STRONG_THRESHOLD)
         self.window_size = window_size
         self.read_threshold = read_threshold
         self.strong_threshold = strong_threshold
+        self.same_tool_threshold = same_tool_threshold
+        self.same_tool_strong_threshold = same_tool_strong_threshold
 
         # Sliding window of recent tool calls
         self._recent_tools: deque[str] = deque(maxlen=window_size)
 
         # Consecutive read counter
         self._consecutive_reads = 0
+
+        # Consecutive same-tool counter (detects repetitive loops)
+        self._consecutive_same_tool: int = 0
+        self._last_tool_name: str | None = None
 
     def record(self, tool_name: str) -> None:
         """Record a tool call and update counters.
@@ -95,6 +119,13 @@ class ToolEfficiencyMonitor:
         Context7 validated: Simple state update pattern.
         """
         self._recent_tools.append(tool_name)
+
+        # Track consecutive same-tool usage
+        if tool_name == self._last_tool_name:
+            self._consecutive_same_tool += 1
+        else:
+            self._consecutive_same_tool = 1
+            self._last_tool_name = tool_name
 
         # Update consecutive read counter
         if self._is_read_tool(tool_name):
@@ -114,6 +145,28 @@ class ToolEfficiencyMonitor:
         # Count reads and actions in recent window
         read_count = sum(1 for tool in self._recent_tools if self._is_read_tool(tool))
         action_count = sum(1 for tool in self._recent_tools if self._is_action_tool(tool))
+
+        # Check for repetitive same-tool usage (skip exempt tools)
+        if (
+            self._consecutive_same_tool >= self.same_tool_threshold
+            and self._last_tool_name is not None
+            and self._last_tool_name not in self.LOOP_EXEMPT_TOOLS
+        ):
+            hard_stop = self._consecutive_same_tool >= self.same_tool_strong_threshold
+            return EfficiencySignal(
+                is_balanced=False,
+                read_count=read_count,
+                action_count=action_count,
+                nudge_message=(
+                    f"{'⛔ HARD STOP' if hard_stop else '⚠️ WARNING'} — TOOL LOOP DETECTED: "
+                    f"{self._consecutive_same_tool} consecutive calls to `{self._last_tool_name}`. "
+                    f"This tool is {'now blocked' if hard_stop else 'being overused'}. "
+                    f"Try a different approach or tool to make progress."
+                ),
+                confidence=0.90,
+                hard_stop=hard_stop,
+                signal_type="repetitive_tool",
+            )
 
         # Check for consecutive reads
         if self._consecutive_reads >= self.strong_threshold:
@@ -163,6 +216,8 @@ class ToolEfficiencyMonitor:
         """
         self._recent_tools.clear()
         self._consecutive_reads = 0
+        self._consecutive_same_tool = 0
+        self._last_tool_name = None
 
     def _is_read_tool(self, tool_name: str) -> bool:
         """Check if tool is a read operation.
