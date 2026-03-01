@@ -21,7 +21,7 @@ DEFAULT_SEARCH_PROVIDER_CHAIN = ("tavily", "duckduckgo", "serper")
 
 def _looks_like_json_input(raw_value: str) -> bool:
     """Return True when a value appears to be JSON or JSON-like."""
-    return raw_value[:1] in {"[", "{", '"', "'"}
+    return raw_value[:1] in {"[", "{", '"'}
 
 
 def parse_search_provider_chain(raw: Any) -> list[str]:
