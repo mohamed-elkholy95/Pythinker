@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import threading
@@ -112,6 +113,8 @@ class DockerLogMonitor:
         # Prevent infinite cascade: ignore our own log output
         if "docker_log_monitor" in line:
             return
+        if self._is_mongodb_info_log(line):
+            return
         # Ignore known benign containerized Chrome D-Bus errors
         if "dbus" in line.lower() and ("Failed to connect to the bus" in line or "NameHasOwner" in line):
             return
@@ -144,3 +147,14 @@ class DockerLogMonitor:
             logger.error(msg)
         elif level == logging.WARNING:
             logger.warning(msg)
+
+    @staticmethod
+    def _is_mongodb_info_log(line: str) -> bool:
+        """Return True for MongoDB JSON logs with informational severity."""
+        if not line.startswith("{") or '"s":"I"' not in line:
+            return False
+        try:
+            payload = json.loads(line)
+        except Exception:
+            return False
+        return payload.get("s") == "I"
