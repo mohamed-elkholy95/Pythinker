@@ -249,11 +249,16 @@ class BaseAgent:
             signal = self._efficiency_monitor.check_efficiency()
             if signal.hard_stop:
                 if signal.signal_type == "repetitive_tool":
-                    # Block only the specific repeated tool
-                    blocked_tool = self._efficiency_monitor._last_tool_name
-                    available_tools = [
-                        t for t in available_tools if t.get("function", {}).get("name", "") != blocked_tool
-                    ]
+                    # Only apply if feature flag is enabled
+                    from app.core.config import get_settings as _get_settings
+
+                    _s = _get_settings()
+                    if getattr(_s, "feature_repetitive_tool_detection_enabled", False):
+                        # Block only the specific repeated tool
+                        blocked_tool = self._efficiency_monitor._last_tool_name
+                        available_tools = [
+                            t for t in available_tools if t.get("function", {}).get("name", "") != blocked_tool
+                        ]
                 else:
                     # Original behavior: block all read tools
                     available_tools = [
