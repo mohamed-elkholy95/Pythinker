@@ -290,6 +290,20 @@ class SearchTool(BaseTool):
     # prevent GC of fire-and-forget browse tasks
     _background_tasks: ClassVar[set[asyncio.Task[None]]] = set()
 
+    @classmethod
+    def _handle_background_task_done(cls, task: asyncio.Task[None]) -> None:
+        """Remove finished task from the GC-prevention set and retrieve any exception.
+
+        Without calling ``task.exception()``, asyncio logs a noisy
+        "Task exception was never retrieved" warning for every Playwright
+        navigation that gets cancelled or hits ``net::ERR_ABORTED``.
+        """
+        cls._background_tasks.discard(task)
+        if not task.cancelled():
+            exc = task.exception()
+            if exc:
+                logger.debug("Background browse task raised (non-critical): %s", exc)
+
     class _BudgetTracker:
         """Per-task search API call budget enforcement.
 
@@ -1068,7 +1082,7 @@ class SearchTool(BaseTool):
             task = asyncio.create_task(self._browse_top_results(result.data, count=3))
             self._current_browse_task = task
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            task.add_done_callback(self._handle_background_task_done)
 
             # Append system note to prevent LLM from re-navigating these same URLs
             result.message = (
@@ -1325,7 +1339,7 @@ wide_research(
             task = asyncio.create_task(self._browse_top_results(search_data, count=3))
             self._current_browse_task = task
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            task.add_done_callback(self._handle_background_task_done)
 
             # Append system note to prevent LLM from re-navigating these same URLs
             message += (
