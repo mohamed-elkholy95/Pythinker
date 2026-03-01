@@ -249,8 +249,7 @@ class OpenAILLM(LLM):
             if self._slow_tool_call_streak >= self._SLOW_TOOL_CALL_TRIP_COUNT and fast_model:
                 self._slow_tool_call_breaker_until = now + self._SLOW_TOOL_CALL_COOLDOWN_SECONDS
                 logger.warning(
-                    "Slow tool-call circuit breaker tripped (%d calls >= %.0fs); "
-                    "using fast model '%s' for %.0fs",
+                    "Slow tool-call circuit breaker tripped (%d calls >= %.0fs); using fast model '%s' for %.0fs",
                     self._slow_tool_call_streak,
                     self._SLOW_TOOL_CALL_THRESHOLD_SECONDS,
                     fast_model,
