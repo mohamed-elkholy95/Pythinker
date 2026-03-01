@@ -37,8 +37,9 @@ export function useAuth() {
     isAuthenticated: computed(() => store.isAuthenticated),
     isLoading: computed(() => store.isLoading),
     authError: computed(() => store.authError),
-    isAdmin: store.isAdmin,
-    isActive: store.isActive,
+    // Preserve legacy composable contract: these are refs with `.value`
+    isAdmin: computed(() => store.isAdmin),
+    isActive: computed(() => store.isActive),
 
     // Actions — delegate directly to store
     login: store.login as (credentials: LoginRequest) => Promise<LoginResponse>,
