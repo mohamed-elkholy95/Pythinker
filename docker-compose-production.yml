@@ -246,7 +246,7 @@ services:
       # Ping AND initialize replica set if not already configured.
       # rs.status() throws if uninitialized; initiate then re-check.
       test: >-
-        mongosh --directConnection --norc --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "
+        mongosh --norc --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "
           try { rs.status().ok }
           catch(e) { rs.initiate({_id:'rs0', members:[{_id:0, host:'mongodb:27017'}]}).ok }
         "
