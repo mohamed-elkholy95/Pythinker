@@ -302,28 +302,10 @@ async def create_session(
     agent_service: AgentService = Depends(get_agent_service),
     sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
 ) -> APIResponse[CreateSessionResponse]:
-    # Idempotency guard — prevent duplicate session creation on network retries.
-    # If X-Idempotency-Key header is present, check Redis for a prior session_id.
+    # Pass the idempotency key (if any) to the application service.
+    # The service handles the Redis lookup and storage; the route stays
+    # infrastructure-free.
     idempotency_key = http_request.headers.get("x-idempotency-key")
-    if idempotency_key:
-        from app.infrastructure.external.cache import get_cache
-
-        cache = get_cache()
-        cache_key = f"idempotency:session:{current_user.id}:{idempotency_key}"
-        existing_session_id = await cache.get(cache_key)
-        if existing_session_id:
-            logger.info(f"Idempotency hit: returning existing session {existing_session_id}")
-            existing_session = await agent_service.get_session(existing_session_id, current_user.id)
-            if existing_session:
-                return APIResponse.success(
-                    CreateSessionResponse(
-                        session_id=existing_session.id,
-                        mode=existing_session.mode,
-                        research_mode=existing_session.research_mode,
-                        sandbox=None,
-                        status=existing_session.status,
-                    )
-                )
 
     session = await agent_service.create_session(
         current_user.id,
@@ -332,15 +314,8 @@ async def create_session(
         initial_message=request.message,  # Phase 4 P0: Pass initial message for intent classification
         require_fresh_sandbox=request.require_fresh_sandbox,
         sandbox_wait_seconds=request.sandbox_wait_seconds,
+        idempotency_key=idempotency_key or None,
     )
-
-    # Store idempotency key → session_id mapping (TTL 60s)
-    if idempotency_key:
-        from app.infrastructure.external.cache import get_cache
-
-        cache = get_cache()
-        cache_key = f"idempotency:session:{current_user.id}:{idempotency_key}"
-        await cache.set(cache_key, session.id, ttl=60)
 
     # Include sandbox info if available
     sandbox_info = None
