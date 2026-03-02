@@ -5,7 +5,6 @@ import time
 import pytest
 
 from app.infrastructure.external.search.provider_health_ranker import (
-    DEGRADED_429_RATIO,
     WINDOW_SECONDS,
     ProviderHealthRanker,
     get_provider_health_ranker,

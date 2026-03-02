@@ -2,8 +2,6 @@
 
 import time
 
-import pytest
-
 from app.domain.services.tools.search import (
     _HOT_CACHE_MAXSIZE,
     _HOT_CACHE_TTL,
@@ -12,7 +10,6 @@ from app.domain.services.tools.search import (
     _hot_cache_set,
     canonicalize_query,
 )
-
 
 # ---------------------------------------------------------------------------
 # canonicalize_query
