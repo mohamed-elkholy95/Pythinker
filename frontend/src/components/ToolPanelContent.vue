@@ -211,6 +211,7 @@
 
             <div class="flex-1 w-full min-h-0 relative">
               <LiveViewer
+                ref="liveViewerRef"
                 :key="'live-preview-persistent-' + (sessionId || 'none')"
                 :session-id="sessionId || ''"
                 :enabled="true"
@@ -512,7 +513,7 @@
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
 import { Minimize2, MonitorUp, X, Loader2, Check, BarChart3, Palette } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
-import type { PlanEventData } from '@/types/event';
+import type { PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { getToolDisplay, extractToolUrl } from '@/utils/toolDisplay';
@@ -669,6 +670,7 @@ const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
 
 // Canvas live view
 const canvasLiveViewRef = ref<{ scheduleRefresh: () => void; refresh: () => void } | null>(null);
+const liveViewerRef = ref<{ processToolEvent?: (event: ToolEventData) => void } | null>(null);
 
 /** Resolve canvas project ID from SSE prop or tool content args/result */
 const resolvedCanvasProjectId = computed(() => {
@@ -994,6 +996,52 @@ const showPersistentBrowser = computed(() => {
   return !!props.sessionId && !props.isReplayMode
 })
 
+let _lastForwardedToolEventKey = '';
+
+const forwardToolEventToLiveViewer = (): void => {
+  if (!props.sessionId || !showPersistentBrowser.value || !liveViewerRef.value?.processToolEvent) return;
+
+  const tool = props.toolContent;
+  if (!tool?.tool_call_id || !tool.function || !tool.status) return;
+
+  const args = tool.args || {};
+  const eventKey = JSON.stringify([
+    tool.tool_call_id,
+    tool.status,
+    tool.function,
+    args.coordinate_x,
+    args.coordinate_y,
+    args.x,
+    args.y,
+    args.index,
+    args.url,
+  ]);
+  if (eventKey === _lastForwardedToolEventKey) return;
+  _lastForwardedToolEventKey = eventKey;
+
+  liveViewerRef.value.processToolEvent({
+    event_id: tool.event_id || tool.tool_call_id,
+    timestamp: tool.timestamp || Math.floor(Date.now() / 1000),
+    tool_call_id: tool.tool_call_id,
+    name: tool.name,
+    status: tool.status === 'interrupted' ? 'called' : tool.status,
+    function: tool.function,
+    args: tool.args || {},
+  });
+};
+
+watch(
+  () => props.sessionId,
+  () => {
+    _lastForwardedToolEventKey = '';
+    forwardToolEventToLiveViewer();
+  },
+);
+
+watch(liveViewerRef, () => {
+  forwardToolEventToLiveViewer();
+});
+
 // ============ URL Bar Overlay ============
 const BROWSER_TOOL_PREFIXES = ['browser', 'playwright', 'browsing'];
 const isBrowserTool = (name: string) =>
@@ -1195,6 +1243,26 @@ watch(() => props.toolContent, () => {
     }
   }
 });
+
+watch(
+  () => [
+    props.sessionId,
+    showPersistentBrowser.value,
+    props.toolContent?.tool_call_id,
+    props.toolContent?.status,
+    props.toolContent?.function,
+    props.toolContent?.args?.coordinate_x,
+    props.toolContent?.args?.coordinate_y,
+    props.toolContent?.args?.x,
+    props.toolContent?.args?.y,
+    props.toolContent?.args?.index,
+    props.toolContent?.args?.url,
+  ],
+  () => {
+    forwardToolEventToLiveViewer();
+  },
+  { immediate: true },
+);
 
 // Watch for streaming state changes to toggle polling
 watch(shouldShowUnifiedStreaming, (isStreaming) => {
