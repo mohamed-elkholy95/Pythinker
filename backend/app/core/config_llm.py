@@ -99,6 +99,14 @@ class LLMTimeoutSettingsMixin:
     # still flagging genuinely slow requests.
     llm_slow_request_threshold: float = 45.0
 
+    # Optional hard timeout (seconds) applied to every LLM call via asyncio.wait_for.
+    # Set to 0 to disable.
+    llm_hard_call_timeout: float = 0.0
+
+    # GLM-specific hard timeout (seconds). Set >0 to cap extreme tail latency on
+    # GLM calls and force faster fallback paths; set 0 to disable.
+    llm_glm_hard_call_timeout: float = 45.0
+
     # Tool-enabled calls usually need concise JSON/function outputs; capping token
     # budget reduces slow turns and limits runaway verbose generations.
     # Set to 0 to disable this cap.
