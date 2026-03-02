@@ -14,6 +14,7 @@ from app.infrastructure.external.search.base import SearchEngineBase, SearchEngi
 # Minimal engine that uses the base search() method
 # ---------------------------------------------------------------------------
 
+
 class _SlowSearchEngine(SearchEngineBase):
     """Test engine that records peak concurrent calls."""
 

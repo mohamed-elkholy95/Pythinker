@@ -23,7 +23,7 @@ async def test_governor_allows_under_burst():
 async def test_governor_throttles_over_burst():
     """Governor denies when bucket is empty (no refill time elapsed)."""
     gov = SearchRateGovernor(redis=None, provider="tavily", rps=1.0, burst=1.0)
-    first = await gov.acquire()   # consumes the 1 burst token
+    first = await gov.acquire()  # consumes the 1 burst token
     second = await gov.acquire()  # immediately after — no refill
     assert first is True
     assert second is False

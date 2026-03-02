@@ -228,12 +228,7 @@ class TestSweepWorkspaceFiles:
         mock_sandbox.exec_command = AsyncMock(
             return_value=ToolResult(
                 success=True,
-                data={
-                    "output": (
-                        "/workspace/test-session/report.md\n"
-                        "/workspace/test-session/final_report.md\n"
-                    )
-                },
+                data={"output": ("/workspace/test-session/report.md\n/workspace/test-session/final_report.md\n")},
             )
         )
         session = MagicMock()
@@ -257,12 +252,7 @@ class TestSweepWorkspaceFiles:
         mock_sandbox.exec_command = AsyncMock(
             return_value=ToolResult(
                 success=True,
-                data={
-                    "output": (
-                        "/workspace/test-session/report_q1.md\n"
-                        "/workspace/test-session/report_q2.md\n"
-                    )
-                },
+                data={"output": ("/workspace/test-session/report_q1.md\n/workspace/test-session/report_q2.md\n")},
             )
         )
         session = MagicMock()
@@ -288,8 +278,7 @@ class TestSweepWorkspaceFiles:
                 success=True,
                 data={
                     "output": (
-                        "/workspace/test-session/analysis_backend.md\n"
-                        "/workspace/test-session/analysis_frontend.md\n"
+                        "/workspace/test-session/analysis_backend.md\n/workspace/test-session/analysis_frontend.md\n"
                     )
                 },
             )

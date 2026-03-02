@@ -795,13 +795,7 @@ class AgentDomainService:
 
             # Cooperative-cancellation race: task completed after emitting partial
             # events, but no terminal event (Done/Error) was produced.
-            if (
-                task is not None
-                and task.done
-                and received_events
-                and terminal_status is None
-                and not saw_wait_event
-            ):
+            if task is not None and task.done and received_events and terminal_status is None and not saw_wait_event:
                 logger.warning(
                     "Session %s task finished without terminal event after partial stream; marking CANCELLED",
                     session_id,

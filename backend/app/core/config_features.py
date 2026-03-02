@@ -74,9 +74,9 @@ class SearchSettingsMixin:
     search_max_concurrent_per_provider: int = 3
 
     # Timeout stratification
-    search_connect_timeout: float = 5.0    # Short: fail-fast for API search
-    search_read_timeout: float = 15.0      # Short: provider APIs respond fast
-    search_total_timeout: float = 20.0     # Absolute deadline
+    search_connect_timeout: float = 5.0  # Short: fail-fast for API search
+    search_read_timeout: float = 15.0  # Short: provider APIs respond fast
+    search_total_timeout: float = 20.0  # Absolute deadline
     page_fetch_connect_timeout: float = 10.0
     page_fetch_read_timeout: float = 60.0
     page_fetch_total_timeout: float = 90.0
