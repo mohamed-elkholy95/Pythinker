@@ -224,6 +224,7 @@ import type Konva from 'konva'
 import { useKonvaScreencast } from '@/composables/useKonvaScreencast'
 import { useLiveViewerZoom } from '@/composables/useLiveViewerZoom'
 import { useAgentActionOverlay } from '@/composables/useAgentActionOverlay'
+import { useAgentCursor } from '@/composables/useAgentCursor'
 import { useAnnotationLayer } from '@/composables/useAnnotationLayer'
 import type { ToolEventData } from '@/types/event'
 import { SANDBOX_WIDTH, SANDBOX_HEIGHT } from '@/types/liveViewer'
@@ -240,10 +241,13 @@ const props = withDefaults(
     showStats?: boolean
     /** Show agent action overlay */
     showAgentActions?: boolean
+    /** Show persistent agent cursor on overlay */
+    showAgentCursor?: boolean
   }>(),
   {
     showStats: false,
     showAgentActions: true,
+    showAgentCursor: true,
   },
 )
 
@@ -274,6 +278,7 @@ let resizeObserver: ResizeObserver | null = null
 const screencast = useKonvaScreencast()
 const zoomCtrl = useLiveViewerZoom()
 const agentOverlay = useAgentActionOverlay()
+const agentCursor = useAgentCursor()
 const annotationLayer = useAnnotationLayer()
 
 // Expose frame dimensions from screencast
@@ -431,6 +436,9 @@ function processToolEvent(event: ToolEventData): void {
   if (props.showAgentActions) {
     agentOverlay.processToolEvent(event)
   }
+  if (props.showAgentCursor) {
+    agentCursor.processToolEvent(event)
+  }
 }
 
 /**
@@ -521,6 +529,7 @@ onMounted(() => {
     }
     if (overlayLayer) {
       agentOverlay.bindLayer(overlayLayer)
+      agentCursor.bindLayer(overlayLayer)
     }
     if (annotationLayerNode && stage) {
       annotationLayer.bind(annotationLayerNode, stage)
@@ -540,6 +549,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   screencast.unbindImageNode()
   agentOverlay.unbindLayer()
+  agentCursor.unbindLayer()
   annotationLayer.unbind()
   if (_fitRetryTimer) clearTimeout(_fitRetryTimer)
   if (_resizeDebounce) clearTimeout(_resizeDebounce)
@@ -615,6 +625,13 @@ watch(frameDimensions, (newDims, oldDims) => {
   nextTick(() => _autoFit())
 })
 
+// 4. Hide agent cursor when showAgentCursor prop flips to false
+watch(() => props.showAgentCursor, (show) => {
+  if (!show) {
+    agentCursor.hide()
+  }
+})
+
 // ---------------------------------------------------------------------------
 // Expose
 // ---------------------------------------------------------------------------
@@ -639,6 +656,9 @@ defineExpose({
 
   // Agent overlay controls
   agentOverlay,
+
+  // Agent cursor controls
+  agentCursor,
 
   // Stats
   stats: screencast.stats,
