@@ -96,6 +96,31 @@ class SearchSettingsMixin:
     search_http_proxy: str = ""
     search_socks5_proxy: str = ""
 
+    # --- Quota Management (Smart Meter) ---
+    search_quota_tavily: int = 1000
+    search_quota_serper: int = 2500
+    search_quota_brave: int = 2000
+    search_quota_exa: int = 1000
+    search_quota_jina: int = 500
+
+    # --- Credit Optimization ---
+    search_default_depth: str = "basic"
+    search_upgrade_depth_threshold: float = 0.7  # Quota remaining ratio above which STANDARD→advanced
+    search_quality_early_stop: int = 5  # If provider returns 5+ results, don't try fallback
+    search_prefer_free_scrapers_for_quick: bool = True  # QUICK intent → DuckDuckGo/Bing first
+
+    # --- Enhanced Dedup ---
+    search_enhanced_dedup_enabled: bool = True
+    search_dedup_jaccard_threshold: float = 0.6  # Word-overlap threshold for fuzzy dedup
+
+    # --- Budget Auto-Degrade Thresholds ---
+    search_budget_degrade_deep_threshold: float = 0.2    # <20% remaining → DEEP→STANDARD
+    search_budget_degrade_standard_threshold: float = 0.1  # <10% remaining → STANDARD→QUICK
+    search_budget_degrade_scraper_threshold: float = 0.05  # <5% remaining → free scrapers only
+
+    # --- Feature Flag ---
+    search_quota_manager_enabled: bool = False  # Opt-in, zero behavior change until enabled
+
 
 class AgentSafetySettingsMixin:
     """Safety limits, autonomy controls, and agent execution configuration."""
