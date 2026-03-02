@@ -2,10 +2,8 @@
 import socket
 from unittest.mock import patch
 
-import pytest
-
-from app.domain.services.tools.search import _validate_fetch_url
 from app.domain.services.agents.content_safety import detect_prompt_injection
+from app.domain.services.tools.search import _validate_fetch_url
 
 
 class TestSSRFValidation:

@@ -1,13 +1,10 @@
 """Tests for SearchRateGovernor token bucket."""
 
-import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.infrastructure.external.search.rate_governor import SearchRateGovernor, _get_egress_ip
-
 
 # ---------------------------------------------------------------------------
 # In-memory fallback tests (Redis=None)
