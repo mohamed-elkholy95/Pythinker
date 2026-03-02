@@ -258,7 +258,9 @@ class AgentSessionLifecycle:
             if result:
                 logger.info(f"Session {session_id} paused for user takeover")
             return result
-        return False
+        # No active task — the session is already idle/completed, takeover can proceed
+        logger.info(f"Session {session_id} has no active task; takeover proceeds immediately")
+        return True
 
     async def resume_session(
         self, session_id: str, context: str | None = None, persist_login_state: bool | None = None
