@@ -456,6 +456,8 @@ def get_feature_flags() -> dict[str, bool]:
             "adaptive_verbosity_shadow": False,
             "pre_planning_search": False,
             "confirmation_summary_enabled": False,
+            "url_failure_guard": True,
+            "feature_url_failure_guard_enabled": True,
             # Live shell streaming
             "live_shell_streaming": False,
             "live_shell_poll_interval_ms": 500,
@@ -498,6 +500,8 @@ def get_feature_flags() -> dict[str, bool]:
         "adaptive_verbosity_shadow": settings.feature_adaptive_verbosity_shadow,
         "pre_planning_search": settings.feature_pre_planning_search,
         "confirmation_summary_enabled": settings.confirmation_summary_enabled,
+        "url_failure_guard": settings.feature_url_failure_guard_enabled,
+        "feature_url_failure_guard_enabled": settings.feature_url_failure_guard_enabled,
         # Live shell streaming
         "live_shell_streaming": settings.feature_live_shell_streaming,
         "live_shell_poll_interval_ms": settings.live_shell_poll_interval_ms,

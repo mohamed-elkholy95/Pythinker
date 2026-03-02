@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -72,11 +73,51 @@ def _extract_url_from_args(arguments: dict) -> str | None:
 
     Checks common URL parameter names used across tools.
     """
-    for key in ("url", "target_url", "page_url"):
+    for key in ("url", "target_url", "page_url", "query"):
         val = arguments.get(key)
-        if val and isinstance(val, str) and val.startswith("http"):
+        if val and isinstance(val, str) and val.startswith(("http://", "https://")):
             return val
     return None
+
+
+def _extract_search_result_urls(result: ToolResult | None) -> list[str]:
+    """Extract URL candidates from common search tool payload shapes."""
+    if result is None or result.data is None:
+        return []
+
+    data = result.data
+    if hasattr(data, "model_dump"):
+        with contextlib.suppress(Exception):
+            data = data.model_dump()
+
+    raw_results: Any = None
+    if isinstance(data, dict):
+        raw_results = data.get("results")
+    else:
+        with contextlib.suppress(AttributeError):
+            raw_results = data.results
+
+    if not isinstance(raw_results, list):
+        return []
+
+    urls: list[str] = []
+    seen: set[str] = set()
+    for item in raw_results:
+        candidate: str | None = None
+        if isinstance(item, dict):
+            value = item.get("link") or item.get("url")
+            if isinstance(value, str):
+                candidate = value
+        else:
+            value = getattr(item, "link", None) or getattr(item, "url", None)
+            if isinstance(value, str):
+                candidate = value
+
+        if candidate and candidate.startswith(("http://", "https://")) and candidate not in seen:
+            seen.add(candidate)
+            urls.append(candidate)
+
+    return urls
 
 
 class BaseAgent:
@@ -818,9 +859,11 @@ class BaseAgent:
             if _guard_url:
                 _guard_decision = self._url_failure_guard.check_url(_guard_url)
                 try:
-                    from app.core.prometheus_metrics import url_guard_actions_total
+                    from app.core.prometheus_metrics import url_guard_actions_total, url_guard_escalations_total
 
                     url_guard_actions_total.inc({"tier": str(_guard_decision.tier), "action": _guard_decision.action})
+                    if _guard_decision.action in ("warn", "block"):
+                        url_guard_escalations_total.inc({"tier": str(_guard_decision.tier)})
                 except Exception:
                     logger.debug("URL guard metrics emission failed (non-critical)", exc_info=True)
                 if _guard_decision.action == "block":
@@ -970,16 +1013,25 @@ class BaseAgent:
                 except Exception as e:
                     logger.debug(f"Tool efficiency monitoring failed for {function_name}: {e}")
 
-                # URL Failure Guard: record failure on unsuccessful URL fetch
-                if self._url_failure_guard and _guard_url and result and not result.success:
+                # URL Failure Guard: ingest search results and record URL failures.
+                if self._url_failure_guard and result:
                     try:
-                        self._url_failure_guard.record_failure(
-                            _guard_url,
-                            result.message[:200] if result.message else "Unknown error",
-                            function_name,
-                        )
+                        if result.success and "search" in function_name:
+                            discovered_urls = _extract_search_result_urls(result)
+                            if discovered_urls:
+                                self._url_failure_guard.record_search_results(discovered_urls)
+                        if _guard_url and not result.success:
+                            self._url_failure_guard.record_failure(
+                                _guard_url,
+                                result.message[:200] if result.message else "Unknown error",
+                                function_name,
+                            )
+                        from app.core.prometheus_metrics import url_guard_tracked_urls
+
+                        metrics = self._url_failure_guard.get_metrics()
+                        url_guard_tracked_urls.set(value=float(metrics.get("tracked_urls", 0)))
                     except Exception as _guard_err:
-                        logger.debug("URL failure guard recording failed: %s", _guard_err)
+                        logger.debug("URL failure guard post-execution handling failed: %s", _guard_err)
 
                 try:
                     from app.domain.services.agents.task_state_manager import get_task_state_manager
@@ -1076,6 +1128,10 @@ class BaseAgent:
         if self._url_failure_guard and _guard_url:
             try:
                 self._url_failure_guard.record_failure(_guard_url, last_error[:200], function_name)
+                from app.core.prometheus_metrics import url_guard_tracked_urls
+
+                metrics = self._url_failure_guard.get_metrics()
+                url_guard_tracked_urls.set(value=float(metrics.get("tracked_urls", 0)))
             except Exception as _guard_err:
                 logger.debug("URL failure guard recording failed (retry exhausted): %s", _guard_err)
 
