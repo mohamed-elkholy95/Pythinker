@@ -92,9 +92,7 @@ def test_circuit_trips_after_five_consecutive_429s() -> None:
     # 5th failure — circuit must open
     cb.record_failure(ErrorType.RATE_LIMITED)
     assert cb.state == CircuitState.OPEN, "Circuit must be OPEN after 5 consecutive 429s"
-    assert cb.open_seconds == 45.0, (
-        f"429 storm must use 45 s open window, got {cb.open_seconds}"
-    )
+    assert cb.open_seconds == 45.0, f"429 storm must use 45 s open window, got {cb.open_seconds}"
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +122,7 @@ def test_429_storm_window_shorter_than_5xx_storm_window() -> None:
     open_seconds_5xx = cb_5xx.open_seconds
 
     assert open_seconds_429 < open_seconds_5xx, (
-        f"429 storm window ({open_seconds_429} s) must be shorter than "
-        f"5xx storm window ({open_seconds_5xx} s)"
+        f"429 storm window ({open_seconds_429} s) must be shorter than 5xx storm window ({open_seconds_5xx} s)"
     )
     assert open_seconds_429 == 45.0
     assert open_seconds_5xx == 300.0
@@ -149,9 +146,7 @@ async def test_base_retries_once_on_429(mock_sleep: AsyncMock) -> None:
 
     result = await engine.search("resilience test")
 
-    assert engine.attempt_count == 2, (
-        f"Expected 2 HTTP attempts (1 retry after 429), got {engine.attempt_count}"
-    )
+    assert engine.attempt_count == 2, f"Expected 2 HTTP attempts (1 retry after 429), got {engine.attempt_count}"
     # The backoff sleep must have been called between the two attempts
     assert mock_sleep.called, "Expected asyncio.sleep() backoff call between retry attempts"
     assert result.success is True, f"Expected success on second attempt, got: {result.message}"
@@ -174,9 +169,7 @@ async def test_base_does_not_retry_on_400() -> None:
 
     result = await engine.search("bad query")
 
-    assert engine.attempt_count == 1, (
-        f"Expected exactly 1 HTTP attempt for 400 (no retry), got {engine.attempt_count}"
-    )
+    assert engine.attempt_count == 1, f"Expected exactly 1 HTTP attempt for 400 (no retry), got {engine.attempt_count}"
     assert result.success is False
     assert "400" in str(result.message) or "bad request" in str(result.message).lower()
 
@@ -198,9 +191,7 @@ async def test_base_does_not_retry_on_401() -> None:
 
     result = await engine.search("auth fail test")
 
-    assert engine.attempt_count == 1, (
-        f"Expected 1 HTTP attempt for 401 (no retry), got {engine.attempt_count}"
-    )
+    assert engine.attempt_count == 1, f"Expected 1 HTTP attempt for 401 (no retry), got {engine.attempt_count}"
     assert result.success is False
     assert "auth" in str(result.message).lower() or "401" in str(result.message)
 
@@ -217,9 +208,7 @@ async def test_base_does_not_retry_on_403() -> None:
 
     result = await engine.search("forbidden test")
 
-    assert engine.attempt_count == 1, (
-        f"Expected 1 HTTP attempt for 403 (no retry), got {engine.attempt_count}"
-    )
+    assert engine.attempt_count == 1, f"Expected 1 HTTP attempt for 403 (no retry), got {engine.attempt_count}"
     assert result.success is False
 
 
@@ -249,18 +238,13 @@ def test_health_ranker_demotes_429_heavy_provider() -> None:
     serper_score = ranker.health_score("serper")
 
     assert brave_score > serper_score, (
-        f"brave health score ({brave_score:.3f}) must exceed "
-        f"serper score ({serper_score:.3f}) after serper 429 storm"
+        f"brave health score ({brave_score:.3f}) must exceed serper score ({serper_score:.3f}) after serper 429 storm"
     )
     # Serper's score with 100 % 429s: 0.0 * 0.30 + 1.0 * 0.70 penalty = 0.30 health
-    assert serper_score < 0.35, (
-        f"serper score ({serper_score:.3f}) should be near 0.30 with 100% 429 rate"
-    )
+    assert serper_score < 0.35, f"serper score ({serper_score:.3f}) should be near 0.30 with 100% 429 rate"
 
     ordered = ranker.rank(["serper", "brave"])
-    assert ordered[0] == "brave", (
-        f"Expected 'brave' first after ranking, got {ordered}"
-    )
+    assert ordered[0] == "brave", f"Expected 'brave' first after ranking, got {ordered}"
     assert ordered[1] == "serper"
 
 
@@ -289,6 +273,5 @@ async def test_rate_governor_in_memory_fallback_limits_burst() -> None:
     assert first is True, "First acquire should succeed (1 token consumed of burst=2)"
     assert second is True, "Second acquire should succeed (2 tokens consumed of burst=2)"
     assert third is False, (
-        "Third acquire should fail — burst budget exhausted immediately "
-        "(no time elapsed for token refill at rps=1.0)"
+        "Third acquire should fail — burst budget exhausted immediately (no time elapsed for token refill at rps=1.0)"
     )
