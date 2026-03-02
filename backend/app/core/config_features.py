@@ -11,7 +11,9 @@ from app.core.search_provider_policy import DEFAULT_SEARCH_PROVIDER_CHAIN
 class SearchSettingsMixin:
     """Search engine API keys and provider configuration."""
 
-    search_provider: str | None = "duckduckgo"  # "google", "bing", "duckduckgo", "brave", "tavily", "serper", "exa"
+    search_provider: str | None = (
+        "duckduckgo"  # "google", "bing", "duckduckgo", "brave", "tavily", "serper", "exa", "jina"
+    )
     search_provider_chain: str | list[str] | None = ",".join(DEFAULT_SEARCH_PROVIDER_CHAIN)
     # Explicit fallback policy chain. Supports JSON list strings or comma-separated strings.
     search_prefer_browser: bool = (
@@ -45,6 +47,11 @@ class SearchSettingsMixin:
     exa_api_key_3: str | None = None  # Fallback Exa key #3
     exa_api_key_4: str | None = None  # Fallback Exa key #4
     exa_api_key_5: str | None = None  # Fallback Exa key #5
+    jina_api_key: str | None = None  # Jina AI Search/Reader API key
+    jina_api_key_2: str | None = None  # Fallback Jina key #2
+    jina_api_key_3: str | None = None  # Fallback Jina key #3
+    jina_api_key_4: str | None = None  # Fallback Jina key #4
+    jina_api_key_5: str | None = None  # Fallback Jina key #5
 
     # Search key pool recovery
     serper_quota_cooldown_seconds: int = 1800  # Cooldown after quota exhaustion (default 30min)
@@ -55,6 +62,9 @@ class SearchSettingsMixin:
     max_wide_research_calls_per_task: int = 3  # Max wide_research invocations per task
     search_cache_ttl: int = 3600  # Cache TTL in seconds (default 1h)
     search_dedup_skip_existing: bool = True  # Skip API call if TaskStateManager says already searched
+    search_use_jina_rerank: bool = False  # Optional post-search reranking via Jina /v1/rerank
+    search_jina_rerank_top_n: int = 8  # Number of top results to rerank when enabled
+    search_jina_rerank_model: str = "jina-reranker-v2-base-multilingual"
 
 
 class AgentSafetySettingsMixin:

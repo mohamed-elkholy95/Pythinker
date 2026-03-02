@@ -58,6 +58,7 @@ SEARCH_PROVIDERS = [
     {"id": "tavily", "name": "Tavily", "requires_api_key": True, "default_chain_rank": 1},
     {"id": "serper", "name": "Serper (Google)", "requires_api_key": True, "default_chain_rank": 3},
     {"id": "exa", "name": "Exa", "requires_api_key": True, "default_chain_rank": None},
+    {"id": "jina", "name": "Jina Search", "requires_api_key": True, "default_chain_rank": None},
 ]
 
 

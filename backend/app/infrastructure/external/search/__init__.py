@@ -9,6 +9,8 @@ Supported providers:
 - brave: Brave Search API (requires API key)
 - tavily: Tavily AI Search API (requires API key)
 - serper: Serper.dev Google Search API (requires API key)
+- exa: Exa semantic search API (requires API key)
+- jina: Jina Search Foundation API (requires API key)
 """
 
 import logging
