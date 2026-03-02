@@ -43,9 +43,9 @@
           <SkipBack class="w-4 h-4 text-[var(--icon-primary)]" />
         </button>
 
-        <!-- Step Counter -->
+        <!-- Step Counter: only when navigating history (not in live mode at latest position) -->
         <span
-          v-if="totalSteps > 0"
+          v-if="totalSteps > 0 && (!isLive || currentStep !== totalSteps)"
           class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)] min-w-[36px] text-center select-none"
         >
           {{ currentStep }} / {{ totalSteps }}
