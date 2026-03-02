@@ -618,11 +618,29 @@ class BaseAgent:
                     f"{len(coupon_items)} coupons, {len(searched_stores)} stores for {function_name}"
                 )
 
+        # For CALLED events, merge resolved coordinates from browser click/input
+        # into function_args so the frontend cursor overlay can track index-based actions.
+        # Creates a new dict to avoid mutating the original args reference.
+        final_args = function_args
+        if status == ToolStatus.CALLED:
+            function_result = kwargs.get("function_result")
+            if (
+                function_result
+                and hasattr(function_result, "data")
+                and isinstance(function_result.data, dict)
+                and "resolved_x" in function_result.data
+            ):
+                final_args = {
+                    **function_args,
+                    "coordinate_x": function_result.data["resolved_x"],
+                    "coordinate_y": function_result.data["resolved_y"],
+                }
+
         return ToolEvent(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             function_name=function_name,
-            function_args=function_args,
+            function_args=final_args,
             status=status,
             display_command=display_command,
             command_category=command_category,
