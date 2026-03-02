@@ -778,15 +778,13 @@ class AgentService:
             # early to avoid scanning 200 events before falling back.
             if re.match(r"^\d+-\d+$", event_id):
                 logger.info(
-                    "Resume cursor %s is a Redis stream ID; domain events use UUID format — disabling skip mode",
+                    "Resume cursor %s is a Redis stream ID; domain service will read from that position directly",
                     event_id,
                 )
                 skip_until_resume_point = False
                 resume_state_recorded = True
-                pm.record_sse_resume_cursor_state(endpoint="chat", state="format_mismatch")
-                pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="format_mismatch")
-                emitted_events += 1
-                yield _build_resume_gap_warning(reason="format_mismatch")
+                pm.record_sse_resume_cursor_state(endpoint="chat", state="redis_cursor")
+                # No gap warning — domain service reads from this position; events flow normally
         else:
             resume_state_recorded = True
             pm.record_sse_resume_cursor_state(endpoint="chat", state="absent")

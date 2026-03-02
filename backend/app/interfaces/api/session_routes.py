@@ -82,6 +82,12 @@ from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifes
 
 logger = logging.getLogger(__name__)
 SESSION_POLL_INTERVAL = 10
+
+# Redis stream IDs have the format "<milliseconds>-<sequence>" (e.g. "1772445693104-0").
+# Only these IDs should be emitted as the SSE `id:` field so that browser Last-Event-ID
+# is always a valid Redis resume cursor.  UUID-format IDs from synthetic events (gap
+# warnings, beacons) must never become the browser's resume cursor.
+_REDIS_STREAM_ID_RE = re.compile(r"^\d+-\d+$")
 SANDBOX_WS_CONNECT_KWARGS: dict = {
     # RFC 6455 §5.5.2: Ping every 20s to detect dead sandbox connections.
     # Without this, the backend proxy hangs indefinitely when the sandbox
@@ -1118,7 +1124,11 @@ async def chat(
                             send_timeout=send_timeout,
                         )
                         sse_kwargs: dict = {"event": sse_event.event, "data": event_data}
-                        if event_id_val:
+                        # Only expose Redis-format IDs as the SSE `id:` field so the browser's
+                        # Last-Event-ID is always a valid Redis stream resume cursor.
+                        # UUID-format IDs (synthetic gap warnings, beacons) are tracked
+                        # internally via last_emitted_event_id but never sent to the browser.
+                        if event_id_val and _REDIS_STREAM_ID_RE.match(str(event_id_val)):
                             sse_kwargs["id"] = str(event_id_val)
                         sse_payload = ServerSentEvent(**sse_kwargs)
                         if send_timeout:
