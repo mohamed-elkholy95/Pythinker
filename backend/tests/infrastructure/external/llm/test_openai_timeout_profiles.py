@@ -109,3 +109,37 @@ def test_slow_tool_breaker_missing_fast_model_logs_once(caplog) -> None:
     assert resolved2 is None
     assert llm._slow_breaker_missing_fast_model_warned is True
     assert sum("FAST_MODEL is not configured" in rec.message for rec in caplog.records) == 1
+
+
+def test_slow_tool_breaker_resets_streak_after_cooldown_expiry() -> None:
+    llm = _make_llm(api_base="https://api.openai.com/v1")
+    llm._slow_tool_call_streak = 2
+    llm._slow_tool_call_breaker_until = 100.0
+
+    llm._record_tool_call_latency(
+        duration_seconds=61.0,
+        has_tools=True,
+        fast_model="claude-haiku-4-5-20251001",
+        now_monotonic=120.0,
+    )
+
+    # After cooldown expiry, streak should restart from 1, not re-trip immediately.
+    assert llm._slow_tool_call_streak == 1
+    assert llm._slow_tool_call_breaker_until == 100.0
+
+
+def test_slow_tool_breaker_ignores_noop_fast_model_override() -> None:
+    llm = _make_llm(api_base="https://api.openai.com/v1")
+    llm._model_name = "glm-5"
+    llm._slow_breaker_missing_fast_model_warned = False
+    llm._slow_breaker_invalid_fast_model_warned = False
+    llm._slow_tool_call_breaker_until = 500.0
+
+    with patch("app.infrastructure.external.llm.openai_llm.time.monotonic", return_value=250.0):
+        resolved = llm._resolve_slow_tool_breaker_model(
+            request_tools=[{"type": "function"}],
+            model_override_for_attempt=None,
+            timeout_fallback_fast_model="claude-haiku-4-5-20251001",
+        )
+
+    assert resolved is None

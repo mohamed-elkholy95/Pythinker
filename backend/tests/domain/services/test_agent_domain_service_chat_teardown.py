@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.domain.models.event import DoneEvent, ErrorEvent, WaitEvent
+from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, ProgressEvent, WaitEvent
 from app.domain.models.session import Session, SessionStatus
 from app.domain.services.agent_domain_service import AgentDomainService
 
@@ -200,3 +200,36 @@ async def test_chat_done_emitted_when_task_completes_without_events() -> None:
     assert len(events) == 1
     assert isinstance(events[0], DoneEvent)
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
+
+
+@pytest.mark.asyncio
+async def test_chat_marks_cancelled_when_task_finishes_without_terminal_event_after_partial_events() -> None:
+    progress_event = ProgressEvent(phase=PlanningPhase.ANALYZING, message="Working...", progress_percent=50)
+
+    task = SimpleNamespace(
+        id="task-id",
+        done=False,
+    )
+
+    async def _get_event(*args, **kwargs):
+        task.done = True
+        return ("1-0", progress_event.model_dump_json())
+
+    task.output_stream = SimpleNamespace(get=AsyncMock(side_effect=_get_event))
+
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.RUNNING,
+        task_id="task-id",
+        sandbox_id="sandbox-id",
+        sandbox_owned=True,
+    )
+
+    service, teardown = _build_service(session, task)
+    events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
+
+    assert len(events) == 1
+    assert isinstance(events[0], ProgressEvent)
+    teardown.assert_awaited_once_with(session.id, status=SessionStatus.CANCELLED, destroy_sandbox=False)

@@ -528,9 +528,8 @@ class TestExecutionAgentDeliveryIntegrityGate:
         assert not any(isinstance(event, ReportEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_hallucination_ratio_critical_is_warning_not_issue_in_gate(self, executor, mock_llm):
-        """hallucination_ratio_critical must be a gate WARNING (not issue) so delivery is not blocked.
-        The content disclaimer already communicates uncertainty; blocking the report is double-penalisation."""
+    async def test_hallucination_ratio_critical_is_blocking_issue_in_gate(self, executor, mock_llm):
+        """hallucination_ratio_critical must remain a blocking issue for delivery integrity."""
         executor._user_request = "research topic"
         mock_llm.ask.return_value = {"content": '["Suggestion 1"]'}
         long_report = "# Report\n" + ("Factual findings. " * 25)  # >300 chars to pass length guard
@@ -558,9 +557,7 @@ class TestExecutionAgentDeliveryIntegrityGate:
 
         assert any(isinstance(event, ReportEvent) for event in events)
         kwargs = executor._run_delivery_integrity_gate.call_args.kwargs
-        # Must be a warning, never a blocking issue
-        assert "hallucination_ratio_critical" not in (kwargs.get("additional_issues") or [])
-        assert "hallucination_ratio_critical" in (kwargs.get("additional_warnings") or [])
+        assert "hallucination_ratio_critical" in (kwargs.get("additional_issues") or [])
 
     @staticmethod
     def _has_counter_call(metrics_spy: MagicMock, metric_name: str, **expected_labels: str) -> bool:

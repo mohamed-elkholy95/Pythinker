@@ -628,6 +628,7 @@ class AgentDomainService:
 
             received_events = False
             terminal_status: SessionStatus | None = None
+            saw_wait_event = False
             while task and not task.done:
                 # Check for cancellation (SSE disconnect)
                 if cancel_token.is_cancelled():
@@ -669,6 +670,7 @@ class AgentDomainService:
 
                 yield event
                 if isinstance(event, WaitEvent):
+                    saw_wait_event = True
                     break
 
             # If the main loop didn't consume events (e.g. task finished before
@@ -790,6 +792,21 @@ class AgentDomainService:
                     title = session.title if session else "Task completed"
                     yield DoneEvent(title=title, summary="Session completed.")
                     terminal_status = SessionStatus.COMPLETED
+
+            # Cooperative-cancellation race: task completed after emitting partial
+            # events, but no terminal event (Done/Error) was produced.
+            if (
+                task is not None
+                and task.done
+                and received_events
+                and terminal_status is None
+                and not saw_wait_event
+            ):
+                logger.warning(
+                    "Session %s task finished without terminal event after partial stream; marking CANCELLED",
+                    session_id,
+                )
+                terminal_status = SessionStatus.CANCELLED
 
             if terminal_status is not None:
                 await self._teardown_session_runtime(session_id, status=terminal_status, destroy_sandbox=False)
