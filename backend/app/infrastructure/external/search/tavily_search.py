@@ -114,7 +114,7 @@ class TavilySearchEngine(SearchEngineBase):
         return {
             "query": actual_query,
             "search_depth": "advanced",
-            "include_answer": False,
+            "include_answer": True,
             "include_images": False,
             "include_raw_content": False,
             "max_results": 20,
@@ -124,26 +124,35 @@ class TavilySearchEngine(SearchEngineBase):
         """Execute POST request to Tavily API."""
         return await client.post(self.base_url, json=params)
 
-    def _parse_response_data(self, data: dict[str, Any]) -> tuple[list[SearchResultItem], int]:
-        """Parse Tavily API JSON response data."""
+    def _parse_response_data(self, data: dict[str, Any]) -> tuple[list[SearchResultItem], int, str]:
+        """Parse Tavily API JSON response data.
+
+        Returns a 3-tuple: (results, total_results, answer).
+        `answer` is Tavily's AI-synthesized summary (empty string if not present).
+        Snippet size increased to 1500 chars — since we pay per query, not per byte,
+        larger snippets give the LLM richer context at no additional credit cost.
+        """
+        answer: str = data.get("answer") or ""
+
         results: list[SearchResultItem] = []
         for item in data.get("results", []):
             title = item.get("title", "")
             link = item.get("url", "")
             snippet = item.get("content", "")
 
-            if len(snippet) > 500:
-                snippet = snippet[:497] + "..."
+            if len(snippet) > 1500:
+                snippet = snippet[:1497] + "..."
 
             if title and link:
                 results.append(SearchResultItem(title=title, link=link, snippet=snippet))
 
-        return results, len(results)
+        return results, len(results), answer
 
     def _parse_response(self, response: httpx.Response) -> tuple[list[SearchResultItem], int]:
         """Parse Tavily API HTTP response to satisfy SearchEngineBase contract."""
         data = response.json()
-        return self._parse_response_data(data)
+        results, total_results, _answer = self._parse_response_data(data)
+        return results, total_results
 
     async def search(
         self,
@@ -236,8 +245,11 @@ class TavilySearchEngine(SearchEngineBase):
                     return await self.search(query, date_range, _attempt=_attempt + 1)
 
             self._key_pool.record_success(key)
-            results, total_results = self._parse_response_data(data)
-            return self._create_success_result(query, date_range, results, total_results)
+            results, total_results, answer = self._parse_response_data(data)
+            result = self._create_success_result(query, date_range, results, total_results)
+            if answer:
+                result.message = f"[TAVILY ANSWER] {answer}\n\n" + (result.message or "")
+            return result
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code in _ROTATE_STATUS_CODES:
