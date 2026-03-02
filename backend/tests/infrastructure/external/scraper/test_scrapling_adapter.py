@@ -7,9 +7,15 @@ from app.infrastructure.external.scraper.scrapling_adapter import ScraplingAdapt
 
 
 class _DummyPage:
-    def __init__(self, url: str = "https://example.com", text: str = "Deal content", title: str = "Deal") -> None:
+    def __init__(
+        self,
+        url: str = "https://example.com",
+        text: str = "Deal content",
+        title: str = "Deal",
+        status: int = 200,
+    ) -> None:
         self.url = url
-        self.status = 200
+        self.status = status
         self.html_content = "<html><title>Deal</title><body>Deal content</body></html>"
         self._text = text
         self._title = title
@@ -130,3 +136,77 @@ async def test_fetch_batch_spider_falls_back_for_urls_without_spider_content(
     assert results[1].success is True
     assert results[1].text == "fallback content"
     assert adapter.fetch_with_escalation.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_with_escalation_skips_dynamic_on_terminal_client_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = ScraplingAdapter(settings=_settings())
+    mock_get = AsyncMock(return_value=_DummyPage(status=404))
+    monkeypatch.setattr("app.infrastructure.external.scraper.scrapling_adapter.AsyncFetcher.get", mock_get)
+    dynamic_fetch = AsyncMock()
+    stealth_fetch = AsyncMock()
+    monkeypatch.setattr(adapter, "_fetch_dynamic", dynamic_fetch)
+    monkeypatch.setattr(adapter, "_fetch_stealthy", stealth_fetch)
+
+    result = await adapter.fetch_with_escalation("https://example.com/missing")
+
+    assert result.success is False
+    assert result.status_code == 404
+    dynamic_fetch.assert_not_awaited()
+    stealth_fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fetch_dynamic_returns_failure_on_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = ScraplingAdapter(settings=_settings())
+    mock_dynamic_fetch = AsyncMock(return_value=_DummyPage(status=404))
+    monkeypatch.setattr("scrapling.fetchers.DynamicFetcher.async_fetch", mock_dynamic_fetch)
+
+    result = await adapter._fetch_dynamic("https://example.com/missing")
+
+    assert result.success is False
+    assert result.status_code == 404
+    assert result.tier_used == "dynamic"
+    assert "HTTP 404" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_fetch_stealthy_returns_failure_on_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = ScraplingAdapter(settings=_settings())
+    mock_stealth_fetch = AsyncMock(return_value=_DummyPage(status=404))
+    monkeypatch.setattr("scrapling.fetchers.StealthyFetcher.async_fetch", mock_stealth_fetch)
+
+    result = await adapter._fetch_stealthy("https://example.com/missing")
+
+    assert result.success is False
+    assert result.status_code == 404
+    assert result.tier_used == "stealthy"
+    assert "HTTP 404" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_fetch_dynamic_dependency_error_includes_setup_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = ScraplingAdapter(settings=_settings())
+    mock_dynamic_fetch = AsyncMock(side_effect=RuntimeError("Executable doesn't exist at /tmp/chromium"))
+    monkeypatch.setattr("scrapling.fetchers.DynamicFetcher.async_fetch", mock_dynamic_fetch)
+
+    result = await adapter._fetch_dynamic("https://example.com")
+
+    assert result.success is False
+    assert 'pip install "scrapling[fetchers]"' in (result.error or "")
+    assert "scrapling install" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_fetch_http_dependency_error_includes_setup_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = ScraplingAdapter(settings=_settings())
+    mock_get = AsyncMock(side_effect=RuntimeError("No module named 'playwright'"))
+    monkeypatch.setattr("app.infrastructure.external.scraper.scrapling_adapter.AsyncFetcher.get", mock_get)
+
+    result = await adapter.fetch("https://example.com")
+
+    assert result.success is False
+    assert 'pip install "scrapling[fetchers]"' in (result.error or "")
+    assert "scrapling install" in (result.error or "")
