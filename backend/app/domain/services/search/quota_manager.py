@@ -202,21 +202,13 @@ class SearchQuotaManager:
 
     @staticmethod
     def _get_health_scores(context: dict[str, Any] | None) -> dict[str, float]:
-        """Extract health scores from context, or default to 1.0 for all."""
+        """Extract health scores from context, or default to 1.0 for all.
+
+        Health scores can be passed in via SearchContext["health_scores"].
+        If not provided, all providers are treated as fully healthy (1.0).
+        """
         if context and "health_scores" in context:
             return context["health_scores"]
-
-        # Try to get from provider health ranker singleton
-        try:
-            from app.infrastructure.external.search.provider_health_ranker import (
-                get_provider_health_ranker,
-            )
-
-            ranker = get_provider_health_ranker()
-            return {name: ranker.health_score(name) for name in _PROVIDER_QUOTA_SETTINGS}
-        except Exception:
-            logger.debug("Provider health ranker unavailable, defaulting health scores to 1.0")
-
         return dict.fromkeys(_PROVIDER_QUOTA_SETTINGS, 1.0)
 
 
