@@ -772,6 +772,17 @@ class SearchTool(BaseTool):
                 "to verify specifications before making claims."
             )
 
+        # Feed result URLs to URL failure guard for alternative suggestions
+        if all_items:
+            try:
+                guard = getattr(self, "_url_failure_guard", None)
+                if guard:
+                    result_urls = [item.link for item in all_items if item.link]
+                    guard.record_search_results(result_urls)
+                    logger.debug("Fed %d search result URLs to URL failure guard", len(result_urls))
+            except Exception as _guard_err:
+                logger.debug("Failed to feed search URLs to guard: %s", _guard_err)
+
         return ToolResult(success=True, data=aggregated_data, message=message)
 
     async def _browse_top_results(self, search_data: Any, count: int = 3) -> None:
