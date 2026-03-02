@@ -13,7 +13,6 @@ from app.infrastructure.external.key_pool import (
     RotationStrategy,
 )
 
-
 # ---------------------------------------------------------------------------
 # CircuitBreaker unit tests
 # ---------------------------------------------------------------------------
