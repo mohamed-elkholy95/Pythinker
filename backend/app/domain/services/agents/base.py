@@ -817,6 +817,12 @@ class BaseAgent:
             _guard_url = _extract_url_from_args(arguments)
             if _guard_url:
                 _guard_decision = self._url_failure_guard.check_url(_guard_url)
+                try:
+                    from app.core.prometheus_metrics import url_guard_actions_total
+
+                    url_guard_actions_total.inc({"tier": str(_guard_decision.tier), "action": _guard_decision.action})
+                except Exception:
+                    logger.debug("URL guard metrics emission failed (non-critical)", exc_info=True)
                 if _guard_decision.action == "block":
                     # Tier 3: Hard-block — skip execution entirely
                     logger.warning(
