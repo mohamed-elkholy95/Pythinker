@@ -13,7 +13,11 @@ These tests verify:
 
 import pytest
 
-from app.domain.services.flows.hitl_policy import HitlPolicy, get_hitl_policy
+from app.domain.services.flows.hitl_policy import (
+    _READ_ONLY_RESEARCH_TOOLS,
+    HitlPolicy,
+    get_hitl_policy,
+)
 
 
 @pytest.fixture
@@ -89,6 +93,24 @@ def test_http_post_to_localhost_is_not_flagged(policy: HitlPolicy):
     assert assessment.requires_approval is False
 
 
+def test_scrape_batch_post_like_url_text_not_flagged(policy: HitlPolicy):
+    """Read-only scrape_batch URLs should not trigger HTTP mutation patterns."""
+    assessment = policy.assess(
+        "scrape_batch",
+        {"urls": ["https://example.com/POST/details", "https://docs.example.com/page"]},
+    )
+    assert assessment.requires_approval is False
+
+
+def test_info_search_web_post_like_query_not_flagged(policy: HitlPolicy):
+    """Read-only info_search_web queries should not trigger HTTP mutation patterns."""
+    assessment = policy.assess(
+        "info_search_web",
+        {"query": "Find docs mentioning POST https://api.example.com endpoints"},
+    )
+    assert assessment.requires_approval is False
+
+
 # ── Sensitive file writes ────────────────────────────────────────────────────
 
 
@@ -134,6 +156,16 @@ def test_safe_file_read_not_flagged(policy: HitlPolicy):
 
 def test_safe_web_search_not_flagged(policy: HitlPolicy):
     assessment = policy.assess("info_search_web", {"query": "Python best practices"})
+    assert assessment.requires_approval is False
+
+
+@pytest.mark.parametrize("tool_name", sorted(_READ_ONLY_RESEARCH_TOOLS))
+def test_read_only_research_tools_skip_http_mutation_false_positive(policy: HitlPolicy, tool_name: str):
+    """Read-only research/scraping tools should ignore HTTP mutation pattern strings."""
+    assessment = policy.assess(
+        tool_name,
+        {"query": "POST to https://external-service.io/endpoint HTTP/1.1"},
+    )
     assert assessment.requires_approval is False
 
 

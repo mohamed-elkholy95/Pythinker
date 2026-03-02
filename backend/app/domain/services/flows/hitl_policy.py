@@ -69,6 +69,35 @@ _FILE_WRITE_TOOLS: frozenset[str] = frozenset(
     }
 )
 
+# Read-only research/scraping tools — never mutate remote hosts; skip HTTP
+# mutation patterns entirely to prevent false positives on URL arguments.
+_READ_ONLY_RESEARCH_TOOLS: frozenset[str] = frozenset(
+    {
+        "web_search",
+        "search",
+        "info_search_web",
+        "search_web",
+        "scrape_url",
+        "scrape_structured",
+        "scrape_batch",
+        "adaptive_scrape",
+        "wide_research",
+        "fetch_page",
+        "read_url",
+        "browse",
+        "navigate",
+    }
+)
+
+# Reasons corresponding to HTTP mutation patterns.
+_HTTP_MUTATION_REASONS: frozenset[str] = frozenset(
+    {
+        "external HTTP DELETE request",
+        "external HTTP PUT to remote host",
+        "external HTTP POST to remote host",
+    }
+)
+
 
 def _build_raw_patterns() -> list[tuple[str, str, str, frozenset[str] | None]]:
     """Return (pattern, level, reason, tool_filter) tuples.
@@ -187,6 +216,10 @@ class HitlPolicy:
         for pattern, level, reason, tool_filter in self._patterns:
             # Skip patterns scoped to specific tool families when tool doesn't match
             if tool_filter is not None and tool_name not in tool_filter:
+                continue
+            # Read-only research/scraping tools pass URLs as args but never mutate
+            # remote hosts — skip HTTP mutation patterns to prevent false positives.
+            if tool_name in _READ_ONLY_RESEARCH_TOOLS and reason in _HTTP_MUTATION_REASONS:
                 continue
             if pattern.search(args_text):
                 logger.warning(
