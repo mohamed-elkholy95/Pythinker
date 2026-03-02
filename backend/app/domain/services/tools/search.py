@@ -468,7 +468,7 @@ class SearchTool(BaseTool):
 
         # Quota manager integration (feature-flagged, zero behavior change when disabled)
         self._quota_manager = None
-        if settings.search_quota_manager_enabled:
+        if getattr(settings, "search_quota_manager_enabled", False):
             try:
                 from app.domain.services.search.quota_manager import get_search_quota_manager
 
