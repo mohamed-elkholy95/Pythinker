@@ -56,8 +56,8 @@ class OpenAILLM(LLM):
         "parameter is illegal",
         "messages parameter is illegal",
     )
-    _SLOW_TOOL_CALL_THRESHOLD_SECONDS: ClassVar[float] = 60.0
-    _SLOW_TOOL_CALL_TRIP_COUNT: ClassVar[int] = 3
+    _SLOW_TOOL_CALL_THRESHOLD_SECONDS: ClassVar[float] = 30.0
+    _SLOW_TOOL_CALL_TRIP_COUNT: ClassVar[int] = 2
     _SLOW_TOOL_CALL_COOLDOWN_SECONDS: ClassVar[float] = 300.0
 
     def __init__(
