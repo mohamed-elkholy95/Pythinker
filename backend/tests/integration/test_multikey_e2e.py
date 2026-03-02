@@ -224,7 +224,7 @@ class TestMultiKeyRotationE2E:
                 api_key=settings.serper_api_key,
                 redis_client=None,
             )
-            key = await serper.api_key
+            key = await serper._key_pool.get_healthy_key_or_wait()
             assert key == settings.serper_api_key
 
         # Tavily
@@ -233,7 +233,7 @@ class TestMultiKeyRotationE2E:
                 api_key=settings.tavily_api_key,
                 redis_client=None,
             )
-            key = await tavily.api_key
+            key = await tavily._key_pool.get_healthy_key_or_wait()
             assert key == settings.tavily_api_key
 
         # Brave
@@ -242,7 +242,7 @@ class TestMultiKeyRotationE2E:
                 api_key=settings.brave_search_api_key,
                 redis_client=None,
             )
-            key = await brave.api_key
+            key = await brave._key_pool.get_healthy_key_or_wait()
             assert key == settings.brave_search_api_key
 
         # Embeddings
