@@ -2,6 +2,7 @@ import asyncio
 import base64
 import contextlib
 import mimetypes
+import re
 import shlex
 import time
 from pathlib import Path
@@ -21,6 +22,30 @@ DATA_EXTENSIONS = {".csv", ".json", ".xml", ".yaml", ".yml"}
 
 _RECENT_WRITE_TTL_SECONDS = 300.0
 _RECENT_WRITE_MAX_ENTRIES = 256
+_REPORT_SANITIZE_SUFFIXES = {".md", ".markdown", ".txt", ".rst"}
+_PLACEHOLDER_LINE_RE = re.compile(r"^\s*\[(?:\.\.\.|…)\]\s*$")
+_LEADING_META_LINE_RE = re.compile(
+    r"^\s*(?:"
+    r"I see the issue"
+    r"|I(?:'ll| will| have| am going to|'m going to) (?:now )?(?:write|save|create|prepare|compile|generate)"
+    r"|Let me (?:now )?(?:write|save|create|prepare|compile|generate)"
+    r"|Writing (?:the |this )?(?:report|content|file) to"
+    r"|Saving (?:to|the) file"
+    r")\b",
+    re.IGNORECASE,
+)
+_DELIVERY_NOTE_RE = re.compile(
+    r"^\s*>?\s*\*\*Note:\*\*\s*The model'?s output was cut off before completion\.[^\n]*(?:\n[^\n]*){0,2}\n?",
+    re.IGNORECASE | re.MULTILINE,
+)
+_TRAILING_META_RE = re.compile(
+    r"\n+(?:I see the issue|I(?:'ll| will| need to| should) (?:now )?save|"
+    r"Let me (?:now )?save|Writing (?:the |this )?(?:report|content|file) to|"
+    r"Saving (?:to|the) file|Note: The model(?:'s)? output was cut|"
+    r"The (?:output|response|generation) was (?:cut|interrupted|truncated))"
+    r"[^\n]*(?:\n[^\n]*)*$",
+    re.IGNORECASE,
+)
 
 
 def _dedup_leading_lines(content: str) -> str:
@@ -50,6 +75,32 @@ def _dedup_leading_lines(content: str) -> str:
         return "\n".join(lines[:1] + lines[dedup_end:])
 
     return content
+
+
+def _should_sanitize_report_artifacts(file_path: str) -> bool:
+    """Limit aggressive content sanitation to report-style text files."""
+    return Path(file_path).suffix.lower() in _REPORT_SANITIZE_SUFFIXES
+
+
+def _sanitize_written_content(file_path: str, content: str) -> str:
+    """Remove common LLM write artifacts before persisting to disk."""
+    if not content:
+        return content
+
+    cleaned = content.replace("\r\n", "\n")
+    lines = [line for line in cleaned.split("\n") if not _PLACEHOLDER_LINE_RE.match(line)]
+    cleaned = "\n".join(lines)
+
+    if _should_sanitize_report_artifacts(file_path):
+        report_lines = cleaned.split("\n")
+        while report_lines and _LEADING_META_LINE_RE.match(report_lines[0]):
+            report_lines.pop(0)
+        cleaned = "\n".join(report_lines)
+        cleaned = _DELIVERY_NOTE_RE.sub("", cleaned)
+        cleaned = _TRAILING_META_RE.sub("", cleaned)
+
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip("\n")
 
 
 class FileTool(BaseTool):
@@ -186,6 +237,7 @@ class FileTool(BaseTool):
         # (common LLM artifact: repeating the title/header line)
         if not append:
             final_content = _dedup_leading_lines(final_content)
+            final_content = _sanitize_written_content(file, final_content)
 
         if leading_newline:
             final_content = "\n" + final_content

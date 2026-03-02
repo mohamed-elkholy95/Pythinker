@@ -105,7 +105,9 @@ class LLMTimeoutSettingsMixin:
 
     # GLM-specific hard timeout (seconds). Set >0 to cap extreme tail latency on
     # GLM calls and force faster fallback paths; set 0 to disable.
-    llm_glm_hard_call_timeout: float = 45.0
+    # Aligned with the GLM HTTP read timeout (90s) so tool-bearing requests
+    # have enough headroom for JSON generation.
+    llm_glm_hard_call_timeout: float = 90.0
 
     # Tool-enabled calls usually need concise JSON/function outputs; capping token
     # budget reduces slow turns and limits runaway verbose generations.

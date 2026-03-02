@@ -703,13 +703,17 @@ class AgentTaskRunner(TaskRunner):
         )
 
         if chart_result is None:
-            if force_generation:
-                logger.info(
-                    "Plotly chart forced but no chartable table found for report_id=%s session=%s",
-                    event.id,
-                    self._session_id,
-                )
-            return attachments
+            logger.info(
+                "Plotly chart unavailable for report_id=%s session=%s; falling back to legacy SVG generator",
+                event.id,
+                self._session_id,
+            )
+            return await self._ensure_legacy_svg_chart(
+                event,
+                attachments,
+                force_generation=force_generation,
+                generation_mode=f"{generation_mode}_fallback_svg",
+            )
 
         # Create FileInfo for HTML
         html_info = FileInfo(
