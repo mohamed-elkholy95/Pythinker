@@ -44,11 +44,40 @@ def _record_security_gate_override(override_reason: str) -> None:
         logger.debug("Failed to record security_gate_override metric", exc_info=True)
 
 
+_PYTHON_KEYWORDS = frozenset(
+    ["import", "from", "def", "class", "return", "if", "elif", "else", "for",
+     "while", "with", "try", "except", "finally", "raise", "yield", "async",
+     "await", "lambda", "pass", "break", "continue", "print(", "=", "True", "False", "None"]
+)
+_PROSE_INDICATORS = re.compile(
+    r"^(?:[A-Z][a-z].*[.!?]$|#+\s|[-*]\s|\d+\.\s)", re.MULTILINE
+)
+
+
+def _looks_like_plain_text(code: str) -> bool:
+    """Return True when *code* is clearly prose / markdown, not Python source.
+
+    Heuristic: fewer than 2 Python keyword hits AND the text contains prose
+    indicators (sentences ending with punctuation, markdown headings/bullets).
+    This catches the GLM-5 pattern of sending a research summary directly as
+    the `code` argument instead of writing Python to save it.
+    """
+    stripped = code.strip()
+    if not stripped:
+        return False
+    keyword_hits = sum(1 for kw in _PYTHON_KEYWORDS if kw in code)
+    if keyword_hits >= 2:
+        return False
+    prose_hits = len(_PROSE_INDICATORS.findall(stripped))
+    return prose_hits >= 2
+
+
 def _check_python_syntax(code: str) -> str | None:
     """Compile-check Python code and return error message, or None if valid.
 
     Catches truncated LLM output (unclosed triple-quotes, missing brackets)
-    before wasting a sandbox round-trip.
+    before wasting a sandbox round-trip.  Returns a context-specific hint so
+    the agent can self-correct on the next turn.
     """
     try:
         ast.parse(code)
@@ -59,6 +88,22 @@ def _check_python_syntax(code: str) -> str | None:
             parts.append(f"  Line {e.lineno}")
             if e.text:
                 parts.append(f"  {e.text.rstrip()}")
+
+        # Distinguish truncation (unclosed string/quote) from plain-text mistakes.
+        msg_lower = e.msg.lower()
+        if "unterminated" in msg_lower or "eof" in msg_lower:
+            parts.append(
+                "\nHint: the code string appears to be cut off mid-token (e.g. unclosed "
+                "triple-quotes or missing closing bracket). This usually means the model "
+                "truncated its output. Break the code into smaller chunks and retry."
+            )
+        elif e.lineno == 1 and _looks_like_plain_text(code):
+            parts.append(
+                "\nHint: this looks like plain text / markdown, not Python code. "
+                "To save text content to a file use the file_write tool instead of "
+                "code_execute_python."
+            )
+
         return "\n".join(parts)
 
 
@@ -612,6 +657,17 @@ class CodeExecutorTool(BaseTool):
         Returns:
             ToolResult with execution output
         """
+        # Early guard: reject plain prose/markdown sent as Python code.
+        # GLM-5 occasionally places research text directly in the code arg.
+        if _looks_like_plain_text(code):
+            return ToolResult(
+                success=False,
+                message=(
+                    "❌ This looks like plain text / markdown, not Python code.\n"
+                    "To save text content to a file, use the file_write tool instead of "
+                    "code_execute_python."
+                ),
+            )
         return await self.code_execute(
             language="python",
             code=code,
