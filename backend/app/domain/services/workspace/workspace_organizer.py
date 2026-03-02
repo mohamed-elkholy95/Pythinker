@@ -29,13 +29,12 @@ class WorkspaceOrganizer:
         logger.info(f"Initializing workspace with template: {template.name}")
 
         # Create all folders in a single shell command to avoid N round-trips
-        folder_paths = " ".join(
-            f"{self._workspace_root}/{folder_name}" for folder_name in template.folders
-        )
-        await self._sandbox.exec_command(
-            session_id=session_id, exec_dir="/workspace", command=f"mkdir -p {folder_paths}"
-        )
-        logger.debug("Created %d workspace folders: %s", len(template.folders), folder_paths)
+        if template.folders:
+            folder_paths = " ".join(f"{self._workspace_root}/{folder_name}" for folder_name in template.folders)
+            await self._sandbox.exec_command(
+                session_id=session_id, exec_dir="/workspace", command=f"mkdir -p {folder_paths}"
+            )
+            logger.debug("Created %d workspace folders: %s", len(template.folders), folder_paths)
 
         # Create README using file_write
         readme_path = f"{self._workspace_root}/README.md"
