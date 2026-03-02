@@ -183,7 +183,23 @@ class AgentService:
         initial_message: str | None = None,
         require_fresh_sandbox: bool = True,
         sandbox_wait_seconds: float = 3.0,
+        idempotency_key: str | None = None,
     ) -> Session:
+        # Idempotency guard — if a key is provided, check for a prior session.
+        # Stored in Redis with a 60-second TTL; callers should pass the
+        # X-Idempotency-Key header value here.
+        if idempotency_key:
+            from app.infrastructure.external.cache import get_cache
+
+            _cache = get_cache()
+            _cache_key = f"idempotency:session:{user_id}:{idempotency_key}"
+            existing_session_id = await _cache.get(_cache_key)
+            if existing_session_id:
+                logger.info(f"Idempotency hit: returning existing session {existing_session_id}")
+                existing = await self._session_repository.find_by_id(existing_session_id)
+                if existing:
+                    return existing
+
         started_at = time.perf_counter()
         logger.info(f"Creating new session for user: {user_id} with mode: {mode}")
 
@@ -258,6 +274,13 @@ class AgentService:
                 require_fresh_sandbox,
                 wait_budget_seconds,
             )
+            if idempotency_key:
+                from app.infrastructure.external.cache import get_cache
+
+                _cache = get_cache()
+                await _cache.set(
+                    f"idempotency:session:{user_id}:{idempotency_key}", session_result.id, ttl=60
+                )
             return session_result
 
         if settings.sandbox_eager_init:
@@ -275,6 +298,11 @@ class AgentService:
             session.status,
             require_fresh_sandbox,
         )
+        if idempotency_key:
+            from app.infrastructure.external.cache import get_cache
+
+            _cache = get_cache()
+            await _cache.set(f"idempotency:session:{user_id}:{idempotency_key}", session.id, ttl=60)
         return session
 
     async def _cleanup_stale_sessions(self, user_id: str) -> None:
@@ -859,6 +887,20 @@ class AgentService:
                         yield _build_resume_gap_warning(
                             reason="stale_cursor", skip_elapsed_seconds=skip_elapsed_seconds
                         )
+                    elif event_id and not skip_until_resume_point and emitted_events == 0:
+                        # Resume point was found but the stream ended immediately after —
+                        # the client is fully caught up.  emitted_events == 0 ensures we
+                        # only reach here when the cursor was the final event (all other
+                        # resume paths emit at least one gap warning before StopAsyncIteration).
+                        skip_elapsed_seconds = (
+                            time.monotonic() - resume_skip_started_at if resume_skip_started_at is not None else 0.0
+                        )
+                        pm.record_sse_resume_cursor_state(endpoint="chat", state="found_at_end")
+                        emitted_events += 1
+                        yield _build_resume_gap_warning(
+                            reason="stream_ended_at_cursor",
+                            skip_elapsed_seconds=skip_elapsed_seconds,
+                        )
                     break
 
                 last_event_at = time.monotonic()
@@ -1262,6 +1304,14 @@ class AgentService:
 
         error_message = result.message or "Unknown sandbox error"
         if "HTTP 404" in error_message:
+            missing_shell_markers = ("Session ID does not exist", "Session ID not found")
+            if any(marker in error_message for marker in missing_shell_markers):
+                logger.info(
+                    "Shell session %s no longer exists in sandbox for session %s; returning empty output",
+                    shell_session_id,
+                    session_id,
+                )
+                return ShellViewResponse(output="", session_id=shell_session_id, console=[])
             raise NotFoundError(error_message)
         if "HTTP 409" in error_message:
             raise InvalidStateException(error_message)
