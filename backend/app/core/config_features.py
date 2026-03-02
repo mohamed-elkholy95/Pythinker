@@ -253,6 +253,9 @@ class FeatureFlagsSettingsMixin:
     feature_meta_cognition_enabled: bool = True  # Phase 3: Gap-aware planning prompt injection
     feature_hitl_enabled: bool = True  # Phase 4: HITL interrupt for high-risk tool calls
 
+    # File sweep deduplication (only targets artifact patterns: report*, analysis*, etc.)
+    feature_sweep_dedup_enabled: bool = True  # Disable to sync all discovered files without dedup
+
     # Live Shell & File Streaming (real-time terminal output + file creation visibility)
     feature_live_shell_streaming: bool = False  # Poll sandbox for real-time shell output
     live_shell_poll_interval_ms: int = 500  # Polling interval in milliseconds
@@ -277,6 +280,9 @@ class FeatureFlagsSettingsMixin:
 
     # Compression context preservation — inject failure lessons during token budget compression
     feature_compression_context_preservation_enabled: bool = True
+
+    # DOM cursor injection — disable to use Konva overlay cursor instead
+    feature_dom_cursor_injection: bool = False
 
     # ── LLM Middleware Pipeline (Enhancement Plan 2026-02) ──────────────────
     # Phase 1: Middleware pipeline — compose cross-cutting concerns as chainable
