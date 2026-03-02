@@ -973,7 +973,7 @@ class CDPScreencastService:
                         break
 
                     consecutive_timeouts += 1
-                    logger.info(
+                    logger.debug(
                         f"No CDP frame received in {_STREAM_FRAME_TIMEOUT}s "
                         f"(timeout {consecutive_timeouts}/{_MAX_CONSECUTIVE_TIMEOUTS}) — "
                         "static page or idle browser (health check will verify)"
@@ -999,7 +999,7 @@ class CDPScreencastService:
                     # Reset the counter: a passing health check is proof of life,
                     # so we should not escalate toward killing the stream.
                     consecutive_timeouts = 0
-                    logger.info(
+                    logger.debug(
                         "Chrome health check passed — page likely static, "
                         "resetting timeout counter"
                     )

@@ -56,7 +56,7 @@ class AgentService:
     CHAT_EVENT_TIMEOUT_SECONDS = 300.0  # Soft idle warning threshold between domain events.
     CHAT_EVENT_HARD_TIMEOUT_SECONDS = 1800.0  # Hard idle cutoff to prevent infinite hangs.
     CHAT_RESUME_MAX_SKIPPED_EVENTS = 200  # Disable skip mode if resume cursor appears stale.
-    CHAT_RESUME_MAX_SKIP_SECONDS = 60.0  # Upper bound to avoid infinite resume skipping (slow LLMs can take 120s+).
+    CHAT_RESUME_MAX_SKIP_SECONDS = 60.0  # Balance stale-cursor fallback with slower backlog streams.
     CHAT_WARMUP_WAIT_SECONDS = 10.0
     CHAT_WAIT_BEACON_INTERVAL_SECONDS = 20.0  # Emit non-heartbeat wait progress during long-running operations.
     FILE_VIEW_CACHE_TTL_SECONDS = 2.0
@@ -278,9 +278,7 @@ class AgentService:
                 from app.infrastructure.external.cache import get_cache
 
                 _cache = get_cache()
-                await _cache.set(
-                    f"idempotency:session:{user_id}:{idempotency_key}", session_result.id, ttl=60
-                )
+                await _cache.set(f"idempotency:session:{user_id}:{idempotency_key}", session_result.id, ttl=60)
             return session_result
 
         if settings.sandbox_eager_init:
