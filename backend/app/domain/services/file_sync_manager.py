@@ -124,9 +124,12 @@ MAX_SWEEP_FILES = 50
 # cleaned up but sometimes survive due to race conditions or sandbox restarts.
 _EXEC_TEMP_FILE_RE = re.compile(r"^exec_[a-f0-9]{6,}\.(py|sh|js|ts|sql)$")
 
-# Minimum basename similarity ratio to consider two files duplicates.
-# Keep this conservative to avoid dropping distinct deliverables.
-_DEDUP_SIMILARITY_THRESHOLD = 0.65
+# Minimum symmetric basename similarity ratio for fuzzy dedup.
+# Intentionally high to avoid dropping distinct deliverables.
+_DEDUP_SIMILARITY_THRESHOLD = 0.90
+
+# Minimum token overlap for fuzzy dedup (after removing quality keywords).
+_DEDUP_MIN_TOKEN_JACCARD = 0.75
 
 # Only dedup files whose stem matches one of these artifact patterns.
 # Other files (code, configs, data) pass through untouched to avoid data loss.
@@ -155,6 +158,62 @@ def _pick_best(cluster_indices: list[int], basenames: list[str]) -> int:
 def _numeric_tokens(name: str) -> set[str]:
     """Extract numeric tokens from a basename (e.g. report_q2_2026 -> {2, 2026})."""
     return set(re.findall(r"\d+", name))
+
+
+def _artifact_tokens(name: str) -> set[str]:
+    """Extract lowercase word tokens from basename for semantic comparison."""
+    return set(re.findall(r"[a-z]+", name.lower()))
+
+
+def _semantic_tokens(name: str) -> set[str]:
+    """Artifact tokens with quality markers removed.
+
+    This treats ``report`` and ``final_report`` as equivalent content while
+    preserving distinctions like ``analysis_backend`` vs ``analysis_frontend``.
+    """
+    return {t for t in _artifact_tokens(name) if t not in _QUALITY_KEYWORDS}
+
+
+def _token_jaccard(a: set[str], b: set[str]) -> float:
+    """Compute Jaccard similarity for token sets."""
+    union = a | b
+    if not union:
+        return 1.0
+    return len(a & b) / len(union)
+
+
+def _symmetric_ratio(a: str, b: str) -> float:
+    """Symmetric SequenceMatcher ratio.
+
+    Python docs note ratio() can depend on argument order, so use max(a,b)/(b,a)
+    to avoid directional false positives/negatives.
+    """
+    return max(
+        SequenceMatcher(None, a, b).ratio(),
+        SequenceMatcher(None, b, a).ratio(),
+    )
+
+
+def _should_cluster_basenames(name_a: str, name_b: str) -> bool:
+    """Whether two artifact basenames should be deduplicated."""
+    # Preserve distinct sequence/versioned outputs such as report_q1 vs report_q2.
+    # Also protects versioned files (report_2026) from being deduped with
+    # unversioned ones (report) — different numeric token sets always skip.
+    if _numeric_tokens(name_a) != _numeric_tokens(name_b):
+        return False
+
+    sem_a = _semantic_tokens(name_a)
+    sem_b = _semantic_tokens(name_b)
+
+    # Strong rule: same semantic tokens (after removing quality words) => duplicate.
+    if sem_a and sem_a == sem_b:
+        return True
+
+    # Fallback fuzzy rule: high character similarity + strong token overlap.
+    return (
+        _symmetric_ratio(name_a, name_b) >= _DEDUP_SIMILARITY_THRESHOLD
+        and _token_jaccard(sem_a, sem_b) >= _DEDUP_MIN_TOKEN_JACCARD
+    )
 
 
 def _dedup_similar_files(paths: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
@@ -212,15 +271,7 @@ def _dedup_similar_files(paths: list[str]) -> tuple[list[str], list[tuple[str, s
             for j in range(i + 1, len(group_paths)):
                 if used[j]:
                     continue
-                # Preserve distinct sequence/versioned outputs such as report_q1 vs report_q2.
-                # Also protects versioned files (report_2026) from being deduped with
-                # unversioned ones (report) — different numeric token sets always skip.
-                nums_i = _numeric_tokens(basenames[i])
-                nums_j = _numeric_tokens(basenames[j])
-                if nums_i != nums_j:
-                    continue
-                ratio = SequenceMatcher(None, basenames[i], basenames[j]).ratio()
-                if ratio >= _DEDUP_SIMILARITY_THRESHOLD:
+                if _should_cluster_basenames(basenames[i], basenames[j]):
                     cluster.append(j)
                     used[j] = True
             used[i] = True
