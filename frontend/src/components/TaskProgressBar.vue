@@ -422,11 +422,21 @@ const shouldShowInitialProgress = computed(() => {
   return !steps.value.some(step => step.status === 'running')
 })
 
-/** 1-based position of the active task: running index+1, else completed count. */
+/** 1-based position of the active task: running index+1, else completed count.
+ *  When loading between steps (some completed, none running), advance to
+ *  completedCount+1 so the counter doesn't stall during the inter-step gap. */
 const currentCount = computed(() => {
   const runningIdx = steps.value.findIndex(s => s.status === 'running')
   if (runningIdx >= 0) return runningIdx + 1
   if (shouldShowInitialProgress.value) return 1
+  // Advance past completed count while actively loading and not all done yet
+  if (
+    (props.isLoading || props.isThinking)
+    && completedCount.value > 0
+    && completedCount.value < steps.value.length
+  ) {
+    return completedCount.value + 1
+  }
   return completedCount.value
 })
 const totalCount = computed(() => steps.value.length)
