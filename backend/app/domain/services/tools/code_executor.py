@@ -6,8 +6,10 @@ Provides a high-level interface for executing code in multiple languages
 isolated execution directories, artifact collection, and resource limits.
 """
 
+import ast
 import asyncio
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -40,6 +42,53 @@ def _record_security_gate_override(override_reason: str) -> None:
         metrics.record_security_gate_override(override_reason=override_reason)
     except Exception:
         logger.debug("Failed to record security_gate_override metric", exc_info=True)
+
+
+def _check_python_syntax(code: str) -> str | None:
+    """Compile-check Python code and return error message, or None if valid.
+
+    Catches truncated LLM output (unclosed triple-quotes, missing brackets)
+    before wasting a sandbox round-trip.
+    """
+    try:
+        ast.parse(code)
+        return None
+    except SyntaxError as e:
+        parts = [f"SyntaxError: {e.msg}"]
+        if e.lineno:
+            parts.append(f"  Line {e.lineno}")
+            if e.text:
+                parts.append(f"  {e.text.rstrip()}")
+        return "\n".join(parts)
+
+
+def _strip_outer_markdown_fence(code: str, language: "Language") -> str:
+    """Strip one surrounding markdown fence when it matches the language.
+
+    Agents sometimes send fenced snippets (```python ... ```) to tool calls.
+    Executing those verbatim causes syntax errors, so we normalize first.
+    """
+    stripped = code.strip()
+    if not stripped.startswith("```") or not stripped.endswith("```"):
+        return code
+
+    lines = stripped.splitlines()
+    if len(lines) < 2 or lines[-1].strip() != "```":
+        return code
+
+    opening = lines[0].strip().lower()
+    aliases: dict[Language, tuple[str, ...]] = {
+        Language.PYTHON: ("```", "```python", "```py"),
+        Language.JAVASCRIPT: ("```", "```javascript", "```js"),
+        Language.BASH: ("```", "```bash", "```sh", "```shell"),
+        Language.SQL: ("```", "```sql"),
+    }
+    if opening not in aliases.get(language, ("```",)):
+        return code
+
+    inner = "\n".join(lines[1:-1])
+    inner = re.sub(r"^\n+", "", inner)
+    return re.sub(r"\n+$", "", inner)
 
 
 class Language(str, Enum):
@@ -372,6 +421,9 @@ class CodeExecutorTool(BaseTool):
                 success=False, message=f"Unsupported language: {language}. Supported: python, javascript, bash, sql"
             )
 
+        # Normalize markdown-fenced snippets before lint/security/execution.
+        code = _strip_outer_markdown_fence(code, lang)
+
         # Mandatory security gate before execution
         review = await self.security_critic.review_code(code, language)
         if not review.safe:
@@ -387,6 +439,20 @@ class CodeExecutorTool(BaseTool):
                 return ToolResult(
                     success=False,
                     message=f"Code execution blocked by security review: {issues_str}",
+                )
+
+        # Pre-execution syntax check for Python — catches truncated code
+        # (e.g. unclosed triple-quotes) before wasting a sandbox round-trip.
+        if lang == Language.PYTHON:
+            syntax_err = _check_python_syntax(code)
+            if syntax_err:
+                return ToolResult(
+                    success=False,
+                    message=(
+                        f"❌ Python syntax error detected before execution:\n{syntax_err}\n\n"
+                        "The code appears truncated or malformed (e.g. unclosed triple-quotes, "
+                        "missing brackets). Please fix the syntax and retry."
+                    ),
                 )
 
         # Get language config

@@ -283,6 +283,31 @@ class TestCodeExecutorShortcutMethodsSecurity:
         call_args = mock_security_critic.review_code.call_args
         assert call_args[0][1] == "javascript"
 
+    @pytest.mark.asyncio
+    async def test_code_execute_python_strips_markdown_code_fences(
+        self,
+        mock_sandbox: AsyncMock,
+        mock_security_critic: AsyncMock,
+    ) -> None:
+        """Markdown code fences should be removed before writing Python code."""
+        mock_security_critic.review_code.return_value = SecurityResult(
+            safe=True,
+            risk_level=RiskLevel.LOW,
+            issues=[],
+        )
+
+        executor = CodeExecutorTool(
+            sandbox=mock_sandbox,
+            security_critic=mock_security_critic,
+        )
+
+        await executor.code_execute_python(code="```python\nprint('hello')\n```")
+
+        assert mock_sandbox.file_write.await_count >= 1
+        written_code = mock_sandbox.file_write.await_args_list[0].args[1]
+        assert "```" not in written_code
+        assert "print('hello')" in written_code
+
 
 class TestCodeExecutorReturnCodeHandling:
     """Tests for mapping sandbox returncode to tool success."""
