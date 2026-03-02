@@ -60,6 +60,10 @@ class QueryIntentClassifier:
         Returns:
             SearchIntent tier (QUICK, STANDARD, or DEEP).
         """
+        if not (0.0 <= quota_remaining_ratio <= 1.0):
+            raise ValueError(
+                f"quota_remaining_ratio must be in [0.0, 1.0], got {quota_remaining_ratio}"
+            )
         raw_intent = self._match_patterns(query)
         return self._apply_budget_downgrade(raw_intent, quota_remaining_ratio)
 
