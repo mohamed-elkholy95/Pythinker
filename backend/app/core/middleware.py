@@ -35,7 +35,12 @@ class RequestLoggingMiddleware:
 
         # Skip logging for excluded paths
         if path in self.EXCLUDED_PATHS:
-            await self.app(scope, receive, send)
+            # Ensure excluded paths never inherit request_id from another request context.
+            set_request_id(request.headers.get("x-request-id", ""))
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                request_id_var.set(None)
             return
 
         # Generate request ID
@@ -47,7 +52,7 @@ class RequestLoggingMiddleware:
         scope["state"]["request_id"] = request_id
 
         # Propagate request_id to structlog for correlation
-        request_id_token = set_request_id(request_id)
+        set_request_id(request_id)
 
         # Log request (sanitized)
         client_ip = request.client.host if request.client else "unknown"
@@ -85,7 +90,7 @@ class RequestLoggingMiddleware:
                 logger.warning("request_completed", **log_kw)
             # Reset ContextVar to avoid request_id leaking into the next
             # request processed by the same asyncio task.
-            request_id_var.reset(request_id_token)
+            request_id_var.set(None)
 
 
 class RateLimitMiddleware:

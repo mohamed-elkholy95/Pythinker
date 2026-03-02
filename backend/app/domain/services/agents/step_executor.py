@@ -143,7 +143,9 @@ class StepExecutor:
         try:
             step_result = ExecutionStepResult.model_validate(parsed_response)
             step.success = step_result.success
-            step.result = step_result.result or raw_message
+            step.result = step_result.result if step_result.success else None
+            if step_result.success and step.result is None:
+                step.result = raw_message
             step.attachments = list(step_result.attachments)
             step.error = None if step_result.success else (step.error or "Step reported failure")
             return True
@@ -158,7 +160,10 @@ class StepExecutor:
             step.success = success_value if isinstance(success_value, bool) else False
 
             result_value = parsed_response.get("result")
-            step.result = str(result_value) if result_value is not None else raw_message
+            if step.success:
+                step.result = str(result_value) if result_value is not None else raw_message
+            else:
+                step.result = None
 
             attachments_value = parsed_response.get("attachments")
             if isinstance(attachments_value, list):
@@ -172,7 +177,7 @@ class StepExecutor:
             return False
 
         step.success = False
-        step.result = raw_message
+        step.result = None
         step.attachments = []
         step.error = "Step response did not match expected JSON schema"
         return False

@@ -114,8 +114,8 @@ class TestDefaultPatterns:
     """Test DEFAULT_PATTERNS class variable."""
 
     def test_default_patterns_exist(self):
-        """DEFAULT_PATTERNS should be defined with 5 patterns."""
-        assert len(TruncationDetector.DEFAULT_PATTERNS) == 5
+        """DEFAULT_PATTERNS should be defined with truncation placeholder coverage."""
+        assert len(TruncationDetector.DEFAULT_PATTERNS) == 6
 
     def test_default_patterns_types(self):
         """All default patterns should be TruncationPattern objects."""
@@ -132,6 +132,7 @@ class TestDefaultPatterns:
             "unclosed_json_structure",
             "incomplete_list",
             "truncation_phrase",
+            "placeholder_ellipsis_artifact",
         ]
         for expected_name in expected:
             assert expected_name in pattern_names
@@ -148,7 +149,7 @@ class TestDetectorInitialization:
     def test_init_with_defaults(self):
         """Detector should initialize with default patterns."""
         detector = TruncationDetector()
-        assert len(detector.patterns) == 5
+        assert len(detector.patterns) == 6
 
     def test_init_with_custom_patterns(self):
         """Detector should accept custom patterns."""
@@ -280,6 +281,12 @@ class TestEdgeCases:
         long_content = "x" * 100000
         assessment = detector.detect(long_content)
         assert isinstance(assessment, TruncationAssessment)
+
+    def test_detects_placeholder_ellipsis_artifact(self):
+        """Standalone '[...]' / '[…]' placeholders should be treated as truncation artifacts."""
+        detector = TruncationDetector()
+        assessment = detector.detect("Report content\n[...]")
+        assert assessment.is_truncated is True
 
 
 # ============================================================================

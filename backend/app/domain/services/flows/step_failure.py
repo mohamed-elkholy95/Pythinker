@@ -40,9 +40,22 @@ class StepFailureHandler:
             reason=reason[:200],
         )
 
-        # If the failed step has partial results, try to unblock dependents
-        # immediately rather than waiting until get_next_step() returns None.
-        if failed_step.result and blocked_ids:
+        # Always try to unblock dependents so the plan can make forward
+        # progress.  When the failed step produced no result at all (e.g.
+        # LLM retry loop exhausted), inject a minimal placeholder so
+        # unblock_independent_steps() recognises the blocker as "has
+        # partial results" and dependents are not permanently stuck.
+        if blocked_ids:
+            if not failed_step.result:
+                failed_step.result = (
+                    f"[Step failed without results: "
+                    f"{(failed_step.error or 'execution error')[:120]}]"
+                )
+                logger.info(
+                    "Injected placeholder result on step %s to unblock %d dependents",
+                    failed_step.id,
+                    len(blocked_ids),
+                )
             unblocked = plan.unblock_independent_steps()
             if unblocked:
                 logger.info(

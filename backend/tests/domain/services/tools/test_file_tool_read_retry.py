@@ -69,3 +69,25 @@ async def test_file_write_tracks_path() -> None:
     await tool.file_write(file="/workspace/test.md", content="hello")
 
     assert "/workspace/test.md" in tool._recently_written
+
+
+@pytest.mark.asyncio
+async def test_file_write_strips_placeholder_and_meta_artifacts_for_markdown() -> None:
+    sandbox = AsyncMock()
+    sandbox.file_write = AsyncMock(return_value=ToolResult(success=True, message="ok"))
+
+    tool = FileTool(sandbox=sandbox, session_id="session-1")
+    raw = (
+        "I see the issue and will now write the report.\n"
+        "# Findings\n"
+        "Useful content.\n"
+        "[...]\n"
+        "> **Note:** The model's output was cut off before completion.\n"
+    )
+    await tool.file_write(file="/workspace/report.md", content=raw)
+
+    written = sandbox.file_write.await_args.kwargs["content"]
+    assert "I see the issue" not in written
+    assert "[...]" not in written
+    assert "The model's output was cut off before completion" not in written
+    assert "# Findings" in written

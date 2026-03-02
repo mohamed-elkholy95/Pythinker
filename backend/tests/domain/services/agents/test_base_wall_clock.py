@@ -1,4 +1,5 @@
 import itertools
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -93,3 +94,77 @@ async def test_wall_clock_warning_skips_current_tool_calls(monkeypatch: pytest.M
     final_messages = [e for e in events if isinstance(e, MessageEvent)]
     assert len(final_messages) == 1
     assert final_messages[0].message == "wrapped up"
+
+
+@pytest.mark.asyncio
+async def test_wall_clock_fallback_message_is_structured_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = AsyncMock()
+    repo.get_memory = AsyncMock(
+        return_value=MagicMock(
+            empty=True,
+            get_messages=MagicMock(return_value=[]),
+            add_message=MagicMock(),
+            add_messages=MagicMock(),
+        )
+    )
+
+    llm = MagicMock()
+    llm.model_name = "gpt-4"
+
+    parser = AsyncMock()
+    parser.parse = AsyncMock(return_value={})
+
+    tool = MagicMock()
+    tool.name = "test_tool"
+    tool.get_tools = MagicMock(
+        return_value=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "file_read",
+                    "description": "Read a file",
+                    "parameters": {"type": "object", "properties": {}, "required": []},
+                },
+            }
+        ]
+    )
+    tool.has_function = MagicMock(side_effect=lambda name: name == "file_read")
+    tool.invoke_function = AsyncMock(return_value=MagicMock(success=True, message="ok", data={}))
+
+    agent = BaseAgent(
+        agent_id="agent-wall-clock-json-fallback",
+        agent_repository=repo,
+        llm=llm,
+        json_parser=parser,
+        tools=[tool],
+    )
+    agent.ask = AsyncMock(
+        return_value={
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "file_read", "arguments": "{}"},
+                }
+            ]
+        }
+    )
+    agent.ask_with_messages = AsyncMock(return_value={"content": None})
+    agent._add_to_memory = AsyncMock()
+    agent._cancel_token.check_cancelled = AsyncMock()
+
+    monotonic_values = itertools.chain([0.0, 70.0], itertools.repeat(70.0))
+    monkeypatch.setattr("app.domain.services.agents.base.time.monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        "app.core.config.get_settings",
+        lambda: SimpleNamespace(max_step_wall_clock_seconds=100.0),
+    )
+
+    events = [event async for event in agent.execute("do work")]
+    final_messages = [event for event in events if isinstance(event, MessageEvent)]
+    assert len(final_messages) == 1
+
+    payload = json.loads(final_messages[0].message)
+    assert payload["success"] is False
+    assert payload["result"] is None
+    assert "error" in payload
