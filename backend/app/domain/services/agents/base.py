@@ -42,6 +42,7 @@ from app.domain.services.agents.tool_stream_parser import (
 
 if TYPE_CHECKING:
     from app.domain.external.circuit_breaker import CircuitBreakerPort
+    from app.domain.services.agents.url_failure_guard import UrlFailureGuard
     from app.domain.utils.cancellation import CancellationToken
 from app.domain.models.tool_name import ToolName
 from app.domain.services.agents.token_manager import TokenManager
@@ -64,6 +65,18 @@ SAFE_MCP_PREFIXES = ToolName._SAFE_MCP_PREFIXES
 
 # Maximum number of concurrent tool executions (increased for better throughput)
 MAX_CONCURRENT_TOOLS = 5
+
+
+def _extract_url_from_args(arguments: dict) -> str | None:
+    """Extract URL from tool call arguments.
+
+    Checks common URL parameter names used across tools.
+    """
+    for key in ("url", "target_url", "page_url"):
+        val = arguments.get(key)
+        if val and isinstance(val, str) and val.startswith("http"):
+            return val
+    return None
 
 
 class BaseAgent:
@@ -177,6 +190,10 @@ class BaseAgent:
 
         self._efficiency_monitor = ToolEfficiencyMonitor(window_size=10, read_threshold=5, strong_threshold=6)
         self._efficiency_nudges: list[dict] = []
+
+        # URL Failure Guard — session-scoped, set externally by PlanActFlow
+        # When None, guard checks are skipped (backward compatible)
+        self._url_failure_guard: UrlFailureGuard | None = None
 
         # Context manager for Pythinker-style attention manipulation (optional)
         self.context_manager: SandboxContextManager | None = None
@@ -794,6 +811,38 @@ class BaseAgent:
             except Exception as _hitl_err:
                 logger.debug("HITL policy check failed (non-critical): %s", _hitl_err)
 
+        # ── URL Failure Guard: pre-check ─────────────────────────────────────
+        _guard_url: str | None = None
+        if self._url_failure_guard is not None:
+            _guard_url = _extract_url_from_args(arguments)
+            if _guard_url:
+                _guard_decision = self._url_failure_guard.check_url(_guard_url)
+                if _guard_decision.action == "block":
+                    # Tier 3: Hard-block — skip execution entirely
+                    logger.warning(
+                        "URL guard BLOCKED %s (tier=%d): %s",
+                        _guard_url,
+                        _guard_decision.tier,
+                        _guard_decision.message,
+                    )
+                    return ToolResult(success=False, message=_guard_decision.message)
+                if _guard_decision.action == "warn" and _guard_decision.message:
+                    # Tier 2: Inject warning — execution still proceeds
+                    logger.info(
+                        "URL guard WARNING for %s (tier=%d)",
+                        _guard_url,
+                        _guard_decision.tier,
+                    )
+                    self._efficiency_nudges.append(
+                        {
+                            "message": _guard_decision.message,
+                            "read_count": 0,
+                            "action_count": 0,
+                            "confidence": 0.90,
+                            "hard_stop": False,
+                        }
+                    )
+
         while retries <= self.max_retries:
             try:
                 # ORPHANED TASK FIX: Check cancellation BEFORE invoking function
@@ -915,6 +964,17 @@ class BaseAgent:
                 except Exception as e:
                     logger.debug(f"Tool efficiency monitoring failed for {function_name}: {e}")
 
+                # URL Failure Guard: record failure on unsuccessful URL fetch
+                if self._url_failure_guard and _guard_url and result and not result.success:
+                    try:
+                        self._url_failure_guard.record_failure(
+                            _guard_url,
+                            result.message[:200] if result.message else "Unknown error",
+                            function_name,
+                        )
+                    except Exception as _guard_err:
+                        logger.debug("URL failure guard recording failed: %s", _guard_err)
+
                 try:
                     from app.domain.services.agents.task_state_manager import get_task_state_manager
 
@@ -1005,6 +1065,13 @@ class BaseAgent:
                 )
         except Exception as e:
             logger.debug(f"Tool efficiency monitoring failed for {function_name}: {e}")
+
+        # URL Failure Guard: record failure when retries exhausted
+        if self._url_failure_guard and _guard_url:
+            try:
+                self._url_failure_guard.record_failure(_guard_url, last_error[:200], function_name)
+            except Exception as _guard_err:
+                logger.debug("URL failure guard recording failed (retry exhausted): %s", _guard_err)
 
         try:
             from app.domain.services.agents.task_state_manager import get_task_state_manager
