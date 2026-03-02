@@ -52,7 +52,7 @@ from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.tool_tracing import get_tool_tracer
 from app.domain.utils.json_parser import JsonParser
-from app.infrastructure.external.llm.json_repair import parse_json_response
+from app.domain.utils.json_repair import parse_json_response
 
 # Module-level metrics instance (can be overridden for testing)
 _metrics: MetricsPort = get_null_metrics()

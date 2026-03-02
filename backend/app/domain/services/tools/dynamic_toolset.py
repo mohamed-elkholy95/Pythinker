@@ -656,27 +656,28 @@ class DynamicToolsetManager:
         """Pre-warm cache with tools for common task types.
 
         Call during application startup to reduce cold-start latency.
-        Skips warming if no tools are registered yet (lazy loading at runtime).
+        Cache warming is skipped when no tools are registered yet (lazy loading
+        at runtime), but contract validation always runs regardless.
         """
-        if not self._tools:
+        if self._tools:
+            common_task_messages = {
+                "research": "Research and find information about the topic",
+                "coding": "Write code to implement the feature",
+                "file_management": "Read and write files as needed",
+                "web_browsing": "Browse the web and navigate pages",
+                "analysis": "Analyze the data and provide insights",
+            }
+
+            for task_type, message in common_task_messages.items():
+                self.prefetch_tools_for_message(message)
+                logger.debug(f"Warmed cache for task type: {task_type}")
+
+            logger.info(f"Cache warmed for {len(common_task_messages)} common task types")
+        else:
             logger.debug("Skipping tool cache warmup: no tools registered yet")
-            return
 
-        common_task_messages = {
-            "research": "Research and find information about the topic",
-            "coding": "Write code to implement the feature",
-            "file_management": "Read and write files as needed",
-            "web_browsing": "Browse the web and navigate pages",
-            "analysis": "Analyze the data and provide insights",
-        }
-
-        for task_type, message in common_task_messages.items():
-            self.prefetch_tools_for_message(message)
-            logger.debug(f"Warmed cache for task type: {task_type}")
-
-        logger.info(f"Cache warmed for {len(common_task_messages)} common task types")
-
-        # WP-7: Validate tool contracts at startup to detect schema violations early
+        # WP-7: Validate tool contracts at startup to detect schema violations early.
+        # Always runs, even with an empty toolset, so the contract check is guaranteed.
         self.validate_tool_contracts()
 
     def clear_cache(self) -> None:
