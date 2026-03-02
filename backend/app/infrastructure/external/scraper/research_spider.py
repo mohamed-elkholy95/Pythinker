@@ -77,6 +77,18 @@ class ResearchSpider(Spider):
             default=True,
         )
 
+    # Only retry transient failures — 403 is a permanent access denial and
+    # retrying wastes ~1-2s per URL (observed: ProductHunt 403 x 4 attempts).
+    _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+    async def is_blocked(self, response: Response) -> bool:
+        """Override Spider.is_blocked to skip retries on non-retryable codes (403, 401).
+
+        The default Scrapling BLOCKED_CODES includes 403, which causes 3 wasted
+        retries on sites that permanently deny bot access.
+        """
+        return response.status in self._RETRYABLE_STATUS_CODES
+
     async def parse(self, response: Response) -> AsyncGenerator[dict | Request | None, None]:
         """Extract text content from each fetched page."""
         text = str(response.get_all_text(separator="\n\n"))
