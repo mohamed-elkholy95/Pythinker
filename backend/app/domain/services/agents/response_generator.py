@@ -94,6 +94,17 @@ _META_COMMENTARY_RE = re.compile(
     re.IGNORECASE,
 )
 
+_TRAILING_META_RE = re.compile(
+    r"\n+(?:I see the issue|I(?:'ll| will| need to| should) (?:now )?save|"
+    r"Let me (?:now )?save|Writing (?:the |this )?(?:report|content|file) to|"
+    r"Saving (?:to|the) file|Note: The model(?:'s)? output was cut|"
+    r"The (?:output|response|generation) was (?:cut|interrupted|truncated))"
+    r"[^\n]*(?:\n(?!#)[^\n]*)*$",  # (?!#) prevents matching past a new heading
+    re.IGNORECASE,
+)
+
+_TRUNCATION_ARTIFACT_RE = re.compile(r"\[…\]|\[\.{3}\]")
+
 _EXCUSE_KEYWORDS = frozenset(
     {
         "token budget",
@@ -649,6 +660,10 @@ class ResponseGenerator:
         cleaned = _EXCESS_BLANK_LINES_RE.sub("\n\n", cleaned)
         cleaned = cleaned.strip()
 
+        # Strip LLM internal-monologue commentary appended after real content
+        # (e.g. "I see the issue — let me save this file now")
+        cleaned = self.strip_trailing_meta_commentary(cleaned)
+
         removed = original_len - len(cleaned)
         if removed > 0:
             logger.info(
@@ -658,13 +673,28 @@ class ResponseGenerator:
 
         return cleaned
 
+    def strip_trailing_meta_commentary(self, content: str) -> str:
+        """Strip LLM internal monologue appended after report content."""
+        match = _TRAILING_META_RE.search(content)
+        if match:
+            stripped = content[: match.start()].rstrip()
+            chars_removed = len(content) - len(stripped)
+            logger.info("Stripped %d chars of trailing meta-commentary from report", chars_removed)
+            return stripped
+        return content
+
+    def has_truncation_artifacts(self, content: str) -> bool:
+        """Detect LLM streaming truncation artifacts `[…]` in content."""
+        return bool(_TRUNCATION_ARTIFACT_RE.search(content))
+
     # ── Quality Detection ──────────────────────────────────────────────
 
     def is_meta_commentary(self, content: str) -> bool:
         """Detect when the LLM produced meta-commentary instead of actual content."""
-        if not content or len(content) > 800:
+        if not content:
             return False
-        return bool(_META_COMMENTARY_RE.search(content))
+        probe = content if len(content) <= 6000 else f"{content[:2000]}\n{content[-3000:]}"
+        return bool(_META_COMMENTARY_RE.search(probe))
 
     def is_low_quality_summary(self, content: str, research_depth: str = "STANDARD") -> bool:
         """Structural quality gate for summarization output.
