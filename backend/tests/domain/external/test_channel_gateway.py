@@ -100,8 +100,8 @@ class TestChannelGatewayProtocol:
         # send_to_channel accepts an OutboundMessage
         msg = OutboundMessage(
             channel=ChannelType.TELEGRAM,
-            channel_user_id="u123",
-            text="hello",
+            chat_id="u123",
+            content="hello",
         )
         await gateway.send_to_channel(msg)
 
