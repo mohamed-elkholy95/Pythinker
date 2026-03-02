@@ -29,6 +29,7 @@ Usage:
 import logging
 import os
 import time
+import warnings
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,16 @@ def _get_detector_class():
     """Lazy import of HallucinationDetector to avoid import-time failures."""
     global _HallucinationDetector
     if _HallucinationDetector is None:
-        from lettucedetect.models.inference import HallucinationDetector
+        # Suppress PyTorch deprecation warning emitted by lettucedetect<=0.2 when
+        # converting a tensor with torch.tensor(sourceTensor).  The correct API is
+        # sourceTensor.detach().clone(); fixed upstream but not yet released.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="To copy construct from a tensor",
+                category=UserWarning,
+            )
+            from lettucedetect.models.inference import HallucinationDetector
 
         _HallucinationDetector = HallucinationDetector
     return _HallucinationDetector
