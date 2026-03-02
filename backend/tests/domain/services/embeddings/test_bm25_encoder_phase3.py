@@ -119,6 +119,36 @@ class TestBM25SparseEncoder:
         # Vocabulary should change
         assert encoder.get_vocab_size() != old_vocab_size
 
+    def test_fit_applies_sliding_window_to_corpus(self):
+        """Encoder keeps only the latest N documents when corpus exceeds max size."""
+        from app.domain.services.embeddings.bm25_encoder import BM25SparseEncoder
+
+        encoder = BM25SparseEncoder(max_corpus_documents=3)
+        corpus = [
+            "doc-1 oldest",
+            "doc-2 old",
+            "doc-3 keep",
+            "doc-4 keep",
+            "doc-5 newest",
+        ]
+
+        encoder.fit(corpus)
+
+        assert encoder.get_corpus_size() == 3
+        assert encoder._corpus_texts == corpus[-3:]
+
+    def test_update_corpus_keeps_latest_documents_with_window(self):
+        """Incremental updates should preserve only the most recent corpus window."""
+        from app.domain.services.embeddings.bm25_encoder import BM25SparseEncoder
+
+        encoder = BM25SparseEncoder(max_corpus_documents=4)
+        encoder.fit(["doc-1", "doc-2", "doc-3"])
+
+        encoder.update_corpus(["doc-4", "doc-5"])
+
+        assert encoder.get_corpus_size() == 4
+        assert encoder._corpus_texts == ["doc-2", "doc-3", "doc-4", "doc-5"]
+
     def test_encode_batch(self):
         """Test encode_batch() encodes multiple texts."""
         from app.domain.services.embeddings.bm25_encoder import BM25SparseEncoder
