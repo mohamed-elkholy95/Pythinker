@@ -79,10 +79,7 @@ class EnhancedDedup:
         if not a and not b:
             return 0.0
         union = a | b
-        if not union:
-            return 0.0
-        intersection = a & b
-        return len(intersection) / len(union)
+        return len(a & b) / len(union)
 
     @staticmethod
     def _normalize(query: str) -> str:
