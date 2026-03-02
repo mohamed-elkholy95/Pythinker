@@ -32,6 +32,14 @@ def test_update_user_settings_request_accepts_search_provider_chain() -> None:
     assert request.search_provider_chain == ["duckduckgo", "serper"]
 
 
+def test_update_user_settings_request_accepts_jina_in_chain() -> None:
+    request = UpdateUserSettingsRequest(
+        search_provider_chain=["jina", "duckduckgo", "unknown"],
+    )
+
+    assert request.search_provider_chain == ["jina", "duckduckgo"]
+
+
 def test_update_user_settings_request_unknown_only_chain_falls_back_to_default() -> None:
     request = UpdateUserSettingsRequest(
         search_provider_chain=["unknown", "invalid"],

@@ -14,6 +14,7 @@ ALLOWED_SEARCH_PROVIDERS = frozenset(
         "tavily",
         "serper",
         "exa",
+        "jina",
     }
 )
 DEFAULT_SEARCH_PROVIDER_CHAIN = ("tavily", "duckduckgo", "serper")

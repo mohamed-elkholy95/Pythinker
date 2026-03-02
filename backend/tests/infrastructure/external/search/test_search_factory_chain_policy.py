@@ -158,3 +158,20 @@ def test_unknown_chain_entries_fall_back_to_defaults() -> None:
     assert isinstance(engine, FallbackSearchEngine)
     assert [name for name, _ in engine._providers] == DEFAULT_PROVIDER_CHAIN
     assert attempts[: len(DEFAULT_PROVIDER_CHAIN)] == DEFAULT_PROVIDER_CHAIN
+
+
+def test_explicit_chain_supports_jina_provider() -> None:
+    available = {
+        "jina": _DummyEngine(),
+        "duckduckgo": _DummyEngine(),
+    }
+
+    engine, attempts = _build_engine_and_attempts(
+        search_provider="jina",
+        search_provider_chain="jina,duckduckgo",
+        available=available,
+    )
+
+    assert isinstance(engine, FallbackSearchEngine)
+    assert [name for name, _ in engine._providers] == ["jina", "duckduckgo"]
+    assert attempts[:2] == ["jina", "duckduckgo"]

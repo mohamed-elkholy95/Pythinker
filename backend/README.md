@@ -76,6 +76,9 @@ MAX_TOKENS=2000                          # Maximum output tokens per model reque
 # Google search configuration
 GOOGLE_SEARCH_API_KEY=                   # Google Search API key for web search functionality (optional)
 GOOGLE_SEARCH_ENGINE_ID=                 # Google custom search engine ID (optional)
+TAVILY_API_KEY=                          # Tavily Search API key (optional)
+SERPER_API_KEY=                          # Serper Search API key (optional)
+JINA_API_KEY=                            # Jina Search/Reader API key (optional)
 
 # Sandbox configuration
 SANDBOX_IMAGE=pythinker/pythinker-sandbox       # Sandbox environment Docker image
