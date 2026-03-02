@@ -93,15 +93,32 @@ class SearchEngineBase(ABC, SearchEngine):
 
     # HTTP status codes that are worth retrying
     RETRYABLE_STATUS_CODES: ClassVar[set[int]] = {429, 502, 503, 504}
+    # Rotate key but do NOT retry the same request — these are auth/policy errors
+    ROTATE_NO_RETRY_CODES: ClassVar[set[int]] = {401, 403}
+    # Permanent client errors — do not retry, do not rotate key, fail immediately
+    PERMANENT_FAIL_CODES: ClassVar[set[int]] = {400}
 
-    def __init__(self, timeout: float | None = None):
+    # Per-class semaphores keyed by class name + max_concurrent value
+    _semaphores: ClassVar[dict[str, asyncio.Semaphore]] = {}
+
+    def __init__(self, timeout: float | None = None, max_concurrent: int = 3):
         """Initialize search engine base.
 
         Args:
             timeout: Optional custom timeout in seconds
+            max_concurrent: Maximum concurrent in-flight requests for this provider
         """
         self.timeout = timeout or self.default_timeout
         self._client: httpx.AsyncClient | None = None
+        self._max_concurrent = max_concurrent
+
+    @property
+    def _semaphore(self) -> asyncio.Semaphore:
+        """Per-provider async semaphore (class-level, keyed by class name + limit)."""
+        key = f"{self.__class__.__name__}:{self._max_concurrent}"
+        if key not in self.__class__._semaphores:
+            self.__class__._semaphores[key] = asyncio.Semaphore(self._max_concurrent)
+        return self.__class__._semaphores[key]
 
     # ===== Abstract Methods (provider-specific) =====
 
@@ -338,10 +355,19 @@ class SearchEngineBase(ABC, SearchEngine):
         return filtered_results
 
     async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
-        """Execute search with standardized error handling and retry.
+        """Execute search with semaphore-based concurrency control."""
+        async with self._semaphore:
+            return await self._do_search(query, date_range)
 
-        Retries once on transient HTTP errors (429, 502, 503, 504)
-        with exponential backoff.
+    async def _do_search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
+        """Internal search implementation with standardized error handling and retry.
+
+        Retry discipline:
+        - 429/502/503/504: Retry with exponential backoff (transient)
+        - Connection/read timeouts: Retry once (transient network)
+        - 401/403: Do NOT retry — rotate key at higher level, fail this attempt
+        - 400: Do NOT retry, do NOT rotate — permanent client error
+        - Other: Return error immediately
 
         Args:
             query: Search query string
@@ -365,21 +391,31 @@ class SearchEngineBase(ABC, SearchEngine):
 
             except httpx.HTTPStatusError as e:
                 last_error = e
-                if attempt == 0 and e.response.status_code in self.RETRYABLE_STATUS_CODES:
-                    # Use centralized exponential backoff
+                status = e.response.status_code
+
+                # Permanent failure — do not retry or rotate
+                if status in self.PERMANENT_FAIL_CODES:
+                    logger.warning(f"{self.provider_name} permanent client error {status} — not retrying")
+                    return self._create_error_result(query, date_range, self._handle_http_error(e))
+
+                # Auth/policy failure — fail this attempt, key rotation handled by key pool above
+                if status in self.ROTATE_NO_RETRY_CODES:
+                    logger.warning(f"{self.provider_name} auth/policy error {status} — failing (key pool will rotate)")
+                    return self._create_error_result(query, date_range, self._handle_http_error(e))
+
+                # Transient — retry with backoff
+                if attempt == 0 and status in self.RETRYABLE_STATUS_CODES:
                     retry_config = RetryConfig(base_delay=1.0, exponential_base=2.0, max_delay=5.0, jitter=True)
                     delay = calculate_delay(attempt + 1, retry_config)
-                    logger.warning(
-                        f"{self.provider_name} search got {e.response.status_code}, retrying in {delay:.2f}s..."
-                    )
+                    logger.warning(f"{self.provider_name} search got {status}, retrying in {delay:.2f}s...")
                     await asyncio.sleep(delay)
                     continue
+
                 return self._create_error_result(query, date_range, self._handle_http_error(e))
 
             except (httpx.ConnectTimeout, httpx.ReadTimeout) as e:
                 last_error = e
                 if attempt == 0:
-                    # Use centralized exponential backoff
                     retry_config = RetryConfig(base_delay=1.0, exponential_base=2.0, max_delay=5.0, jitter=True)
                     delay = calculate_delay(attempt + 1, retry_config)
                     logger.warning(f"{self.provider_name} search timeout, retrying in {delay:.2f}s...")
@@ -390,7 +426,6 @@ class SearchEngineBase(ABC, SearchEngine):
             except Exception as e:
                 return self._create_error_result(query, date_range, e)
 
-        # Should not reach here, but just in case
         return self._create_error_result(query, date_range, last_error or Exception("Search failed after retry"))
 
     async def __aenter__(self) -> "SearchEngineBase":
