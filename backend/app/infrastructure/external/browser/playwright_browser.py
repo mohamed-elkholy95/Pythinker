@@ -160,6 +160,8 @@ class PlaywrightBrowser:
         self._heavy_page_warned_urls: set[str] = set()
         # Keeps strong references to fire-and-forget background tasks (satisfies RUF006).
         self._background_tasks: set[asyncio.Task] = set()
+        # Cache the feature flag once at init — avoids repeated get_settings() in hot paths.
+        self._dom_cursor_enabled: bool = getattr(self.settings, "feature_dom_cursor_injection", False)
 
         # Extraction cache for performance (prevents duplicate extractions)
         self._extraction_cache: dict[str, Any] = {
@@ -826,7 +828,7 @@ class PlaywrightBrowser:
             x: X coordinate
             y: Y coordinate
         """
-        if not self.page:
+        if not self.page or not self._dom_cursor_enabled:
             return
 
         try:
@@ -934,7 +936,7 @@ class PlaywrightBrowser:
         Shows a visible cursor/pointer that follows agent clicks,
         giving users visual feedback that the agent is working.
         """
-        if not self.page:
+        if not self.page or not self._dom_cursor_enabled:
             return
 
         try:
@@ -2892,10 +2894,12 @@ class PlaywrightBrowser:
         await self._ensure_page_visible()
 
         try:
+            resolved_coords: dict[str, float] | None = None
             if coordinate_x is not None and coordinate_y is not None:
                 # Show cursor animation at coordinates
                 await self._show_cursor_click(coordinate_x, coordinate_y)
                 await self.page.mouse.click(coordinate_x, coordinate_y)
+                resolved_coords = {"resolved_x": coordinate_x, "resolved_y": coordinate_y}
             elif index is not None:
                 element = await self._get_element_by_index(index)
                 if not element:
@@ -2939,6 +2943,7 @@ class PlaywrightBrowser:
                     if box:
                         center_x = box["x"] + box["width"] / 2
                         center_y = box["y"] + box["height"] / 2
+                        resolved_coords = {"resolved_x": center_x, "resolved_y": center_y}
                         await self._show_cursor_click(center_x, center_y)
                 except (PlaywrightError, PlaywrightTimeoutError, OSError):
                     logger.debug("Failed to show cursor click animation", exc_info=True)
@@ -2956,7 +2961,7 @@ class PlaywrightBrowser:
             if wait_for_navigation:
                 await self.wait_for_navigation(timeout=5000)
 
-            return ToolResult(success=True)
+            return ToolResult(success=True, data=resolved_coords)
 
         except PlaywrightError as e:
             return ToolResult(success=False, message=f"Click failed: {e!s}")
@@ -2991,10 +2996,12 @@ class PlaywrightBrowser:
         await self._ensure_page_visible()
 
         try:
+            resolved_coords: dict[str, float] | None = None
             if coordinate_x is not None and coordinate_y is not None:
                 # Show cursor animation at coordinates
                 await self._show_cursor_click(coordinate_x, coordinate_y)
                 await self.page.mouse.click(coordinate_x, coordinate_y)
+                resolved_coords = {"resolved_x": coordinate_x, "resolved_y": coordinate_y}
                 if clear_first:
                     # Select all and clear
                     await self.page.keyboard.press("Control+a")
@@ -3023,6 +3030,7 @@ class PlaywrightBrowser:
                     if box:
                         center_x = box["x"] + box["width"] / 2
                         center_y = box["y"] + box["height"] / 2
+                        resolved_coords = {"resolved_x": center_x, "resolved_y": center_y}
                         await self._show_cursor_click(center_x, center_y)
                 except (PlaywrightError, PlaywrightTimeoutError, OSError):
                     logger.debug("Failed to show cursor click animation for input", exc_info=True)
@@ -3052,7 +3060,7 @@ class PlaywrightBrowser:
                 # Wait for potential form submission
                 await self.wait_for_navigation(timeout=5000)
 
-            return ToolResult(success=True)
+            return ToolResult(success=True, data=resolved_coords)
 
         except Exception as e:
             return ToolResult(success=False, message=f"Failed to input text: {e!s}")

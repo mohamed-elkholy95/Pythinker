@@ -47,6 +47,7 @@
         :enabled="enabled"
         :show-stats="showStats"
         :show-agent-actions="showAgentActions"
+        :show-agent-cursor="showAgentCursor"
         @frame-received="onFrameReceived"
       />
 
@@ -132,6 +133,7 @@ const statusText = ref('Connecting...')
 const error = ref<string | null>(null)
 const screencastWsUrl = ref<string | null>(null)
 const showAgentActions = ref(true)
+const showAgentCursor = ref(true)
 
 // Input forwarding
 const { isForwarding, startForwarding, stopForwarding, attachInputListeners } = useSandboxInput()
