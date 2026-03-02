@@ -358,6 +358,8 @@ const SSE_CONTROL_ERROR_MANUAL_RETRY = '__sse_manual_retry_scheduled__';
 const SSE_CONTROL_ERROR_FATAL_STOP = '__sse_fatal_stop__';
 const TERMINAL_STREAM_EVENTS = new Set(['done', 'complete', 'end', 'wait']);
 const NON_MEANINGFUL_PROGRESS_PHASES = new Set(['heartbeat', 'received']);
+export const AUTH_RECONNECT_JITTER_MIN_MS = 100;
+export const AUTH_RECONNECT_JITTER_MAX_MS = 300;
 
 /**
  * Creates a deduplication tracker for SSE event IDs.
@@ -521,6 +523,14 @@ const computeRetryDelayMs = (
   const jitteredDelay = minDelay + (rng() * jitterWindow);
 
   return Math.max(0, Math.round(jitteredDelay));
+};
+
+export const computeAuthReconnectJitterMs = (rng: () => number = Math.random): number => {
+  const minDelay = AUTH_RECONNECT_JITTER_MIN_MS;
+  const maxDelay = AUTH_RECONNECT_JITTER_MAX_MS;
+  const span = Math.max(0, maxDelay - minDelay);
+  const randomUnit = Math.min(1, Math.max(0, rng()));
+  return minDelay + Math.round(span * randomUnit);
 };
 
 const isRetriableHttpStatus = (status: number): boolean => {
@@ -841,7 +851,7 @@ export const createSSEConnection = async <T = unknown>(
                 // Retry connection with new token.
                 // Note: messageSent stays false intentionally - 401 means the server rejected
                 // at auth layer and the message was NOT processed, so we need to resend it
-                scheduleReconnect('auth_refresh');
+                scheduleReconnect('auth_refresh', computeAuthReconnectJitterMs());
                 throw createSseControlError(SSE_CONTROL_ERROR_MANUAL_RETRY);
               }
             } else {
