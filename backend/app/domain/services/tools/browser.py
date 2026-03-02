@@ -448,7 +448,11 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                     fetched_url = _result.url
                     logger.debug(f"Scrapling resolved {url} via tier={_result.tier_used}")
                 else:
-                    raise RuntimeError(_result.error or "Scrapling returned no usable content")
+                    return ToolResult(
+                        success=False,
+                        message=f"URL fetch failed: {_result.error or 'No usable content'}. "
+                        "Try a different URL from your search results.",
+                    )
             else:
                 # Legacy aiohttp path (fallback when scraping_enhanced_fetch=false)
                 session = await get_http_session()
