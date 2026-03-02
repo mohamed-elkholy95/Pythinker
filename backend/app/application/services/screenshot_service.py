@@ -376,6 +376,13 @@ class ScreenshotCaptureService:
 
                         screenshot_dedup_total.inc({"trigger": trigger.value})
                         screenshot_dedup_saved_bytes.inc({"trigger": trigger.value}, len(image_data))
+
+                        # Periodic captures of an idle browser produce no new visual data.
+                        # Skip the MongoDB write entirely — dedup metrics already count it.
+                        # Tool-triggered and session-start captures always write to preserve
+                        # replay fidelity for user-initiated actions.
+                        if trigger == ScreenshotTrigger.PERIODIC:
+                            return None
                     else:
                         # Fallback: store anyway if we can't find original
                         is_duplicate = False
