@@ -194,10 +194,29 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    // Progress shows completed / total (1 completed out of 3)
-    // Component renders as separate spans: "1" "/" "3"
-    expect(wrapper.text()).toContain('1')
-    expect(wrapper.text()).toContain('3')
+    // Progress shows current position / total (running step index + 1).
+    // Here the second step is running, so compact counter is 2/3.
+    const compactProgress = wrapper.find('.progress-pill').text().replace(/\s+/g, '')
+    expect(compactProgress).toBe('2/3')
+  })
+
+  it('shows 0/total at initial pending-only state', () => {
+    const plan = createMockPlan([
+      { id: '1', description: 'Step 1', status: 'pending' },
+      { id: '2', description: 'Step 2', status: 'pending' },
+      { id: '3', description: 'Step 3', status: 'pending' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: true,
+        isThinking: false,
+      },
+    })
+
+    const compactProgress = wrapper.find('.progress-pill').text().replace(/\s+/g, '')
+    expect(compactProgress).toBe('0/3')
   })
 
   it('should show "processing" when not thinking', () => {

@@ -66,7 +66,7 @@
             <h3 class="text-[13px] font-semibold text-gray-700 dark:text-[var(--text-secondary)] uppercase tracking-wide">{{ $t('Task progress') }}</h3>
             <div class="flex items-center gap-2">
               <div class="progress-pill-lg">
-                <span class="text-[13px] font-semibold tabular-nums">{{ completedCount }}</span>
+                <span class="text-[13px] font-semibold tabular-nums">{{ currentCount }}</span>
                 <span class="text-[11px] text-gray-400 dark:text-[var(--text-tertiary)] mx-0.5">/</span>
                 <span class="text-[13px] font-semibold tabular-nums">{{ totalCount }}</span>
               </div>
@@ -213,7 +213,7 @@
         <!-- Progress pill & expand -->
         <div class="flex items-center gap-2 flex-shrink-0">
           <div class="progress-pill">
-            <span class="text-[12px] font-medium tabular-nums">{{ completedCount }}</span>
+            <span class="text-[12px] font-medium tabular-nums">{{ currentCount }}</span>
             <span class="text-[10px] text-gray-400 dark:text-[var(--text-tertiary)]">/</span>
             <span class="text-[12px] font-medium tabular-nums">{{ totalCount }}</span>
           </div>
@@ -414,6 +414,12 @@ const recentlyCompletedIds = ref<Set<string>>(new Set())
 const previousStepStatuses = ref<Map<string, string>>(new Map())
 
 const completedCount = computed(() => steps.value.filter(s => s.status === 'completed').length)
+
+/** 1-based position of the active task: running index+1, else completed count. */
+const currentCount = computed(() => {
+  const runningIdx = steps.value.findIndex(s => s.status === 'running')
+  return runningIdx >= 0 ? runningIdx + 1 : completedCount.value
+})
 const totalCount = computed(() => steps.value.length)
 
 const formattedElapsedTime = timer.formatted
