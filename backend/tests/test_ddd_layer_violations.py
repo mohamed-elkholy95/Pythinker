@@ -25,6 +25,7 @@ KNOWN_DOMAIN_EXCEPTIONS = {
     "reconciliation_job.py",  # Reconciliation job currently depends on infra db/repo implementations
     "conversation_context_service.py",  # Uses embedding client + qdrant repo for vectorized context
     "knowledge_base_service.py",  # Uses infra adapter + repository types under TYPE_CHECKING
+    "message_router.py",  # Uses AgentService under TYPE_CHECKING for channel-to-agent bridge
 }
 
 
