@@ -30,6 +30,7 @@ from app.core.config_auth import (
     JWTSettingsMixin,
     MetricsAuthSettingsMixin,
 )
+from app.core.config_channels import ChannelSettingsMixin
 from app.core.config_database import (
     DatabaseSettingsMixin,
     QdrantSettingsMixin,
@@ -107,6 +108,8 @@ class Settings(
     ScrapingSettingsMixin,
     DealScraperSettingsMixin,
     SLOSettingsMixin,
+    # Channel gateway / cron / skills / subagent layer
+    ChannelSettingsMixin,
     # BaseSettings must come last
     BaseSettings,
 ):
