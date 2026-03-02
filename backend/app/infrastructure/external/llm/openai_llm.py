@@ -337,8 +337,8 @@ class OpenAILLM(LLM):
             return resolved_fast_model
 
         if not getattr(self, "_slow_breaker_invalid_fast_model_warned", False):
-            logger.error(
-                "FAST_MODEL '%s' resolves to primary model '%s'; model switching is disabled.",
+            logger.warning(
+                "FAST_MODEL '%s' resolves to primary model '%s'; model switching disabled (configure a distinct model to enable).",
                 configured_fast_model,
                 self._model_name,
             )
