@@ -7,9 +7,8 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.domain.models.search import SearchResultItem
-
+from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 
 # ---------------------------------------------------------------------------
 # Minimal engine that uses the base search() method
