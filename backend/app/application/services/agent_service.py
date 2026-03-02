@@ -705,15 +705,13 @@ class AgentService:
         # This allows SSE disconnect to stop domain layer processing (tools, LLM calls, etc.)
         cancel_event = asyncio.Event()
         self._session_cancel_events[session_id] = cancel_event
-        # #region agent log
-        logger.info(
+        logger.debug(
             "[DEBUG-SVC] new cancel_event registered session=%s event_obj=%s event_id=%s has_msg=%s",
             session_id,
             id(cancel_event),
             event_id,
             bool(message and message.strip()),
         )
-        # #endregion
 
         # Guard long stalls waiting for the next domain event.
         # We use a two-stage policy:
@@ -856,11 +854,9 @@ class AgentService:
                     continue
 
                 if cancel_task in done:
-                    # #region agent log
-                    logger.info(
+                    logger.debug(
                         "[DEBUG-SVC] CANCEL EVENT DETECTED session=%s event_obj=%s", session_id, id(cancel_event)
                     )
-                    # #endregion
                     logger.info("Chat stream cancelled for session %s (client disconnected)", session_id)
                     if next_task is not None and not next_task.done():
                         next_task.cancel()
@@ -967,23 +963,21 @@ class AgentService:
                 emitted_events += 1
                 yield event
         finally:
-            # #region agent log
             _current_evt = self._session_cancel_events.get(session_id)
             _is_mine = _current_evt is cancel_event if _current_evt else False
-            logger.info(
+            logger.debug(
                 "[DEBUG-SVC] chat:finally session=%s cancel_event_obj=%s current_in_map=%s is_mine=%s",
                 session_id,
                 id(cancel_event),
                 id(_current_evt) if _current_evt else None,
                 _is_mine,
             )
-            # #endregion
             # CRITICAL FIX: Only remove cancel_event if it's still OURS.
             # If a new chat() call already replaced it, don't clobber theirs.
             if self._session_cancel_events.get(session_id) is cancel_event:
                 self._session_cancel_events.pop(session_id, None)
             else:
-                logger.info(
+                logger.debug(
                     "[DEBUG-SVC] chat:finally SKIPPED pop - cancel_event was replaced by newer stream session=%s",
                     session_id,
                 )

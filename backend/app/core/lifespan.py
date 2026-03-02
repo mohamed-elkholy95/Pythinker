@@ -350,6 +350,19 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
             _health_state["qdrant"] = False
 
+        # Eagerly create memory indexes to avoid first-request latency spike.
+        # Without this, ensure_indexes() fires lazily on the first memory write
+        # (create/search), adding ~50-200ms to the initial session's processing.
+        try:
+            from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
+
+            db = get_mongodb().client[settings.mongodb_database]
+            memory_repo = MongoMemoryRepository(database=db)
+            await memory_repo.ensure_indexes()
+            logger.info("Memory repository indexes pre-created at startup")
+        except Exception as e:
+            logger.warning(f"Memory index pre-creation failed (will retry on first use): {e}")
+
         # Initialize BM25 encoder from existing memories (for hybrid search)
         try:
             from app.domain.services.embeddings.bm25_encoder import initialize_bm25_from_memories
