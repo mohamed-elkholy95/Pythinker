@@ -67,7 +67,7 @@ class ShellTool(BaseTool):
         parameters={
             "id": {
                 "type": "string",
-                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+                "description": "UUID of the shell session returned by shell_start. Must be a real session UUID, not a tool name.",
             },
             "exec_dir": {
                 "type": "string",
@@ -160,7 +160,7 @@ class ShellTool(BaseTool):
         parameters={
             "id": {
                 "type": "string",
-                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+                "description": "UUID of the shell session returned by shell_start. Must be a real session UUID, not a tool name.",
             }
         },
         required=["id"],
@@ -183,7 +183,7 @@ class ShellTool(BaseTool):
         parameters={
             "id": {
                 "type": "string",
-                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+                "description": "UUID of the shell session returned by shell_start. Must be a real session UUID, not a tool name.",
             },
             "seconds": {"type": "integer", "description": "Wait duration in seconds"},
         },
@@ -210,7 +210,7 @@ class ShellTool(BaseTool):
         parameters={
             "id": {
                 "type": "string",
-                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+                "description": "UUID of the shell session returned by shell_start. Must be a real session UUID, not a tool name.",
             },
             "input": {"type": "string", "description": "Input content to write to the process"},
             "press_enter": {"type": "boolean", "description": "Whether to press Enter key after input"},
@@ -236,7 +236,7 @@ class ShellTool(BaseTool):
         parameters={
             "id": {
                 "type": "string",
-                "description": "UUID of the target shell session (e.g. '550e8400-...'). Must be the session UUID from shell_start, NOT a tool or action name.",
+                "description": "UUID of the shell session returned by shell_start. Must be a real session UUID, not a tool name.",
             }
         },
         required=["id"],
