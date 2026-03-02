@@ -87,3 +87,23 @@ class TestQueryIntentClassifier:
     def test_no_downgrade_when_budget_healthy(self, classifier):
         result = classifier.classify("comprehensive analysis of AI", quota_remaining_ratio=0.8)
         assert result == SearchIntent.DEEP
+
+    def test_budget_downgrade_at_exact_deep_threshold(self, classifier):
+        # ratio exactly equal to threshold → no downgrade (strict < not <=)
+        result = classifier.classify("comprehensive analysis of AI", quota_remaining_ratio=0.20)
+        assert result == SearchIntent.DEEP
+
+    def test_budget_downgrade_at_exact_standard_threshold(self, classifier):
+        result = classifier.classify("compare React vs Vue", quota_remaining_ratio=0.10)
+        assert result == SearchIntent.STANDARD
+
+    def test_quick_intent_never_downgraded(self, classifier):
+        result = classifier.classify("what is Python", quota_remaining_ratio=0.01)
+        assert result == SearchIntent.QUICK
+
+    def test_invalid_ratio_raises(self, classifier):
+        with pytest.raises(ValueError, match="quota_remaining_ratio"):
+            classifier.classify("test query", quota_remaining_ratio=1.5)
+
+        with pytest.raises(ValueError, match="quota_remaining_ratio"):
+            classifier.classify("test query", quota_remaining_ratio=-0.1)
