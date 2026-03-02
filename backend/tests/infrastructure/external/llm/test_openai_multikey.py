@@ -101,7 +101,7 @@ class TestOpenAILLMRateLimitRotation:
 
         call_count = 0
 
-        async def mock_get_client():
+        async def mock_get_client(**kwargs):
             nonlocal call_count
             result = clients[call_count]
             call_count += 1
@@ -133,7 +133,7 @@ class TestOpenAILLMRateLimitRotation:
 
         call_count = 0
 
-        async def mock_get_client():
+        async def mock_get_client(**kwargs):
             nonlocal call_count
             if call_count < len(clients):
                 result = clients[call_count]
@@ -205,7 +205,7 @@ class TestOpenAILLMAuthenticationRotation:
 
         call_count = 0
 
-        async def mock_get_client():
+        async def mock_get_client(**kwargs):
             nonlocal call_count
             result = clients[call_count]
             call_count += 1
@@ -234,7 +234,7 @@ class TestOpenAILLMAuthenticationRotation:
 
         call_count = 0
 
-        async def mock_get_client():
+        async def mock_get_client(**kwargs):
             nonlocal call_count
             if call_count < len(clients):
                 result = clients[call_count]
@@ -284,7 +284,7 @@ class TestOpenAILLMStreamRotation:
 
         call_count = 0
 
-        async def mock_get_client():
+        async def mock_get_client(**kwargs):
             nonlocal call_count
             result = clients[call_count]
             call_count += 1
@@ -324,7 +324,7 @@ class TestOpenAILLMStreamRotation:
 
         call_count = 0
 
-        async def mock_get_client():
+        async def mock_get_client(**kwargs):
             nonlocal call_count
             result = clients[call_count]
             call_count += 1
