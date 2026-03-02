@@ -1,12 +1,12 @@
 """Search Provider Factory
 
 Registry pattern for dynamically selecting search providers based on configuration.
-Supports: bing, google, duckduckgo, brave, tavily, serper
+Supports: bing, google, duckduckgo, brave, tavily, serper, exa, jina
 """
 
 import importlib
 import logging
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from app.core.config import get_settings
 from app.core.search_provider_policy import (
@@ -131,6 +131,73 @@ class FallbackSearchEngine:
         )
 
 
+class RerankingSearchEngine:
+    """Search engine wrapper that applies optional post-search reranking."""
+
+    def __init__(self, base_engine: SearchEngine, reranker: Any, top_n: int):
+        self._base_engine = base_engine
+        self._reranker = reranker
+        self._top_n = top_n
+
+    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
+        result = await self._base_engine.search(query, date_range)
+        if not result.success or not result.data or len(result.data.results) < 2:
+            return result
+
+        try:
+            reranked = await self._reranker.rerank(query=query, results=result.data.results, top_n=self._top_n)
+            if reranked:
+                result.data.results = reranked
+                result.data.total_results = len(reranked)
+                note = "[RERANKED: Jina]"
+                if result.message:
+                    result.message = f"{result.message}\n\n{note}"
+                else:
+                    result.message = note
+        except Exception as e:
+            logger.warning("Jina rerank wrapper failed; preserving original ordering: %s", e)
+
+        return result
+
+
+def _maybe_wrap_with_jina_rerank(engine: SearchEngine, redis_client=None) -> SearchEngine:
+    """Wrap an engine with Jina reranker when feature/config is enabled."""
+    settings = get_settings()
+    use_jina_rerank = bool(getattr(settings, "search_use_jina_rerank", False))
+    jina_api_key = getattr(settings, "jina_api_key", None)
+    if not use_jina_rerank or not jina_api_key:
+        return engine
+
+    try:
+        from app.infrastructure.external.search.jina_reranker import JinaReranker
+
+        fallback_keys = [
+            key
+            for key in [
+                getattr(settings, "jina_api_key_2", None),
+                getattr(settings, "jina_api_key_3", None),
+                getattr(settings, "jina_api_key_4", None),
+                getattr(settings, "jina_api_key_5", None),
+            ]
+            if key
+        ]
+        model = getattr(settings, "search_jina_rerank_model", "jina-reranker-v2-base-multilingual")
+        configured_top_n = getattr(settings, "search_jina_rerank_top_n", 8)
+        top_n = max(2, configured_top_n if isinstance(configured_top_n, int) else 8)
+
+        reranker = JinaReranker(
+            api_key=jina_api_key,
+            fallback_api_keys=fallback_keys,
+            redis_client=redis_client,
+            model=model,
+        )
+        logger.info("Jina rerank wrapper enabled (top_n=%d)", top_n)
+        return RerankingSearchEngine(base_engine=engine, reranker=reranker, top_n=top_n)
+    except Exception as e:
+        logger.warning("Failed to initialize Jina rerank wrapper; continuing without rerank: %s", e)
+        return engine
+
+
 def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
     """Build provider-specific kwargs from settings.
 
@@ -229,6 +296,27 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
             kwargs["redis_client"] = redis_client
         return kwargs
 
+    if provider == "jina":
+        if not settings.jina_api_key:
+            logger.warning("Jina Search not configured: missing API key")
+            return None
+        kwargs = {"api_key": settings.jina_api_key}
+        fallback_keys = [
+            key
+            for key in [
+                settings.jina_api_key_2,
+                settings.jina_api_key_3,
+                settings.jina_api_key_4,
+                settings.jina_api_key_5,
+            ]
+            if key
+        ]
+        if fallback_keys:
+            kwargs["fallback_api_keys"] = fallback_keys
+        if redis_client:
+            kwargs["redis_client"] = redis_client
+        return kwargs
+
     # Providers without required API key config (duckduckgo, bing, etc.)
     return {}
 
@@ -300,6 +388,11 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         logger.debug("Exa search provider not available")
 
     try:
+        importlib.import_module("app.infrastructure.external.search.jina_search")
+    except ImportError:
+        logger.debug("Jina search provider not available")
+
+    try:
         importlib.import_module("app.infrastructure.external.search.bing_search")
     except ImportError:
         logger.debug("Bing search provider not available")
@@ -344,13 +437,14 @@ def get_search_engine_from_factory() -> SearchEngine | None:
 
     if len(engines) == 1:
         logger.info("Initializing search engine: %s", engines[0][0])
-        return engines[0][1]
+        return _maybe_wrap_with_jina_rerank(engines[0][1], redis_client=redis_client)
 
     logger.info(
         "Initializing search engines with fallback chain: %s",
         " -> ".join(name for name, _ in engines),
     )
-    return FallbackSearchEngine(engines)
+    fallback_engine = FallbackSearchEngine(engines)
+    return _maybe_wrap_with_jina_rerank(fallback_engine, redis_client=redis_client)
 
 
 # Register built-in providers

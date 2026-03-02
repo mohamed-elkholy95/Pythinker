@@ -119,6 +119,8 @@ const providerDescriptions: Record<string, string> = {
   baidu: 'Chinese-language search optimized for local content',
   tavily: 'AI-powered search designed for LLM applications',
   serper: 'Google Search results via Serper.dev API (2500 free/mo)',
+  exa: 'Semantic search optimized for meaning-based retrieval',
+  jina: 'LLM-native web search via Jina Search Foundation',
 }
 
 // Provider icons mapping
@@ -131,6 +133,8 @@ const getProviderIcon = (providerId: string) => {
     baidu: Globe,
     tavily: Zap,
     serper: Search,
+    exa: Cloud,
+    jina: Search,
   }
   return icons[providerId] || Cloud
 }
@@ -145,6 +149,8 @@ const getProviderClass = (providerId: string) => {
     baidu: 'provider-baidu',
     tavily: 'provider-tavily',
     serper: 'provider-serper',
+    exa: 'provider-exa',
+    jina: 'provider-jina',
   }
   return classes[providerId] || 'provider-default'
 }
@@ -339,6 +345,8 @@ const saveSettings = async (value: string) => {
 .provider-baidu { background: linear-gradient(135deg, #2932e1 0%, #1f26b8 100%); }
 .provider-tavily { background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); }
 .provider-serper { background: linear-gradient(135deg, #4285f4 0%, #2b6cb0 100%); }
+.provider-exa { background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); }
+.provider-jina { background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%); }
 .provider-default { background: var(--fill-tsp-gray-dark); }
 
 /* Provider Info Card */

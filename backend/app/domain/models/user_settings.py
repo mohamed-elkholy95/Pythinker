@@ -22,7 +22,7 @@ class UserSettings(BaseModel):
     max_tokens: int = 8000
 
     # Search Provider settings
-    search_provider: str = "duckduckgo"  # "bing", "google", "duckduckgo", "brave", "tavily", "serper"
+    search_provider: str = "duckduckgo"  # "bing", "google", "duckduckgo", "brave", "tavily", "serper", "exa", "jina"
     search_provider_chain: list[str] = Field(
         default_factory=lambda: list(DEFAULT_SEARCH_PROVIDER_CHAIN),
         description="Ordered search fallback chain policy",
