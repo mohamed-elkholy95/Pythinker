@@ -200,7 +200,7 @@ describe('TaskProgressBar', () => {
     expect(compactProgress).toBe('2/3')
   })
 
-  it('shows 0/total at initial pending-only state', () => {
+  it('shows 1/total while loading at initial pending-only state', () => {
     const plan = createMockPlan([
       { id: '1', description: 'Step 1', status: 'pending' },
       { id: '2', description: 'Step 2', status: 'pending' },
@@ -211,6 +211,25 @@ describe('TaskProgressBar', () => {
       props: {
         plan,
         isLoading: true,
+        isThinking: false,
+      },
+    })
+
+    const compactProgress = wrapper.find('.progress-pill').text().replace(/\s+/g, '')
+    expect(compactProgress).toBe('1/3')
+  })
+
+  it('shows 0/total at initial pending-only state when idle', () => {
+    const plan = createMockPlan([
+      { id: '1', description: 'Step 1', status: 'pending' },
+      { id: '2', description: 'Step 2', status: 'pending' },
+      { id: '3', description: 'Step 3', status: 'pending' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: false,
         isThinking: false,
       },
     })

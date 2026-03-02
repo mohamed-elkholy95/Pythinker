@@ -415,10 +415,19 @@ const previousStepStatuses = ref<Map<string, string>>(new Map())
 
 const completedCount = computed(() => steps.value.filter(s => s.status === 'completed').length)
 
+const shouldShowInitialProgress = computed(() => {
+  if (!(props.isLoading || props.isThinking)) return false
+  if (steps.value.length === 0) return false
+  if (completedCount.value > 0) return false
+  return !steps.value.some(step => step.status === 'running')
+})
+
 /** 1-based position of the active task: running index+1, else completed count. */
 const currentCount = computed(() => {
   const runningIdx = steps.value.findIndex(s => s.status === 'running')
-  return runningIdx >= 0 ? runningIdx + 1 : completedCount.value
+  if (runningIdx >= 0) return runningIdx + 1
+  if (shouldShowInitialProgress.value) return 1
+  return completedCount.value
 })
 const totalCount = computed(() => steps.value.length)
 
