@@ -457,7 +457,9 @@ async def test_chat_resumption_disables_skip_mode_when_cursor_is_stale(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_chat_resumption_emits_gap_when_cursor_format_mismatches(monkeypatch):
+async def test_chat_resumption_no_gap_warning_when_cursor_is_redis_stream_id(monkeypatch):
+    """Redis stream ID cursors (e.g. '1771867510458-0') must silently disable skip mode
+    and flow domain events directly — no gap-warning ErrorEvent should be emitted."""
     service = _build_service()
 
     async def _domain_chat_with_events(*_args, **_kwargs):
@@ -485,12 +487,12 @@ async def test_chat_resumption_emits_gap_when_cursor_format_mismatches(monkeypat
         )
     )
 
-    assert len(events) == 3
-    assert isinstance(events[0], ErrorEvent)
-    assert events[0].error_code == "stream_gap_detected"
-    assert events[0].details and events[0].details.get("reason") == "format_mismatch"
-    assert isinstance(events[1], MessageEvent)
-    assert events[1].message == "first event"
-    assert isinstance(events[2], DoneEvent)
-    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "format_mismatch"}) == 1.0
-    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "format_mismatch"}) == 1.0
+    # Only the 2 domain events — no gap-warning ErrorEvent prepended.
+    assert len(events) == 2
+    assert isinstance(events[0], MessageEvent)
+    assert events[0].message == "first event"
+    assert isinstance(events[1], DoneEvent)
+    # Prometheus state label must reflect the new redis_cursor variant.
+    assert sse_resume_cursor_state_total.get({"endpoint": "chat", "state": "redis_cursor"}) == 1.0
+    # No fallback counter should be incremented for this clean path.
+    assert sse_resume_cursor_fallback_total.get({"endpoint": "chat", "reason": "format_mismatch"}) == 0.0
