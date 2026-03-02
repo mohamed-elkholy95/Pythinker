@@ -50,11 +50,10 @@ class TestWorkspaceOrganizer:
         # Verify result content matches template
         assert result == RESEARCH_TEMPLATE.folders
 
-        # Verify mkdir commands were called
+        # Verify a single batched mkdir command was called
         assert mock_sandbox.exec_command.called
         call_count = mock_sandbox.exec_command.call_count
-        # Should call mkdir for each folder
-        assert call_count == len(RESEARCH_TEMPLATE.folders)
+        assert call_count == 1  # All folders created in a single mkdir -p command
 
         # Verify README was created
         assert mock_sandbox.file_write.called
@@ -73,8 +72,8 @@ class TestWorkspaceOrganizer:
         assert "deliverables" in result
         assert "logs" in result
 
-        # Verify mkdir commands
-        assert mock_sandbox.exec_command.call_count == len(DATA_ANALYSIS_TEMPLATE.folders)
+        # Verify a single batched mkdir command was called
+        assert mock_sandbox.exec_command.call_count == 1
 
     @pytest.mark.asyncio
     async def test_initialize_workspace_creates_correct_paths(self, organizer, mock_sandbox, test_session_id):
@@ -123,7 +122,7 @@ class TestWorkspaceOrganizer:
         assert result["input"] == "Input data"
         assert result["output"] == "Output results"
         assert result["temp"] == "Temporary files"
-        assert mock_sandbox.exec_command.call_count == 3
+        assert mock_sandbox.exec_command.call_count == 1  # All 3 folders in one mkdir -p
 
     @pytest.mark.asyncio
     async def test_initialize_workspace_with_single_folder(self, organizer, mock_sandbox, test_session_id):
@@ -223,7 +222,7 @@ class TestWorkspaceOrganizer:
         result = await organizer.initialize_workspace(test_session_id, template)
 
         assert len(result) == 3
-        assert mock_sandbox.exec_command.call_count == 3
+        assert mock_sandbox.exec_command.call_count == 1  # All 3 folders in one mkdir -p
 
     # Path traversal prevention tests
     @pytest.mark.asyncio
@@ -328,7 +327,7 @@ class TestWorkspaceOrganizer:
         result = await organizer.initialize_workspace(test_session_id, template)
 
         assert len(result) == 50
-        assert mock_sandbox.exec_command.call_count == 50
+        assert mock_sandbox.exec_command.call_count == 1  # All 50 folders in one mkdir -p
 
     # Unicode folder names
     @pytest.mark.asyncio
