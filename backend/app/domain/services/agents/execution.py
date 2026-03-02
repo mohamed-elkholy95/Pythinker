@@ -396,7 +396,19 @@ class ExecutionAgent(BaseAgent):
                         if parsed_response is not None:
                             logger.info("Recovered step response JSON via local repair fallback")
                         else:
-                            parsed_response = await self._retry_step_result_json(event.message)
+                            known_unparseable_prefixes = (
+                                "I was unable to produce a complete response.",
+                            )
+                            normalized_message = (event.message or "").lstrip()
+                            if any(
+                                normalized_message.startswith(prefix) for prefix in known_unparseable_prefixes
+                            ):
+                                logger.info(
+                                    "Skipping JSON correction retry for known unparseable fallback message"
+                                )
+                                parsed_response = None
+                            else:
+                                parsed_response = await self._retry_step_result_json(event.message)
 
                     # Validate structured output and degrade safely when malformed.
                     payload_valid = self._apply_step_result_payload(
@@ -633,6 +645,7 @@ class ExecutionAgent(BaseAgent):
             flags = self._resolve_feature_flags()
             delivery_integrity_enabled = flags.get("delivery_integrity_gate", False)
             accumulated_text = ""
+            attempt_text = ""  # pre-initialised so CancelledError handler can always read it
             stream_messages = list(self.memory.get_messages())
             stream_metadata: dict[str, Any] = {}
             truncation_exhausted = False
@@ -1121,6 +1134,22 @@ class ExecutionAgent(BaseAgent):
 
             # Guaranteed fallback: inject complete References section if truncated/missing
             message_content = self._ensure_complete_references(message_content)
+
+            # Prepend incomplete-report warning header when truncation was unresolvable OR
+            # when the content still carries `[…]` streaming artifacts.
+            if truncation_exhausted or self._has_truncation_artifacts(message_content):
+                truncation_notice = (
+                    "> ⚠️ **Incomplete Report:** This report contains sections that were not fully "
+                    "generated due to output length limits. Sections marked `[…]` contain truncated "
+                    "content. The available research findings are included below.\n\n"
+                )
+                message_content = truncation_notice + message_content
+                logger.warning(
+                    "Prepended truncation notice to report (truncation_exhausted=%s, artifacts=%s)",
+                    truncation_exhausted,
+                    self._has_truncation_artifacts(message_content),
+                )
+
             delivery_gate_additional_issues: list[str] = []
             delivery_gate_additional_warnings: list[str] = []
 
@@ -1182,14 +1211,7 @@ class ExecutionAgent(BaseAgent):
                 verification_result = await self._verify_hallucination(message_content, self._user_request)
                 message_content = verification_result.content
                 if verification_result.blocking_issues:
-                    for issue in verification_result.blocking_issues:
-                        if issue == "hallucination_ratio_critical":
-                            # Content disclaimer already handles this — gate should warn, not block.
-                            # Blocking here would prevent report delivery even when the task fully
-                            # completed; the disclaimer appended to the content is sufficient.
-                            delivery_gate_additional_warnings.append(issue)
-                        else:
-                            delivery_gate_additional_issues.append(issue)
+                    delivery_gate_additional_issues.extend(verification_result.blocking_issues)
                 if verification_result.warnings:
                     delivery_gate_additional_warnings.extend(verification_result.warnings)
 
@@ -1407,7 +1429,24 @@ class ExecutionAgent(BaseAgent):
                 logger.debug("Follow-up suggestions skipped: %s", _se)
 
         except asyncio.CancelledError:
-            logger.info("Summarization cancelled")
+            # Emit a partial report if content was collected before the timeout cancelled the task.
+            # Use whichever buffer has more content: the merged `accumulated_text` or the
+            # in-progress `attempt_text` from the current streaming attempt.
+            _cancel_best = accumulated_text or attempt_text or ""
+            if _cancel_best.strip():
+                _cancel_partial = self._clean_report_content(_cancel_best.strip())
+                if _cancel_partial:
+                    _cancel_notice = (
+                        "> ⚠️ **Partial Report:** Generation was interrupted by a time limit. "
+                        "The content below represents findings collected before the interrupt.\n\n"
+                    )
+                    _cancel_title = self._extract_title(_cancel_partial) or "Research Summary"
+                    yield ReportEvent(
+                        id=str(uuid.uuid4()),
+                        title=f"[Partial] {_cancel_title}",
+                        content=_cancel_notice + _cancel_partial,
+                    )
+                    logger.warning("Summarize interrupted: emitted %d-char partial report", len(_cancel_partial))
             raise
         except Exception as e:
             logger.error(f"Error during summarization: {e}")
@@ -1568,6 +1607,10 @@ class ExecutionAgent(BaseAgent):
         """Strip hallucinated tool-call XML and boilerplate (delegated)."""
         self._response_generator.set_pre_trim_report_cache(self._pre_trim_report_cache)
         return self._response_generator.clean_report_content(content)
+
+    def _has_truncation_artifacts(self, content: str) -> bool:
+        """Detect `[…]` streaming truncation artifacts (delegated)."""
+        return self._response_generator.has_truncation_artifacts(content)
 
     def _extract_fallback_summary(self) -> str:
         """Extract fallback summary from memory (delegated to ResponseGenerator)."""
