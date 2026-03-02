@@ -93,10 +93,12 @@ class FileTool(BaseTool):
             File content
         """
         result = await self.sandbox.file_read(file=file, start_line=start_line, end_line=end_line, sudo=sudo)
-        # Handle encoding errors in result message (sandbox may return raw bytes)
+        # Handle structured error messages so the agent can make branch decisions
         if result.message and not result.success:
             error_lower = result.message.lower()
-            if "decode" in error_lower or "codec" in error_lower or "encoding" in error_lower:
+            if "404" in result.message or "not found" in error_lower or "no such file" in error_lower:
+                result.message = f"File not found: {file}"
+            elif "decode" in error_lower or "codec" in error_lower or "encoding" in error_lower:
                 # Retry hint for binary/non-UTF-8 files
                 result.message += " (Hint: This may be a binary file or use non-UTF-8 encoding.)"
         return result
