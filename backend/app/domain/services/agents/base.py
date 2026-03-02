@@ -132,6 +132,7 @@ class BaseAgent:
     max_retries: int = 3
     retry_interval: float = 0.3  # Faster retry with exponential backoff
     retry_backoff: float = 1.5  # Backoff multiplier (0.3s -> 0.45s -> 0.67s)
+    max_consecutive_truncations: int = 3  # Force text-only response after this many
     tool_choice: str | None = None
 
     # Iteration budget management
@@ -1352,11 +1353,14 @@ class BaseAgent:
         warning_emitted = False
         graceful_completion_requested = False
         wall_clock_warning_injected = False
+        wall_clock_exceeded = False
 
         # Reset per-step stability counters
         self._hallucination_count_this_step = 0
         self._compression_cycles_this_step = 0
         self._step_start_time = time.monotonic()
+        self._recent_truncation_count = 0  # Prevent stale count from prior step
+        self._stuck_recovery_exhausted = False
 
         while iteration_spent < iteration_budget:
             if not message.get("tool_calls"):
@@ -1414,6 +1418,7 @@ class BaseAgent:
                             elapsed,
                             wall_limit,
                         )
+                        wall_clock_exceeded = True
                         self._stuck_recovery_exhausted = True
                         break
                     if not wall_clock_warning_injected and elapsed >= wall_limit * 0.65:
@@ -1761,7 +1766,19 @@ class BaseAgent:
         final_content = message.get("content")
         if not final_content:
             logger.warning("Agent produced empty final message — yielding fallback")
-            final_content = "I was unable to produce a complete response. Please try again or rephrase your request."
+            fallback_error = (
+                "Step time limit exceeded. No result produced."
+                if wall_clock_exceeded
+                else "I was unable to produce a complete response. Please try again or rephrase your request."
+            )
+            final_content = json.dumps(
+                {
+                    "success": False,
+                    "result": None,
+                    "attachments": [],
+                    "error": fallback_error,
+                }
+            )
         yield MessageEvent(message=final_content)
 
         # Cleanup background tasks on normal exit (e.g. background memory saves)
@@ -1898,6 +1915,15 @@ class BaseAgent:
             budget_action = self._resolve_budget_action(usage_ratio)
             available_tools = self.get_available_tools()
             max_tokens_override: int | None = None
+
+            # Force text-only response after repeated truncations to escape
+            # the empty-args loop (e.g. GLM-5 hitting output limits).
+            if self._recent_truncation_count >= self.max_consecutive_truncations:
+                available_tools = []
+                logger.warning(
+                    "Forcing text-only response after %d consecutive truncations",
+                    self._recent_truncation_count,
+                )
 
             if budget_action == BudgetAction.REDUCE_VERBOSITY:
                 llm_default_max = int(getattr(self.llm, "max_tokens", 2048) or 2048)
@@ -2357,6 +2383,7 @@ class BaseAgent:
         """
         self._stuck_detector.reset()
         self._stuck_recovery_exhausted = False
+        self._recent_truncation_count = 0
 
         # Reset per-step stability counters
         self._hallucination_count_this_step = 0

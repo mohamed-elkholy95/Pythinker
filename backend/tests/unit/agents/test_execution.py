@@ -11,6 +11,7 @@ import pytest
 
 from app.domain.models.event import (
     ErrorEvent,
+    MessageEvent,
     StepEvent,
 )
 from app.domain.models.plan import ExecutionStatus
@@ -232,7 +233,7 @@ class TestExecutionAgent:
         step_events = [e for e in events if isinstance(e, StepEvent)]
         assert step_events
         assert step_events[-1].step.success is False
-        assert step_events[-1].step.result == "plain text response without expected schema"
+        assert step_events[-1].step.result is None
         assert step_events[-1].step.error is not None
 
     @pytest.mark.asyncio
@@ -285,6 +286,27 @@ class TestExecutionAgent:
 
         assert recovered is None
         assert executor.llm.ask.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_execute_step_skips_json_retry_for_known_unparseable_fallback(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Known prose fallback should not trigger correction LLM retries."""
+        message = mock_message(message="Run task with fallback prose")
+
+        async def fake_execute(*_args, **_kwargs):
+            yield MessageEvent(
+                message="I was unable to produce a complete response. Please try again or rephrase your request."
+            )
+
+        executor.execute = fake_execute
+        executor.json_parser.parse = AsyncMock(side_effect=ValueError("not json"))
+        executor._retry_step_result_json = AsyncMock(return_value={"success": True, "result": "Recovered"})
+
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, message)]
+
+        assert any(isinstance(event, StepEvent) for event in events)
+        executor._retry_step_result_json.assert_not_awaited()
 
 
 class TestToolExecution:

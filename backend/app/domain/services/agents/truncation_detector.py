@@ -148,6 +148,17 @@ class TruncationDetector:
                 "Your previous response indicated you intended to continue. Please complete your response."
             ),
         ),
+        # Placeholder artifacts produced by truncated generation loops
+        TruncationPattern(
+            name="placeholder_ellipsis_artifact",
+            pattern=r"(?:\[\s*\.{3}\s*\]|\[\s*…\s*\])\s*$",
+            truncation_type="mid_sentence",
+            confidence=0.92,
+            continuation_prompt=(
+                "Your previous response appears truncated and ended with an ellipsis placeholder. "
+                "Please continue and provide the missing content in full."
+            ),
+        ),
     ]
 
     def __init__(self, patterns: list[TruncationPattern] | None = None):

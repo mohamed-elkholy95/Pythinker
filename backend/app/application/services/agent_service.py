@@ -55,7 +55,7 @@ class AgentService:
     MAX_CREATE_SESSION_WAIT_SECONDS = 5.0
     CHAT_EVENT_TIMEOUT_SECONDS = 300.0  # Soft idle warning threshold between domain events.
     CHAT_EVENT_HARD_TIMEOUT_SECONDS = 1800.0  # Hard idle cutoff to prevent infinite hangs.
-    CHAT_RESUME_MAX_SKIPPED_EVENTS = 200  # Disable skip mode if resume cursor appears stale.
+    CHAT_RESUME_MAX_SKIPPED_EVENTS = 1000  # Disable skip mode if resume cursor appears stale.
     CHAT_RESUME_MAX_SKIP_SECONDS = 60.0  # Balance stale-cursor fallback with slower backlog streams.
     CHAT_WARMUP_WAIT_SECONDS = 10.0
     CHAT_WAIT_BEACON_INTERVAL_SECONDS = 20.0  # Emit non-heartbeat wait progress during long-running operations.

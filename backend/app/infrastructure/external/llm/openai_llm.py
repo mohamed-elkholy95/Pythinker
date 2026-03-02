@@ -129,6 +129,7 @@ class OpenAILLM(LLM):
         self._slow_tool_call_streak: int = 0
         self._slow_tool_call_breaker_until: float = 0.0
         self._slow_breaker_missing_fast_model_warned: bool = False
+        self._slow_breaker_invalid_fast_model_warned: bool = False
 
         # Detect if using local MLX server (doesn't support native tool calling)
         self._is_mlx_mode = self._detect_mlx_mode()
@@ -230,7 +231,17 @@ class OpenAILLM(LLM):
 
     def _is_slow_tool_breaker_active(self, now_monotonic: float | None = None) -> bool:
         now = now_monotonic if now_monotonic is not None else time.monotonic()
+        self._refresh_slow_tool_breaker_state(now)
         return now < self._slow_tool_call_breaker_until
+
+    def _refresh_slow_tool_breaker_state(self, now_monotonic: float) -> None:
+        """Reset breaker streak once cooldown window has elapsed."""
+        breaker_until = getattr(self, "_slow_tool_call_breaker_until", 0.0)
+        if breaker_until > 0 and now_monotonic >= breaker_until:
+            if getattr(self, "_slow_tool_call_streak", 0) > 0:
+                logger.info("Slow tool-call breaker cooldown elapsed; resetting slow-call streak")
+            self._slow_tool_call_streak = 0
+            # Keep historical timestamp for observability; next trip will overwrite it.
 
     def _record_tool_call_latency(
         self,
@@ -245,6 +256,7 @@ class OpenAILLM(LLM):
             return
 
         now = now_monotonic if now_monotonic is not None else time.monotonic()
+        self._refresh_slow_tool_breaker_state(now)
         if duration_seconds >= self._SLOW_TOOL_CALL_THRESHOLD_SECONDS:
             self._slow_tool_call_streak += 1
             if self._slow_tool_call_streak >= self._SLOW_TOOL_CALL_TRIP_COUNT:
@@ -282,12 +294,27 @@ class OpenAILLM(LLM):
         if not (self._is_slow_tool_breaker_active() and request_tools and not model_override_for_attempt):
             return model_override_for_attempt
 
-        if timeout_fallback_fast_model:
+        resolved_fast_model = (
+            self._resolve_model_override(timeout_fallback_fast_model) if timeout_fallback_fast_model else ""
+        )
+
+        if resolved_fast_model and resolved_fast_model != self._model_name:
             logger.warning(
                 "Slow tool-call breaker active; routing tool call to fast model '%s'",
-                timeout_fallback_fast_model,
+                resolved_fast_model,
             )
-            return timeout_fallback_fast_model
+            return resolved_fast_model
+
+        if resolved_fast_model == self._model_name and timeout_fallback_fast_model:
+            if not getattr(self, "_slow_breaker_invalid_fast_model_warned", False):
+                logger.error(
+                    "Slow tool-call circuit breaker tripped but FAST_MODEL '%s' resolves to primary model '%s'; "
+                    "configure a distinct FAST_MODEL to enable automatic model switching.",
+                    timeout_fallback_fast_model,
+                    self._model_name,
+                )
+                self._slow_breaker_invalid_fast_model_warned = True
+            return model_override_for_attempt
 
         # Breaker tripped but FAST_MODEL is not configured — log once per instance.
         if not getattr(self, "_slow_breaker_missing_fast_model_warned", False):
@@ -299,6 +326,25 @@ class OpenAILLM(LLM):
             )
             self._slow_breaker_missing_fast_model_warned = True
         return model_override_for_attempt
+
+    def _resolve_distinct_fast_model(self, configured_fast_model: str) -> str:
+        """Return a usable FAST_MODEL value only when it differs from primary."""
+        if not configured_fast_model:
+            return ""
+
+        resolved_fast_model = self._resolve_model_override(configured_fast_model)
+        if resolved_fast_model and resolved_fast_model != self._model_name:
+            return resolved_fast_model
+
+        if not getattr(self, "_slow_breaker_invalid_fast_model_warned", False):
+            logger.error(
+                "FAST_MODEL '%s' resolves to primary model '%s'; model switching is disabled.",
+                configured_fast_model,
+                self._model_name,
+            )
+            self._slow_breaker_invalid_fast_model_warned = True
+            self._slow_breaker_missing_fast_model_warned = True
+        return ""
 
     def _resolve_hard_call_timeout(self, settings: Any) -> float:
         """Resolve per-call hard timeout, with GLM override support."""
@@ -1442,7 +1488,9 @@ To extract data from a webpage:
         llm_tool_timeout_max_retries = max(0, int(getattr(settings, "llm_tool_timeout_max_retries", 0) or 0))
         llm_request_timeout = max(0.0, float(getattr(settings, "llm_request_timeout", 0.0) or 0.0))
         hard_call_timeout = self._resolve_hard_call_timeout(settings)
-        timeout_fallback_fast_model = str(getattr(settings, "fast_model", "") or "").strip()
+        timeout_fallback_fast_model = self._resolve_distinct_fast_model(
+            str(getattr(settings, "fast_model", "") or "").strip()
+        )
         model_override_for_attempt = model
         tool_timeout_retries = 0
         timeout_fallback_used = False
@@ -2427,7 +2475,12 @@ To extract data from a webpage:
 
                 stream_duration = time.monotonic() - stream_start
                 _slow = get_settings().llm_slow_request_threshold
-                log_fn = logger.warning if stream_duration > _slow else logger.info
+                if stream_duration > _slow * 2:
+                    log_fn = logger.error
+                elif stream_duration > _slow:
+                    log_fn = logger.warning
+                else:
+                    log_fn = logger.info
                 log_fn(
                     f"LLM ask_stream() completed in {stream_duration:.1f}s "
                     f"(model={effective_model}, chars={len(''.join(completion_parts))})"
