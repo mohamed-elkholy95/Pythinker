@@ -50,11 +50,41 @@ class SearchSettingsMixin:
     serper_quota_cooldown_seconds: int = 1800  # Cooldown after quota exhaustion (default 30min)
 
     # Search API budget limits (per agent task)
-    max_search_api_calls_per_task: int = 30  # Hard cap on API calls per task
-    max_wide_research_queries: int = 5  # Max queries in a single wide_research call
-    max_wide_research_calls_per_task: int = 3  # Max wide_research invocations per task
-    search_cache_ttl: int = 3600  # Cache TTL in seconds (default 1h)
+    max_search_api_calls_per_task: int = 15  # Hard cap on API calls per task
+    max_wide_research_queries: int = 3  # Max queries in a single wide_research call
+    max_wide_research_calls_per_task: int = 2  # Max wide_research invocations per task
+    search_cache_ttl: int = 7200  # Cache TTL in seconds (default 2h)
     search_dedup_skip_existing: bool = True  # Skip API call if TaskStateManager says already searched
+
+    # Search provider profile controls (replaces hardcoded values in adapters)
+    search_max_results: int = 8  # Max results per provider call (was hardcoded 20)
+    search_max_results_wide: int = 20  # Max results for wide_research calls
+    tavily_search_depth: str = "basic"  # "basic" (1 credit) or "advanced" (2 credits)
+    exa_search_type: str = "auto"  # "auto" | "keyword" | "neural"
+
+    # Rate governor controls (Redis token bucket per provider+IP)
+    search_rate_governor_enabled: bool = False
+    search_rate_governor_rps_serper: float = 5.0
+    search_rate_governor_rps_tavily: float = 3.0
+    search_rate_governor_rps_brave: float = 1.0
+    search_rate_governor_rps_exa: float = 3.0
+    search_rate_governor_burst: float = 5.0
+
+    # Bulkhead concurrency cap per provider
+    search_max_concurrent_per_provider: int = 3
+
+    # Timeout stratification
+    search_connect_timeout: float = 5.0    # Short: fail-fast for API search
+    search_read_timeout: float = 15.0      # Short: provider APIs respond fast
+    search_total_timeout: float = 20.0     # Absolute deadline
+    page_fetch_connect_timeout: float = 10.0
+    page_fetch_read_timeout: float = 60.0
+    page_fetch_total_timeout: float = 90.0
+
+    # Proxy support (feature-flagged)
+    search_proxy_enabled: bool = False
+    search_http_proxy: str = ""
+    search_socks5_proxy: str = ""
 
 
 class AgentSafetySettingsMixin:
