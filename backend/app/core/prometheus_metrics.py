@@ -658,7 +658,7 @@ sse_stream_active = Gauge(
 sse_resume_cursor_state_total = Counter(
     name="pythinker_sse_resume_cursor_state_total",
     help_text="Resume cursor resolution state for SSE reconnect attempts",
-    labels=["endpoint", "state"],  # found, stale, format_mismatch, absent
+    labels=["endpoint", "state"],  # found, stale, format_mismatch, absent, redis_cursor
 )
 
 sse_resume_cursor_fallback_total = Counter(
@@ -1748,7 +1748,7 @@ def record_sse_resume_cursor_state(endpoint: str = "chat", state: str = "absent"
     """Record resume cursor state transitions for reconnect attempts."""
     normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
     normalized_state = (state or "").strip().lower() or "unknown"
-    if normalized_state not in {"found", "stale", "format_mismatch", "absent"}:
+    if normalized_state not in {"found", "stale", "format_mismatch", "absent", "redis_cursor"}:
         normalized_state = "unknown"
     sse_resume_cursor_state_total.inc({"endpoint": normalized_endpoint, "state": normalized_state})
 
