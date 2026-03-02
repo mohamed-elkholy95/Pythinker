@@ -432,6 +432,15 @@ class PlanActFlow(BaseFlow):
             )
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
+        # URL Failure Guard: session-scoped, shared across all steps
+        self._url_failure_guard = None
+        if flags.get("feature_url_failure_guard_enabled", True):
+            from app.domain.services.agents.url_failure_guard import UrlFailureGuard
+
+            self._url_failure_guard = UrlFailureGuard(max_failures_per_url=3)
+            self.executor._url_failure_guard = self._url_failure_guard
+            logger.info("UrlFailureGuard enabled for session %s", session_id)
+
         # Create verifier agent (Phase 1: Plan-Verify-Execute)
         self.verifier: VerifierAgent | None = None
         if enable_verification:
@@ -863,7 +872,11 @@ class PlanActFlow(BaseFlow):
 
     async def _get_executor_for_step(self, step: Step) -> BaseAgent:
         """Select the appropriate executor for a step (delegated to FlowStepExecutor)."""
-        return await self._flow_step_executor.get_executor_for_step(step)
+        step_executor = await self._flow_step_executor.get_executor_for_step(step)
+        # Propagate session-scoped URL failure guard to step executor
+        if self._url_failure_guard and hasattr(step_executor, "_url_failure_guard"):
+            step_executor._url_failure_guard = self._url_failure_guard
+        return step_executor
 
     def _infer_research_depth(self) -> str:
         """Infer research depth from plan step count and deal-finder presence.
