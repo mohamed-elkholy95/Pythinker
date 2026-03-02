@@ -339,6 +339,33 @@ class AgentTaskRunner(TaskRunner):
                 except Exception as exc:
                     logger.warning("CheckpointManager unavailable: %s", exc)
 
+            # ── Cron Tool ────────────────────────────────
+            _cron_service = None
+            if settings.cron_service_enabled:
+                try:
+                    from app.infrastructure.services.cron_bridge import CronBridge
+
+                    _cron_service = CronBridge()
+                except Exception as exc:
+                    logger.warning("CronBridge unavailable: %s", exc)
+
+            # ── Spawn Tool (deferred) ────────────────────
+            # SpawnTool requires SubagentManager provider wiring which depends
+            # on the gateway runner connection (not yet available).  Will be
+            # wired here once the gateway infrastructure is complete.
+
+            # ── Skill Tools ──────────────────────────────
+            _skill_loader = None
+            if settings.skills_system_enabled:
+                try:
+                    from pathlib import Path
+
+                    from nanobot.agent.skills import SkillsLoader
+
+                    _skill_loader = SkillsLoader(workspace=Path(settings.skills_workspace_dir).expanduser())
+                except Exception as exc:
+                    logger.warning("SkillsLoader unavailable: %s", exc)
+
             self._plan_act_flow = PlanActFlow(
                 self._agent_id,
                 self._repository,
@@ -369,6 +396,8 @@ class AgentTaskRunner(TaskRunner):
                 scraper=_scraper,
                 deal_finder=_deal_finder,
                 checkpoint_manager=_checkpoint_manager,
+                cron_service=_cron_service,
+                skill_loader=_skill_loader,
             )
             # Inject circuit breaker for tool-level failure protection
             try:
