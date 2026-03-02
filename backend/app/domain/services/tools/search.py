@@ -210,6 +210,52 @@ AUTHORITATIVE_DOMAINS = [
 RESEARCH_KEYWORDS = ["best", "compare", "vs", "versus", "review", "recommend", "alternative"]
 
 
+def canonicalize_query(query: str) -> str:
+    """Normalize search query for stable, collision-resistant cache keys.
+
+    Normalizations applied:
+    - Strip leading/trailing whitespace
+    - Lowercase
+    - Collapse internal whitespace runs to single space
+
+    Examples:
+        "  Hello   World  " -> "hello world"
+        "Python FastAPI" -> "python fastapi"
+    """
+    return re.sub(r"\s+", " ", query.strip().lower())
+
+
+# ---------------------------------------------------------------------------
+# In-process hot cache — burst absorber (30s TTL, max 50 entries)
+# Absorbs duplicate/near-duplicate queries within a single task burst.
+# ---------------------------------------------------------------------------
+_HOT_CACHE_TTL: float = 30.0
+_HOT_CACHE_MAXSIZE: int = 50
+# Dict keyed by canonical_query -> (result, expiry_monotonic_time)
+_hot_cache: dict[str, tuple[object, float]] = {}
+
+
+def _hot_cache_get(key: str) -> object | None:
+    """Return cached result if not expired, else None."""
+    entry = _hot_cache.get(key)
+    if entry is None:
+        return None
+    result, expiry = entry
+    if time.monotonic() < expiry:
+        return result
+    del _hot_cache[key]
+    return None
+
+
+def _hot_cache_set(key: str, value: object, ttl: float = _HOT_CACHE_TTL) -> None:
+    """Store result with TTL. Evicts oldest entry if at capacity."""
+    if len(_hot_cache) >= _HOT_CACHE_MAXSIZE:
+        # Evict the oldest entry (dict preserves insertion order in Python 3.7+)
+        oldest = next(iter(_hot_cache))
+        del _hot_cache[oldest]
+    _hot_cache[key] = (value, time.monotonic() + ttl)
+
+
 class QueryExpander:
     """Expands queries into multiple variants for comprehensive search.
 
