@@ -1,7 +1,5 @@
 """Tests for extended SearchToolContent model."""
 
-import pytest
-
 from app.domain.models.event import SearchToolContent
 from app.domain.models.search import SearchResultItem
 
