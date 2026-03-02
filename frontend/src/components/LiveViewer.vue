@@ -28,6 +28,7 @@
   <!-- Browser/CDP View (default live preview) -->
   <SandboxViewer
     v-else-if="shouldShowBrowser"
+    ref="sandboxViewerRef"
     :key="`cdp-${sessionId}`"
     :session-id="sessionId"
     :enabled="enabled"
@@ -52,13 +53,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, toRef } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import SandboxViewer from '@/components/SandboxViewer.vue'
 import TerminalContentView from '@/components/toolViews/TerminalContentView.vue'
 import EditorContentView from '@/components/toolViews/EditorContentView.vue'
 import SearchContentView from '@/components/toolViews/SearchContentView.vue'
 import InactiveState from '@/components/toolViews/shared/InactiveState.vue'
 import { useContentConfig } from '@/composables/useContentConfig'
+import type { ToolEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
 
 const props = withDefaults(
@@ -122,6 +124,8 @@ const emit = defineEmits<{
   credentialsRequired: []
 }>()
 
+const sandboxViewerRef = ref<InstanceType<typeof SandboxViewer> | null>(null)
+
 // Use content config to determine view type
 const { currentViewType } = useContentConfig(toRef(() => props.toolContent))
 
@@ -147,6 +151,14 @@ const shouldShowBrowser = computed(() => {
   }
 
   return false
+})
+
+function processToolEvent(event: ToolEventData): void {
+  sandboxViewerRef.value?.processToolEvent(event)
+}
+
+defineExpose({
+  processToolEvent,
 })
 </script>
 
