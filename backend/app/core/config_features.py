@@ -114,7 +114,7 @@ class SearchSettingsMixin:
     search_dedup_jaccard_threshold: float = 0.6  # Word-overlap threshold for fuzzy dedup
 
     # --- Budget Auto-Degrade Thresholds ---
-    search_budget_degrade_deep_threshold: float = 0.2    # <20% remaining → DEEP→STANDARD
+    search_budget_degrade_deep_threshold: float = 0.2  # <20% remaining → DEEP→STANDARD
     search_budget_degrade_standard_threshold: float = 0.1  # <10% remaining → STANDARD→QUICK
     search_budget_degrade_scraper_threshold: float = 0.05  # <5% remaining → free scrapers only
 
