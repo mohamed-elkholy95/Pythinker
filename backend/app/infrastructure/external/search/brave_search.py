@@ -53,6 +53,7 @@ class BraveSearchEngine(SearchEngineBase):
         fallback_api_keys: list[str] | None = None,
         redis_client=None,
         timeout: float | None = None,
+        max_results: int = 8,
     ):
         """Initialize Brave search engine.
 
@@ -61,6 +62,7 @@ class BraveSearchEngine(SearchEngineBase):
             fallback_api_keys: Optional list of fallback API keys (up to 2 fallbacks = 3 total)
             redis_client: Redis client for distributed key coordination
             timeout: Optional custom timeout
+            max_results: Number of results to return per search (default 8)
         """
         super().__init__(timeout=timeout)
 
@@ -81,6 +83,8 @@ class BraveSearchEngine(SearchEngineBase):
 
         # Set max retries to prevent unbounded recursion
         self._max_retries = len(key_configs)
+
+        self._max_results = max_results
 
         self.base_url = "https://api.search.brave.com/res/v1/web/search"
         logger.info(f"Brave search initialized with {len(key_configs)} API key(s)")
@@ -114,7 +118,7 @@ class BraveSearchEngine(SearchEngineBase):
         """Build Brave API request parameters."""
         params: dict[str, Any] = {
             "q": query,
-            "count": 20,
+            "count": self._max_results,
             "text_decorations": False,
             "search_lang": "en",
         }
