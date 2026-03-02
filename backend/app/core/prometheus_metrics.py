@@ -1434,6 +1434,34 @@ _metrics_registry.extend(
 )
 
 
+# URL Failure Guard metrics
+url_guard_actions_total = Counter(
+    name="pythinker_url_failure_guard_actions_total",
+    help_text="Total URL guard actions by tier and action type",
+    labels=["tier", "action"],
+)
+
+url_guard_escalations_total = Counter(
+    name="pythinker_url_failure_guard_escalations_total",
+    help_text="URLs that escalated to higher tiers",
+    labels=["tier"],
+)
+
+url_guard_tracked_urls = Gauge(
+    name="pythinker_url_failure_guard_tracked_urls",
+    help_text="Current number of failed URLs tracked in session",
+    labels=[],
+)
+
+_metrics_registry.extend(
+    [
+        url_guard_actions_total,
+        url_guard_escalations_total,
+        url_guard_tracked_urls,
+    ]
+)
+
+
 # --- Infrastructure Helper Functions ---
 
 
