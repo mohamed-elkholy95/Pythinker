@@ -91,4 +91,35 @@ describe('LiveViewer (CDP-only)', () => {
     expect(wrapper.emitted('disconnected')).toHaveLength(1)
     expect(wrapper.emitted('disconnected')![0]).toEqual(['connection lost'])
   })
+
+  it('exposes processToolEvent and forwards events to SandboxViewer', async () => {
+    const processToolEvent = vi.fn()
+    wrapper = mount(LiveViewer, {
+      props: {
+        sessionId: 'test-session',
+        enabled: true,
+      },
+      global: {
+        stubs: {
+          SandboxViewer: {
+            name: 'SandboxViewer',
+            template: '<div class="sandbox-viewer"></div>',
+            setup(_props, { expose }) {
+              expose({ processToolEvent })
+              return {}
+            },
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+    ;(wrapper.vm as unknown as { processToolEvent: (event: Record<string, unknown>) => void }).processToolEvent({
+      tool_call_id: 'abc',
+      status: 'calling',
+      function: 'browser_click',
+      args: { coordinate_x: 10, coordinate_y: 20 },
+    })
+    expect(processToolEvent).toHaveBeenCalledTimes(1)
+  })
 })
