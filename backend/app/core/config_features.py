@@ -264,9 +264,9 @@ class FeatureFlagsSettingsMixin:
     feature_live_file_streaming: bool = False  # Emit incremental ToolStreamEvents for file_write
 
     # Wall-clock limit per step (seconds). 0 = disabled. Env: MAX_STEP_WALL_CLOCK_SECONDS
-    # Default 600s (10 min) catches runaway steps where slow LLM calls + high iteration
-    # cap combine to span hours, while being generous for legitimate complex steps.
-    max_step_wall_clock_seconds: float = 600.0
+    # 900s (15 min) accommodates research steps with 8-10 slow LLM calls (~60s each on
+    # GLM-5) plus browser/search tool overhead, preventing premature force-failure.
+    max_step_wall_clock_seconds: float = 900.0
 
     # Architecture Enhancement Plan — Phase 2: Token Budget Manager & Context Handler
     feature_token_budget_manager: bool = False  # Proactive phase-level token budgeting
