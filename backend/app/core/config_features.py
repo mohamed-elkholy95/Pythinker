@@ -285,6 +285,9 @@ class FeatureFlagsSettingsMixin:
     # DOM cursor injection — disable to use Konva overlay cursor instead
     feature_dom_cursor_injection: bool = False
 
+    # URL Failure Guard — 3-tier auto-correction for LLM URL hallucination (2026-03-02)
+    feature_url_failure_guard_enabled: bool = True
+
     # ── LLM Middleware Pipeline (Enhancement Plan 2026-02) ──────────────────
     # Phase 1: Middleware pipeline — compose cross-cutting concerns as chainable
     # middlewares instead of inline retry/error code in each provider.
