@@ -18,6 +18,7 @@ from app.domain.services.file_sync_manager import (
     DELIVERABLE_EXTENSIONS,
     MAX_SWEEP_FILES,
     SKIP_DIRECTORIES,
+    _should_cluster_basenames,
 )
 
 
@@ -273,6 +274,35 @@ class TestSweepWorkspaceFiles:
         assert len(result) == 2
         assert mock_file_storage.upload_file.call_count == 2
 
+    @pytest.mark.asyncio
+    async def test_dedup_preserves_distinct_non_numeric_artifacts(
+        self, runner, mock_sandbox, mock_session_repository, mock_file_storage, monkeypatch
+    ):
+        """Semantically distinct artifacts (backend/frontend) should not be deduped."""
+        monkeypatch.setattr(
+            "app.core.config.get_settings",
+            lambda: SimpleNamespace(feature_sweep_dedup_enabled=True),
+        )
+        mock_sandbox.exec_command = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                data={
+                    "output": (
+                        "/workspace/test-session/analysis_backend.md\n"
+                        "/workspace/test-session/analysis_frontend.md\n"
+                    )
+                },
+            )
+        )
+        session = MagicMock()
+        session.files = []
+        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+
+        result = await runner._sweep_workspace_files()
+
+        assert len(result) == 2
+        assert mock_file_storage.upload_file.call_count == 2
+
 
 class TestSweepConstants:
     """Tests for sweep configuration constants."""
@@ -300,6 +330,34 @@ class TestSweepConstants:
     def test_max_sweep_files_is_bounded(self):
         """Ensure sweep is bounded to prevent excessive syncing."""
         assert MAX_SWEEP_FILES <= 100
+
+
+class TestDedupBasenameHeuristics:
+    """Unit tests for basename clustering edge cases."""
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ("analysis_backend_final", "backend_analysis"),
+            ("final-report_v2", "report_final-v2"),
+            ("writeup-security_review", "review_security_writeup"),
+        ],
+    )
+    def test_clusters_equivalent_tokens_across_order_and_separators(self, left: str, right: str):
+        """Equivalent semantic tokens should cluster despite token order/separators."""
+        assert _should_cluster_basenames(left, right) is True
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ("analysis_model_a", "analysis_model_b"),
+            ("report_2026", "report"),
+            ("analysis_backend", "analysis_frontend"),
+        ],
+    )
+    def test_preserves_distinct_basenames(self, left: str, right: str):
+        """Distinct semantic basenames should never cluster."""
+        assert _should_cluster_basenames(left, right) is False
 
 
 class TestFileSweepCallback:
