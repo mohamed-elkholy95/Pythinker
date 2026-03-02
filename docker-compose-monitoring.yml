@@ -112,4 +112,5 @@ volumes:
 
 networks:
   pythinker-network:
-    external: true
+    name: pythinker-network
+    driver: bridge
