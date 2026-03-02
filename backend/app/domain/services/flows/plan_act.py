@@ -209,6 +209,8 @@ class PlanActFlow(BaseFlow):
         scraper: Scraper | None = None,
         deal_finder: DealFinder | None = None,
         checkpoint_manager=None,
+        cron_service=None,
+        skill_loader=None,
     ):
         self._feature_flags = feature_flags
         self._deal_finder = deal_finder
@@ -336,6 +338,27 @@ class PlanActFlow(BaseFlow):
 
             tools.append(DealScraperTool(deal_finder=deal_finder, browser=self._browser))
             logger.info(f"DealScraperTool enabled for Agent {agent_id}")
+
+        # Add CronTool when cron_service is provided (scheduling recurring tasks)
+        if cron_service:
+            try:
+                from app.domain.services.tools.cron_tool import CronTool
+
+                tools.append(CronTool(cron_service=cron_service, user_id=user_id or ""))
+                logger.info(f"CronTool enabled for Agent {agent_id}")
+            except Exception as _cron_exc:
+                logger.warning("Failed to add CronTool: %s", _cron_exc)
+
+        # Add skill discovery tools when skill_loader is provided
+        if skill_loader:
+            try:
+                from app.domain.services.tools.skill_tools import ListSkillsTool, ReadSkillTool
+
+                tools.append(ListSkillsTool(skill_loader=skill_loader))
+                tools.append(ReadSkillTool(skill_loader=skill_loader))
+                logger.info(f"Skill discovery tools enabled for Agent {agent_id}")
+            except Exception as _skill_exc:
+                logger.warning("Failed to add skill tools: %s", _skill_exc)
 
         # Add skill creator tools for custom skill creation (Phase 3: Custom Skills)
         # Pending events queue for skill delivery events from tools
