@@ -372,3 +372,34 @@ async def get_http_client(name: str, base_url: str | None = None, **kwargs) -> M
     Convenience wrapper for HTTPClientPool.get_client.
     """
     return await HTTPClientPool.get_client(name, base_url, **kwargs)
+
+
+# Timeout-stratified preset factories
+def search_api_preset(settings: Any) -> HTTPClientConfig:
+    """Short timeouts for SERP API calls (fail-fast).
+
+    API search providers respond quickly; tight deadlines prevent slow
+    providers from blocking the agent pipeline on transient hangs.
+    Uses settings.search_connect_timeout / search_read_timeout /
+    search_total_timeout (default: 5 / 15 / 20 seconds).
+    """
+    return HTTPClientConfig(
+        connect_timeout=settings.search_connect_timeout,
+        read_timeout=settings.search_read_timeout,
+        pool_timeout=settings.search_total_timeout,
+    )
+
+
+def page_fetch_preset(settings: Any) -> HTTPClientConfig:
+    """Longer timeouts for page-fetch calls via Scrapling/Browser.
+
+    Full page retrieval can be slow on heavy or JS-rendered pages, so
+    generous read and pool timeouts prevent premature cancellation.
+    Uses settings.page_fetch_connect_timeout / page_fetch_read_timeout /
+    page_fetch_total_timeout (default: 10 / 60 / 90 seconds).
+    """
+    return HTTPClientConfig(
+        connect_timeout=settings.page_fetch_connect_timeout,
+        read_timeout=settings.page_fetch_read_timeout,
+        pool_timeout=settings.page_fetch_total_timeout,
+    )
