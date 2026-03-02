@@ -75,6 +75,10 @@ def _build_llm() -> OpenAILLM:
     llm._supports_stream_usage = False
     llm._cache_manager = None
     llm._last_stream_metadata = None
+    llm._slow_tool_call_streak = 0
+    llm._slow_tool_call_breaker_until = 0.0
+    llm._slow_breaker_missing_fast_model_warned = False
+    llm._slow_breaker_invalid_fast_model_warned = False
     llm._record_usage = AsyncMock()
     llm._record_stream_usage = AsyncMock()
     llm._record_usage_counts = AsyncMock()
