@@ -1,8 +1,8 @@
 /**
  * Agent Cursor Composable
  *
- * Renders a persistent macOS-style black arrow cursor on the Konva overlay
- * layer, tracking the agent's pointer position as it browses.
+ * Renders a persistent cursor on the Konva overlay layer using Apple cursor
+ * SVG assets copied from `assets/cursors/apple_cursor-main`.
  *
  * Motion behavior:
  * - Adaptive smoothing (far jumps move faster, short hops stay precise)
@@ -14,13 +14,17 @@
 import { shallowRef, onBeforeUnmount } from 'vue'
 import Konva from 'konva'
 import type { ToolEventData } from '@/types/event'
-import type { CursorState } from '@/types/liveViewer'
+import type { AgentActionType, CursorState } from '@/types/liveViewer'
 import { FUNCTION_TO_ACTION_TYPE } from '@/types/liveViewer'
 import {
   isJitterMove,
   stepTowards,
   type CursorMotionConfig,
 } from '@/utils/agentCursorMotion'
+import {
+  getCursorAssetForAction,
+  getWaitCursorFrameUrl,
+} from '@/utils/agentCursorAssets'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,6 +60,16 @@ const CLICK_RIPPLE_RADIUS = 12
 /** Click ripple expansion scale */
 const CLICK_RIPPLE_SCALE = 2.2
 
+/** Cursor icon render size in stage pixels */
+const CURSOR_RENDER_SIZE = 24
+
+/** Approximate hotspot for left_ptr.svg scaled to CURSOR_RENDER_SIZE */
+const CURSOR_HOTSPOT_X = 8
+const CURSOR_HOTSPOT_Y = 5
+
+/** Wait cursor frame step interval */
+const WAIT_FRAME_INTERVAL_MS = 80
+
 const MOTION_CONFIG: CursorMotionConfig = {
   baseSmoothing: 12,
   minSmoothing: 10,
@@ -70,29 +84,10 @@ const REDUCED_MOTION = typeof window !== 'undefined'
   && typeof window.matchMedia === 'function'
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-// ── Apple Cursor SVG paths ────────────────────────────────────────────
-// Sourced from ful1e5/apple_cursor (GPL-3.0) — pixel-perfect macOS arrow.
-// Original viewBox 256×256; scaled to ~12×20px via CURSOR_INNER_SCALE.
-// Color mapping: fill → black, stroke → white (standard macOS theme).
-
-/** Inner arrow body (black fill) */
-const CURSOR_FILL_PATH =
-  'M84.1001 48.5601V173.06L110.8 146.56L136.3 207.56L158.3 197.06L133.8 139.06H172.8L84.1001 48.5601Z'
-
-/** Outer border contour (white stroke, original stroke-width 11) */
-const CURSOR_STROKE_PATH =
-  'M88.0281 44.7102L78.6001 35.0909V48.5601V173.06V186.268L87.9746 176.964L108.876 156.218L131.225 209.681L133.454 215.013L138.669 212.524L160.669 202.024L165.411 199.76L163.366 194.92L142.094 144.56H172.8H185.892L176.728 135.21L88.0281 44.7102Z'
-
-/** Scale mapping 256-space paths to ~12px base width */
-const CURSOR_INNER_SCALE = 0.112
-
-/** Arrow tip coordinates in 256-space (used as transform offset) */
-const CURSOR_TIP_X = 78.6
-const CURSOR_TIP_Y = 35.09
-
 interface CursorNodes {
   group: Konva.Group
   clickRing: Konva.Circle
+  cursorImage: Konva.Image
 }
 
 export function useAgentCursor() {
@@ -111,6 +106,7 @@ export function useAgentCursor() {
   let _layer: Konva.Layer | null = null
   let _group: Konva.Group | null = null
   let _clickRing: Konva.Circle | null = null
+  let _cursorImage: Konva.Image | null = null
 
   // Position tracking
   let _targetX = 0
@@ -131,10 +127,18 @@ export function useAgentCursor() {
   let _idleCheckTimer: ReturnType<typeof setTimeout> | null = null
   let _isIdle = false
 
+  // Wait cursor animation
+  let _waitAnimTimer: ReturnType<typeof setInterval> | null = null
+  let _waitFrameIndex = 0
+
   // Deduplicate CALLING/CALLED pairs with identical coordinates
   let _lastToolCallId: string | null = null
   let _lastX = 0
   let _lastY = 0
+
+  // Image loading cache
+  const _imageCache = new Map<string, HTMLImageElement>()
+  let _cursorLoadToken = 0
 
   // ---------------------------------------------------------------------------
   // Konva node creation
@@ -168,41 +172,21 @@ export function useAgentCursor() {
       perfectDrawEnabled: false,
     })
 
-    // Inner group transforms 256-space SVG paths so the arrow tip
-    // sits at the outer group's origin at ~12px base width.
-    const cursorShape = new Konva.Group({
-      scaleX: CURSOR_INNER_SCALE,
-      scaleY: CURSOR_INNER_SCALE,
-      offsetX: CURSOR_TIP_X,
-      offsetY: CURSOR_TIP_Y,
-      listening: false,
-    })
-
-    // White border (stroke-only, renders behind the black fill)
-    const outline = new Konva.Path({
-      data: CURSOR_STROKE_PATH,
-      stroke: 'white',
-      strokeWidth: 11,
+    const cursorImage = new Konva.Image({
+      x: -CURSOR_HOTSPOT_X,
+      y: -CURSOR_HOTSPOT_Y,
+      width: CURSOR_RENDER_SIZE,
+      height: CURSOR_RENDER_SIZE,
+      image: undefined,
       listening: false,
       perfectDrawEnabled: false,
     })
 
-    // Black arrow body (fill-only, renders on top)
-    const fill = new Konva.Path({
-      data: CURSOR_FILL_PATH,
-      fill: 'black',
-      listening: false,
-      perfectDrawEnabled: false,
-    })
-
-    cursorShape.add(outline)
-    cursorShape.add(fill)
-
-    // Click ripple behind cursor, cursor shape on top.
+    // Keep ripple behind cursor image.
     group.add(clickRing)
-    group.add(cursorShape)
+    group.add(cursorImage)
 
-    return { group, clickRing }
+    return { group, clickRing, cursorImage }
   }
 
   function _setCursorOpacity(opacity: number): void {
@@ -219,6 +203,69 @@ export function useAgentCursor() {
     }
   }
 
+  function _createImageElement(url: string): Promise<HTMLImageElement | null> {
+    if (typeof window === 'undefined') return Promise.resolve(null)
+
+    return new Promise((resolve) => {
+      const image = new window.Image()
+      image.decoding = 'async'
+      image.onload = () => resolve(image)
+      image.onerror = () => resolve(null)
+      image.src = url
+    })
+  }
+
+  async function _setCursorImageUrl(url: string): Promise<void> {
+    if (!_cursorImage || !url) return
+
+    const token = ++_cursorLoadToken
+    let image = _imageCache.get(url)
+    if (!image) {
+      image = await _createImageElement(url) ?? undefined
+      if (image) {
+        _imageCache.set(url, image)
+      }
+    }
+
+    if (!image) return
+    if (!_cursorImage) return
+    if (token !== _cursorLoadToken) return
+
+    _cursorImage.image(image)
+    if (_layer) {
+      _layer.batchDraw()
+    }
+  }
+
+  function _startWaitCursorAnimation(): void {
+    if (_waitAnimTimer) return
+
+    _waitFrameIndex = 0
+    void _setCursorImageUrl(getWaitCursorFrameUrl(_waitFrameIndex))
+
+    _waitAnimTimer = setInterval(() => {
+      _waitFrameIndex += 1
+      void _setCursorImageUrl(getWaitCursorFrameUrl(_waitFrameIndex))
+    }, WAIT_FRAME_INTERVAL_MS)
+  }
+
+  function _stopWaitCursorAnimation(): void {
+    if (_waitAnimTimer) {
+      clearInterval(_waitAnimTimer)
+      _waitAnimTimer = null
+    }
+  }
+
+  function _applyCursorVisualForAction(actionType: AgentActionType): void {
+    if (actionType === 'wait') {
+      _startWaitCursorAnimation()
+      return
+    }
+
+    _stopWaitCursorAnimation()
+    void _setCursorImageUrl(getCursorAssetForAction(actionType))
+  }
+
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
@@ -228,6 +275,7 @@ export function useAgentCursor() {
       _group.destroy()
       _group = null
       _clickRing = null
+      _cursorImage = null
     }
 
     _layer = layer
@@ -235,8 +283,11 @@ export function useAgentCursor() {
     const nodes = _createCursorNodes()
     _group = nodes.group
     _clickRing = nodes.clickRing
+    _cursorImage = nodes.cursorImage
     _layer.add(_group)
     _group.moveToTop()
+
+    void _setCursorImageUrl(getCursorAssetForAction('move'))
   }
 
   function unbindLayer(): void {
@@ -248,6 +299,7 @@ export function useAgentCursor() {
       _group = null
     }
     _clickRing = null
+    _cursorImage = null
     _layer = null
     isVisible.value = false
     cursorState.value = 'idle'
@@ -262,8 +314,15 @@ export function useAgentCursor() {
     const actionType = FUNCTION_TO_ACTION_TYPE[functionName]
     if (!actionType) return
 
+    _applyCursorVisualForAction(actionType)
+
     const coords = _extractCoordinates(event)
-    if (!coords) return
+    if (!coords) {
+      if (_layer) {
+        _layer.batchDraw()
+      }
+      return
+    }
 
     if (isVisible.value && isJitterMove(_targetX, _targetY, coords.x, coords.y, MOTION_CONFIG)) {
       return
@@ -517,6 +576,7 @@ export function useAgentCursor() {
       clearTimeout(_idleCheckTimer)
       _idleCheckTimer = null
     }
+    _stopWaitCursorAnimation()
   }
 
   onBeforeUnmount(() => {
