@@ -571,6 +571,10 @@ class BaseAgent:
         # Populate tool_content for search tools (Pythinker-style search results display)
         tool_content = kwargs.pop("tool_content", None)
         search_functions = ToolName.search_tools()
+        # Max results shown in the search results panel per tool invocation.
+        # wide_research collects up to 20 results across 16 queries; cap display at 20
+        # so the panel is informative without being overwhelming.
+        search_panel_max = 20
         if tool_content is None and status == ToolStatus.CALLED and function_name in search_functions:
             function_result = kwargs.get("function_result")
             # Extract search results from ToolResult.data if valid result with data
@@ -592,7 +596,7 @@ class BaseAgent:
                             link=r.link or "",
                             snippet=r.snippet or "",
                         )
-                        for r in data.results[:5]
+                        for r in data.results[:search_panel_max]
                     ]
                 # Handle wide_research dict with "sources" key
                 elif isinstance(data, dict) and data.get("sources"):
@@ -602,7 +606,7 @@ class BaseAgent:
                             link=s.get("url", s.get("link", "")),
                             snippet=s.get("snippet", ""),
                         )
-                        for s in data["sources"][:5]
+                        for s in data["sources"][:search_panel_max]
                     ]
 
                 if results_list:
