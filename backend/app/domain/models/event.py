@@ -96,6 +96,10 @@ class SearchToolContent(BaseModel):
     """Search tool content"""
 
     results: list[SearchResultItem]
+    provider: str | None = None       # Which provider answered
+    search_depth: str | None = None   # basic/advanced
+    credits_used: int | None = None   # Credits consumed
+    intent_tier: str | None = None    # QUICK/STANDARD/DEEP
 
 
 class ShellToolContent(BaseModel):
