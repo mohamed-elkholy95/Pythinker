@@ -130,6 +130,7 @@ KNOWN_IFACE_EXCEPTIONS = {
     "skills_routes.py",
     "metrics_routes.py",
     "knowledge_base_routes.py",  # Uses infra repository type under TYPE_CHECKING
+    "gateway_runner.py",  # Composition root for channel gateway service
 }
 
 

@@ -1,6 +1,6 @@
 """Tests for channel gateway domain models and scheduled job model."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pytest
 
@@ -13,7 +13,6 @@ from app.domain.models.channel import (
 )
 from app.domain.models.scheduled_job import ScheduledJob
 from app.domain.models.session import Session
-
 
 # ---------------------------------------------------------------------------
 # ChannelType
@@ -37,7 +36,7 @@ class TestChannelType:
     def test_string_comparison(self) -> None:
         """StrEnum values compare equal to plain strings."""
         assert ChannelType.TELEGRAM == "telegram"
-        assert "discord" == ChannelType.DISCORD
+        assert ChannelType.DISCORD == "discord"
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +281,7 @@ class TestScheduledJob:
         assert job.metadata["priority"] == "high"
 
     def test_invalid_schedule_type_rejected(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             ScheduledJob(
                 user_id="user-007",
                 schedule_type="invalid",  # type: ignore[arg-type]
