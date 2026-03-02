@@ -466,6 +466,17 @@ class SearchTool(BaseTool):
         self._max_wide_queries = settings.max_wide_research_queries
         self._dedup_skip = settings.search_dedup_skip_existing
 
+        # Quota manager integration (feature-flagged, zero behavior change when disabled)
+        self._quota_manager = None
+        if settings.search_quota_manager_enabled:
+            try:
+                from app.domain.services.search.quota_manager import get_search_quota_manager
+
+                self._quota_manager = get_search_quota_manager()
+                logger.info("SearchQuotaManager enabled — credit-optimized routing active")
+            except Exception as e:
+                logger.warning("Failed to initialize SearchQuotaManager: %s", e)
+
         # Consecutive dedup rejection counter: escalates the rejection message
         # so the LLM stops retrying with slight query variations
         self._consecutive_dedup_rejections = 0
@@ -1056,6 +1067,18 @@ class SearchTool(BaseTool):
                 message=reason,
                 data=SearchResults(query=query, date_range=date_range),
             )
+
+        # Quota manager routing (feature-flagged, falls back to default on any error)
+        if self._quota_manager is not None:
+            try:
+                result = await self._quota_manager.route(query, self.search_engine)
+                if not result.success:
+                    return result
+                # Count against per-task budget
+                self._budget.record_api_call()
+                return result
+            except Exception as e:
+                logger.warning("QuotaManager route failed, falling back to default: %s", e)
 
         # Record query in task state to survive token trimming
         is_new = True
