@@ -37,6 +37,7 @@ class ToolCategory(str, Enum):
     MCP = "mcp"  # MCP server tools
     CODE = "code"  # Code execution and analysis
     PLAN = "plan"  # Planning and orchestration
+    AUTOMATION = "automation"  # Cron scheduling, subagent spawning, skills
     SYSTEM = "system"  # System utilities
 
 
@@ -81,6 +82,9 @@ TASK_PATTERNS = {
         r"plot",
     ],
     "communication": [r"ask", r"tell", r"notify", r"message", r"clarify"],
+    "automation": [r"schedule", r"cron", r"recurring", r"automate", r"daily", r"weekly", r"monthly"],
+    "delegation": [r"background", r"parallel", r"spawn", r"subtask", r"delegate"],
+    "skills": [r"skill", r"template", r"recipe", r"how.to"],
 }
 
 # Mapping of task types to relevant tool categories
@@ -93,6 +97,9 @@ TASK_TO_CATEGORIES = {
     # Note: "visualization" mapping removed - no corresponding TASK_PATTERNS key exists
     # Visualization keywords are handled under "analysis" pattern
     "communication": [ToolCategory.MESSAGE],
+    "automation": [ToolCategory.AUTOMATION, ToolCategory.SHELL],
+    "delegation": [ToolCategory.AUTOMATION],
+    "skills": [ToolCategory.AUTOMATION, ToolCategory.FILE],
 }
 
 # Tool name patterns for category detection
@@ -105,6 +112,7 @@ TOOL_CATEGORY_PATTERNS = {
     ToolCategory.MCP: [r"mcp_"],
     ToolCategory.CODE: [r"code_", r"execute_", r"run_", r"chart_"],
     ToolCategory.PLAN: [r"plan_", r"step_"],
+    ToolCategory.AUTOMATION: [r"schedule_", r"cron_", r"spawn_", r"skill", r"list_skills", r"read_skill"],
 }
 
 
