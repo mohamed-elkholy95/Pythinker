@@ -1,11 +1,13 @@
 import asyncio
+import ipaddress
 import logging
 import re
+import socket
 import time
 from collections import OrderedDict
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlsplit, urlunsplit
 
 from app.domain.external.search import SearchEngine
 from app.domain.models.tool_result import ToolResult
@@ -16,6 +18,46 @@ if TYPE_CHECKING:
     from app.domain.external.scraper import Scraper
 
 logger = logging.getLogger(__name__)
+
+_BLOCKED_IP_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local / AWS metadata
+    ipaddress.ip_network("::1/128"),  # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),  # IPv6 private (ULA)
+]
+
+
+def _validate_fetch_url(url: str) -> bool:
+    """Return False if URL resolves to a blocked/private IP range (SSRF protection).
+
+    Only allows http and https schemes. Resolves the hostname and checks
+    all returned IP addresses against blocked network ranges.
+
+    Args:
+        url: URL to validate before fetching
+
+    Returns:
+        True if safe to fetch, False if blocked
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        resolved = socket.getaddrinfo(hostname, None)
+        for _, _, _, _, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if any(ip in net for net in _BLOCKED_IP_NETWORKS):
+                logger.warning("SSRF blocked: %s resolved to %s", url, ip)
+                return False
+    except Exception:
+        return False
+    return True
 
 
 class SearchType(str, Enum):
