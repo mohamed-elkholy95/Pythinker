@@ -475,10 +475,15 @@ class CodeExecutorTool(BaseTool):
         resolved_return_code = raw_return_code if isinstance(raw_return_code, int) else None
         exec_success = (resolved_return_code == 0) if resolved_return_code is not None else exec_result.success
 
+        # The sandbox API sets message="Command executed" (hardcoded); the real
+        # subprocess output lives in data["output"].  Fall back to message only
+        # when data["output"] is absent (e.g. older sandbox versions).
+        actual_output = shell_data.get("output") or exec_result.message or ""
+
         # Build result
         result = ExecutionResult(
             success=exec_success,
-            output=exec_result.message or "",
+            output=actual_output,
             return_code=resolved_return_code if resolved_return_code is not None else (0 if exec_success else 1),
             execution_time_ms=execution_time_ms,
             artifacts=artifact_dicts,
@@ -494,8 +499,8 @@ class CodeExecutorTool(BaseTool):
 
         message_parts.append(f"⏱️ Execution time: {execution_time_ms}ms")
 
-        if exec_result.message:
-            message_parts.append(f"\n📤 Output:\n{exec_result.message}")
+        if actual_output:
+            message_parts.append(f"\n📤 Output:\n{actual_output}")
 
         if result.return_code != 0:
             message_parts.insert(0, f"❌ Execution failed with exit code {result.return_code}")
