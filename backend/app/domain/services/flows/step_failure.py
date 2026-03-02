@@ -47,10 +47,7 @@ class StepFailureHandler:
         # partial results" and dependents are not permanently stuck.
         if blocked_ids:
             if not failed_step.result:
-                failed_step.result = (
-                    f"[Step failed without results: "
-                    f"{(failed_step.error or 'execution error')[:120]}]"
-                )
+                failed_step.result = f"[Step failed without results: {(failed_step.error or 'execution error')[:120]}]"
                 logger.info(
                     "Injected placeholder result on step %s to unblock %d dependents",
                     failed_step.id,

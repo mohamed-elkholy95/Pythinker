@@ -48,22 +48,24 @@ def _build_engine_and_attempts(
     return engine, attempts
 
 
-def test_default_chain_prioritizes_tavily_then_duckduckgo_then_serper() -> None:
+def test_default_chain_prioritizes_api_providers_serper_brave_tavily_exa() -> None:
+    """Fix 1: Default chain now uses API-only providers (no scrapers that share IP)."""
     available = {
-        "tavily": _DummyEngine(),
-        "duckduckgo": _DummyEngine(),
         "serper": _DummyEngine(),
+        "brave": _DummyEngine(),
+        "tavily": _DummyEngine(),
+        "exa": _DummyEngine(),
     }
 
     engine, attempts = _build_engine_and_attempts(
-        search_provider="duckduckgo",
+        search_provider=None,
         search_provider_chain=None,
         available=available,
     )
 
     assert isinstance(engine, FallbackSearchEngine)
-    assert [name for name, _ in engine._providers] == ["tavily", "duckduckgo", "serper"]
-    assert attempts[:3] == ["tavily", "duckduckgo", "serper"]
+    assert [name for name, _ in engine._providers] == ["serper", "brave", "tavily", "exa"]
+    assert attempts[:4] == ["serper", "brave", "tavily", "exa"]
 
 
 @pytest.mark.parametrize(

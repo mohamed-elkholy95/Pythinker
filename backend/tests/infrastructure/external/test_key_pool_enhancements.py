@@ -143,11 +143,13 @@ class TestCircuitBreaker:
         cb.record_success()
         assert cb.state == CircuitState.CLOSED
 
-    def test_non_5xx_does_not_trip(self):
+    def test_non_5xx_non_429_does_not_trip(self):
+        """AUTH_ERROR and other non-5xx/non-429 errors never trip the circuit."""
         cb = CircuitBreaker(threshold=2)
         for _ in range(10):
-            cb.record_failure(ErrorType.RATE_LIMITED)
             cb.record_failure(ErrorType.AUTH_ERROR)
+            cb.record_failure(ErrorType.CLIENT_ERROR)
+            cb.record_failure(ErrorType.NETWORK_ERROR)
         assert cb.state == CircuitState.CLOSED
 
     def test_5xx_trips_after_threshold(self):
