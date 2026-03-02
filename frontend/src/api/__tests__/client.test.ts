@@ -1,4 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import {
+  AUTH_RECONNECT_JITTER_MAX_MS,
+  AUTH_RECONNECT_JITTER_MIN_MS,
+  computeAuthReconnectJitterMs,
+} from '../client'
 
 describe('SSE reconnection backoff', () => {
   it('should use exponential backoff with jitter on reconnection', () => {
@@ -59,5 +64,13 @@ describe('SSE reconnection backoff', () => {
     const delay6 = Math.min(baseDelay * Math.pow(2, 6), maxDelay)
     const maxJitter6 = delay6 * 0.25
     expect(maxJitter6).toBe(11250)
+  })
+
+  it('should compute auth reconnect jitter within configured 100-300ms range', () => {
+    expect(computeAuthReconnectJitterMs(() => 0)).toBe(AUTH_RECONNECT_JITTER_MIN_MS)
+    expect(computeAuthReconnectJitterMs(() => 1)).toBe(AUTH_RECONNECT_JITTER_MAX_MS)
+    const mid = computeAuthReconnectJitterMs(() => 0.5)
+    expect(mid).toBeGreaterThanOrEqual(AUTH_RECONNECT_JITTER_MIN_MS)
+    expect(mid).toBeLessThanOrEqual(AUTH_RECONNECT_JITTER_MAX_MS)
   })
 })
