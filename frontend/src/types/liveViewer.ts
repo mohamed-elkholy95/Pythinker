@@ -62,6 +62,9 @@ export type AgentActionType =
   | 'extract'
   | 'wait'
 
+/** Cursor state for the persistent agent pointer overlay */
+export type CursorState = 'idle' | 'moving' | 'clicking'
+
 /** A single agent action to visualize on the overlay layer */
 export interface AgentAction {
   /** Unique identifier for this action */
