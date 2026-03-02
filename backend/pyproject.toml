@@ -44,6 +44,8 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
+    "nanobot",
+    "tests/nanobot",
 ]
 
 [tool.ruff.lint]
@@ -123,6 +125,7 @@ pythonpath = ["."]
 
 # Test discovery paths
 testpaths = ["tests"]
+collect_ignore_glob = ["tests/nanobot/*"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -177,6 +180,7 @@ filterwarnings = [
 source = ["app"]
 branch = true
 omit = [
+    "nanobot/*",
     "app/infrastructure/models/*",
     "app/__init__.py",
     "*/__init__.py",
