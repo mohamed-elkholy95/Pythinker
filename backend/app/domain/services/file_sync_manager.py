@@ -24,6 +24,7 @@ import hashlib
 import logging
 import os
 import re
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import httpx
@@ -122,6 +123,113 @@ MAX_SWEEP_FILES = 50
 # These are execution wrappers (exec_{hex}.{ext}) that should have been
 # cleaned up but sometimes survive due to race conditions or sandbox restarts.
 _EXEC_TEMP_FILE_RE = re.compile(r"^exec_[a-f0-9]{6,}\.(py|sh|js|ts|sql)$")
+
+# Minimum basename similarity ratio to consider two files duplicates.
+# Keep this conservative to avoid dropping distinct deliverables.
+_DEDUP_SIMILARITY_THRESHOLD = 0.65
+
+# Only dedup files whose stem matches one of these artifact patterns.
+# Other files (code, configs, data) pass through untouched to avoid data loss.
+_ARTIFACT_STEMS = re.compile(
+    r"(?i)^(?:(?:final|complete|full|merged|consolidated)[-_ ]*)?"
+    r"(report|analysis|summary|output|result|findings|review|notes|draft|writeup)"
+)
+
+# Basenames containing these keywords are preferred when picking a winner.
+_QUALITY_KEYWORDS = ("final", "complete", "full", "merged", "consolidated")
+
+
+def _pick_best(cluster_indices: list[int], basenames: list[str]) -> int:
+    """Pick the best file index from a similarity cluster.
+
+    Priority: (1) contains a quality keyword like "final", (2) longest basename
+    (most descriptive — e.g. "final_research_report" over "report").
+    """
+    for idx in cluster_indices:
+        lower = basenames[idx].lower()
+        if any(kw in lower for kw in _QUALITY_KEYWORDS):
+            return idx
+    return max(cluster_indices, key=lambda idx: len(basenames[idx]))
+
+
+def _numeric_tokens(name: str) -> set[str]:
+    """Extract numeric tokens from a basename (e.g. report_q2_2026 -> {2, 2026})."""
+    return set(re.findall(r"\d+", name))
+
+
+def _dedup_similar_files(paths: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
+    """Remove near-duplicate artifact filenames in the same directory.
+
+    Only files whose basename matches ``_ARTIFACT_STEMS`` (report*, analysis*,
+    etc.) are candidates for dedup.  All other files pass through untouched.
+
+    Within each ``(directory, extension)`` group, clusters basenames with
+    ``SequenceMatcher`` ratio >= threshold and keeps the best file per cluster
+    (quality keywords > longest basename).
+
+    Returns:
+        A tuple of (kept_paths, dropped_pairs) where dropped_pairs is a list
+        of ``(dropped_path, kept_path)`` for telemetry.
+    """
+    if len(paths) <= 1:
+        return paths, []
+
+    # Split into dedup candidates vs. passthrough
+    candidates: list[str] = []
+    passthrough: list[str] = []
+    for p in paths:
+        stem = os.path.splitext(os.path.basename(p))[0]
+        if _ARTIFACT_STEMS.match(stem):
+            candidates.append(p)
+        else:
+            passthrough.append(p)
+
+    if len(candidates) <= 1:
+        return passthrough + candidates, []
+
+    # Group candidates by (directory, extension)
+    groups: dict[tuple[str, str], list[str]] = {}
+    for p in candidates:
+        directory = os.path.dirname(p)
+        _, ext = os.path.splitext(p)
+        groups.setdefault((directory, ext), []).append(p)
+
+    kept: list[str] = list(passthrough)
+    dropped_pairs: list[tuple[str, str]] = []
+
+    for group_paths in groups.values():
+        if len(group_paths) <= 1:
+            kept.extend(group_paths)
+            continue
+
+        used = [False] * len(group_paths)
+        basenames = [os.path.splitext(os.path.basename(p))[0] for p in group_paths]
+
+        for i in range(len(group_paths)):
+            if used[i]:
+                continue
+            cluster = [i]
+            for j in range(i + 1, len(group_paths)):
+                if used[j]:
+                    continue
+                # Preserve distinct sequence/versioned outputs such as report_q1 vs report_q2.
+                # Also protects versioned files (report_2026) from being deduped with
+                # unversioned ones (report) — different numeric token sets always skip.
+                nums_i = _numeric_tokens(basenames[i])
+                nums_j = _numeric_tokens(basenames[j])
+                if nums_i != nums_j:
+                    continue
+                ratio = SequenceMatcher(None, basenames[i], basenames[j]).ratio()
+                if ratio >= _DEDUP_SIMILARITY_THRESHOLD:
+                    cluster.append(j)
+                    used[j] = True
+            used[i] = True
+
+            best = _pick_best(cluster, basenames)
+            kept.append(group_paths[best])
+            dropped_pairs.extend((group_paths[idx], group_paths[best]) for idx in cluster if idx != best)
+
+    return kept, dropped_pairs
 
 
 class FileSyncManager:
@@ -468,6 +576,32 @@ class FileSyncManager:
                     len(discovered_paths),
                 )
                 return []
+
+            # Deduplicate similar artifact filenames in the same directory.
+            # Only targets known artifact patterns (report*, analysis*, etc.)
+            # to avoid accidentally dropping unrelated deliverables.
+            # Gated by feature_sweep_dedup_enabled (default True).
+            from app.core.config import get_settings
+
+            pre_dedup_count = len(new_paths)
+            dropped_pairs: list[tuple[str, str]] = []
+            if getattr(get_settings(), "feature_sweep_dedup_enabled", True):
+                new_paths, dropped_pairs = _dedup_similar_files(new_paths)
+            if dropped_pairs:
+                for dropped, kept_as in dropped_pairs:
+                    logger.info(
+                        "Agent %s: Dedup dropped '%s' (kept '%s')",
+                        self._agent_id,
+                        os.path.basename(dropped),
+                        os.path.basename(kept_as),
+                    )
+                logger.info(
+                    "Agent %s: Deduped %d similar artifact files (kept %d of %d)",
+                    self._agent_id,
+                    pre_dedup_count - len(new_paths),
+                    len(new_paths),
+                    pre_dedup_count,
+                )
 
             logger.info(
                 "Agent %s: File sweep found %d untracked files (of %d total)",

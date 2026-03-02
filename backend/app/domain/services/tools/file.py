@@ -1,7 +1,9 @@
+import asyncio
 import base64
 import contextlib
 import mimetypes
 import shlex
+import time
 from pathlib import Path
 
 from app.domain.external.sandbox import Sandbox
@@ -16,6 +18,9 @@ DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"
 
 # Chart/data file extensions
 DATA_EXTENSIONS = {".csv", ".json", ".xml", ".yaml", ".yml"}
+
+_RECENT_WRITE_TTL_SECONDS = 300.0
+_RECENT_WRITE_MAX_ENTRIES = 256
 
 
 def _dedup_leading_lines(content: str) -> str:
@@ -66,6 +71,21 @@ class FileTool(BaseTool):
         super().__init__(max_observe=max_observe)
         self.sandbox = sandbox
         self._session_id = session_id
+        # Paths written during this session — used to gate read-after-write retries.
+        self._recently_written: dict[str, float] = {}
+
+    def _prune_recent_writes(self) -> None:
+        """Keep the write-tracking map bounded and fresh."""
+        now = time.monotonic()
+        expired = [path for path, ts in self._recently_written.items() if now - ts > _RECENT_WRITE_TTL_SECONDS]
+        for path in expired:
+            self._recently_written.pop(path, None)
+
+        overflow = len(self._recently_written) - _RECENT_WRITE_MAX_ENTRIES
+        if overflow > 0:
+            # Drop oldest entries first.
+            for path, _ in sorted(self._recently_written.items(), key=lambda item: item[1])[:overflow]:
+                self._recently_written.pop(path, None)
 
     @tool(
         name="file_read",
@@ -92,7 +112,28 @@ class FileTool(BaseTool):
         Returns:
             File content
         """
+        self._prune_recent_writes()
         result = await self.sandbox.file_read(file=file, start_line=start_line, end_line=end_line, sudo=sudo)
+
+        # Handle short read-after-write races in sandbox file APIs.
+        # Only retry when the path was recently written in this session —
+        # avoids ~200ms wasted latency on intentional "does this file exist?" probes.
+        if result.message and not result.success and file in self._recently_written:
+            error_lower = result.message.lower()
+            is_not_found = "404" in result.message or "not found" in error_lower or "no such file" in error_lower
+            if is_not_found:
+                for backoff in (0.05, 0.15):
+                    await asyncio.sleep(backoff)
+                    retry = await self.sandbox.file_read(
+                        file=file,
+                        start_line=start_line,
+                        end_line=end_line,
+                        sudo=sudo,
+                    )
+                    if retry.success:
+                        result = retry
+                        break
+
         # Handle structured error messages so the agent can make branch decisions
         if result.message and not result.success:
             error_lower = result.message.lower()
@@ -152,7 +193,7 @@ class FileTool(BaseTool):
             final_content = final_content + "\n"
 
         # Directly call sandbox's file_write method, pass all parameters
-        return await self.sandbox.file_write(
+        result = await self.sandbox.file_write(
             file=file,
             content=final_content,
             append=append,
@@ -160,6 +201,10 @@ class FileTool(BaseTool):
             trailing_newline=False,  # Already handled in final_content
             sudo=sudo,
         )
+        if result.success:
+            self._recently_written[file] = time.monotonic()
+            self._prune_recent_writes()
+        return result
 
     @tool(
         name="file_str_replace",
