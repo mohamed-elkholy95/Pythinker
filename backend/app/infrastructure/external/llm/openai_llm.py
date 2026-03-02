@@ -128,6 +128,7 @@ class OpenAILLM(LLM):
         self._last_stream_metadata: dict[str, Any] | None = None
         self._slow_tool_call_streak: int = 0
         self._slow_tool_call_breaker_until: float = 0.0
+        self._slow_breaker_missing_fast_model_warned: bool = False
 
         # Detect if using local MLX server (doesn't support native tool calling)
         self._is_mlx_mode = self._detect_mlx_mode()
@@ -246,20 +247,58 @@ class OpenAILLM(LLM):
         now = now_monotonic if now_monotonic is not None else time.monotonic()
         if duration_seconds >= self._SLOW_TOOL_CALL_THRESHOLD_SECONDS:
             self._slow_tool_call_streak += 1
-            if self._slow_tool_call_streak >= self._SLOW_TOOL_CALL_TRIP_COUNT and fast_model:
+            if self._slow_tool_call_streak >= self._SLOW_TOOL_CALL_TRIP_COUNT:
                 self._slow_tool_call_breaker_until = now + self._SLOW_TOOL_CALL_COOLDOWN_SECONDS
-                logger.warning(
-                    "Slow tool-call circuit breaker tripped (%d calls >= %.0fs); using fast model '%s' for %.0fs",
-                    self._slow_tool_call_streak,
-                    self._SLOW_TOOL_CALL_THRESHOLD_SECONDS,
-                    fast_model,
-                    self._SLOW_TOOL_CALL_COOLDOWN_SECONDS,
-                )
+                if fast_model:
+                    logger.warning(
+                        "Slow tool-call circuit breaker tripped (%d calls >= %.0fs); using fast model '%s' for %.0fs",
+                        self._slow_tool_call_streak,
+                        self._SLOW_TOOL_CALL_THRESHOLD_SECONDS,
+                        fast_model,
+                        self._SLOW_TOOL_CALL_COOLDOWN_SECONDS,
+                    )
+                else:
+                    logger.warning(
+                        "Slow tool-call circuit breaker tripped (%d calls >= %.0fs) with FAST_MODEL unset; "
+                        "cooldown active for %.0fs on primary model",
+                        self._slow_tool_call_streak,
+                        self._SLOW_TOOL_CALL_THRESHOLD_SECONDS,
+                        self._SLOW_TOOL_CALL_COOLDOWN_SECONDS,
+                    )
             return
 
         if self._slow_tool_call_streak > 0:
             logger.info("Slow tool-call streak reset after %.1fs response", duration_seconds)
         self._slow_tool_call_streak = 0
+
+    def _resolve_slow_tool_breaker_model(
+        self,
+        *,
+        request_tools: list[dict[str, Any]] | None,
+        model_override_for_attempt: str | None,
+        timeout_fallback_fast_model: str,
+    ) -> str | None:
+        """Apply slow-tool breaker override policy for one chat request."""
+        if not (self._is_slow_tool_breaker_active() and request_tools and not model_override_for_attempt):
+            return model_override_for_attempt
+
+        if timeout_fallback_fast_model:
+            logger.warning(
+                "Slow tool-call breaker active; routing tool call to fast model '%s'",
+                timeout_fallback_fast_model,
+            )
+            return timeout_fallback_fast_model
+
+        # Breaker tripped but FAST_MODEL is not configured — log once per instance.
+        if not getattr(self, "_slow_breaker_missing_fast_model_warned", False):
+            logger.error(
+                "Slow tool-call circuit breaker tripped but FAST_MODEL is not configured "
+                "(fast_model=''); set FAST_MODEL in .env to enable automatic model switching. "
+                "Continuing with primary model '%s'.",
+                self._model_name,
+            )
+            self._slow_breaker_missing_fast_model_warned = True
+        return model_override_for_attempt
 
     async def _get_client(self, *, is_streaming: bool = False, is_tool_call: bool = False) -> AsyncOpenAI:
         """Get OpenAI client with current active key."""
@@ -1392,17 +1431,11 @@ To extract data from a webpage:
         model_override_for_attempt = model
         tool_timeout_retries = 0
         timeout_fallback_used = False
-        if (
-            request_tools
-            and not model_override_for_attempt
-            and timeout_fallback_fast_model
-            and self._is_slow_tool_breaker_active()
-        ):
-            model_override_for_attempt = timeout_fallback_fast_model
-            logger.warning(
-                "Slow tool-call breaker active; routing tool call to fast model '%s'",
-                timeout_fallback_fast_model,
-            )
+        model_override_for_attempt = self._resolve_slow_tool_breaker_model(
+            request_tools=request_tools,
+            model_override_for_attempt=model_override_for_attempt,
+            timeout_fallback_fast_model=timeout_fallback_fast_model,
+        )
 
         max_retries = 3
         base_delay = 1.0
