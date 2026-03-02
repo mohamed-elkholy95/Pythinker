@@ -100,7 +100,7 @@ class BM25SparseEncoder:
         self.vocab = {word: idx for idx, (word, _) in enumerate(sorted_words)}
         self.reverse_vocab = {idx: word for word, idx in self.vocab.items()}
 
-        logger.info(f"Built vocabulary with {len(self.vocab)} unique terms")
+        logger.debug("Built vocabulary with %d unique terms", len(self.vocab))
 
     def fit(self, corpus: list[str]) -> None:
         """Fit BM25 model on a corpus of documents.
@@ -133,7 +133,7 @@ class BM25SparseEncoder:
         self.corpus_size = len(corpus)
         self._corpus_texts = list(corpus)  # Store for incremental updates
 
-        logger.info(f"BM25 encoder fitted on {self.corpus_size} documents")
+        logger.debug("BM25 encoder fitted on %d documents", self.corpus_size)
 
     def encode(self, text: str) -> dict[int, float]:
         """Generate sparse vector from text using BM25 document scores.
@@ -219,7 +219,7 @@ class BM25SparseEncoder:
         if not new_documents:
             return
 
-        logger.info(f"Updating BM25 corpus with {len(new_documents)} new documents")
+        logger.debug("Updating BM25 corpus with %d new documents", len(new_documents))
 
         # If BM25 is already fitted, rebuild with combined corpus
         # We reconstruct the old corpus from the vocabulary (approximate)
