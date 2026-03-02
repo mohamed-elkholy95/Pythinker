@@ -81,7 +81,19 @@ class ExaSearchEngine(SearchEngineBase):
         fallback_api_keys: list[str] | None = None,
         redis_client=None,
         timeout: float | None = None,
+        max_results: int = 8,
+        search_type: str = "auto",
     ):
+        """Initialize Exa search engine.
+
+        Args:
+            api_key: Primary Exa API key
+            fallback_api_keys: Optional list of fallback API keys
+            redis_client: Redis client for distributed key coordination
+            timeout: Optional custom timeout
+            max_results: Number of results to return per search (default 8)
+            search_type: Exa search type — "auto" | "keyword" | "neural" (default "auto")
+        """
         super().__init__(timeout=timeout)
 
         # Build key configs (primary + fallbacks)
@@ -101,6 +113,9 @@ class ExaSearchEngine(SearchEngineBase):
 
         # Set max retries to number of keys to prevent unbounded recursion
         self._max_retries = len(key_configs)
+
+        self._max_results = max_results
+        self._search_type = search_type
 
         self.base_url = "https://api.exa.ai/search"
         logger.info(f"Exa search initialized with {len(key_configs)} API key(s)")
@@ -128,8 +143,8 @@ class ExaSearchEngine(SearchEngineBase):
         """Build Exa API request body (sent as JSON POST)."""
         params: dict[str, Any] = {
             "query": query,
-            "type": "auto",
-            "numResults": 20,
+            "type": self._search_type,
+            "numResults": self._max_results,
             "text": True,
         }
 
