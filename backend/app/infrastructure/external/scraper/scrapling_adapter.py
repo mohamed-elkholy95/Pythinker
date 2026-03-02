@@ -12,17 +12,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from scrapling.fetchers import AsyncFetcher
 
 from app.domain.external.scraper import ScrapedContent, StructuredData
-from app.infrastructure.external.scraper.escalation import has_http2_transport_error, should_escalate
+from app.infrastructure.external.scraper.escalation import (
+    ESCALATION_STATUS_CODES,
+    has_http2_transport_error,
+    should_escalate,
+)
 
 if TYPE_CHECKING:
     from app.core.config import Settings
 
 logger = logging.getLogger(__name__)
+
+
+_SCRAPLING_FETCHERS_SETUP_HINT = 'Setup: pip install "scrapling[fetchers]" && scrapling install'
 
 
 class ScraplingAdapter:
@@ -80,6 +88,58 @@ class ScraplingAdapter:
         except Exception:
             logger.warning("Failed to initialise ProxyRotator — continuing without proxy rotation", exc_info=True)
 
+    @staticmethod
+    def _build_http_error_message(status: int, reason: str | None, url: str) -> str:
+        """Format a consistent HTTP error string from status + optional reason."""
+        status_reason = (reason or "").strip()
+        if not status_reason:
+            try:
+                status_reason = HTTPStatus(status).phrase
+            except ValueError:
+                status_reason = "Error"
+        return f"HTTP {status} {status_reason}: {url}"
+
+    def _result_from_http_error(self, page: object, url: str, tier: str) -> ScrapedContent | None:
+        """Convert HTTP 4xx/5xx page responses into a failed ScrapedContent."""
+        status = getattr(page, "status", None)
+        if not isinstance(status, int) or status < 400:
+            return None
+        reason = getattr(page, "reason", None)
+        error_msg = self._build_http_error_message(status, reason, url)
+        logger.warning("Scrapling %s received %d for %s", tier, status, url)
+        return ScrapedContent(
+            success=False,
+            url=url,
+            text="",
+            error=error_msg,
+            status_code=status,
+            tier_used=tier,
+        )
+
+    @staticmethod
+    def _is_terminal_client_status(result: ScrapedContent) -> bool:
+        """Return True for non-recoverable client-side statuses (except block statuses)."""
+        return (
+            result.status_code is not None
+            and 400 <= result.status_code < 500
+            and result.status_code not in ESCALATION_STATUS_CODES
+        )
+
+    @staticmethod
+    def _with_setup_hint(error: str) -> str:
+        """Append actionable fetcher setup guidance for dependency/browser errors."""
+        lower = error.lower()
+        dependency_markers = (
+            "playwright",
+            "scrapling install",
+            "executable doesn't exist",
+            "browser executable",
+            "chromium",
+        )
+        if any(marker in lower for marker in dependency_markers):
+            return f"{error} | {_SCRAPLING_FETCHERS_SETUP_HINT}"
+        return error
+
     # ── Tier 1: HTTP ──────────────────────────────────────────────────────────
 
     async def fetch(self, url: str, **kwargs: object) -> ScrapedContent:
@@ -106,10 +166,26 @@ class ScraplingAdapter:
                     page = await AsyncFetcher.get(url, http_version="v1", retries=0, **fetch_kwargs)
                 except Exception as retry_exc:
                     logger.debug("Scrapling Tier 1 HTTP/1.1 fallback failed for %s: %s", url, retry_exc)
-                    return ScrapedContent(success=False, url=url, text="", error=str(retry_exc), tier_used="http")
+                    return ScrapedContent(
+                        success=False,
+                        url=url,
+                        text="",
+                        error=self._with_setup_hint(str(retry_exc)),
+                        tier_used="http",
+                    )
             else:
                 logger.debug("Scrapling Tier 1 failed for %s: %s", url, exc_str)
-                return ScrapedContent(success=False, url=url, text="", error=exc_str, tier_used="http")
+                return ScrapedContent(
+                    success=False,
+                    url=url,
+                    text="",
+                    error=self._with_setup_hint(exc_str),
+                    tier_used="http",
+                )
+
+        http_error = self._result_from_http_error(page, url, tier="http")
+        if http_error is not None:
+            return http_error
 
         try:
             text = str(page.get_all_text(separator="\n\n"))
@@ -147,6 +223,9 @@ class ScraplingAdapter:
                 network_idle=True,
                 proxy=proxy,
             )
+            http_error = self._result_from_http_error(page, url, tier="dynamic")
+            if http_error is not None:
+                return http_error
             text = str(page.get_all_text(separator="\n\n"))
             if len(text) > self._settings.scraping_max_content_length:
                 text = text[: self._settings.scraping_max_content_length]
@@ -165,7 +244,13 @@ class ScraplingAdapter:
             )
         except Exception as exc:
             logger.debug(f"Scrapling Tier 2 failed for {url}: {exc}")
-            return ScrapedContent(success=False, url=url, text="", error=str(exc), tier_used="dynamic")
+            return ScrapedContent(
+                success=False,
+                url=url,
+                text="",
+                error=self._with_setup_hint(str(exc)),
+                tier_used="dynamic",
+            )
 
     # ── Tier 3: Stealthy (hardened Playwright, Cloudflare bypass) ─────────────
 
@@ -181,6 +266,9 @@ class ScraplingAdapter:
                 network_idle=True,
                 proxy=proxy,
             )
+            http_error = self._result_from_http_error(page, url, tier="stealthy")
+            if http_error is not None:
+                return http_error
             text = str(page.get_all_text(separator="\n\n"))
             if len(text) > self._settings.scraping_max_content_length:
                 text = text[: self._settings.scraping_max_content_length]
@@ -199,7 +287,13 @@ class ScraplingAdapter:
             )
         except Exception as exc:
             logger.debug(f"Scrapling Tier 3 failed for {url}: {exc}")
-            return ScrapedContent(success=False, url=url, text="", error=str(exc), tier_used="stealthy")
+            return ScrapedContent(
+                success=False,
+                url=url,
+                text="",
+                error=self._with_setup_hint(str(exc)),
+                tier_used="stealthy",
+            )
 
     # ── Escalation ────────────────────────────────────────────────────────────
 
@@ -209,6 +303,13 @@ class ScraplingAdapter:
 
         # Tier 1: HTTP
         result = await self.fetch(url, **kwargs)
+        if self._is_terminal_client_status(result):
+            logger.debug(
+                "Scrapling Tier 1 returned terminal client status %s for %s; skipping escalation",
+                result.status_code,
+                url,
+            )
+            return result
         if not should_escalate(result, min_len):
             logger.debug(f"Scrapling Tier 1 resolved {url} ({len(result.text)} chars)")
             return result
@@ -217,6 +318,13 @@ class ScraplingAdapter:
         if self._settings.scraping_escalation_enabled:
             logger.debug(f"Scrapling escalating to Tier 2 for {url}")
             result = await self._fetch_dynamic(url, **kwargs)
+            if self._is_terminal_client_status(result):
+                logger.debug(
+                    "Scrapling Tier 2 returned terminal client status %s for %s; skipping escalation",
+                    result.status_code,
+                    url,
+                )
+                return result
             if not should_escalate(result, min_len):
                 logger.debug(f"Scrapling Tier 2 resolved {url} ({len(result.text)} chars)")
                 return result
@@ -225,6 +333,13 @@ class ScraplingAdapter:
         if self._settings.scraping_stealth_enabled:
             logger.debug(f"Scrapling escalating to Tier 3 for {url}")
             result = await self._fetch_stealthy(url, **kwargs)
+            if self._is_terminal_client_status(result):
+                logger.debug(
+                    "Scrapling Tier 3 returned terminal client status %s for %s; returning terminal result",
+                    result.status_code,
+                    url,
+                )
+                return result
             if result.success:
                 logger.debug(f"Scrapling Tier 3 resolved {url} ({len(result.text)} chars)")
                 return result
