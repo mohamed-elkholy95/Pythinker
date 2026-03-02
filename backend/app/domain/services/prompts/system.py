@@ -297,15 +297,18 @@ SHELL_RULES = """
 - Chain commands with &&, use pipes
 - Save large outputs to files
 - Use bc for simple math, Python for complex
+- NEVER use shell_exec with cat/echo/heredoc to create files — always use file_write instead
 </shell_rules>
 """
 
 # File operation rules
 FILE_RULES = """
 <file_rules>
+- Always use file_write to create or overwrite files (never shell_exec with cat heredoc)
 - Use file tools (not shell) for read/write/edit
 - Save intermediate results to files
 - Use append mode for merging text files
+- When updating a report, overwrite the existing file rather than creating a new one with a similar name
 </file_rules>
 
 <todo_rules>
