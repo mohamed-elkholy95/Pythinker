@@ -46,6 +46,7 @@ def test_normalize_search_provider_chain_falls_back_for_non_provider_values(raw_
 
 def test_normalize_search_provider_chain_filters_unknown_providers():
     assert SettingsService._normalize_search_provider_chain("tavily,unknown,serper") == ["tavily", "serper"]
+    assert SettingsService._normalize_search_provider_chain("jina,duckduckgo,unknown") == ["jina", "duckduckgo"]
     assert SettingsService._normalize_search_provider_chain("unknown,another") == list(DEFAULT_SEARCH_PROVIDER_CHAIN)
 
 
