@@ -300,6 +300,20 @@ class OpenAILLM(LLM):
             self._slow_breaker_missing_fast_model_warned = True
         return model_override_for_attempt
 
+    def _resolve_hard_call_timeout(self, settings: Any) -> float:
+        """Resolve per-call hard timeout, with GLM override support."""
+        default_timeout = max(0.0, float(getattr(settings, "llm_hard_call_timeout", 0.0) or 0.0))
+        glm_timeout = max(0.0, float(getattr(settings, "llm_glm_hard_call_timeout", 0.0) or 0.0))
+        if getattr(self, "_is_glm_api", False) and glm_timeout > 0:
+            return glm_timeout
+        return default_timeout
+
+    @staticmethod
+    def _combine_call_timeout(*timeouts: float) -> float:
+        """Return the tightest positive timeout; 0 means 'no timeout'."""
+        positive_timeouts = [timeout for timeout in timeouts if timeout > 0]
+        return min(positive_timeouts) if positive_timeouts else 0.0
+
     async def _get_client(self, *, is_streaming: bool = False, is_tool_call: bool = False) -> AsyncOpenAI:
         """Get OpenAI client with current active key."""
         # If client already set (e.g., by tests), return it
@@ -1427,6 +1441,7 @@ To extract data from a webpage:
         llm_tool_request_timeout = max(0.0, float(getattr(settings, "llm_tool_request_timeout", 0.0) or 0.0))
         llm_tool_timeout_max_retries = max(0, int(getattr(settings, "llm_tool_timeout_max_retries", 0) or 0))
         llm_request_timeout = max(0.0, float(getattr(settings, "llm_request_timeout", 0.0) or 0.0))
+        hard_call_timeout = self._resolve_hard_call_timeout(settings)
         timeout_fallback_fast_model = str(getattr(settings, "fast_model", "") or "").strip()
         model_override_for_attempt = model
         tool_timeout_retries = 0
@@ -1448,6 +1463,10 @@ To extract data from a webpage:
                 tool_request_timeout = llm_tool_request_timeout * (2**tool_timeout_retries)
                 if llm_request_timeout > 0:
                     tool_request_timeout = min(tool_request_timeout, llm_request_timeout)
+            call_timeout = self._combine_call_timeout(
+                tool_request_timeout if request_tools else llm_request_timeout,
+                hard_call_timeout,
+            )
 
             try:
                 if attempt > 0:
@@ -1511,8 +1530,8 @@ To extract data from a webpage:
                         tool_choice=tool_choice,
                         parallel_tool_calls=self._supports_parallel_tool_calls(),
                     )
-                    if tool_request_timeout > 0:
-                        response = await asyncio.wait_for(tool_call, timeout=tool_request_timeout)
+                    if call_timeout > 0:
+                        response = await asyncio.wait_for(tool_call, timeout=call_timeout)
                     else:
                         response = await tool_call
                 else:
@@ -1520,10 +1539,14 @@ To extract data from a webpage:
                     logger.debug(
                         f"Sending request without native tools, model: {effective_model}, MLX mode: {self._is_mlx_mode}, attempt: {attempt + 1}"
                     )
-                    response = await client.chat.completions.create(
+                    completion_call = client.chat.completions.create(
                         **params,
                         response_format=response_format if not self._is_mlx_mode else None,
                     )
+                    if call_timeout > 0:
+                        response = await asyncio.wait_for(completion_call, timeout=call_timeout)
+                    else:
+                        response = await completion_call
 
                 llm_call_duration = time.monotonic() - llm_call_start
                 self._record_tool_call_latency(
@@ -1586,7 +1609,9 @@ To extract data from a webpage:
 
             except TimeoutError as e:
                 timeout_seconds = (
-                    tool_request_timeout if request_tools and tool_request_timeout > 0 else llm_request_timeout
+                    call_timeout
+                    if call_timeout > 0
+                    else (tool_request_timeout if request_tools and tool_request_timeout > 0 else llm_request_timeout)
                 )
                 logger.warning(
                     "LLM request timed out after %.1fs (model=%s, tools=%s, attempt=%s/%s)",
@@ -1614,6 +1639,15 @@ To extract data from a webpage:
                             tool_timeout_retries,
                             llm_tool_timeout_max_retries,
                         )
+                    continue
+
+                if not request_tools and timeout_fallback_fast_model and not timeout_fallback_used:
+                    model_override_for_attempt = timeout_fallback_fast_model
+                    timeout_fallback_used = True
+                    logger.warning(
+                        "Retrying timed-out non-tool call with fast model '%s'",
+                        timeout_fallback_fast_model,
+                    )
                     continue
 
                 raise LLMException(
