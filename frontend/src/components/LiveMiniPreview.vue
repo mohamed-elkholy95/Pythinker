@@ -169,6 +169,7 @@
     <!-- Live preview (only with active tool context) -->
     <div v-else-if="shouldShowLivePreview" class="live-preview-container">
       <LiveViewer
+        ref="liveViewerRef"
         :session-id="sessionId"
         :enabled="enabled"
         :view-only="true"
@@ -224,6 +225,7 @@ import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { getFaviconUrl, getToolDisplay } from '@/utils/toolDisplay';
 import { fileApi } from '@/api/file';
 import type { ToolContent } from '@/types/message';
+import type { ToolEventData } from '@/types/event';
 
 const props = withDefaults(defineProps<{
   sessionId?: string;
@@ -273,6 +275,61 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   click: [];
 }>();
+
+// ---------------------------------------------------------------------------
+// Agent cursor forwarding — forward tool events to the LiveViewer so the
+// Konva cursor overlay can track the agent's pointer during browsing.
+// ---------------------------------------------------------------------------
+
+const liveViewerRef = ref<{ processToolEvent?: (event: ToolEventData) => void } | null>(null);
+
+let _lastForwardedKey = '';
+
+function forwardToolEventToLiveViewer(): void {
+  if (!props.sessionId || !liveViewerRef.value?.processToolEvent) return;
+
+  const tool = props.toolContent;
+  if (!tool?.tool_call_id || !tool.function || !tool.status) return;
+
+  const args = tool.args || {};
+  const eventKey = JSON.stringify([
+    tool.tool_call_id,
+    tool.status,
+    tool.function,
+    args.coordinate_x,
+    args.coordinate_y,
+    args.x,
+    args.y,
+  ]);
+  if (eventKey === _lastForwardedKey) return;
+  _lastForwardedKey = eventKey;
+
+  liveViewerRef.value.processToolEvent({
+    event_id: tool.event_id || tool.tool_call_id,
+    timestamp: tool.timestamp || Math.floor(Date.now() / 1000),
+    tool_call_id: tool.tool_call_id,
+    name: tool.name,
+    status: tool.status === 'interrupted' ? 'called' : tool.status,
+    function: tool.function,
+    args: tool.args || {},
+  });
+}
+
+watch(liveViewerRef, () => {
+  forwardToolEventToLiveViewer();
+});
+
+watch(
+  () => [
+    props.toolContent?.tool_call_id,
+    props.toolContent?.status,
+    props.toolContent?.args?.coordinate_x,
+    props.toolContent?.args?.coordinate_y,
+  ],
+  () => {
+    forwardToolEventToLiveViewer();
+  },
+);
 
 // Build a minimal toolContent object if not provided
 const effectiveToolContent = computed<ToolContent | undefined>(() => {
