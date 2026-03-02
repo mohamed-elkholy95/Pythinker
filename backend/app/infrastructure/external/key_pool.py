@@ -18,6 +18,7 @@ Industry patterns from AWS, Google Cloud, Apache APISIX, MCP API Rotators.
 
 import asyncio
 import contextlib
+import email.utils
 import hashlib
 import logging
 import random
@@ -154,7 +155,10 @@ CIRCUIT_BREAKER_RESET_TIMEOUT = 300  # Seconds before OPEN → HALF_OPEN
 class CircuitBreaker:
     """Circuit breaker to protect against cascading upstream failures.
 
-    Only 5xx errors (upstream server problems) count toward the threshold.
+    Tracks two independent failure counters:
+    - 5xx errors: 5 consecutive failures → OPEN for 300 s (slow infrastructure recovery)
+    - 429 errors: 5 consecutive rate-limits → OPEN for 45 s (short transient burst)
+
     Client errors (4xx) do NOT trip the circuit — the API is working fine.
     """
 
@@ -170,10 +174,29 @@ class CircuitBreaker:
         self._opened_at: float = 0.0
         self._half_open_in_flight = False
 
+        # 429-specific thresholds (short window — transient rate-limit, not infra failure)
+        self._429_threshold: int = 5
+        self._429_open_seconds: float = 45.0
+        self._429_count: int = 0
+
+        # Store which type triggered the open (for open_seconds property)
+        self._open_reason: str = "none"  # "429_storm" | "5xx_storm"
+
+    @property
+    def open_seconds(self) -> float:
+        """Returns the open window duration depending on what triggered the open.
+
+        - 429 storm: 45 s (transient rate-limit burst, recovers quickly)
+        - 5xx storm: 300 s (infrastructure failure, needs longer recovery)
+        """
+        if self._open_reason == "429_storm":
+            return self._429_open_seconds
+        return self.reset_timeout  # 300 s for 5xx
+
     @property
     def state(self) -> CircuitState:
         """Current state, auto-transitioning OPEN → HALF_OPEN on timeout."""
-        if self._state == CircuitState.OPEN and time.time() - self._opened_at >= self.reset_timeout:
+        if self._state == CircuitState.OPEN and time.time() - self._opened_at >= self.open_seconds:
             self._state = CircuitState.HALF_OPEN
             self._half_open_in_flight = False
         return self._state
@@ -198,18 +221,35 @@ class CircuitBreaker:
     def record_success(self) -> None:
         """Record a successful request — resets circuit to CLOSED."""
         self._failure_count = 0
+        self._429_count = 0
+        self._open_reason = "none"
         self._state = CircuitState.CLOSED
         self._half_open_in_flight = False
 
     def record_failure(self, error_type: ErrorType) -> None:
-        """Record a failed request — only 5xx errors trip the circuit."""
+        """Record a failed request.
+
+        - RATE_LIMITED (429): independent counter, trips at 5 with 45 s open window.
+        - UPSTREAM_5XX: original counter, trips at 5 with 300 s open window.
+        - All other error types are ignored by the circuit breaker.
+        """
+        if error_type == ErrorType.RATE_LIMITED:
+            self._429_count += 1
+            if self._429_count >= self._429_threshold:
+                self._state = CircuitState.OPEN
+                self._opened_at = time.time()
+                self._open_reason = "429_storm"
+                self._half_open_in_flight = False
+            return
+
         if error_type != ErrorType.UPSTREAM_5XX:
             return
 
-        # In HALF_OPEN, any failure immediately reopens the circuit
+        # In HALF_OPEN, any 5xx failure immediately reopens the circuit
         if self._state == CircuitState.HALF_OPEN:
             self._state = CircuitState.OPEN
             self._opened_at = time.time()
+            self._open_reason = "5xx_storm"
             self._half_open_in_flight = False
             return
 
@@ -217,14 +257,16 @@ class CircuitBreaker:
         if self._failure_count >= self.threshold:
             self._state = CircuitState.OPEN
             self._opened_at = time.time()
+            self._open_reason = "5xx_storm"
             self._half_open_in_flight = False
 
     def status_report(self) -> str:
         """Human-readable circuit breaker status."""
         current = self.state
         if current == CircuitState.OPEN:
-            remaining = max(0, self.reset_timeout - (time.time() - self._opened_at))
-            return f"OPEN ({remaining:.0f}s remaining)"
+            remaining = max(0, self.open_seconds - (time.time() - self._opened_at))
+            reason = f", reason={self._open_reason}" if self._open_reason != "none" else ""
+            return f"OPEN ({remaining:.0f}s remaining{reason})"
         if current == CircuitState.HALF_OPEN:
             return "HALF_OPEN (probing)"
         return "CLOSED"
@@ -745,6 +787,7 @@ class APIKeyPool:
         status_code: int | None = None,
         body_text: str = "",
         is_network_error: bool = False,
+        response_headers: dict[str, str] | None = None,
     ) -> ErrorType:
         """Classify an error, apply the appropriate cooldown, and update circuit breaker.
 
@@ -757,6 +800,7 @@ class APIKeyPool:
             status_code: HTTP status code (None for connection-level errors)
             body_text: Response body or error message text
             is_network_error: True if the error is a connection/timeout failure
+            response_headers: Optional HTTP response headers to check for Retry-After
 
         Returns:
             The classified ErrorType
@@ -781,8 +825,8 @@ class APIKeyPool:
             return error_type
 
         if error_type == ErrorType.RATE_LIMITED:
-            # Exponential backoff based on consecutive rate limits
-            rate_cooldown = self._get_rate_limit_cooldown(key)
+            # Header-aware backoff: honor Retry-After before exponential fallback
+            rate_cooldown = self._get_rate_limit_cooldown(key, response_headers=response_headers)
             await self.mark_exhausted(key, ttl_seconds=rate_cooldown, apply_adaptive=False)
             return error_type
 
@@ -833,20 +877,63 @@ class APIKeyPool:
             # Clear from memory exhausted if still present
             self._memory_exhausted.pop(key_hash, None)
 
-    def _get_rate_limit_cooldown(self, key: str) -> int:
-        """Calculate exponential backoff cooldown for rate-limited keys.
+    def _parse_retry_after_header(self, headers: dict[str, str]) -> int | None:
+        """Parse Retry-After, X-RateLimit-Reset, or RateLimit-Reset headers into seconds.
 
-        Formula: min(base * 2^consecutive_hits, 600) + jitter
+        Priority order (RFC 6585 + common provider conventions):
+        1. Retry-After: <seconds>        (integer — Tavily, Serper)
+        2. Retry-After: <HTTP-date>      (RFC 7231 date string)
+        3. X-RateLimit-Reset: <unix>     (Brave, Exa)
+        4. RateLimit-Reset: <unix>       (IETF draft)
+
+        Returns None if no recognized header is present or parsing fails.
+        """
+        h = {k.lower(): v for k, v in headers.items()}
+
+        if "retry-after" in h:
+            val = h["retry-after"].strip()
+            if val.isdigit():
+                return max(0, int(val))
+            try:
+                reset_ts = email.utils.parsedate_to_datetime(val).timestamp()
+                return max(0, int(reset_ts - time.time()))
+            except Exception:  # noqa: S110  # invalid date string — silently fall through
+                pass
+
+        for hdr in ("x-ratelimit-reset", "ratelimit-reset"):
+            if hdr in h:
+                try:
+                    return max(0, int(float(h[hdr])) - int(time.time()))
+                except ValueError:
+                    pass
+        return None
+
+    def _get_rate_limit_cooldown(self, key: str, response_headers: dict[str, str] | None = None) -> int:
+        """Calculate cooldown for rate-limited keys.
+
+        Checks response headers first (Retry-After, X-RateLimit-Reset) before
+        falling back to exponential backoff. Honoring provider-declared cooldown
+        is required by RFC 6585 and prevents escalating blocks.
+
+        Formula (fallback): min(base * 2^consecutive_hits, 600) + jitter
 
         Args:
             key: The rate-limited API key
+            response_headers: Optional HTTP response headers to check for Retry-After
 
         Returns:
             Cooldown in seconds
         """
         key_hash = self._hash_key(key)
 
-        # Increment consecutive counter
+        # Honor provider-declared cooldown first (RFC 6585)
+        if response_headers:
+            header_cooldown = self._parse_retry_after_header(response_headers)
+            if header_cooldown is not None:
+                logger.debug(f"[{self.provider}] Key {key_hash} using header-declared cooldown {header_cooldown}s")
+                return header_cooldown
+
+        # Increment consecutive counter for exponential backoff
         count = self._consecutive_rate_limits.get(key_hash, 0)
         self._consecutive_rate_limits[key_hash] = count + 1
 

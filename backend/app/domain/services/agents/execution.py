@@ -396,16 +396,10 @@ class ExecutionAgent(BaseAgent):
                         if parsed_response is not None:
                             logger.info("Recovered step response JSON via local repair fallback")
                         else:
-                            known_unparseable_prefixes = (
-                                "I was unable to produce a complete response.",
-                            )
+                            known_unparseable_prefixes = ("I was unable to produce a complete response.",)
                             normalized_message = (event.message or "").lstrip()
-                            if any(
-                                normalized_message.startswith(prefix) for prefix in known_unparseable_prefixes
-                            ):
-                                logger.info(
-                                    "Skipping JSON correction retry for known unparseable fallback message"
-                                )
+                            if any(normalized_message.startswith(prefix) for prefix in known_unparseable_prefixes):
+                                logger.info("Skipping JSON correction retry for known unparseable fallback message")
                                 parsed_response = None
                             else:
                                 parsed_response = await self._retry_step_result_json(event.message)
