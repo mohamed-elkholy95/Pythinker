@@ -82,7 +82,7 @@ class TestSelectProvider:
         assert depth == "basic"
 
     def test_standard_picks_cheapest_paid(self, router, full_quotas, healthy_providers):
-        provider, depth = router.select_provider(SearchIntent.STANDARD, full_quotas, healthy_providers)
+        provider, _depth = router.select_provider(SearchIntent.STANDARD, full_quotas, healthy_providers)
         # Should pick a paid provider (cost 1), not a free scraper
         assert provider in ("serper", "brave", "exa", "jina", "tavily")
 
