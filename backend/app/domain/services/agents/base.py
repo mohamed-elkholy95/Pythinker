@@ -628,7 +628,7 @@ class BaseAgent:
                 function_result
                 and hasattr(function_result, "data")
                 and isinstance(function_result.data, dict)
-                and "resolved_x" in function_result.data
+                and {"resolved_x", "resolved_y"}.issubset(function_result.data)
             ):
                 final_args = {
                     **function_args,
@@ -1235,6 +1235,7 @@ class BaseAgent:
 
             tool_calls = message["tool_calls"]
             tool_responses = []
+            skip_tool_execution_for_wall_clock = False
 
             # Check for hallucination loop escalation
             if self._hallucination_detector.should_inject_correction_prompt():
@@ -1286,27 +1287,34 @@ class BaseAgent:
                         )
                         self._stuck_recovery_exhausted = True
                         break
-                    if not wall_clock_warning_injected and elapsed >= wall_limit * 0.8:
+                    if not wall_clock_warning_injected and elapsed >= wall_limit * 0.65:
                         wall_clock_warning_injected = True
                         logger.warning(
-                            "Step wall-clock usage reached %.0f%% (%.0fs/%.0fs); forcing wrap-up guidance.",
+                            "Step wall-clock usage reached %.0f%% (%.0fs/%.0fs); injecting wrap-up guidance.",
                             (elapsed / wall_limit) * 100,
                             elapsed,
                             wall_limit,
                         )
-                        message = await self.ask_with_messages(
+                        # Inject warning into memory WITHOUT spawning an extra LLM call.
+                        # The next regular iteration will include this user message so
+                        # the model sees it without wasting ~60s on a dedicated round-trip.
+                        await self._add_to_memory(
                             [
                                 {
                                     "role": "user",
                                     "content": (
-                                        "STEP TIME WARNING: You have used 80% of the step time budget. "
-                                        "Conclude this step now, summarize current findings, and avoid "
-                                        "starting new tool calls."
+                                        "STEP TIME WARNING: You have used 65% of the step time budget "
+                                        f"({elapsed:.0f}s of {wall_limit:.0f}s). "
+                                        "Conclude this step now: summarize current findings and avoid "
+                                        "starting new tool calls. Wrap up immediately."
                                     ),
                                 }
                             ]
                         )
-                        continue
+                        # Do not execute the pending tool calls for this cycle.
+                        # Let the next model turn see the warning and wrap up.
+                        graceful_completion_requested = True
+                        skip_tool_execution_for_wall_clock = True
 
             # Check if we're approaching the limit
             remaining_budget = iteration_budget - iteration_spent
@@ -1326,6 +1334,9 @@ class BaseAgent:
                     f"Low iteration budget ({remaining_budget:.1f} remaining), requesting completion on next cycle"
                 )
                 graceful_completion_requested = True
+
+            if skip_tool_execution_for_wall_clock:
+                tool_calls = []
 
             # Check if we can execute tools in parallel
             if self._can_parallelize_tools(tool_calls):
