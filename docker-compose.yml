@@ -71,7 +71,7 @@ services:
       - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
       - GRPC_ENABLE_FORK_SUPPORT=0 # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation # Suppress Playwright url.parse() deprecation
-      - FAST_MODEL=${FAST_MODEL:-qwen/qwen3-coder-next}
+      - FAST_MODEL=${FAST_MODEL:-}
       # DSPy prompt optimization — disabled by default; flip to true to run offline jobs
       - FEATURE_PROMPT_OPTIMIZATION_PIPELINE=${FEATURE_PROMPT_OPTIMIZATION_PIPELINE:-false}
       - DSPY_CACHEDIR=/app/data/dspy_cache
