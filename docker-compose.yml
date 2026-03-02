@@ -383,4 +383,4 @@ networks:
     internal: true  # No external access — containers only (defense-in-depth)
   traefik-public:
     name: traefik-public
-    external: true
+    driver: bridge
