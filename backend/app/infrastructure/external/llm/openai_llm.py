@@ -1499,7 +1499,12 @@ To extract data from a webpage:
                     fast_model=timeout_fallback_fast_model,
                 )
                 _slow = get_settings().llm_slow_request_threshold
-                log_fn = logger.warning if llm_call_duration > _slow else logger.info
+                if llm_call_duration > _slow * 2:
+                    log_fn = logger.error
+                elif llm_call_duration > _slow:
+                    log_fn = logger.warning
+                else:
+                    log_fn = logger.info
                 log_fn(
                     f"LLM ask() completed in {llm_call_duration:.1f}s "
                     f"(model={effective_model}, tools={'yes' if request_tools else 'no'}, "
