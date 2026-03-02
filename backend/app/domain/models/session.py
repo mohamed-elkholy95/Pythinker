@@ -62,6 +62,7 @@ class Session(BaseModel):
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     user_id: str  # User ID that owns this session
+    source: str = "web"  # Channel origin: "web" | "telegram" | "discord" | "cron" | "api"
     sandbox_id: str | None = Field(default=None)  # Identifier for the sandbox environment
     sandbox_owned: bool = False  # True when session owns lifecycle of sandbox container
     sandbox_lifecycle_mode: str | None = None  # static | ephemeral
