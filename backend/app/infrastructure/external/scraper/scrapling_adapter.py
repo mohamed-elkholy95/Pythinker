@@ -321,6 +321,7 @@ class ScraplingAdapter:
             logger.warning(f"ResearchSpider stream error: {exc}")
 
         results: list[ScrapedContent] = []
+        fallback_needed: list[str] = []
         for url in urls:
             item = items_by_url.get(url)
             if item and item.get("text"):
@@ -335,16 +336,51 @@ class ScraplingAdapter:
                     )
                 )
             else:
-                results.append(
-                    ScrapedContent(
-                        success=False,
-                        url=url,
-                        text="",
-                        error="Spider did not return content for URL",
-                        tier_used="spider",
+                fallback_needed.append(url)
+
+        if fallback_needed:
+            logger.info(
+                "ResearchSpider missing content for %d/%d URLs; falling back to tiered fetch",
+                len(fallback_needed),
+                len(urls),
+            )
+
+            semaphore = asyncio.Semaphore(3)
+
+            async def _fallback_fetch(url: str) -> ScrapedContent:
+                async with semaphore:
+                    return await self.fetch_with_escalation(url)
+
+            fallback_results = await asyncio.gather(*[_fallback_fetch(url) for url in fallback_needed])
+            for fallback in fallback_results:
+                if fallback.success:
+                    results.append(fallback)
+                else:
+                    results.append(
+                        ScrapedContent(
+                            success=False,
+                            url=fallback.url,
+                            text="",
+                            error=fallback.error or "Spider did not return content for URL",
+                            tier_used="spider",
+                        )
                     )
-                )
-        return results
+
+        # Preserve caller URL ordering for deterministic output.
+        by_url = {r.url: r for r in results}
+        return [
+            by_url.get(
+                url,
+                ScrapedContent(
+                    success=False,
+                    url=url,
+                    text="",
+                    error="Spider did not return content for URL",
+                    tier_used="spider",
+                ),
+            )
+            for url in urls
+        ]
 
 
 # ── Singleton factory ──────────────────────────────────────────────────────────

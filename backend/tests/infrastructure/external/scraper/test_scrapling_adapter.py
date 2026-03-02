@@ -28,9 +28,15 @@ def _settings(*, http1_fallback_enabled: bool = True) -> SimpleNamespace:
         scraping_proxy_enabled=False,
         scraping_proxy_list="",
         scraping_hf_token="",
+        scraping_spider_enabled=True,
+        scraping_spider_top_k=5,
         scraping_default_impersonate="chrome",
         scraping_http_timeout=15,
         scraping_max_content_length=100000,
+        scraping_min_content_length=500,
+        scraping_escalation_enabled=True,
+        scraping_stealth_enabled=True,
+        scraping_headless=True,
         scraping_http1_fallback_enabled=http1_fallback_enabled,
     )
 
@@ -82,3 +88,45 @@ async def test_fetch_respects_http1_fallback_feature_flag(monkeypatch: pytest.Mo
 
     assert result.success is False
     assert mock_get.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_batch_spider_falls_back_for_urls_without_spider_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeSpider:
+        def __init__(self, start_urls: list[str], **_: object) -> None:
+            self._start_urls = start_urls
+
+        async def stream(self):
+            # Spider returns only first URL, second URL must use fallback fetch.
+            yield {
+                "url": self._start_urls[0],
+                "text": "spider content",
+                "title": "from spider",
+                "status": 200,
+            }
+
+    monkeypatch.setattr("app.infrastructure.external.scraper.research_spider.ResearchSpider", _FakeSpider)
+
+    adapter = ScraplingAdapter(settings=_settings())
+    adapter.fetch_with_escalation = AsyncMock(
+        return_value=SimpleNamespace(
+            success=True,
+            url="https://b.example.com",
+            text="fallback content",
+            title="from fallback",
+            status_code=200,
+            tier_used="dynamic",
+        )
+    )
+
+    urls = ["https://a.example.com", "https://b.example.com"]
+    results = await adapter.fetch_batch(urls)
+
+    assert len(results) == 2
+    assert results[0].success is True
+    assert results[0].tier_used == "spider"
+    assert results[1].success is True
+    assert results[1].text == "fallback content"
+    assert adapter.fetch_with_escalation.await_count == 1
