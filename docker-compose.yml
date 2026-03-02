@@ -92,6 +92,30 @@ services:
       retries: 5
       start_period: 20s
 
+  gateway:
+    image: ${IMAGE_REGISTRY:-pythinker}/pythinker-backend:${IMAGE_TAG:-latest}
+    platform: linux/amd64
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles:
+      - gateway  # Only starts with: docker compose --profile gateway up
+    depends_on:
+      backend:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
+    env_file:
+      - .env
+    environment:
+      - CHANNEL_GATEWAY_ENABLED=true
+    networks:
+      - pythinker-network
+
   sandbox:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-sandbox:${IMAGE_TAG:-latest}
     platform: linux/amd64
