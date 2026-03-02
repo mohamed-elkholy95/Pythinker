@@ -239,6 +239,7 @@ class FeatureFlagsSettingsMixin:
     conversation_context_min_content_length: int = 20  # Skip trivial turns
     conversation_context_cross_session_min_score: float = 0.75  # Strict threshold to prevent cross-session topic drift
     conversation_context_retrieval_timeout_seconds: float = 2.0  # Retrieval timeout (returns empty)
+    bm25_corpus_max_documents: int = 200  # Sliding window cap for BM25 corpus growth (0 = unlimited)
 
     # Incremental memory extraction during sessions (Phase 5)
     incremental_memory_enabled: bool = True  # Extract memories mid-session (every N turns)

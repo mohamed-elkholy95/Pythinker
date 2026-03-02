@@ -18,6 +18,8 @@ from inspect import isawaitable
 
 from rank_bm25 import BM25Okapi
 
+from app.core.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,18 +37,35 @@ class BM25SparseEncoder:
         # Returns: {2: 0.87, 5: 0.65, ...}  (top 100 non-zero indices)
     """
 
-    def __init__(self, top_k: int = 100):
+    def __init__(self, top_k: int = 100, max_corpus_documents: int | None = None):
         """Initialize BM25 encoder.
 
         Args:
             top_k: Number of top-scoring indices to keep (default 100)
+            max_corpus_documents: Sliding window size for retained corpus.
+                When set (>0), only the latest N documents are kept.
         """
         self.bm25: BM25Okapi | None = None
         self.vocab: dict[str, int] = {}  # word -> index mapping
         self.reverse_vocab: dict[int, str] = {}  # index -> word mapping
         self.top_k = top_k
+        settings = get_settings()
+        configured_max = (
+            max_corpus_documents
+            if max_corpus_documents is not None
+            else int(getattr(settings, "bm25_corpus_max_documents", 200) or 0)
+        )
+        self.max_corpus_documents = max(0, configured_max)
         self.corpus_size = 0
         self._corpus_texts: list[str] = []  # Retained for incremental updates
+
+    def _apply_corpus_window(self, corpus: list[str]) -> list[str]:
+        """Apply sliding-window retention if max corpus size is configured."""
+        if self.max_corpus_documents <= 0:
+            return corpus
+        if len(corpus) <= self.max_corpus_documents:
+            return corpus
+        return corpus[-self.max_corpus_documents :]
 
     def _tokenize(self, text: str) -> list[str]:
         """Tokenize text into words.
@@ -92,6 +111,8 @@ class BM25SparseEncoder:
         Args:
             corpus: List of document strings
         """
+        corpus = self._apply_corpus_window(corpus)
+
         if not corpus:
             logger.warning("Empty corpus provided to BM25 encoder")
             self.bm25 = None
@@ -204,10 +225,10 @@ class BM25SparseEncoder:
         # We reconstruct the old corpus from the vocabulary (approximate)
         # For a true incremental update, we'd need to store the original corpus
         if self.bm25 is not None and self._corpus_texts:
-            combined = self._corpus_texts + new_documents
+            combined = self._apply_corpus_window(self._corpus_texts + new_documents)
             self.fit(combined)
         else:
-            self.fit(new_documents)
+            self.fit(self._apply_corpus_window(new_documents))
 
     def get_vocab_size(self) -> int:
         """Get vocabulary size."""
