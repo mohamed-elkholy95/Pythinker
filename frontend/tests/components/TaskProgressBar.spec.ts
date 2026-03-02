@@ -531,6 +531,64 @@ describe('TaskProgressBar', () => {
     expect(wrapper.find('.collapsed-step-line').exists()).toBe(false)
   })
 
+  it('advances counter between steps when loading (gap state)', () => {
+    // After step 1 completes but step 2 hasn't started running yet,
+    // the counter should advance to completedCount+1 while loading
+    const plan = createMockPlan([
+      { id: '1', description: 'Step 1', status: 'completed' },
+      { id: '2', description: 'Step 2', status: 'pending' },
+      { id: '3', description: 'Step 3', status: 'pending' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: true,
+        isThinking: false,
+      },
+    })
+
+    const compactProgress = wrapper.find('.progress-pill').text().replace(/\s+/g, '')
+    expect(compactProgress).toBe('2/3')
+  })
+
+  it('does not advance counter past total when all steps completed and loading', () => {
+    const plan = createMockPlan([
+      { id: '1', description: 'Step 1', status: 'completed' },
+      { id: '2', description: 'Step 2', status: 'completed' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: true,
+        isThinking: false,
+      },
+    })
+
+    const compactProgress = wrapper.find('.progress-pill').text().replace(/\s+/g, '')
+    expect(compactProgress).toBe('2/2')
+  })
+
+  it('shows completedCount when idle between steps (not loading)', () => {
+    const plan = createMockPlan([
+      { id: '1', description: 'Step 1', status: 'completed' },
+      { id: '2', description: 'Step 2', status: 'pending' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: false,
+        isThinking: false,
+      },
+    })
+
+    // When idle, show actual completedCount without advancing
+    const compactProgress = wrapper.find('.progress-pill').text().replace(/\s+/g, '')
+    expect(compactProgress).toBe('1/2')
+  })
+
   it('renders expanded dotted connectors between task nodes', async () => {
     const plan = createMockPlan([
       { id: '1', description: 'Step 1', status: 'completed' },
