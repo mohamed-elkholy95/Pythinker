@@ -60,6 +60,7 @@ class SerperSearchEngine(SearchEngineBase):
         redis_client=None,
         timeout: float | None = None,
         quota_cooldown_seconds: int = 1800,
+        max_results: int = 8,
     ):
         """Initialize Serper search engine.
 
@@ -70,6 +71,7 @@ class SerperSearchEngine(SearchEngineBase):
             timeout: Optional custom timeout
             quota_cooldown_seconds: Cooldown after quota exhaustion (default 30min).
                 Configurable via SERPER_QUOTA_COOLDOWN_SECONDS env var.
+            max_results: Number of results to return per search (default 8)
         """
         super().__init__(timeout=timeout)
 
@@ -92,6 +94,8 @@ class SerperSearchEngine(SearchEngineBase):
 
         # Set max retries to number of keys to prevent unbounded recursion
         self._max_retries = len(key_configs)
+
+        self._max_results = max_results
 
         self.base_url = "https://google.serper.dev/search"
         logger.info(f"Serper search initialized with {len(key_configs)} API key(s)")
@@ -127,7 +131,7 @@ class SerperSearchEngine(SearchEngineBase):
             "q": query,
             "gl": "us",
             "hl": "en",
-            "num": 20,
+            "num": self._max_results,
         }
 
         if mapped := self._map_date_range(date_range):

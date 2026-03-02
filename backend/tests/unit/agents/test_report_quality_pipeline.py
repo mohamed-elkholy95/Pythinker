@@ -7,6 +7,7 @@ Covers:
 - execution.py prepends truncation notice header when truncation_exhausted or artifacts
 - CancelledError in summarize() emits partial ReportEvent then re-raises
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -84,10 +85,7 @@ class TestStripTrailingMetaCommentary:
         """Meta-commentary followed by a heading must NOT be stripped.
         The pattern only removes lines at the very end with no heading after them."""
         rg = _make_rg()
-        content = (
-            "# Report\n\nI see the issue here with performance.\n\n"
-            "## Findings\n\nHere are the detailed findings."
-        )
+        content = "# Report\n\nI see the issue here with performance.\n\n## Findings\n\nHere are the detailed findings."
         result = rg.strip_trailing_meta_commentary(content)
         assert "## Findings" in result
         assert "Here are the detailed findings." in result
@@ -267,9 +265,7 @@ def _make_execution_agent_for_summarize():
     )
     agent._response_generator = rg
     agent.llm = MagicMock()
-    agent.memory = MagicMock(
-        get_messages=MagicMock(return_value=[{"role": "user", "content": "query"}])
-    )
+    agent.memory = MagicMock(get_messages=MagicMock(return_value=[{"role": "user", "content": "query"}]))
     agent._add_to_memory = AsyncMock()
     agent._ensure_within_token_limit = AsyncMock()
     agent._resolve_feature_flags = MagicMock(return_value={"delivery_integrity_gate": False})
@@ -304,9 +300,7 @@ class TestCancelledErrorPartialReport:
                 collected_events.append(ev)  # noqa: PERF401
 
         report_events = [e for e in collected_events if isinstance(e, ReportEvent)]
-        assert len(report_events) == 1, (
-            f"Expected 1 partial ReportEvent, got {len(report_events)}: {collected_events}"
-        )
+        assert len(report_events) == 1, f"Expected 1 partial ReportEvent, got {len(report_events)}: {collected_events}"
         assert "[Partial]" in report_events[0].title
         assert "⚠️" in report_events[0].content
         assert "Partial Report" in report_events[0].content

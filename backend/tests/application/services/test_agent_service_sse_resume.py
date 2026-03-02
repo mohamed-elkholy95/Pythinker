@@ -5,6 +5,7 @@ Covers the fix for the events=0 infinite reconnect loop:
 - UUID-format cursors (synthetic events) trigger stale-cursor fallback
 - Absent cursors flow normally without skip mode
 """
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -136,9 +137,7 @@ async def test_redis_stream_id_cursor_various_formats(monkeypatch):
             lambda: SimpleNamespace(get_user_mcp_configs=AsyncMock(return_value=[])),
         )
 
-        events = await _collect(
-            service.chat(session_id="s1", user_id="u1", message="go", event_id=redis_id)
-        )
+        events = await _collect(service.chat(session_id="s1", user_id="u1", message="go", event_id=redis_id))
 
         non_error = [e for e in events if not isinstance(e, ErrorEvent)]
         assert len(non_error) == 2, f"Expected 2 domain events for cursor={redis_id}, got {events}"
@@ -161,9 +160,7 @@ async def test_absent_cursor_flows_all_events(monkeypatch):
         lambda: SimpleNamespace(get_user_mcp_configs=AsyncMock(return_value=[])),
     )
 
-    events = await _collect(
-        service.chat(session_id="s1", user_id="u1", message="new session")
-    )
+    events = await _collect(service.chat(session_id="s1", user_id="u1", message="new session"))
 
     assert len(events) == 3  # alpha, beta, DoneEvent
     assert isinstance(events[0], MessageEvent)

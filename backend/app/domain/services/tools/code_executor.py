@@ -45,13 +45,37 @@ def _record_security_gate_override(override_reason: str) -> None:
 
 
 _PYTHON_KEYWORDS = frozenset(
-    ["import", "from", "def", "class", "return", "if", "elif", "else", "for",
-     "while", "with", "try", "except", "finally", "raise", "yield", "async",
-     "await", "lambda", "pass", "break", "continue", "print(", "=", "True", "False", "None"]
+    [
+        "import",
+        "from",
+        "def",
+        "class",
+        "return",
+        "if",
+        "elif",
+        "else",
+        "for",
+        "while",
+        "with",
+        "try",
+        "except",
+        "finally",
+        "raise",
+        "yield",
+        "async",
+        "await",
+        "lambda",
+        "pass",
+        "break",
+        "continue",
+        "print(",
+        "=",
+        "True",
+        "False",
+        "None",
+    ]
 )
-_PROSE_INDICATORS = re.compile(
-    r"^(?:[A-Z][a-z].*[.!?]$|#+\s|[-*]\s|\d+\.\s)", re.MULTILINE
-)
+_PROSE_INDICATORS = re.compile(r"^(?:[A-Z][a-z].*[.!?]$|#+\s|[-*]\s|\d+\.\s)", re.MULTILINE)
 
 
 def _looks_like_plain_text(code: str) -> bool:
