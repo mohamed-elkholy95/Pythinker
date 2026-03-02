@@ -439,6 +439,8 @@ class PlanActFlow(BaseFlow):
 
             self._url_failure_guard = UrlFailureGuard(max_failures_per_url=3)
             self.executor._url_failure_guard = self._url_failure_guard
+            if self._search_tool:
+                self._search_tool._url_failure_guard = self._url_failure_guard
             logger.info("UrlFailureGuard enabled for session %s", session_id)
 
         # Create verifier agent (Phase 1: Plan-Verify-Execute)
