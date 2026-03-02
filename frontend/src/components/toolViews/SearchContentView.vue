@@ -87,6 +87,15 @@
         <span v-if="results && results.length > 0" class="results-count-pill">
           {{ results.length }} {{ t('results') }}
         </span>
+        <span v-if="provider" class="search-meta-pill provider-pill">
+          {{ provider }}
+        </span>
+        <span v-if="searchDepth" class="search-meta-pill depth-pill">
+          {{ searchDepth }}
+        </span>
+        <span v-if="creditsUsed != null" class="search-meta-pill credits-pill">
+          {{ creditsUsed }} cr
+        </span>
       </div>
       <div class="search-results-list">
         <div
@@ -150,6 +159,10 @@ const props = defineProps<{
   isSearching?: boolean;
   query?: string;
   explicitResults?: boolean;
+  provider?: string | null;
+  searchDepth?: string | null;
+  creditsUsed?: number | null;
+  intentTier?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -542,5 +555,29 @@ function handleResultClick(result: SearchResult) {
   color: var(--text-tertiary);
   margin: 4px 0 0;
   font-style: italic;
+}
+
+.search-meta-pill {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.provider-pill {
+  background-color: var(--color-surface-2, #e8e8e8);
+  color: var(--color-text-secondary, #666);
+}
+
+.depth-pill {
+  background-color: var(--color-accent-muted, #e3f2fd);
+  color: var(--color-accent, #1976d2);
+}
+
+.credits-pill {
+  background-color: var(--color-warning-muted, #fff3e0);
+  color: var(--color-warning, #e65100);
 }
 </style>

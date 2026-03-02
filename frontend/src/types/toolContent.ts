@@ -14,6 +14,10 @@ export interface SearchToolContent extends ToolContentBase {
   query?: string;
   date_range?: string | null;
   total_results?: number;
+  provider?: string | null;
+  search_depth?: string | null;
+  credits_used?: number | null;
+  intent_tier?: string | null;
 }
 
 export interface ShellToolContent extends ToolContentBase {
