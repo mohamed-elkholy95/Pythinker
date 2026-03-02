@@ -131,7 +131,7 @@ class ToolExecutionProfiler:
             ...
     """
 
-    def __init__(self, history_limit: int = 100, slow_threshold_ms: float = 5000.0, unreliable_threshold: float = 0.2):
+    def __init__(self, history_limit: int = 100, slow_threshold_ms: float = 15000.0, unreliable_threshold: float = 0.2):
         """Initialize the profiler.
 
         Args:
