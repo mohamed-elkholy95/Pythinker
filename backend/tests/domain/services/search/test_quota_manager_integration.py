@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.domain.services.search.cost_router import CostAwareSearchRouter, QuotaStatus
+from app.domain.services.search.cost_router import CostAwareSearchRouter
 from app.domain.services.search.dedup_enhanced import EnhancedDedup
 from app.domain.services.search.intent_classifier import QueryIntentClassifier
 from app.domain.services.search.quota_manager import SearchQuotaManager
@@ -24,11 +24,13 @@ class TestQuotaManagerDedup:
         )
 
         mock_engine = AsyncMock()
-        mock_engine.search = AsyncMock(return_value=MagicMock(
-            success=True,
-            data=MagicMock(results=["r1", "r2"]),
-            message="ok",
-        ))
+        mock_engine.search = AsyncMock(
+            return_value=MagicMock(
+                success=True,
+                data=MagicMock(results=["r1", "r2"]),
+                message="ok",
+            )
+        )
 
         # First call succeeds
         r1 = await mgr.route("best laptop 2026", mock_engine)
@@ -50,11 +52,13 @@ class TestQuotaManagerDedup:
         )
 
         mock_engine = AsyncMock()
-        mock_engine.search = AsyncMock(return_value=MagicMock(
-            success=True,
-            data=MagicMock(results=["r1"]),
-            message="ok",
-        ))
+        mock_engine.search = AsyncMock(
+            return_value=MagicMock(
+                success=True,
+                data=MagicMock(results=["r1"]),
+                message="ok",
+            )
+        )
 
         await mgr.route("best laptop 2026", mock_engine)
         await mgr.route("Python asyncio tutorial", mock_engine)
@@ -78,8 +82,6 @@ class TestFeatureFlagGating:
 
     def test_quota_manager_initialized_when_flag_on(self):
         """When feature flag is True, SearchTool._quota_manager should be set."""
-        from unittest.mock import MagicMock, patch
-
         from app.domain.services.tools.search import SearchTool
 
         mock_settings = MagicMock()
@@ -90,9 +92,11 @@ class TestFeatureFlagGating:
         mock_settings.max_wide_research_queries = 3
         mock_settings.search_dedup_skip_existing = True
 
-        with patch("app.core.config.get_settings", return_value=mock_settings):
-            with patch("app.domain.services.search.quota_manager.get_search_quota_manager") as mock_factory:
-                mock_factory.return_value = MagicMock()
-                mock_engine = MagicMock()
-                tool = SearchTool(search_engine=mock_engine)
-                assert tool._quota_manager is not None
+        with (
+            patch("app.core.config.get_settings", return_value=mock_settings),
+            patch("app.domain.services.search.quota_manager.get_search_quota_manager") as mock_factory,
+        ):
+            mock_factory.return_value = MagicMock()
+            mock_engine = MagicMock()
+            tool = SearchTool(search_engine=mock_engine)
+            assert tool._quota_manager is not None

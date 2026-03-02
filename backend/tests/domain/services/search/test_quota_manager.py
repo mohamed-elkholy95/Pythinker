@@ -1,6 +1,6 @@
 """Tests for SearchQuotaManager orchestration."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -76,7 +76,11 @@ class TestQuotaManagerRoute:
         result = await manager.route("duplicate query", mock_engine)
         # Should return early with dedup message
         assert result.success is False
-        assert "duplicate" in result.message.lower() or "already" in result.message.lower() or "similar" in result.message.lower()
+        assert (
+            "duplicate" in result.message.lower()
+            or "already" in result.message.lower()
+            or "similar" in result.message.lower()
+        )
         mock_engine.search.assert_not_called()
 
     @pytest.mark.asyncio()
