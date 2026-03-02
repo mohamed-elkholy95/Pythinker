@@ -22,6 +22,8 @@ def _build_llm() -> OpenAILLM:
     llm._cache_manager = None
     llm._supports_stream_usage = False
     llm._last_stream_metadata = None
+    llm._slow_tool_call_streak = 0
+    llm._slow_tool_call_breaker_until = 0.0
     llm._record_usage = AsyncMock()
     return llm
 

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.errors.exceptions import NotFoundError
+from app.application.schemas.session import ShellViewResponse
 from app.application.services.agent_service import AgentService
 from app.domain.exceptions.base import InvalidStateException
 from app.domain.models.session import Session
@@ -52,9 +53,26 @@ def _build_service(*, sandbox_result: ToolResult) -> AgentService:
 
 
 @pytest.mark.asyncio
-async def test_shell_view_maps_sandbox_404_to_not_found() -> None:
+async def test_shell_view_returns_empty_output_when_shell_session_missing() -> None:
     service = _build_service(
-        sandbox_result=ToolResult.error("Sandbox API error (HTTP 404): Session ID does not exist"),
+        sandbox_result=ToolResult.error(
+            "Sandbox API error (HTTP 404): Session ID does not exist: 550e8400-e29b-41d4-a716-446655440000"
+        ),
+    )
+
+    response = await service.shell_view("s1", "550e8400-e29b-41d4-a716-446655440000", "u1")
+
+    assert response == ShellViewResponse(
+        output="",
+        session_id="550e8400-e29b-41d4-a716-446655440000",
+        console=[],
+    )
+
+
+@pytest.mark.asyncio
+async def test_shell_view_maps_other_sandbox_404_to_not_found() -> None:
+    service = _build_service(
+        sandbox_result=ToolResult.error("Sandbox API error (HTTP 404): endpoint not found"),
     )
 
     with pytest.raises(NotFoundError):
