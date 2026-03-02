@@ -1,6 +1,6 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -185,6 +185,31 @@ async def test_periodic_capture_uses_tool_context_metadata():
     assert saved_screenshot.tool_name == "browser"
     assert saved_screenshot.function_name == "browser_navigate"
     assert saved_screenshot.action_type == "navigate"
+
+
+@pytest.mark.asyncio
+async def test_periodic_capture_skips_when_screencast_stream_is_active():
+    sandbox = FakeSandbox(b"image-bytes")
+    repository = SimpleNamespace(save=AsyncMock())
+    minio = _make_minio_mock()
+
+    service = ScreenshotCaptureService(
+        sandbox=sandbox,
+        session_id="session-metrics-8",
+        repository=repository,
+        minio_storage=minio,
+    )
+    service._ready.set()  # Bypass startup readiness gate (tested separately)
+
+    with patch(
+        "app.application.services.screenshot_service.has_active_stream",
+        new=AsyncMock(return_value=True),
+    ):
+        screenshot = await service.capture(ScreenshotTrigger.PERIODIC)
+
+    assert screenshot is None
+    repository.save.assert_not_awaited()
+    minio.store_screenshot.assert_not_awaited()
 
 
 def test_clear_tool_context_is_scoped_by_tool_call_id():

@@ -1603,7 +1603,9 @@ async def screencast_websocket(
         await websocket.close(code=1008, reason="Origin not allowed")
         return
 
+    stream_key: str | None = None
     try:
+        stream_key = await register_active_stream(session_id=session_id, endpoint="screencast")
         # Extract user_id from signed URL (uid parameter) for authorization
         from app.interfaces.dependencies import extract_user_id_from_signed_url
 
@@ -1726,6 +1728,10 @@ async def screencast_websocket(
             logger.error(f"Screencast WebSocket error: {error_text}")
         with contextlib.suppress(Exception):
             await websocket.close(code=1011, reason=f"Screencast error: {error_text}")
+    finally:
+        if stream_key:
+            with contextlib.suppress(Exception):
+                await unregister_active_stream(stream_key)
 
 
 @router.websocket("/{session_id}/input")
