@@ -96,6 +96,9 @@ class TestExtractUrlFromArgs:
     def test_extract_page_url_key(self):
         assert _extract_url_from_args({"page_url": "https://example.com"}) == "https://example.com"
 
+    def test_extract_query_url_key(self):
+        assert _extract_url_from_args({"query": "https://example.com"}) == "https://example.com"
+
     def test_non_http_urls_ignored(self):
         assert _extract_url_from_args({"url": "file:///tmp/x"}) is None
 
@@ -157,7 +160,6 @@ class TestInvokeToolGuardIntegration:
         assert decision.action == "warn"
         assert decision.tier == 2
 
-    @pytest.mark.skip(reason="Task 6: search result URL feeding to guard not yet implemented in invoke_tool")
     @pytest.mark.asyncio
     async def test_search_results_feed_guard_alternatives(self, base_agent, mock_tool):
         failed_url = "https://bad.example/404"

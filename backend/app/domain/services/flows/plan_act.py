@@ -434,7 +434,7 @@ class PlanActFlow(BaseFlow):
 
         # URL Failure Guard: session-scoped, shared across all steps
         self._url_failure_guard = None
-        if flags.get("feature_url_failure_guard_enabled", True):
+        if flags.get("url_failure_guard", flags.get("feature_url_failure_guard_enabled", True)):
             from app.domain.services.agents.url_failure_guard import UrlFailureGuard
 
             self._url_failure_guard = UrlFailureGuard(max_failures_per_url=3)
