@@ -93,7 +93,7 @@ mcp.json
 # Claude Code context files
 .claude/
 app_ui_design.mov
-design.html
+nanobot-main
 # Git worktrees
 .worktrees/
 design1.html
