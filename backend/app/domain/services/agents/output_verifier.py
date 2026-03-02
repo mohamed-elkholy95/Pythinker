@@ -324,15 +324,23 @@ class OutputVerifier:
                             span_count=len(lettuce_result.hallucinated_spans),
                         )
                     if lettuce_result.hallucination_ratio > 0.10:
-                        # Redact individual hallucinated spans with neutral markers
-                        redacted = verifier.redact_hallucinations(content, lettuce_result.hallucinated_spans)
+                        # Use a disclaimer instead of span redaction.  Redacting spans with
+                        # `[…]` markers corrupts Mermaid diagrams, table cells, and chart
+                        # extraction — the same markers appear in truncation artifacts,
+                        # creating ambiguity between the two failure modes.
+                        ratio_pct = lettuce_result.hallucination_ratio * 100
+                        disclaimer = (
+                            f"\n\n> ⚠️ **Reliability Notice ({ratio_pct:.1f}% unverified):** "
+                            f"{len(lettuce_result.hallucinated_spans)} section(s) in this report could not be "
+                            "fully verified against available sources. Treat specific facts, version numbers, "
+                            "and statistics with caution."
+                        )
                         logger.info(
-                            "LettuceDetect: redacted %d span(s) (ratio=%.1f%%)",
-                            len(lettuce_result.hallucinated_spans),
-                            lettuce_result.hallucination_ratio * 100,
+                            "LettuceDetect: appending disclaimer for moderate ratio %.1f%% (not redacting spans)",
+                            ratio_pct,
                         )
                         return HallucinationVerificationResult(
-                            content=redacted,
+                            content=content + disclaimer,
                             warnings=["hallucination_ratio_moderate"],
                             hallucination_ratio=lettuce_result.hallucination_ratio,
                             span_count=len(lettuce_result.hallucinated_spans),
