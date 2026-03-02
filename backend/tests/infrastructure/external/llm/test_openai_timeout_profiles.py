@@ -73,3 +73,39 @@ def test_slow_tool_call_streak_resets_on_fast_response() -> None:
     )
 
     assert llm._slow_tool_call_streak == 0
+
+
+def test_slow_tool_breaker_missing_fast_model_logs_once(caplog) -> None:
+    llm = _make_llm(api_base="https://api.openai.com/v1")
+    llm._model_name = "gpt-4.1"
+    llm._slow_tool_call_streak = 2
+    llm._slow_tool_call_breaker_until = 0.0
+    llm._slow_breaker_missing_fast_model_warned = False
+
+    llm._record_tool_call_latency(
+        duration_seconds=61.0,
+        has_tools=True,
+        fast_model="",
+        now_monotonic=100.0,
+    )
+    assert llm._is_slow_tool_breaker_active(now_monotonic=250.0) is True
+
+    with (
+        caplog.at_level("ERROR"),
+        patch("app.infrastructure.external.llm.openai_llm.time.monotonic", return_value=250.0),
+    ):
+        resolved1 = llm._resolve_slow_tool_breaker_model(
+            request_tools=[{"type": "function"}],
+            model_override_for_attempt=None,
+            timeout_fallback_fast_model="",
+        )
+        resolved2 = llm._resolve_slow_tool_breaker_model(
+            request_tools=[{"type": "function"}],
+            model_override_for_attempt=None,
+            timeout_fallback_fast_model="",
+        )
+
+    assert resolved1 is None
+    assert resolved2 is None
+    assert llm._slow_breaker_missing_fast_model_warned is True
+    assert sum("FAST_MODEL is not configured" in rec.message for rec in caplog.records) == 1
