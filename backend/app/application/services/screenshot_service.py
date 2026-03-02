@@ -18,6 +18,7 @@ from app.core.retry import RetryConfig, calculate_delay
 from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
 from app.domain.repositories.screenshot_repository import ScreenshotRepository
 from app.domain.repositories.screenshot_storage import ScreenshotStorage
+from app.domain.services.stream_guard import has_active_stream
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +330,19 @@ class ScreenshotCaptureService:
             tool_name = tool_name or self._tool_context.tool_name
             function_name = function_name or self._tool_context.function_name
             action_type = action_type or self._tool_context.action_type
+
+        # Suppress periodic captures while screencast is actively streaming to
+        # avoid duplicate saves from concurrent periodic + tool-triggered shots.
+        if (
+            trigger == ScreenshotTrigger.PERIODIC
+            and getattr(self._settings, "feature_sweep_dedup_enabled", True)
+            and await has_active_stream(self._session_id, endpoint="screencast")
+        ):
+            logger.debug(
+                "Skipping periodic screenshot for session %s while screencast stream is active",
+                self._session_id,
+            )
+            return None
 
         try:
             async with self._lock:
