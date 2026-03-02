@@ -5,6 +5,7 @@ before the agent summarization phase.
 """
 
 import io
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -213,6 +214,64 @@ class TestSweepWorkspaceFiles:
         _session, exec_dir, command = mock_sandbox.exec_command.await_args.args
         assert exec_dir == "/workspace/test-session"
         assert "find /workspace/test-session" in command
+
+    @pytest.mark.asyncio
+    async def test_dedup_keeps_single_similar_artifact_basename(
+        self, runner, mock_sandbox, mock_session_repository, mock_file_storage, monkeypatch
+    ):
+        """Similar artifact names in same dir/ext should be deduped to one sync candidate."""
+        monkeypatch.setattr(
+            "app.core.config.get_settings",
+            lambda: SimpleNamespace(feature_sweep_dedup_enabled=True),
+        )
+        mock_sandbox.exec_command = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                data={
+                    "output": (
+                        "/workspace/test-session/report.md\n"
+                        "/workspace/test-session/final_report.md\n"
+                    )
+                },
+            )
+        )
+        session = MagicMock()
+        session.files = []
+        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+
+        result = await runner._sweep_workspace_files()
+
+        assert len(result) == 1
+        assert mock_file_storage.upload_file.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_dedup_preserves_numeric_variant_artifacts(
+        self, runner, mock_sandbox, mock_session_repository, mock_file_storage, monkeypatch
+    ):
+        """Distinct numeric variants (q1/q2) should not be deduped."""
+        monkeypatch.setattr(
+            "app.core.config.get_settings",
+            lambda: SimpleNamespace(feature_sweep_dedup_enabled=True),
+        )
+        mock_sandbox.exec_command = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                data={
+                    "output": (
+                        "/workspace/test-session/report_q1.md\n"
+                        "/workspace/test-session/report_q2.md\n"
+                    )
+                },
+            )
+        )
+        session = MagicMock()
+        session.files = []
+        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+
+        result = await runner._sweep_workspace_files()
+
+        assert len(result) == 2
+        assert mock_file_storage.upload_file.call_count == 2
 
 
 class TestSweepConstants:
