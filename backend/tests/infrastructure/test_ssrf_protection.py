@@ -4,9 +4,16 @@ Validates that is_ssrf_target blocks internal/private network addresses,
 Docker service hostnames, and cloud metadata endpoints.
 """
 
+import socket
+from unittest.mock import patch
+
 import pytest
 
 from app.domain.utils.url_filters import is_ssrf_target
+
+# A public IP address that passes the private/loopback/link-local checks.
+# Used to mock DNS resolution in tests that don't need real network access.
+_MOCK_PUBLIC_IP = "93.184.216.34"  # example.com canonical IP (IANA-assigned)
 
 
 class TestSSRFBlockedTargets:
@@ -63,7 +70,11 @@ class TestSSRFAllowedTargets:
         ],
     )
     def test_allows_external_urls(self, url: str) -> None:
-        result = is_ssrf_target(url)
+        # Mock DNS so the test passes in network-restricted environments (CI, containers).
+        # We only care that public IPs are allowed; real DNS is irrelevant here.
+        mock_addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (_MOCK_PUBLIC_IP, 0))]
+        with patch("app.domain.utils.url_filters.socket.getaddrinfo", return_value=mock_addrinfo):
+            result = is_ssrf_target(url)
         assert result is None, f"Should allow external URL: {url}, got: {result}"
 
 
