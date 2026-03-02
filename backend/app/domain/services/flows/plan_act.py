@@ -1753,12 +1753,6 @@ class PlanActFlow(BaseFlow):
                 if result.success:
                     self._workspace_output_path = workspace_path
                     logger.info("Deep Research workspace created: %s", workspace_path)
-
-                    # Verify directories were actually created
-                    verify_cmd = " && ".join(f"test -d {workspace_path}/{d}" for d in workspace_structure)
-                    verify_result = await self._sandbox.exec_command(self._session_id, "/workspace", verify_cmd)
-                    if not verify_result.success:
-                        logger.warning("Workspace directory verification failed — some dirs may be missing")
                 else:
                     logger.warning("Workspace mkdir failed, using fallback: %s", result.message)
                     self._workspace_output_path = workspace_base
