@@ -59,6 +59,8 @@ class TavilySearchEngine(SearchEngineBase):
         fallback_api_keys: list[str] | None = None,
         redis_client=None,
         timeout: float | None = None,
+        max_results: int = 8,
+        search_depth: str = "basic",
     ):
         """Initialize Tavily search engine.
 
@@ -67,6 +69,8 @@ class TavilySearchEngine(SearchEngineBase):
             fallback_api_keys: Optional list of fallback API keys (up to 8 fallbacks = 9 total)
             redis_client: Redis client for distributed key coordination
             timeout: Optional custom timeout
+            max_results: Number of results to return per search (default 8)
+            search_depth: Tavily search depth — "basic" (1 credit) or "advanced" (2 credits)
         """
         super().__init__(timeout=timeout)
 
@@ -87,6 +91,9 @@ class TavilySearchEngine(SearchEngineBase):
 
         # Set max retries to prevent unbounded recursion
         self._max_retries = len(key_configs)
+
+        self._max_results = max_results
+        self._search_depth = search_depth
 
         self.base_url = "https://api.tavily.com/search"
         logger.info(f"Tavily search initialized with {len(key_configs)} API key(s)")
@@ -113,11 +120,11 @@ class TavilySearchEngine(SearchEngineBase):
 
         return {
             "query": actual_query,
-            "search_depth": "advanced",
+            "search_depth": self._search_depth,
             "include_answer": True,
             "include_images": False,
             "include_raw_content": False,
-            "max_results": 20,
+            "max_results": self._max_results,
         }
 
     async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:

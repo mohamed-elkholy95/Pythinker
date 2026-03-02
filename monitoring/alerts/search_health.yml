@@ -1,0 +1,33 @@
+groups:
+  - name: search_api_health
+    rules:
+      - alert: SearchProvider429RatioHigh
+        expr: |
+          rate(pythinker_search_429_total[5m]) /
+          (rate(pythinker_search_request_total[5m]) + 0.001) > 0.30
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.provider }} >30% 429 rate — auto-reorder active"
+          description: "Provider {{ $labels.provider }} is being rate-limited. Consider adding API keys."
+
+      - alert: SearchKeyExhaustionCritical
+        expr: pythinker_search_key_exhaustion_ratio > 0.70
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.provider }}: >70% keys exhausted"
+          description: "Provider {{ $labels.provider }} has >70% keys exhausted. Add more API keys immediately."
+
+      - alert: SearchCacheHitRateLow
+        expr: |
+          rate(pythinker_search_cache_hit_total{tier!="miss"}[10m]) /
+          (rate(pythinker_search_cache_hit_total[10m]) + 0.001) < 0.40
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Search cache hit rate <40%"
+          description: "Low cache hit rate may indicate query drift, cache key bug, or high query diversity."

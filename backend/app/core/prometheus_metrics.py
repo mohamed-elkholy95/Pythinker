@@ -2067,6 +2067,57 @@ _metrics_registry.extend(
     ]
 )
 
+# ---------------------------------------------------------------------------
+# Search API resilience metrics (search-resilience plan 2026-03-02)
+# ---------------------------------------------------------------------------
+
+search_429_total = Counter(
+    name="pythinker_search_429_total",
+    help_text="Total 429 rate-limit responses per search provider",
+    labels=["provider"],
+)
+
+search_request_total = Counter(
+    name="pythinker_search_request_total",
+    help_text="Total search requests by provider and outcome",
+    labels=["provider", "status"],  # status: success|rate_limited|error|circuit_open|cached
+)
+
+search_key_exhaustion_ratio = Gauge(
+    name="pythinker_search_key_exhaustion_ratio",
+    help_text="Ratio of exhausted API keys to total keys per provider (0.0-1.0)",
+    labels=["provider"],
+)
+
+search_provider_health_score = Gauge(
+    name="pythinker_search_provider_health_score",
+    help_text="Composite provider health score (0.0=unhealthy, 1.0=healthy)",
+    labels=["provider"],
+)
+
+search_cache_hit_total = Counter(
+    name="pythinker_search_cache_hit_total",
+    help_text="Search cache hits by tier",
+    labels=["tier"],  # tier: hot|redis|miss
+)
+
+search_retry_total = Counter(
+    name="pythinker_search_retry_total",
+    help_text="Search request retries by provider",
+    labels=["provider", "attempt"],  # attempt: 2|3 (first attempt not counted as retry)
+)
+
+_metrics_registry.extend(
+    [
+        search_429_total,
+        search_request_total,
+        search_key_exhaustion_ratio,
+        search_provider_health_score,
+        search_cache_hit_total,
+        search_retry_total,
+    ]
+)
+
 
 def record_profile_selection(
     profile_id: str,
