@@ -24,6 +24,7 @@ async def test_stop_session_destroys_sandbox_and_clears_session_references():
     session_repo = AsyncMock()
     session_repo.find_by_id = AsyncMock(return_value=session)
     session_repo.save = AsyncMock()
+    session_repo.update_by_id = AsyncMock()
     task_cls = MagicMock()
     task_cls.get = MagicMock(return_value=task)
     sandbox_cls = MagicMock()
@@ -49,9 +50,9 @@ async def test_stop_session_destroys_sandbox_and_clears_session_references():
     assert session.sandbox_id is None
     assert session.task_id is None
     assert session.sandbox_owned is False
-    # save() is called twice: once before sandbox destruction (status + task_id)
-    # and once after (clearing sandbox references)
-    assert session_repo.save.await_count == 2
+    # update_by_id() atomically sets task_id+status, save() clears sandbox refs
+    session_repo.update_by_id.assert_awaited_once()
+    assert session_repo.save.await_count == 1
 
 
 @patch("app.core.config.get_settings")
@@ -74,6 +75,7 @@ async def test_stop_session_skips_destroy_for_unowned_sandbox(mock_get_settings:
     session_repo = AsyncMock()
     session_repo.find_by_id = AsyncMock(return_value=session)
     session_repo.save = AsyncMock()
+    session_repo.update_by_id = AsyncMock()
     task_cls = MagicMock()
     task_cls.get = MagicMock(return_value=task)
     sandbox_cls = MagicMock()
@@ -111,6 +113,7 @@ async def test_stop_session_sets_completed_status_and_saves_session():
     session_repo = AsyncMock()
     session_repo.find_by_id = AsyncMock(return_value=session)
     session_repo.save = AsyncMock()
+    session_repo.update_by_id = AsyncMock()
 
     service = AgentDomainService(
         agent_repository=AsyncMock(),
@@ -127,7 +130,8 @@ async def test_stop_session_sets_completed_status_and_saves_session():
     await service.stop_session("session-id")
 
     assert session.status == SessionStatus.COMPLETED
-    session_repo.save.assert_awaited_once_with(session)
+    # Atomic update_by_id replaces save() for task_id+status
+    session_repo.update_by_id.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -141,6 +145,7 @@ async def test_stop_session_handles_missing_task_gracefully():
     session_repo = AsyncMock()
     session_repo.find_by_id = AsyncMock(return_value=session)
     session_repo.save = AsyncMock()
+    session_repo.update_by_id = AsyncMock()
     task_cls = MagicMock()
     task_cls.get = MagicMock(return_value=None)
 
@@ -161,7 +166,7 @@ async def test_stop_session_handles_missing_task_gracefully():
     task_cls.get.assert_called_once_with("missing-task-id")
     assert session.task_id is None
     assert session.status == SessionStatus.COMPLETED
-    session_repo.save.assert_awaited_once_with(session)
+    session_repo.update_by_id.assert_awaited_once()
 
 
 @pytest.mark.asyncio

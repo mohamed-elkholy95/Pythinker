@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -91,8 +92,8 @@ async def test_chat_wait_event_does_not_trigger_runtime_teardown() -> None:
 
 @pytest.mark.asyncio
 async def test_chat_no_active_task_and_running_session_emits_error_and_tears_down() -> None:
-    """An orphaned RUNNING session with no active task should emit an ErrorEvent
-    and be torn down as CANCELLED, rather than silently returning empty events."""
+    """An orphaned RUNNING session (stale > 30s) with no active task should emit
+    an ErrorEvent and be torn down as CANCELLED."""
     task = None
     session = Session(
         id="session-id",
@@ -102,6 +103,8 @@ async def test_chat_no_active_task_and_running_session_emits_error_and_tears_dow
         task_id=None,
         sandbox_id="sandbox-id",
         sandbox_owned=True,
+        # Stale session: updated > 30s ago → genuine orphan
+        updated_at=datetime.now(UTC) - timedelta(seconds=60),
     )
 
     service, teardown = _build_service(session, task)
@@ -111,6 +114,32 @@ async def test_chat_no_active_task_and_running_session_emits_error_and_tears_dow
     assert isinstance(events[0], ErrorEvent)
     assert "interrupted" in events[0].error.lower()
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.CANCELLED, destroy_sandbox=False)
+
+
+@pytest.mark.asyncio
+async def test_chat_no_active_task_recent_running_session_emits_done_not_cancel() -> None:
+    """A RUNNING session with no task but updated < 30s ago is likely a reconnect
+    race — should emit DoneEvent instead of cancelling the session."""
+    task = None
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.RUNNING,
+        task_id=None,
+        sandbox_id="sandbox-id",
+        sandbox_owned=True,
+        # Recent session: updated just now → reconnect race
+        updated_at=datetime.now(UTC),
+    )
+
+    service, teardown = _build_service(session, task)
+    events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
+
+    assert len(events) == 1
+    assert isinstance(events[0], DoneEvent)
+    # Should tear down as COMPLETED (graceful), not CANCELLED
+    teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
 
 
 @pytest.mark.asyncio

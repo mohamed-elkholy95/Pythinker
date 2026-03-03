@@ -144,12 +144,18 @@ class AgentSessionLifecycle:
         if task:
             task.cancel()
 
-        # Update status BEFORE sandbox destruction so frontend sees terminal state
-        # immediately and does not observe stale in-flight status during teardown.
+        # Atomically update task_id + status in a single MongoDB $set so no
+        # concurrent reader can observe the torn state (RUNNING + task_id=None)
+        # that triggers false orphan detection on SSE reconnect.
+        atomic_updates: dict[str, Any] = {"task_id": None}
+        if status is not None:
+            atomic_updates["status"] = status.value if hasattr(status, "value") else status
+        await self._session_repository.update_by_id(session_id, atomic_updates)
+
+        # Keep the in-memory session object consistent for downstream sandbox teardown
         target_session.task_id = None
         if status is not None:
             target_session.status = status
-        await self._session_repository.save(target_session)
 
         if destroy_sandbox and target_session.sandbox_id:
             owns_sandbox = target_session.sandbox_owned or target_session.sandbox_lifecycle_mode == "ephemeral"
