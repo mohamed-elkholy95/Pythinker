@@ -944,8 +944,15 @@ To extract data from a webpage:
 
         return converted
 
-    def _parse_tool_call_from_text(self, content: str) -> dict[str, Any] | None:
-        """Parse tool call from text response for MLX mode."""
+    def _parse_tool_call_from_text(
+        self, content: str, available_tools: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        """Parse tool call from text response for MLX mode.
+
+        After extraction, validates required parameters against the tool
+        schema. Invalid tool calls (missing required params) are logged
+        and rejected.
+        """
         if not content:
             return None
 
@@ -960,15 +967,48 @@ To extract data from a webpage:
             matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
             for match in matches:
                 result = self._try_parse_tool_call_json(match)
-                if result:
+                if result and self._validate_and_log_tool_call(result, available_tools):
                     return result
 
         # Pattern 3: Balanced brace extraction for inline JSON (handles nested braces)
         result = self._extract_balanced_json_tool_call(content)
-        if result:
+        if result and self._validate_and_log_tool_call(result, available_tools):
             return result
 
         return None
+
+    def _validate_and_log_tool_call(
+        self, result: dict[str, Any], available_tools: list[dict[str, Any]] | None,
+    ) -> bool:
+        """Validate an extracted tool call and log validation result.
+
+        Returns True if valid, False if rejected.
+        """
+        tool_calls = result.get("tool_calls", [])
+        if not tool_calls:
+            return True  # No tool calls to validate
+
+        tc = tool_calls[0]
+        func = tc.get("function", {})
+        tool_name = func.get("name", "")
+        try:
+            arguments = json.loads(func.get("arguments", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            arguments = {}
+
+        is_valid, error_msg = self._validate_extracted_tool_call(
+            tool_name, arguments, available_tools,
+        )
+
+        if not is_valid:
+            logger.warning(
+                "Text-extracted tool call rejected: %s (model=%s)",
+                error_msg,
+                self._model_name,
+            )
+            return False
+
+        return True
 
     def _try_parse_tool_call_json(self, text: str) -> dict[str, Any] | None:
         """Try to parse a tool_call JSON string into a tool call dict."""
@@ -993,6 +1033,51 @@ To extract data from a webpage:
         except (json.JSONDecodeError, TypeError, AttributeError):
             pass
         return None
+
+    @staticmethod
+    def _validate_extracted_tool_call(
+        tool_name: str,
+        arguments: dict[str, Any],
+        available_tools: list[dict[str, Any]] | None,
+    ) -> tuple[bool, str]:
+        """Validate that a text-extracted tool call has required parameters.
+
+        Checks the extracted arguments against the tool's JSON schema to
+        catch malformed calls from prose-based extraction (e.g. GLM-5's
+        non-native tool calling).
+
+        Args:
+            tool_name: Name of the extracted tool
+            arguments: Parsed arguments dict
+            available_tools: List of tool schemas (OpenAI format)
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not tool_name:
+            return False, "Missing tool name in extracted call"
+
+        if not available_tools:
+            return True, ""  # No schema to validate against
+
+        # Find matching tool schema
+        tool_schema: dict[str, Any] | None = None
+        for tool in available_tools:
+            fn = tool.get("function", {})
+            if fn.get("name") == tool_name:
+                tool_schema = fn.get("parameters", {})
+                break
+
+        if tool_schema is None:
+            return False, f"Unknown tool: {tool_name}"
+
+        # Check required parameters
+        required = tool_schema.get("required", [])
+        missing = [p for p in required if p not in arguments]
+        if missing:
+            return False, f"Tool {tool_name} missing required params: {missing}"
+
+        return True, ""
 
     def _extract_balanced_json_tool_call(self, content: str) -> dict[str, Any] | None:
         """Extract tool_call JSON using balanced brace matching (handles nested objects)."""
@@ -1648,7 +1733,7 @@ To extract data from a webpage:
                 # MLX mode: parse tool calls from text response
                 if self._is_mlx_mode and original_tools:
                     content = result.get("content", "")
-                    parsed_tool_call = self._parse_tool_call_from_text(content)
+                    parsed_tool_call = self._parse_tool_call_from_text(content, original_tools)
                     if parsed_tool_call:
                         logger.info("MLX mode: Parsed tool call from text response")
                         return parsed_tool_call
@@ -2474,7 +2559,10 @@ To extract data from a webpage:
                             )
 
                 stream_duration = time.monotonic() - stream_start
-                _slow = get_settings().llm_slow_request_threshold
+                _slow = getattr(
+                    get_settings(), "llm_slow_stream_threshold",
+                    get_settings().llm_slow_request_threshold,
+                )
                 if stream_duration > _slow * 2:
                     log_fn = logger.error
                 elif stream_duration > _slow:
