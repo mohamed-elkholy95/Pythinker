@@ -127,7 +127,10 @@ async def test_generate_link_code_stores_in_redis():
     mock_redis = AsyncMock()
     mock_redis.call = AsyncMock(return_value="OK")
 
-    with patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis):
+    with (
+        patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis),
+        patch("app.interfaces.api.channel_link_routes.pm.record_channel_link_code_generated") as generated_metric,
+    ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/api/v1/channel-links/generate",
@@ -155,6 +158,7 @@ async def test_generate_link_code_stores_in_redis():
     stored = json.loads(payload_str)
     assert stored["user_id"] == "user-abc-123"
     assert stored["channel"] == "telegram"
+    generated_metric.assert_called_once_with("telegram")
 
 
 @pytest.mark.asyncio

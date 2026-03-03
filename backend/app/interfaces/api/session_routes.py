@@ -24,6 +24,7 @@ from app.core.config import get_settings
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
+from app.domain.models.session import Session, SessionStatus
 from app.domain.models.user import User
 from app.domain.services.stream_guard import (
     StreamErrorCategory,
@@ -298,6 +299,42 @@ def _build_sse_protocol_headers(heartbeat_interval_seconds: float = SSE_HEARTBEA
         "X-Accel-Buffering": "no",
         "Access-Control-Expose-Headers": ", ".join(expose_headers),
     }
+
+
+def _filter_sessions_for_listing(
+    sessions: list[Session],
+    *,
+    source: str | None = None,
+    query_text: str | None = None,
+    status: SessionStatus | None = None,
+    limit: int = 200,
+) -> list[Session]:
+    """Apply source/query/status filters to session lists."""
+    normalized_source = source.strip().lower() if source else None
+    normalized_query = query_text.strip().lower() if query_text else None
+
+    filtered: list[Session] = []
+    for session in sessions:
+        if normalized_source and str(getattr(session, "source", "web")).lower() != normalized_source:
+            continue
+
+        if status and session.status != status:
+            continue
+
+        if normalized_query:
+            title = (session.title or "").lower()
+            latest_message = (session.latest_message or "").lower()
+            session_status = session.status.value.lower()
+            if (
+                normalized_query not in title
+                and normalized_query not in latest_message
+                and normalized_query not in session_status
+            ):
+                continue
+
+        filtered.append(session)
+
+    return filtered[:limit]
 
 
 @router.put("", response_model=APIResponse[CreateSessionResponse])
@@ -689,9 +726,21 @@ async def clear_unread_message_count(
 
 @router.get("", response_model=APIResponse[ListSessionResponse])
 async def get_all_sessions(
-    current_user: User = Depends(get_current_user), agent_service: AgentService = Depends(get_agent_service)
+    source: str | None = Query(default=None, description="Filter by session source (e.g. telegram, web)"),
+    q: str | None = Query(default=None, description="Case-insensitive search over title/latest message/status"),
+    status: SessionStatus | None = Query(default=None, description="Filter by session status"),
+    limit: int = Query(default=200, ge=1, le=500, description="Maximum number of sessions to return"),
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
 ) -> APIResponse[ListSessionResponse]:
     sessions = await agent_service.get_all_sessions(current_user.id)
+    filtered_sessions = _filter_sessions_for_listing(
+        sessions,
+        source=source,
+        query_text=q,
+        status=status,
+        limit=limit,
+    )
     session_items = [
         ListSessionItem(
             session_id=session.id,
@@ -703,14 +752,19 @@ async def get_all_sessions(
             is_shared=session.is_shared,
             source=getattr(session, "source", "web"),
         )
-        for session in sessions
+        for session in filtered_sessions
     ]
     return APIResponse.success(ListSessionResponse(sessions=session_items))
 
 
 @router.post("")
 async def stream_sessions(
-    current_user: User = Depends(get_current_user), agent_service: AgentService = Depends(get_agent_service)
+    source: str | None = Query(default=None, description="Filter by session source (e.g. telegram, web)"),
+    q: str | None = Query(default=None, description="Case-insensitive search over title/latest message/status"),
+    status: SessionStatus | None = Query(default=None, description="Filter by session status"),
+    limit: int = Query(default=200, ge=1, le=500, description="Maximum number of sessions to stream"),
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
 ) -> EventSourceResponse:
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
         last_hash: str | None = None
@@ -721,6 +775,13 @@ async def stream_sessions(
         try:
             while True:
                 sessions = await agent_service.get_all_sessions(current_user.id)
+                filtered_sessions = _filter_sessions_for_listing(
+                    sessions,
+                    source=source,
+                    query_text=q,
+                    status=status,
+                    limit=limit,
+                )
                 session_items = [
                     ListSessionItem(
                         session_id=session.id,
@@ -734,7 +795,7 @@ async def stream_sessions(
                         is_shared=session.is_shared,
                         source=getattr(session, "source", "web"),
                     )
-                    for session in sessions
+                    for session in filtered_sessions
                 ]
                 data = ListSessionResponse(sessions=session_items).model_dump_json()
                 current_hash = hashlib.md5(data.encode(), usedforsecurity=False).hexdigest()
