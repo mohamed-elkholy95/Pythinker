@@ -8,21 +8,15 @@ Provides:
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import json
 import logging
-import re
+import os
 import secrets
 import string
-from datetime import UTC, datetime
-from typing import Any
 
-from cryptography.fernet import Fernet
 from fastapi import APIRouter, Depends
 
 from app.application.errors.exceptions import BadRequestError, NotFoundError
-from app.core.config import get_settings
 from app.domain.models.channel import ChannelType
 from app.domain.models.user import User
 from app.infrastructure.repositories.user_channel_repository import MongoUserChannelRepository
@@ -35,8 +29,6 @@ from app.interfaces.schemas.channel_link import (
     GenerateLinkCodeResponse,
     LinkedChannelResponse,
     LinkedChannelsListResponse,
-    SaveTelegramTokenRequest,
-    TelegramTokenStatusResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,20 +36,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/channel-links", tags=["channel-links"])
 
 # Link code configuration
-_CODE_ALPHABET = string.ascii_uppercase + string.digits
-_CODE_LENGTH = 6
-_CODE_TTL_SECONDS = 900  # 15 minutes
+_CODE_ALPHABET = string.ascii_letters + string.digits
+_CODE_LENGTH = 22
+_CODE_TTL_SECONDS = 1800  # 30 minutes
 _REDIS_KEY_PREFIX = "channel_link"
-_CHANNEL_SECRET_COLLECTION = "user_channel_secrets"
-_TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"^\d{6,12}:[A-Za-z0-9_-]{20,}$")
+_DEFAULT_TELEGRAM_BOT_USERNAME = "pythinker_bot"
 
 
 def _generate_link_code() -> str:
-    """Generate a cryptographically random 6-character alphanumeric code.
-
-    Uses ``secrets.choice`` to draw from uppercase letters and digits,
-    producing a code space of 36^6 = 2,176,782,336 possibilities.
-    """
+    """Generate a cryptographically random alphanumeric link code."""
     return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LENGTH))
 
 
@@ -66,79 +53,48 @@ def _build_redis_key(code: str) -> str:
     return f"{_REDIS_KEY_PREFIX}:{code}"
 
 
-def _build_fernet() -> Fernet:
-    """Build a deterministic Fernet key from configured secret material."""
-    settings = get_settings()
-    seed = (
-        settings.credential_encryption_key
-        or settings.jwt_secret_key
-        or settings.local_auth_password
-        or "pythinker-dev-channel-secret"
-    )
-    digest = hashlib.sha256(seed.encode("utf-8")).digest()
-    key = base64.urlsafe_b64encode(digest)
-    return Fernet(key)
+def _telegram_bot_username() -> str:
+    """Resolve Telegram bot username from env with a stable fallback."""
+    raw = os.getenv("TELEGRAM_BOT_USERNAME", _DEFAULT_TELEGRAM_BOT_USERNAME)
+    username = raw.strip().lstrip("@")
+    return username or _DEFAULT_TELEGRAM_BOT_USERNAME
 
 
-def _encrypt_secret(value: str) -> str:
-    """Encrypt a secret string for at-rest persistence."""
-    return _build_fernet().encrypt(value.encode("utf-8")).decode("utf-8")
+def _telegram_bot_url() -> str:
+    """Get canonical Telegram bot URL."""
+    return f"https://t.me/{_telegram_bot_username()}"
 
 
-def _channel_secret_collection() -> Any:
-    """Return MongoDB collection for per-user channel secrets."""
-    return get_mongodb().database[_CHANNEL_SECRET_COLLECTION]
+def _telegram_deep_link(code: str) -> str:
+    """Build a Telegram ``?start=`` deep link that triggers ``/start bind_<code>``.
+
+    When the user clicks the link, Telegram opens the bot and sends
+    ``/start bind_<code>`` automatically.  The gateway's
+    ``MessageRouter._normalize_command_alias`` converts this into
+    ``/link <code>`` for code redemption.
+    """
+    return f"{_telegram_bot_url()}?start=bind_{code}"
 
 
-def _validate_telegram_bot_token(token: str) -> str:
-    """Validate Telegram bot token shape and return normalized value."""
-    normalized = token.strip()
-    if not _TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(normalized):
-        raise BadRequestError(
-            "Invalid Telegram bot token format. Expected pattern like '123456789:AA...'."
-        )
-    return normalized
+def _bind_command(channel: str, code: str) -> str:
+    """Return channel-specific bind command shown to users."""
+    if channel.lower() == "telegram":
+        return f":bind {code}"
+    return f"/link {code}"
 
 
-async def _upsert_encrypted_channel_secret(
-    *,
-    user_id: str,
-    channel: ChannelType,
-    secret_value: str,
-) -> None:
-    """Encrypt and upsert channel secret for a user."""
-    now = datetime.now(UTC)
-    encrypted = _encrypt_secret(secret_value)
-    await _channel_secret_collection().update_one(
-        {"user_id": user_id, "channel": channel.value},
-        {
-            "$set": {"secret_encrypted": encrypted, "updated_at": now},
-            "$setOnInsert": {"user_id": user_id, "channel": channel.value, "created_at": now},
-        },
-        upsert=True,
-    )
-
-
-async def _has_saved_channel_secret(*, user_id: str, channel: ChannelType) -> bool:
-    """Check whether a channel secret exists for a user."""
-    doc = await _channel_secret_collection().find_one(
-        {"user_id": user_id, "channel": channel.value},
-        {"_id": 0, "secret_encrypted": 1},
-    )
-    if not doc:
-        return False
-    secret = doc.get("secret_encrypted")
-    return bool(secret and isinstance(secret, str))
-
-
-def _channel_instructions(channel: str) -> str:
+def _channel_instructions(channel: str, code: str) -> str:
     """Return human-readable instructions for completing the link flow."""
     channel_lower = channel.lower()
+    bind_cmd = _bind_command(channel_lower, code)
     if channel_lower == "telegram":
-        return "Open your Telegram bot and send: /link <CODE> — replace <CODE> with the code above."
+        return (
+            "Click Link Account to open the Pythinker Telegram bot, then send "
+            f"`{bind_cmd}` in chat to link your account."
+        )
     if channel_lower == "discord":
-        return "In your Discord server, type: /link <CODE> — replace <CODE> with the code above."
-    return f"Send the code above to the {channel} bot to complete account linking."
+        return f"In your Discord server, type `{bind_cmd}` to complete account linking."
+    return f"Send `{bind_cmd}` to the {channel} bot to complete account linking."
 
 
 @router.post("/generate", response_model=APIResponse[GenerateLinkCodeResponse])
@@ -148,26 +104,15 @@ async def generate_link_code(
 ) -> APIResponse[GenerateLinkCodeResponse]:
     """Generate a short-lived, one-time link code for a channel.
 
-    The code is stored in Redis with a 15-minute TTL.  The external
+    The code is stored in Redis with a 30-minute TTL.  The external
     channel bot redeems this code to bind its identity to the
     authenticated web account.
     """
-    # Validate that the requested channel is a known ChannelType.
     try:
         channel_type = ChannelType(request.channel.lower())
     except ValueError:
         valid = ", ".join(c.value for c in ChannelType)
         raise BadRequestError(f"Unknown channel '{request.channel}'. Valid values: {valid}") from None
-
-    if channel_type == ChannelType.TELEGRAM:
-        has_token = await _has_saved_channel_secret(
-            user_id=current_user.id,
-            channel=ChannelType.TELEGRAM,
-        )
-        if not has_token:
-            raise BadRequestError(
-                "Telegram bot token is not configured. Save your token in Settings before linking Telegram."
-            )
 
     code = _generate_link_code()
     redis_key = _build_redis_key(code)
@@ -183,44 +128,21 @@ async def generate_link_code(
         _CODE_TTL_SECONDS,
     )
 
-    instructions = _channel_instructions(channel_type.value).replace("<CODE>", code)
+    bind_command = _bind_command(channel_type.value, code)
+    bot_url = _telegram_bot_url() if channel_type == ChannelType.TELEGRAM else ""
+    deep_link_url = _telegram_deep_link(code) if channel_type == ChannelType.TELEGRAM else ""
 
     return APIResponse.success(
         GenerateLinkCodeResponse(
             code=code,
             channel=channel_type.value,
             expires_in_seconds=_CODE_TTL_SECONDS,
-            instructions=instructions,
+            instructions=_channel_instructions(channel_type.value, code),
+            bind_command=bind_command,
+            bot_url=bot_url,
+            deep_link_url=deep_link_url,
         )
     )
-
-
-@router.post("/telegram-token", response_model=APIResponse[TelegramTokenStatusResponse])
-async def save_telegram_token(
-    request: SaveTelegramTokenRequest,
-    current_user: User = Depends(get_current_user),
-) -> APIResponse[TelegramTokenStatusResponse]:
-    """Validate and securely store the current user's Telegram bot token."""
-    token = _validate_telegram_bot_token(request.token)
-    await _upsert_encrypted_channel_secret(
-        user_id=current_user.id,
-        channel=ChannelType.TELEGRAM,
-        secret_value=token,
-    )
-    logger.info("Saved Telegram token for user=%s", current_user.id)
-    return APIResponse.success(TelegramTokenStatusResponse(configured=True))
-
-
-@router.get("/telegram-token/status", response_model=APIResponse[TelegramTokenStatusResponse])
-async def telegram_token_status(
-    current_user: User = Depends(get_current_user),
-) -> APIResponse[TelegramTokenStatusResponse]:
-    """Return whether the current user has a saved Telegram bot token."""
-    configured = await _has_saved_channel_secret(
-        user_id=current_user.id,
-        channel=ChannelType.TELEGRAM,
-    )
-    return APIResponse.success(TelegramTokenStatusResponse(configured=configured))
 
 
 async def _get_linked_channels(user_id: str) -> list[LinkedChannelResponse]:
