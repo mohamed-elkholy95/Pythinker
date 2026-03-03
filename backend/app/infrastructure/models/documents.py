@@ -151,6 +151,7 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
 
     session_id: str
     user_id: str  # User ID that owns this session
+    source: str = "web"  # Channel origin: "web" | "telegram" | "discord" | "cron" | "api"
     sandbox_id: str | None = None
     sandbox_owned: bool = False
     sandbox_lifecycle_mode: str | None = None
