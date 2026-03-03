@@ -308,6 +308,63 @@ class TestCodeExecutorShortcutMethodsSecurity:
         assert "```" not in written_code
         assert "print('hello')" in written_code
 
+    @pytest.mark.asyncio
+    async def test_code_execute_python_rejects_markdown_blob_assignment(
+        self,
+        mock_sandbox: AsyncMock,
+        mock_security_critic: AsyncMock,
+    ) -> None:
+        """Long markdown blob assignment should be redirected to file write tools."""
+        mock_security_critic.review_code.return_value = SecurityResult(
+            safe=True,
+            risk_level=RiskLevel.LOW,
+            issues=[],
+        )
+        executor = CodeExecutorTool(
+            sandbox=mock_sandbox,
+            security_critic=mock_security_critic,
+        )
+
+        payload = """report = '''# Research Report
+
+## Summary
+- point one
+- point two
+'''"""
+        result = await executor.code_execute_python(code=payload)
+
+        assert result.success is False
+        assert "file_write" in result.message
+        assert "code_save_artifact" in result.message
+        mock_sandbox.file_write.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_code_execute_python_repeated_syntax_errors_escalate_guidance(
+        self,
+        mock_sandbox: AsyncMock,
+        mock_security_critic: AsyncMock,
+    ) -> None:
+        """Repeated identical syntax failures should trigger a stronger stop message."""
+        mock_security_critic.review_code.return_value = SecurityResult(
+            safe=True,
+            risk_level=RiskLevel.LOW,
+            issues=[],
+        )
+        executor = CodeExecutorTool(
+            sandbox=mock_sandbox,
+            security_critic=mock_security_critic,
+        )
+
+        bad_code = 'report = """# broken'
+        result_1 = await executor.code_execute_python(code=bad_code)
+        result_2 = await executor.code_execute_python(code=bad_code)
+        result_3 = await executor.code_execute_python(code=bad_code)
+
+        assert result_1.success is False
+        assert result_2.success is False
+        assert result_3.success is False
+        assert "Repeated malformed Python" in result_3.message
+
 
 class TestCodeExecutorReturnCodeHandling:
     """Tests for mapping sandbox returncode to tool success."""

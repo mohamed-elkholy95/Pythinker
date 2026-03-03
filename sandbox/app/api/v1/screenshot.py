@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 from fastapi import APIRouter, HTTPException, Query, Response
 
+from app.core.config import settings as app_settings
 from app.services.cdp_screencast import (
     CDPScreencastService,
     ScreencastConfig,
@@ -35,7 +36,9 @@ from app.services.cdp_screencast import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_SCREENSHOT_TIMEOUT_SECONDS = 5.0
+# Keep screenshot timeout above CDP command timeout to avoid premature
+# cancellation that would otherwise force unnecessary reconnects.
+_SCREENSHOT_TIMEOUT_SECONDS = max(8.0, app_settings.CDP_COMMAND_TIMEOUT + 2.0)
 _DISPLAY_NAME = ":1"
 _CACHE_TTL_SECONDS = 30.0  # Return stale cache up to 30s old
 _CACHE_MAX_ENTRIES = 3  # Keep last few frames (different quality/scale combos)
