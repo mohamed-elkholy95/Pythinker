@@ -218,6 +218,10 @@ class TruncationDetector:
 
         for pattern_obj, compiled_pattern in self._compiled_patterns:
             if compiled_pattern.search(content):
+                # Reduce false positives for unclosed_code_block pattern
+                # Only flag as truncation if the code block appears incomplete
+                if pattern_obj.name == "unclosed_code_block" and not self._is_truly_unclosed_code_block(content):
+                    continue  # Skip this false positive
                 matches.append(pattern_obj)
                 evidence.append(f"Matched pattern: {pattern_obj.name}")
 
@@ -234,6 +238,64 @@ class TruncationDetector:
             continuation_prompt=best_match.continuation_prompt,
             evidence=evidence,
         )
+
+    def _is_truly_unclosed_code_block(self, content: str) -> bool:
+        """Validate that an unclosed code block is actually truncated, not a false positive.
+
+        False positive scenarios to avoid:
+        1. Content with properly closed code blocks (just has backticks elsewhere)
+        2. Long, well-formed reports that happen to match the pattern
+        3. Code blocks with balanced fences but the regex misread them
+
+        True truncation indicators:
+        1. Odd number of code fences (definitive unclosed block)
+        2. Last code fence is within the last 500 chars and content is short
+        3. Last code fence is followed by incomplete content (< 100 chars after it)
+        """
+        if not content:
+            return False
+
+        # Count code fence occurrences (``` on their own line)
+        fence_pattern = re.compile(r"^```[a-zA-Z0-9_-]*\s*$", re.MULTILINE)
+        fence_matches = list(fence_pattern.finditer(content))
+
+        # Even number of fences = all blocks are properly closed
+        if len(fence_matches) % 2 == 0:
+            return False
+
+        # Odd number of fences = there is an unclosed block
+        # But verify it's at the end and looks truncated
+
+        last_fence = fence_matches[-1]
+        content_after_last_fence = content[last_fence.end() :].strip()
+
+        # If there's substantial content after the last fence (> 500 chars),
+        # it's likely a false positive from some other markdown structure
+        if len(content_after_last_fence) > 500:
+            return False
+
+        # If content after last fence ends with proper punctuation or
+        # looks like a complete line, it might be a false positive
+        if content_after_last_fence:
+            last_line = content_after_last_fence.split("\n")[-1].strip()
+            # Ends with punctuation or is a complete markdown element
+            if last_line.endswith((".", "!", "?", ":", ";", "```", "|", "}", "]")):
+                return False
+            # Looks like a complete table row
+            if last_line.startswith("|") and last_line.endswith("|"):
+                return False
+
+        # Content is likely truncated if:
+        # 1. The last fence is near the end (< 500 chars after it)
+        # 2. AND the overall content isn't extremely long (which would suggest
+        #    a well-formed document with some fence anomaly)
+        content_len = len(content)
+        last_fence_pos = last_fence.start()
+        content_before_last_fence = content_len - (content_len - last_fence_pos)
+
+        # If we have a very long document (> 20k chars) with one unclosed fence
+        # early on, it's probably a false positive
+        return not (content_len > 20000 and content_before_last_fence < content_len * 0.9)
 
     def _detect_incomplete_references(self, content: str) -> TruncationAssessment:
         """Detect truncated or missing References sections in report-style content.
