@@ -113,8 +113,22 @@ services:
       - .env
     environment:
       - CHANNEL_GATEWAY_ENABLED=true
+      # Infrastructure credentials — must match the backend service.
+      # The gateway runs get_agent_service() which needs MongoDB, Redis,
+      # sandbox, and LLM access.  .env has these commented out, so we
+      # set Docker-internal defaults here (same as the backend block).
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
+      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
+      - GRPC_ENABLE_FORK_SUPPORT=0
+      - NODE_OPTIONS=--no-deprecation
+      - FAST_MODEL=${FAST_MODEL:-}
     networks:
       - pythinker-network
+      - pythinker-backend-internal  # Reach MongoDB, Redis
 
   sandbox:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-sandbox:${IMAGE_TAG:-latest}
