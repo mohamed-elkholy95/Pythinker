@@ -99,6 +99,12 @@ class LLMTimeoutSettingsMixin:
     # still flagging genuinely slow requests.
     llm_slow_request_threshold: float = 45.0
 
+    # Streaming-specific slow threshold (seconds).  Streaming calls generate
+    # full documents so they are naturally longer than non-streaming calls.
+    # Using the non-streaming threshold causes false ERROR alerts (e.g. 135s
+    # stream at 35 tok/s is healthy).
+    llm_slow_stream_threshold: float = 180.0
+
     # Optional hard timeout (seconds) applied to every LLM call via asyncio.wait_for.
     # Set to 0 to disable.
     llm_hard_call_timeout: float = 0.0
