@@ -33,6 +33,7 @@ class DealResult:
     extraction_strategy: str | None = None  # "json_ld", "css", "generic"
     extraction_confidence: float = 0.0  # 0-1 price reliability
     source_type: str = "store"  # "store" | "community" | "open_web"
+    item_category: str = "unknown"  # "digital" | "physical" | "unknown"
 
 
 @dataclass
@@ -46,6 +47,8 @@ class CouponInfo:
     verified: bool = False
     source: str = ""  # Which aggregator found it
     confidence: float = 0.5  # 0-1 reliability score
+    item_category: str = "unknown"  # "digital" | "physical" | "unknown"
+    source_url: str | None = None
 
 
 @dataclass

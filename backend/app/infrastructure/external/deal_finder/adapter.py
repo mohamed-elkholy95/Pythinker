@@ -27,7 +27,11 @@ from app.domain.external.deal_finder import (
     EmptyReason,
 )
 from app.domain.models.search import SearchResults
-from app.infrastructure.external.deal_finder.coupon_aggregator import aggregate_coupons
+from app.infrastructure.external.deal_finder.coupon_aggregator import (
+    aggregate_coupons,
+    build_coupon_source_urls,
+)
+from app.infrastructure.external.deal_finder.item_classifier import classify_item_category
 from app.infrastructure.external.deal_finder.price_extractor import extract_price
 from app.infrastructure.external.deal_finder.price_voter import VotingResult, vote_on_price
 
@@ -254,6 +258,11 @@ def _extract_deals_from_snippets(
                     extraction_strategy="snippet",
                     extraction_confidence=CONFIDENCE_SNIPPET,
                     source_type=source_type,
+                    item_category=classify_item_category(
+                        text=combined_text,
+                        url=url,
+                        store=store_name,
+                    ),
                 )
             )
         else:
@@ -267,6 +276,11 @@ def _extract_deals_from_snippets(
                     extraction_strategy="snippet_mention",
                     extraction_confidence=0.10,
                     source_type=source_type,
+                    item_category=classify_item_category(
+                        text=combined_text,
+                        url=url,
+                        store=store_name,
+                    ),
                 )
             )
 
@@ -297,6 +311,11 @@ def _voting_result_to_deal(
         image_url=voting.image_url,
         extraction_strategy=voting.winning_strategy,
         extraction_confidence=voting.confidence,
+        item_category=classify_item_category(
+            text=voting.product_name or title,
+            url=url,
+            store=_store_from_url(url),
+        ),
     )
 
 
@@ -371,6 +390,7 @@ class DealFinderAdapter:
                                 "in_stock": d.in_stock,
                                 "coupon_code": d.coupon_code,
                                 "image_url": d.image_url,
+                                "item_category": d.item_category,
                             }
                             for d in partial_deals[:5]
                         ],
@@ -451,7 +471,13 @@ class DealFinderAdapter:
         # Search coupons per store (not per product query) for meaningful matches
         coupon_stores = searched_stores or [_store_from_url(f"https://{d}") for d in active_stores[:3]]
         coupon_tasks = [
-            aggregate_coupons(self._scraper, store=s, sources=coupon_sources, ttl=settings.deal_scraper_cache_ttl)
+            aggregate_coupons(
+                self._scraper,
+                store=s,
+                sources=coupon_sources,
+                search_engine=self._search_engine,
+                ttl=settings.deal_scraper_cache_ttl,
+            )
             for s in coupon_stores
         ]
         try:
@@ -628,6 +654,11 @@ class DealFinderAdapter:
                                 image_url=price_data.image_url,
                                 extraction_strategy=price_data.strategy_used,
                                 extraction_confidence=price_data.confidence,
+                                item_category=classify_item_category(
+                                    text=price_data.product_name or title,
+                                    url=url,
+                                    store=_store_from_url(url),
+                                ),
                             )
                         )
 
@@ -717,21 +748,11 @@ class DealFinderAdapter:
             self._scraper,
             store=store,
             sources=sources,
+            search_engine=self._search_engine,
             ttl=settings.deal_scraper_cache_ttl,
         )
 
-        # Build list of URLs that were checked for structured feedback
-        from app.infrastructure.external.deal_finder.coupon_aggregator import (
-            _extract_store_name,
-        )
-
-        clean_name = _extract_store_name(store)
-        store_slug_dot = clean_name.replace(" ", "").replace("'", "")
-        store_slug_dash = clean_name.replace(" ", "-").replace("'", "")
-        urls_checked = [
-            f"https://www.retailmenot.com/view/{store_slug_dot}.com",
-            f"https://www.coupons.com/coupon-codes/{store_slug_dash}",
-        ]
+        urls_checked = build_coupon_source_urls(store, sources)
 
         if progress:
             await progress(f"Found {len(coupons)} coupons", 2, 2, None)
@@ -808,6 +829,11 @@ class DealFinderAdapter:
                         image_url=price_data.image_url,
                         extraction_strategy=price_data.strategy_used,
                         extraction_confidence=price_data.confidence,
+                        item_category=classify_item_category(
+                            text=price_data.product_name or f"Product from {store}",
+                            url=url,
+                            store=store,
+                        ),
                     )
                 return {"store": store, "error": "Could not extract price"}
 

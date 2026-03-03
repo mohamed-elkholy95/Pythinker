@@ -17,9 +17,14 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from app.domain.external.deal_finder import CouponInfo
+from app.infrastructure.external.deal_finder.item_classifier import (
+    classify_item_category,
+    normalize_domain,
+)
 
 if TYPE_CHECKING:
     from app.domain.external.scraper import Scraper
+    from app.domain.external.search import SearchEngine
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +36,32 @@ SLICKDEALS_FEEDS: dict[str, str] = {
 
 # Coupon code format validation
 COUPON_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{3,30}$")
+WEB_COUPON_CODE_PATTERN = re.compile(
+    r"(?:coupon|promo|discount)\s*(?:code)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-]{2,20})",
+    re.IGNORECASE,
+)
+
+_IGNORED_WEB_CODES: set[str] = {
+    "OFF",
+    "SAVE",
+    "DEAL",
+    "CODE",
+    "PROMO",
+    "COUPON",
+    "SHOP",
+    "NOW",
+    "FREE",
+}
+
+# Curated web-research sources validated from current live coupon/deal sites.
+WEB_RESEARCH_SOURCE_DOMAINS: dict[str, dict[str, str]] = {
+    "dealnews": {"domain": "dealnews.com", "item_category": "physical"},
+    "couponfollow": {"domain": "couponfollow.com", "item_category": "mixed"},
+    "groupon": {"domain": "groupon.com", "item_category": "physical"},
+    "appsumo": {"domain": "appsumo.com", "item_category": "digital"},
+    "stacksocial": {"domain": "stacksocial.com", "item_category": "digital"},
+    "slickdeals": {"domain": "slickdeals.net", "item_category": "physical"},
+}
 
 # Words that are noise in LLM-generated store names — strip these to extract
 # just the store/brand name.  Kept as a set for O(1) lookup.
@@ -160,6 +191,59 @@ def _score_coupon_confidence(code: str, verified: bool) -> float:
     return 0.9 if verified else 0.6
 
 
+def _extract_web_coupon_code(text: str) -> str:
+    """Extract a coupon code candidate from search result text."""
+    match = WEB_COUPON_CODE_PATTERN.search(text)
+    if not match:
+        return ""
+    code = match.group(1).strip().upper()
+    if code in _IGNORED_WEB_CODES:
+        return ""
+    return code
+
+
+def _source_name_from_domain(domain: str) -> str:
+    """Map domain to a known source name when possible."""
+    for source_name, meta in WEB_RESEARCH_SOURCE_DOMAINS.items():
+        if domain.endswith(meta["domain"]):
+            return source_name
+    return "web_research"
+
+
+def _source_url_for_store(store: str, source_name: str) -> list[str]:
+    """Build source-specific diagnostic URLs for a store."""
+    clean_name = _extract_store_name(store)
+    store_slug_dot = clean_name.replace(" ", "").replace("'", "")
+    store_slug_dash = clean_name.replace(" ", "-").replace("'", "")
+
+    if source_name == "retailmenot":
+        return [f"https://www.retailmenot.com/view/{store_slug_dot}.com"]
+    if source_name == "couponscom":
+        return [f"https://www.coupons.com/coupon-codes/{store_slug_dash}"]
+    if source_name == "slickdeals":
+        return [
+            "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1",
+            "https://slickdeals.net/newsearch.php?mode=popdeals&searcharea=deals&searchin=first&rss=1",
+        ]
+    if source_name == "web_research":
+        return [f"https://www.{meta['domain']}" for meta in WEB_RESEARCH_SOURCE_DOMAINS.values()]
+    return []
+
+
+def build_coupon_source_urls(store: str, sources: list[str] | None) -> list[str]:
+    """Build a deduplicated list of coupon source URLs for diagnostics."""
+    sources = sources or ["slickdeals", "retailmenot", "couponscom", "web_research"]
+    urls: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        source_lower = source.lower().strip()
+        for url in _source_url_for_store(store, source_lower):
+            if url not in seen:
+                seen.add(url)
+                urls.append(url)
+    return urls
+
+
 def _deduplicate_coupons(coupons: list[CouponInfo]) -> list[CouponInfo]:
     """Deduplicate coupons by normalized code or description prefix.
 
@@ -228,6 +312,7 @@ async def fetch_slickdeals_coupons(
             for entry in entries:
                 title = getattr(entry, "title", "")
                 summary = getattr(entry, "summary", "")
+                entry_link = getattr(entry, "link", None)
 
                 # Filter by store name if provided
                 if store:
@@ -247,6 +332,8 @@ async def fetch_slickdeals_coupons(
                         verified=False,
                         source="slickdeals",
                         confidence=confidence,
+                        item_category=classify_item_category(text=f"{title} {summary}", url=entry_link, store=store),
+                        source_url=entry_link,
                     )
                 )
 
@@ -342,6 +429,8 @@ async def fetch_retailmenot_coupons(
                     verified=verified,
                     source="retailmenot",
                     confidence=confidence,
+                    item_category=classify_item_category(text=description, url=url, store=store),
+                    source_url=url,
                 )
             )
 
@@ -435,6 +524,8 @@ async def fetch_couponscom_coupons(
                     verified=verified,
                     source="couponscom",
                     confidence=confidence,
+                    item_category=classify_item_category(text=description, url=url, store=store),
+                    source_url=url,
                 )
             )
 
@@ -445,10 +536,81 @@ async def fetch_couponscom_coupons(
     return coupons
 
 
+async def fetch_web_research_coupons(
+    search_engine: SearchEngine | None,
+    store: str,
+    ttl: int = 1800,
+    max_results: int = 10,
+) -> list[CouponInfo]:
+    """Fetch coupons by searching latest web sources for store promo pages."""
+    if search_engine is None:
+        return []
+
+    clean_store = _extract_store_name(store)
+    cache_key = f"web_research:{clean_store}"
+    cached = _cache_get(cache_key, ttl)
+    if cached is not None:
+        return cached
+
+    queries = [
+        f"{clean_store} coupon code promo code latest",
+        f"{clean_store} sale deals online latest",
+        f"{clean_store} software subscription discount",
+    ]
+
+    tasks = [search_engine.search(query, date_range="past_month") for query in queries]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    coupons: list[CouponInfo] = []
+    seen_links: set[str] = set()
+
+    for result in results:
+        if isinstance(result, BaseException) or not result or not result.success or not result.data:
+            continue
+        search_results = result.data.results
+        for item in search_results[:max_results]:
+            if not item.link or item.link in seen_links:
+                continue
+            seen_links.add(item.link)
+
+            domain = normalize_domain(item.link)
+            source_name = _source_name_from_domain(domain)
+            text = f"{item.title} {item.snippet}".strip()
+            lowered = text.lower()
+            if source_name == "web_research" and not any(
+                token in lowered for token in ("coupon", "promo", "discount", "sale", "deal")
+            ):
+                continue
+
+            code = _extract_web_coupon_code(text)
+            verified = bool(code) and _is_valid_coupon_code(code)
+            confidence = _score_coupon_confidence(code, verified)
+            if source_name != "web_research":
+                confidence = min(0.95, confidence + 0.1)
+
+            coupons.append(
+                CouponInfo(
+                    code=code,
+                    description=item.title or item.snippet or "Web coupon mention",
+                    store=store,
+                    expiry=None,
+                    verified=verified,
+                    source=source_name,
+                    confidence=confidence,
+                    item_category=classify_item_category(text=text, url=item.link, store=store),
+                    source_url=item.link,
+                )
+            )
+
+    _cache_set(cache_key, coupons)
+    return coupons
+
+
 async def aggregate_coupons(
     scraper: Scraper,
     store: str,
     sources: list[str] | None = None,
+    search_engine: SearchEngine | None = None,
     ttl: int = 3600,
 ) -> tuple[list[CouponInfo], list[dict[str, str]]]:
     """Aggregate coupons from multiple sources with deduplication.
@@ -456,7 +618,8 @@ async def aggregate_coupons(
     Args:
         scraper: Scraper service.
         store: Store name to search for.
-        sources: Coupon sources to check (default: slickdeals, retailmenot, couponscom).
+        sources: Coupon sources to check (default includes web_research).
+        search_engine: Optional search engine used by ``web_research`` source.
         ttl: Cache TTL in seconds.
 
     Returns:
@@ -464,7 +627,7 @@ async def aggregate_coupons(
         Each source_failure is ``{"source": str, "reason": str}``.
     """
     if sources is None:
-        sources = ["slickdeals", "retailmenot", "couponscom"]
+        sources = ["slickdeals", "retailmenot", "couponscom", "web_research"]
 
     # Normalize store name once at entry so all sources use the same cache keys
     store = _extract_store_name(store) if store else store
@@ -474,12 +637,17 @@ async def aggregate_coupons(
         "slickdeals": lambda: fetch_slickdeals_coupons(scraper, store=store, ttl=ttl),
         "retailmenot": lambda: fetch_retailmenot_coupons(scraper, store, ttl=ttl),
         "couponscom": lambda: fetch_couponscom_coupons(scraper, store, ttl=ttl),
+        "web_research": lambda: fetch_web_research_coupons(search_engine, store, ttl=min(ttl, 1800)),
     }
 
     # Build tasks for known sources only
+    source_failures: list[dict[str, str]] = []
     tasks: list[tuple[str, Any]] = []
     for source in sources:
         source_lower = source.lower().strip()
+        if source_lower == "web_research" and search_engine is None:
+            source_failures.append({"source": "web_research", "reason": "Search engine unavailable for web_research"})
+            continue
         fetcher = _fetchers.get(source_lower)
         if fetcher is None:
             logger.debug("Unknown coupon source: %s", source_lower)
@@ -487,7 +655,6 @@ async def aggregate_coupons(
         tasks.append((source_lower, fetcher()))
 
     all_coupons: list[CouponInfo] = []
-    source_failures: list[dict[str, str]] = []
 
     if not tasks:
         return all_coupons, source_failures

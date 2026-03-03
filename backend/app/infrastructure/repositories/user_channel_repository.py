@@ -232,6 +232,17 @@ class MongoUserChannelRepository:
         result = await self._links.delete_one({"user_id": user_id, "channel": str(channel)})
         if result.deleted_count:
             logger.info("Unlinked channel %s from user %s", channel, user_id)
+            # Clean up orphaned session mappings for this user+channel.
+            sess_result = await self._sessions.delete_many(
+                {"user_id": user_id, "channel": str(channel)},
+            )
+            if sess_result.deleted_count:
+                logger.info(
+                    "Cleaned %d channel_sessions for user=%s channel=%s",
+                    sess_result.deleted_count,
+                    user_id,
+                    channel,
+                )
         else:
             logger.warning(
                 "unlink_channel called but no link found for user=%s channel=%s",
