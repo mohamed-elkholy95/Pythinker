@@ -356,6 +356,11 @@ class MongoUserChannelRepository:
                     "channel": str(channel),
                     "chat_id": chat_id,
                     "created_at": datetime.now(UTC),
+                    "last_inbound_at": datetime.now(UTC),
+                    "last_outbound_at": datetime.now(UTC),
+                    "context_turn_count": 0,
+                    "context_summary": None,
+                    "context_summary_updated_at": None,
                 },
             },
             upsert=True,
@@ -392,4 +397,112 @@ class MongoUserChannelRepository:
             user_id,
             channel,
             chat_id,
+        )
+
+    async def touch_last_inbound_at(self, user_id: str, channel: ChannelType, chat_id: str) -> None:
+        """Update ``last_inbound_at`` for an existing channel-session mapping."""
+        now = datetime.now(UTC)
+        await self._sessions.update_one(
+            {
+                "user_id": user_id,
+                "channel": str(channel),
+                "chat_id": chat_id,
+            },
+            {
+                "$set": {
+                    "last_inbound_at": now,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "channel": str(channel),
+                    "chat_id": chat_id,
+                    "created_at": now,
+                    "context_turn_count": 0,
+                    "context_summary": None,
+                    "context_summary_updated_at": None,
+                },
+            },
+            upsert=True,
+        )
+
+    async def touch_last_outbound_at(self, user_id: str, channel: ChannelType, chat_id: str) -> None:
+        """Update ``last_outbound_at`` for an existing channel-session mapping."""
+        now = datetime.now(UTC)
+        await self._sessions.update_one(
+            {
+                "user_id": user_id,
+                "channel": str(channel),
+                "chat_id": chat_id,
+            },
+            {
+                "$set": {
+                    "last_outbound_at": now,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "channel": str(channel),
+                    "chat_id": chat_id,
+                    "created_at": now,
+                    "context_turn_count": 0,
+                    "context_summary": None,
+                    "context_summary_updated_at": None,
+                },
+            },
+            upsert=True,
+        )
+
+    async def get_session_activity(self, user_id: str, channel: ChannelType, chat_id: str) -> dict[str, Any] | None:
+        """Fetch activity metadata for a channel-session mapping."""
+        return await self._sessions.find_one(
+            {
+                "user_id": user_id,
+                "channel": str(channel),
+                "chat_id": chat_id,
+            },
+            {
+                "_id": 0,
+                "last_inbound_at": 1,
+                "last_outbound_at": 1,
+                "updated_at": 1,
+                "context_turn_count": 1,
+                "context_summary": 1,
+                "context_summary_updated_at": 1,
+            },
+        )
+
+    async def set_session_context_summary(
+        self,
+        user_id: str,
+        channel: ChannelType,
+        chat_id: str,
+        context_turn_count: int,
+        context_summary: str | None,
+    ) -> None:
+        """Persist context summary metadata on the channel-session mapping."""
+        now = datetime.now(UTC)
+        await self._sessions.update_one(
+            {
+                "user_id": user_id,
+                "channel": str(channel),
+                "chat_id": chat_id,
+            },
+            {
+                "$set": {
+                    "context_turn_count": context_turn_count,
+                    "context_summary": context_summary,
+                    "context_summary_updated_at": now if context_summary else None,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "channel": str(channel),
+                    "chat_id": chat_id,
+                    "created_at": now,
+                    "last_inbound_at": now,
+                    "last_outbound_at": now,
+                },
+            },
+            upsert=True,
         )
