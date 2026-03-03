@@ -757,13 +757,15 @@ class AgentDomainService:
                             terminal_status = SessionStatus.FAILED
                         else:
                             # Orphaned session — task lost but status never updated.
-                            # Guard: if the session was updated very recently (< 30s),
+                            # Guard: if the session was updated recently (< 180s),
                             # this is likely a reconnect race — the teardown just
                             # cleared task_id while the agent asyncio task is still
                             # alive.  Yield an idle DoneEvent instead of cancelling
                             # a potentially live session.
+                            # 180s matches the SSE non-terminal grace period (120s)
+                            # plus margin for network delays and frontend retry backoff.
                             session_age = (datetime.now(UTC) - session.updated_at).total_seconds() if session else 999
-                            if session_age < 30.0:
+                            if session_age < 180.0:
                                 logger.info(
                                     "Session %s is RUNNING with no task but updated %.1fs ago — "
                                     "likely reconnect race, emitting done instead of cancelling",
