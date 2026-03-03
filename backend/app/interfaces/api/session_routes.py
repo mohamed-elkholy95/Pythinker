@@ -1312,6 +1312,22 @@ async def chat(
                         agent_service=agent_service,
                         grace_seconds=5.0,  # Reduced from 45s
                     )
+                elif close_reason == "stream_exhausted_non_terminal":
+                    # Agent is still running — the SSE stream simply exhausted its
+                    # current batch of events.  Schedule a deferred cancellation
+                    # so the frontend can reconnect within the grace window.
+                    # On reconnect, _cancel_pending_disconnect_cancellation()
+                    # (called at line 777) will abort the teardown.
+                    _non_terminal_grace = getattr(
+                        settings,
+                        "sse_disconnect_non_terminal_grace_seconds",
+                        120.0,
+                    )
+                    _schedule_disconnect_cancellation(
+                        session_id=session_id,
+                        agent_service=agent_service,
+                        grace_seconds=max(5.0, float(_non_terminal_grace)),
+                    )
                 else:
                     # Ensure stale deferred cancellations don't race with a successful completion path.
                     _cancel_pending_disconnect_cancellation(session_id)
@@ -1680,7 +1696,9 @@ async def screencast_websocket(
                     if e.code in (1000, 1001, None):
                         logger.debug("Screencast -> browser connection closed (code=%s)", e.code)
                     else:
-                        logger.warning("Screencast -> browser connection closed abnormally (code=%s, reason=%s)", e.code, e.reason)
+                        logger.warning(
+                            "Screencast -> browser connection closed abnormally (code=%s, reason=%s)", e.code, e.reason
+                        )
                 except Exception as e:
                     logger.error(f"Error forwarding from screencast: {e}")
 
