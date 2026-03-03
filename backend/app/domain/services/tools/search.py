@@ -447,6 +447,9 @@ class SearchTool(BaseTool):
         self._scraper = scraper
         # Track the current browse task so we can cancel it before spawning a new one
         self._current_browse_task: asyncio.Task[None] | None = None
+        # Serialize background browse task replacement to avoid races when
+        # multiple search calls complete at nearly the same time.
+        self._browse_task_lock = asyncio.Lock()
         # Instance-level cache with O(1) LRU eviction
         self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         # Session-scoped LRU set of URLs already shown in live preview.
@@ -486,6 +489,26 @@ class SearchTool(BaseTool):
         # context here so that dedup-blocked queries can return cached
         # results instead of failing with 0 results.
         self._pre_planning_context: str | None = None
+
+    async def _schedule_background_preview(self, search_data: Any, count: int = 3) -> None:
+        """Schedule at most one fire-and-forget preview task for top search URLs.
+
+        This method centralizes task lifecycle management so concurrent calls to
+        info_search_web/wide_research don't race and leave orphan browse tasks.
+        """
+        if not self._browser or not search_data:
+            return
+
+        if hasattr(self._browser, "allow_background_browsing"):
+            self._browser.allow_background_browsing()
+
+        async with self._browse_task_lock:
+            if self._current_browse_task and not self._current_browse_task.done():
+                self._current_browse_task.cancel()
+            task = asyncio.create_task(self._browse_top_results(search_data, count=count))
+            self._current_browse_task = task
+            self._background_tasks.add(task)
+            task.add_done_callback(self._handle_background_task_done)
 
     @classmethod
     def _is_tracking_query_param(cls, key: str) -> bool:
@@ -917,6 +940,7 @@ class SearchTool(BaseTool):
             candidate_urls: list[tuple[str, str]] = []
             seen_this_batch: set[str] = set()
             skipped_already_previewed = 0
+            reserved_urls: set[str] = set()
             for item in items:
                 url = getattr(item, "link", None) or (item.get("link") if isinstance(item, dict) else None)
                 if not url:
@@ -930,6 +954,7 @@ class SearchTool(BaseTool):
                     continue
                 candidate_urls.append((url, normalized_url))
                 self._previewing_result_urls.add(normalized_url)
+                reserved_urls.add(normalized_url)
                 if len(candidate_urls) >= count:
                     break
 
@@ -947,12 +972,14 @@ class SearchTool(BaseTool):
                 skipped_already_previewed,
             )
             consecutive_failures = 0
-            max_failures = 2
+            total_failures = 0
+            max_consecutive_failures = max(3, min(5, len(candidate_urls)))
+            max_total_failures = max(4, min(8, len(candidate_urls) + 1))
             navigation_timeout_seconds = 20.0
             for url, normalized_url in candidate_urls:
                 # Check if a foreground browser operation cancelled us
                 if getattr(self._browser, "_background_browse_cancelled", False):
-                    logger.info("_browse_top_results: cancelled by foreground browser operation")
+                    logger.debug("_browse_top_results: cancelled by foreground browser operation")
                     break
                 navigation_succeeded = False
                 try:
@@ -963,6 +990,7 @@ class SearchTool(BaseTool):
                         )
                         if not success:
                             consecutive_failures += 1
+                            total_failures += 1
                         else:
                             consecutive_failures = 0
                             navigation_succeeded = True
@@ -976,21 +1004,36 @@ class SearchTool(BaseTool):
                             navigation_succeeded = True
                         else:
                             consecutive_failures += 1
-                    # Dwell time for live preview — long enough for users to see each page
-                    await asyncio.sleep(5.0)
+                            total_failures += 1
+                    # Dwell only on successful navigation so failures do not stall
+                    # preview progression.
+                    if navigation_succeeded:
+                        await asyncio.sleep(5.0)
+                    elif consecutive_failures:
+                        await asyncio.sleep(min(1.5, 0.5 * consecutive_failures))
                 except Exception as e:
                     consecutive_failures += 1
+                    total_failures += 1
                     logger.debug(f"Failed to browse {url}: {e}")
+                    await asyncio.sleep(min(1.5, 0.5 * consecutive_failures))
                 finally:
                     self._previewing_result_urls.discard(normalized_url)
                     if navigation_succeeded:
                         self._mark_previewed_url(normalized_url)
 
-                if consecutive_failures >= max_failures:
+                if consecutive_failures >= max_consecutive_failures or total_failures >= max_total_failures:
                     logger.info(
-                        f"_browse_top_results: stopping early after {consecutive_failures} consecutive failures"
+                        "_browse_top_results: stopping early after failures (consecutive=%d/%d, total=%d/%d)",
+                        consecutive_failures,
+                        max_consecutive_failures,
+                        total_failures,
+                        max_total_failures,
                     )
                     break
+            # Cleanup any URLs reserved but never reached because of cancellation
+            # or early stop.
+            for normalized_url in reserved_urls:
+                self._previewing_result_urls.discard(normalized_url)
         except asyncio.CancelledError:
             logger.debug("_browse_top_results: cancelled by newer browse task")
         except Exception as e:
@@ -1196,15 +1239,7 @@ class SearchTool(BaseTool):
 
         # Fire-and-forget: open top 3 results in browser for live preview visibility
         if result.success and self._browser and result.data:
-            if hasattr(self._browser, "allow_background_browsing"):
-                self._browser.allow_background_browsing()
-            # Cancel previous browse task to prevent overlapping navigations (flickering)
-            if self._current_browse_task and not self._current_browse_task.done():
-                self._current_browse_task.cancel()
-            task = asyncio.create_task(self._browse_top_results(result.data, count=3))
-            self._current_browse_task = task
-            self._background_tasks.add(task)
-            task.add_done_callback(self._handle_background_task_done)
+            await self._schedule_background_preview(result.data, count=3)
 
             # Append system note to prevent LLM from re-navigating these same URLs
             result.message = (
@@ -1455,13 +1490,7 @@ wide_research(
 
         # Fire-and-forget: open top 3 results in browser for live preview visibility
         if self._browser and search_data:
-            # Cancel previous browse task to prevent overlapping navigations (flickering)
-            if self._current_browse_task and not self._current_browse_task.done():
-                self._current_browse_task.cancel()
-            task = asyncio.create_task(self._browse_top_results(search_data, count=3))
-            self._current_browse_task = task
-            self._background_tasks.add(task)
-            task.add_done_callback(self._handle_background_task_done)
+            await self._schedule_background_preview(search_data, count=3)
 
             # Append system note to prevent LLM from re-navigating these same URLs
             message += (

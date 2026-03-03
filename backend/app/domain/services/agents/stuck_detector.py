@@ -1051,6 +1051,19 @@ class StuckDetector:
                     "browser_get_content",
                 }
                 if tool_name in repetitive_tools:
+                    tool_records = [r for r in recent if r.tool_name == tool_name]
+                    unique_args = {r.args_hash for r in tool_records}
+                    all_success = all(r.success for r in tool_records)
+
+                    # Avoid false positives for intentional broad research where
+                    # many distinct successful queries are expected.
+                    if (
+                        tool_name in {"info_search_web", "search", "wide_research"}
+                        and all_success
+                        and len(unique_args) >= threshold
+                    ):
+                        continue
+
                     return StuckAnalysis(
                         loop_type=LoopType.EXCESSIVE_SAME_TOOL,
                         confidence=0.85,

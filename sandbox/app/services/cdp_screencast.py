@@ -43,7 +43,7 @@ _HEALTH_CHECK_TIMEOUT = 2.0  # Quick health check (not worth externalizing)
 _CAPTURE_COMMAND_TIMEOUT = settings.CDP_COMMAND_TIMEOUT
 _CONNECT_TIMEOUT = settings.CDP_CONNECT_TIMEOUT
 _PAGE_REDISCOVERY_DELAY = 0.3  # Brief pause for Chrome to register new page target
-_MAX_RETRY_ATTEMPTS = 2  # Initial attempt + 1 retry after page re-discovery
+_MAX_RETRY_ATTEMPTS = 3  # Initial attempt + up to 2 retries after recovery
 _STREAM_FRAME_TIMEOUT = settings.CDP_STREAM_FRAME_TIMEOUT
 _STREAM_HEALTH_CHECK_INTERVAL = settings.CDP_STREAM_HEALTH_CHECK_INTERVAL
 
@@ -1147,10 +1147,11 @@ class CDPScreencastService:
             if not recovered:
                 return None
 
-        # Try up to 2 times: initial attempt + 1 retry after page re-discovery
+        # Try up to 3 times: initial attempt + retries after recovery.
         for attempt in range(_MAX_RETRY_ATTEMPTS):
+            is_last_attempt = attempt >= _MAX_RETRY_ATTEMPTS - 1
             if not await self.ensure_connected():
-                if attempt == 0:
+                if not is_last_attempt:
                     self.invalidate_cache()
                     continue
                 return None
@@ -1176,9 +1177,9 @@ class CDPScreencastService:
                     # This matters because concurrent callers all bypass the
                     # pre-check simultaneously (all see count=0 at call start).
                     if await self._maybe_escalate("timeout"):
-                        if attempt == 0:
+                        if not is_last_attempt:
                             continue
-                    elif attempt == 0:
+                    elif not is_last_attempt:
                         await self._handle_page_detached("capture_screenshot_timeout")
                         continue
                     return None
@@ -1198,11 +1199,11 @@ class CDPScreencastService:
                     # Inline escalation check — fires immediately when thresholds
                     # are met, without waiting for the next call's pre-check.
                     if await self._maybe_escalate("error"):
-                        if attempt == 0:
+                        if not is_last_attempt:
                             continue
                         return None
 
-                    if self._is_page_detached_error(result) and attempt == 0:
+                    if self._is_page_detached_error(result) and not is_last_attempt:
                         await self._handle_page_detached("capture_screenshot")
                         continue
 
@@ -1213,11 +1214,18 @@ class CDPScreencastService:
                     self.invalidate_cache()
                     async with self._command_lock:
                         await self._cleanup_stale_connection()
+                    if not is_last_attempt:
+                        await asyncio.sleep(_PAGE_REDISCOVERY_DELAY)
+                        continue
 
             except Exception as e:
                 logger.warning("Failed to capture single frame: %s", e)
                 self._record_page_failure(current_ws_url)
-                if attempt == 0:
+                if await self._maybe_escalate("exception"):
+                    if not is_last_attempt:
+                        continue
+                    return None
+                if not is_last_attempt:
                     await self._handle_page_detached("capture_screenshot_exception")
                     continue
                 async with self._command_lock:

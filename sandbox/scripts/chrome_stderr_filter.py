@@ -42,6 +42,11 @@ SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Video capture / on-device model — no GPU/codec hardware in containers
     re.compile(r"Bind context provider failed"),
     re.compile(r"on_device_model.*service disconnect"),
+    # ALSA/audio probing noise in containerized Chrome (no sound card attached)
+    re.compile(r"^ALSA lib "),
+    re.compile(r"alsa_util\.cc\(\d+\).*PcmOpen"),
+    # Transient DNS handshake noise from blocked/ephemeral third-party subresources
+    re.compile(r"ssl_client_socket_impl\.cc\(\d+\).*handshake failed.*net_error -101"),
 )
 
 
