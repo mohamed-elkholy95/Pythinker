@@ -70,6 +70,7 @@ _health_state = {
     "sandbox_pool": False,
     "ready": False,
 }
+_STARTUP_SINGLETON_TTL_SECONDS = 6 * 60 * 60
 
 
 def get_health_state() -> dict:
@@ -97,6 +98,14 @@ async def _try_acquire_leader_lock(lock_name: str, ttl_seconds: int) -> bool:
     except Exception:
         # Redis down → allow execution (graceful degradation)
         return True
+
+
+async def _try_acquire_startup_singleton(task_name: str, ttl_seconds: int = _STARTUP_SINGLETON_TTL_SECONDS) -> bool:
+    """Acquire a startup-only singleton lock for long-running background tasks."""
+    acquired = await _try_acquire_leader_lock(f"startup:{task_name}", ttl_seconds=ttl_seconds)
+    if not acquired:
+        logger.info("Skipping startup task '%s' on this worker (already started elsewhere)", task_name)
+    return acquired
 
 
 async def _run_periodic_session_cleanup(
@@ -238,6 +247,7 @@ async def lifespan(app: FastAPI):
     memory_cleanup_task = None
     event_archival_task = None
     mongo_profiler_task = None
+    sync_worker_started = False
 
     try:
         # Initialize observability (OTEL, metrics)
@@ -289,36 +299,6 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Failed to seed connectors (non-critical): {e}")
 
-        # Cleanup stale running sessions from previous crashes/restarts.
-        # On startup, ANY session still marked RUNNING is orphaned — the backend
-        # just (re)started so no in-memory task can be alive.  Use threshold=0
-        # to catch sessions from hot-reloads that are only seconds old.
-        try:
-            from app.application.services.maintenance_service import MaintenanceService
-
-            db = get_mongodb().client[settings.mongodb_database]
-            maintenance_service = MaintenanceService(db)
-            cleanup_result = await maintenance_service.cleanup_stale_running_sessions(
-                stale_threshold_minutes=0,
-                dry_run=False,
-            )
-            if cleanup_result["sessions_cleaned"] > 0:
-                logger.info(
-                    "Startup: cleaned %d orphaned RUNNING sessions (threshold=0 min)",
-                    cleanup_result["sessions_cleaned"],
-                )
-
-            periodic_cleanup_task = asyncio.create_task(
-                _run_periodic_session_cleanup(
-                    maintenance_service,
-                    interval_seconds=settings.stale_session_cleanup_interval_seconds,
-                    stale_threshold_minutes=settings.stale_session_threshold_minutes,
-                ),
-            )
-            logger.info("Periodic session cleanup background task started")
-        except Exception as e:
-            logger.warning(f"Stale session cleanup failed (non-critical): {e}")
-
         # Initialize MinIO (required for screenshot storage + optional file storage)
         try:
             from app.infrastructure.storage.minio_storage import get_minio_storage
@@ -343,6 +323,39 @@ async def lifespan(app: FastAPI):
                 _health_state["redis_cache"] = False
         else:
             _health_state["redis_cache"] = False
+
+        # Cleanup stale running sessions from previous crashes/restarts.
+        # On startup, ANY session still marked RUNNING is orphaned — the backend
+        # just (re)started so no in-memory task can be alive.  Use threshold=0
+        # to catch sessions from hot-reloads that are only seconds old.
+        try:
+            from app.application.services.maintenance_service import MaintenanceService
+
+            db = get_mongodb().client[settings.mongodb_database]
+            maintenance_service = MaintenanceService(db)
+
+            if await _try_acquire_startup_singleton("stale_session_cleanup", ttl_seconds=600):
+                cleanup_result = await maintenance_service.cleanup_stale_running_sessions(
+                    stale_threshold_minutes=0,
+                    dry_run=False,
+                )
+                if cleanup_result["sessions_cleaned"] > 0:
+                    logger.info(
+                        "Startup: cleaned %d orphaned RUNNING sessions (threshold=0 min)",
+                        cleanup_result["sessions_cleaned"],
+                    )
+
+            if await _try_acquire_startup_singleton("periodic_session_cleanup_loop"):
+                periodic_cleanup_task = asyncio.create_task(
+                    _run_periodic_session_cleanup(
+                        maintenance_service,
+                        interval_seconds=settings.stale_session_cleanup_interval_seconds,
+                        stale_threshold_minutes=settings.stale_session_threshold_minutes,
+                    ),
+                )
+                logger.info("Periodic session cleanup background task started")
+        except Exception as e:
+            logger.warning(f"Stale session cleanup failed (non-critical): {e}")
 
         # Initialize Qdrant (optional, graceful degradation if unavailable)
         try:
@@ -453,7 +466,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Agent metrics adapter configuration failed (non-critical): {e}")
 
         # Phase 2: Start sync worker for MongoDB → Qdrant outbox processing
-        if _health_state["qdrant"]:
+        if _health_state["qdrant"] and await _try_acquire_startup_singleton("sync_worker"):
             try:
                 from app.domain.services.sync_worker import SyncWorker, set_sync_worker, start_sync_worker
                 from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
@@ -466,6 +479,7 @@ async def lifespan(app: FastAPI):
                     )
                 )
                 await start_sync_worker()
+                sync_worker_started = True
                 logger.info("Sync worker started for MongoDB → Qdrant synchronization")
             except Exception as e:
                 logger.warning(f"Sync worker startup failed (non-critical): {e}")
@@ -508,8 +522,9 @@ async def lifespan(app: FastAPI):
                         logger.debug(f"Reconciliation failed (non-critical): {e}")
                     await asyncio.sleep(300)  # Every 5 minutes
 
-            reconciliation_task = asyncio.create_task(_reconciliation_loop())
-            logger.info("Reconciliation background task started")
+            if await _try_acquire_startup_singleton("reconciliation_loop"):
+                reconciliation_task = asyncio.create_task(_reconciliation_loop())
+                logger.info("Reconciliation background task started")
 
         # Start background memory cleanup task (Phase 7 + Phase 6F context cleanup)
         if _health_state["qdrant"]:
@@ -556,8 +571,9 @@ async def lifespan(app: FastAPI):
                     except Exception as e:
                         logger.debug(f"Conversation context cleanup failed (non-critical): {e}")
 
-            memory_cleanup_task = asyncio.create_task(_memory_cleanup_loop())
-            logger.info("Memory cleanup background task started")
+            if await _try_acquire_startup_singleton("memory_cleanup_loop"):
+                memory_cleanup_task = asyncio.create_task(_memory_cleanup_loop())
+                logger.info("Memory cleanup background task started")
 
         # Start MongoDB slow query profiler (Phase 4B)
         if _health_state["mongodb"] and settings.mongodb_profiler_enabled:
@@ -572,10 +588,11 @@ async def lifespan(app: FastAPI):
                 logger.warning("MongoDB profiler startup failed (non-critical): %s", e)
 
         # Start event archival background task (Phase 1A: unbounded growth prevention)
-        if _health_state["mongodb"]:
+        if _health_state["mongodb"] and await _try_acquire_startup_singleton("event_archival_loop"):
             event_archival_task = asyncio.create_task(_run_periodic_event_archival())
             logger.info(
-                "Event archival background task started (retention: %d days)", settings.mongodb_event_retention_days
+                "Event archival background task started (retention: %d days)",
+                settings.mongodb_event_retention_days,
             )
 
         try:
@@ -596,7 +613,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("SSE stream drain failed (non-critical): %s", e)
 
             # Phase 2: Stop sync worker
-            if _health_state["qdrant"]:
+            if _health_state["qdrant"] and sync_worker_started:
                 try:
                     from app.domain.services.sync_worker import stop_sync_worker
 
