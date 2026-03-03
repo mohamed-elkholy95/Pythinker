@@ -351,19 +351,36 @@ class AgentService:
 
                 stale.append(session)
 
-            for session in stale:
+            async def _stop_one(s: Session) -> None:
+                """Stop a single stale session with a hard per-session cap."""
                 try:
-                    logger.info(
-                        f"Auto-stopping stale session {session.id} (status={session.status}) for user {user_id}"
-                    )
-                    # Close browser connections for this session's sandbox before stopping
-                    if session.sandbox_id:
-                        await self._close_browser_for_sandbox(session.sandbox_id)
-                    await self._agent_domain_service.stop_session(session.id)
+                    async with asyncio.timeout(10.0):
+                        logger.info(
+                            "Auto-stopping stale session %s (status=%s) for user %s",
+                            s.id,
+                            s.status,
+                            user_id,
+                        )
+                        if s.sandbox_id:
+                            await self._close_browser_for_sandbox(s.sandbox_id)
+                        await self._agent_domain_service.stop_session(s.id)
+                except TimeoutError:
+                    logger.warning("Auto-stop of stale session %s timed out after 10s", s.id)
                 except Exception as e:
-                    logger.warning(f"Failed to auto-stop stale session {session.id}: {e}")
+                    logger.warning("Failed to auto-stop stale session %s: %s", s.id, e)
+
+            # Stop all stale sessions in parallel with a total cap of 12 seconds
+            # so that create_session never blocks on an unbounded cleanup phase.
             if stale:
-                logger.info(f"Cleaned up {len(stale)} stale session(s) for user {user_id}")
+                try:
+                    async with asyncio.timeout(12.0):
+                        await asyncio.gather(*[_stop_one(s) for s in stale])
+                except TimeoutError:
+                    logger.warning(
+                        "Stale session cleanup exceeded 12s cap; %d session(s) may not have been fully stopped",
+                        len(stale),
+                    )
+                logger.info("Cleaned up %d stale session(s) for user %s", len(stale), user_id)
         except Exception as e:
             logger.warning(f"Stale session cleanup failed for user {user_id}: {e}")
 
