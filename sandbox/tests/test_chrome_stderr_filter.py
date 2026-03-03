@@ -26,6 +26,9 @@ def test_chrome_stderr_filter_suppresses_known_benign_noise() -> None:
         "[20:20:0213/191000.120629:ERROR:dbus/object_proxy.cc:573] Failed to call method: "
         "org.freedesktop.DBus.Properties.GetAll: object_path= /org/freedesktop/UPower/devices/DisplayDevice: "
         "org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files",
+        "ALSA lib confmisc.c:855:(parse_card) cannot find card '0'",
+        "[1118:1118:0303/155138.479711:ERROR:alsa_util.cc(204)] PcmOpen: default,No such file or directory",
+        "[881:889:0303/155139.363044:ERROR:ssl_client_socket_impl.cc(878)] handshake failed; returned -1, SSL error code 1, net_error -101",
     ]
     actionable_line = (
         "[123:456:0213/191200.000000:ERROR:net/socket.cc:42] Actionable network failure"
@@ -37,7 +40,7 @@ def test_chrome_stderr_filter_suppresses_known_benign_noise() -> None:
     for line in noisy_lines:
         assert line not in proc.stderr
     assert (
-        "[chrome-stderr-filter] Final suppressed benign Chromium lines: 3"
+        "[chrome-stderr-filter] Final suppressed benign Chromium lines: 6"
         in proc.stderr
     )
     assert proc.stdout == ""

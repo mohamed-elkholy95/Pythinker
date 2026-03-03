@@ -10,6 +10,7 @@ import ast
 import asyncio
 import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -76,6 +77,9 @@ _PYTHON_KEYWORDS = frozenset(
     ]
 )
 _PROSE_INDICATORS = re.compile(r"^(?:[A-Z][a-z].*[.!?]$|#+\s|[-*]\s|\d+\.\s)", re.MULTILINE)
+_MARKDOWN_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+\S", re.MULTILINE)
+_TRIPLE_QUOTE_ASSIGNMENT = re.compile(r"=\s*(?:[rRuUbBfF]{0,3})?('{3}|\"{3})")
+_TEXT_EXPORT_HINT = re.compile(r"\b(file_write|code_save_artifact|open\(|write\(|pathlib|Path\()", re.IGNORECASE)
 
 
 def _looks_like_plain_text(code: str) -> bool:
@@ -94,6 +98,24 @@ def _looks_like_plain_text(code: str) -> bool:
         return False
     prose_hits = len(_PROSE_INDICATORS.findall(stripped))
     return prose_hits >= 2
+
+
+def _looks_like_markdown_blob_assignment(code: str) -> bool:
+    """Return True when code is mostly markdown text stuffed into a Python string.
+
+    This catches a common failure mode where the model tries to generate a long
+    report by assigning markdown into a triple-quoted variable and forgets to
+    actually execute any program logic (or truncates the string).
+    """
+    stripped = code.strip()
+    if len(stripped) < 80:
+        return False
+    if not _TRIPLE_QUOTE_ASSIGNMENT.search(code):
+        return False
+    if not _MARKDOWN_HEADING.search(code):
+        return False
+    # If the snippet clearly contains file output operations, treat it as valid code.
+    return not _TEXT_EXPORT_HINT.search(code)
 
 
 def _check_python_syntax(code: str) -> str | None:
@@ -300,6 +322,25 @@ class CodeExecutorTool(BaseTool):
         self._initialized = False
         self._workspace_init_lock = asyncio.Lock()
         self.security_critic = security_critic or SecurityCritic()
+        self._python_syntax_error_streak = 0
+        self._last_python_syntax_signature: str | None = None
+        self._last_python_syntax_ts: float = 0.0
+
+    def _record_python_syntax_error(self, signature: str) -> int:
+        """Track repeated syntax failures to provide stronger stop guidance."""
+        now = time.monotonic()
+        if signature == self._last_python_syntax_signature and (now - self._last_python_syntax_ts) <= 120.0:
+            self._python_syntax_error_streak += 1
+        else:
+            self._python_syntax_error_streak = 1
+        self._last_python_syntax_signature = signature
+        self._last_python_syntax_ts = now
+        return self._python_syntax_error_streak
+
+    def _reset_python_syntax_error_streak(self) -> None:
+        self._python_syntax_error_streak = 0
+        self._last_python_syntax_signature = None
+        self._last_python_syntax_ts = 0.0
 
     async def _ensure_workspace(self) -> None:
         """Ensure workspace directory exists."""
@@ -515,14 +556,25 @@ class CodeExecutorTool(BaseTool):
         if lang == Language.PYTHON:
             syntax_err = _check_python_syntax(code)
             if syntax_err:
+                signature = syntax_err.splitlines()[0] if syntax_err else "SyntaxError"
+                streak = self._record_python_syntax_error(signature)
+                repeated_guidance = (
+                    "\n\nRepeated malformed Python was submitted multiple times. "
+                    "Stop retrying this tool with the same payload. "
+                    "If your goal is to save report text, use file_write/code_save_artifact."
+                    if streak >= 3
+                    else ""
+                )
                 return ToolResult(
                     success=False,
                     message=(
                         f"❌ Python syntax error detected before execution:\n{syntax_err}\n\n"
                         "The code appears truncated or malformed (e.g. unclosed triple-quotes, "
                         "missing brackets). Please fix the syntax and retry."
+                        f"{repeated_guidance}"
                     ),
                 )
+            self._reset_python_syntax_error_streak()
 
         # Get language config
         config = LANGUAGE_CONFIG[lang]
@@ -683,13 +735,22 @@ class CodeExecutorTool(BaseTool):
         """
         # Early guard: reject plain prose/markdown sent as Python code.
         # GLM-5 occasionally places research text directly in the code arg.
+        if _looks_like_markdown_blob_assignment(code):
+            return ToolResult(
+                success=False,
+                message=(
+                    "❌ This input looks like markdown report text assigned to a Python string, "
+                    "not executable logic.\n"
+                    "Use file_write or code_save_artifact to persist report text."
+                ),
+            )
         if _looks_like_plain_text(code):
             return ToolResult(
                 success=False,
                 message=(
                     "❌ This looks like plain text / markdown, not Python code.\n"
-                    "To save text content to a file, use the file_write tool instead of "
-                    "code_execute_python."
+                    "To save text content to a file, use file_write/code_save_artifact "
+                    "instead of code_execute_python."
                 ),
             )
         return await self.code_execute(
