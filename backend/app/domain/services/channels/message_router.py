@@ -370,19 +370,29 @@ class MessageRouter:
 
         Uses ``session_key_override`` from the inbound message if provided,
         otherwise falls back to the channel-level session mapping.
+        Reuses existing sessions only while they are non-terminal.
         """
         if message.session_key_override:
             return message.session_key_override
 
         session_id = await self._user_channel_repo.get_session_key(user_id, message.channel, message.chat_id)
 
-        # If we have a stored session, verify it still exists
+        # If we have a stored session, verify it still exists and is reusable.
         if session_id:
             session = await self._agent_service.get_session(session_id, user_id)
             if session is not None:
-                return session_id
-            # Session was deleted — fall through and create a new one
-            logger.info("Stored session %s no longer exists, creating new one", session_id)
+                if self._is_terminal_session(session):
+                    logger.info(
+                        "Stored session %s is terminal, creating a new session for %s/%s",
+                        session_id,
+                        message.channel,
+                        message.chat_id,
+                    )
+                else:
+                    return session_id
+            else:
+                # Session was deleted — fall through and create a new one
+                logger.info("Stored session %s no longer exists, creating new one", session_id)
 
         # Create a new session
         session = await self._agent_service.create_session(
@@ -400,6 +410,14 @@ class MessageRouter:
             message.chat_id,
         )
         return session.id
+
+    @staticmethod
+    def _is_terminal_session(session: object) -> bool:
+        """Return True when the session status is terminal."""
+        status = getattr(session, "status", None)
+        raw_value = getattr(status, "value", status)
+        normalized = str(raw_value).strip().lower() if raw_value is not None else ""
+        return normalized in {"completed", "failed", "cancelled"}
 
     # ------------------------------------------------------------------
     # Helpers
