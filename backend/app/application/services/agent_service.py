@@ -178,6 +178,7 @@ class AgentService:
     async def create_session(
         self,
         user_id: str,
+        source: str = "web",
         mode: AgentMode = AgentMode.AGENT,
         research_mode: ResearchMode | None = None,
         initial_message: str | None = None,
@@ -240,7 +241,13 @@ class AgentService:
 
         agent = await self._create_agent()
         effective_research_mode = research_mode or ResearchMode.DEEP_RESEARCH
-        session = Session(agent_id=agent.id, user_id=user_id, mode=mode, research_mode=effective_research_mode)
+        session = Session(
+            agent_id=agent.id,
+            user_id=user_id,
+            source=source,
+            mode=mode,
+            research_mode=effective_research_mode,
+        )
         settings = get_settings()
         session.sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
         if require_fresh_sandbox:

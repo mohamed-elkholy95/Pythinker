@@ -88,6 +88,7 @@ def _make_repo(
     repo.clear_session_key = AsyncMock()
     repo.link_channel_to_user = AsyncMock(return_value=None)
     repo.migrate_sessions = AsyncMock()
+    repo.migrate_session_ownership = AsyncMock()
     return repo
 
 
@@ -161,6 +162,8 @@ class TestFullChannelPipelineGreeting:
 
         # Session lifecycle: new session was created and stored
         agent_svc.create_session.assert_awaited_once()
+        create_kwargs = agent_svc.create_session.await_args.kwargs
+        assert create_kwargs["source"] == "telegram"
         repo.set_session_key.assert_awaited_once()
 
         # User was looked up by channel identity
@@ -409,6 +412,10 @@ class TestSlashCommandLinkAccount:
             web_user_id,
             ChannelType.TELEGRAM,
         )
+        repo.migrate_session_ownership.assert_awaited_once_with(
+            old_user_id,
+            web_user_id,
+        )
 
         # Code deleted after use
         mock_store.delete.assert_awaited_once_with(redis_key)
@@ -439,6 +446,7 @@ class TestSlashCommandLinkAccount:
 
         repo.link_channel_to_user.assert_not_awaited()
         repo.migrate_sessions.assert_not_awaited()
+        repo.migrate_session_ownership.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_link_no_code_provided(self) -> None:
@@ -465,3 +473,4 @@ class TestSlashCommandLinkAccount:
         mock_store.get.assert_not_awaited()
 
         repo.link_channel_to_user.assert_not_awaited()
+        repo.migrate_session_ownership.assert_not_awaited()
