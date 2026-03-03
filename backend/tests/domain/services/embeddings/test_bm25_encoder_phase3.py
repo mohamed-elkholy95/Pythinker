@@ -59,14 +59,16 @@ class TestBM25SparseEncoder:
         assert all(isinstance(v, float) for v in sparse_vector.values())  # Float scores
         assert all(0.0 <= v <= 1.0 for v in sparse_vector.values())  # Normalized scores
 
-    def test_encode_without_fitting_returns_empty(self):
-        """Test encode() returns empty dict when not fitted."""
+    def test_encode_without_fitting_lazy_fits(self):
+        """Test encode() lazy-fits on seed corpus when not fitted."""
         from app.domain.services.embeddings.bm25_encoder import BM25SparseEncoder
 
         encoder = BM25SparseEncoder()
-        sparse_vector = encoder.encode("test query")
+        sparse_vector = encoder.encode("search query")
 
-        assert sparse_vector == {}
+        # Lazy-fit on seed corpus ensures non-empty sparse vectors
+        assert isinstance(sparse_vector, dict)
+        assert len(sparse_vector) > 0
 
     def test_encode_empty_text_returns_empty(self):
         """Test encode() handles empty text gracefully."""
