@@ -8,6 +8,7 @@ Provides:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ import string
 from fastapi import APIRouter, Depends
 
 from app.application.errors.exceptions import BadRequestError, NotFoundError
+from app.core import prometheus_metrics as pm
 from app.domain.models.channel import ChannelType
 from app.domain.models.user import User
 from app.infrastructure.repositories.user_channel_repository import MongoUserChannelRepository
@@ -51,6 +53,11 @@ def _generate_link_code() -> str:
 def _build_redis_key(code: str) -> str:
     """Build the Redis key for a link code."""
     return f"{_REDIS_KEY_PREFIX}:{code}"
+
+
+def _code_fingerprint(code: str) -> tuple[str, str]:
+    """Return non-sensitive code fingerprint parts for structured logs."""
+    return code[:4], hashlib.sha256(code.encode("utf-8")).hexdigest()[:12]
 
 
 def _telegram_bot_username() -> str:
@@ -120,12 +127,16 @@ async def generate_link_code(
 
     redis = get_redis()
     await redis.call("setex", redis_key, _CODE_TTL_SECONDS, payload)
+    pm.record_channel_link_code_generated(channel_type.value)
+    code_prefix, code_sha256_12 = _code_fingerprint(code)
 
     logger.info(
-        "Generated link code for user=%s channel=%s ttl=%ss",
+        "Generated link code for user=%s channel=%s ttl=%ss code_prefix=%s code_sha256_12=%s",
         current_user.id,
         channel_type.value,
         _CODE_TTL_SECONDS,
+        code_prefix,
+        code_sha256_12,
     )
 
     bind_command = _bind_command(channel_type.value, code)
