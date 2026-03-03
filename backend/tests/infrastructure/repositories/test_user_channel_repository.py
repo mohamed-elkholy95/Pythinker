@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from pymongo import ReturnDocument
+
 from app.domain.models.channel import ChannelType
 from app.infrastructure.repositories.user_channel_repository import (
     MongoUserChannelRepository,
@@ -18,11 +20,13 @@ from app.infrastructure.repositories.user_channel_repository import (
 @pytest.fixture()
 def mock_db() -> MagicMock:
     """Return a mock Motor database with two mock collections."""
+    links_col = MagicMock()
+    sessions_col = MagicMock()
     db = MagicMock()
     db.__getitem__ = MagicMock(
         side_effect=lambda name: {
-            "user_channel_links": MagicMock(),
-            "channel_sessions": MagicMock(),
+            "user_channel_links": links_col,
+            "channel_sessions": sessions_col,
         }[name]
     )
     return db
@@ -268,8 +272,9 @@ async def test_link_channel_to_user_upserts_with_correct_filter(
     assert update["$setOnInsert"]["sender_id"] == "tg-999"
     assert "created_at" in update["$setOnInsert"]
 
-    # Upsert flag
+    # Upsert flag and return_document=BEFORE (must return OLD doc, not new)
     assert call_args[1]["upsert"] is True
+    assert call_args[1]["return_document"] == ReturnDocument.BEFORE
 
     # No previous document → returns None
     assert result is None
@@ -358,7 +363,9 @@ async def test_unlink_channel_calls_delete_one(
     repo: MongoUserChannelRepository,
 ) -> None:
     """unlink_channel calls delete_one with the correct filter."""
-    repo._links.delete_one = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.deleted_count = 1
+    repo._links.delete_one = AsyncMock(return_value=mock_result)
 
     await repo.unlink_channel("web-user-abc", ChannelType.TELEGRAM)
 
@@ -374,7 +381,9 @@ async def test_unlink_channel_uses_string_channel(
     repo: MongoUserChannelRepository,
 ) -> None:
     """unlink_channel converts ChannelType to string for the MongoDB filter."""
-    repo._links.delete_one = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.deleted_count = 1
+    repo._links.delete_one = AsyncMock(return_value=mock_result)
 
     await repo.unlink_channel("web-user-xyz", ChannelType.DISCORD)
 
