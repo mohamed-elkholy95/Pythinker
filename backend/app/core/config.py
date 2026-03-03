@@ -460,7 +460,6 @@ def get_feature_flags() -> dict[str, bool]:
             "pre_planning_search": False,
             "confirmation_summary_enabled": False,
             "url_failure_guard": True,
-            "feature_url_failure_guard_enabled": True,
             # Tiered External Memory
             "tool_result_store": True,
             "graduated_compaction": True,
@@ -509,7 +508,6 @@ def get_feature_flags() -> dict[str, bool]:
         "pre_planning_search": settings.feature_pre_planning_search,
         "confirmation_summary_enabled": settings.confirmation_summary_enabled,
         "url_failure_guard": settings.feature_url_failure_guard_enabled,
-        "feature_url_failure_guard_enabled": settings.feature_url_failure_guard_enabled,
         # Tiered External Memory
         "tool_result_store": settings.feature_tool_result_store_enabled,
         "graduated_compaction": settings.feature_graduated_compaction_enabled,
