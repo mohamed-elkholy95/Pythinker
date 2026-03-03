@@ -67,12 +67,17 @@ class _FakeProgressEvent:
 
 class SessionStatus(str, Enum):
     RUNNING = "running"
+    COMPLETED = "completed"
 
 
 class _FakeSession:
-    def __init__(self, session_id: str = "sess-123") -> None:
+    def __init__(
+        self,
+        session_id: str = "sess-123",
+        status: SessionStatus = SessionStatus.RUNNING,
+    ) -> None:
         self.id = session_id
-        self.status = SessionStatus.RUNNING
+        self.status = status
         self.created_at = datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC)
 
 
@@ -471,6 +476,30 @@ class TestStaleSessionRecovery:
         assert len(replies) == 1
         agent_svc.create_session.assert_awaited_once()
         repo.set_session_key.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_terminal_session_key_creates_new_session(self) -> None:
+        """When stored session is terminal, create a fresh session for the next task."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="finished-sess")
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+
+        terminal_session = _FakeSession("finished-sess", status=SessionStatus.COMPLETED)
+        new_session = _FakeSession("new-sess", status=SessionStatus.RUNNING)
+        agent_svc.get_session = AsyncMock(return_value=terminal_session)
+        agent_svc.create_session = AsyncMock(return_value=new_session)
+
+        router = MessageRouter(agent_svc, repo)
+        msg = _make_inbound("Start new task")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        agent_svc.create_session.assert_awaited_once()
+        repo.set_session_key.assert_awaited_once_with(
+            "user-abc",
+            ChannelType.TELEGRAM,
+            "tg-chat-99",
+            "new-sess",
+        )
 
 
 # ---------------------------------------------------------------------------
