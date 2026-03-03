@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import contextlib
+import logging
 import mimetypes
 import re
 import shlex
@@ -10,6 +11,8 @@ from pathlib import Path
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
+
+logger = logging.getLogger(__name__)
 
 # Supported image extensions for multimodal viewing
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
@@ -124,6 +127,33 @@ class FileTool(BaseTool):
         self._session_id = session_id
         # Paths written during this session — used to gate read-after-write retries.
         self._recently_written: dict[str, float] = {}
+        # Byte sizes of recent writes — used to detect content regression.
+        self._recent_write_sizes: dict[str, int] = {}
+
+    def _check_content_regression(self, path: str, new_content: str) -> str | None:
+        """Return a warning string if new content is significantly smaller.
+
+        Only checks non-trivial files (>500 bytes previous size) and flags
+        when content shrinks by >40%. This catches cases where file_write
+        (overwrite) loses content that file_str_replace (patch) would preserve.
+        """
+        new_size = len(new_content.encode("utf-8"))
+        prev_size = self._recent_write_sizes.get(path)
+
+        if prev_size is not None and prev_size > 500:
+            shrink_ratio = new_size / prev_size
+            if shrink_ratio < 0.6:
+                warning = (
+                    f"WARNING: file_write to '{path}' shrinks content from "
+                    f"{prev_size:,} to {new_size:,} bytes ({shrink_ratio:.0%}). "
+                    f"Consider using file_str_replace to patch instead of overwrite."
+                )
+                logger.warning(warning)
+                self._recent_write_sizes[path] = new_size
+                return warning
+
+        self._recent_write_sizes[path] = new_size
+        return None
 
     def _prune_recent_writes(self) -> None:
         """Keep the write-tracking map bounded and fresh."""
@@ -244,6 +274,11 @@ class FileTool(BaseTool):
         if trailing_newline:
             final_content = final_content + "\n"
 
+        # Check for content regression before writing (overwrite only)
+        regression_warning: str | None = None
+        if not append:
+            regression_warning = self._check_content_regression(file, final_content)
+
         # Directly call sandbox's file_write method, pass all parameters
         result = await self.sandbox.file_write(
             file=file,
@@ -256,6 +291,11 @@ class FileTool(BaseTool):
         if result.success:
             self._recently_written[file] = time.monotonic()
             self._prune_recent_writes()
+            # Surface regression warning in tool result so the LLM can self-correct
+            if regression_warning and result.message:
+                result.message = f"{result.message}\n\n{regression_warning}"
+            elif regression_warning:
+                result.message = regression_warning
         return result
 
     @tool(
