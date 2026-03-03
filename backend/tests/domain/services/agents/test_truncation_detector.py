@@ -191,6 +191,19 @@ class TestUnclosedCodeBlockDetection:
         assessment = detector.detect(content)
         assert assessment.is_truncated is False
 
+    def test_unclosed_code_block_ending_with_brace_is_truncated(self):
+        """Odd code fence count must still be treated as truncation even if code ends with `}`."""
+        detector = TruncationDetector()
+        content = """```python
+def build_payload():
+    payload = {"ok": True}
+    return payload
+}"""
+
+        assessment = detector.detect(content)
+        assert assessment.is_truncated is True
+        assert assessment.truncation_type == "mid_code"
+
 
 # ============================================================================
 # Test Class 6: Finish Reason Detection
