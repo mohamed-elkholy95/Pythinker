@@ -8,14 +8,21 @@ Provides:
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
+import re
 import secrets
 import string
+from datetime import UTC, datetime
+from typing import Any
 
+from cryptography.fernet import Fernet
 from fastapi import APIRouter, Depends
 
 from app.application.errors.exceptions import BadRequestError, NotFoundError
+from app.core.config import get_settings
 from app.domain.models.channel import ChannelType
 from app.domain.models.user import User
 from app.infrastructure.repositories.user_channel_repository import MongoUserChannelRepository
@@ -28,6 +35,8 @@ from app.interfaces.schemas.channel_link import (
     GenerateLinkCodeResponse,
     LinkedChannelResponse,
     LinkedChannelsListResponse,
+    SaveTelegramTokenRequest,
+    TelegramTokenStatusResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,6 +48,8 @@ _CODE_ALPHABET = string.ascii_uppercase + string.digits
 _CODE_LENGTH = 6
 _CODE_TTL_SECONDS = 900  # 15 minutes
 _REDIS_KEY_PREFIX = "channel_link"
+_CHANNEL_SECRET_COLLECTION = "user_channel_secrets"
+_TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"^\d{6,12}:[A-Za-z0-9_-]{20,}$")
 
 
 def _generate_link_code() -> str:
@@ -53,6 +64,71 @@ def _generate_link_code() -> str:
 def _build_redis_key(code: str) -> str:
     """Build the Redis key for a link code."""
     return f"{_REDIS_KEY_PREFIX}:{code}"
+
+
+def _build_fernet() -> Fernet:
+    """Build a deterministic Fernet key from configured secret material."""
+    settings = get_settings()
+    seed = (
+        settings.credential_encryption_key
+        or settings.jwt_secret_key
+        or settings.local_auth_password
+        or "pythinker-dev-channel-secret"
+    )
+    digest = hashlib.sha256(seed.encode("utf-8")).digest()
+    key = base64.urlsafe_b64encode(digest)
+    return Fernet(key)
+
+
+def _encrypt_secret(value: str) -> str:
+    """Encrypt a secret string for at-rest persistence."""
+    return _build_fernet().encrypt(value.encode("utf-8")).decode("utf-8")
+
+
+def _channel_secret_collection() -> Any:
+    """Return MongoDB collection for per-user channel secrets."""
+    return get_mongodb().database[_CHANNEL_SECRET_COLLECTION]
+
+
+def _validate_telegram_bot_token(token: str) -> str:
+    """Validate Telegram bot token shape and return normalized value."""
+    normalized = token.strip()
+    if not _TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(normalized):
+        raise BadRequestError(
+            "Invalid Telegram bot token format. Expected pattern like '123456789:AA...'."
+        )
+    return normalized
+
+
+async def _upsert_encrypted_channel_secret(
+    *,
+    user_id: str,
+    channel: ChannelType,
+    secret_value: str,
+) -> None:
+    """Encrypt and upsert channel secret for a user."""
+    now = datetime.now(UTC)
+    encrypted = _encrypt_secret(secret_value)
+    await _channel_secret_collection().update_one(
+        {"user_id": user_id, "channel": channel.value},
+        {
+            "$set": {"secret_encrypted": encrypted, "updated_at": now},
+            "$setOnInsert": {"user_id": user_id, "channel": channel.value, "created_at": now},
+        },
+        upsert=True,
+    )
+
+
+async def _has_saved_channel_secret(*, user_id: str, channel: ChannelType) -> bool:
+    """Check whether a channel secret exists for a user."""
+    doc = await _channel_secret_collection().find_one(
+        {"user_id": user_id, "channel": channel.value},
+        {"_id": 0, "secret_encrypted": 1},
+    )
+    if not doc:
+        return False
+    secret = doc.get("secret_encrypted")
+    return bool(secret and isinstance(secret, str))
 
 
 def _channel_instructions(channel: str) -> str:
@@ -83,6 +159,16 @@ async def generate_link_code(
         valid = ", ".join(c.value for c in ChannelType)
         raise BadRequestError(f"Unknown channel '{request.channel}'. Valid values: {valid}") from None
 
+    if channel_type == ChannelType.TELEGRAM:
+        has_token = await _has_saved_channel_secret(
+            user_id=current_user.id,
+            channel=ChannelType.TELEGRAM,
+        )
+        if not has_token:
+            raise BadRequestError(
+                "Telegram bot token is not configured. Save your token in Settings before linking Telegram."
+            )
+
     code = _generate_link_code()
     redis_key = _build_redis_key(code)
     payload = json.dumps({"user_id": current_user.id, "channel": channel_type.value})
@@ -107,6 +193,34 @@ async def generate_link_code(
             instructions=instructions,
         )
     )
+
+
+@router.post("/telegram-token", response_model=APIResponse[TelegramTokenStatusResponse])
+async def save_telegram_token(
+    request: SaveTelegramTokenRequest,
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[TelegramTokenStatusResponse]:
+    """Validate and securely store the current user's Telegram bot token."""
+    token = _validate_telegram_bot_token(request.token)
+    await _upsert_encrypted_channel_secret(
+        user_id=current_user.id,
+        channel=ChannelType.TELEGRAM,
+        secret_value=token,
+    )
+    logger.info("Saved Telegram token for user=%s", current_user.id)
+    return APIResponse.success(TelegramTokenStatusResponse(configured=True))
+
+
+@router.get("/telegram-token/status", response_model=APIResponse[TelegramTokenStatusResponse])
+async def telegram_token_status(
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[TelegramTokenStatusResponse]:
+    """Return whether the current user has a saved Telegram bot token."""
+    configured = await _has_saved_channel_secret(
+        user_id=current_user.id,
+        channel=ChannelType.TELEGRAM,
+    )
+    return APIResponse.success(TelegramTokenStatusResponse(configured=configured))
 
 
 async def _get_linked_channels(user_id: str) -> list[LinkedChannelResponse]:

@@ -28,6 +28,10 @@ export interface LinkedChannelsListResponse {
   channels: LinkedChannel[];
 }
 
+export interface TelegramTokenStatusResponse {
+  configured: boolean;
+}
+
 /**
  * Generate a one-time link code for a channel
  * @param channel Channel to generate code for (default: telegram)
@@ -60,4 +64,25 @@ export async function getLinkedChannels(): Promise<LinkedChannel[]> {
  */
 export async function unlinkChannel(channel: string): Promise<void> {
   await apiClient.delete(`/channel-links/${channel}`);
+}
+
+/**
+ * Save Telegram bot token for the current user.
+ */
+export async function saveTelegramToken(token: string): Promise<TelegramTokenStatusResponse> {
+  const response = await apiClient.post<ApiResponse<TelegramTokenStatusResponse>>(
+    '/channel-links/telegram-token',
+    { token },
+  );
+  return response.data.data;
+}
+
+/**
+ * Get Telegram bot token configuration status for the current user.
+ */
+export async function getTelegramTokenStatus(): Promise<TelegramTokenStatusResponse> {
+  const response = await apiClient.get<ApiResponse<TelegramTokenStatusResponse>>(
+    '/channel-links/telegram-token/status',
+  );
+  return response.data.data;
 }
