@@ -3,6 +3,8 @@ import contextlib
 import json
 import logging
 import re
+import time
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
@@ -18,11 +20,14 @@ except ImportError:
     Browser = None
     ChatOpenAI = None
 
+from app.domain.models.event import ToolProgressEvent
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 from app.domain.utils.url_filters import is_ssrf_target, is_video_url
 
 logger = logging.getLogger(__name__)
+
+_PROGRESS_QUEUE_MAX_SIZE = 200
 
 
 def extract_first_json(text: str) -> str:
@@ -184,6 +189,7 @@ class BrowserAgentTool(BaseTool):
     """
 
     name: str = "browsing"
+    supports_progress: bool = True
 
     def __init__(self, cdp_url: str):
         """Initialize browser agent tool class
@@ -199,10 +205,238 @@ class BrowserAgentTool(BaseTool):
         super().__init__()
         self._cdp_url = cdp_url
         self._browser: Browser | None = None
+        self._progress_queue: asyncio.Queue[ToolProgressEvent] = asyncio.Queue(
+            maxsize=_PROGRESS_QUEUE_MAX_SIZE,
+        )
+        self._active_tool_call_id: str = ""
+        self._active_function_name: str = ""
+        self._start_time: float = 0.0
 
         from app.core.config import get_settings
 
         self._settings = get_settings()
+
+    @staticmethod
+    def _normalize_action_name(action_name: str) -> str:
+        """Normalize browser-use action names across versions."""
+        if not action_name:
+            return "wait"
+        normalized = action_name.lower()
+        aliases = {
+            "go_to_url": "navigate",
+            "click_element": "click",
+            "click_element_by_index": "click",
+            "input_text": "input",
+            "scroll_down": "scroll",
+            "scroll_up": "scroll",
+            "scroll_to_text": "find_text",
+            "extract_content": "extract",
+        }
+        return aliases.get(normalized, normalized)
+
+    @staticmethod
+    def _coerce_int(value: Any) -> int | None:
+        """Convert numeric-like values to int, else None."""
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        return None
+
+    @staticmethod
+    def _first_int(*values: Any) -> int | None:
+        """Return the first value that can be coerced to int."""
+        for value in values:
+            coerced = BrowserAgentTool._coerce_int(value)
+            if coerced is not None:
+                return coerced
+        return None
+
+    @staticmethod
+    def _extract_action_from_dump(action_dump: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        """Extract action name and args from a browser-use ActionModel dump."""
+        for key, value in action_dump.items():
+            if key == "interacted_element":
+                continue
+            if isinstance(value, dict):
+                return key, value
+            if value is not None:
+                return key, {}
+        return "wait", {}
+
+    @staticmethod
+    def _map_action_to_function(action_name: str, action_args: dict[str, Any]) -> tuple[str, str]:
+        """Map browser-use action to frontend cursor action + function name."""
+        normalized = BrowserAgentTool._normalize_action_name(action_name)
+
+        if normalized == "click":
+            return "click", "browser_click"
+        if normalized in {"input", "select_dropdown"}:
+            return "input", "browser_input"
+        if normalized in {"navigate", "search", "go_back", "switch", "close"}:
+            return "navigate", "browser_navigate"
+        if normalized in {"scroll", "find_text"}:
+            direction_down = bool(action_args.get("down", True))
+            function_name = "browser_scroll_down" if direction_down else "browser_scroll_up"
+            return "scroll", function_name
+        if normalized in {"extract", "search_page", "find_elements", "read_long_content"}:
+            return "extract", "browser_agent_extract"
+        return "wait", "browser_agent_run"
+
+    @staticmethod
+    def _describe_action(action: str, action_args: dict[str, Any]) -> str:
+        """Generate a concise human-readable step label."""
+        if action == "click":
+            index = action_args.get("index")
+            return f"Click element {index}" if index is not None else "Click"
+        if action == "input":
+            index = action_args.get("index")
+            return f"Type into element {index}" if index is not None else "Type text"
+        if action == "navigate":
+            url = action_args.get("url")
+            return f"Navigate to {url}" if isinstance(url, str) and url else "Navigate"
+        if action == "scroll":
+            direction = "down" if bool(action_args.get("down", True)) else "up"
+            return f"Scroll {direction}"
+        if action == "find_text":
+            text = action_args.get("text")
+            return f"Find text: {text}" if isinstance(text, str) and text else "Find text on page"
+        if action == "extract":
+            return "Extract page content"
+        return action.replace("_", " ").title()
+
+    @staticmethod
+    def _extract_coordinates(
+        action_args: dict[str, Any], action_metadata: dict[str, Any] | None
+    ) -> tuple[int | None, int | None]:
+        """Extract best-available action coordinates from args or action metadata."""
+        coordinate_x = BrowserAgentTool._coerce_int(action_args.get("coordinate_x"))
+        coordinate_y = BrowserAgentTool._coerce_int(action_args.get("coordinate_y"))
+        if coordinate_x is not None and coordinate_y is not None:
+            return coordinate_x, coordinate_y
+
+        if not isinstance(action_metadata, dict):
+            return None, None
+
+        coordinate_x = BrowserAgentTool._first_int(
+            action_metadata.get("click_x"),
+            action_metadata.get("input_x"),
+            action_metadata.get("x"),
+        )
+        coordinate_y = BrowserAgentTool._first_int(
+            action_metadata.get("click_y"),
+            action_metadata.get("input_y"),
+            action_metadata.get("y"),
+        )
+        return coordinate_x, coordinate_y
+
+    def _enqueue_progress(
+        self,
+        *,
+        current_step: str,
+        steps_completed: int,
+        steps_total: int | None,
+        checkpoint_data: dict[str, Any] | None = None,
+    ) -> None:
+        """Enqueue a ToolProgressEvent without blocking execution."""
+        percent = min(99, int(steps_completed / steps_total * 100)) if steps_total and steps_total > 0 else 0
+        elapsed_ms = (time.monotonic() - self._start_time) * 1000 if self._start_time else 0
+        event = ToolProgressEvent(
+            tool_call_id=self._active_tool_call_id,
+            tool_name=self.name,
+            function_name=self._active_function_name,
+            progress_percent=percent,
+            current_step=current_step,
+            steps_completed=steps_completed,
+            steps_total=steps_total,
+            elapsed_ms=elapsed_ms,
+            checkpoint_data=checkpoint_data,
+        )
+        try:
+            self._progress_queue.put_nowait(event)
+        except asyncio.QueueFull:
+            logger.debug("Browser-agent progress queue full, dropping event: %s", current_step)
+
+    def _reset_progress_queue(self) -> None:
+        """Clear stale progress events from previous runs."""
+        while not self._progress_queue.empty():
+            with contextlib.suppress(asyncio.QueueEmpty):
+                self._progress_queue.get_nowait()
+
+    def _emit_progress_from_agent_step(self, agent: Any, steps_total: int | None) -> None:
+        """Extract latest browser-use step actions and emit tool_progress events."""
+        history_obj = getattr(agent, "history", None)
+        history_items = getattr(history_obj, "history", None)
+        if not isinstance(history_items, list) or not history_items:
+            return
+
+        latest_step = history_items[-1]
+        steps_completed = len(history_items)
+        current_url = getattr(getattr(latest_step, "state", None), "url", None)
+
+        model_output = getattr(latest_step, "model_output", None)
+        actions = getattr(model_output, "action", None)
+        results = getattr(latest_step, "result", None)
+        action_results = results if isinstance(results, list) else []
+
+        if not isinstance(actions, list) or not actions:
+            self._enqueue_progress(
+                current_step=f"Step {steps_completed}: Processing page",
+                steps_completed=steps_completed,
+                steps_total=steps_total,
+                checkpoint_data={"action": "wait", "action_function": "browser_agent_run", "url": current_url},
+            )
+            return
+
+        for idx, action in enumerate(actions):
+            if not hasattr(action, "model_dump"):
+                continue
+
+            action_dump = action.model_dump(exclude_none=True, mode="json")
+            if not isinstance(action_dump, dict):
+                continue
+
+            raw_action_name, action_args = self._extract_action_from_dump(action_dump)
+            normalized_action, action_function = self._map_action_to_function(raw_action_name, action_args)
+
+            action_metadata: dict[str, Any] | None = None
+            if idx < len(action_results):
+                metadata_candidate = getattr(action_results[idx], "metadata", None)
+                if isinstance(metadata_candidate, dict):
+                    action_metadata = metadata_candidate
+
+            coordinate_x, coordinate_y = self._extract_coordinates(action_args, action_metadata)
+
+            checkpoint_data: dict[str, Any] = {
+                "action": normalized_action,
+                "action_function": action_function,
+                "step": steps_completed,
+            }
+            url_from_args = action_args.get("url")
+            checkpoint_data["url"] = url_from_args if isinstance(url_from_args, str) and url_from_args else current_url
+            index = action_args.get("index")
+            if isinstance(index, int):
+                checkpoint_data["index"] = index
+            if coordinate_x is not None and coordinate_y is not None:
+                checkpoint_data["coordinate_x"] = coordinate_x
+                checkpoint_data["coordinate_y"] = coordinate_y
+
+            self._enqueue_progress(
+                current_step=f"Step {steps_completed}: {self._describe_action(normalized_action, action_args)}",
+                steps_completed=steps_completed,
+                steps_total=steps_total,
+                checkpoint_data=checkpoint_data,
+            )
+
+    async def drain_progress_events(self) -> AsyncGenerator[ToolProgressEvent, None]:
+        """Drain queued progress events for agent streaming."""
+        while not self._progress_queue.empty():
+            try:
+                yield self._progress_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
     async def _get_browser(self) -> Browser:
         """Get or create browser instance connected via CDP"""
@@ -314,6 +548,8 @@ CRITICAL INSTRUCTIONS:
 
         effective_max_steps = max_steps or self._settings.browser_agent_max_steps
         timeout = self._settings.browser_agent_timeout
+        self._start_time = time.monotonic()
+        self._reset_progress_queue()
 
         # Build task with optional start URL
         if start_url:
@@ -352,8 +588,26 @@ CRITICAL INSTRUCTIONS:
         watchdog_deadline = timeout + 30  # 30s grace beyond overall timeout
 
         try:
+
+            async def _on_step_end(agent_instance: Any) -> None:
+                self._emit_progress_from_agent_step(
+                    agent_instance,
+                    steps_total=effective_max_steps,
+                )
+
             async with asyncio.timeout(watchdog_deadline):
-                history = await agent.run(max_steps=effective_max_steps)
+                try:
+                    history = await agent.run(
+                        max_steps=effective_max_steps,
+                        on_step_end=_on_step_end,
+                    )
+                except TypeError as type_error:
+                    # Backward compatibility for older browser-use versions that
+                    # do not accept hook callbacks in Agent.run().
+                    if "on_step_end" not in str(type_error):
+                        raise
+                    logger.debug("browser-use Agent.run lacks on_step_end hook support, running without progress hooks")
+                    history = await agent.run(max_steps=effective_max_steps)
 
             # Extract result information using AgentHistoryList methods
             final_result = history.final_result() if history else None
