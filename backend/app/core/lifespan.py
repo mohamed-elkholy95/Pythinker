@@ -77,6 +77,28 @@ def get_health_state() -> dict:
     return _health_state.copy()
 
 
+async def _try_acquire_leader_lock(lock_name: str, ttl_seconds: int) -> bool:
+    """Try to acquire a distributed leader lock via Redis SET NX EX.
+
+    With multiple uvicorn workers each running their own lifespan, this
+    prevents duplicate execution of periodic background jobs.  The lock
+    auto-expires after ``ttl_seconds`` so a crashed worker doesn't hold
+    the lock forever.
+
+    Returns True if this worker acquired the lock, False otherwise.
+    """
+    ttl_seconds = max(ttl_seconds, 5)  # floor at 5s for test/edge cases
+    try:
+        redis = get_redis()
+        if redis.client is None:
+            return True  # Redis not initialised yet — allow execution
+        result = await redis.call("set", f"leader:{lock_name}", "1", "NX", "EX", ttl_seconds, max_retries=0)
+        return result is not None  # SET NX returns None when key already exists
+    except Exception:
+        # Redis down → allow execution (graceful degradation)
+        return True
+
+
 async def _run_periodic_session_cleanup(
     maintenance_service: MaintenanceService,
     interval_seconds: float = 300.0,
@@ -85,6 +107,8 @@ async def _run_periodic_session_cleanup(
     """Background task: clean up stale sessions on a fixed interval."""
     while True:
         await asyncio.sleep(interval_seconds)
+        if not await _try_acquire_leader_lock("session_cleanup", ttl_seconds=int(interval_seconds) - 5):
+            continue
         try:
             result = await maintenance_service.cleanup_stale_running_sessions(
                 stale_threshold_minutes=stale_threshold_minutes,
@@ -106,6 +130,9 @@ async def _run_periodic_event_archival(
     # Wait 5 minutes before first run to let system stabilize
     await asyncio.sleep(300)
     while True:
+        if not await _try_acquire_leader_lock("event_archival", ttl_seconds=int(interval_seconds) - 5):
+            await asyncio.sleep(interval_seconds)
+            continue
         try:
             from app.core.prometheus_metrics import event_store_archival_runs
             from app.infrastructure.repositories.event_store_repository import EventStoreRepository
@@ -466,6 +493,9 @@ async def lifespan(app: FastAPI):
                 # Wait 1 minute before first run to let system stabilize
                 await asyncio.sleep(60)
                 while True:
+                    if not await _try_acquire_leader_lock("reconciliation", ttl_seconds=295):
+                        await asyncio.sleep(300)
+                        continue
                     try:
                         from app.domain.services.reconciliation_job import run_reconciliation
 
@@ -488,6 +518,8 @@ async def lifespan(app: FastAPI):
                 """Periodic memory maintenance -- runs every hour."""
                 while True:
                     await asyncio.sleep(3600)  # Every hour
+                    if not await _try_acquire_leader_lock("memory_cleanup", ttl_seconds=3595):
+                        continue
                     try:
                         from app.interfaces.dependencies import get_memory_service
 
