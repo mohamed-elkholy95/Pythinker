@@ -875,6 +875,19 @@ api_key_early_recoveries_total = Counter(
     labels=["provider"],
 )
 
+search_key_pool_healthy_keys = Gauge(
+    name="pythinker_search_key_pool_healthy_keys",
+    help_text="Number of healthy API keys per search provider",
+    labels=["provider"],
+)
+
+hallucination_span_confidence = Histogram(
+    name="pythinker_hallucination_span_confidence",
+    help_text="Confidence scores of detected hallucination spans",
+    labels=["model"],
+    buckets=[0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+)
+
 # Plan Quality Metrics
 plan_modifications_total = Counter(
     name="pythinker_plan_modifications_total",
@@ -1207,6 +1220,8 @@ _metrics_registry.extend(
         api_key_health_score,
         api_key_latency_seconds,
         api_key_early_recoveries_total,
+        search_key_pool_healthy_keys,
+        hallucination_span_confidence,
         workflow_phase_duration,
         workflow_phase_transitions,
         tool_selection_accuracy,
