@@ -32,6 +32,7 @@
             <span class="stock-dot"></span>In Stock
           </span>
           <span v-else-if="deal.in_stock === false" class="stock-pill stock-out">Out of Stock</span>
+          <span v-if="categoryLabel" class="item-category-pill">{{ categoryLabel }}</span>
         </div>
         <div class="deal-product-name">{{ deal.product_name || 'Unnamed product' }}</div>
         <div v-if="deal.coupon_code" class="deal-coupon-tag">
@@ -102,6 +103,12 @@ const scoreColorClass = computed(() => {
   if (s >= 60) return 'score-good';
   if (s >= 40) return 'score-fair';
   return 'score-low';
+});
+
+const categoryLabel = computed(() => {
+  if (props.deal.item_category === 'digital') return 'Digital';
+  if (props.deal.item_category === 'physical') return 'Physical';
+  return '';
 });
 
 function formatPrice(price: number): string {
@@ -296,6 +303,23 @@ function formatCents(price: number): string {
   color: #991b1b;
   background: #fef2f2;
   border: 1px solid rgba(153, 27, 27, 0.15);
+}
+
+.item-category-pill {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: #7c2d12;
+  background: #ffedd5;
+  border: 1px solid rgba(234, 88, 12, 0.2);
+  flex-shrink: 0;
+}
+
+:global(.dark) .item-category-pill {
+  color: #fdba74;
+  background: rgba(234, 88, 12, 0.12);
+  border-color: rgba(251, 146, 60, 0.22);
 }
 
 :global(.dark) .stock-out {

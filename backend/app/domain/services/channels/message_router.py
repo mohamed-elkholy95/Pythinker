@@ -283,7 +283,8 @@ class MessageRouter:
                 )
                 return
 
-            link_code = parts[1].strip()
+            link_code = parts[1].strip().upper()
+            redis_key = f"channel_link:{link_code}"
 
             if self._link_code_store is None:
                 yield self._make_reply(
@@ -293,18 +294,7 @@ class MessageRouter:
                 return
 
             try:
-                redis_keys = [f"channel_link:{link_code}"]
-                upper_key = f"channel_link:{link_code.upper()}"
-                if upper_key != redis_keys[0]:
-                    redis_keys.append(upper_key)
-
-                raw_value: str | None = None
-                matched_key: str | None = None
-                for key in redis_keys:
-                    raw_value = await self._link_code_store.get(key)
-                    if raw_value is not None:
-                        matched_key = key
-                        break
+                raw_value = await self._link_code_store.get(redis_key)
 
                 if raw_value is None:
                     yield self._make_reply(
@@ -341,8 +331,7 @@ class MessageRouter:
                     )
 
                 # Single-use: delete the code immediately after successful link.
-                if matched_key is not None:
-                    await self._link_code_store.delete(matched_key)
+                await self._link_code_store.delete(redis_key)
 
                 yield self._make_reply(
                     message,

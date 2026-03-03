@@ -36,8 +36,8 @@ def test_generate_link_code_length():
 
 
 def test_generate_link_code_alphabet():
-    """Each character must be an ASCII letter or digit."""
-    valid = set(string.ascii_letters + string.digits)
+    """Each character must be an uppercase letter or digit."""
+    valid = set(string.ascii_uppercase + string.digits)
     for _ in range(50):
         code = _generate_link_code()
         assert all(ch in valid for ch in code), f"Invalid character in code: {code!r}"
