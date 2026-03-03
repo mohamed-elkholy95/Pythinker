@@ -60,6 +60,39 @@ async def run_gateway() -> None:
     logger.info("Beanie ODM initialised for gateway")
 
     # ------------------------------------------------------------------
+    # 1b. Initialise Qdrant (optional — graceful degradation)
+    # ------------------------------------------------------------------
+    try:
+        from app.infrastructure.storage.qdrant import get_qdrant
+
+        await get_qdrant().initialize()
+        logger.info("Qdrant connection established for gateway")
+
+        # Wire vector memory repositories (same as lifespan.py)
+        from app.domain.repositories.vector_memory_repository import set_vector_memory_repository
+        from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
+
+        set_vector_memory_repository(QdrantMemoryRepository())
+
+        from app.domain.repositories.vector_repos import (
+            set_embedding_provider,
+            set_task_artifact_repository,
+            set_tool_log_repository,
+        )
+        from app.infrastructure.external.embedding.client import get_embedding_client
+        from app.infrastructure.repositories.qdrant_task_repository import QdrantTaskRepository
+        from app.infrastructure.repositories.qdrant_tool_log_repository import QdrantToolLogRepository
+
+        set_task_artifact_repository(QdrantTaskRepository())
+        set_tool_log_repository(QdrantToolLogRepository())
+        try:
+            set_embedding_provider(get_embedding_client())
+        except RuntimeError:
+            logger.warning("No embedding API key — embedding provider not set")
+    except Exception as e:
+        logger.warning("Qdrant init failed (graceful degradation): %s", e)
+
+    # ------------------------------------------------------------------
     # 2. Build dependency chain
     # ------------------------------------------------------------------
     from app.infrastructure.repositories.user_channel_repository import (
@@ -77,9 +110,23 @@ async def run_gateway() -> None:
 
     from app.domain.services.channels.message_router import MessageRouter
 
+    # LinkCodeStore adapter — wraps Redis for the /link command.
+    # Uses the existing get_redis() singleton.
+    from app.infrastructure.storage.redis import get_redis
+
+    class _RedisLinkCodeStore:
+        """Thin adapter exposing get/delete for the link-code Redis keys."""
+
+        async def get(self, key: str) -> str | None:
+            return await get_redis().call("get", key)
+
+        async def delete(self, key: str) -> None:
+            await get_redis().call("delete", key)
+
     message_router = MessageRouter(
         agent_service=agent_service,
         user_channel_repo=user_channel_repo,
+        link_code_store=_RedisLinkCodeStore(),
     )
 
     # NanobotGateway — may not exist yet during incremental development.
