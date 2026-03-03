@@ -4,15 +4,16 @@ Receives InboundMessage from any channel adapter, resolves user identity,
 manages session lifecycle, and converts agent events into OutboundMessage
 objects that the channel adapter can deliver.
 
-Slash commands (/new, /stop, /help, /status) are intercepted and handled
-locally without reaching the agent.
+Slash commands (/new, /stop, /help, /status, /link) are intercepted and
+handled locally without reaching the agent.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from app.domain.models.channel import ChannelType, InboundMessage, OutboundMessage
 
@@ -24,13 +25,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Slash-command constants
 # ---------------------------------------------------------------------------
-SLASH_COMMANDS = frozenset({"/new", "/stop", "/help", "/status"})
+SLASH_COMMANDS = frozenset({"/new", "/stop", "/help", "/status", "/link"})
 
 HELP_TEXT = (
     "Available commands:\n"
     "  /new    — Start a new conversation\n"
     "  /stop   — Cancel the current request\n"
     "  /status — Show active session info\n"
+    "  /link   — Link your Telegram to your web account\n"
     "  /help   — Show this help message"
 )
 
@@ -72,6 +74,30 @@ class UserChannelRepository(Protocol):
         """Remove the active session mapping for (user, channel, chat)."""
         ...
 
+    async def link_channel_to_user(self, channel: ChannelType, sender_id: str, web_user_id: str) -> str | None:
+        """Link a channel identity to a web user_id. Returns previous user_id."""
+        ...
+
+    async def migrate_sessions(self, old_user_id: str, new_user_id: str, channel: ChannelType) -> None:
+        """Re-assign sessions from old to new user_id."""
+        ...
+
+
+class LinkCodeStore(Protocol):
+    """Abstraction for link-code storage (Redis-backed in production).
+
+    Injected into MessageRouter to keep the domain layer free of
+    infrastructure imports.
+    """
+
+    async def get(self, key: str) -> str | None:
+        """Return the value for *key*, or ``None`` if missing / expired."""
+        ...
+
+    async def delete(self, key: str) -> Any:
+        """Remove *key* from the store."""
+        ...
+
 
 # ---------------------------------------------------------------------------
 # MessageRouter
@@ -91,9 +117,11 @@ class MessageRouter:
         self,
         agent_service: AgentService,
         user_channel_repo: UserChannelRepository,
+        link_code_store: LinkCodeStore | None = None,
     ) -> None:
         self._agent_service = agent_service
         self._user_channel_repo = user_channel_repo
+        self._link_code_store = link_code_store
 
     # ------------------------------------------------------------------
     # Public API
@@ -239,6 +267,66 @@ class MessageRouter:
                     yield self._make_reply(message, "Failed to stop the session.")
             else:
                 yield self._make_reply(message, "No active session to stop.")
+            return
+
+        if command == "/link":
+            parts = content.split(maxsplit=1)
+            if len(parts) < 2 or not parts[1].strip():
+                yield self._make_reply(
+                    message,
+                    "Usage: /link CODE\n\nGenerate a link code from the web UI under Settings → Link Telegram.",
+                )
+                return
+
+            link_code = parts[1].strip().upper()
+            redis_key = f"channel_link:{link_code}"
+
+            if self._link_code_store is None:
+                yield self._make_reply(
+                    message,
+                    "Account linking is not configured. Please contact the administrator.",
+                )
+                return
+
+            try:
+                raw_value = await self._link_code_store.get(redis_key)
+
+                if raw_value is None:
+                    yield self._make_reply(
+                        message,
+                        "Invalid or expired link code. Please generate a new one from the web UI.",
+                    )
+                    return
+
+                payload: dict[str, str] = json.loads(raw_value)
+                web_user_id: str = payload["user_id"]
+
+                old_user_id = await self._user_channel_repo.link_channel_to_user(
+                    message.channel,
+                    message.sender_id,
+                    web_user_id,
+                )
+
+                if old_user_id is not None and old_user_id != web_user_id:
+                    await self._user_channel_repo.migrate_sessions(
+                        old_user_id,
+                        web_user_id,
+                        message.channel,
+                    )
+
+                # Single-use: delete the code immediately after successful link.
+                await self._link_code_store.delete(redis_key)
+
+                yield self._make_reply(
+                    message,
+                    "Account linked! Your Telegram sessions will now appear in the web UI.",
+                )
+            except Exception:
+                logger.exception("Failed to process /link command for sender %s", message.sender_id)
+                yield self._make_reply(
+                    message,
+                    "An error occurred while linking your account. Please try again later.",
+                )
             return
 
         # Unknown command — should not happen due to SLASH_COMMANDS guard.
