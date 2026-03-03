@@ -19,6 +19,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from pymongo import ReturnDocument
+
 from app.domain.models.channel import ChannelType
 
 if TYPE_CHECKING:
@@ -148,9 +150,9 @@ class MongoUserChannelRepository:
                 },
             },
             upsert=True,
-            return_document=False,
+            return_document=ReturnDocument.BEFORE,
         )
-        old_user_id: str | None = old_doc["user_id"] if old_doc is not None else None
+        old_user_id: str | None = old_doc.get("user_id") if old_doc is not None else None
         logger.info(
             "Linked channel %s/%s to web user %s (previous=%s)",
             channel,
@@ -160,7 +162,7 @@ class MongoUserChannelRepository:
         )
         return old_user_id
 
-    async def get_linked_channels(self, user_id: str) -> list[dict]:
+    async def get_linked_channels(self, user_id: str) -> list[dict[str, Any]]:
         """Return all channel identities linked to *user_id*.
 
         Parameters
@@ -170,13 +172,13 @@ class MongoUserChannelRepository:
 
         Returns
         -------
-        list[dict]
+        list[dict[str, Any]]
             Each element contains ``channel``, ``sender_id``, and
             ``linked_at`` fields.  Limited to 50 results.
         """
         cursor = self._links.find(
             {"user_id": user_id, "linked_at": {"$exists": True}},
-            {"channel": 1, "sender_id": 1, "linked_at": 1},
+            {"_id": 0, "channel": 1, "sender_id": 1, "linked_at": 1},
         )
         return await cursor.to_list(length=50)
 
@@ -190,8 +192,15 @@ class MongoUserChannelRepository:
         channel:
             The channel type to unlink.
         """
-        await self._links.delete_one({"user_id": user_id, "channel": str(channel)})
-        logger.info("Unlinked channel %s from user %s", channel, user_id)
+        result = await self._links.delete_one({"user_id": user_id, "channel": str(channel)})
+        if result.deleted_count:
+            logger.info("Unlinked channel %s from user %s", channel, user_id)
+        else:
+            logger.warning(
+                "unlink_channel called but no link found for user=%s channel=%s",
+                user_id,
+                channel,
+            )
 
     async def migrate_sessions(
         self,
