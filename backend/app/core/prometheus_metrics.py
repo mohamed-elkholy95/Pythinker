@@ -719,6 +719,25 @@ search_budget_exhausted_total = Counter(
     labels=["tool"],
 )
 
+# Channel link lifecycle metrics
+channel_link_code_generated_total = Counter(
+    name="pythinker_channel_link_code_generated_total",
+    help_text="Total channel link codes generated",
+    labels=["channel"],
+)
+
+channel_link_redeemed_total = Counter(
+    name="pythinker_channel_link_redeemed_total",
+    help_text="Total channel link codes redeemed successfully",
+    labels=["channel"],
+)
+
+channel_link_redeem_failed_total = Counter(
+    name="pythinker_channel_link_redeem_failed_total",
+    help_text="Total failed channel link redeem attempts",
+    labels=["reason"],
+)
+
 
 # Registry of all metrics
 _metrics_registry = [
@@ -788,6 +807,10 @@ _metrics_registry = [
     # Search API Budget
     search_api_calls_total,
     search_budget_exhausted_total,
+    # Channel links
+    channel_link_code_generated_total,
+    channel_link_redeemed_total,
+    channel_link_redeem_failed_total,
 ]
 
 # Workflow Phase Metrics (Monitoring Enhancement)
@@ -1492,6 +1515,21 @@ def record_minio_operation(operation: str, bucket: str, duration: float, slo_thr
     minio_operation_duration_seconds.observe({"operation": operation, "bucket": bucket}, duration)
     if duration > slo_threshold:
         slo_violations_total.inc({"service": "minio", "operation": operation})
+
+
+def record_channel_link_code_generated(channel: str) -> None:
+    """Record generation of a short-lived channel link code."""
+    channel_link_code_generated_total.inc({"channel": channel or "unknown"})
+
+
+def record_channel_link_redeemed(channel: str) -> None:
+    """Record successful redemption of a channel link code."""
+    channel_link_redeemed_total.inc({"channel": channel or "unknown"})
+
+
+def record_channel_link_redeem_failed(reason: str) -> None:
+    """Record failed channel link code redemption."""
+    channel_link_redeem_failed_total.inc({"reason": reason or "unknown"})
 
 
 def record_llm_call(
