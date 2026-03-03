@@ -45,6 +45,7 @@ _VALUE_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9]{16,}"),
     re.compile(r"rk-[A-Za-z0-9]{16,}"),
     re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/-]+=*"),  # Note: - must be at end of character class
+    re.compile(r"/bot\d+:[A-Za-z0-9_-]{20,}/"),  # Telegram bot tokens in URLs
 ]
 
 
