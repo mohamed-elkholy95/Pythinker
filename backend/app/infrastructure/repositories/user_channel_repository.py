@@ -15,6 +15,7 @@ Implements the ``UserChannelRepository`` protocol defined in
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -43,6 +44,7 @@ class MongoUserChannelRepository:
     def __init__(self, db: AsyncIOMotorDatabase) -> None:
         self._links: Any = db["user_channel_links"]
         self._sessions: Any = db["channel_sessions"]
+        self._session_docs: Any = db["sessions"]
 
     # ------------------------------------------------------------------
     # Ensure indexes (call once at startup)
@@ -74,10 +76,24 @@ class MongoUserChannelRepository:
 
         Returns ``None`` if no link exists.
         """
+        channel_value = str(channel)
         doc = await self._links.find_one(
-            {"channel": str(channel), "sender_id": sender_id},
+            {"channel": channel_value, "sender_id": sender_id},
             {"user_id": 1},
         )
+        if doc is None and channel_value == ChannelType.TELEGRAM.value:
+            sender_prefix = self._telegram_sender_prefix(sender_id)
+            if sender_prefix and sender_prefix != sender_id:
+                doc = await self._links.find_one(
+                    {
+                        "channel": channel_value,
+                        "$or": [
+                            {"sender_id": sender_prefix},
+                            {"sender_id": {"$regex": f"^{re.escape(sender_prefix)}\\|"}},
+                        ],
+                    },
+                    {"user_id": 1},
+                )
         if doc is None:
             return None
         return doc["user_id"]
@@ -136,16 +152,37 @@ class MongoUserChannelRepository:
             a fresh insert.
         """
         now = datetime.now(UTC)
+        channel_value = str(channel)
+        sender_prefix = self._telegram_sender_prefix(sender_id) if channel_value == ChannelType.TELEGRAM.value else ""
+
+        filter_doc: dict[str, Any]
+        set_on_insert_sender_id = sender_id
+        if sender_prefix and sender_prefix != sender_id:
+            filter_doc = {
+                "channel": channel_value,
+                "$or": [
+                    {"sender_id": sender_id},
+                    {"sender_id": sender_prefix},
+                    {"sender_id": {"$regex": f"^{re.escape(sender_prefix)}\\|"}},
+                ],
+            }
+            set_on_insert_sender_id = sender_prefix
+        else:
+            filter_doc = {
+                "channel": channel_value,
+                "sender_id": sender_id,
+            }
+
         old_doc = await self._links.find_one_and_update(
-            {"channel": str(channel), "sender_id": sender_id},
+            filter_doc,
             {
                 "$set": {
                     "user_id": web_user_id,
                     "linked_at": now,
                 },
                 "$setOnInsert": {
-                    "channel": str(channel),
-                    "sender_id": sender_id,
+                    "channel": channel_value,
+                    "sender_id": set_on_insert_sender_id,
                     "created_at": now,
                 },
             },
@@ -238,6 +275,33 @@ class MongoUserChannelRepository:
             old_user_id,
             new_user_id,
         )
+
+    async def migrate_session_ownership(self, old_user_id: str, new_user_id: str) -> None:
+        """Re-assign persisted session documents from *old_user_id* to *new_user_id*.
+
+        This is required when linking a channel-only user to a web account so
+        historical sessions appear in the web UI (which lists by ``user_id``).
+        """
+        now = datetime.now(UTC)
+        await self._session_docs.update_many(
+            {"user_id": old_user_id},
+            {
+                "$set": {
+                    "user_id": new_user_id,
+                    "updated_at": now,
+                },
+            },
+        )
+        logger.info(
+            "Migrated session ownership from %s to %s",
+            old_user_id,
+            new_user_id,
+        )
+
+    @staticmethod
+    def _telegram_sender_prefix(sender_id: str) -> str:
+        """Return stable Telegram numeric ID from ``<id>|<username>`` sender IDs."""
+        return sender_id.split("|", 1)[0].strip()
 
     # ------------------------------------------------------------------
     # Session key operations

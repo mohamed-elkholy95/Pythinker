@@ -157,6 +157,9 @@ class TestRouteInbound:
 
         # Session was created
         agent_svc.create_session.assert_awaited_once()
+        create_kwargs = agent_svc.create_session.await_args.kwargs
+        assert create_kwargs["user_id"] == "user-abc"
+        assert create_kwargs["source"] == "telegram"
         repo.set_session_key.assert_awaited_once()
 
     @pytest.mark.asyncio
