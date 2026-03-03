@@ -447,11 +447,18 @@ class DockerSandbox(Sandbox):
         # Record start time for warmup tracking
         start_time = time.time()
 
-        # Wait for warmup grace period before first health check
-        # This prevents checking too early during container initialization
-        if warmup_grace_period > 0:
-            logger.debug(f"Waiting {warmup_grace_period}s warmup grace period before first health check...")
-            await asyncio.sleep(warmup_grace_period)
+        # Try a fast probe first — if the sandbox is already healthy (e.g. static
+        # reuse) we skip the grace period entirely.  For freshly-created containers
+        # the probe will fail and we fall back to the grace-period sleep.
+        try:
+            async with asyncio.timeout(1.5):
+                await self._check_supervisor_status()
+                await self._verify_cdp_connection()
+            logger.debug("Sandbox already healthy, skipping warmup grace period")
+        except Exception:
+            if warmup_grace_period > 0:
+                logger.debug("Waiting %.1fs warmup grace period before first health check...", warmup_grace_period)
+                await asyncio.sleep(warmup_grace_period)
 
         retry_delay = initial_retry_delay
         connection_failures = 0
