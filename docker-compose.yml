@@ -107,6 +107,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      qdrant:
+        condition: service_healthy
     restart: unless-stopped
     command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
     env_file:
