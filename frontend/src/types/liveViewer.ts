@@ -104,6 +104,9 @@ export const FUNCTION_TO_ACTION_TYPE: Record<string, AgentActionType> = {
   browser_scroll_down: 'scroll',
   browser_navigate: 'navigate',
   browser_view: 'navigate',
+  browser_agent_run: 'wait',
+  browser_agent_extract: 'extract',
+  browsing: 'wait',
 
   // browser-use internal actions
   click_element: 'click',

@@ -39,6 +39,7 @@ const mountToolPanelContent = (overrides: Record<string, unknown> = {}) => (
           TimelineControls: true,
           TaskProgressBar: true,
           LiveViewer: true,
+          BrowserChrome: true,
           LoadingState: true,
           InactiveState: true,
           TerminalContentView: true,
@@ -85,6 +86,32 @@ describe('ToolPanelContent', () => {
     expect(wrapper.text()).toContain('Report complete');
   });
 
+  it('shows browser chrome in live preview for browser tools', () => {
+    const wrapper = mountToolPanelContent({
+      toolContent: {
+        ...baseToolContent,
+        name: 'browser',
+        function: 'browser_navigate',
+        args: { url: 'https://example.com' },
+      },
+    });
+
+    expect(wrapper.find('browser-chrome-stub').exists()).toBe(true);
+  });
+
+  it('hides browser chrome for non-browser tool views', () => {
+    const wrapper = mountToolPanelContent({
+      toolContent: {
+        ...baseToolContent,
+        name: 'shell',
+        function: 'shell_exec',
+        args: { command: 'echo hello' },
+      },
+    });
+
+    expect(wrapper.find('browser-chrome-stub').exists()).toBe(false);
+  });
+
   it('forwards browser tool events to persistent LiveViewer for overlay rendering', async () => {
     const processToolEvent = vi.fn();
     const LiveViewerStub = defineComponent({
@@ -121,6 +148,7 @@ describe('ToolPanelContent', () => {
           TimelineControls: true,
           TaskProgressBar: true,
           LiveViewer: LiveViewerStub,
+          BrowserChrome: true,
           LoadingState: true,
           InactiveState: true,
           TerminalContentView: true,
@@ -185,6 +213,7 @@ describe('ToolPanelContent', () => {
           TimelineControls: true,
           TaskProgressBar: true,
           LiveViewer: LiveViewerStub,
+          BrowserChrome: true,
           LoadingState: true,
           InactiveState: true,
           TerminalContentView: true,
