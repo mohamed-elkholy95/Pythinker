@@ -80,6 +80,12 @@
           <span>{{ channelError }}</span>
         </div>
       </Transition>
+      <Transition name="slide-fade">
+        <div v-if="channelFeedback" class="channel-feedback" @click="channelFeedback = null">
+          <Check class="w-3.5 h-3.5" />
+          <span>{{ channelFeedback }}</span>
+        </div>
+      </Transition>
 
       <!-- Loading skeleton -->
       <div v-if="isLoadingChannels" class="channel-skeleton">
@@ -94,30 +100,37 @@
       <template v-else>
         <!-- State: Linked -->
         <Transition name="channel-swap" mode="out-in">
-          <div v-if="telegramLinked" key="linked" class="channel-item channel-item-linked">
-            <div class="channel-info">
-              <div class="channel-icon channel-icon-telegram">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-                <div class="channel-linked-badge">
-                  <Check class="w-2.5 h-2.5" />
+          <div v-if="telegramLinked" key="linked" class="channel-item channel-item-linked channel-item-linked-stack">
+            <div class="channel-linked-top">
+              <div class="channel-info">
+                <div class="channel-icon channel-icon-telegram">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                  <div class="channel-linked-badge">
+                    <Check class="w-2.5 h-2.5" />
+                  </div>
+                </div>
+                <div class="channel-details">
+                  <span class="channel-name">Telegram</span>
+                  <div class="channel-meta">
+                    <span class="channel-status channel-status-linked">Connected • Activated</span>
+                    <span class="channel-status">{{ telegramSenderId }}</span>
+                    <span v-if="telegramLinkedAt" class="channel-linked-date">Linked {{ telegramLinkedAt }}</span>
+                  </div>
                 </div>
               </div>
-              <div class="channel-details">
-                <span class="channel-name">Telegram</span>
-                <div class="channel-meta">
-                  <span class="channel-status channel-status-linked">{{ telegramSenderId }}</span>
-                  <span v-if="telegramLinkedAt" class="channel-linked-date">Linked {{ telegramLinkedAt }}</span>
-                </div>
-              </div>
+              <button
+                class="unlink-btn"
+                :class="{ 'unlink-btn-confirm': unlinkConfirm === 'telegram' }"
+                :disabled="isUnlinking"
+                @click="handleUnlink('telegram')"
+              >
+                {{ unlinkConfirm === 'telegram' ? 'Confirm?' : 'Unlink' }}
+              </button>
             </div>
-            <button
-              class="unlink-btn"
-              :class="{ 'unlink-btn-confirm': unlinkConfirm === 'telegram' }"
-              :disabled="isUnlinking"
-              @click="handleUnlink('telegram')"
-            >
-              {{ unlinkConfirm === 'telegram' ? 'Confirm?' : 'Unlink' }}
-            </button>
+            <div class="telegram-linked-message">
+              <span v-if="telegramLinkedAtTime" class="telegram-msg-time">{{ telegramLinkedAtTime }}</span>
+              <p>I'm now connected and ready to help you! Feel free to ask me anything or let me know how you'd like me to assist you.</p>
+            </div>
           </div>
 
           <!-- State: Code display -->
@@ -132,21 +145,43 @@
             </div>
 
             <div class="code-body">
-              <!-- Step instructions -->
-              <div class="code-steps">
-                <div class="code-step">
-                  <span class="code-step-num">1</span>
-                  <span class="code-step-text">Copy the command below</span>
-                </div>
-                <div class="code-step">
-                  <span class="code-step-num">2</span>
-                  <span class="code-step-text">Send it to your Telegram bot</span>
-                </div>
+              <div class="telegram-thread-msg">
+                <p>To continue, you need to link your Telegram account with Pythinker.</p>
+                <p>Click the button below to get started. This link will expire in 30 minutes.</p>
+                <span v-if="linkGeneratedAtTime" class="telegram-msg-time">{{ linkGeneratedAtTime }}</span>
               </div>
 
-              <!-- Code field -->
+              <button
+                class="telegram-link-account-btn inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors hover:opacity-90 active:opacity-80 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] h-[40px] min-w-[80px] gap-[6px] text-sm rounded-[10px] px-[16px]"
+                type="button"
+                @click="openTelegramDeepLink"
+              >
+                <svg width="20" height="20" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <g clip-path="url(#accountSettingsTelegramIconClip)">
+                    <path d="M9.007 18.014A9.007 9.007 0 1 0 9.007 0a9.007 9.007 0 0 0 0 18.014" fill="url(#accountSettingsTelegramIconGradient)"></path>
+                    <path fill-rule="evenodd" clip-rule="evenodd" d="M4.069 8.91a288 288 0 0 1 5.26-2.26c2.498-1.038 3.017-1.22 3.354-1.234.07 0 .238.014.35.098a.4.4 0 0 1 .127.239c.014.07.028.224.014.35-.14 1.417-.716 4.883-1.024 6.468-.127.674-.379.898-.617.926-.52.042-.926-.35-1.431-.673-.786-.52-1.235-.842-2.007-1.347-.884-.59-.308-.912.197-1.431.126-.14 2.44-2.23 2.483-2.427 0-.028.014-.113-.042-.155s-.127-.028-.183-.014c-.084.014-1.346.856-3.802 2.512-.364.252-.687.364-.982.364-.322 0-.94-.182-1.403-.336-.56-.183-1.01-.28-.968-.59.028-.154.253-.322.674-.49" fill="#fff"></path>
+                  </g>
+                  <defs>
+                    <linearGradient id="accountSettingsTelegramIconGradient" x1="0" y1="9" x2="18.001" y2="9" gradientUnits="userSpaceOnUse">
+                      <stop stop-color="#2aabee"></stop>
+                      <stop offset="1" stop-color="#229ed9"></stop>
+                    </linearGradient>
+                    <clipPath id="accountSettingsTelegramIconClip">
+                      <path fill="#fff" d="M0 0h18v18H0z"></path>
+                    </clipPath>
+                  </defs>
+                </svg>
+                Continue on Telegram
+              </button>
+              <p class="telegram-activation-status">
+                Activation pending. Send the bind command in Telegram to finish linking.
+              </p>
+              <p class="telegram-auth-note">
+                This bind code is tied to your signed-in account and expires in 30 minutes.
+              </p>
+
               <div class="code-field">
-                <code class="code-value">/link {{ linkCode }}</code>
+                <code class="code-value">{{ activeBindCommand }}</code>
                 <button
                   class="copy-btn"
                   :class="{ 'copy-btn-success': isCopied }"
@@ -170,43 +205,19 @@
                 </div>
                 <button class="code-cancel-link" @click="cancelCode">Cancel</button>
               </div>
-            </div>
-          </div>
 
-          <!-- State: Token setup -->
-          <div v-else-if="showTelegramTokenInput" key="token" class="channel-item channel-item-token">
-            <div class="token-setup">
-              <div class="token-setup-header">
-                <span class="channel-name">Telegram Bot Token</span>
-                <span class="channel-status">Required before linking</span>
-              </div>
-              <p class="token-help">
-                Paste your Telegram bot token from @BotFather. It is encrypted and never shown again.
-              </p>
-              <input
-                v-model.trim="telegramTokenInput"
-                type="password"
-                class="token-input"
-                placeholder="123456789:AA..."
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <div class="token-actions">
-                <button class="token-cancel-btn" :disabled="isSavingTelegramToken" @click="cancelTelegramTokenInput">
-                  Cancel
-                </button>
-                <button
-                  class="token-save-btn"
-                  :disabled="isSavingTelegramToken || !telegramTokenInput"
-                  @click="saveTelegramTokenAndLink"
+              <p v-if="telegramBotUrl" class="telegram-bot-note">
+                You can also open
+                <a
+                  class="telegram-bot-link"
+                  :href="telegramBotUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
                 >
-                  <template v-if="isSavingTelegramToken">
-                    <span class="link-btn-spinner" />
-                    Saving...
-                  </template>
-                  <template v-else>Save & Link</template>
-                </button>
-              </div>
+                  {{ telegramBotHandle }}
+                </a>
+                and send the command manually.
+              </p>
             </div>
           </div>
 
@@ -218,15 +229,13 @@
               </div>
               <div class="channel-details">
                 <span class="channel-name">Telegram</span>
-                <span class="channel-status">
-                  {{ telegramTokenConfigured ? 'Ready to link' : 'Token not configured' }}
-                </span>
+                <span class="channel-status">{{ telegramConnectionStatus }}</span>
               </div>
             </div>
             <button
               class="link-btn"
               :disabled="isGenerating"
-              @click="startTelegramLinkFlow"
+              @click="handleGenerateCode"
             >
               <template v-if="isGenerating">
                 <span class="link-btn-spinner" />
@@ -234,7 +243,7 @@
               </template>
               <template v-else>
                 <ExternalLink class="w-3.5 h-3.5" />
-                {{ telegramTokenConfigured ? 'Link' : 'Setup Token' }}
+                Link Account
               </template>
             </button>
           </div>
@@ -254,8 +263,6 @@ import { getCachedAuthProvider } from '../../api/auth'
 import {
   generateLinkCode,
   getLinkedChannels,
-  getTelegramTokenStatus,
-  saveTelegramToken,
   unlinkChannel,
 } from '../../api/channelLinks'
 import type { LinkedChannel } from '../../api/channelLinks'
@@ -267,22 +274,25 @@ const authProvider = ref<string | null>(null)
 
 // Channel linking state
 const linkCode = ref<string | null>(null)
+const linkBindCommand = ref<string | null>(null)
+const telegramBotUrl = ref<string | null>(null)
+const telegramDeepLinkUrl = ref<string | null>(null)
+const linkGeneratedAt = ref<Date | null>(null)
 const codeCountdown = ref(0)
-const codeMaxSeconds = ref(900)
+const codeMaxSeconds = ref(1800)
 const isGenerating = ref(false)
-const isSavingTelegramToken = ref(false)
 const linkedChannels = ref<LinkedChannel[]>([])
-const telegramTokenConfigured = ref(false)
-const showTelegramTokenInput = ref(false)
-const telegramTokenInput = ref('')
 const isCopied = ref(false)
 const unlinkConfirm = ref<string | null>(null)
 const isUnlinking = ref(false)
 const channelError = ref<string | null>(null)
+const channelFeedback = ref<string | null>(null)
 const isLoadingChannels = ref(true)
 let countdownInterval: ReturnType<typeof setInterval> | null = null
+let linkStatusPollInterval: ReturnType<typeof setInterval> | null = null
 let copyTimeout: ReturnType<typeof setTimeout> | null = null
 let unlinkTimeout: ReturnType<typeof setTimeout> | null = null
+let feedbackTimeout: ReturnType<typeof setTimeout> | null = null
 
 // Emit events for parent components
 const emit = defineEmits<{
@@ -324,11 +334,65 @@ const telegramLinkedAt = computed(() => {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 })
 
+const telegramLinkedAtTime = computed(() => {
+  const tg = linkedChannels.value.find((c) => c.channel === 'telegram')
+  if (!tg?.linked_at) return ''
+  return formatClockTime(new Date(tg.linked_at))
+})
+
+const linkGeneratedAtTime = computed(() => {
+  if (!linkGeneratedAt.value) return ''
+  return formatClockTime(linkGeneratedAt.value)
+})
+
+const activeBindCommand = computed(() => {
+  if (linkBindCommand.value) return linkBindCommand.value
+  return linkCode.value ? `:bind ${linkCode.value}` : ''
+})
+
+const telegramBotHandle = computed(() => {
+  if (!telegramBotUrl.value) return '@pythinker_bot'
+  const trimmed = telegramBotUrl.value.trim().replace(/\/+$/, '')
+  const username = trimmed.split('/').pop() || 'pythinker_bot'
+  return `@${username}`
+})
+
+const telegramConnectionStatus = computed(() => {
+  if (telegramLinked.value) return 'Connected • Activated'
+  if (linkCode.value) return 'Activation pending'
+  return 'Not connected'
+})
+
+const telegramContinueUrl = computed(() => {
+  if (telegramBotUrl.value && activeBindCommand.value) {
+    const normalizedBotUrl = telegramBotUrl.value.trim().replace(/\/+$/, '')
+    return `${normalizedBotUrl}?text=${encodeURIComponent(activeBindCommand.value)}`
+  }
+  return telegramDeepLinkUrl.value || telegramBotUrl.value || ''
+})
+
 // Format countdown as M:SS
 const formatCountdown = (seconds: number) => {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+const formatClockTime = (date: Date) => {
+  return date.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+const setChannelFeedback = (message: string, durationMs: number = 4000) => {
+  channelFeedback.value = message
+  if (feedbackTimeout) {
+    clearTimeout(feedbackTimeout)
+  }
+  feedbackTimeout = setTimeout(() => {
+    channelFeedback.value = null
+  }, durationMs)
 }
 
 // Handle profile icon click
@@ -348,16 +412,15 @@ const handleLogout = async () => {
 
 // Generate a link code for Telegram
 const handleGenerateCode = async () => {
-  if (!telegramTokenConfigured.value) {
-    showTelegramTokenInput.value = true
-    return
-  }
-
   isGenerating.value = true
   channelError.value = null
   try {
     const result = await generateLinkCode('telegram')
     linkCode.value = result.code
+    linkBindCommand.value = result.bind_command || `:bind ${result.code}`
+    telegramBotUrl.value = result.bot_url || null
+    telegramDeepLinkUrl.value = result.deep_link_url || result.bot_url || null
+    linkGeneratedAt.value = new Date()
     codeCountdown.value = result.expires_in_seconds
     codeMaxSeconds.value = result.expires_in_seconds
 
@@ -365,11 +428,12 @@ const handleGenerateCode = async () => {
     countdownInterval = setInterval(() => {
       codeCountdown.value--
       if (codeCountdown.value <= 0) {
-        if (countdownInterval) clearInterval(countdownInterval)
-        countdownInterval = null
-        linkCode.value = null
+        cancelCode('expired')
       }
     }, 1000)
+
+    startLinkStatusPolling()
+    openTelegramDeepLink()
   } catch {
     channelError.value = 'Failed to generate link code. Please try again.'
   } finally {
@@ -377,57 +441,57 @@ const handleGenerateCode = async () => {
   }
 }
 
-const startTelegramLinkFlow = async () => {
-  if (telegramTokenConfigured.value) {
-    await handleGenerateCode()
+const openTelegramDeepLink = () => {
+  const targetUrl = telegramContinueUrl.value
+  if (!targetUrl) {
+    channelError.value = 'Telegram bot link is unavailable. Please try generating a new link.'
     return
   }
-  showTelegramTokenInput.value = true
-}
-
-const cancelTelegramTokenInput = () => {
-  showTelegramTokenInput.value = false
-  telegramTokenInput.value = ''
-}
-
-const saveTelegramTokenAndLink = async () => {
-  if (!telegramTokenInput.value) {
-    return
-  }
-
-  isSavingTelegramToken.value = true
-  channelError.value = null
-  try {
-    const result = await saveTelegramToken(telegramTokenInput.value)
-    telegramTokenConfigured.value = result.configured
-    telegramTokenInput.value = ''
-    showTelegramTokenInput.value = false
-    await handleGenerateCode()
-  } catch {
-    channelError.value = 'Failed to save Telegram token. Check token format and try again.'
-  } finally {
-    isSavingTelegramToken.value = false
+  const popup = window.open(targetUrl, '_blank', 'noopener,noreferrer')
+  if (popup) {
+    setChannelFeedback('Telegram opened. Send the bind command there to complete activation.')
+  } else {
+    setChannelFeedback('Popup blocked. Use the bot link below and send the bind command manually.')
   }
 }
 
-// Copy /link CODE to clipboard with visual feedback
+// Copy bind command to clipboard with visual feedback
 const copyCode = async () => {
-  if (linkCode.value) {
-    await navigator.clipboard.writeText(`/link ${linkCode.value}`)
-    isCopied.value = true
-    if (copyTimeout) clearTimeout(copyTimeout)
-    copyTimeout = setTimeout(() => {
-      isCopied.value = false
-    }, 2000)
+  if (activeBindCommand.value) {
+    try {
+      await navigator.clipboard.writeText(activeBindCommand.value)
+      isCopied.value = true
+      setChannelFeedback('Bind command copied. Paste it in Telegram if needed.')
+      if (copyTimeout) clearTimeout(copyTimeout)
+      copyTimeout = setTimeout(() => {
+        isCopied.value = false
+      }, 2000)
+    } catch {
+      channelError.value = 'Failed to copy bind command. Please copy it manually.'
+    }
   }
 }
 
 // Cancel code display
-const cancelCode = () => {
+const cancelCode = (reason: 'manual' | 'expired' | 'linked' | 'none' = 'none') => {
   if (countdownInterval) clearInterval(countdownInterval)
   countdownInterval = null
+  if (linkStatusPollInterval) clearInterval(linkStatusPollInterval)
+  linkStatusPollInterval = null
   linkCode.value = null
+  linkBindCommand.value = null
+  telegramBotUrl.value = null
+  telegramDeepLinkUrl.value = null
+  linkGeneratedAt.value = null
   codeCountdown.value = 0
+  isCopied.value = false
+
+  if (reason === 'expired') {
+    setChannelFeedback('Link expired. Generate a new link to continue.')
+  }
+  if (reason === 'linked') {
+    setChannelFeedback('Telegram connected and activated.')
+  }
 }
 
 // Unlink a channel (two-step confirmation)
@@ -449,6 +513,10 @@ const confirmUnlink = async (channel: string) => {
   try {
     await unlinkChannel(channel)
     linkedChannels.value = linkedChannels.value.filter((c) => c.channel !== channel)
+    if (channel.toLowerCase() === 'telegram') {
+      cancelCode()
+      setChannelFeedback('Telegram account unlinked.')
+    }
     unlinkConfirm.value = null
   } catch {
     channelError.value = 'Failed to unlink channel. Please try again.'
@@ -458,36 +526,48 @@ const confirmUnlink = async (channel: string) => {
 }
 
 // Load linked channels from the API
-const loadLinkedChannels = async () => {
-  isLoadingChannels.value = true
+const loadLinkedChannels = async (options: { silent?: boolean } = {}) => {
+  if (!options.silent) {
+    isLoadingChannels.value = true
+  }
   try {
     linkedChannels.value = await getLinkedChannels()
   } catch {
     // Failed to load — channels will appear as unlinked
   } finally {
-    isLoadingChannels.value = false
+    if (!options.silent) {
+      isLoadingChannels.value = false
+    }
   }
 }
 
-const loadTelegramTokenStatus = async () => {
-  try {
-    const status = await getTelegramTokenStatus()
-    telegramTokenConfigured.value = status.configured
-  } catch {
-    telegramTokenConfigured.value = false
+const refreshLinkStatus = async () => {
+  await loadLinkedChannels({ silent: true })
+  if (telegramLinked.value) {
+    cancelCode('linked')
   }
+}
+
+const startLinkStatusPolling = () => {
+  if (linkStatusPollInterval) {
+    clearInterval(linkStatusPollInterval)
+  }
+  linkStatusPollInterval = setInterval(() => {
+    void refreshLinkStatus()
+  }, 5000)
 }
 
 onMounted(async () => {
   authProvider.value = await getCachedAuthProvider()
-  await Promise.all([loadLinkedChannels(), loadTelegramTokenStatus()])
+  await loadLinkedChannels()
 })
 
 onUnmounted(() => {
   if (countdownInterval) clearInterval(countdownInterval)
+  if (linkStatusPollInterval) clearInterval(linkStatusPollInterval)
   if (copyTimeout) clearTimeout(copyTimeout)
   if (unlinkTimeout) clearTimeout(unlinkTimeout)
-  telegramTokenInput.value = ''
+  if (feedbackTimeout) clearTimeout(feedbackTimeout)
 })
 </script>
 
@@ -808,6 +888,20 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+.channel-feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: var(--function-success-tsp);
+  border: 1px solid var(--function-success-border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--function-success);
+  cursor: pointer;
+}
+
 /* Loading skeleton */
 .channel-skeleton {
   display: flex;
@@ -874,6 +968,34 @@ onUnmounted(() => {
   border-color: var(--function-success-border);
 }
 
+.channel-item-linked-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.channel-linked-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.telegram-linked-message {
+  margin-left: 48px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--function-success-border);
+  background: rgba(34, 197, 94, 0.09);
+}
+
+.telegram-linked-message p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
 /* Unlinked state */
 .channel-item-unlinked {
   border-style: dashed;
@@ -887,95 +1009,6 @@ onUnmounted(() => {
   overflow: hidden;
   background: var(--background-white-main);
   border-color: rgba(0, 136, 204, 0.2);
-}
-
-.channel-item-token {
-  align-items: stretch;
-  background: var(--background-white-main);
-}
-
-.token-setup {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-}
-
-.token-setup-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.token-help {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary);
-  line-height: 1.5;
-}
-
-.token-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border-main);
-  border-radius: 8px;
-  background: var(--fill-tsp-white-dark);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-}
-
-.token-input:focus {
-  outline: none;
-  border-color: #0088cc;
-  box-shadow: 0 0 0 2px rgba(0, 136, 204, 0.12);
-}
-
-.token-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.token-cancel-btn,
-.token-save-btn {
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  border-radius: 8px;
-  transition: all 0.2s ease;
-}
-
-.token-cancel-btn {
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-light);
-}
-
-.token-cancel-btn:hover {
-  border-color: var(--border-main);
-  color: var(--text-primary);
-}
-
-.token-save-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #fff;
-  background: #0088cc;
-  border: 1px solid #0088cc;
-}
-
-.token-save-btn:hover {
-  background: #0077b3;
-  border-color: #0077b3;
-}
-
-.token-cancel-btn:disabled,
-.token-save-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .channel-info {
@@ -1163,35 +1196,53 @@ onUnmounted(() => {
   padding: 16px;
 }
 
-.code-steps {
+.telegram-thread-msg {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: var(--fill-tsp-white-main);
 }
 
-.code-step {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.code-step-num {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #0088cc;
-  background: rgba(0, 136, 204, 0.08);
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.code-step-text {
+.telegram-thread-msg p {
+  margin: 0;
   font-size: 12px;
+  line-height: 1.5;
   color: var(--text-secondary);
+}
+
+.telegram-msg-time {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.telegram-link-account-btn {
+  --Button-primary-black: var(--text-primary);
+  --text-onblack: #fff;
+  border: none;
+}
+
+.telegram-link-account-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.telegram-activation-status {
+  margin: 0;
+  font-size: 12px;
+  color: #0088cc;
+  font-weight: 500;
+}
+
+.telegram-auth-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
 }
 
 .code-field {
@@ -1207,11 +1258,11 @@ onUnmounted(() => {
   border: 1px solid var(--border-main);
   border-radius: 8px;
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.02em;
   color: var(--text-primary);
-  text-align: center;
+  text-align: left;
   user-select: all;
 }
 
@@ -1283,6 +1334,42 @@ onUnmounted(() => {
 .code-cancel-link:hover {
   color: var(--text-secondary);
   background: var(--fill-tsp-white-dark);
+}
+
+.telegram-bot-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.telegram-bot-link {
+  color: #0088cc;
+  font-weight: 600;
+}
+
+.telegram-bot-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .channel-linked-top {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .telegram-linked-message {
+    margin-left: 0;
+  }
+
+  .code-field {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .copy-btn {
+    width: 100%;
+    height: 36px;
+  }
 }
 
 /* ─── Transitions ─── */
