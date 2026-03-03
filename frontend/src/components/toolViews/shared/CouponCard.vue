@@ -23,7 +23,9 @@
         <div class="coupon-desc">{{ coupon.description || 'Promo code' }}</div>
         <div class="coupon-meta">
           <span v-if="coupon.store" class="meta-store">{{ coupon.store }}</span>
-          <span v-if="coupon.store && coupon.expiry" class="meta-sep">&middot;</span>
+          <span v-if="coupon.store && (coupon.expiry || categoryLabel)" class="meta-sep">&middot;</span>
+          <span v-if="categoryLabel" class="meta-category">{{ categoryLabel }}</span>
+          <span v-if="categoryLabel && coupon.expiry" class="meta-sep">&middot;</span>
           <span v-if="coupon.expiry" class="meta-expiry">{{ coupon.expiry }}</span>
         </div>
       </div>
@@ -36,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { Copy, Check, ShieldCheck } from 'lucide-vue-next';
 import type { CouponItem } from '@/types/toolContent';
 
@@ -45,6 +47,11 @@ const props = defineProps<{
 }>();
 
 const copied = ref(false);
+const categoryLabel = computed(() => {
+  if (props.coupon.item_category === 'digital') return 'Digital';
+  if (props.coupon.item_category === 'physical') return 'Physical';
+  return '';
+});
 
 async function copyCode() {
   if (!props.coupon.code) return;
@@ -196,8 +203,11 @@ async function copyCode() {
 }
 
 .meta-store { font-weight: 500; }
+.meta-category { font-weight: 600; color: #9a3412; }
 .meta-sep { opacity: 0.4; }
 .meta-expiry { font-weight: 400; }
+
+:global(.dark) .meta-category { color: #fdba74; }
 
 /* ── Verified badge ── */
 .coupon-verified-badge {

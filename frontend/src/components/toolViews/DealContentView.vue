@@ -265,6 +265,7 @@ const progressiveDeals = computed((): DealItem[] => {
       in_stock: d.in_stock ?? null,
       coupon_code: d.coupon_code ?? null,
       image_url: d.image_url ?? null,
+      item_category: d.item_category ?? 'unknown',
     }));
 });
 
