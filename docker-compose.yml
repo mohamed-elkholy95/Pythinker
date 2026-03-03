@@ -289,7 +289,7 @@ services:
       start_period: 10s
 
   minio-init:
-    image: minio/mc:RELEASE.2025-02-15T09-07-37Z
+    image: minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy
