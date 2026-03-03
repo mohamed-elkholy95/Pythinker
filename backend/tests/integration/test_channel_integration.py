@@ -389,12 +389,17 @@ class TestSlashCommandLinkAccount:
         mock_store.delete = AsyncMock()
 
         router = MessageRouter(agent_svc, repo, link_code_store=mock_store)
-
-        inbound = _make_inbound(f"/link {link_code}")
-        replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
+        with (
+            patch("app.domain.services.channels.message_router.pm.record_channel_link_redeemed") as redeemed_metric,
+            patch("app.domain.services.channels.message_router.pm.record_channel_link_redeem_failed") as failed_metric,
+        ):
+            inbound = _make_inbound(f"/link {link_code}")
+            replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
 
         assert len(replies) == 1
         assert "linked" in replies[0].content.lower()
+        redeemed_metric.assert_called_once_with("telegram")
+        failed_metric.assert_not_called()
 
         # Store was queried with correct key
         mock_store.get.assert_awaited_once_with(redis_key)
@@ -436,13 +441,18 @@ class TestSlashCommandLinkAccount:
         mock_store.get = AsyncMock(return_value=None)
 
         router = MessageRouter(agent_svc, repo, link_code_store=mock_store)
-
-        inbound = _make_inbound("/link BADCODE")
-        replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
+        with (
+            patch("app.domain.services.channels.message_router.pm.record_channel_link_redeemed") as redeemed_metric,
+            patch("app.domain.services.channels.message_router.pm.record_channel_link_redeem_failed") as failed_metric,
+        ):
+            inbound = _make_inbound("/link BADCODE")
+            replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
 
         assert len(replies) == 1
         content_lower = replies[0].content.lower()
         assert "invalid" in content_lower or "expired" in content_lower
+        failed_metric.assert_called_once_with("not_found_or_expired")
+        redeemed_metric.assert_not_called()
 
         repo.link_channel_to_user.assert_not_awaited()
         repo.migrate_sessions.assert_not_awaited()

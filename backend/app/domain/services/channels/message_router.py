@@ -10,11 +10,13 @@ handled locally without reaching the agent.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from app.core import prometheus_metrics as pm
 from app.domain.models.channel import ChannelType, InboundMessage, OutboundMessage
 
 if TYPE_CHECKING:
@@ -285,8 +287,11 @@ class MessageRouter:
 
             link_code = parts[1].strip().upper()
             redis_key = f"channel_link:{link_code}"
+            code_prefix = link_code[:4]
+            code_sha256_12 = hashlib.sha256(link_code.encode("utf-8")).hexdigest()[:12]
 
             if self._link_code_store is None:
+                pm.record_channel_link_redeem_failed("store_unavailable")
                 yield self._make_reply(
                     message,
                     "Account linking is not configured. Please contact the administrator.",
@@ -297,6 +302,14 @@ class MessageRouter:
                 raw_value = await self._link_code_store.get(redis_key)
 
                 if raw_value is None:
+                    pm.record_channel_link_redeem_failed("not_found_or_expired")
+                    logger.info(
+                        "Channel link redeem failed: reason=not_found_or_expired channel=%s sender=%s code_prefix=%s code_sha256_12=%s",
+                        message.channel.value,
+                        message.sender_id,
+                        code_prefix,
+                        code_sha256_12,
+                    )
                     yield self._make_reply(
                         message,
                         "Invalid or expired link code. Please generate a new one from the web UI.",
@@ -307,6 +320,15 @@ class MessageRouter:
                 web_user_id: str = payload["user_id"]
                 expected_channel = payload.get("channel")
                 if expected_channel and expected_channel != message.channel.value:
+                    pm.record_channel_link_redeem_failed("channel_mismatch")
+                    logger.info(
+                        "Channel link redeem failed: reason=channel_mismatch expected_channel=%s actual_channel=%s sender=%s code_prefix=%s code_sha256_12=%s",
+                        expected_channel,
+                        message.channel.value,
+                        message.sender_id,
+                        code_prefix,
+                        code_sha256_12,
+                    )
                     yield self._make_reply(
                         message,
                         "This link code was generated for a different channel. Please create a new Telegram code.",
@@ -332,12 +354,22 @@ class MessageRouter:
 
                 # Single-use: delete the code immediately after successful link.
                 await self._link_code_store.delete(redis_key)
+                pm.record_channel_link_redeemed(message.channel.value)
+                logger.info(
+                    "Channel link redeemed: channel=%s sender=%s linked_user_id=%s code_prefix=%s code_sha256_12=%s",
+                    message.channel.value,
+                    message.sender_id,
+                    web_user_id,
+                    code_prefix,
+                    code_sha256_12,
+                )
 
                 yield self._make_reply(
                     message,
                     "Account linked! Your Telegram sessions will now appear in the web UI.",
                 )
             except Exception:
+                pm.record_channel_link_redeem_failed("internal_error")
                 logger.exception("Failed to process /link command for sender %s", message.sender_id)
                 yield self._make_reply(
                     message,
