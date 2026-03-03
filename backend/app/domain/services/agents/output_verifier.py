@@ -288,6 +288,23 @@ class OutputVerifier:
                         lettuce_result.confidence_score,
                         lettuce_result.hallucination_ratio * 100,
                     )
+
+                    # Log individual spans for post-hoc FP analysis
+                    for span in lettuce_result.hallucinated_spans:
+                        logger.info(
+                            "Hallucinated span | confidence=%.2f | "
+                            "text_preview=%.200s | position=%d-%d",
+                            span.confidence,
+                            span.text,
+                            span.start,
+                            span.end,
+                        )
+                        self._metrics.record_histogram(
+                            "pythinker_hallucination_span_confidence",
+                            span.confidence,
+                            labels={"model": "lettuce"},
+                        )
+
                     self._context_manager.add_insight(
                         insight_type=InsightType.ERROR_LEARNING,
                         content=(
