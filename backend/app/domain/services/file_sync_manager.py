@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import httpx
 
+from app.domain.exceptions.base import SessionNotFoundException
 from app.domain.models.event import MessageEvent, ReportEvent
 from app.domain.models.file import FileInfo
 
@@ -377,13 +378,23 @@ class FileSyncManager:
             return None
 
         try:
-            existing_file = await self._session_repository.get_file_by_path(self._session_id, file_path)
             file_data = await self._sandbox.file_download(file_path)
 
             if file_data is None:
                 logger.warning(
                     "Agent %s: File download returned None for '%s'",
                     self._agent_id,
+                    file_path,
+                )
+                return None
+
+            try:
+                existing_file = await self._session_repository.get_file_by_path(self._session_id, file_path)
+            except SessionNotFoundException:
+                logger.info(
+                    "Agent %s: Session %s no longer exists, skipping sync for '%s'",
+                    self._agent_id,
+                    self._session_id,
                     file_path,
                 )
                 return None
@@ -413,7 +424,16 @@ class FileSyncManager:
                     # Merge any new metadata into existing file
                     if metadata:
                         existing_file.metadata = {**(existing_file.metadata or {}), **metadata}
-                        await self._session_repository.add_file(self._session_id, existing_file)
+                        try:
+                            await self._session_repository.add_file(self._session_id, existing_file)
+                        except SessionNotFoundException:
+                            logger.info(
+                                "Agent %s: Session %s disappeared while updating metadata for '%s'",
+                                self._agent_id,
+                                self._session_id,
+                                file_path,
+                            )
+                            return None
                     return existing_file
 
             # Remove existing file if present (handle updates)
@@ -424,7 +444,16 @@ class FileSyncManager:
                     file_path,
                     existing_file.file_id,
                 )
-                await self._session_repository.remove_file(self._session_id, existing_file.file_id)
+                try:
+                    await self._session_repository.remove_file(self._session_id, existing_file.file_id)
+                except SessionNotFoundException:
+                    logger.info(
+                        "Agent %s: Session %s disappeared before replacing '%s'",
+                        self._agent_id,
+                        self._session_id,
+                        file_path,
+                    )
+                    return None
 
             file_name = file_path.split("/")[-1] or "unnamed_file"
 
@@ -468,7 +497,26 @@ class FileSyncManager:
                 **(metadata or {}),
                 "content_md5": content_md5,
             }
-            await self._session_repository.add_file(self._session_id, file_info)
+            try:
+                await self._session_repository.add_file(self._session_id, file_info)
+            except SessionNotFoundException:
+                logger.info(
+                    "Agent %s: Session %s disappeared after upload for '%s', deleting orphaned file_id=%s",
+                    self._agent_id,
+                    self._session_id,
+                    file_path,
+                    file_info.file_id,
+                )
+                try:
+                    await self._file_storage.delete_file(file_info.file_id, self._user_id)
+                except Exception:
+                    logger.debug(
+                        "Agent %s: Failed to delete orphaned file '%s' after session loss",
+                        self._agent_id,
+                        file_info.file_id,
+                        exc_info=True,
+                    )
+                return None
 
             logger.debug(
                 "Agent %s: Successfully synced file '%s' -> file_id=%s, size=%d bytes",
