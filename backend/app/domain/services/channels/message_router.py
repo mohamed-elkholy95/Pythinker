@@ -14,10 +14,12 @@ import hashlib
 import json
 import logging
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from app.core import prometheus_metrics as pm
 from app.domain.models.channel import ChannelType, InboundMessage, OutboundMessage
+from app.domain.services.channels.telegram_delivery_policy import TelegramDeliveryPolicy
 
 if TYPE_CHECKING:
     from app.application.services.agent_service import AgentService
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Slash-command constants
 # ---------------------------------------------------------------------------
-SLASH_COMMANDS = frozenset({"/new", "/stop", "/help", "/status", "/link"})
+SLASH_COMMANDS = frozenset({"/new", "/stop", "/help", "/status", "/link", "/pdf"})
 
 HELP_TEXT = (
     "Available commands:\n"
@@ -35,6 +37,7 @@ HELP_TEXT = (
     "  /stop   — Cancel the current request\n"
     "  /status — Show active session info\n"
     "  /link   — Link your Telegram to your web account\n"
+    "  /pdf    — Send the last assistant response as a PDF\n"
     "  :bind   — Alias of /link (works in Telegram deep-link flow)\n"
     "  /help   — Show this help message"
 )
@@ -89,6 +92,29 @@ class UserChannelRepository(Protocol):
         """Re-assign persisted session documents from old to new user_id."""
         ...
 
+    async def touch_last_inbound_at(self, user_id: str, channel: ChannelType, chat_id: str) -> None:
+        """Update ``last_inbound_at`` for (user, channel, chat)."""
+        ...
+
+    async def touch_last_outbound_at(self, user_id: str, channel: ChannelType, chat_id: str) -> None:
+        """Update ``last_outbound_at`` for (user, channel, chat)."""
+        ...
+
+    async def get_session_activity(self, user_id: str, channel: ChannelType, chat_id: str) -> dict[str, Any] | None:
+        """Return session activity metadata for (user, channel, chat)."""
+        ...
+
+    async def set_session_context_summary(
+        self,
+        user_id: str,
+        channel: ChannelType,
+        chat_id: str,
+        context_turn_count: int,
+        context_summary: str | None,
+    ) -> None:
+        """Persist context summary metadata for (user, channel, chat)."""
+        ...
+
 
 class LinkCodeStore(Protocol):
     """Abstraction for link-code storage (Redis-backed in production).
@@ -125,10 +151,43 @@ class MessageRouter:
         agent_service: AgentService,
         user_channel_repo: UserChannelRepository,
         link_code_store: LinkCodeStore | None = None,
+        telegram_delivery_policy: TelegramDeliveryPolicy | None = None,
+        *,
+        telegram_reuse_completed_sessions: bool = True,
+        telegram_session_idle_timeout_hours: int = 168,
+        telegram_max_context_turns: int = 50,
+        telegram_context_summarization_enabled: bool = True,
+        telegram_context_summarization_threshold_turns: int = 50,
+        telegram_pdf_message_min_chars: int = 3500,
+        telegram_pdf_report_min_chars: int = 2000,
+        telegram_pdf_caption_max_chars: int = 900,
+        telegram_pdf_async_threshold_chars: int = 10000,
+        telegram_pdf_include_toc: bool = True,
+        telegram_pdf_toc_min_sections: int = 3,
+        telegram_pdf_unicode_font: str = "DejaVuSans",
+        telegram_pdf_rate_limit_per_minute: int = 5,
+        telegram_pdf_delivery_enabled: bool = True,
     ) -> None:
         self._agent_service = agent_service
         self._user_channel_repo = user_channel_repo
         self._link_code_store = link_code_store
+        self._telegram_reuse_completed_sessions = telegram_reuse_completed_sessions
+        self._telegram_session_idle_timeout_hours = telegram_session_idle_timeout_hours
+        self._telegram_max_context_turns = telegram_max_context_turns
+        self._telegram_context_summarization_enabled = telegram_context_summarization_enabled
+        self._telegram_context_summarization_threshold_turns = telegram_context_summarization_threshold_turns
+        self._telegram_delivery_policy = telegram_delivery_policy or TelegramDeliveryPolicy(
+            pdf_delivery_enabled=telegram_pdf_delivery_enabled,
+            message_min_chars=telegram_pdf_message_min_chars,
+            report_min_chars=telegram_pdf_report_min_chars,
+            caption_max_chars=telegram_pdf_caption_max_chars,
+            async_threshold_chars=telegram_pdf_async_threshold_chars,
+            include_toc=telegram_pdf_include_toc,
+            toc_min_sections=telegram_pdf_toc_min_sections,
+            unicode_font=telegram_pdf_unicode_font,
+            rate_limit_per_minute=telegram_pdf_rate_limit_per_minute,
+        )
+        self._latest_responses: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -142,11 +201,13 @@ class MessageRouter:
         """
         # 1. Resolve user (auto-register if unknown)
         user_id = await self._resolve_user(message)
+        await self._record_inbound_activity(user_id, message)
 
         # 2. Handle slash commands locally
         content = self._normalize_command_alias(message.content.strip())
         if content.split()[0].lower() in SLASH_COMMANDS if content else False:
             async for reply in self._handle_slash_command(content, message, user_id):
+                await self._record_outbound_activity(user_id, message, reply.content)
                 yield reply
             return
 
@@ -173,19 +234,43 @@ class MessageRouter:
                 user_id=user_id,
                 message=message.content,
             ):
-                outbound = self._event_to_outbound(event, message)
-                if outbound is not None:
+                outbounds = await self._event_to_outbounds(event, message, user_id=user_id)
+                if not outbounds:
+                    continue
+                event_type = getattr(event, "type", None)
+                self._remember_latest_response(user_id, message, event, event_type=event_type)
+                for outbound in outbounds:
+                    await self._record_outbound_activity(user_id, message, outbound.content)
                     yield outbound
         except Exception:
             logger.exception("Agent error for session %s (user %s)", session_id, user_id)
-            yield self._make_reply(
+            error_reply = self._make_reply(
                 message,
                 "An error occurred while processing your request. Please try again.",
             )
+            await self._record_outbound_activity(user_id, message, error_reply.content)
+            yield error_reply
 
     # ------------------------------------------------------------------
     # Event conversion
     # ------------------------------------------------------------------
+
+    async def _event_to_outbounds(
+        self,
+        event: object,
+        source: InboundMessage,
+        *,
+        user_id: str,
+    ) -> list[OutboundMessage]:
+        """Convert one event into zero or more outbounds with channel-specific policies."""
+        event_type = getattr(event, "type", None)
+        if source.channel == ChannelType.TELEGRAM and event_type in {"message", "report"}:
+            return await self._telegram_delivery_policy.build_for_event(event, source, user_id=user_id)
+
+        outbound = self._event_to_outbound(event, source)
+        if outbound is None:
+            return []
+        return [outbound]
 
     def _event_to_outbound(self, event: object, source: InboundMessage) -> OutboundMessage | None:
         """Convert an agent event to an OutboundMessage, or ``None`` for internal events.
@@ -377,6 +462,29 @@ class MessageRouter:
                 )
             return
 
+        if command == "/pdf":
+            if message.channel != ChannelType.TELEGRAM:
+                yield self._make_reply(message, "PDF delivery is currently available only in Telegram.")
+                return
+
+            response = self._latest_responses.get(self._response_key(user_id, message.channel, message.chat_id))
+            if response is None:
+                yield self._make_reply(message, "No recent assistant response is available for PDF export.")
+                return
+
+            outbounds = await self._telegram_delivery_policy.build_for_content(
+                event_type=response["type"],
+                title=response["title"],
+                content=response["content"],
+                source=message,
+                user_id=user_id,
+                sources=response.get("sources"),
+                force_pdf=True,
+            )
+            for outbound in outbounds:
+                yield outbound
+            return
+
         # Unknown command — should not happen due to SLASH_COMMANDS guard.
         yield self._make_reply(  # pragma: no cover
             message, f"Unknown command: {command}. Type /help for available commands."
@@ -441,7 +549,12 @@ class MessageRouter:
         if session_id:
             session = await self._agent_service.get_session(session_id, user_id)
             if session is not None:
-                if self._is_terminal_session(session):
+                session_activity = await self._user_channel_repo.get_session_activity(
+                    user_id,
+                    message.channel,
+                    message.chat_id,
+                )
+                if not self._should_reuse_session(message, session, session_activity):
                     logger.info(
                         "Stored session %s is terminal, creating a new session for %s/%s",
                         session_id,
@@ -471,13 +584,151 @@ class MessageRouter:
         )
         return session.id
 
+    def _should_reuse_session(
+        self,
+        message: InboundMessage,
+        session: object,
+        session_activity: dict[str, Any] | None,
+    ) -> bool:
+        """Return True when an existing session should be reused for this message."""
+        status = self._normalized_status(session)
+        if status in {"failed", "cancelled"}:
+            pm.telegram_session_rotated_total.inc({"reason": status})
+            return False
+
+        if message.channel != ChannelType.TELEGRAM:
+            return status not in {"completed", "failed", "cancelled"}
+
+        # Telegram continuity policy: completed sessions are reused by default.
+        if status == "completed":
+            if not self._telegram_reuse_completed_sessions:
+                pm.telegram_session_rotated_total.inc({"reason": "completed_reuse_disabled"})
+                return False
+            if self._is_idle_session(session_activity):
+                pm.telegram_session_rotated_total.inc({"reason": "idle_timeout"})
+                return False
+            pm.telegram_session_reused_total.inc()
+            return True
+
+        pm.telegram_session_reused_total.inc()
+        return True
+
+    def _is_idle_session(self, session_activity: dict[str, Any] | None) -> bool:
+        """Return True when activity exceeds configured idle timeout."""
+        if self._telegram_session_idle_timeout_hours <= 0:
+            return False
+        if not session_activity:
+            return False
+
+        last_seen = self._latest_activity_timestamp(session_activity)
+        if last_seen is None:
+            return False
+
+        timeout = timedelta(hours=self._telegram_session_idle_timeout_hours)
+        return datetime.now(UTC) - last_seen > timeout
+
     @staticmethod
-    def _is_terminal_session(session: object) -> bool:
-        """Return True when the session status is terminal."""
+    def _latest_activity_timestamp(session_activity: dict[str, Any]) -> datetime | None:
+        timestamps: list[datetime] = []
+        for key in ("last_inbound_at", "last_outbound_at", "updated_at"):
+            value = session_activity.get(key)
+            if isinstance(value, datetime):
+                timestamps.append(value)
+        return max(timestamps) if timestamps else None
+
+    @staticmethod
+    def _normalized_status(session: object) -> str:
+        """Normalize session status to a lowercase string."""
         status = getattr(session, "status", None)
         raw_value = getattr(status, "value", status)
-        normalized = str(raw_value).strip().lower() if raw_value is not None else ""
-        return normalized in {"completed", "failed", "cancelled"}
+        return str(raw_value).strip().lower() if raw_value is not None else ""
+
+    async def _record_inbound_activity(self, user_id: str, message: InboundMessage) -> None:
+        """Best-effort session activity tracking for inbound messages."""
+        try:
+            await self._user_channel_repo.touch_last_inbound_at(user_id, message.channel, message.chat_id)
+        except Exception:
+            logger.exception(
+                "Failed to update last_inbound_at for user=%s channel=%s chat=%s",
+                user_id,
+                message.channel,
+                message.chat_id,
+            )
+
+    async def _record_outbound_activity(self, user_id: str, source: InboundMessage, content: str) -> None:
+        """Best-effort session activity tracking for outbound replies."""
+        try:
+            await self._user_channel_repo.touch_last_outbound_at(user_id, source.channel, source.chat_id)
+            if source.channel == ChannelType.TELEGRAM:
+                await self._update_context_summary_if_needed(user_id, source, content)
+        except Exception:
+            logger.exception(
+                "Failed to update last_outbound_at for user=%s channel=%s chat=%s",
+                user_id,
+                source.channel,
+                source.chat_id,
+            )
+
+    async def _update_context_summary_if_needed(self, user_id: str, source: InboundMessage, content: str) -> None:
+        """Persist rolling summary metadata for long Telegram conversations."""
+        activity = await self._user_channel_repo.get_session_activity(user_id, source.channel, source.chat_id)
+        current_turns = int(activity.get("context_turn_count", 0)) if activity else 0
+        context_turn_count = min(current_turns + 1, max(self._telegram_max_context_turns, 1))
+
+        summary: str | None = activity.get("context_summary") if activity else None
+        if (
+            self._telegram_context_summarization_enabled
+            and context_turn_count >= self._telegram_context_summarization_threshold_turns
+        ):
+            snippet = (content or "").strip().replace("\n", " ")
+            if len(snippet) > 200:
+                snippet = f"{snippet[:197].rstrip()}..."
+            summary = f"Conversation has {context_turn_count} turns. Latest assistant summary: {snippet}"
+
+        await self._user_channel_repo.set_session_context_summary(
+            user_id=user_id,
+            channel=source.channel,
+            chat_id=source.chat_id,
+            context_turn_count=context_turn_count,
+            context_summary=summary,
+        )
+
+    def _remember_latest_response(
+        self,
+        user_id: str,
+        message: InboundMessage,
+        event: object,
+        *,
+        event_type: str | None,
+    ) -> None:
+        """Cache the latest assistant response for slash-command follow-ups like /pdf."""
+        if event_type not in {"message", "report"}:
+            return
+
+        if event_type == "message":
+            role = getattr(event, "role", "assistant")
+            if role == "user":
+                return
+            payload = {
+                "type": "message",
+                "title": "Response",
+                "content": (getattr(event, "message", "") or "").strip(),
+                "sources": None,
+            }
+        else:
+            payload = {
+                "type": "report",
+                "title": (getattr(event, "title", "Report") or "Report").strip(),
+                "content": (getattr(event, "content", "") or "").strip(),
+                "sources": getattr(event, "sources", None),
+            }
+        if not payload["content"]:
+            return
+        self._latest_responses[self._response_key(user_id, message.channel, message.chat_id)] = payload
+
+    @staticmethod
+    def _response_key(user_id: str, channel: ChannelType, chat_id: str) -> tuple[str, str, str]:
+        return user_id, str(channel), chat_id
 
     # ------------------------------------------------------------------
     # Helpers
