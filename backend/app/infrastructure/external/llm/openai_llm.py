@@ -945,7 +945,9 @@ To extract data from a webpage:
         return converted
 
     def _parse_tool_call_from_text(
-        self, content: str, available_tools: list[dict[str, Any]] | None = None,
+        self,
+        content: str,
+        available_tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         """Parse tool call from text response for MLX mode.
 
@@ -978,7 +980,9 @@ To extract data from a webpage:
         return None
 
     def _validate_and_log_tool_call(
-        self, result: dict[str, Any], available_tools: list[dict[str, Any]] | None,
+        self,
+        result: dict[str, Any],
+        available_tools: list[dict[str, Any]] | None,
     ) -> bool:
         """Validate an extracted tool call and log validation result.
 
@@ -997,7 +1001,9 @@ To extract data from a webpage:
             arguments = {}
 
         is_valid, error_msg = self._validate_extracted_tool_call(
-            tool_name, arguments, available_tools,
+            tool_name,
+            arguments,
+            available_tools,
         )
 
         if not is_valid:
@@ -2560,7 +2566,8 @@ To extract data from a webpage:
 
                 stream_duration = time.monotonic() - stream_start
                 _slow = getattr(
-                    get_settings(), "llm_slow_stream_threshold",
+                    get_settings(),
+                    "llm_slow_stream_threshold",
                     get_settings().llm_slow_request_threshold,
                 )
                 if stream_duration > _slow * 2:
