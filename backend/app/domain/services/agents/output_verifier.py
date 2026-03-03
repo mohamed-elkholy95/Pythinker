@@ -292,8 +292,7 @@ class OutputVerifier:
                     # Log individual spans for post-hoc FP analysis
                     for span in lettuce_result.hallucinated_spans:
                         logger.info(
-                            "Hallucinated span | confidence=%.2f | "
-                            "text_preview=%.200s | position=%d-%d",
+                            "Hallucinated span | confidence=%.2f | text_preview=%.200s | position=%d-%d",
                             span.confidence,
                             span.text,
                             span.start,
