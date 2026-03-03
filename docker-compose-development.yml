@@ -146,6 +146,49 @@ services:
         - action: rebuild
           path: ./backend/requirements.txt
 
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
+    profiles:
+      - gateway
+    depends_on:
+      backend:
+        condition: service_healthy
+        required: true
+      mongodb:
+        condition: service_started
+        required: true
+      redis:
+        condition: service_started
+        required: true
+      qdrant:
+        condition: service_started
+        required: true
+      sandbox:
+        condition: service_started
+        required: true
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    env_file:
+      - .env
+    environment:
+      - CHANNEL_GATEWAY_ENABLED=true
+      - SANDBOX_LIFECYCLE_MODE=static
+      - SANDBOX_ADDRESS=sandbox
+      - SANDBOX_IMAGE=pythinker/pythinker-sandbox
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/pythinker?authSource=admin}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-pythinker_admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-pythinker_admin_password_change_me}
+      - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
+      - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:-dev-sandbox-secret-change-me}
+      - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-changeme}
+      - GRPC_ENABLE_FORK_SUPPORT=0
+      - NODE_OPTIONS=--no-deprecation
+      - FAST_MODEL=${FAST_MODEL:-}
+
   sandbox:
     build:
       context: ./sandbox

@@ -17,6 +17,7 @@
 # Commands:
 #   ./dev.sh                    Build + start stack + live watch (DEFAULT)
 #   ./dev.sh watch              Same as above (explicit)
+#   ./dev.sh watch --gateway    Include Telegram channel gateway profile
 #   ./dev.sh attach             Attach watch to ALREADY-RUNNING containers (no rebuild)
 #   ./dev.sh up -d              Start without watch (no HMR — manual use only)
 #   ./dev.sh logs -f backend    Follow backend logs
@@ -95,11 +96,35 @@ else
     exit 1
 fi
 
-# Optional --monitoring flag: include Prometheus + Grafana + Loki stack
+# Optional flags:
+#   --monitoring -> include Prometheus + Grafana + Loki stack
+#   --gateway    -> include Telegram channel gateway profile
 COMPOSE_FILES="-f docker-compose-development.yml"
-if [[ "${1:-}" == "--monitoring" ]]; then
+ENABLE_MONITORING=0
+ENABLE_GATEWAY=0
+POSITIONAL_ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --monitoring)
+            ENABLE_MONITORING=1
+            ;;
+        --gateway)
+            ENABLE_GATEWAY=1
+            ;;
+        *)
+            POSITIONAL_ARGS+=("$arg")
+            ;;
+    esac
+done
+set -- "${POSITIONAL_ARGS[@]}"
+
+if [[ "$ENABLE_MONITORING" -eq 1 ]]; then
     COMPOSE_FILES="$COMPOSE_FILES -f docker-compose-monitoring.yml"
-    shift
+fi
+
+COMPOSE_PROFILE_ARGS=()
+if [[ "$ENABLE_GATEWAY" -eq 1 ]]; then
+    COMPOSE_PROFILE_ARGS+=(--profile gateway)
 fi
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────
@@ -117,9 +142,12 @@ case "$CMD" in
         echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
         echo ""
         echo "  Tip: containers already running? Use ./dev.sh attach instead."
+        if [[ "$ENABLE_GATEWAY" -eq 0 ]]; then
+            echo "  Note: Telegram channel pipeline not started. Use --gateway to enable."
+        fi
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        $COMPOSE $COMPOSE_FILES up --build --watch
+        $COMPOSE $COMPOSE_FILES "${COMPOSE_PROFILE_ARGS[@]}" up --build --watch
         ;;
     attach)
         # Attach Compose Watch to ALREADY-RUNNING containers (no rebuild, no restart)
@@ -130,9 +158,12 @@ case "$CMD" in
         echo "  Frontend : ./frontend/src → /app/src  [Vite HMR]"
         echo "  Backend  : ./backend/app  → /app/app  [uvicorn reload opt-in]"
         echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
+        if [[ "$ENABLE_GATEWAY" -eq 0 ]]; then
+            echo "  Note: Telegram channel pipeline not started. Use --gateway to enable."
+        fi
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        $COMPOSE $COMPOSE_FILES watch --no-up
+        $COMPOSE $COMPOSE_FILES "${COMPOSE_PROFILE_ARGS[@]}" watch --no-up
         ;;
     sync)
         # Legacy: rsync to /private/tmp staging dirs
@@ -141,10 +172,10 @@ case "$CMD" in
         ;;
     up|start|restart)
         # Pass through to docker compose (no auto-sync needed — image has source code)
-        $COMPOSE $COMPOSE_FILES "$@"
+        $COMPOSE $COMPOSE_FILES "${COMPOSE_PROFILE_ARGS[@]}" "$@"
         ;;
     *)
         # All other compose commands pass through unchanged
-        $COMPOSE $COMPOSE_FILES "$@"
+        $COMPOSE $COMPOSE_FILES "${COMPOSE_PROFILE_ARGS[@]}" "$@"
         ;;
 esac
