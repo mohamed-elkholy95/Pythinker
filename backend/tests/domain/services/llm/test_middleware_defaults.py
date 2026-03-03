@@ -9,19 +9,23 @@ from app.core.retry import PROVIDER_RETRY_CONFIGS
 
 
 class TestMiddlewareFeatureFlagDefaults:
-    """Verify middleware feature flag defaults after GLM-5 timeout cascade fix."""
+    """Verify middleware feature flag defaults.
 
-    def test_middleware_pipeline_enabled_by_default(self) -> None:
-        mixin = FeatureFlagsSettingsMixin()
-        assert mixin.feature_llm_middleware_pipeline is True
+    All middleware flags default to False because the pipeline is not yet
+    wired into any LLM provider (build_default_pipeline is never called).
+    """
 
-    def test_retry_budget_enabled_by_default(self) -> None:
+    def test_middleware_pipeline_disabled_by_default(self) -> None:
         mixin = FeatureFlagsSettingsMixin()
-        assert mixin.feature_llm_retry_budget is True
+        assert mixin.feature_llm_middleware_pipeline is False
 
-    def test_health_scoring_enabled_by_default(self) -> None:
+    def test_retry_budget_disabled_by_default(self) -> None:
         mixin = FeatureFlagsSettingsMixin()
-        assert mixin.feature_llm_health_scoring is True
+        assert mixin.feature_llm_retry_budget is False
+
+    def test_health_scoring_disabled_by_default(self) -> None:
+        mixin = FeatureFlagsSettingsMixin()
+        assert mixin.feature_llm_health_scoring is False
 
     def test_provider_fallback_disabled_by_default(self) -> None:
         mixin = FeatureFlagsSettingsMixin()
