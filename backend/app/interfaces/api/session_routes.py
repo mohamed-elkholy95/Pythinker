@@ -1602,7 +1602,7 @@ async def screencast_websocket(
     except RuntimeError as e:
         logger.warning(f"Screencast WebSocket accept failed (connection already closed or shutdown in progress): {e}")
         return
-    logger.info(f"Accepted screencast WebSocket for session {session_id}")
+    logger.debug(f"Accepted screencast WebSocket for session {session_id}")
 
     if not _is_websocket_origin_allowed(websocket):
         logger.warning(
@@ -1652,14 +1652,14 @@ async def screencast_websocket(
             sandbox_ws_url = f"{sandbox_ws_url}&secret={quote(settings.sandbox_api_secret)}"
 
         redacted_sandbox_ws_url = _redact_query_params(sandbox_ws_url)
-        logger.info("Connecting to screencast at %s", redacted_sandbox_ws_url)
+        logger.debug("Connecting to screencast at %s", redacted_sandbox_ws_url)
 
         async with websockets.connect(
             sandbox_ws_url,
             additional_headers=_sandbox_ws_extra_headers(),
             **SANDBOX_WS_CONNECT_KWARGS,
         ) as sandbox_ws:
-            logger.info("Connected to screencast at %s", redacted_sandbox_ws_url)
+            logger.debug("Connected to screencast at %s", redacted_sandbox_ws_url)
 
             async def forward_from_sandbox():
                 """Relay frames from sandbox → browser."""
@@ -1670,14 +1670,17 @@ async def screencast_websocket(
                         else:
                             await websocket.send_text(message)
                 except WebSocketDisconnect:
-                    logger.info("Browser -> screencast connection closed")
+                    logger.debug("Browser -> screencast connection closed")
                 except RuntimeError as e:
                     if "disconnect message has been received" in str(e):
-                        logger.info("Browser -> screencast connection closed")
+                        logger.debug("Browser -> screencast connection closed")
                     else:
                         logger.error(f"Error forwarding from screencast: {e}")
-                except websockets.exceptions.ConnectionClosed:
-                    logger.info("Screencast -> browser connection closed")
+                except websockets.exceptions.ConnectionClosed as e:
+                    if e.code in (1000, 1001, None):
+                        logger.debug("Screencast -> browser connection closed (code=%s)", e.code)
+                    else:
+                        logger.warning("Screencast -> browser connection closed abnormally (code=%s, reason=%s)", e.code, e.reason)
                 except Exception as e:
                     logger.error(f"Error forwarding from screencast: {e}")
 
