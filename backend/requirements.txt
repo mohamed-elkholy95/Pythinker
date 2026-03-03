@@ -29,6 +29,7 @@ tenacity>=8.2.0
 rich>=14.0.0
 markdownify>=1.2.0
 rapidfuzz>=3.9.0
+reportlab>=4.2.0  # Telegram PDF delivery generation engine
 # Keep html5lib on wheel-backed modern release to avoid legacy build path
 # that imports pkg_resources in pip-audit's ephemeral resolver environment.
 html5lib==1.1

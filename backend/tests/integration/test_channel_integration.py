@@ -89,6 +89,10 @@ def _make_repo(
     repo.link_channel_to_user = AsyncMock(return_value=None)
     repo.migrate_sessions = AsyncMock()
     repo.migrate_session_ownership = AsyncMock()
+    repo.touch_last_inbound_at = AsyncMock()
+    repo.touch_last_outbound_at = AsyncMock()
+    repo.get_session_activity = AsyncMock(return_value=None)
+    repo.set_session_context_summary = AsyncMock()
     return repo
 
 

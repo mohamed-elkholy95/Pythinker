@@ -37,6 +37,36 @@ class TestTelegramDefaults:
     def test_proxy_url_empty(self, settings):
         assert settings.telegram_proxy_url == ""
 
+    def test_reuse_completed_sessions_enabled(self, settings):
+        assert settings.telegram_reuse_completed_sessions is True
+
+    def test_session_idle_timeout_hours_default(self, settings):
+        assert settings.telegram_session_idle_timeout_hours == 168
+
+    def test_context_turn_limits_defaults(self, settings):
+        assert settings.telegram_max_context_turns == 50
+        assert settings.telegram_context_summarization_enabled is True
+        assert settings.telegram_context_summarization_threshold_turns == 50
+
+    def test_pdf_delivery_defaults(self, settings):
+        assert settings.telegram_pdf_delivery_enabled is True
+        assert settings.telegram_pdf_message_min_chars == 3500
+        assert settings.telegram_pdf_report_min_chars == 2000
+        assert settings.telegram_pdf_caption_max_chars == 900
+        assert settings.telegram_pdf_async_threshold_chars == 10000
+        assert settings.telegram_pdf_cleanup_seconds == 600
+        assert settings.telegram_pdf_include_toc is True
+        assert settings.telegram_pdf_toc_min_sections == 3
+        assert settings.telegram_pdf_unicode_font == "DejaVuSans"
+        assert settings.telegram_pdf_rate_limit_per_minute == 5
+        assert settings.telegram_pdf_file_id_cache_redis_enabled is False
+        assert settings.telegram_pdf_max_generation_seconds == 30
+        assert settings.telegram_pdf_max_memory_mb == 100
+
+    def test_telegram_adapter_resilience_defaults(self, settings):
+        assert settings.telegram_rate_limit_cooldown_seconds == 3
+        assert settings.telegram_max_messages_per_batch == 5
+
 
 class TestDiscordDefaults:
     def test_bot_token_empty(self, settings):
