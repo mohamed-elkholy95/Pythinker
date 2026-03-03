@@ -58,6 +58,9 @@ class NanobotGateway:
     ``app.domain.external.channel_gateway``.
     """
 
+    # Seconds without a successful channel poll before emitting a WARNING.
+    POLL_WATCHDOG_TIMEOUT: float = 20.0
+
     def __init__(
         self,
         message_router: MessageRouter,
@@ -87,6 +90,9 @@ class NanobotGateway:
         self._message_router = message_router
         self._consumer_task: asyncio.Task[None] | None = None
         self._channels_task: asyncio.Task[None] | None = None
+        self._watchdog_task: asyncio.Task[None] | None = None
+        # Signalled by _consume_inbound on each successful bus poll iteration.
+        self._activity_event: asyncio.Event = asyncio.Event()
 
         # Build nanobot Config from Pythinker settings
         channels_cfg = ChannelsConfig(
@@ -147,10 +153,20 @@ class NanobotGateway:
         self._channels_task = asyncio.create_task(self._channel_manager.start_all())
         # Start inbound consumer
         self._consumer_task = asyncio.create_task(self._consume_inbound())
+        # Start polling watchdog
+        self._activity_event.set()  # Pre-signal so watchdog doesn't fire immediately
+        self._watchdog_task = asyncio.create_task(self._run_poll_watchdog())
 
     async def stop(self) -> None:
         """Stop the consumer loop and all nanobot channels."""
         logger.info("NanobotGateway stopping...")
+
+        # Cancel watchdog first (prevents spurious warnings during shutdown)
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._watchdog_task
+            self._watchdog_task = None
 
         # Cancel consumer first
         if self._consumer_task is not None:
@@ -204,6 +220,30 @@ class NanobotGateway:
     # Inbound consumer (nanobot bus → MessageRouter)
     # ------------------------------------------------------------------
 
+    async def _run_poll_watchdog(self) -> None:
+        """Watchdog: log a WARNING when the inbound consumer stalls for > POLL_WATCHDOG_TIMEOUT s.
+
+        Detects event-loop blocks, nanobot channel hangs, or network stalls that
+        prevent the consumer from completing a poll cycle.  The _activity_event is
+        set by _consume_inbound on every successful bus.consume_inbound() attempt.
+        """
+        try:
+            while True:
+                self._activity_event.clear()
+                try:
+                    await asyncio.wait_for(
+                        self._activity_event.wait(),
+                        timeout=self.POLL_WATCHDOG_TIMEOUT,
+                    )
+                except TimeoutError:
+                    logger.warning(
+                        "NanobotGateway: no channel poll activity for %.0fs — "
+                        "possible event-loop block or Telegram/Discord connection stall",
+                        self.POLL_WATCHDOG_TIMEOUT,
+                    )
+        except asyncio.CancelledError:
+            pass
+
     async def _consume_inbound(self) -> None:
         """Loop: consume inbound messages from the nanobot bus, convert
         to Pythinker ``InboundMessage``, route through ``MessageRouter``,
@@ -218,8 +258,10 @@ class NanobotGateway:
                         timeout=1.0,
                     )
                 except TimeoutError:
+                    self._activity_event.set()  # Idle poll still counts as activity
                     continue
 
+                self._activity_event.set()  # Signal successful message receipt to watchdog
                 pt_msg = self._convert_inbound(nb_msg)
                 logger.info(
                     "Inbound message from %s sender=%s chat=%s",
