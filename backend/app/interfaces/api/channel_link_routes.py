@@ -97,7 +97,7 @@ async def generate_link_code(
         _CODE_TTL_SECONDS,
     )
 
-    instructions = _channel_instructions(channel_type.value).replace("{}", code)
+    instructions = _channel_instructions(channel_type.value).replace("<CODE>", code)
 
     return APIResponse.success(
         GenerateLinkCodeResponse(
