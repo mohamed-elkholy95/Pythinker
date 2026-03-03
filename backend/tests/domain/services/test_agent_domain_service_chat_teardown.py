@@ -92,7 +92,7 @@ async def test_chat_wait_event_does_not_trigger_runtime_teardown() -> None:
 
 @pytest.mark.asyncio
 async def test_chat_no_active_task_and_running_session_emits_error_and_tears_down() -> None:
-    """An orphaned RUNNING session (stale > 30s) with no active task should emit
+    """An orphaned RUNNING session (stale > 180s) with no active task should emit
     an ErrorEvent and be torn down as CANCELLED."""
     task = None
     session = Session(
@@ -103,8 +103,8 @@ async def test_chat_no_active_task_and_running_session_emits_error_and_tears_dow
         task_id=None,
         sandbox_id="sandbox-id",
         sandbox_owned=True,
-        # Stale session: updated > 30s ago → genuine orphan
-        updated_at=datetime.now(UTC) - timedelta(seconds=60),
+        # Stale session: updated > 180s ago → genuine orphan
+        updated_at=datetime.now(UTC) - timedelta(seconds=240),
     )
 
     service, teardown = _build_service(session, task)
@@ -118,7 +118,7 @@ async def test_chat_no_active_task_and_running_session_emits_error_and_tears_dow
 
 @pytest.mark.asyncio
 async def test_chat_no_active_task_recent_running_session_emits_done_not_cancel() -> None:
-    """A RUNNING session with no task but updated < 30s ago is likely a reconnect
+    """A RUNNING session with no task but updated < 180s ago is likely a reconnect
     race — should emit DoneEvent instead of cancelling the session."""
     task = None
     session = Session(
@@ -139,6 +139,31 @@ async def test_chat_no_active_task_recent_running_session_emits_done_not_cancel(
     assert len(events) == 1
     assert isinstance(events[0], DoneEvent)
     # Should tear down as COMPLETED (graceful), not CANCELLED
+    teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
+
+
+@pytest.mark.asyncio
+async def test_chat_no_active_task_within_grace_period_emits_done_not_cancel() -> None:
+    """A RUNNING session at 150s (within 180s grace window, past old 30s threshold)
+    should emit DoneEvent — the SSE reconnection grace period protects it."""
+    task = None
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.RUNNING,
+        task_id=None,
+        sandbox_id="sandbox-id",
+        sandbox_owned=True,
+        # 150s: within 180s grace window — should NOT be treated as orphan
+        updated_at=datetime.now(UTC) - timedelta(seconds=150),
+    )
+
+    service, teardown = _build_service(session, task)
+    events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
+
+    assert len(events) == 1
+    assert isinstance(events[0], DoneEvent)
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
 
 
