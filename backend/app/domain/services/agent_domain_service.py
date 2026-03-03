@@ -382,26 +382,42 @@ class AgentDomainService:
                         )
 
                         if should_use_fast_path(message, follow_up_source=follow_up_source):
-                            # Retrieve lightweight memory context for personalization
-                            memory_context: str | None = None
-                            if self._memory_service and user_id:
-                                try:
-                                    mem_results = await self._memory_service.retrieve_for_task(
-                                        user_id=user_id,
-                                        task_description=message,
-                                        limit=2,
-                                    )
-                                    if mem_results:
-                                        memory_context = "\n".join(f"- {m.memory.content}" for m in mem_results)
-                                except Exception:
-                                    logger.debug("Fast path memory retrieval failed", exc_info=True)
-
+                            # Classify intent first (no API calls) before any expensive I/O.
+                            # Previously memory retrieval (embedding API ~1s) fired unconditionally
+                            # for every fast-path candidate, even messages that fall through to
+                            # the full task path.  Now memory is fetched only for intents that
+                            # actually execute the fast path (GREETING / KNOWLEDGE).
                             fast_router = FastPathRouter(
                                 llm=self._llm,
                                 search_engine=self._search_engine,
-                                memory_context=memory_context,
+                                memory_context=None,
                             )
                             intent, params = fast_router.classify(message)
+
+                            if intent in (QueryIntent.GREETING, QueryIntent.KNOWLEDGE):
+                                # Retrieve lightweight memory context for personalization
+                                # (deferred until we know the fast path will be taken)
+                                memory_context: str | None = None
+                                if self._memory_service and user_id:
+                                    try:
+                                        mem_results = await self._memory_service.retrieve_for_task(
+                                            user_id=user_id,
+                                            task_description=message,
+                                            limit=2,
+                                        )
+                                        if mem_results:
+                                            memory_context = "\n".join(
+                                                f"- {m.memory.content}" for m in mem_results
+                                            )
+                                    except Exception:
+                                        logger.debug("Fast path memory retrieval failed", exc_info=True)
+
+                                if memory_context:
+                                    fast_router = FastPathRouter(
+                                        llm=self._llm,
+                                        search_engine=self._search_engine,
+                                        memory_context=memory_context,
+                                    )
 
                             if intent in (QueryIntent.GREETING, QueryIntent.KNOWLEDGE):
                                 logger.info(
