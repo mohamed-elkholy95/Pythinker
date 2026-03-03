@@ -103,17 +103,17 @@
         </section>
 
         <section class="cta-section">
-          <button class="primary-action" type="button" :disabled="isGeneratingCode" @click="handleGetStarted">
-            <Loader2 v-if="isGeneratingCode" class="w-4 h-4 animate-spin" />
+          <button class="primary-action" type="button" :disabled="isGenerating" @click="generate">
+            <Loader2 v-if="isGenerating" class="w-4 h-4 animate-spin" />
             <Send v-else class="w-4 h-4" />
             Get started on Telegram
           </button>
 
-          <div v-if="telegramBindCommand" class="bind-panel">
+          <div v-if="bindCommand" class="bind-panel">
             <p class="bind-title">Send this command in Telegram</p>
             <div class="bind-row">
-              <code>{{ telegramBindCommand }}</code>
-              <button type="button" class="icon-btn" @click="copyBindCommand">
+              <code>{{ activeCommand }}</code>
+              <button type="button" class="icon-btn" @click="copyCommand">
                 <Check v-if="isCopied" class="w-4 h-4" />
                 <Copy v-else class="w-4 h-4" />
               </button>
@@ -121,9 +121,9 @@
             <div class="bind-meta">
               <span>
                 <Clock3 class="w-3.5 h-3.5" />
-                Expires in {{ formatCountdown(linkExpiresInSeconds) }}
+                Expires in {{ formatCountdown(countdown) }}
               </span>
-              <button type="button" class="inline-link" @click="openTelegramDeepLink">Open Telegram</button>
+              <button type="button" class="inline-link" @click="openDeepLink">Open Telegram</button>
             </div>
           </div>
 
@@ -136,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   BadgeCheck,
@@ -155,41 +155,35 @@ import {
 } from 'lucide-vue-next'
 import SimpleBar from '@/components/SimpleBar.vue'
 import { getSessions } from '@/api/agent'
-import { generateLinkCode, getLinkedChannels } from '@/api/channelLinks'
-import type { LinkedChannel } from '@/api/channelLinks'
+import { useTelegramLink } from '@/composables/useTelegramLink'
 import type { ListSessionItem } from '@/types/response'
 
 const router = useRouter()
-
 const isLoading = ref(true)
-const isGeneratingCode = ref(false)
-const linkedChannels = ref<LinkedChannel[]>([])
 const sessions = ref<ListSessionItem[]>([])
-const telegramBindCommand = ref<string | null>(null)
-const telegramBotUrl = ref<string | null>(null)
-const telegramDeepLinkUrl = ref<string | null>(null)
-const linkExpiresInSeconds = ref(0)
-const isCopied = ref(false)
-const feedback = ref<string | null>(null)
-const error = ref<string | null>(null)
 
-let countdownInterval: ReturnType<typeof setInterval> | null = null
-let copyResetTimeout: ReturnType<typeof setTimeout> | null = null
-let linkStatusPollInterval: ReturnType<typeof setInterval> | null = null
-
-const isTelegramLinked = computed(() =>
-  linkedChannels.value.some((channel) => channel.channel === 'telegram'),
-)
+const {
+  isTelegramLinked,
+  isGenerating,
+  bindCommand,
+  activeCommand,
+  isCopied,
+  error,
+  feedback,
+  countdown,
+  generate,
+  copyCommand,
+  openDeepLink,
+  loadChannels,
+  formatCountdown,
+} = useTelegramLink()
 
 const recentSessions = computed(() =>
   [...sessions.value]
+    .filter((s) => s.source === 'telegram')
     .sort((a, b) => (b.latest_message_at || 0) - (a.latest_message_at || 0))
     .slice(0, 12),
 )
-
-const loadChannels = async () => {
-  linkedChannels.value = await getLinkedChannels()
-}
 
 const loadSessions = async () => {
   const response = await getSessions()
@@ -201,107 +195,11 @@ const loadAll = async () => {
   error.value = null
   try {
     await Promise.all([loadChannels(), loadSessions()])
-    if (isTelegramLinked.value) {
-      clearDraft()
-    }
   } catch {
     error.value = 'Failed to load agent state. Please refresh.'
   } finally {
     isLoading.value = false
   }
-}
-
-const routeToLinkedChatView = () => {
-  if (!isTelegramLinked.value) return
-  const latestSession = recentSessions.value[0]
-  if (latestSession) {
-    void router.push(`/chat/${latestSession.session_id}`)
-    return
-  }
-  void router.push('/chat/history')
-}
-
-const clearDraft = () => {
-  telegramBindCommand.value = null
-  telegramBotUrl.value = null
-  telegramDeepLinkUrl.value = null
-  linkExpiresInSeconds.value = 0
-  isCopied.value = false
-  if (countdownInterval) {
-    clearInterval(countdownInterval)
-    countdownInterval = null
-  }
-}
-
-const startCountdown = () => {
-  if (countdownInterval) {
-    clearInterval(countdownInterval)
-  }
-  countdownInterval = setInterval(() => {
-    linkExpiresInSeconds.value -= 1
-    if (linkExpiresInSeconds.value <= 0) {
-      clearDraft()
-      feedback.value = 'Link expired. Generate a new one.'
-    }
-  }, 1000)
-}
-
-const openTelegramDeepLink = () => {
-  const targetUrl = (
-    telegramBotUrl.value && telegramBindCommand.value
-      ? `${telegramBotUrl.value.trim().replace(/\/+$/, '')}?text=${encodeURIComponent(telegramBindCommand.value)}`
-      : telegramDeepLinkUrl.value || telegramBotUrl.value
-  )
-  if (!targetUrl) {
-    error.value = 'Telegram link is unavailable. Try again.'
-    return
-  }
-  const popup = window.open(targetUrl, '_blank', 'noopener,noreferrer')
-  feedback.value = popup
-    ? 'Telegram opened. Send the bind command in your Telegram chat.'
-    : 'Popup blocked. Copy the command and send it manually.'
-}
-
-const handleGetStarted = async () => {
-  isGeneratingCode.value = true
-  error.value = null
-  feedback.value = null
-  try {
-    const result = await generateLinkCode('telegram')
-    telegramBindCommand.value = result.bind_command || `:bind ${result.code}`
-    telegramBotUrl.value = result.bot_url || null
-    telegramDeepLinkUrl.value = result.deep_link_url || result.bot_url || null
-    linkExpiresInSeconds.value = result.expires_in_seconds
-    startCountdown()
-    openTelegramDeepLink()
-    startLinkStatusPolling()
-  } catch {
-    error.value = 'Failed to generate Telegram setup code.'
-  } finally {
-    isGeneratingCode.value = false
-  }
-}
-
-const copyBindCommand = async () => {
-  if (!telegramBindCommand.value) return
-  try {
-    await navigator.clipboard.writeText(telegramBindCommand.value)
-    isCopied.value = true
-    feedback.value = 'Bind command copied.'
-    if (copyResetTimeout) clearTimeout(copyResetTimeout)
-    copyResetTimeout = setTimeout(() => {
-      isCopied.value = false
-    }, 1500)
-  } catch {
-    error.value = 'Failed to copy command.'
-  }
-}
-
-const formatCountdown = (seconds: number) => {
-  const safe = Math.max(seconds, 0)
-  const minutes = Math.floor(safe / 60)
-  const remainder = safe % 60
-  return `${minutes}:${remainder.toString().padStart(2, '0')}`
 }
 
 const formatSessionTime = (unixSeconds: number | null) => {
@@ -316,41 +214,10 @@ const openSession = (sessionId: string) => {
 
 const handleRefresh = async () => {
   await loadAll()
-  routeToLinkedChatView()
-}
-
-const startLinkStatusPolling = () => {
-  if (linkStatusPollInterval) {
-    clearInterval(linkStatusPollInterval)
-  }
-  linkStatusPollInterval = setInterval(() => {
-    void loadChannels()
-      .then(() => {
-        if (!isTelegramLinked.value) return
-        if (linkStatusPollInterval) {
-          clearInterval(linkStatusPollInterval)
-          linkStatusPollInterval = null
-        }
-        feedback.value = 'Telegram linked. Opening your chat view...'
-        return loadSessions().then(() => {
-          routeToLinkedChatView()
-        })
-      })
-      .catch(() => {
-        // Polling errors should not block ongoing UI actions.
-      })
-  }, 5000)
 }
 
 onMounted(async () => {
   await loadAll()
-  routeToLinkedChatView()
-})
-
-onUnmounted(() => {
-  if (countdownInterval) clearInterval(countdownInterval)
-  if (copyResetTimeout) clearTimeout(copyResetTimeout)
-  if (linkStatusPollInterval) clearInterval(linkStatusPollInterval)
 })
 </script>
 
