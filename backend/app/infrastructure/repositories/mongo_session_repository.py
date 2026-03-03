@@ -44,6 +44,7 @@ ALLOWED_SESSION_UPDATE_FIELDS: frozenset[str] = frozenset(
         # Session state
         "title",
         "status",
+        "task_id",
         "mode",
         "sandbox_id",
         "sandbox_owned",
