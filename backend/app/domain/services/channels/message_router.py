@@ -33,6 +33,7 @@ HELP_TEXT = (
     "  /stop   — Cancel the current request\n"
     "  /status — Show active session info\n"
     "  /link   — Link your Telegram to your web account\n"
+    "  :bind   — Alias of /link (works in Telegram deep-link flow)\n"
     "  /help   — Show this help message"
 )
 
@@ -141,7 +142,7 @@ class MessageRouter:
         user_id = await self._resolve_user(message)
 
         # 2. Handle slash commands locally
-        content = message.content.strip()
+        content = self._normalize_command_alias(message.content.strip())
         if content.split()[0].lower() in SLASH_COMMANDS if content else False:
             async for reply in self._handle_slash_command(content, message, user_id):
                 yield reply
@@ -278,12 +279,11 @@ class MessageRouter:
             if len(parts) < 2 or not parts[1].strip():
                 yield self._make_reply(
                     message,
-                    "Usage: /link CODE\n\nGenerate a link code from the web UI under Settings → Link Telegram.",
+                    "Usage: /link CODE (or :bind CODE)\n\nGenerate a link code from the web UI under Settings → Link Telegram.",
                 )
                 return
 
-            link_code = parts[1].strip().upper()
-            redis_key = f"channel_link:{link_code}"
+            link_code = parts[1].strip()
 
             if self._link_code_store is None:
                 yield self._make_reply(
@@ -293,7 +293,18 @@ class MessageRouter:
                 return
 
             try:
-                raw_value = await self._link_code_store.get(redis_key)
+                redis_keys = [f"channel_link:{link_code}"]
+                upper_key = f"channel_link:{link_code.upper()}"
+                if upper_key != redis_keys[0]:
+                    redis_keys.append(upper_key)
+
+                raw_value: str | None = None
+                matched_key: str | None = None
+                for key in redis_keys:
+                    raw_value = await self._link_code_store.get(key)
+                    if raw_value is not None:
+                        matched_key = key
+                        break
 
                 if raw_value is None:
                     yield self._make_reply(
@@ -304,6 +315,13 @@ class MessageRouter:
 
                 payload: dict[str, str] = json.loads(raw_value)
                 web_user_id: str = payload["user_id"]
+                expected_channel = payload.get("channel")
+                if expected_channel and expected_channel != message.channel.value:
+                    yield self._make_reply(
+                        message,
+                        "This link code was generated for a different channel. Please create a new Telegram code.",
+                    )
+                    return
 
                 old_user_id = await self._user_channel_repo.link_channel_to_user(
                     message.channel,
@@ -323,7 +341,8 @@ class MessageRouter:
                     )
 
                 # Single-use: delete the code immediately after successful link.
-                await self._link_code_store.delete(redis_key)
+                if matched_key is not None:
+                    await self._link_code_store.delete(matched_key)
 
                 yield self._make_reply(
                     message,
@@ -341,6 +360,26 @@ class MessageRouter:
         yield self._make_reply(  # pragma: no cover
             message, f"Unknown command: {command}. Type /help for available commands."
         )
+
+    @staticmethod
+    def _normalize_command_alias(content: str) -> str:
+        """Normalize Telegram bind/deep-link aliases to ``/link``."""
+        if not content:
+            return content
+
+        parts = content.split(maxsplit=1)
+        command = parts[0].lower()
+        argument = parts[1].strip() if len(parts) > 1 else ""
+
+        if command == ":bind":
+            return f"/link {argument}".strip()
+
+        # Telegram deep-link starts as: /start bind_<CODE>
+        if command == "/start" and argument.lower().startswith("bind_"):
+            bind_code = argument[5:].strip()
+            return f"/link {bind_code}".strip() if bind_code else "/link"
+
+        return content
 
     # ------------------------------------------------------------------
     # User resolution
