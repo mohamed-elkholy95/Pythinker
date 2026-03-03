@@ -29,3 +29,13 @@ export const isTerminalSessionStatus = (status?: SessionStatus): boolean => {
     || status === SessionStatus.FAILED
     || status === SessionStatus.CANCELLED;
 };
+
+export const shouldReplayHistoryEvent = (
+  eventType: string,
+  sessionStatus?: SessionStatus,
+): boolean => {
+  if (eventType !== 'stream') {
+    return true;
+  }
+  return isTerminalSessionStatus(sessionStatus);
+};
