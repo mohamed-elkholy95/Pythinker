@@ -233,3 +233,189 @@ async def test_ensure_indexes_creates_both(
     session_call = repo._sessions.create_index.call_args
     assert session_call[0][0] == [("user_id", 1), ("channel", 1), ("chat_id", 1)]
     assert session_call[1]["unique"] is True
+
+
+# ------------------------------------------------------------------
+# link_channel_to_user
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_link_channel_to_user_upserts_with_correct_filter(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """link_channel_to_user calls find_one_and_update with the expected filter and update."""
+    repo._links.find_one_and_update = AsyncMock(return_value=None)
+
+    result = await repo.link_channel_to_user(ChannelType.TELEGRAM, "tg-999", "web-user-abc")
+
+    repo._links.find_one_and_update.assert_awaited_once()
+    call_args = repo._links.find_one_and_update.call_args
+
+    # Positional filter
+    filt = call_args[0][0]
+    assert filt["channel"] == "telegram"
+    assert filt["sender_id"] == "tg-999"
+
+    # Update doc must contain $set with user_id and linked_at
+    update = call_args[0][1]
+    assert update["$set"]["user_id"] == "web-user-abc"
+    assert "linked_at" in update["$set"]
+
+    # $setOnInsert must contain channel and sender_id for upsert path
+    assert "$setOnInsert" in update
+    assert update["$setOnInsert"]["channel"] == "telegram"
+    assert update["$setOnInsert"]["sender_id"] == "tg-999"
+    assert "created_at" in update["$setOnInsert"]
+
+    # Upsert flag
+    assert call_args[1]["upsert"] is True
+
+    # No previous document → returns None
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_link_channel_to_user_returns_old_user_id(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """link_channel_to_user returns the old user_id from the previous document."""
+    old_doc = {"user_id": "channel-old-abc123"}
+    repo._links.find_one_and_update = AsyncMock(return_value=old_doc)
+
+    result = await repo.link_channel_to_user(ChannelType.TELEGRAM, "tg-999", "web-user-abc")
+
+    assert result == "channel-old-abc123"
+
+
+@pytest.mark.asyncio
+async def test_link_channel_to_user_returns_none_when_no_previous_doc(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """link_channel_to_user returns None when there was no previous document (new insert)."""
+    repo._links.find_one_and_update = AsyncMock(return_value=None)
+
+    result = await repo.link_channel_to_user(ChannelType.DISCORD, "discord-42", "web-user-xyz")
+
+    assert result is None
+
+
+# ------------------------------------------------------------------
+# get_linked_channels
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_linked_channels_returns_list(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """get_linked_channels returns all linked channels for a user."""
+    expected = [
+        {"channel": "telegram", "sender_id": "tg-123", "linked_at": "2026-01-01T00:00:00"},
+        {"channel": "discord", "sender_id": "dc-456", "linked_at": "2026-01-02T00:00:00"},
+    ]
+
+    mock_cursor = MagicMock()
+    mock_cursor.to_list = AsyncMock(return_value=expected)
+    repo._links.find = MagicMock(return_value=mock_cursor)
+
+    result = await repo.get_linked_channels("web-user-abc")
+
+    assert result == expected
+
+    # Verify the query filter
+    call_args = repo._links.find.call_args
+    filt = call_args[0][0]
+    assert filt["user_id"] == "web-user-abc"
+    assert "$exists" in filt["linked_at"]
+    assert filt["linked_at"]["$exists"] is True
+
+    # Verify to_list was called with a length limit
+    mock_cursor.to_list.assert_awaited_once_with(length=50)
+
+
+@pytest.mark.asyncio
+async def test_get_linked_channels_returns_empty_list(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """get_linked_channels returns an empty list when the user has no linked channels."""
+    mock_cursor = MagicMock()
+    mock_cursor.to_list = AsyncMock(return_value=[])
+    repo._links.find = MagicMock(return_value=mock_cursor)
+
+    result = await repo.get_linked_channels("web-user-no-links")
+
+    assert result == []
+
+
+# ------------------------------------------------------------------
+# unlink_channel
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unlink_channel_calls_delete_one(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """unlink_channel calls delete_one with the correct filter."""
+    repo._links.delete_one = AsyncMock()
+
+    await repo.unlink_channel("web-user-abc", ChannelType.TELEGRAM)
+
+    repo._links.delete_one.assert_awaited_once()
+    call_args = repo._links.delete_one.call_args
+    filt = call_args[0][0]
+    assert filt["user_id"] == "web-user-abc"
+    assert filt["channel"] == "telegram"
+
+
+@pytest.mark.asyncio
+async def test_unlink_channel_uses_string_channel(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """unlink_channel converts ChannelType to string for the MongoDB filter."""
+    repo._links.delete_one = AsyncMock()
+
+    await repo.unlink_channel("web-user-xyz", ChannelType.DISCORD)
+
+    filt = repo._links.delete_one.call_args[0][0]
+    assert filt["channel"] == "discord"
+
+
+# ------------------------------------------------------------------
+# migrate_sessions
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_migrate_sessions_calls_update_many(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """migrate_sessions calls update_many with the correct filter and $set."""
+    repo._sessions.update_many = AsyncMock()
+
+    await repo.migrate_sessions("channel-old-abc", "web-user-new", ChannelType.TELEGRAM)
+
+    repo._sessions.update_many.assert_awaited_once()
+    call_args = repo._sessions.update_many.call_args
+
+    filt = call_args[0][0]
+    assert filt["user_id"] == "channel-old-abc"
+    assert filt["channel"] == "telegram"
+
+    update = call_args[0][1]
+    assert update["$set"]["user_id"] == "web-user-new"
+    assert "updated_at" in update["$set"]
+
+
+@pytest.mark.asyncio
+async def test_migrate_sessions_uses_string_channel(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """migrate_sessions converts ChannelType to string for the MongoDB filter."""
+    repo._sessions.update_many = AsyncMock()
+
+    await repo.migrate_sessions("old-id", "new-id", ChannelType.SLACK)
+
+    filt = repo._sessions.update_many.call_args[0][0]
+    assert filt["channel"] == "slack"

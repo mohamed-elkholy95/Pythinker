@@ -104,6 +104,132 @@ class MongoUserChannelRepository:
         )
         return user_id
 
+    async def link_channel_to_user(
+        self,
+        channel: ChannelType,
+        sender_id: str,
+        web_user_id: str,
+    ) -> str | None:
+        """Link a channel identity to an existing Pythinker web account.
+
+        Performs an atomic upsert on the ``user_channel_links`` collection.
+        If a document for *(channel, sender_id)* already exists the
+        ``user_id`` field is overwritten with *web_user_id*; otherwise a
+        new document is created.
+
+        Parameters
+        ----------
+        channel:
+            The external channel type (e.g. ``ChannelType.TELEGRAM``).
+        sender_id:
+            The channel-specific user identifier (e.g. a Telegram user ID).
+        web_user_id:
+            The Pythinker web account ``user_id`` to link to.
+
+        Returns
+        -------
+        str | None
+            The *previous* ``user_id`` stored in the document before the
+            update (useful for session migration), or ``None`` if this was
+            a fresh insert.
+        """
+        now = datetime.now(UTC)
+        old_doc = await self._links.find_one_and_update(
+            {"channel": str(channel), "sender_id": sender_id},
+            {
+                "$set": {
+                    "user_id": web_user_id,
+                    "linked_at": now,
+                },
+                "$setOnInsert": {
+                    "channel": str(channel),
+                    "sender_id": sender_id,
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+            return_document=False,
+        )
+        old_user_id: str | None = old_doc["user_id"] if old_doc is not None else None
+        logger.info(
+            "Linked channel %s/%s to web user %s (previous=%s)",
+            channel,
+            sender_id,
+            web_user_id,
+            old_user_id,
+        )
+        return old_user_id
+
+    async def get_linked_channels(self, user_id: str) -> list[dict]:
+        """Return all channel identities linked to *user_id*.
+
+        Parameters
+        ----------
+        user_id:
+            The Pythinker web account ``user_id``.
+
+        Returns
+        -------
+        list[dict]
+            Each element contains ``channel``, ``sender_id``, and
+            ``linked_at`` fields.  Limited to 50 results.
+        """
+        cursor = self._links.find(
+            {"user_id": user_id, "linked_at": {"$exists": True}},
+            {"channel": 1, "sender_id": 1, "linked_at": 1},
+        )
+        return await cursor.to_list(length=50)
+
+    async def unlink_channel(self, user_id: str, channel: ChannelType) -> None:
+        """Remove the link between *user_id* and a channel identity.
+
+        Parameters
+        ----------
+        user_id:
+            The Pythinker web account ``user_id``.
+        channel:
+            The channel type to unlink.
+        """
+        await self._links.delete_one({"user_id": user_id, "channel": str(channel)})
+        logger.info("Unlinked channel %s from user %s", channel, user_id)
+
+    async def migrate_sessions(
+        self,
+        old_user_id: str,
+        new_user_id: str,
+        channel: ChannelType,
+    ) -> None:
+        """Re-assign all channel sessions from *old_user_id* to *new_user_id*.
+
+        Called after ``link_channel_to_user`` when an existing channel-only
+        account is merged into a web account.  Updates the ``channel_sessions``
+        collection so that in-flight sessions continue under the new identity.
+
+        Parameters
+        ----------
+        old_user_id:
+            The previous ``user_id`` (e.g. ``channel-<hex>``).
+        new_user_id:
+            The Pythinker web account ``user_id`` to migrate sessions to.
+        channel:
+            The channel type whose sessions should be migrated.
+        """
+        await self._sessions.update_many(
+            {"user_id": old_user_id, "channel": str(channel)},
+            {
+                "$set": {
+                    "user_id": new_user_id,
+                    "updated_at": datetime.now(UTC),
+                },
+            },
+        )
+        logger.info(
+            "Migrated sessions for channel %s from %s to %s",
+            channel,
+            old_user_id,
+            new_user_id,
+        )
+
     # ------------------------------------------------------------------
     # Session key operations
     # ------------------------------------------------------------------
