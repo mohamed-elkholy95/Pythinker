@@ -179,10 +179,12 @@ async def run_gateway() -> None:
 
 def main() -> None:
     """CLI entry point."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    # Use the same structured logging as the main backend.
+    # This enables: httpx suppression (WARNING), sensitive-data redaction,
+    # correlation IDs, and QueueHandler for high-throughput safety.
+    from app.infrastructure.structured_logging import setup_structured_logging
+
+    setup_structured_logging()
     asyncio.run(run_gateway())
 
 
