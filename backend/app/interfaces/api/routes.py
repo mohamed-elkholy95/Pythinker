@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from . import (
     auth_routes,
     canvas_routes,
+    channel_link_routes,
     connectors_routes,
     file_routes,
     health_routes,
@@ -43,6 +44,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(knowledge_base_routes.router)
     api_router.include_router(mcp_routes.router)
     api_router.include_router(prompt_optimization_routes.router)  # PR-6: Prompt optimization admin API
+    api_router.include_router(channel_link_routes.router)
 
     return api_router
 
