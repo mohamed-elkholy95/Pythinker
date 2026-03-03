@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
+from pathlib import Path
 
 from loguru import logger
-from telegram import BotCommand, ReplyParameters, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
+from telegram.error import NetworkError, RetryAfter, TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
@@ -114,6 +117,7 @@ class TelegramChannel(BaseChannel):
         BotCommand("new", "Start a new conversation"),
         BotCommand("stop", "Stop the current task"),
         BotCommand("status", "Show current session status"),
+        BotCommand("pdf", "Get the last response as a PDF"),
         BotCommand("link", "Link your account with a code"),
         BotCommand("help", "Show available commands"),
     ]
@@ -132,6 +136,8 @@ class TelegramChannel(BaseChannel):
         self._typing_tasks: dict[str, asyncio.Task] = {}  # chat_id -> typing loop task
         self._media_group_buffers: dict[str, dict] = {}
         self._media_group_tasks: dict[str, asyncio.Task] = {}
+        self._pdf_file_id_cache: dict[str, tuple[str, float]] = {}
+        self._pdf_file_id_cache_ttl_seconds = 24 * 60 * 60
 
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
@@ -155,6 +161,7 @@ class TelegramChannel(BaseChannel):
         # PYTHINKER-PATCH: forward router-supported commands to the bus.
         self._app.add_handler(CommandHandler("stop", self._forward_command))
         self._app.add_handler(CommandHandler("status", self._forward_command))
+        self._app.add_handler(CommandHandler("pdf", self._forward_command))
         self._app.add_handler(CommandHandler("link", self._forward_command))
         self._app.add_handler(CommandHandler("help", self._on_help))
 
@@ -253,7 +260,17 @@ class TelegramChannel(BaseChannel):
                     allow_sending_without_reply=True
                 )
 
-        # Send media files
+        metadata = msg.metadata or {}
+        parse_mode = str(metadata.get("parse_mode", "HTML"))
+        delivery_mode = str(metadata.get("delivery_mode", "text"))
+        reply_markup = self._coerce_reply_markup(metadata.get("reply_markup"))
+        cleanup_paths = [str(path) for path in metadata.get("cleanup_media_paths", []) if isinstance(path, str)]
+        content_hash = str(metadata.get("content_hash", "")).strip()
+        caption_value = str(metadata.get("caption", msg.content or ""))
+        caption_sent = False
+        media_success = True
+
+        # Send media files first. For document mode, caption is sent on the first document.
         for media_path in (msg.media or []):
             try:
                 media_type = self._get_media_type(media_path)
@@ -263,42 +280,198 @@ class TelegramChannel(BaseChannel):
                     "audio": self._app.bot.send_audio,
                 }.get(media_type, self._app.bot.send_document)
                 param = "photo" if media_type == "photo" else media_type if media_type in ("voice", "audio") else "document"
-                with open(media_path, 'rb') as f:
-                    await sender(
-                        chat_id=chat_id,
-                        **{param: f},
-                        reply_parameters=reply_params
-                    )
-            except Exception as e:
-                filename = media_path.rsplit("/", 1)[-1]
-                logger.error("Failed to send media {}: {}", media_path, e)
-                await self._app.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"[Failed to send: {filename}]",
-                    reply_parameters=reply_params
-                )
 
-        # Send text content
-        if msg.content and msg.content != "[empty message]":
-            for chunk in _split_message(msg.content):
+                send_kwargs: dict[str, object] = {
+                    "chat_id": chat_id,
+                    "reply_parameters": reply_params,
+                }
+                if media_type == "document" and not caption_sent and caption_value:
+                    send_kwargs["caption"] = caption_value[:1024]
+                    send_kwargs["parse_mode"] = parse_mode
+                    if reply_markup is not None:
+                        send_kwargs["reply_markup"] = reply_markup
+                    caption_sent = True
+
+                if media_type == "document" and content_hash:
+                    cached_file_id = await self._get_cached_pdf_file_id(content_hash)
+                    if cached_file_id:
+                        send_kwargs[param] = cached_file_id
+                        await self._send_with_retry(sender, **send_kwargs)
+                        continue
+
+                if "://" in media_path:
+                    send_kwargs[param] = media_path
+                    response = await self._send_with_retry(sender, **send_kwargs)
+                else:
+                    with open(media_path, "rb") as handle:
+                        send_kwargs[param] = handle
+                        response = await self._send_with_retry(sender, **send_kwargs)
+
+                if media_type == "document" and content_hash:
+                    response_document = getattr(response, "document", None)
+                    file_id = getattr(response_document, "file_id", None)
+                    if isinstance(file_id, str) and file_id:
+                        await self._store_cached_pdf_file_id(content_hash, file_id)
+            except Exception as exc:
+                filename = media_path.rsplit("/", 1)[-1]
+                media_success = False
+                logger.error("Failed to send media {}: {}", media_path, exc)
                 try:
-                    html = _markdown_to_telegram_html(chunk)
-                    await self._app.bot.send_message(
+                    await self._send_with_retry(
+                        self._app.bot.send_message,
                         chat_id=chat_id,
-                        text=html,
-                        parse_mode="HTML",
-                        reply_parameters=reply_params
+                        text=f"[Failed to send: {filename}]",
+                        reply_parameters=reply_params,
                     )
-                except Exception as e:
-                    logger.warning("HTML parse failed, falling back to plain text: {}", e)
-                    try:
-                        await self._app.bot.send_message(
+                except Exception as fallback_exc:
+                    logger.error("Failed to send Telegram media error notice: {}", fallback_exc)
+                break
+
+        should_send_text = bool(msg.content and msg.content != "[empty message]")
+        if delivery_mode == "pdf_only" and caption_sent and media_success:
+            should_send_text = False
+
+        if should_send_text:
+            max_chunks = max(1, int(getattr(self.config, "max_messages_per_batch", 5)))
+            for index, chunk in enumerate(_split_message(msg.content)[:max_chunks]):
+                try:
+                    if parse_mode == "HTML":
+                        payload_text = _markdown_to_telegram_html(chunk)
+                        await self._send_with_retry(
+                            self._app.bot.send_message,
+                            chat_id=chat_id,
+                            text=payload_text,
+                            parse_mode="HTML",
+                            reply_parameters=reply_params,
+                            reply_markup=reply_markup if index == 0 else None,
+                        )
+                    else:
+                        await self._send_with_retry(
+                            self._app.bot.send_message,
                             chat_id=chat_id,
                             text=chunk,
-                            reply_parameters=reply_params
+                            reply_parameters=reply_params,
+                            reply_markup=reply_markup if index == 0 else None,
                         )
-                    except Exception as e2:
-                        logger.error("Error sending Telegram message: {}", e2)
+                except Exception as exc:
+                    logger.error("Error sending Telegram text chunk: {}", exc)
+                    break
+
+        self._cleanup_temp_files(cleanup_paths)
+
+    async def _send_with_retry(self, sender, **kwargs):  # noqa: ANN001, ANN202
+        """Send with RetryAfter/transient retry handling."""
+        max_attempts = 3
+        base_delay = max(1, int(getattr(self.config, "rate_limit_cooldown_seconds", 3)))
+        for attempt in range(max_attempts):
+            try:
+                return await sender(**kwargs)
+            except RetryAfter as exc:
+                retry_after = exc.retry_after
+                seconds = float(retry_after.total_seconds()) if hasattr(retry_after, "total_seconds") else float(retry_after)
+                wait_seconds = max(seconds, float(base_delay))
+                logger.warning("Telegram rate limited, retrying in {}s", wait_seconds)
+                await asyncio.sleep(wait_seconds)
+            except (TimedOut, NetworkError, OSError) as exc:
+                if attempt >= max_attempts - 1:
+                    raise
+                backoff = float(base_delay * (attempt + 1))
+                logger.warning("Telegram transient send error (attempt {}): {}", attempt + 1, exc)
+                await asyncio.sleep(backoff)
+        raise RuntimeError("Telegram send retries exhausted")
+
+    def _cleanup_temp_files(self, paths: list[str]) -> None:
+        """Delete temporary generated files after send attempts."""
+        for raw_path in paths:
+            if not raw_path or "://" in raw_path:
+                continue
+            try:
+                Path(raw_path).unlink(missing_ok=True)
+            except Exception as exc:
+                logger.debug("Failed to cleanup temp file {}: {}", raw_path, exc)
+
+    async def _get_cached_pdf_file_id(self, content_hash: str) -> str | None:
+        """Return cached Telegram file_id for a PDF content hash if still fresh."""
+        if not content_hash:
+            return None
+
+        # Primary cache: Redis (24h TTL) for cross-process reuse.
+        if getattr(self.config, "pdf_file_id_cache_redis_enabled", False):
+            redis_key = f"telegram:pdf:file_id:{content_hash}"
+            try:
+                from app.infrastructure.storage.redis import get_redis
+
+                cached = await get_redis().call("get", redis_key, max_retries=1)
+                if isinstance(cached, str) and cached:
+                    return cached
+            except Exception:
+                pass
+
+        # Fallback cache: in-process memory.
+        cached = self._pdf_file_id_cache.get(content_hash)
+        if not cached:
+            return None
+        file_id, expires_at = cached
+        if time.time() >= expires_at:
+            self._pdf_file_id_cache.pop(content_hash, None)
+            return None
+        return file_id
+
+    async def _store_cached_pdf_file_id(self, content_hash: str, file_id: str) -> None:
+        """Cache Telegram file_id for fast re-delivery of identical PDFs."""
+        if not content_hash or not file_id:
+            return
+
+        if getattr(self.config, "pdf_file_id_cache_redis_enabled", False):
+            redis_key = f"telegram:pdf:file_id:{content_hash}"
+            try:
+                from app.infrastructure.storage.redis import get_redis
+
+                await get_redis().call(
+                    "setex",
+                    redis_key,
+                    self._pdf_file_id_cache_ttl_seconds,
+                    file_id,
+                    max_retries=1,
+                )
+            except Exception:
+                pass
+
+        expires_at = time.time() + self._pdf_file_id_cache_ttl_seconds
+        self._pdf_file_id_cache[content_hash] = (file_id, expires_at)
+
+    @staticmethod
+    def _coerce_reply_markup(value: object) -> InlineKeyboardMarkup | None:
+        """Convert metadata dict keyboard payloads into Telegram InlineKeyboardMarkup."""
+        if isinstance(value, InlineKeyboardMarkup):
+            return value
+        if not isinstance(value, dict):
+            return None
+        keyboard = value.get("inline_keyboard")
+        if not isinstance(keyboard, list):
+            return None
+
+        rows: list[list[InlineKeyboardButton]] = []
+        for row in keyboard:
+            if not isinstance(row, list):
+                continue
+            buttons: list[InlineKeyboardButton] = []
+            for button in row:
+                if not isinstance(button, dict):
+                    continue
+                text = str(button.get("text", "")).strip()
+                if not text:
+                    continue
+                buttons.append(
+                    InlineKeyboardButton(
+                        text=text,
+                        callback_data=button.get("callback_data"),
+                        url=button.get("url"),
+                    )
+                )
+            if buttons:
+                rows.append(buttons)
+        return InlineKeyboardMarkup(rows) if rows else None
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
@@ -333,6 +506,7 @@ class TelegramChannel(BaseChannel):
             "/new — Start a new conversation\n"
             "/stop — Stop the current task\n"
             "/status — Show current session status\n"
+            "/pdf — Get the last response as a PDF\n"
             "/link <CODE> — Link your web account\n"
             "/help — Show available commands"
         )

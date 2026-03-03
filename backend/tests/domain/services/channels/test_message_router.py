@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -68,6 +69,8 @@ class _FakeProgressEvent:
 class SessionStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class _FakeSession:
@@ -113,6 +116,10 @@ def _make_user_channel_repo(
     repo.get_session_key = AsyncMock(return_value=session_id)
     repo.set_session_key = AsyncMock()
     repo.clear_session_key = AsyncMock()
+    repo.touch_last_inbound_at = AsyncMock()
+    repo.touch_last_outbound_at = AsyncMock()
+    repo.get_session_activity = AsyncMock(return_value=None)
+    repo.set_session_context_summary = AsyncMock()
     return repo
 
 
@@ -182,6 +189,55 @@ class TestRouteInbound:
         agent_svc.create_session.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_route_reuses_completed_session_for_telegram(self) -> None:
+        """Telegram keeps continuity by reusing completed sessions."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
+        completed = _FakeSession("existing-sess", status=SessionStatus.COMPLETED)
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()], session=completed)
+        agent_svc.get_session = AsyncMock(return_value=completed)
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("Continue in Telegram")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        agent_svc.create_session.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_route_completed_session_not_reused_for_non_telegram(self) -> None:
+        """Non-Telegram channels keep existing terminal-session rotation behavior."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
+        completed = _FakeSession("existing-sess", status=SessionStatus.COMPLETED)
+        new_session = _FakeSession("new-sess", status=SessionStatus.RUNNING)
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()], session=completed)
+        agent_svc.get_session = AsyncMock(return_value=completed)
+        agent_svc.create_session = AsyncMock(return_value=new_session)
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("Continue on web", channel=ChannelType.WEB, chat_id="web-chat-1")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        agent_svc.create_session.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_route_failed_session_rotates_for_telegram(self) -> None:
+        """Failed/cancelled sessions are terminal for Telegram as well."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
+        failed = _FakeSession("existing-sess", status=SessionStatus.FAILED)
+        new_session = _FakeSession("new-sess", status=SessionStatus.RUNNING)
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()], session=failed)
+        agent_svc.get_session = AsyncMock(return_value=failed)
+        agent_svc.create_session = AsyncMock(return_value=new_session)
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("Retry after failure")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        agent_svc.create_session.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_route_uses_session_key_override(self) -> None:
         """session_key_override on InboundMessage is used directly."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="other-sess")
@@ -229,6 +285,20 @@ class TestRouteInbound:
 
         assert len(replies) == 1
         assert replies[0].content == "Hello from the agent!"
+
+    @pytest.mark.asyncio
+    async def test_route_records_inbound_and_outbound_activity(self) -> None:
+        """Router records channel-session activity timestamps via repository hooks."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("Track activity")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        repo.touch_last_inbound_at.assert_awaited_once_with("user-abc", ChannelType.TELEGRAM, "tg-chat-99")
+        repo.touch_last_outbound_at.assert_awaited_once_with("user-abc", ChannelType.TELEGRAM, "tg-chat-99")
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +416,39 @@ class TestSlashStop:
 
         assert len(replies) == 1
         assert "No active session" in replies[0].content
+
+
+class TestSlashPdf:
+    @pytest.mark.asyncio
+    async def test_pdf_without_recent_response_returns_hint(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc")
+        agent_svc = _make_agent_service()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/pdf"))]
+
+        assert len(replies) == 1
+        assert "No recent assistant response" in replies[0].content
+
+    @pytest.mark.asyncio
+    async def test_pdf_uses_last_response_and_returns_document(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        long_reply = _FakeMessageEvent()
+        long_reply.message = "Research summary. " * 250
+        agent_svc = _make_agent_service(events=[long_reply])
+        router = MessageRouter(agent_svc, repo)
+
+        # Prime the latest response cache.
+        primed_replies = [r async for r in router.route_inbound(_make_inbound("generate report"))]
+
+        pdf_replies = [r async for r in router.route_inbound(_make_inbound("/pdf"))]
+        assert len(pdf_replies) == 1
+        assert pdf_replies[0].media
+        assert pdf_replies[0].metadata["delivery_mode"] == "pdf_only"
+
+        for reply in [*primed_replies, *pdf_replies]:
+            for media in reply.media:
+                Path(media.url).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -478,8 +581,8 @@ class TestStaleSessionRecovery:
         repo.set_session_key.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_terminal_session_key_creates_new_session(self) -> None:
-        """When stored session is terminal, create a fresh session for the next task."""
+    async def test_terminal_session_key_creates_new_session_for_non_telegram(self) -> None:
+        """Non-Telegram channels still rotate completed sessions."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="finished-sess")
         agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
 
@@ -489,15 +592,15 @@ class TestStaleSessionRecovery:
         agent_svc.create_session = AsyncMock(return_value=new_session)
 
         router = MessageRouter(agent_svc, repo)
-        msg = _make_inbound("Start new task")
+        msg = _make_inbound("Start new task", channel=ChannelType.WEB, chat_id="web-chat-1")
         replies = [r async for r in router.route_inbound(msg)]
 
         assert len(replies) == 1
         agent_svc.create_session.assert_awaited_once()
         repo.set_session_key.assert_awaited_once_with(
             "user-abc",
-            ChannelType.TELEGRAM,
-            "tg-chat-99",
+            ChannelType.WEB,
+            "web-chat-1",
             "new-sess",
         )
 
