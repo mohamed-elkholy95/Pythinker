@@ -93,6 +93,21 @@ async def run_gateway() -> None:
         logger.warning("Qdrant init failed (graceful degradation): %s", e)
 
     # ------------------------------------------------------------------
+    # 1c. Initialise BM25 encoder from stored memories (hybrid search)
+    # Without this the gateway falls back to dense-only retrieval on every
+    # memory lookup, losing the keyword-recall benefit of hybrid RRF search.
+    # ------------------------------------------------------------------
+    try:
+        from app.domain.services.embeddings.bm25_encoder import initialize_bm25_from_memories
+        from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
+
+        memory_repo = MongoMemoryRepository(database=db)
+        logger.info("Initializing BM25 encoder from stored memories...")
+        await initialize_bm25_from_memories(memory_repo)
+    except Exception as e:
+        logger.warning("BM25 encoder initialization failed (non-critical): %s", e)
+
+    # ------------------------------------------------------------------
     # 2. Build dependency chain
     # ------------------------------------------------------------------
     from app.infrastructure.repositories.user_channel_repository import (
