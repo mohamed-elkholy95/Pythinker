@@ -75,8 +75,21 @@ export async function getSession(sessionId: string): Promise<GetSessionResponse>
   return response.data.data;
 }
 
-export async function getSessions(): Promise<ListSessionResponse> {
-  const response = await apiClient.get<ApiResponse<ListSessionResponse>>('/sessions');
+export interface GetSessionsParams {
+  source?: string;
+  q?: string;
+  status?: SessionStatus | 'all';
+  limit?: number;
+}
+
+export async function getSessions(params: GetSessionsParams = {}): Promise<ListSessionResponse> {
+  const query = {
+    source: params.source,
+    q: params.q,
+    status: params.status && params.status !== 'all' ? params.status : undefined,
+    limit: params.limit,
+  };
+  const response = await apiClient.get<ApiResponse<ListSessionResponse>>('/sessions', { params: query });
   return response.data.data;
 }
 

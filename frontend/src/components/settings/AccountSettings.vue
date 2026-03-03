@@ -112,7 +112,7 @@
                 <div class="channel-details">
                   <span class="channel-name">Telegram</span>
                   <div class="channel-meta">
-                    <span class="channel-status channel-status-linked">Connected • Activated</span>
+                    <span class="channel-status channel-status-linked">Connected</span>
                     <span class="channel-status">{{ telegramSenderId }}</span>
                     <span v-if="telegramLinkedAt" class="channel-linked-date">Linked {{ telegramLinkedAt }}</span>
                   </div>
@@ -151,73 +151,19 @@
                 <span v-if="linkGeneratedAtTime" class="telegram-msg-time">{{ linkGeneratedAtTime }}</span>
               </div>
 
-              <button
-                class="telegram-link-account-btn inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors hover:opacity-90 active:opacity-80 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] h-[40px] min-w-[80px] gap-[6px] text-sm rounded-[10px] px-[16px]"
-                type="button"
-                @click="openTelegramDeepLink"
-              >
-                <svg width="20" height="20" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <g clip-path="url(#accountSettingsTelegramIconClip)">
-                    <path d="M9.007 18.014A9.007 9.007 0 1 0 9.007 0a9.007 9.007 0 0 0 0 18.014" fill="url(#accountSettingsTelegramIconGradient)"></path>
-                    <path fill-rule="evenodd" clip-rule="evenodd" d="M4.069 8.91a288 288 0 0 1 5.26-2.26c2.498-1.038 3.017-1.22 3.354-1.234.07 0 .238.014.35.098a.4.4 0 0 1 .127.239c.014.07.028.224.014.35-.14 1.417-.716 4.883-1.024 6.468-.127.674-.379.898-.617.926-.52.042-.926-.35-1.431-.673-.786-.52-1.235-.842-2.007-1.347-.884-.59-.308-.912.197-1.431.126-.14 2.44-2.23 2.483-2.427 0-.028.014-.113-.042-.155s-.127-.028-.183-.014c-.084.014-1.346.856-3.802 2.512-.364.252-.687.364-.982.364-.322 0-.94-.182-1.403-.336-.56-.183-1.01-.28-.968-.59.028-.154.253-.322.674-.49" fill="#fff"></path>
-                  </g>
-                  <defs>
-                    <linearGradient id="accountSettingsTelegramIconGradient" x1="0" y1="9" x2="18.001" y2="9" gradientUnits="userSpaceOnUse">
-                      <stop stop-color="#2aabee"></stop>
-                      <stop offset="1" stop-color="#229ed9"></stop>
-                    </linearGradient>
-                    <clipPath id="accountSettingsTelegramIconClip">
-                      <path fill="#fff" d="M0 0h18v18H0z"></path>
-                    </clipPath>
-                  </defs>
-                </svg>
-                Continue on Telegram
-              </button>
-              <p class="telegram-activation-status">
-                Activation pending. Send the bind command in Telegram to finish linking.
-              </p>
-              <p class="telegram-auth-note">
-                This bind code is tied to your signed-in account and expires in 30 minutes.
-              </p>
-
-              <div class="code-field">
-                <code class="code-value">{{ activeBindCommand }}</code>
-                <button
-                  class="copy-btn"
-                  :class="{ 'copy-btn-success': isCopied }"
-                  :title="isCopied ? 'Copied!' : 'Copy to clipboard'"
-                  @click="copyCode"
-                >
-                  <Transition name="icon-swap" mode="out-in">
-                    <Check v-if="isCopied" key="check" class="w-4 h-4" />
-                    <Copy v-else key="copy" class="w-4 h-4" />
-                  </Transition>
-                </button>
-              </div>
-
-              <!-- Timer row -->
-              <div class="code-timer-row">
-                <div class="code-timer">
-                  <Clock class="w-3 h-3" />
-                  <span :class="{ 'code-timer-urgent': countdownUrgent }">
-                    Expires in {{ formatCountdown(codeCountdown) }}
-                  </span>
-                </div>
-                <button class="code-cancel-link" @click="cancelCode">Cancel</button>
-              </div>
-
-              <p v-if="telegramBotUrl" class="telegram-bot-note">
-                You can also open
-                <a
-                  class="telegram-bot-link"
-                  :href="telegramBotUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {{ telegramBotHandle }}
-                </a>
-                and send the command manually.
-              </p>
+              <TelegramLinkCard
+                :is-generating="false"
+                :has-draft="hasDraft"
+                :active-command="activeBindCommand"
+                :is-copied="isCopied"
+                :countdown="codeCountdown"
+                :show-primary-button="false"
+                :show-cancel="true"
+                pending-label="Activation pending. Send the bind command in Telegram to finish linking."
+                @copy="copyCode"
+                @open="openTelegramDeepLink"
+                @cancel="cancelCode('manual')"
+              />
             </div>
           </div>
 
@@ -257,11 +203,12 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { UserCog, LogOut, Shield, Key, Link2, Copy, Check, AlertCircle, Clock, ExternalLink } from 'lucide-vue-next'
+import { UserCog, LogOut, Shield, Key, Link2, Check, AlertCircle, ExternalLink } from 'lucide-vue-next'
 import { useAuth } from '../../composables/useAuth'
 import { getCachedAuthProvider } from '../../api/auth'
 import { unlinkChannel } from '../../api/channelLinks'
 import { useTelegramLink } from '@/composables/useTelegramLink'
+import TelegramLinkCard from '@/components/telegram/TelegramLinkCard.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -276,9 +223,7 @@ const {
   senderDisplay: telegramSenderId,
   linkedAt: telegramLinkedAt,
   isGenerating,
-  botUrl: telegramBotUrl,
   activeCommand: activeBindCommand,
-  botHandle: telegramBotHandle,
   countdown: codeCountdown,
   countdownProgress,
   countdownUrgent,
@@ -291,7 +236,6 @@ const {
   openDeepLink: openTelegramDeepLink,
   clearDraft: cancelCode,
   loadChannels,
-  formatCountdown,
   setFeedback: setChannelFeedback,
 } = useTelegramLink()
 
@@ -324,7 +268,7 @@ const linkGeneratedAtTime = computed(() => {
 })
 
 const telegramConnectionStatus = computed(() => {
-  if (telegramLinked.value) return 'Connected • Activated'
+  if (telegramLinked.value) return 'Connected'
   if (hasDraft.value) return 'Activation pending'
   return 'Not connected'
 })

@@ -26,17 +26,35 @@
         <section class="sessions-section">
           <div class="sessions-header">
             <h2>Your chats</h2>
-            <span>{{ recentSessions.length }} sessions</span>
+            <span>{{ sessionsCountLabel }}</span>
           </div>
 
-          <div v-if="recentSessions.length === 0" class="empty-sessions">
+          <div class="session-filters">
+            <label class="filter-search">
+              <input
+                v-model.trim="searchQuery"
+                type="search"
+                placeholder="Search Telegram chats"
+              />
+            </label>
+            <label class="filter-status">
+              <select v-model="statusFilter">
+                <option value="all">All statuses</option>
+                <option v-for="statusOption in sessionStatusOptions" :key="statusOption.value" :value="statusOption.value">
+                  {{ statusOption.label }}
+                </option>
+              </select>
+            </label>
+          </div>
+
+          <div v-if="filteredSessions.length === 0" class="empty-sessions">
             <MessageSquare class="w-5 h-5" />
             <p>No Telegram chats yet. Send your first message to the bot.</p>
           </div>
 
           <div v-else class="sessions-grid">
             <button
-              v-for="session in recentSessions"
+              v-for="session in filteredSessions"
               :key="session.session_id"
               type="button"
               class="session-card"
@@ -103,32 +121,19 @@
         </section>
 
         <section class="cta-section">
-          <button class="primary-action" type="button" :disabled="isGenerating" @click="generate">
-            <Loader2 v-if="isGenerating" class="w-4 h-4 animate-spin" />
-            <Send v-else class="w-4 h-4" />
-            Get started on Telegram
-          </button>
-
-          <div v-if="bindCommand" class="bind-panel">
-            <p class="bind-title">Send this command in Telegram</p>
-            <div class="bind-row">
-              <code>{{ activeCommand }}</code>
-              <button type="button" class="icon-btn" @click="copyCommand">
-                <Check v-if="isCopied" class="w-4 h-4" />
-                <Copy v-else class="w-4 h-4" />
-              </button>
-            </div>
-            <div class="bind-meta">
-              <span>
-                <Clock3 class="w-3.5 h-3.5" />
-                Expires in {{ formatCountdown(countdown) }}
-              </span>
-              <button type="button" class="inline-link" @click="openDeepLink">Open Telegram</button>
-            </div>
-          </div>
-
-          <p v-if="feedback" class="feedback">{{ feedback }}</p>
-          <p v-if="error" class="error">{{ error }}</p>
+          <TelegramLinkCard
+            :is-generating="isGenerating"
+            :has-draft="Boolean(bindCommand)"
+            :active-command="activeCommand"
+            :is-copied="isCopied"
+            :countdown="countdown"
+            :feedback="feedback"
+            :error="error"
+            primary-label="Link Account"
+            @generate="generate"
+            @copy="copyCommand"
+            @open="openDeepLink"
+          />
         </section>
       </template>
     </div>
@@ -140,10 +145,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   BadgeCheck,
-  Check,
   CheckCircle2,
-  Clock3,
-  Copy,
   Loader2,
   MessageCircle,
   MessageSquare,
@@ -154,6 +156,7 @@ import {
   Send,
 } from 'lucide-vue-next'
 import SimpleBar from '@/components/SimpleBar.vue'
+import TelegramLinkCard from '@/components/telegram/TelegramLinkCard.vue'
 import { getSessions } from '@/api/agent'
 import { useTelegramLink } from '@/composables/useTelegramLink'
 import type { ListSessionItem } from '@/types/response'
@@ -161,6 +164,8 @@ import type { ListSessionItem } from '@/types/response'
 const router = useRouter()
 const isLoading = ref(true)
 const sessions = ref<ListSessionItem[]>([])
+const searchQuery = ref('')
+const statusFilter = ref<'all' | 'pending' | 'initializing' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'>('all')
 
 const {
   isTelegramLinked,
@@ -175,18 +180,53 @@ const {
   copyCommand,
   openDeepLink,
   loadChannels,
-  formatCountdown,
 } = useTelegramLink()
 
-const recentSessions = computed(() =>
+const sessionStatusOptions: Array<{ value: 'pending' | 'initializing' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'; label: string }> = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'initializing', label: 'Initializing' },
+  { value: 'running', label: 'Running' },
+  { value: 'waiting', label: 'Waiting' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'cancelled', label: 'Cancelled' },
+]
+
+const telegramSessions = computed(() =>
   [...sessions.value]
     .filter((s) => s.source === 'telegram')
     .sort((a, b) => (b.latest_message_at || 0) - (a.latest_message_at || 0))
-    .slice(0, 12),
 )
 
+const filteredSessions = computed(() => {
+  const q = searchQuery.value.toLowerCase()
+  return telegramSessions.value.filter((session) => {
+    if (statusFilter.value !== 'all' && session.status !== statusFilter.value) {
+      return false
+    }
+
+    if (!q) {
+      return true
+    }
+
+    const title = (session.title || '').toLowerCase()
+    const latestMessage = (session.latest_message || '').toLowerCase()
+    const status = session.status.toLowerCase()
+    return title.includes(q) || latestMessage.includes(q) || status.includes(q)
+  })
+})
+
+const sessionsCountLabel = computed(() => {
+  const total = telegramSessions.value.length
+  const filtered = filteredSessions.value.length
+  if (total === filtered) {
+    return `${total} sessions`
+  }
+  return `${filtered} of ${total} sessions`
+})
+
 const loadSessions = async () => {
-  const response = await getSessions()
+  const response = await getSessions({ source: 'telegram', limit: 200 })
   sessions.value = response.sessions
 }
 
@@ -407,14 +447,14 @@ onMounted(async () => {
 }
 
 .primary-action {
-  height: 42px;
-  border-radius: 12px;
+  height: 40px;
+  border-radius: 11px;
   border: none;
   background: #101114;
   color: #fff;
-  padding: 0 18px;
-  font-size: 24px;
-  font-family: "Georgia", "Times New Roman", serif;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -422,101 +462,8 @@ onMounted(async () => {
   transition: opacity 0.2s ease;
 }
 
-.primary-action:hover:not(:disabled) {
+.primary-action:hover {
   opacity: 0.9;
-}
-
-.primary-action:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-
-.bind-panel {
-  width: min(560px, 100%);
-  border: 1px solid #e3e3e3;
-  border-radius: 14px;
-  background: #fff;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.bind-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-}
-
-.bind-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.bind-row code {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid #dddddd;
-  border-radius: 10px;
-  padding: 10px;
-  background: #fafafa;
-  font-size: 12px;
-  color: #111827;
-  overflow-x: auto;
-  white-space: nowrap;
-}
-
-.icon-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  border: 1px solid #d9d9d9;
-  background: #fff;
-  color: #4b5563;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.bind-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 12px;
-  color: #6b7280;
-}
-
-.bind-meta span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.inline-link {
-  border: none;
-  background: transparent;
-  color: #2563eb;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.feedback,
-.error {
-  margin: 0;
-  font-size: 12px;
-}
-
-.feedback {
-  color: #059669;
-}
-
-.error {
-  color: #dc2626;
 }
 
 .agents-linked {
@@ -590,6 +537,35 @@ onMounted(async () => {
   font-size: 12px;
   font-weight: 600;
   color: #6b7280;
+}
+
+.session-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-search {
+  flex: 1;
+}
+
+.filter-search input,
+.filter-status select {
+  width: 100%;
+  height: 36px;
+  border: 1px solid #d5d8df;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0 12px;
+  color: #111827;
+  font-size: 13px;
+}
+
+.filter-search input:focus,
+.filter-status select:focus {
+  outline: none;
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.2);
 }
 
 .empty-sessions {
@@ -703,9 +679,9 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 
-  .bind-meta {
+  .session-filters {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
   }
 }
 </style>
