@@ -16,7 +16,7 @@ class DealScraperSettingsMixin:
     deal_scraper_timeout: int = 30  # Per-store fetch timeout (seconds)
 
     # Coupon sources (comma-separated)
-    deal_scraper_coupon_sources: str = "slickdeals,retailmenot,couponscom"
+    deal_scraper_coupon_sources: str = "slickdeals,retailmenot,couponscom,web_research"
 
     # Community & open-web search
     deal_scraper_community_search: bool = True  # Reddit/forums/deal sites
