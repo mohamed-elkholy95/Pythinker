@@ -701,6 +701,7 @@ async def get_all_sessions(
             latest_message=session.latest_message,
             latest_message_at=int(session.latest_message_at.timestamp()) if session.latest_message_at else None,
             is_shared=session.is_shared,
+            source=getattr(session, "source", "web"),
         )
         for session in sessions
     ]
@@ -731,6 +732,7 @@ async def stream_sessions(
                         if session.latest_message_at
                         else None,
                         is_shared=session.is_shared,
+                        source=getattr(session, "source", "web"),
                     )
                     for session in sessions
                 ]
