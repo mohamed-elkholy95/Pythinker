@@ -113,6 +113,8 @@ class TelegramChannel(BaseChannel):
         BotCommand("start", "Start the bot"),
         BotCommand("new", "Start a new conversation"),
         BotCommand("stop", "Stop the current task"),
+        BotCommand("status", "Show current session status"),
+        BotCommand("link", "Link your account with a code"),
         BotCommand("help", "Show available commands"),
     ]
 
@@ -150,6 +152,10 @@ class TelegramChannel(BaseChannel):
         # Add command handlers
         self._app.add_handler(CommandHandler("start", self._on_start))
         self._app.add_handler(CommandHandler("new", self._forward_command))
+        # PYTHINKER-PATCH: forward router-supported commands to the bus.
+        self._app.add_handler(CommandHandler("stop", self._forward_command))
+        self._app.add_handler(CommandHandler("status", self._forward_command))
+        self._app.add_handler(CommandHandler("link", self._forward_command))
         self._app.add_handler(CommandHandler("help", self._on_help))
 
         # Add message handler for text, photos, voice, documents
@@ -159,6 +165,11 @@ class TelegramChannel(BaseChannel):
                 & ~filters.COMMAND,
                 self._on_message
             )
+        )
+        # PYTHINKER-PATCH: unknown slash commands should return a help hint.
+        self._app.add_handler(
+            MessageHandler(filters.COMMAND, self._unknown_command),
+            group=1,
         )
 
         logger.info("Starting Telegram bot (polling mode)...")
@@ -294,6 +305,18 @@ class TelegramChannel(BaseChannel):
         if not update.message or not update.effective_user:
             return
 
+        # PYTHINKER-PATCH: Telegram deep link `/start bind_<CODE>` must be
+        # forwarded to the bus so MessageRouter can normalize it to `/link CODE`.
+        if context.args:
+            payload = " ".join(context.args).strip()
+            if payload.lower().startswith("bind_"):
+                await self._handle_message(
+                    sender_id=self._sender_id(update.effective_user),
+                    chat_id=str(update.message.chat_id),
+                    content=f"/start {payload}",
+                )
+                return
+
         user = update.effective_user
         await update.message.reply_text(
             f"👋 Hi {user.first_name}! I'm nanobot.\n\n"
@@ -309,8 +332,16 @@ class TelegramChannel(BaseChannel):
             "🐈 nanobot commands:\n"
             "/new — Start a new conversation\n"
             "/stop — Stop the current task\n"
+            "/status — Show current session status\n"
+            "/link <CODE> — Link your web account\n"
             "/help — Show available commands"
         )
+
+    async def _unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle unknown slash commands with a help hint."""
+        if not update.message:
+            return
+        await update.message.reply_text("Unknown command. Use /help to see available commands.")
 
     @staticmethod
     def _sender_id(user) -> str:
