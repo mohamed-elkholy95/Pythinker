@@ -173,6 +173,43 @@
             </div>
           </div>
 
+          <!-- State: Token setup -->
+          <div v-else-if="showTelegramTokenInput" key="token" class="channel-item channel-item-token">
+            <div class="token-setup">
+              <div class="token-setup-header">
+                <span class="channel-name">Telegram Bot Token</span>
+                <span class="channel-status">Required before linking</span>
+              </div>
+              <p class="token-help">
+                Paste your Telegram bot token from @BotFather. It is encrypted and never shown again.
+              </p>
+              <input
+                v-model.trim="telegramTokenInput"
+                type="password"
+                class="token-input"
+                placeholder="123456789:AA..."
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <div class="token-actions">
+                <button class="token-cancel-btn" :disabled="isSavingTelegramToken" @click="cancelTelegramTokenInput">
+                  Cancel
+                </button>
+                <button
+                  class="token-save-btn"
+                  :disabled="isSavingTelegramToken || !telegramTokenInput"
+                  @click="saveTelegramTokenAndLink"
+                >
+                  <template v-if="isSavingTelegramToken">
+                    <span class="link-btn-spinner" />
+                    Saving...
+                  </template>
+                  <template v-else>Save & Link</template>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- State: Unlinked -->
           <div v-else key="unlinked" class="channel-item channel-item-unlinked">
             <div class="channel-info">
@@ -181,13 +218,15 @@
               </div>
               <div class="channel-details">
                 <span class="channel-name">Telegram</span>
-                <span class="channel-status">Not linked</span>
+                <span class="channel-status">
+                  {{ telegramTokenConfigured ? 'Ready to link' : 'Token not configured' }}
+                </span>
               </div>
             </div>
             <button
               class="link-btn"
               :disabled="isGenerating"
-              @click="handleGenerateCode"
+              @click="startTelegramLinkFlow"
             >
               <template v-if="isGenerating">
                 <span class="link-btn-spinner" />
@@ -195,7 +234,7 @@
               </template>
               <template v-else>
                 <ExternalLink class="w-3.5 h-3.5" />
-                Link
+                {{ telegramTokenConfigured ? 'Link' : 'Setup Token' }}
               </template>
             </button>
           </div>
@@ -212,7 +251,13 @@ import { useI18n } from 'vue-i18n'
 import { UserCog, LogOut, Shield, Key, Link2, Copy, Check, AlertCircle, Clock, ExternalLink } from 'lucide-vue-next'
 import { useAuth } from '../../composables/useAuth'
 import { getCachedAuthProvider } from '../../api/auth'
-import { generateLinkCode, getLinkedChannels, unlinkChannel } from '../../api/channelLinks'
+import {
+  generateLinkCode,
+  getLinkedChannels,
+  getTelegramTokenStatus,
+  saveTelegramToken,
+  unlinkChannel,
+} from '../../api/channelLinks'
 import type { LinkedChannel } from '../../api/channelLinks'
 
 const router = useRouter()
@@ -225,7 +270,11 @@ const linkCode = ref<string | null>(null)
 const codeCountdown = ref(0)
 const codeMaxSeconds = ref(900)
 const isGenerating = ref(false)
+const isSavingTelegramToken = ref(false)
 const linkedChannels = ref<LinkedChannel[]>([])
+const telegramTokenConfigured = ref(false)
+const showTelegramTokenInput = ref(false)
+const telegramTokenInput = ref('')
 const isCopied = ref(false)
 const unlinkConfirm = ref<string | null>(null)
 const isUnlinking = ref(false)
@@ -299,6 +348,11 @@ const handleLogout = async () => {
 
 // Generate a link code for Telegram
 const handleGenerateCode = async () => {
+  if (!telegramTokenConfigured.value) {
+    showTelegramTokenInput.value = true
+    return
+  }
+
   isGenerating.value = true
   channelError.value = null
   try {
@@ -320,6 +374,39 @@ const handleGenerateCode = async () => {
     channelError.value = 'Failed to generate link code. Please try again.'
   } finally {
     isGenerating.value = false
+  }
+}
+
+const startTelegramLinkFlow = async () => {
+  if (telegramTokenConfigured.value) {
+    await handleGenerateCode()
+    return
+  }
+  showTelegramTokenInput.value = true
+}
+
+const cancelTelegramTokenInput = () => {
+  showTelegramTokenInput.value = false
+  telegramTokenInput.value = ''
+}
+
+const saveTelegramTokenAndLink = async () => {
+  if (!telegramTokenInput.value) {
+    return
+  }
+
+  isSavingTelegramToken.value = true
+  channelError.value = null
+  try {
+    const result = await saveTelegramToken(telegramTokenInput.value)
+    telegramTokenConfigured.value = result.configured
+    telegramTokenInput.value = ''
+    showTelegramTokenInput.value = false
+    await handleGenerateCode()
+  } catch {
+    channelError.value = 'Failed to save Telegram token. Check token format and try again.'
+  } finally {
+    isSavingTelegramToken.value = false
   }
 }
 
@@ -382,15 +469,25 @@ const loadLinkedChannels = async () => {
   }
 }
 
+const loadTelegramTokenStatus = async () => {
+  try {
+    const status = await getTelegramTokenStatus()
+    telegramTokenConfigured.value = status.configured
+  } catch {
+    telegramTokenConfigured.value = false
+  }
+}
+
 onMounted(async () => {
   authProvider.value = await getCachedAuthProvider()
-  await loadLinkedChannels()
+  await Promise.all([loadLinkedChannels(), loadTelegramTokenStatus()])
 })
 
 onUnmounted(() => {
   if (countdownInterval) clearInterval(countdownInterval)
   if (copyTimeout) clearTimeout(copyTimeout)
   if (unlinkTimeout) clearTimeout(unlinkTimeout)
+  telegramTokenInput.value = ''
 })
 </script>
 
@@ -790,6 +887,95 @@ onUnmounted(() => {
   overflow: hidden;
   background: var(--background-white-main);
   border-color: rgba(0, 136, 204, 0.2);
+}
+
+.channel-item-token {
+  align-items: stretch;
+  background: var(--background-white-main);
+}
+
+.token-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.token-setup-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.token-help {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+.token-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-main);
+  border-radius: 8px;
+  background: var(--fill-tsp-white-dark);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.token-input:focus {
+  outline: none;
+  border-color: #0088cc;
+  box-shadow: 0 0 0 2px rgba(0, 136, 204, 0.12);
+}
+
+.token-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.token-cancel-btn,
+.token-save-btn {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.token-cancel-btn {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-light);
+}
+
+.token-cancel-btn:hover {
+  border-color: var(--border-main);
+  color: var(--text-primary);
+}
+
+.token-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  background: #0088cc;
+  border: 1px solid #0088cc;
+}
+
+.token-save-btn:hover {
+  background: #0077b3;
+  border-color: #0077b3;
+}
+
+.token-cancel-btn:disabled,
+.token-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .channel-info {

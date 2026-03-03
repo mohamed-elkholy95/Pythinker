@@ -11,6 +11,10 @@ class GenerateLinkCodeRequest(BaseModel):
     channel: str = "telegram"
 
 
+class SaveTelegramTokenRequest(BaseModel):
+    token: str
+
+
 class GenerateLinkCodeResponse(BaseModel):
     code: str
     channel: str
@@ -26,3 +30,7 @@ class LinkedChannelResponse(BaseModel):
 
 class LinkedChannelsListResponse(BaseModel):
     channels: list[LinkedChannelResponse]
+
+
+class TelegramTokenStatusResponse(BaseModel):
+    configured: bool
