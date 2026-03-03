@@ -202,9 +202,10 @@
             <BrowserChrome
               v-if="showLivePreviewChrome"
               :url="livePreviewChromeUrl"
-              device="desktop"
+              :device="livePreviewDevice"
               :is-fullscreen="false"
               :show-edit="false"
+              @update:device="handleBrowserChromeDeviceUpdate"
               @navigate-home="handleBrowserChromeHome"
               @open-external="handleBrowserChromeOpenExternal"
               @refresh="handleBrowserChromeRefresh"
@@ -674,6 +675,7 @@ const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
 // Canvas live view
 const canvasLiveViewRef = ref<{ scheduleRefresh: () => void; refresh: () => void } | null>(null);
 const liveViewerRef = ref<{ processToolEvent?: (event: ToolEventData) => void } | null>(null);
+const livePreviewDevice = ref<'desktop' | 'mobile'>('desktop');
 
 interface BrowserAgentCheckpointData {
   action?: unknown;
@@ -1674,6 +1676,10 @@ const onNewTerminalContent = () => {
 
 const handleBrowserChromeToggleFullscreen = () => {
   // Fullscreen control is intentionally disabled for embedded live preview.
+};
+
+const handleBrowserChromeDeviceUpdate = (device: 'desktop' | 'mobile') => {
+  livePreviewDevice.value = device;
 };
 
 const handleBrowserChromeOpenExternal = () => {

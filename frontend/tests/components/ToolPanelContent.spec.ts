@@ -112,6 +112,73 @@ describe('ToolPanelContent', () => {
     expect(wrapper.find('browser-chrome-stub').exists()).toBe(false);
   });
 
+  it('updates browser chrome device mode when child emits update:device', async () => {
+    const BrowserChromeStub = defineComponent({
+      name: 'BrowserChrome',
+      props: {
+        device: {
+          type: String,
+          required: true,
+        },
+      },
+      emits: ['update:device'],
+      template: `
+        <button data-test="device-toggle" @click="$emit('update:device', 'mobile')">
+          {{ device }}
+        </button>
+      `,
+    });
+
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = shallowMount(ToolPanelContent, {
+      props: {
+        sessionId: 'session-1',
+        realTime: true,
+        toolContent: {
+          ...baseToolContent,
+          name: 'browser',
+          function: 'browser_navigate',
+          args: { url: 'https://example.com' },
+        },
+        live: true,
+        isShare: false,
+      },
+      global: {
+        plugins: [pinia],
+        config: {
+          globalProperties: {
+            $t: (key: string) => key,
+          },
+        },
+        stubs: {
+          TimelineControls: true,
+          TaskProgressBar: true,
+          LiveViewer: true,
+          BrowserChrome: BrowserChromeStub,
+          LoadingState: true,
+          InactiveState: true,
+          TerminalContentView: true,
+          EditorContentView: true,
+          SearchContentView: true,
+          GenericContentView: true,
+          StreamingReportView: true,
+          WideResearchOverlay: true,
+          ScreenshotReplayViewer: true,
+        },
+      },
+    });
+
+    const toggle = wrapper.find('[data-test="device-toggle"]');
+    expect(toggle.exists()).toBe(true);
+    expect(toggle.text()).toBe('desktop');
+
+    await toggle.trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('[data-test="device-toggle"]').text()).toBe('mobile');
+  });
+
   it('forwards browser tool events to persistent LiveViewer for overlay rendering', async () => {
     const processToolEvent = vi.fn();
     const LiveViewerStub = defineComponent({
