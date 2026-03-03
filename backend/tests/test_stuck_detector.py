@@ -260,6 +260,33 @@ class TestBrowserStuckPatterns:
         # Should NOT detect same page loop
         assert analysis is None or analysis.loop_type != LoopType.BROWSER_SAME_PAGE_LOOP
 
+    def test_excessive_same_tool_skips_distinct_successful_search_burst(self):
+        """Distinct successful search queries should not trigger excessive-same-tool loop."""
+        detector = StuckDetector()
+        analysis = None
+        for i in range(9):
+            analysis = detector.track_tool_action(
+                tool_name="search",
+                tool_args={"query": f"topic variation {i}"},
+                success=True,
+                result=f"Result batch {i}",
+            )
+        assert analysis is None or analysis.loop_type != LoopType.EXCESSIVE_SAME_TOOL
+
+    def test_excessive_same_tool_still_flags_repeated_search_with_same_args(self):
+        """Repeated same-query search calls should continue to trigger detection."""
+        detector = StuckDetector()
+        analysis = None
+        for _ in range(9):
+            analysis = detector.track_tool_action(
+                tool_name="search",
+                tool_args={"query": "same query"},
+                success=True,
+                result="same result",
+            )
+        assert analysis is not None
+        assert analysis.loop_type == LoopType.EXCESSIVE_SAME_TOOL
+
     def test_recovery_guidance_for_browser_patterns(self):
         """Test that browser patterns have proper recovery guidance"""
         detector = StuckDetector()

@@ -213,15 +213,16 @@ class TestBrowseTopResultsResilience:
         return SearchTool(search_engine=mock_engine, browser=mock_browser)
 
     @pytest.mark.asyncio
-    async def test_stops_early_on_consecutive_failures(self, search_tool):
-        """_browse_top_results breaks loop after 2 consecutive failures."""
+    async def test_continues_browsing_across_multiple_failures(self, search_tool):
+        """_browse_top_results should not abort after only two failures."""
         search_tool._browser.navigate_for_display = AsyncMock(return_value=False)
         search_data = {"results": [{"link": f"https://example.com/{i}"} for i in range(5)]}
 
-        await search_tool._browse_top_results(search_data, count=5)
+        with patch("app.domain.services.tools.search.asyncio.sleep", new=AsyncMock()):
+            await search_tool._browse_top_results(search_data, count=5)
 
-        # Should stop after 2 consecutive failures, so only 2 calls
-        assert search_tool._browser.navigate_for_display.await_count == 2
+        # Should keep trying all candidates instead of stopping after 2 failures.
+        assert search_tool._browser.navigate_for_display.await_count == 5
 
     @pytest.mark.asyncio
     async def test_skips_when_disconnected(self, search_tool):
