@@ -103,6 +103,10 @@ const isCurrentSession = computed(() => {
   return currentSessionId.value === props.session.session_id;
 });
 
+const isAgentsWorkspace = computed(() =>
+  route.matched.some((record) => record.meta?.workspace === 'agents')
+);
+
 const isRunning = computed(() => {
   return props.session.status === SessionStatus.RUNNING || props.session.status === SessionStatus.PENDING;
 });
@@ -117,6 +121,14 @@ const displayTitle = computed(() => {
 });
 
 const handleSessionClick = () => {
+  if (isAgentsWorkspace.value && props.session.source === 'telegram') {
+    router.push({
+      name: 'agents-session',
+      params: { sessionId: props.session.session_id },
+    });
+    return;
+  }
+
   router.push(`/chat/${props.session.session_id}`);
 };
 

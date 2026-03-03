@@ -238,9 +238,17 @@ const hasResolvedTaskTitle = (session: ListSessionItem): boolean => {
   return !!getSessionDisplayTitle(session)
 }
 
-const visibleSessions = computed(() =>
-  sessions.value.filter((session) => hasResolvedTaskTitle(session))
+const isAgentsWorkspace = computed(() =>
+  route.matched.some((record) => record.meta?.workspace === 'agents')
 )
+
+const visibleSessions = computed(() => {
+  const scopedSessions = isAgentsWorkspace.value
+    ? sessions.value.filter((session) => session.source === 'telegram')
+    : sessions.value
+
+  return scopedSessions.filter((session) => hasResolvedTaskTitle(session))
+})
 
 const filteredSessions = computed(() => {
   if (!searchQuery.value.trim()) return visibleSessions.value
@@ -251,7 +259,7 @@ const filteredSessions = computed(() => {
   )
 })
 
-const isAgentsRoute = computed(() => route.path === '/chat/agents')
+const isAgentsRoute = computed(() => isAgentsWorkspace.value)
 
 const openSearch = async () => {
   isSearching.value = true
