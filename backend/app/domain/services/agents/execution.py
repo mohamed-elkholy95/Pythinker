@@ -369,7 +369,13 @@ class ExecutionAgent(BaseAgent):
         selected_model = self._select_model_for_step(step.description)
         if selected_model:
             self._step_model_override = selected_model
-            logger.info(f"Using adaptive model for step: {selected_model}")
+            from app.core.config import get_settings as _get_settings
+
+            _is_adaptive = _get_settings().adaptive_model_selection_enabled
+            if _is_adaptive:
+                logger.info("Adaptive model routing selected '%s' for step", selected_model)
+            else:
+                logger.debug("Model routing disabled, using default model '%s'", selected_model)
 
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
