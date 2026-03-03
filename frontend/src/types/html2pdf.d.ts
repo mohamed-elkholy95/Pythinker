@@ -12,6 +12,15 @@ declare module 'html2pdf.js' {
       letterRendering?: boolean;
       logging?: boolean;
       allowTaint?: boolean;
+      backgroundColor?: string | null;
+      windowWidth?: number;
+      windowHeight?: number;
+      scrollX?: number;
+      scrollY?: number;
+      imageTimeout?: number;
+      removeContainer?: boolean;
+      foreignObjectRendering?: boolean;
+      onclone?: (clonedDocument: Document) => void;
     };
     jsPDF?: {
       unit?: string;

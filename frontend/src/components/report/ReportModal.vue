@@ -544,21 +544,34 @@ const handleDownloadPdf = async () => {
     const element = container.querySelector('.document-content');
     if (!element) return;
 
+    const renderScale = Math.min(3, Math.max(2, window.devicePixelRatio || 2));
+    const windowWidth = Math.ceil((element as HTMLElement).scrollWidth);
+    const windowHeight = Math.ceil((element as HTMLElement).scrollHeight);
+
     const opt = {
       margin: [15, 15, 15, 15],
       filename: getSafeFilename(props.report.title) + '.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
+      image: { type: 'png', quality: 1 },
       html2canvas: {
-        scale: 2,
+        scale: renderScale,
         useCORS: true,
-        letterRendering: true
+        backgroundColor: '#ffffff',
+        windowWidth,
+        windowHeight,
+        onclone: (clonedDocument: Document) => {
+          const clonedElement = clonedDocument.querySelector('.document-content');
+          clonedElement?.classList.add('pdf-export-mode');
+        }
       },
       jsPDF: {
         unit: 'mm',
         format: 'a4',
         orientation: 'portrait'
       },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      pagebreak: {
+        mode: ['css', 'legacy'],
+        avoid: ['pre', 'table', 'blockquote', 'figure', 'img']
+      }
     };
 
     await html2pdf().set(opt).from(element).save();
@@ -1079,6 +1092,44 @@ watch(isOpen, (newVal) => {
   border-color: #1c1c1e;
   color: #ffffff;
   text-decoration: none !important;
+}
+
+/* ===== PDF EXPORT OVERRIDES ===== */
+.document-content.pdf-export-mode {
+  max-width: 860px;
+  padding: 44px 52px;
+}
+
+.document-content.pdf-export-mode .doc-body.prose :deep(p),
+.document-content.pdf-export-mode .doc-body.prose :deep(li),
+.document-content.pdf-export-mode .doc-body.prose :deep(td),
+.document-content.pdf-export-mode .doc-body.prose :deep(a) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.document-content.pdf-export-mode .doc-body.prose :deep(pre),
+.document-content.pdf-export-mode .doc-body.prose :deep(table),
+.document-content.pdf-export-mode .doc-body.prose :deep(blockquote),
+.document-content.pdf-export-mode .doc-body.prose :deep(img) {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.document-content.pdf-export-mode .doc-body.prose :deep(.ref-list-anchor) {
+  white-space: normal;
+  line-height: 1.5;
+}
+
+.document-content.pdf-export-mode .doc-body :deep(a[href^="#ref-"]) {
+  min-width: 19px;
+  height: 19px;
+  padding: 0 4px;
+  border-width: 1.2px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  margin: 0 2px;
+  vertical-align: 0.2em;
 }
 
 /* Dark mode badge styles in unscoped <style> block below */
