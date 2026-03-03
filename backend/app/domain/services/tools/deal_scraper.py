@@ -58,6 +58,22 @@ _COUPON_NOISE_WORDS: frozenset[str] = frozenset(
 )
 
 
+def _empty_category_summary() -> dict[str, int]:
+    """Create a canonical item-category summary structure."""
+    return {"digital": 0, "physical": 0, "unknown": 0}
+
+
+def _count_item_categories(items: list[Any]) -> dict[str, int]:
+    """Count digital/physical/unknown item categories from dataclass-like objects."""
+    summary = _empty_category_summary()
+    for item in items:
+        category = getattr(item, "item_category", "unknown")
+        if category not in summary:
+            category = "unknown"
+        summary[category] += 1
+    return summary
+
+
 def _build_progress_html(query: str, action: str = "Searching Deals") -> str:
     """Build an inline HTML progress page for the CDP screencast live view.
 
@@ -148,6 +164,15 @@ def _build_deal_report_message(comparison: DealComparison) -> str:
     if comparison.coupons_found:
         verified = sum(1 for c in comparison.coupons_found if c.verified)
         lines.append(f"Coupons: {len(comparison.coupons_found)} found ({verified} verified)")
+
+    deal_categories = _count_item_categories(comparison.deals)
+    if deal_categories["digital"] or deal_categories["physical"]:
+        lines.append(
+            "Item categories: "
+            f"{deal_categories['physical']} physical, "
+            f"{deal_categories['digital']} digital, "
+            f"{deal_categories['unknown']} unknown"
+        )
 
     # FORMAT instruction for the LLM
     lines.append(
@@ -432,6 +457,8 @@ class DealScraperTool(BaseTool):
             deals_data.append(deal_dict)
 
         coupons_data = [asdict(c) for c in comparison.coupons_found] if comparison.coupons_found else []
+        deal_category_summary = _count_item_categories(comparison.deals)
+        coupon_category_summary = _count_item_categories(comparison.coupons_found)
 
         # Generate a slug for suggested deliverable filename
         slug = re.sub(r"[^a-z0-9]+", "_", query.lower().strip())[:40].rstrip("_")
@@ -446,6 +473,8 @@ class DealScraperTool(BaseTool):
                 "coupons": coupons_data,
                 "searched_stores": comparison.searched_stores,
                 "store_errors": comparison.store_errors,
+                "item_category_summary": deal_category_summary,
+                "coupon_item_category_summary": coupon_category_summary,
             },
             suggested_filename=f"deal_report_{slug}.md",
         )
@@ -656,11 +685,13 @@ class DealScraperTool(BaseTool):
                     "coupons": [],
                     "source_failures": result.source_failures,
                     "urls_checked": result.urls_checked,
+                    "item_category_summary": _empty_category_summary(),
                 },
             )
 
         coupons_data = [asdict(c) for c in coupons]
         verified_count = sum(1 for c in coupons if c.verified)
+        category_summary = _count_item_categories(coupons)
 
         # Build report message
         lines = [
@@ -669,6 +700,12 @@ class DealScraperTool(BaseTool):
         sources_used = {c.source for c in coupons if c.source}
         if sources_used:
             lines.append(f"Sources: {', '.join(sorted(sources_used))}")
+        lines.append(
+            "Item categories: "
+            f"{category_summary['physical']} physical, "
+            f"{category_summary['digital']} digital, "
+            f"{category_summary['unknown']} unknown"
+        )
         lines.append(
             'FORMAT: List verified coupons first with **CODE** — description. Add "Verify at checkout" disclaimer.'
         )
@@ -681,5 +718,8 @@ class DealScraperTool(BaseTool):
                 "coupons": coupons_data,
                 "total": len(coupons),
                 "verified_count": verified_count,
+                "item_category_summary": category_summary,
+                "source_failures": result.source_failures,
+                "urls_checked": result.urls_checked,
             },
         )

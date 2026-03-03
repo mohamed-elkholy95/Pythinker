@@ -54,6 +54,7 @@ export interface ListSessionItem {
     status: SessionStatus;
     unread_message_count: number;
     is_shared: boolean;
+    source: string;
 }
 
 export interface ListSessionResponse {
