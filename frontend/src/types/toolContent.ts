@@ -177,6 +177,7 @@ export interface DealItem {
   in_stock: boolean | null;
   coupon_code: string | null;
   image_url: string | null;
+  item_category?: 'digital' | 'physical' | 'unknown';
 }
 
 export interface CouponItem {
@@ -186,6 +187,8 @@ export interface CouponItem {
   expiry: string | null;
   verified: boolean;
   source: string;
+  item_category?: 'digital' | 'physical' | 'unknown';
+  source_url?: string | null;
 }
 
 export interface StoreError {
@@ -205,6 +208,8 @@ export interface DealToolContent extends ToolContentBase {
   empty_reason?: DealEmptyReason;
   stores_attempted?: number;
   stores_with_results?: number;
+  item_category_summary?: Record<'digital' | 'physical' | 'unknown', number>;
+  coupon_item_category_summary?: Record<'digital' | 'physical' | 'unknown', number>;
 }
 
 // ── Deal Progress (live view checkpoint_data) ──
