@@ -412,7 +412,8 @@ class PlannerAgent(BaseAgent):
         )
 
         search_task: asyncio.Task[PrePlanningSearchResult] | None = None
-        if self._search_engine and not replan_context:
+        pre_planning_flags = self._resolve_feature_flags()
+        if self._search_engine and not replan_context and pre_planning_flags.get("pre_planning_search", False):
             should_search, search_reasons = PrePlanningSearchDetector.should_search(message.message)
             if should_search:
                 executor = PrePlanningSearchExecutor(self._search_engine)
