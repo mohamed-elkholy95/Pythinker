@@ -43,6 +43,8 @@ from app.domain.services.agents.tool_stream_parser import (
 
 if TYPE_CHECKING:
     from app.domain.external.circuit_breaker import CircuitBreakerPort
+    from app.domain.services.agents.scratchpad import Scratchpad
+    from app.domain.services.agents.tool_result_store import ToolResultStore
     from app.domain.services.agents.url_failure_guard import UrlFailureGuard
     from app.domain.utils.cancellation import CancellationToken
 from app.domain.models.tool_name import ToolName
@@ -177,6 +179,7 @@ class BaseAgent:
         circuit_breaker: "CircuitBreakerPort | None" = None,
         feature_flags: dict[str, bool] | None = None,
         cancel_token: "CancellationToken | None" = None,
+        tool_result_store: "ToolResultStore | None" = None,
     ):
         if tools is None:
             tools = []
@@ -192,6 +195,8 @@ class BaseAgent:
         self._user_thinking_mode: str | None = None  # User-selected thinking mode override
         self._circuit_breaker = circuit_breaker
         self._feature_flags = feature_flags
+        self._tool_result_store = tool_result_store
+        self._scratchpad: Scratchpad | None = None
 
         # Structured agent logger
         self._log = get_agent_logger(agent_id)
@@ -1178,11 +1183,26 @@ class BaseAgent:
 
         return self._truncate_text(serialized, max_chars)
 
-    def _serialize_tool_result_for_memory(self, result: ToolResult) -> str:
+    def _serialize_tool_result_for_memory(self, result: ToolResult, function_name: str = "") -> str:
         """Serialize tool results with size guardrails to avoid memory bloat."""
         raw = result.model_dump_json() if hasattr(result, "model_dump_json") else str(result)
         if len(raw) <= self._TOOL_RESULT_MEMORY_MAX_CHARS:
             return raw
+
+        # ── ToolResultStore offload (Component 1) ─────────────────────
+        # Store full content externally, keep only preview + ref in conversation.
+        if self._tool_result_store and self._tool_result_store.should_offload(raw):
+            result_id, preview = self._tool_result_store.store(raw, function_name)
+            return ToolResult(
+                success=result.success,
+                message="Tool output stored externally.",
+                data={
+                    "_stored_externally": True,
+                    "_result_ref": result_id,
+                    "_original_size_chars": len(raw),
+                    "_preview": preview,
+                },
+            ).model_dump_json()
 
         compacted_data: dict[str, Any] = {
             "_compacted": True,
@@ -1594,7 +1614,7 @@ class BaseAgent:
                             "role": "tool",
                             "function_name": function_name,
                             "tool_call_id": tool_call_id,
-                            "content": self._serialize_tool_result_for_memory(result),
+                            "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
                         }
                     )
             else:
@@ -1732,7 +1752,7 @@ class BaseAgent:
                             "role": "tool",
                             "function_name": function_name,
                             "tool_call_id": tool_call_id,
-                            "content": self._serialize_tool_result_for_memory(result),
+                            "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
                         }
                     )
 
@@ -1820,6 +1840,10 @@ class BaseAgent:
                     self.memory = await self._repository.get_memory(self._agent_id, self.name)
                 else:
                     raise
+            # Apply graduated compaction setting from feature flags
+            flags = self._resolve_feature_flags()
+            if flags.get("graduated_compaction"):
+                self.memory.config.use_graduated_compaction = True
 
     async def _add_to_memory(self, messages: list[dict[str, Any]]) -> None:
         """Update memory and save to repository"""
@@ -1943,8 +1967,27 @@ class BaseAgent:
                 self._active_phase = "summarizing"
 
             try:
+                # Build message list for LLM — inject scratchpad transiently
+                llm_messages = self.memory.get_messages()
+                if self._scratchpad and not self._scratchpad.is_empty:
+                    scratchpad_content = self._scratchpad.get_content()
+                    if scratchpad_content:
+                        # Insert scratchpad after system messages, before conversation.
+                        # Uses "user" role for GLM-5 compatibility.
+                        insert_idx = 0
+                        for idx, m in enumerate(llm_messages):
+                            if m.get("role") == "system":
+                                insert_idx = idx + 1
+                            else:
+                                break
+                        llm_messages = list(llm_messages)  # shallow copy to avoid mutating memory
+                        llm_messages.insert(
+                            insert_idx,
+                            {"role": "user", "content": scratchpad_content},
+                        )
+
                 message = await self.llm.ask(
-                    self.memory.get_messages(),
+                    llm_messages,
                     tools=available_tools,
                     response_format=response_format,
                     tool_choice=self.tool_choice,
@@ -2184,6 +2227,7 @@ class BaseAgent:
         token_count = self._token_manager.count_messages_tokens(current_messages)
         try:
             from app.core.config import get_settings
+
             trigger_threshold = getattr(get_settings(), "context_compression_trigger_pct", 0.80)
         except Exception:
             trigger_threshold = self._token_manager.PRESSURE_THRESHOLDS["early_warning"]
@@ -2198,7 +2242,12 @@ class BaseAgent:
                 )
                 self._stuck_recovery_exhausted = True
                 return
-            self.memory.smart_compact()
+            # Use graduated compaction when enabled (preserves more info)
+            flags = self._resolve_feature_flags()
+            if flags.get("graduated_compaction") and self.memory.config.use_graduated_compaction:
+                self.memory.graduated_compact()
+            else:
+                self.memory.smart_compact()
             current_messages = self.memory.get_messages()
             logger.debug(
                 f"Proactive context compaction at {token_count} tokens "
@@ -2238,6 +2287,24 @@ class BaseAgent:
             self.memory.messages = trimmed_messages
             await self._repository.save_memory(self._agent_id, self.name, self.memory)
             logger.info(f"Trimmed memory, removed {tokens_removed} tokens")
+
+        # Stage 3: Structured compaction (emergency LLM summary) when still over limit.
+        current_messages = self.memory.get_messages()
+        if not self._token_manager.is_within_limit(current_messages):
+            flags_s3 = self._resolve_feature_flags()
+            if flags_s3.get("structured_compaction"):
+                self._compression_cycles_this_step += 1
+                if self._compression_cycles_this_step <= self.max_compression_cycles_per_step:
+                    from app.domain.services.agents.memory_manager import get_memory_manager
+
+                    mm = get_memory_manager()
+                    compacted_msgs, tokens_saved = await mm.structured_compact(
+                        current_messages, self.llm, preserve_recent=6
+                    )
+                    if tokens_saved > 0:
+                        self.memory.messages = compacted_msgs
+                        await self._repository.save_memory(self._agent_id, self.name, self.memory)
+                        logger.info("Structured compaction saved ~%d tokens", tokens_saved)
 
     async def _handle_token_limit_exceeded(self) -> None:
         """Handle token limit exceeded error by aggressively trimming context.
