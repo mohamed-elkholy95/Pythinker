@@ -133,7 +133,7 @@
             }"
           >
             <template v-if="isTelegramLinked">
-              Connected {{ telegramLinkedSender }}
+              Connected
             </template>
             <template v-else-if="bindCommand">
               Activation pending
@@ -141,6 +141,9 @@
             <template v-else>
               Not connected
             </template>
+          </span>
+          <span v-if="isTelegramLinked && telegramLinkedSender" class="telegram-status-sender">
+            {{ telegramLinkedSender }}
           </span>
         </div>
         <div class="telegram-status-actions">
@@ -153,18 +156,7 @@
             <RefreshCw v-else class="w-3.5 h-3.5" />
             Refresh
           </button>
-          <button
-            v-if="!isTelegramLinked"
-            class="telegram-primary-btn"
-            :disabled="isGenerating"
-            @click="generate"
-          >
-            <Loader2 v-if="isGenerating" class="w-3.5 h-3.5 animate-spin" />
-            <Link2 v-else class="w-3.5 h-3.5" />
-            Link Account
-          </button>
-          <button
-            v-else
+          <button v-if="isTelegramLinked"
             class="telegram-primary-btn telegram-primary-btn-linked"
             @click="openTelegramHistory"
           >
@@ -174,34 +166,26 @@
         </div>
       </div>
 
-      <div v-if="bindCommand && !isTelegramLinked" class="telegram-code-panel">
-        <div class="telegram-code-header">
-          <span class="telegram-code-label">Bind command</span>
-          <button class="telegram-inline-btn" @click="openDeepLink">
-            <ExternalLink class="w-3.5 h-3.5" />
-            Open Telegram
-          </button>
-        </div>
+      <TelegramLinkCard
+        v-if="!isTelegramLinked"
+        :is-generating="isGenerating"
+        :has-draft="Boolean(bindCommand)"
+        :active-command="activeCommand"
+        :is-copied="isCopied"
+        :countdown="countdown"
+        :feedback="channelConnectFeedback"
+        :error="channelConnectError"
+        primary-label="Link Account"
+        @generate="generate"
+        @copy="copyCommand"
+        @open="openDeepLink"
+      />
 
-        <div class="telegram-code-row">
-          <code class="telegram-code-value">{{ activeCommand }}</code>
-          <button class="telegram-copy-btn" @click="copyCommand">
-            <Check v-if="isCopied" class="w-3.5 h-3.5" />
-            <Copy v-else class="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div v-if="countdown > 0" class="telegram-countdown">
-          <Clock3 class="w-3.5 h-3.5" />
-          Expires in {{ formatCountdown(countdown) }}
-        </div>
-      </div>
-
-      <div v-if="channelConnectFeedback" class="telegram-feedback">
+      <div v-if="isTelegramLinked && channelConnectFeedback" class="telegram-feedback">
         <Check class="w-3.5 h-3.5" />
         <span>{{ channelConnectFeedback }}</span>
       </div>
-      <div v-if="channelConnectError" class="telegram-error">
+      <div v-if="isTelegramLinked && channelConnectError" class="telegram-error">
         <AlertCircle class="w-3.5 h-3.5" />
         <span>{{ channelConnectError }}</span>
       </div>
@@ -371,17 +355,14 @@ import {
   ScanEye,
   CheckCircle2,
   MessageSquare,
-  Link2,
   RefreshCw,
   Loader2,
-  ExternalLink,
-  Copy,
   Check,
-  Clock3,
   AlertCircle
 } from 'lucide-vue-next'
 import { getSettings, updateSettings, type UserSettings } from '@/api/settings'
 import { useTelegramLink } from '@/composables/useTelegramLink'
+import TelegramLinkCard from '@/components/telegram/TelegramLinkCard.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -425,7 +406,6 @@ const {
   copyCommand,
   openDeepLink,
   loadChannels,
-  formatCountdown,
 } = useTelegramLink()
 
 const isRefreshing = ref(false)
@@ -476,7 +456,7 @@ const handleRefreshStatus = async () => {
 }
 
 const openTelegramHistory = () => {
-  void router.push('/chat/history')
+  void router.push('/chat/agents')
 }
 
 // Save settings
@@ -831,6 +811,11 @@ onMounted(async () => {
 
 .telegram-status-value-pending {
   color: #f59e0b;
+}
+
+.telegram-status-sender {
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 .telegram-status-actions {
