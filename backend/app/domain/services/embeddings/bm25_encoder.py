@@ -15,6 +15,7 @@ import re
 from collections import Counter
 from functools import lru_cache
 from inspect import isawaitable
+from typing import ClassVar
 
 from rank_bm25 import BM25Okapi
 
@@ -135,12 +136,27 @@ class BM25SparseEncoder:
 
         logger.debug("BM25 encoder fitted on %d documents", self.corpus_size)
 
+    # Seed corpus for lazy-fit: covers common query patterns in agent systems.
+    # Provides minimal vocabulary so BM25 always produces non-empty sparse
+    # vectors, even on first boot with empty memory. Real documents added
+    # via update_corpus() / incremental update will improve quality.
+    _SEED_CORPUS: ClassVar[list[str]] = [
+        "user preference setting configuration",
+        "search query web research information",
+        "code implementation function class method",
+        "error bug fix debug troubleshoot",
+        "file document report summary analysis",
+        "task plan step workflow process",
+    ]
+
     def encode(self, text: str) -> dict[int, float]:
         """Generate sparse vector from text using BM25 document scores.
 
         Uses BM25Okapi.get_scores() to compute proper BM25 relevance scores
         across all corpus documents, then aggregates per-term IDF weights
         from the fitted model for the sparse vector representation.
+
+        Lazy-fits on a seed corpus if unfitted to ensure non-empty results.
 
         Args:
             text: Query or document text
@@ -149,7 +165,14 @@ class BM25SparseEncoder:
             Sparse vector as {index: score} dict with top-k non-zero entries
         """
         if self.bm25 is None:
-            logger.warning("BM25 not fitted, returning empty sparse vector")
+            logger.info(
+                "BM25 encoder unfitted — lazy-fitting on seed corpus (%d docs)",
+                len(self._SEED_CORPUS),
+            )
+            self.fit(self._SEED_CORPUS)
+
+        if self.bm25 is None:
+            # fit() failed — graceful degradation
             return {}
 
         tokens = self._tokenize(text)

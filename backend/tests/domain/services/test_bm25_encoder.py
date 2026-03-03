@@ -54,11 +54,13 @@ class TestBM25SparseEncoder:
         # Scores should be normalized to [0, 1]
         assert all(0.0 <= v <= 1.0 for v in sparse.values())
 
-    def test_encoder_encode_empty_corpus(self):
-        """Test encode with no corpus returns empty."""
+    def test_encoder_encode_empty_corpus_lazy_fits(self):
+        """Test encode with no corpus lazy-fits on seed corpus and returns non-empty."""
         encoder = BM25SparseEncoder()
-        sparse = encoder.encode("some query")
-        assert sparse == {}
+        sparse = encoder.encode("search query")
+        # Lazy-fit on seed corpus ensures non-empty sparse vectors
+        assert isinstance(sparse, dict)
+        assert len(sparse) > 0
 
     def test_encoder_encode_empty_text(self):
         """Test encode with empty text."""
