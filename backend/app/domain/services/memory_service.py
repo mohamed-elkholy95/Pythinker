@@ -1439,13 +1439,7 @@ Provide a concise summary (max 200 words)."""
         from app.domain.services.embeddings.bm25_encoder import get_bm25_encoder
 
         encoder = get_bm25_encoder()
-
-        # If encoder not fitted, return empty sparse vector
-        # (will be fitted when first memories are stored)
-        if encoder.bm25 is None:
-            logger.info("BM25 encoder not fitted yet, using dense-only search for now")
-            return {}
-
+        # encode() lazy-fits BM25 on a small seed corpus when unfitted.
         raw = encoder.encode(text)
         # MongoDB requires string keys in documents - convert int keys to strings
         return {str(k): v for k, v in raw.items()}
