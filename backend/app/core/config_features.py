@@ -359,6 +359,16 @@ class FeatureFlagsSettingsMixin:
     # URL Failure Guard — 3-tier auto-correction for LLM URL hallucination (2026-03-02)
     feature_url_failure_guard_enabled: bool = True
 
+    # ── Tiered External Memory Architecture (2026-03) ─────────────────
+    # C1: Offload large tool results (>4K chars) to LRU cache, keep preview in conversation
+    feature_tool_result_store_enabled: bool = True
+    # C2: Replace destructive smart_compact() with 3-tier graduated decay
+    feature_graduated_compaction_enabled: bool = True
+    # C3: Persistent scratchpad for agent working notes (survives all compaction)
+    feature_scratchpad_enabled: bool = False
+    # C4: Emergency LLM-powered structured compaction at >80% budget
+    feature_structured_compaction_enabled: bool = False
+
     # ── LLM Middleware Pipeline (Enhancement Plan 2026-02) ──────────────────
     # Phase 1: Middleware pipeline — compose cross-cutting concerns as chainable
     # middlewares instead of inline retry/error code in each provider.
