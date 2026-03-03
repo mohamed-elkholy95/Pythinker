@@ -598,7 +598,11 @@ import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 import { useErrorBoundary } from '@/composables/useErrorBoundary';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 import { toEpochSeconds } from '@/utils/time';
-import { getRestoreAbortReason, isTerminalSessionStatus } from '@/utils/chatRestoreGuards';
+import {
+  getRestoreAbortReason,
+  isTerminalSessionStatus,
+  shouldReplayHistoryEvent,
+} from '@/utils/chatRestoreGuards';
 import { normalizeTransientTools } from '@/utils/sessionFinalization';
 import { shouldPreserveDealToolInLiveView } from '@/utils/dealLiveViewSelection';
 import {
@@ -3297,12 +3301,6 @@ const handleReportDownload = () => {
   URL.revokeObjectURL(url);
 }
 
-const shouldReplayHistoryEvent = (event: AgentSSEEvent): boolean => {
-  // Stream token chunks are transient UI state. Replaying them from persisted
-  // history creates heavy restore payloads and can interleave with live resume.
-  return event.event !== 'stream';
-};
-
 // ── Extracted event handlers for registry dispatch ──────────────────
 const finalizeSession = (
   reason: 'done' | 'stop' | 'reconcile' | 'visibility' | 'retry_reconcile',
@@ -3830,7 +3828,7 @@ const restoreSession = async (
 
     for (const event of session.events) {
       if (shouldAbortRestore('history_replay')) return;
-      if (!shouldReplayHistoryEvent(event)) continue;
+      if (!shouldReplayHistoryEvent(event.event, sessionStatus.value)) continue;
       handleEvent(event);
     }
 
