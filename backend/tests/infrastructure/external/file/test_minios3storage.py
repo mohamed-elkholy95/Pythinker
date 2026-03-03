@@ -46,6 +46,23 @@ class _FakeMinIOStorage:
         self.client = client
 
 
+class _LazyInitMinIOStorage:
+    def __init__(self, client: _FakeMinIOClient) -> None:
+        self._client = None
+        self._ready_client = client
+        self.initialize_calls = 0
+
+    @property
+    def client(self) -> _FakeMinIOClient:
+        if self._client is None:
+            raise RuntimeError("MinIO client not initialized. Call initialize() first.")
+        return self._client
+
+    async def initialize(self) -> None:
+        self.initialize_calls += 1
+        self._client = self._ready_client
+
+
 @pytest.fixture
 def storage_and_client(monkeypatch: pytest.MonkeyPatch) -> tuple[MinIOFileStorage, _FakeMinIOClient]:
     monkeypatch.setattr(
@@ -114,3 +131,38 @@ async def test_upload_file_filters_reserved_s3_metadata_keys(
     assert "host" not in metadata
     assert metadata["project"] == "alpha"
     assert metadata["custom-key"] == "123"
+
+
+@pytest.mark.asyncio
+async def test_upload_lazy_initializes_minio_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        minios3storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            minio_bucket_name="pythinker",
+            minio_presigned_expiry_seconds=3600,
+            minio_multipart_threshold_bytes=10 * 1024 * 1024,
+            minio_retry_max_attempts=3,
+            minio_retry_base_delay=0.5,
+        ),
+    )
+
+    fake_client = _FakeMinIOClient()
+    lazy_storage = _LazyInitMinIOStorage(fake_client)
+    storage = MinIOFileStorage(lazy_storage)  # type: ignore[arg-type]
+
+    await storage.upload_file(
+        io.BytesIO(b"hello"),
+        "report.md",
+        "anonymous",
+        content_type="text/markdown",
+    )
+    await storage.upload_file(
+        io.BytesIO(b"world"),
+        "report2.md",
+        "anonymous",
+        content_type="text/markdown",
+    )
+
+    assert lazy_storage.initialize_calls == 1
+    assert len(fake_client.put_calls) == 2

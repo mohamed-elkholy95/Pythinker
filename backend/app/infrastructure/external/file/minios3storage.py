@@ -3,6 +3,7 @@ import io
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from inspect import isawaitable
 from typing import Any, BinaryIO, ClassVar
 
 from minio.error import S3Error
@@ -37,6 +38,19 @@ class MinIOFileStorage(FileStorage):
     def __init__(self, minio_storage: MinIOStorage):
         self._minio = minio_storage
         self._settings = get_settings()
+
+    async def _ensure_minio_ready(self) -> None:
+        """Ensure MinIO client is initialized before any storage operation."""
+        try:
+            _ = self._minio.client
+            return
+        except Exception:
+            init = getattr(self._minio, "initialize", None)
+            if init is None:
+                raise
+            result = init()
+            if isawaitable(result):
+                await result
 
     @property
     def _bucket(self) -> str:
@@ -161,6 +175,7 @@ class MinIOFileStorage(FileStorage):
     ) -> FileInfo:
         """Upload file to MinIO (non-blocking)."""
         try:
+            await self._ensure_minio_ready()
             client = self._minio.client
             object_key = self._make_object_key(user_id, filename)
 
@@ -251,6 +266,7 @@ class MinIOFileStorage(FileStorage):
     async def download_file(self, file_id: str, user_id: str | None = None) -> tuple[BinaryIO, FileInfo]:
         """Download file from MinIO by object key (non-blocking)."""
         try:
+            await self._ensure_minio_ready()
             # Run all blocking I/O in thread pool
             data, obj_metadata, content_type, size, last_modified = await asyncio.to_thread(
                 self._download_file_sync, self._bucket, file_id
@@ -287,6 +303,7 @@ class MinIOFileStorage(FileStorage):
     async def delete_file(self, file_id: str, user_id: str) -> bool:
         """Delete file from MinIO (non-blocking)."""
         try:
+            await self._ensure_minio_ready()
             # Stat object in thread pool to check ownership
             obj_metadata = await asyncio.to_thread(self._delete_file_sync, self._bucket, file_id)
             file_user_id = obj_metadata.get("x-amz-meta-user-id", "")
@@ -311,6 +328,7 @@ class MinIOFileStorage(FileStorage):
     async def get_file_info(self, file_id: str, user_id: str | None = None) -> FileInfo | None:
         """Get file metadata from MinIO (non-blocking)."""
         try:
+            await self._ensure_minio_ready()
             # Stat object in thread pool
             obj_metadata, content_type, size, last_modified = await asyncio.to_thread(
                 self._stat_object_sync, self._bucket, file_id
@@ -346,6 +364,7 @@ class MinIOFileStorage(FileStorage):
     ) -> tuple[str, str]:
         """Generate a presigned PUT URL for direct upload to MinIO (non-blocking)."""
         try:
+            await self._ensure_minio_ready()
             object_key = self._make_object_key(user_id, filename)
             expiry = timedelta(seconds=self._settings.minio_presigned_expiry_seconds)
 
@@ -361,6 +380,7 @@ class MinIOFileStorage(FileStorage):
     async def generate_download_url(self, file_id: str, user_id: str | None = None) -> str:
         """Generate a presigned GET URL for direct download from MinIO (non-blocking)."""
         try:
+            await self._ensure_minio_ready()
             # Verify ownership if user_id provided (blocking I/O in thread pool)
             if user_id is not None:
                 obj_metadata, _, _, _ = await asyncio.to_thread(self._stat_object_sync, self._bucket, file_id)
@@ -390,4 +410,5 @@ class MinIOFileStorage(FileStorage):
         from app.infrastructure.storage.minio_storage import get_minio_storage
 
         storage = get_minio_storage()
+        await storage.ensure_initialized()
         return await storage.get_object_range(self._bucket, file_id, offset, length)

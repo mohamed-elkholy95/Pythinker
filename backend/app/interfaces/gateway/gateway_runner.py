@@ -24,6 +24,7 @@ import signal
 import sys
 
 from app.core.config import get_settings
+from app.infrastructure.storage.minio_storage import get_minio_storage
 from app.infrastructure.storage.mongodb import get_mongodb
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,16 @@ async def run_gateway() -> None:
         logger.warning("Qdrant init failed (graceful degradation): %s", e)
 
     # ------------------------------------------------------------------
-    # 1c. Initialise BM25 encoder from stored memories (hybrid search)
+    # 1c. Initialise MinIO storage for file/screenshot persistence
+    # ------------------------------------------------------------------
+    try:
+        await get_minio_storage().initialize()
+        logger.info("MinIO connection established for gateway")
+    except Exception as e:
+        logger.warning("MinIO init failed for gateway (degraded file persistence): %s", e)
+
+    # ------------------------------------------------------------------
+    # 1d. Initialise BM25 encoder from stored memories (hybrid search)
     # Without this the gateway falls back to dense-only retrieval on every
     # memory lookup, losing the keyword-recall benefit of hybrid RRF search.
     # ------------------------------------------------------------------
@@ -188,6 +198,10 @@ async def run_gateway() -> None:
     # ------------------------------------------------------------------
     logger.info("Shutdown signal received — stopping gateway")
     await gateway.stop()
+    try:
+        await get_minio_storage().shutdown()
+    except Exception as e:
+        logger.warning("MinIO shutdown failed for gateway: %s", e)
     await mongodb.shutdown()
     logger.info("Gateway shutdown complete")
 
