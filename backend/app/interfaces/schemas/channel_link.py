@@ -11,15 +11,14 @@ class GenerateLinkCodeRequest(BaseModel):
     channel: str = "telegram"
 
 
-class SaveTelegramTokenRequest(BaseModel):
-    token: str
-
-
 class GenerateLinkCodeResponse(BaseModel):
     code: str
     channel: str
-    expires_in_seconds: int = 900
+    expires_in_seconds: int = 1800
     instructions: str = ""
+    bind_command: str = ""
+    bot_url: str = ""
+    deep_link_url: str = ""
 
 
 class LinkedChannelResponse(BaseModel):
@@ -30,7 +29,3 @@ class LinkedChannelResponse(BaseModel):
 
 class LinkedChannelsListResponse(BaseModel):
     channels: list[LinkedChannelResponse]
-
-
-class TelegramTokenStatusResponse(BaseModel):
-    configured: bool
