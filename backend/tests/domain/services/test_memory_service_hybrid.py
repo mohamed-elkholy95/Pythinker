@@ -113,3 +113,22 @@ async def test_search_similar_fallback_when_sparse_empty(mock_llm, mock_vector_r
 
     mock_vector_repo.search_hybrid.assert_not_called()
     mock_vector_repo.search_similar.assert_called_once()
+
+
+def test_generate_sparse_vector_uses_encoder_lazy_fit(mock_llm, mock_memory_repo):
+    """_generate_sparse_vector should call encoder.encode even when unfitted."""
+    from app.domain.services.memory_service import MemoryService
+
+    service = MemoryService(
+        repository=mock_memory_repo,
+        llm=mock_llm,
+    )
+    encoder = MagicMock()
+    encoder.bm25 = None
+    encoder.encode.return_value = {3: 0.9}
+
+    with patch("app.domain.services.embeddings.bm25_encoder.get_bm25_encoder", return_value=encoder):
+        sparse = service._generate_sparse_vector("test query")
+
+    assert sparse == {"3": 0.9}
+    encoder.encode.assert_called_once_with("test query")

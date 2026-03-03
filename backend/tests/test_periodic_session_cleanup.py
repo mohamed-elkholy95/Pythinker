@@ -25,6 +25,24 @@ async def test_periodic_cleanup_task_calls_maintenance_service() -> None:
     assert mock_maintenance.cleanup_stale_running_sessions.called
 
 
+@pytest.mark.asyncio
+async def test_startup_singleton_lock_wraps_leader_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core import lifespan as lifespan_module
+
+    calls: list[tuple[str, int]] = []
+
+    async def _fake_try_acquire(lock_name: str, ttl_seconds: int) -> bool:
+        calls.append((lock_name, ttl_seconds))
+        return False
+
+    monkeypatch.setattr(lifespan_module, "_try_acquire_leader_lock", _fake_try_acquire)
+
+    acquired = await lifespan_module._try_acquire_startup_singleton("memory_cleanup_loop", ttl_seconds=123)
+
+    assert acquired is False
+    assert calls == [("startup:memory_cleanup_loop", 123)]
+
+
 def test_beanie_models_include_agent_event_document() -> None:
     """Event archival relies on AgentEventDocument being initialized in Beanie."""
     from app.core import lifespan as lifespan_module
