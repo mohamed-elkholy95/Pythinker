@@ -411,7 +411,10 @@ async def test_unlink_channel_calls_delete_one(
     """unlink_channel calls delete_one with the correct filter."""
     mock_result = MagicMock()
     mock_result.deleted_count = 1
+    sess_result = MagicMock()
+    sess_result.deleted_count = 0
     repo._links.delete_one = AsyncMock(return_value=mock_result)
+    repo._sessions.delete_many = AsyncMock(return_value=sess_result)
 
     await repo.unlink_channel("web-user-abc", ChannelType.TELEGRAM)
 
@@ -429,7 +432,10 @@ async def test_unlink_channel_uses_string_channel(
     """unlink_channel converts ChannelType to string for the MongoDB filter."""
     mock_result = MagicMock()
     mock_result.deleted_count = 1
+    sess_result = MagicMock()
+    sess_result.deleted_count = 0
     repo._links.delete_one = AsyncMock(return_value=mock_result)
+    repo._sessions.delete_many = AsyncMock(return_value=sess_result)
 
     await repo.unlink_channel("web-user-xyz", ChannelType.DISCORD)
 
@@ -499,3 +505,91 @@ async def test_migrate_session_ownership_calls_update_many(
     update = call_args[0][1]
     assert update["$set"]["user_id"] == "web-user-new"
     assert "updated_at" in update["$set"]
+
+
+# ------------------------------------------------------------------
+# activity + context metadata
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_touch_last_inbound_at_upserts_activity_fields(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """touch_last_inbound_at updates inbound activity with upsert semantics."""
+    repo._sessions.update_one = AsyncMock()
+
+    await repo.touch_last_inbound_at("user-1", ChannelType.TELEGRAM, "chat-1")
+
+    repo._sessions.update_one.assert_awaited_once()
+    call_args = repo._sessions.update_one.call_args
+    filt = call_args[0][0]
+    assert filt == {"user_id": "user-1", "channel": "telegram", "chat_id": "chat-1"}
+
+    update = call_args[0][1]
+    assert "last_inbound_at" in update["$set"]
+    assert "updated_at" in update["$set"]
+    assert update["$setOnInsert"]["context_turn_count"] == 0
+    assert call_args[1]["upsert"] is True
+
+
+@pytest.mark.asyncio
+async def test_touch_last_outbound_at_upserts_activity_fields(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """touch_last_outbound_at updates outbound activity with upsert semantics."""
+    repo._sessions.update_one = AsyncMock()
+
+    await repo.touch_last_outbound_at("user-2", ChannelType.DISCORD, "chat-2")
+
+    repo._sessions.update_one.assert_awaited_once()
+    call_args = repo._sessions.update_one.call_args
+    filt = call_args[0][0]
+    assert filt == {"user_id": "user-2", "channel": "discord", "chat_id": "chat-2"}
+
+    update = call_args[0][1]
+    assert "last_outbound_at" in update["$set"]
+    assert "updated_at" in update["$set"]
+    assert update["$setOnInsert"]["context_summary"] is None
+    assert call_args[1]["upsert"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_session_activity_returns_projection(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """get_session_activity requests only activity/context fields."""
+    repo._sessions.find_one = AsyncMock(return_value={"last_inbound_at": "x"})
+
+    result = await repo.get_session_activity("user-3", ChannelType.SLACK, "chat-3")
+
+    assert result == {"last_inbound_at": "x"}
+    repo._sessions.find_one.assert_awaited_once()
+    filt, projection = repo._sessions.find_one.call_args[0]
+    assert filt == {"user_id": "user-3", "channel": "slack", "chat_id": "chat-3"}
+    assert projection["context_turn_count"] == 1
+    assert projection["context_summary_updated_at"] == 1
+
+
+@pytest.mark.asyncio
+async def test_set_session_context_summary_persists_context_fields(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """set_session_context_summary stores turn count and summary metadata."""
+    repo._sessions.update_one = AsyncMock()
+
+    await repo.set_session_context_summary(
+        user_id="user-4",
+        channel=ChannelType.TELEGRAM,
+        chat_id="chat-4",
+        context_turn_count=51,
+        context_summary="Conversation summary",
+    )
+
+    repo._sessions.update_one.assert_awaited_once()
+    call_args = repo._sessions.update_one.call_args
+    update = call_args[0][1]
+    assert update["$set"]["context_turn_count"] == 51
+    assert update["$set"]["context_summary"] == "Conversation summary"
+    assert "context_summary_updated_at" in update["$set"]
+    assert call_args[1]["upsert"] is True
