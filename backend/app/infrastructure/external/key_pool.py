@@ -33,6 +33,7 @@ from app.core.prometheus_metrics import (
     api_key_exhaustions_total,
     api_key_health_score,
     api_key_selections_total,
+    search_key_pool_healthy_keys,
 )
 from app.core.retry import RetryConfig, calculate_delay
 from app.domain.exceptions.base import LLMKeysExhaustedError
@@ -747,6 +748,9 @@ class APIKeyPool:
 
         logger.warning(f"[{self.provider}] Key {key_hash} marked EXHAUSTED, auto-recovery in {ttl_seconds}s")
 
+        # Surface aggregate pool health after each exhaustion event
+        self.check_pool_health()
+
     async def mark_invalid(self, key: str) -> None:
         """
         Mark API key as invalid permanently.
@@ -1020,6 +1024,71 @@ class APIKeyPool:
         lines.append(f"  Invalid: {invalid_count}")
         lines.append(f"  Circuit Breaker: {self.circuit_breaker.status_report()}")
         return "\n".join(lines)
+
+    def check_pool_health(self) -> dict[str, object]:
+        """Return pool-level health metrics for monitoring.
+
+        Computes aggregate key health and logs warnings when the pool
+        drops below critical thresholds. Updates the Prometheus gauge.
+
+        Returns:
+            Dict with provider, total, healthy, exhausted, invalid,
+            cooldown counts and health_ratio.
+        """
+        now = time.time()
+        total = len(self.keys)
+        healthy = 0
+        exhausted = 0
+        invalid = 0
+        cooldown = 0
+
+        for key_config in self.keys:
+            key_hash = self._hash_key(key_config.key)
+
+            if key_hash in self._memory_invalid:
+                invalid += 1
+            elif key_hash in self._memory_exhausted:
+                remaining = self._memory_exhausted[key_hash] - now
+                if remaining > 0:
+                    cooldown += 1
+                else:
+                    healthy += 1
+            else:
+                healthy += 1
+
+        exhausted = cooldown  # Cooldown keys are functionally exhausted
+
+        health_ratio = healthy / total if total > 0 else 0.0
+
+        if health_ratio <= 0.0:
+            logger.critical(
+                "[%s] ALL keys exhausted (%d/%d). Search degraded to fallback chain.",
+                self.provider,
+                total - healthy,
+                total,
+            )
+        elif health_ratio <= 0.25:
+            logger.warning(
+                "[%s] Key pool critically low: %d/%d healthy, %d exhausted, %d invalid.",
+                self.provider,
+                healthy,
+                total,
+                exhausted,
+                invalid,
+            )
+
+        # Update Prometheus gauge
+        search_key_pool_healthy_keys.set({"provider": self.provider}, healthy)
+
+        return {
+            "provider": self.provider,
+            "total": total,
+            "healthy": healthy,
+            "exhausted": exhausted,
+            "invalid": invalid,
+            "cooldown": cooldown,
+            "health_ratio": health_ratio,
+        }
 
     def _hash_key(self, key: str) -> str:
         """
