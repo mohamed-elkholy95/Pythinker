@@ -86,6 +86,8 @@ def _make_repo(
     repo.get_session_key = AsyncMock(return_value=session_id)
     repo.set_session_key = AsyncMock()
     repo.clear_session_key = AsyncMock()
+    repo.link_channel_to_user = AsyncMock(return_value=None)
+    repo.migrate_sessions = AsyncMock()
     return repo
 
 
@@ -345,3 +347,121 @@ class TestGatewayProtocolCompliance:
         # get_active_channels returns the mapped ChannelType for telegram
         active = gateway.get_active_channels()
         assert ChannelType.TELEGRAM in active
+
+
+# ---------------------------------------------------------------------------
+# Test 6: /link slash command — valid code links account
+# ---------------------------------------------------------------------------
+
+
+class TestSlashCommandLinkAccount:
+    """The /link command validates a Redis code and links the Telegram identity."""
+
+    @pytest.mark.asyncio
+    async def test_link_valid_code(self) -> None:
+        """/link CODE with a valid code links the channel identity to the web user.
+
+        Verifies:
+        - link_code_store.get is queried with the uppercased code key.
+        - link_channel_to_user is called with (channel, sender_id, web_user_id).
+        - When a previous user_id exists (and differs), migrate_sessions is called.
+        - The code key is deleted after use (single-use).
+        - A confirmation message is returned.
+        """
+        import json
+
+        web_user_id = "web-user-99"
+        old_user_id = "old-channel-user-id"
+        link_code = "ABC123"
+        redis_key = f"channel_link:{link_code}"
+        redis_value = json.dumps({"user_id": web_user_id, "channel": "telegram"})
+
+        repo = _make_repo(user_id="tg-auto-user", session_id=None)
+        repo.link_channel_to_user = AsyncMock(return_value=old_user_id)
+
+        agent_svc = _make_agent_service()
+
+        mock_store = AsyncMock()
+        mock_store.get = AsyncMock(return_value=redis_value)
+        mock_store.delete = AsyncMock()
+
+        router = MessageRouter(agent_svc, repo, link_code_store=mock_store)
+
+        inbound = _make_inbound(f"/link {link_code}")
+        replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
+
+        assert len(replies) == 1
+        assert "linked" in replies[0].content.lower()
+
+        # Store was queried with correct key
+        mock_store.get.assert_awaited_once_with(redis_key)
+
+        # link_channel_to_user called with correct args
+        repo.link_channel_to_user.assert_awaited_once_with(
+            ChannelType.TELEGRAM,
+            "tg-user-integration",
+            web_user_id,
+        )
+
+        # Old user_id differed → migrate_sessions called
+        repo.migrate_sessions.assert_awaited_once_with(
+            old_user_id,
+            web_user_id,
+            ChannelType.TELEGRAM,
+        )
+
+        # Code deleted after use
+        mock_store.delete.assert_awaited_once_with(redis_key)
+
+    @pytest.mark.asyncio
+    async def test_link_invalid_code(self) -> None:
+        """/link CODE with an expired or unknown code returns an error message.
+
+        Verifies:
+        - link_code_store.get returns None.
+        - link_channel_to_user is NOT called.
+        - An "invalid or expired" error message is returned.
+        """
+        repo = _make_repo(user_id="tg-auto-user", session_id=None)
+        agent_svc = _make_agent_service()
+
+        mock_store = AsyncMock()
+        mock_store.get = AsyncMock(return_value=None)
+
+        router = MessageRouter(agent_svc, repo, link_code_store=mock_store)
+
+        inbound = _make_inbound("/link BADCODE")
+        replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
+
+        assert len(replies) == 1
+        content_lower = replies[0].content.lower()
+        assert "invalid" in content_lower or "expired" in content_lower
+
+        repo.link_channel_to_user.assert_not_awaited()
+        repo.migrate_sessions.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_link_no_code_provided(self) -> None:
+        """/link with no code argument returns usage instructions.
+
+        Verifies:
+        - No store call is made when no code is supplied.
+        - A usage hint is returned to the user.
+        - link_channel_to_user is NOT called.
+        """
+        repo = _make_repo(user_id="tg-auto-user", session_id=None)
+        agent_svc = _make_agent_service()
+
+        mock_store = AsyncMock()
+        router = MessageRouter(agent_svc, repo, link_code_store=mock_store)
+
+        inbound = _make_inbound("/link")
+        replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
+
+        assert len(replies) == 1
+        assert "/link" in replies[0].content
+
+        # No store call — no code to validate
+        mock_store.get.assert_not_awaited()
+
+        repo.link_channel_to_user.assert_not_awaited()
