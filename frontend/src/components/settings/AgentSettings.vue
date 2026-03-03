@@ -75,7 +75,7 @@
             <button
               v-for="preset in timeoutPresets"
               :key="preset.value"
-              @click="setTimeout(preset.value)"
+              @click="setBrowserTimeoutPreset(preset.value)"
               class="preset-btn"
               :class="{ 'preset-active': localSettings.browser_agent_timeout === preset.value }"
             >
@@ -83,6 +83,127 @@
             </button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Telegram Setup Section -->
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-icon section-icon-telegram">
+          <MessageSquare class="w-5 h-5" />
+        </div>
+        <div class="section-info">
+          <h4 class="section-title">Telegram Agent Setup</h4>
+          <p class="section-desc">Link your Telegram account and continue conversations from Telegram or web</p>
+        </div>
+      </div>
+
+      <div class="telegram-steps">
+        <div class="telegram-step">
+          <span class="telegram-step-index">1</span>
+          <div class="telegram-step-copy">
+            <p class="telegram-step-title">Generate your one-time bind code</p>
+            <p class="telegram-step-text">Click <strong>Link Account</strong> to open the bot and create your setup command.</p>
+          </div>
+        </div>
+        <div class="telegram-step">
+          <span class="telegram-step-index">2</span>
+          <div class="telegram-step-copy">
+            <p class="telegram-step-title">Send the bind command in Telegram</p>
+            <p class="telegram-step-text">Your code expires in 30 minutes and can only be used by your signed-in account.</p>
+          </div>
+        </div>
+        <div class="telegram-step">
+          <span class="telegram-step-index">3</span>
+          <div class="telegram-step-copy">
+            <p class="telegram-step-title">Continue chat in your own task list</p>
+            <p class="telegram-step-text">After linking, Telegram sessions are attached to your user and appear in your sidebar tasks.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="telegram-status-row">
+        <div class="telegram-status-meta">
+          <span class="telegram-status-label">Status</span>
+          <span
+            class="telegram-status-value"
+            :class="{
+              'telegram-status-value-linked': isTelegramLinked,
+              'telegram-status-value-pending': !isTelegramLinked && !!telegramBindCommand
+            }"
+          >
+            <template v-if="isTelegramLinked">
+              Connected {{ telegramLinkedSender }}
+            </template>
+            <template v-else-if="telegramBindCommand">
+              Activation pending
+            </template>
+            <template v-else>
+              Not connected
+            </template>
+          </span>
+        </div>
+        <div class="telegram-status-actions">
+          <button
+            class="telegram-inline-btn"
+            :disabled="isLoadingChannelStatus"
+            @click="loadLinkedChannelStatus"
+          >
+            <Loader2 v-if="isLoadingChannelStatus" class="w-3.5 h-3.5 animate-spin" />
+            <RefreshCw v-else class="w-3.5 h-3.5" />
+            Refresh
+          </button>
+          <button
+            v-if="!isTelegramLinked"
+            class="telegram-primary-btn"
+            :disabled="isGeneratingTelegramCode"
+            @click="handleGenerateTelegramCode"
+          >
+            <Loader2 v-if="isGeneratingTelegramCode" class="w-3.5 h-3.5 animate-spin" />
+            <Link2 v-else class="w-3.5 h-3.5" />
+            Link Account
+          </button>
+          <button
+            v-else
+            class="telegram-primary-btn telegram-primary-btn-linked"
+            @click="openTelegramHistory"
+          >
+            <MessageSquare class="w-3.5 h-3.5" />
+            Open Task List
+          </button>
+        </div>
+      </div>
+
+      <div v-if="telegramBindCommand && !isTelegramLinked" class="telegram-code-panel">
+        <div class="telegram-code-header">
+          <span class="telegram-code-label">Bind command</span>
+          <button class="telegram-inline-btn" @click="openTelegramDeepLink">
+            <ExternalLink class="w-3.5 h-3.5" />
+            Open Telegram
+          </button>
+        </div>
+
+        <div class="telegram-code-row">
+          <code class="telegram-code-value">{{ telegramBindCommand }}</code>
+          <button class="telegram-copy-btn" @click="copyTelegramCommand">
+            <Check v-if="telegramCommandCopied" class="w-3.5 h-3.5" />
+            <Copy v-else class="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div v-if="telegramLinkExpiresIn > 0" class="telegram-countdown">
+          <Clock3 class="w-3.5 h-3.5" />
+          Expires in {{ formatTelegramCountdown(telegramLinkExpiresIn) }}
+        </div>
+      </div>
+
+      <div v-if="channelConnectFeedback" class="telegram-feedback">
+        <Check class="w-3.5 h-3.5" />
+        <span>{{ channelConnectFeedback }}</span>
+      </div>
+      <div v-if="channelConnectError" class="telegram-error">
+        <AlertCircle class="w-3.5 h-3.5" />
+        <span>{{ channelConnectError }}</span>
       </div>
     </div>
 
@@ -238,7 +359,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { showErrorToast } from '@/utils/toast'
 import {
@@ -247,11 +369,23 @@ import {
   Timer,
   Eye,
   ScanEye,
-  CheckCircle2
+  CheckCircle2,
+  MessageSquare,
+  Link2,
+  RefreshCw,
+  Loader2,
+  ExternalLink,
+  Copy,
+  Check,
+  Clock3,
+  AlertCircle
 } from 'lucide-vue-next'
 import { getSettings, updateSettings, type UserSettings } from '@/api/settings'
+import { generateLinkCode, getLinkedChannels } from '@/api/channelLinks'
+import type { LinkedChannel } from '@/api/channelLinks'
 
 const { t } = useI18n()
+const router = useRouter()
 
 // Local settings state
 const localSettings = ref<UserSettings>({
@@ -277,18 +411,47 @@ const timeoutPresets = [
   { label: '10m', value: 600 },
 ]
 
-// Load settings on mount
-onMounted(async () => {
+const linkedChannels = ref<LinkedChannel[]>([])
+const isLoadingChannelStatus = ref(false)
+const isGeneratingTelegramCode = ref(false)
+const telegramBindCommand = ref<string | null>(null)
+const telegramBotUrl = ref<string | null>(null)
+const telegramDeepLinkUrl = ref<string | null>(null)
+const telegramLinkExpiresIn = ref(0)
+const telegramCommandCopied = ref(false)
+const channelConnectError = ref<string | null>(null)
+const channelConnectFeedback = ref<string | null>(null)
+let telegramCopyTimeout: ReturnType<typeof window.setTimeout> | null = null
+let channelConnectFeedbackTimeout: ReturnType<typeof window.setTimeout> | null = null
+let telegramLinkStatusPollInterval: ReturnType<typeof window.setInterval> | null = null
+let telegramLinkCountdownInterval: ReturnType<typeof window.setInterval> | null = null
+
+const telegramLinkedChannel = computed(() =>
+  linkedChannels.value.find((channel) => channel.channel === 'telegram') ?? null
+)
+
+const isTelegramLinked = computed(() => telegramLinkedChannel.value !== null)
+
+const telegramLinkedSender = computed(() => {
+  const senderId = telegramLinkedChannel.value?.sender_id || ''
+  const parts = senderId.split('|')
+  if (parts.length > 1 && parts[1]) {
+    return `as @${parts[1]}`
+  }
+  return senderId ? `as ${senderId}` : ''
+})
+
+const loadAgentSettings = async () => {
   try {
     const settings = await getSettings()
     localSettings.value = { ...localSettings.value, ...settings }
   } catch {
     // Settings load failed - using defaults
   }
-})
+}
 
 // Set timeout from preset
-const setTimeout = (value: number) => {
+const setBrowserTimeoutPreset = (value: number) => {
   localSettings.value.browser_agent_timeout = value
   saveSettings()
 }
@@ -309,6 +472,152 @@ const toggleSkillAutoTrigger = async () => {
   await saveSettings()
 }
 
+const loadLinkedChannelStatus = async (options: { silent?: boolean } = {}) => {
+  if (!options.silent) {
+    isLoadingChannelStatus.value = true
+  }
+  channelConnectError.value = null
+  try {
+    linkedChannels.value = await getLinkedChannels()
+    if (isTelegramLinked.value) {
+      clearTelegramLinkDraft()
+      if (telegramLinkStatusPollInterval) {
+        window.clearInterval(telegramLinkStatusPollInterval)
+        telegramLinkStatusPollInterval = null
+      }
+    }
+  } catch {
+    if (!options.silent) {
+      channelConnectError.value = 'Unable to load Telegram status.'
+    }
+  } finally {
+    if (!options.silent) {
+      isLoadingChannelStatus.value = false
+    }
+  }
+}
+
+const setChannelConnectFeedback = (message: string, timeoutMs = 3500) => {
+  channelConnectFeedback.value = message
+  if (channelConnectFeedbackTimeout) {
+    window.clearTimeout(channelConnectFeedbackTimeout)
+  }
+  channelConnectFeedbackTimeout = window.setTimeout(() => {
+    channelConnectFeedback.value = null
+  }, timeoutMs)
+}
+
+const formatTelegramCountdown = (seconds: number) => {
+  const safeSeconds = Math.max(seconds, 0)
+  const minutes = Math.floor(safeSeconds / 60)
+  const remainder = safeSeconds % 60
+  return `${minutes}:${remainder.toString().padStart(2, '0')}`
+}
+
+const clearTelegramLinkDraft = () => {
+  telegramBindCommand.value = null
+  telegramBotUrl.value = null
+  telegramDeepLinkUrl.value = null
+  telegramLinkExpiresIn.value = 0
+  telegramCommandCopied.value = false
+  if (telegramLinkCountdownInterval) {
+    window.clearInterval(telegramLinkCountdownInterval)
+    telegramLinkCountdownInterval = null
+  }
+}
+
+const startTelegramLinkCountdown = () => {
+  if (telegramLinkCountdownInterval) {
+    window.clearInterval(telegramLinkCountdownInterval)
+  }
+  telegramLinkCountdownInterval = window.setInterval(() => {
+    telegramLinkExpiresIn.value -= 1
+    if (telegramLinkExpiresIn.value <= 0) {
+      clearTelegramLinkDraft()
+      setChannelConnectFeedback('Telegram link expired. Generate a new link.')
+      if (telegramLinkStatusPollInterval) {
+        window.clearInterval(telegramLinkStatusPollInterval)
+        telegramLinkStatusPollInterval = null
+      }
+    }
+  }, 1000)
+}
+
+const openTelegramDeepLink = () => {
+  const targetUrl = (
+    telegramBotUrl.value && telegramBindCommand.value
+      ? `${telegramBotUrl.value.trim().replace(/\/+$/, '')}?text=${encodeURIComponent(telegramBindCommand.value)}`
+      : telegramDeepLinkUrl.value || telegramBotUrl.value
+  )
+  if (!targetUrl) {
+    channelConnectError.value = 'Telegram link is unavailable. Generate a new link.'
+    return
+  }
+
+  const popup = window.open(targetUrl, '_blank', 'noopener,noreferrer')
+  if (popup) {
+    setChannelConnectFeedback('Telegram opened. Complete activation in chat.')
+  } else {
+    setChannelConnectFeedback('Popup blocked. Use the copied bind command manually.')
+  }
+}
+
+const startTelegramLinkStatusPolling = () => {
+  if (telegramLinkStatusPollInterval) {
+    window.clearInterval(telegramLinkStatusPollInterval)
+  }
+  telegramLinkStatusPollInterval = window.setInterval(() => {
+    void loadLinkedChannelStatus({ silent: true }).then(() => {
+      if (isTelegramLinked.value) {
+        setChannelConnectFeedback('Telegram connected. Your chats are now in your task list.')
+      }
+    })
+  }, 5000)
+}
+
+const handleGenerateTelegramCode = async () => {
+  isGeneratingTelegramCode.value = true
+  channelConnectError.value = null
+  try {
+    const result = await generateLinkCode('telegram')
+    clearTelegramLinkDraft()
+    telegramBindCommand.value = result.bind_command || `:bind ${result.code}`
+    telegramBotUrl.value = result.bot_url || null
+    telegramDeepLinkUrl.value = result.deep_link_url || result.bot_url || null
+    telegramLinkExpiresIn.value = result.expires_in_seconds
+    startTelegramLinkCountdown()
+    openTelegramDeepLink()
+    startTelegramLinkStatusPolling()
+  } catch {
+    channelConnectError.value = 'Failed to generate Telegram setup code.'
+  } finally {
+    isGeneratingTelegramCode.value = false
+  }
+}
+
+const copyTelegramCommand = async () => {
+  if (!telegramBindCommand.value) {
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(telegramBindCommand.value)
+    telegramCommandCopied.value = true
+    setChannelConnectFeedback('Bind command copied.')
+    if (telegramCopyTimeout) {
+      window.clearTimeout(telegramCopyTimeout)
+    }
+    telegramCopyTimeout = window.setTimeout(() => {
+      telegramCommandCopied.value = false
+    }, 2000)
+  } catch {
+    channelConnectError.value = 'Failed to copy command.'
+  }
+}
+
+const openTelegramHistory = () => {
+  void router.push('/chat/history')
+}
+
 // Save settings
 const saveSettings = async () => {
   try {
@@ -325,6 +634,33 @@ const saveSettings = async () => {
     showErrorToast(t('Failed to save settings'))
   }
 }
+
+onMounted(async () => {
+  await loadAgentSettings()
+  await loadLinkedChannelStatus()
+})
+
+onUnmounted(() => {
+  if (telegramCopyTimeout) {
+    window.clearTimeout(telegramCopyTimeout)
+    telegramCopyTimeout = null
+  }
+
+  if (channelConnectFeedbackTimeout) {
+    window.clearTimeout(channelConnectFeedbackTimeout)
+    channelConnectFeedbackTimeout = null
+  }
+
+  if (telegramLinkStatusPollInterval) {
+    window.clearInterval(telegramLinkStatusPollInterval)
+    telegramLinkStatusPollInterval = null
+  }
+
+  if (telegramLinkCountdownInterval) {
+    window.clearInterval(telegramLinkCountdownInterval)
+    telegramLinkCountdownInterval = null
+  }
+})
 </script>
 
 <style scoped>
@@ -378,6 +714,11 @@ const saveSettings = async () => {
 .section-icon-vision {
   background: rgba(168, 85, 247, 0.1);
   color: #a855f7;
+}
+
+.section-icon-telegram {
+  background: rgba(0, 136, 204, 0.12);
+  color: #0088cc;
 }
 
 .section-info {
@@ -564,6 +905,245 @@ const saveSettings = async () => {
   background: var(--fill-blue);
   color: var(--text-brand);
   border-color: transparent;
+}
+
+.telegram-steps {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.telegram-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  background: var(--background-white-main);
+}
+
+.telegram-step-index {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-brand);
+  background: var(--fill-blue);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.telegram-step-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.telegram-step-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.telegram-step-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.telegram-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.telegram-status-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.telegram-status-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+.telegram-status-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.telegram-status-value-linked {
+  color: var(--function-success);
+}
+
+.telegram-status-value-pending {
+  color: #f59e0b;
+}
+
+.telegram-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.telegram-inline-btn,
+.telegram-primary-btn {
+  height: 34px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.telegram-inline-btn {
+  border: 1px solid var(--border-main);
+  color: var(--text-secondary);
+  background: var(--fill-tsp-white-main);
+}
+
+.telegram-inline-btn:hover {
+  border-color: var(--border-dark);
+  color: var(--text-primary);
+}
+
+.telegram-primary-btn {
+  border: 1px solid transparent;
+  color: #fff;
+  background: #0088cc;
+}
+
+.telegram-primary-btn:hover {
+  background: #0078b4;
+}
+
+.telegram-primary-btn-linked {
+  background: var(--function-success);
+}
+
+.telegram-primary-btn-linked:hover {
+  background: #0f9a6e;
+}
+
+.telegram-inline-btn:disabled,
+.telegram-primary-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.telegram-code-panel {
+  margin-top: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--background-white-main);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.telegram-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.telegram-code-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.telegram-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.telegram-code-value {
+  flex: 1;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border-main);
+  background: var(--fill-tsp-white-main);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+
+.telegram-copy-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border-main);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.telegram-copy-btn:hover {
+  border-color: var(--border-dark);
+  color: var(--text-primary);
+}
+
+.telegram-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  background: var(--fill-tsp-white-main);
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f59e0b;
+}
+
+.telegram-feedback,
+.telegram-error {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.telegram-feedback {
+  color: var(--function-success);
+  background: var(--function-success-tsp);
+  border: 1px solid var(--function-success-border);
+}
+
+.telegram-error {
+  color: var(--function-error);
+  background: var(--function-error-tsp);
+  border: 1px solid rgba(239, 68, 68, 0.22);
 }
 
 /* Vision Toggle Card */
