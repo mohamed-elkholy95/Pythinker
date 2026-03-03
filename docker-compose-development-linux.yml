@@ -67,7 +67,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "app", "--reload-exclude", "tests/*", "--reload-exclude", "docs/*", "--reload-exclude", "*.md", "--timeout-graceful-shutdown", "3" ]
+    command: [ "./dev.sh" ]
     volumes:
       # Fallback bind mount keeps backend source in sync even when `docker compose watch`
       # is not running (common in local dev sessions).
@@ -104,6 +104,8 @@ services:
       - "LOCAL_AUTH_PASSWORD=AdminPy@2026!"
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
+      - BACKEND_ENABLE_RELOAD=${BACKEND_ENABLE_RELOAD:-0}
+      - BACKEND_UVICORN_GRACEFUL_TIMEOUT=${BACKEND_UVICORN_GRACEFUL_TIMEOUT:-3}
       # DSPy prompt optimization
       - FEATURE_PROMPT_OPTIMIZATION_PIPELINE=${FEATURE_PROMPT_OPTIMIZATION_PIPELINE:-false}
       - DSPY_CACHEDIR=/app/data/dspy_cache
@@ -116,6 +118,7 @@ services:
       start_period: 30s
     develop:
       watch:
+        # Application source sync; enable uvicorn auto-reload with BACKEND_ENABLE_RELOAD=1
         - action: sync
           path: ./backend/app
           target: /app/app
