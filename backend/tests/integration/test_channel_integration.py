@@ -474,3 +474,85 @@ class TestSlashCommandLinkAccount:
 
         repo.link_channel_to_user.assert_not_awaited()
         repo.migrate_session_ownership.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_bind_alias_valid_code(self) -> None:
+        """:bind CODE should be normalized and processed exactly like /link CODE."""
+        import json
+
+        web_user_id = "web-user-99"
+        link_code = "AbCdEf123456"
+        redis_value = json.dumps({"user_id": web_user_id, "channel": "telegram"})
+
+        repo = _make_repo(user_id="tg-auto-user", session_id=None)
+        agent_svc = _make_agent_service()
+
+        mock_store = AsyncMock()
+        mock_store.get = AsyncMock(return_value=redis_value)
+        mock_store.delete = AsyncMock()
+
+        router = MessageRouter(agent_svc, repo, link_code_store=mock_store)
+
+        inbound = _make_inbound(f":bind {link_code}")
+        replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
+
+        assert len(replies) == 1
+        assert "linked" in replies[0].content.lower()
+        repo.link_channel_to_user.assert_awaited_once_with(
+            ChannelType.TELEGRAM,
+            "tg-user-integration",
+            web_user_id,
+        )
+        mock_store.get.assert_awaited_once_with(f"channel_link:{link_code}")
+        mock_store.delete.assert_awaited_once_with(f"channel_link:{link_code}")
+
+    @pytest.mark.asyncio
+    async def test_start_bind_payload_valid_code(self) -> None:
+        """/start bind_CODE should be normalized to /link CODE for Telegram deep links."""
+        import json
+
+        web_user_id = "web-user-99"
+        link_code = "XyZ987654321"
+        redis_value = json.dumps({"user_id": web_user_id, "channel": "telegram"})
+
+        repo = _make_repo(user_id="tg-auto-user", session_id=None)
+        agent_svc = _make_agent_service()
+
+        mock_store = AsyncMock()
+        mock_store.get = AsyncMock(return_value=redis_value)
+        mock_store.delete = AsyncMock()
+
+        router = MessageRouter(agent_svc, repo, link_code_store=mock_store)
+
+        inbound = _make_inbound(f"/start bind_{link_code}")
+        replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
+
+        assert len(replies) == 1
+        assert "linked" in replies[0].content.lower()
+        repo.link_channel_to_user.assert_awaited_once()
+        mock_store.get.assert_awaited_once_with(f"channel_link:{link_code}")
+
+    @pytest.mark.asyncio
+    async def test_link_rejects_code_from_other_channel(self) -> None:
+        """A Telegram link attempt must reject codes minted for another channel."""
+        import json
+
+        link_code = "CODEFOROTHERCHANNEL"
+        redis_value = json.dumps({"user_id": "web-user-99", "channel": "discord"})
+
+        repo = _make_repo(user_id="tg-auto-user", session_id=None)
+        agent_svc = _make_agent_service()
+
+        mock_store = AsyncMock()
+        mock_store.get = AsyncMock(return_value=redis_value)
+        mock_store.delete = AsyncMock()
+
+        router = MessageRouter(agent_svc, repo, link_code_store=mock_store)
+
+        inbound = _make_inbound(f"/link {link_code}")
+        replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
+
+        assert len(replies) == 1
+        assert "different channel" in replies[0].content.lower()
+        repo.link_channel_to_user.assert_not_awaited()
+        mock_store.delete.assert_not_awaited()

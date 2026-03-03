@@ -30,14 +30,14 @@ def _make_user(user_id: str = "user-abc-123") -> User:
 
 
 def test_generate_link_code_length():
-    """Generated code must be exactly 6 characters."""
+    """Generated code must be exactly 22 characters."""
     code = _generate_link_code()
-    assert len(code) == 6
+    assert len(code) == 22
 
 
 def test_generate_link_code_alphabet():
-    """Each character must be an uppercase letter or digit."""
-    valid = set(string.ascii_uppercase + string.digits)
+    """Each character must be an ASCII letter or digit."""
+    valid = set(string.ascii_letters + string.digits)
     for _ in range(50):
         code = _generate_link_code()
         assert all(ch in valid for ch in code), f"Invalid character in code: {code!r}"
@@ -127,13 +127,7 @@ async def test_generate_link_code_stores_in_redis():
     mock_redis = AsyncMock()
     mock_redis.call = AsyncMock(return_value="OK")
 
-    with (
-        patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis),
-        patch(
-            "app.interfaces.api.channel_link_routes._has_saved_channel_secret",
-            new=AsyncMock(return_value=True),
-        ),
-    ):
+    with patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/api/v1/channel-links/generate",
@@ -145,19 +139,19 @@ async def test_generate_link_code_stores_in_redis():
     assert body["code"] == 0  # APIResponse success code
     data = body["data"]
     assert data["channel"] == "telegram"
-    assert data["expires_in_seconds"] == 900
-    assert len(data["code"]) == 6
+    assert data["expires_in_seconds"] == 1800
+    assert len(data["code"]) == 22
     assert data["instructions"] != ""
-    # Regression: <CODE> placeholder must be substituted with the actual code
-    assert "<CODE>" not in data["instructions"], "Placeholder <CODE> was not substituted"
-    assert data["code"] in data["instructions"], "Generated code missing from instructions"
+    assert data["bind_command"] == f":bind {data['code']}"
+    assert data["bot_url"] == "https://t.me/pythinker_bot"
+    assert data["deep_link_url"] == f"https://t.me/pythinker_bot?start=bind_{data['code']}"
 
     mock_redis.call.assert_awaited_once()
     call_args = mock_redis.call.call_args
     method, redis_key, ttl, payload_str = call_args.args
     assert method == "setex"
     assert redis_key.startswith("channel_link:")
-    assert ttl == 900
+    assert ttl == 1800
     stored = json.loads(payload_str)
     assert stored["user_id"] == "user-abc-123"
     assert stored["channel"] == "telegram"
@@ -188,13 +182,7 @@ async def test_generate_link_code_defaults_to_telegram():
     mock_redis = AsyncMock()
     mock_redis.call = AsyncMock(return_value="OK")
 
-    with (
-        patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis),
-        patch(
-            "app.interfaces.api.channel_link_routes._has_saved_channel_secret",
-            new=AsyncMock(return_value=True),
-        ),
-    ):
+    with patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/api/v1/channel-links/generate", json={})
 
@@ -205,104 +193,20 @@ async def test_generate_link_code_defaults_to_telegram():
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_override_user")
-async def test_generate_link_code_telegram_requires_saved_token():
-    """POST /generate for telegram fails until a token is saved."""
+async def test_generate_link_code_respects_telegram_bot_username_env(monkeypatch):
+    """Telegram deep links should use TELEGRAM_BOT_USERNAME when configured."""
+    monkeypatch.setenv("TELEGRAM_BOT_USERNAME", "@CustomPythinkerBot")
     mock_redis = AsyncMock()
     mock_redis.call = AsyncMock(return_value="OK")
 
-    with (
-        patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis),
-        patch(
-            "app.interfaces.api.channel_link_routes._has_saved_channel_secret",
-            new=AsyncMock(return_value=False),
-        ),
-    ):
+    with patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post(
-                "/api/v1/channel-links/generate",
-                json={"channel": "telegram"},
-            )
-
-    assert response.status_code == 400
-    mock_redis.call.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("_override_user")
-async def test_save_telegram_token_success():
-    """POST /telegram-token validates and saves token securely."""
-    mock_save = AsyncMock(return_value=None)
-    token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ12345"
-
-    with patch(
-        "app.interfaces.api.channel_link_routes._upsert_encrypted_channel_secret",
-        new=mock_save,
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post(
-                "/api/v1/channel-links/telegram-token",
-                json={"token": token},
-            )
+            response = await client.post("/api/v1/channel-links/generate", json={})
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["code"] == 0
-    assert body["data"]["configured"] is True
-    mock_save.assert_awaited_once_with(user_id="user-abc-123", channel=ChannelType.TELEGRAM, secret_value=token)
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("_override_user")
-async def test_save_telegram_token_invalid_format():
-    """POST /telegram-token rejects malformed tokens."""
-    mock_save = AsyncMock(return_value=None)
-
-    with patch(
-        "app.interfaces.api.channel_link_routes._upsert_encrypted_channel_secret",
-        new=mock_save,
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post(
-                "/api/v1/channel-links/telegram-token",
-                json={"token": "not-a-real-token"},
-            )
-
-    assert response.status_code == 400
-    mock_save.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("_override_user")
-async def test_get_telegram_token_status_configured():
-    """GET /telegram-token/status returns configured=true when token exists."""
-    with patch(
-        "app.interfaces.api.channel_link_routes._has_saved_channel_secret",
-        new=AsyncMock(return_value=True),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.get("/api/v1/channel-links/telegram-token/status")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["code"] == 0
-    assert body["data"]["configured"] is True
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("_override_user")
-async def test_get_telegram_token_status_not_configured():
-    """GET /telegram-token/status returns configured=false when token missing."""
-    with patch(
-        "app.interfaces.api.channel_link_routes._has_saved_channel_secret",
-        new=AsyncMock(return_value=False),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.get("/api/v1/channel-links/telegram-token/status")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["code"] == 0
-    assert body["data"]["configured"] is False
+    data = response.json()["data"]
+    assert data["bot_url"] == "https://t.me/CustomPythinkerBot"
+    assert data["deep_link_url"] == f"https://t.me/CustomPythinkerBot?start=bind_{data['code']}"
 
 
 @pytest.mark.asyncio
