@@ -4,6 +4,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 const MainLayout = () => import('../pages/MainLayout.vue')
 const HomePage = () => import('../pages/HomePage.vue')
 const ChatPage = () => import('../pages/ChatPage.vue')
+const AgentsPage = () => import('../pages/AgentsPage.vue')
 const LoginPage = () => import('../pages/LoginPage.vue')
 const ShareLayout = () => import('../pages/ShareLayout.vue')
 const SharePage = () => import('../pages/SharePage.vue')
@@ -28,6 +29,11 @@ export const router = createRouter({
         {
           path: 'history',
           component: SessionHistoryPage,
+          meta: { requiresAuth: true },
+        },
+        {
+          path: 'agents',
+          component: AgentsPage,
           meta: { requiresAuth: true },
         },
         {

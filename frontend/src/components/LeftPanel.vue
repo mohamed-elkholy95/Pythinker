@@ -17,6 +17,9 @@
         <button @click="handleNewTaskClick" class="collapsed-icon-btn" aria-label="New task">
           <SquarePen class="h-5 w-5" />
         </button>
+        <button @click="handleAgentsClick" class="collapsed-icon-btn" aria-label="Agents">
+          <Radar class="h-5 w-5" />
+        </button>
         <button @click="handleLibraryClick" class="collapsed-icon-btn" aria-label="Library">
           <Library class="h-5 w-5" />
         </button>
@@ -61,74 +64,17 @@
           </div>
         </button>
       </div>
-      <div class="px-3 mb-2 flex-shrink-0">
-        <section class="agent-connect-card">
-          <div class="agent-connect-header">
-            <span class="agent-connect-title">Agent Connect</span>
-            <button
-              class="agent-connect-refresh"
-              :disabled="isLoadingChannelStatus"
-              title="Refresh channel status"
-              @click="loadLinkedChannelStatus"
-            >
-              <Loader2 v-if="isLoadingChannelStatus" :size="14" class="animate-spin" />
-              <RefreshCw v-else :size="14" />
-            </button>
-          </div>
-
-          <div class="agent-connect-row">
-            <div class="telegram-mark">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-              </svg>
-            </div>
-            <div class="agent-connect-meta">
-              <span class="agent-connect-name">Telegram</span>
-              <span
-                v-if="isTelegramLinked"
-                class="agent-connect-status agent-connect-status-linked"
-              >
-                Connected {{ telegramLinkedSender }}
-              </span>
-              <span v-else class="agent-connect-status">Not connected</span>
-            </div>
-            <button
-              v-if="!isTelegramLinked"
-              class="agent-connect-action"
-              :disabled="isGeneratingTelegramCode"
-              @click="handleGenerateTelegramCode"
-            >
-              <Loader2 v-if="isGeneratingTelegramCode" :size="12" class="animate-spin" />
-              <Link2 v-else :size="12" />
-              Setup
-            </button>
-            <button
-              v-else
-              class="agent-connect-action agent-connect-action-linked"
-              @click="openSettingsDialog('account')"
-            >
-              <Check :size="12" />
-              Manage
-            </button>
-          </div>
-
-          <div v-if="telegramLinkCode && !isTelegramLinked" class="agent-connect-code">
-            <code>/link {{ telegramLinkCode }}</code>
-            <button class="agent-connect-copy" @click="copyTelegramCommand">
-              <Check v-if="telegramCommandCopied" :size="12" />
-              <Copy v-else :size="12" />
-            </button>
-          </div>
-          <p v-if="telegramLinkCode && !isTelegramLinked" class="agent-connect-help">
-            Send this command to your Telegram bot to connect this account.
-          </p>
-          <p v-if="channelConnectError" class="agent-connect-error">
-            {{ channelConnectError }}
-          </p>
-        </section>
-      </div>
       <div class="px-3">
         <div class="nav-section">
+          <button
+            class="nav-item"
+            :class="{ 'nav-item-active': isAgentsRoute }"
+            type="button"
+            @click="handleAgentsClick"
+          >
+            <Radar class="nav-icon" />
+            <span>Agents</span>
+          </button>
           <button class="nav-item" type="button" @click="openSearch">
             <Search class="nav-icon" />
             <span>{{ t('Search') }}</span>
@@ -222,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, SquarePen, Bot, X, Link2, Check, Copy, RefreshCw, Loader2 } from 'lucide-vue-next';
+import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, SquarePen, Bot, X, Radar } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from './icons/PythinkerLogoTextIcon.vue';
 import SessionItem from './SessionItem.vue';
 import { useLeftPanel } from '../composables/useLeftPanel';
@@ -237,8 +183,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import UserMenu from './UserMenu.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
 import { useSessionListFeed } from '@/composables/useSessionListFeed';
-import { generateLinkCode, getLinkedChannels } from '@/api/channelLinks';
-import type { LinkedChannel } from '@/api/channelLinks';
 
 const { t } = useI18n()
 const { isLeftPanelShow, toggleLeftPanel, hideLeftPanel } = useLeftPanel()
@@ -256,13 +200,6 @@ const optimisticTitleHints = ref<Record<string, { title: string; createdAt: numb
 const searchQuery = ref('')
 const isSearching = ref(false)
 const searchInputRef = ref<HTMLInputElement | null>(null)
-const linkedChannels = ref<LinkedChannel[]>([])
-const isLoadingChannelStatus = ref(false)
-const isGeneratingTelegramCode = ref(false)
-const telegramLinkCode = ref<string | null>(null)
-const telegramCommandCopied = ref(false)
-const channelConnectError = ref<string | null>(null)
-let telegramCopyTimeout: ReturnType<typeof setTimeout> | null = null
 
 interface SessionTitleHintDetail {
   sessionId: string
@@ -314,6 +251,8 @@ const filteredSessions = computed(() => {
   )
 })
 
+const isAgentsRoute = computed(() => route.path === '/chat/agents')
+
 const openSearch = async () => {
   isSearching.value = true
   await nextTick()
@@ -335,68 +274,6 @@ const handleSessionStatusChange = (sessionId: string, status: SessionStatus) => 
 const avatarLetter = computed(() => {
   return currentUser.value?.fullname?.charAt(0)?.toUpperCase() || 'M';
 })
-
-const telegramLinkedChannel = computed(() =>
-  linkedChannels.value.find((channel) => channel.channel === 'telegram') ?? null
-)
-
-const isTelegramLinked = computed(() => telegramLinkedChannel.value !== null)
-
-const telegramLinkedSender = computed(() => {
-  const senderId = telegramLinkedChannel.value?.sender_id || ''
-  const parts = senderId.split('|')
-  if (parts.length > 1 && parts[1]) {
-    return `as @${parts[1]}`
-  }
-  return senderId ? `as ${senderId}` : ''
-})
-
-const loadLinkedChannelStatus = async () => {
-  isLoadingChannelStatus.value = true
-  channelConnectError.value = null
-  try {
-    linkedChannels.value = await getLinkedChannels()
-    if (isTelegramLinked.value) {
-      telegramLinkCode.value = null
-    }
-  } catch {
-    channelConnectError.value = 'Unable to load Telegram status.'
-  } finally {
-    isLoadingChannelStatus.value = false
-  }
-}
-
-const handleGenerateTelegramCode = async () => {
-  isGeneratingTelegramCode.value = true
-  channelConnectError.value = null
-  try {
-    const result = await generateLinkCode('telegram')
-    telegramLinkCode.value = result.code
-  } catch {
-    channelConnectError.value = 'Failed to generate Telegram setup code.'
-  } finally {
-    isGeneratingTelegramCode.value = false
-  }
-}
-
-const copyTelegramCommand = async () => {
-  if (!telegramLinkCode.value) {
-    return
-  }
-
-  try {
-    await navigator.clipboard.writeText(`/link ${telegramLinkCode.value}`)
-    telegramCommandCopied.value = true
-    if (telegramCopyTimeout) {
-      clearTimeout(telegramCopyTimeout)
-    }
-    telegramCopyTimeout = setTimeout(() => {
-      telegramCommandCopied.value = false
-    }, 2000)
-  } catch {
-    channelConnectError.value = 'Failed to copy command.'
-  }
-}
 
 const mergeWithOptimisticSession = (serverSessions: ListSessionItem[]): ListSessionItem[] => {
   const activeSessionId = route.params.sessionId as string | undefined
@@ -492,6 +369,11 @@ const handleLibraryClick = () => {
   router.push('/chat/history')
 }
 
+const handleAgentsClick = () => {
+  closeSearch()
+  router.push('/chat/agents')
+}
+
 const handleSessionDeleted = (sessionId: string) => {
   sessions.value = sessions.value.filter(session => session.session_id !== sessionId);
 }
@@ -519,8 +401,6 @@ onMounted(async () => {
 
   // Listen for session status changes from other components
   unsubscribeStatusChange = onStatusChange(handleSessionStatusChange)
-
-  await loadLinkedChannelStatus()
 })
 
 onUnmounted(() => {
@@ -534,10 +414,6 @@ onUnmounted(() => {
     unsubscribeStatusChange = null
   }
 
-  if (telegramCopyTimeout) {
-    clearTimeout(telegramCopyTimeout)
-    telegramCopyTimeout = null
-  }
 })
 
 // Only update sessions when navigating to/from chat pages (not on every route change)
@@ -737,6 +613,12 @@ watch(() => route.path, async (newPath, oldPath) => {
   border-color: var(--border-light);
 }
 
+.nav-item-active {
+  background: var(--fill-tsp-gray-main);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
 .nav-item-muted {
   color: var(--text-secondary);
   cursor: not-allowed;
@@ -908,172 +790,4 @@ watch(() => route.path, async (newPath, oldPath) => {
   text-align: center;
 }
 
-/* ===== AGENT CONNECT ===== */
-.agent-connect-card {
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  background: var(--fill-tsp-gray-main);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.agent-connect-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.agent-connect-title {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-tertiary);
-}
-
-.agent-connect-refresh {
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--icon-secondary);
-  cursor: pointer;
-}
-
-.agent-connect-refresh:hover:not(:disabled) {
-  background: var(--fill-tsp-gray-dark);
-  border-color: var(--border-main);
-}
-
-.agent-connect-refresh:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.agent-connect-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.telegram-mark {
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  background: #229ed9;
-  flex-shrink: 0;
-}
-
-.agent-connect-meta {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.agent-connect-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.agent-connect-status {
-  font-size: 11px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.agent-connect-status-linked {
-  color: var(--text-brand);
-}
-
-.agent-connect-action {
-  margin-left: auto;
-  height: 26px;
-  border-radius: 8px;
-  border: 1px solid var(--border-light);
-  background: var(--fill-tsp-white-main);
-  color: var(--text-primary);
-  padding: 0 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.agent-connect-action:hover:not(:disabled) {
-  border-color: var(--border-main);
-  background: var(--fill-tsp-gray-dark);
-}
-
-.agent-connect-action:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.agent-connect-action-linked {
-  color: var(--text-brand);
-}
-
-.agent-connect-code {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: 1px dashed var(--border-main);
-  background: var(--background-nav);
-}
-
-.agent-connect-code code {
-  font-size: 11px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-connect-copy {
-  margin-left: auto;
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  border: 1px solid var(--border-light);
-  background: var(--fill-tsp-white-main);
-  color: var(--icon-secondary);
-  cursor: pointer;
-}
-
-.agent-connect-copy:hover {
-  border-color: var(--border-main);
-  color: var(--icon-primary);
-}
-
-.agent-connect-help {
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
-.agent-connect-error {
-  font-size: 11px;
-  color: var(--color-danger);
-  line-height: 1.4;
-}
 </style>
