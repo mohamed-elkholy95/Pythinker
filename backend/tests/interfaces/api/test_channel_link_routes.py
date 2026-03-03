@@ -142,6 +142,9 @@ async def test_generate_link_code_stores_in_redis():
     assert data["expires_in_seconds"] == 900
     assert len(data["code"]) == 6
     assert data["instructions"] != ""
+    # Regression: <CODE> placeholder must be substituted with the actual code
+    assert "<CODE>" not in data["instructions"], "Placeholder <CODE> was not substituted"
+    assert data["code"] in data["instructions"], "Generated code missing from instructions"
 
     mock_redis.call.assert_awaited_once()
     call_args = mock_redis.call.call_args
