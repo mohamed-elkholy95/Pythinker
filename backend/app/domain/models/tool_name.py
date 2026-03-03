@@ -172,6 +172,10 @@ class ToolName(str, Enum):
     AGENT_CANCEL_SCHEDULED_TASK = "agent_cancel_scheduled_task"
     AGENT_START_TASK = "agent_start_task"
 
+    # ── Scratchpad operations (2 tools) ─────────────────────────────
+    SCRATCHPAD_WRITE = "scratchpad_write"
+    SCRATCHPAD_READ = "scratchpad_read"
+
     # ── Utility operations (1 tool) ─────────────────────────────────
     IDLE = "idle"
 
@@ -403,6 +407,8 @@ ToolName._READ_ONLY = frozenset(
         ToolName.SKILL_LIST_USER,
         # Schedule reads
         ToolName.AGENT_LIST_SCHEDULED_TASKS,
+        # Scratchpad reads
+        ToolName.SCRATCHPAD_READ,
         # Idle
         ToolName.IDLE,
     }
@@ -519,6 +525,8 @@ ToolName._SAFE_PARALLEL = frozenset(
         ToolName.MCP_SERVER_STATUS,
         ToolName.MCP_RESOURCES,
         ToolName.MCP_HEALTH_CHECK,
+        ToolName.SCRATCHPAD_WRITE,
+        ToolName.SCRATCHPAD_READ,
     }
 )
 
