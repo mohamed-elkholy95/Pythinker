@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.infrastructure.external.search import factory as search_factory
 from app.infrastructure.external.search.factory import (
     DEFAULT_PROVIDER_CHAIN,
     FallbackSearchEngine,
@@ -17,6 +18,13 @@ class _DummyEngine:
         self, query: str, date_range: str | None = None
     ):  # pragma: no cover - not exercised in this unit test
         raise NotImplementedError
+
+
+@pytest.fixture(autouse=True)
+def _reset_missing_config_warning_cache() -> None:
+    search_factory._missing_config_warned.clear()
+    yield
+    search_factory._missing_config_warned.clear()
 
 
 def _build_engine_and_attempts(
@@ -177,3 +185,121 @@ def test_explicit_chain_supports_jina_provider() -> None:
     assert isinstance(engine, FallbackSearchEngine)
     assert [name for name, _ in engine._providers] == ["jina", "duckduckgo"]
     assert attempts[:2] == ["jina", "duckduckgo"]
+
+
+def test_missing_provider_configuration_warning_emitted_once_per_provider_detail(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings = SimpleNamespace(
+        brave_search_api_key=None,
+        brave_search_api_key_2=None,
+        brave_search_api_key_3=None,
+    )
+
+    with (
+        patch("app.infrastructure.external.search.factory.get_settings", return_value=settings),
+        caplog.at_level("WARNING", logger="app.infrastructure.external.search.factory"),
+    ):
+        assert search_factory._provider_kwargs("brave") is None
+        assert search_factory._provider_kwargs("brave") is None
+        assert search_factory._provider_kwargs("brave") is None
+
+    warnings = [
+        record.getMessage() for record in caplog.records if "Brave Search not configured" in record.getMessage()
+    ]
+    assert len(warnings) == 1
+
+
+def test_provider_kwargs_apply_search_profile_settings() -> None:
+    settings = SimpleNamespace(
+        search_max_results=13,
+        tavily_search_depth="advanced",
+        exa_search_type="neural",
+        serper_quota_cooldown_seconds=900,
+        brave_search_api_key="brave-key",
+        brave_search_api_key_2=None,
+        brave_search_api_key_3=None,
+        tavily_api_key="tavily-key",
+        tavily_api_key_2=None,
+        tavily_api_key_3=None,
+        tavily_api_key_4=None,
+        tavily_api_key_5=None,
+        tavily_api_key_6=None,
+        tavily_api_key_7=None,
+        tavily_api_key_8=None,
+        tavily_api_key_9=None,
+        serper_api_key="serper-key",
+        serper_api_key_2=None,
+        serper_api_key_3=None,
+        serper_api_key_4=None,
+        serper_api_key_5=None,
+        serper_api_key_6=None,
+        serper_api_key_7=None,
+        serper_api_key_8=None,
+        serper_api_key_9=None,
+        exa_api_key="exa-key",
+        exa_api_key_2=None,
+        exa_api_key_3=None,
+        exa_api_key_4=None,
+        exa_api_key_5=None,
+    )
+
+    with patch("app.infrastructure.external.search.factory.get_settings", return_value=settings):
+        brave_kwargs = search_factory._provider_kwargs("brave")
+        tavily_kwargs = search_factory._provider_kwargs("tavily")
+        serper_kwargs = search_factory._provider_kwargs("serper")
+        exa_kwargs = search_factory._provider_kwargs("exa")
+
+    assert brave_kwargs is not None
+    assert tavily_kwargs is not None
+    assert serper_kwargs is not None
+    assert exa_kwargs is not None
+
+    assert brave_kwargs["max_results"] == 13
+    assert tavily_kwargs["max_results"] == 13
+    assert tavily_kwargs["search_depth"] == "advanced"
+    assert serper_kwargs["max_results"] == 13
+    assert serper_kwargs["quota_cooldown_seconds"] == 900
+    assert exa_kwargs["max_results"] == 13
+    assert exa_kwargs["search_type"] == "neural"
+
+
+def test_provider_kwargs_fallback_to_safe_defaults_for_invalid_profile_values() -> None:
+    settings = SimpleNamespace(
+        search_max_results=0,
+        tavily_search_depth="invalid-depth",
+        exa_search_type="invalid-type",
+        serper_quota_cooldown_seconds=1800,
+        brave_search_api_key="brave-key",
+        brave_search_api_key_2=None,
+        brave_search_api_key_3=None,
+        tavily_api_key="tavily-key",
+        tavily_api_key_2=None,
+        tavily_api_key_3=None,
+        tavily_api_key_4=None,
+        tavily_api_key_5=None,
+        tavily_api_key_6=None,
+        tavily_api_key_7=None,
+        tavily_api_key_8=None,
+        tavily_api_key_9=None,
+        exa_api_key="exa-key",
+        exa_api_key_2=None,
+        exa_api_key_3=None,
+        exa_api_key_4=None,
+        exa_api_key_5=None,
+    )
+
+    with patch("app.infrastructure.external.search.factory.get_settings", return_value=settings):
+        brave_kwargs = search_factory._provider_kwargs("brave")
+        tavily_kwargs = search_factory._provider_kwargs("tavily")
+        exa_kwargs = search_factory._provider_kwargs("exa")
+
+    assert brave_kwargs is not None
+    assert tavily_kwargs is not None
+    assert exa_kwargs is not None
+
+    assert brave_kwargs["max_results"] == 8
+    assert tavily_kwargs["max_results"] == 8
+    assert tavily_kwargs["search_depth"] == "basic"
+    assert exa_kwargs["max_results"] == 8
+    assert exa_kwargs["search_type"] == "auto"
