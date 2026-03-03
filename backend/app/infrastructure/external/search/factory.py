@@ -19,8 +19,18 @@ from app.domain.models.search import SearchResults
 from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
+_missing_config_warned: set[str] = set()
 
 DEFAULT_PROVIDER_CHAIN = list(DEFAULT_SEARCH_PROVIDER_CHAIN)
+
+
+def _warn_missing_provider_config_once(provider: str, detail: str) -> None:
+    """Emit missing-provider-config warning only once per process."""
+    key = f"{provider}:{detail}"
+    if key in _missing_config_warned:
+        return
+    _missing_config_warned.add(key)
+    logger.warning("%s Search not configured: %s", provider.capitalize(), detail)
 
 
 class SearchProviderRegistry:
@@ -205,17 +215,21 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
     """
     settings = get_settings()
 
+    max_results = getattr(settings, "search_max_results", 8)
+    if not isinstance(max_results, int) or max_results < 1:
+        max_results = 8
+
     if provider == "google":
         if not settings.google_search_api_key or not settings.google_search_engine_id:
-            logger.warning("Google Search not configured: missing API key or engine ID")
+            _warn_missing_provider_config_once("google", "missing API key or engine ID")
             return None
         return {"api_key": settings.google_search_api_key, "cx": settings.google_search_engine_id}
 
     if provider == "brave":
         if not settings.brave_search_api_key:
-            logger.warning("Brave Search not configured: missing API key")
+            _warn_missing_provider_config_once("brave", "missing API key")
             return None
-        kwargs = {"api_key": settings.brave_search_api_key}
+        kwargs = {"api_key": settings.brave_search_api_key, "max_results": max_results}
         fallback_keys = [key for key in [settings.brave_search_api_key_2, settings.brave_search_api_key_3] if key]
         if fallback_keys:
             kwargs["fallback_api_keys"] = fallback_keys
@@ -225,9 +239,17 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
 
     if provider == "tavily":
         if not settings.tavily_api_key:
-            logger.warning("Tavily Search not configured: missing API key")
+            _warn_missing_provider_config_once("tavily", "missing API key")
             return None
-        kwargs: dict = {"api_key": settings.tavily_api_key}
+        search_depth = getattr(settings, "tavily_search_depth", "basic")
+        if search_depth not in {"basic", "advanced"}:
+            search_depth = "basic"
+
+        kwargs: dict = {
+            "api_key": settings.tavily_api_key,
+            "max_results": max_results,
+            "search_depth": search_depth,
+        }
         fallback_keys = [
             key
             for key in [
@@ -250,9 +272,9 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
 
     if provider == "serper":
         if not settings.serper_api_key:
-            logger.warning("Serper Search not configured: missing API key")
+            _warn_missing_provider_config_once("serper", "missing API key")
             return None
-        kwargs = {"api_key": settings.serper_api_key}
+        kwargs = {"api_key": settings.serper_api_key, "max_results": max_results}
         fallback_keys = [
             key
             for key in [
@@ -277,9 +299,13 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
 
     if provider == "exa":
         if not settings.exa_api_key:
-            logger.warning("Exa Search not configured: missing API key")
+            _warn_missing_provider_config_once("exa", "missing API key")
             return None
-        kwargs = {"api_key": settings.exa_api_key}
+        search_type = getattr(settings, "exa_search_type", "auto")
+        if search_type not in {"auto", "keyword", "neural"}:
+            search_type = "auto"
+
+        kwargs = {"api_key": settings.exa_api_key, "max_results": max_results, "search_type": search_type}
         fallback_keys = [
             key
             for key in [
@@ -298,7 +324,7 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
 
     if provider == "jina":
         if not settings.jina_api_key:
-            logger.warning("Jina Search not configured: missing API key")
+            _warn_missing_provider_config_once("jina", "missing API key")
             return None
         kwargs = {"api_key": settings.jina_api_key}
         fallback_keys = [
