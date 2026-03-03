@@ -1,6 +1,17 @@
 <template>
   <SimpleBar>
     <div class="agents-page">
+      <div class="agents-toolbar">
+        <button
+          type="button"
+          class="toolbar-icon-btn"
+          aria-label="Open Agent dashboard settings"
+          @click="openAgentDashboard"
+        >
+          <Settings2 class="w-4 h-4" />
+        </button>
+      </div>
+
       <div v-if="isLoading" class="agents-loading">
         <Loader2 class="w-5 h-5 animate-spin" />
         <span>Loading agent channels...</span>
@@ -154,14 +165,17 @@ import {
   Puzzle,
   RefreshCw,
   Send,
+  Settings2,
 } from 'lucide-vue-next'
 import SimpleBar from '@/components/SimpleBar.vue'
 import TelegramLinkCard from '@/components/telegram/TelegramLinkCard.vue'
 import { getSessions } from '@/api/agent'
 import { useTelegramLink } from '@/composables/useTelegramLink'
+import { useSettingsDialog } from '@/composables/useSettingsDialog'
 import type { ListSessionItem } from '@/types/response'
 
 const router = useRouter()
+const { openSettingsDialog } = useSettingsDialog()
 const isLoading = ref(true)
 const sessions = ref<ListSessionItem[]>([])
 const searchQuery = ref('')
@@ -249,7 +263,14 @@ const formatSessionTime = (unixSeconds: number | null) => {
 }
 
 const openSession = (sessionId: string) => {
-  void router.push(`/chat/${sessionId}`)
+  void router.push({
+    name: 'agents-session',
+    params: { sessionId },
+  })
+}
+
+const openAgentDashboard = () => {
+  openSettingsDialog('agent')
 }
 
 const handleRefresh = async () => {
@@ -270,6 +291,30 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 28px;
+}
+
+.agents-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.toolbar-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid #d5d8df;
+  background: #fff;
+  color: #1f2937;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.toolbar-icon-btn:hover {
+  border-color: #c7d2fe;
+  background: #f8faff;
 }
 
 .agents-loading {

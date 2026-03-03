@@ -28,21 +28,31 @@ export const router = createRouter({
         },
         {
           path: 'history',
+          name: 'session-history',
           component: SessionHistoryPage,
           meta: { requiresAuth: true },
         },
         {
           path: 'agents',
+          name: 'agents-home',
           component: AgentsPage,
-          meta: { requiresAuth: true },
+          meta: { requiresAuth: true, workspace: 'agents', source: 'telegram' },
+        },
+        {
+          path: 'agents/:sessionId',
+          name: 'agents-session',
+          component: ChatPage,
+          meta: { requiresAuth: true, workspace: 'agents', source: 'telegram' },
         },
         {
           path: 'canvas/:projectId?',
+          name: 'canvas',
           component: CanvasPage,
           meta: { requiresAuth: true },
         },
         {
           path: ':sessionId',
+          name: 'chat-session',
           component: ChatPage,
           meta: { requiresAuth: true },
         },

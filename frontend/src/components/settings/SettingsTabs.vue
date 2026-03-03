@@ -91,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Bot, ChevronLeft, ChevronRight } from 'lucide-vue-next'
@@ -183,6 +183,15 @@ const setActiveTab = (tabId: string) => {
   activeTab.value = tabId
   emit('tabChange', tabId)
 }
+
+watch(
+  () => props.defaultTab,
+  (nextDefaultTab) => {
+    if (!nextDefaultTab || nextDefaultTab === activeTab.value) return
+    activeTab.value = nextDefaultTab
+    emit('tabChange', nextDefaultTab)
+  },
+)
 
 // Handle back button click
 const handleBack = () => {
