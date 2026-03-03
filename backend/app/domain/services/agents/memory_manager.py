@@ -961,6 +961,122 @@ ERRORS: (if any)"""
         # Enforce limit
         self._enforce_archive_limit()
 
+    async def structured_compact(
+        self,
+        messages: list[dict[str, Any]],
+        llm: "LLM",
+        preserve_recent: int = 6,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Emergency structured compaction using LLM to create a 9-category summary.
+
+        Called when context hits critical threshold (>80% budget) and graduated
+        compaction isn't enough. Uses the LLM itself to produce a structured
+        summary preserving key information categories.
+
+        Args:
+            messages: Full message list from conversation memory.
+            llm: LLM instance for summary generation.
+            preserve_recent: Number of recent messages to keep verbatim.
+
+        Returns:
+            Tuple of (compacted_messages, estimated_tokens_saved).
+            On any failure, returns (original_messages, 0) for safety.
+        """
+        try:
+            if len(messages) <= preserve_recent + 2:
+                return messages, 0
+
+            # Split: system messages + compactable history + recent
+            system_msgs = [m for m in messages if m.get("role") == "system"]
+            non_system = [m for m in messages if m.get("role") != "system"]
+
+            if len(non_system) <= preserve_recent:
+                return messages, 0
+
+            compactable = non_system[:-preserve_recent]
+            recent = non_system[-preserve_recent:]
+
+            # Build the compactable history text (cap at 20K chars to fit LLM context)
+            history_lines: list[str] = []
+            total_chars = 0
+            max_history_chars = 20000
+            for msg in compactable:
+                role = msg.get("role", "unknown")
+                content = str(msg.get("content", ""))[:2000]
+                fn = msg.get("function_name", "")
+                prefix = f"[{role}]" if not fn else f"[{role}:{fn}]"
+                line = f"{prefix} {content}"
+                if total_chars + len(line) > max_history_chars:
+                    break
+                history_lines.append(line)
+                total_chars += len(line)
+
+            if not history_lines:
+                return messages, 0
+
+            history_text = "\n".join(history_lines)
+
+            prompt = (
+                "Summarize the following conversation history into a STRUCTURED CONTEXT SUMMARY. "
+                "Preserve information in these 9 categories (skip empty categories):\n\n"
+                "1. **URLs Visited**: List of URLs visited with key findings\n"
+                "2. **Files Modified**: Files created, edited, or read with relevant content\n"
+                "3. **Errors Encountered**: Error messages and their resolution status\n"
+                "4. **Decisions Made**: Key decisions and their rationale\n"
+                "5. **Plan State**: Current plan progress, completed and pending steps\n"
+                "6. **Tool Outputs**: Important results from tool calls (search, shell, etc.)\n"
+                "7. **User Preferences**: Any preferences or constraints stated by the user\n"
+                "8. **Environment State**: Current working directory, active services, configs\n"
+                "9. **Pending Tasks**: Tasks mentioned but not yet completed\n\n"
+                "Be concise but preserve ALL factual data (URLs, file paths, numbers, commands).\n\n"
+                f"=== CONVERSATION HISTORY ===\n{history_text}\n=== END ==="
+            )
+
+            summary_response = await llm.ask(
+                [
+                    {
+                        "role": "system",
+                        "content": "You are a conversation summarizer. Output only the structured summary.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                tools=None,
+            )
+
+            summary_text = summary_response.get("content", "")
+            if not summary_text or len(summary_text) < 50:
+                logger.warning("Structured compaction produced insufficient summary, aborting")
+                return messages, 0
+
+            # Reconstruct: system + summary message + recent
+            summary_message = {
+                "role": "user",
+                "content": (
+                    "[CONTEXT SUMMARY — Earlier conversation was compressed to save space. "
+                    "Key information preserved below:]\n\n"
+                    f"{summary_text}"
+                ),
+            }
+
+            compacted_messages = [*system_msgs, summary_message, *recent]
+
+            # Estimate tokens saved
+            original_chars = sum(len(str(m.get("content", ""))) for m in messages)
+            compacted_chars = sum(len(str(m.get("content", ""))) for m in compacted_messages)
+            tokens_saved = max(0, (original_chars - compacted_chars) // 4)
+
+            logger.info(
+                "Structured compaction: %d messages → %d messages (~%d tokens saved)",
+                len(messages),
+                len(compacted_messages),
+                tokens_saved,
+            )
+            return compacted_messages, tokens_saved
+
+        except Exception:
+            logger.exception("Structured compaction failed, returning original messages")
+            return messages, 0
+
 
 # Singleton for global access
 _memory_manager: MemoryManager | None = None
