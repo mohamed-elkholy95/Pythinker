@@ -28,6 +28,7 @@ Usage:
 
 import logging
 import os
+import threading
 import time
 import warnings
 from dataclasses import dataclass, field
@@ -358,31 +359,87 @@ class LettuceVerifier:
         return result
 
 
-# ── Singleton ──────────────────────────────────────────────────────────
+# ── Singleton with TTL-based eviction ──────────────────────────────────
 
-_verifier_instance: LettuceVerifier | None = None
+_TTL_SECONDS: float = 300.0  # 5 minutes idle → unload model to free memory
 
 
-def get_lettuce_verifier() -> LettuceVerifier:
-    """Get or create the singleton LettuceVerifier instance.
+class _VerifierHolder:
+    """Thread-safe singleton with TTL-based eviction.
 
-    Reads model path and thresholds from Settings on first call.
+    Holds a single LettuceVerifier instance that is lazily created on
+    first ``get()`` call. A daemon timer is scheduled to unload the model
+    after ``_TTL_SECONDS`` of inactivity (no ``get()`` calls). Each
+    ``get()`` call resets the timer, so active sessions keep the model
+    loaded.
 
-    Returns:
-        LettuceVerifier singleton instance.
+    This prevents the ~300-500 MiB model from persisting indefinitely
+    when no verification is happening.
     """
-    global _verifier_instance
-    if _verifier_instance is None:
+
+    def __init__(self) -> None:
+        self._instance: LettuceVerifier | None = None
+        self._last_used: float = 0.0
+        self._lock = threading.Lock()
+        self._eviction_timer: threading.Timer | None = None
+
+    def get(self) -> LettuceVerifier:
+        """Return the verifier instance, creating it if needed."""
+        with self._lock:
+            if self._instance is None:
+                self._instance = self._create()
+            self._last_used = time.monotonic()
+            self._schedule_eviction()
+            return self._instance
+
+    def _create(self) -> LettuceVerifier:
+        """Create a new LettuceVerifier from settings."""
         try:
             from app.core.config import get_settings
 
             settings = get_settings()
-            _verifier_instance = LettuceVerifier(
+            return LettuceVerifier(
                 model_path=settings.lettuce_model_path,
                 confidence_threshold=settings.lettuce_confidence_threshold,
                 min_response_length=settings.lettuce_min_response_length,
             )
         except Exception:
-            # Fallback to defaults if settings unavailable
-            _verifier_instance = LettuceVerifier()
-    return _verifier_instance
+            return LettuceVerifier()
+
+    def _schedule_eviction(self) -> None:
+        """Schedule (or reschedule) the eviction timer."""
+        if self._eviction_timer is not None:
+            self._eviction_timer.cancel()
+        self._eviction_timer = threading.Timer(_TTL_SECONDS, self._try_evict)
+        self._eviction_timer.daemon = True
+        self._eviction_timer.start()
+
+    def _try_evict(self) -> None:
+        """Evict the model if it has been idle long enough."""
+        with self._lock:
+            elapsed = time.monotonic() - self._last_used
+            if elapsed >= _TTL_SECONDS and self._instance is not None:
+                logger.info(
+                    "LettuceDetect model idle for %.0fs, unloading to free memory",
+                    elapsed,
+                )
+                # Release detector reference; GC + PyTorch will free memory
+                if hasattr(self._instance, "_detector"):
+                    self._instance._detector = None
+                self._instance._load_error = None
+                self._instance = None
+
+
+_holder = _VerifierHolder()
+
+
+def get_lettuce_verifier() -> LettuceVerifier:
+    """Get or create the singleton LettuceVerifier instance.
+
+    The instance is lazily created and automatically evicted after
+    5 minutes of inactivity to free ~300-500 MiB of memory.
+
+    Returns:
+        LettuceVerifier singleton instance.
+    """
+    return _holder.get()
