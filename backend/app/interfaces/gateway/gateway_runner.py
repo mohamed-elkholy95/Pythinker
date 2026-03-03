@@ -38,12 +38,26 @@ async def run_gateway() -> None:
         sys.exit(1)
 
     # ------------------------------------------------------------------
-    # 1. Initialise MongoDB
+    # 1. Initialise MongoDB + Beanie ODM
     # ------------------------------------------------------------------
     mongodb = get_mongodb()
     await mongodb.initialize()
     db = mongodb.database
     logger.info("MongoDB connection established for gateway")
+
+    # Beanie must be initialised before any Document class-level field
+    # access (e.g. AgentDocument.agent_id).  The main backend does this
+    # inside lifespan.py; the gateway runs outside FastAPI so we repeat
+    # it here with the same model list.
+    from beanie import init_beanie
+
+    from app.core.lifespan import BEANIE_DOCUMENT_MODELS
+
+    await init_beanie(
+        database=mongodb.client[settings.mongodb_database],
+        document_models=BEANIE_DOCUMENT_MODELS,
+    )
+    logger.info("Beanie ODM initialised for gateway")
 
     # ------------------------------------------------------------------
     # 2. Build dependency chain
