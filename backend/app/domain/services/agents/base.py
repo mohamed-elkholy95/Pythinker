@@ -2179,10 +2179,15 @@ class BaseAgent:
 
         # ── Legacy path (reactive two-stage) ─────────────────────────
         # Stage 1: Proactive compaction before hitting the hard limit.
-        # PRESSURE_THRESHOLDS["early_warning"] = 0.60 (defined in TokenManager).
+        # Uses configurable context_compression_trigger_pct (default 0.80) for
+        # earlier triggering. Falls back to TokenManager early_warning (0.60).
         token_count = self._token_manager.count_messages_tokens(current_messages)
-        early_threshold = self._token_manager.PRESSURE_THRESHOLDS["early_warning"]
-        if token_count > self._token_manager._effective_limit * early_threshold:
+        try:
+            from app.core.config import get_settings
+            trigger_threshold = getattr(get_settings(), "context_compression_trigger_pct", 0.80)
+        except Exception:
+            trigger_threshold = self._token_manager.PRESSURE_THRESHOLDS["early_warning"]
+        if token_count > self._token_manager._effective_limit * trigger_threshold:
             self._compression_cycles_this_step += 1
             if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
                 logger.warning(
