@@ -419,6 +419,25 @@ class PlanActFlow(BaseFlow):
             except Exception as e:
                 logger.warning(f"Failed to create ThoughtTreeExplorer: {e}")
 
+        # ── Tiered External Memory: ToolResultStore (C1) ──────────────
+        tool_result_store = None
+        if flags.get("tool_result_store", True):
+            from app.domain.services.agents.tool_result_store import ToolResultStore
+
+            tool_result_store = ToolResultStore()
+            logger.info("ToolResultStore enabled for session %s", session_id)
+
+        # ── Tiered External Memory: Scratchpad (C3) ──────────────────
+        scratchpad = None
+        if flags.get("scratchpad", False):
+            from app.domain.services.agents.scratchpad import Scratchpad
+            from app.domain.services.tools.scratchpad import ScratchpadTool
+
+            scratchpad = Scratchpad()
+            scratchpad_tool = ScratchpadTool(scratchpad=scratchpad)
+            tools.append(scratchpad_tool)
+            logger.info("Scratchpad enabled for session %s", session_id)
+
         # Create planner and execution agents
         self.planner = PlannerAgent(
             agent_id=self._agent_id,
@@ -432,7 +451,10 @@ class PlanActFlow(BaseFlow):
             feature_flags=feature_flags,
             cancel_token=self._cancel_token,
             search_engine=self._search_engine,
+            tool_result_store=tool_result_store,
         )
+        if scratchpad:
+            self.planner._scratchpad = scratchpad
         logger.debug(f"Created planner agent for Agent {self._agent_id}")
 
         self.executor = ExecutionAgent(
@@ -445,7 +467,10 @@ class PlanActFlow(BaseFlow):
             user_id=user_id,
             feature_flags=feature_flags,
             cancel_token=self._cancel_token,
+            tool_result_store=tool_result_store,
         )
+        if scratchpad:
+            self.executor._scratchpad = scratchpad
         # Relax efficiency monitor thresholds for research modes
         if self._research_mode in ("deep_research", "wide_research"):
             from app.domain.services.agents.tool_efficiency_monitor import ToolEfficiencyMonitor

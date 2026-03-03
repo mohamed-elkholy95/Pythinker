@@ -269,6 +269,7 @@ class PlannerAgent(BaseAgent):
         feature_flags: dict[str, bool] | None = None,
         cancel_token: "CancellationToken | None" = None,
         search_engine: "SearchEngine | None" = None,
+        tool_result_store=None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -278,6 +279,7 @@ class PlannerAgent(BaseAgent):
             tools=tools,
             feature_flags=feature_flags,
             cancel_token=cancel_token,
+            tool_result_store=tool_result_store,
         )
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service

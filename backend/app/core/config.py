@@ -461,6 +461,11 @@ def get_feature_flags() -> dict[str, bool]:
             "confirmation_summary_enabled": False,
             "url_failure_guard": True,
             "feature_url_failure_guard_enabled": True,
+            # Tiered External Memory
+            "tool_result_store": True,
+            "graduated_compaction": True,
+            "scratchpad": False,
+            "structured_compaction": False,
             # Live shell streaming
             "live_shell_streaming": False,
             "live_shell_poll_interval_ms": 500,
@@ -505,6 +510,11 @@ def get_feature_flags() -> dict[str, bool]:
         "confirmation_summary_enabled": settings.confirmation_summary_enabled,
         "url_failure_guard": settings.feature_url_failure_guard_enabled,
         "feature_url_failure_guard_enabled": settings.feature_url_failure_guard_enabled,
+        # Tiered External Memory
+        "tool_result_store": settings.feature_tool_result_store_enabled,
+        "graduated_compaction": settings.feature_graduated_compaction_enabled,
+        "scratchpad": settings.feature_scratchpad_enabled,
+        "structured_compaction": settings.feature_structured_compaction_enabled,
         # Live shell streaming
         "live_shell_streaming": settings.feature_live_shell_streaming,
         "live_shell_poll_interval_ms": settings.live_shell_poll_interval_ms,
