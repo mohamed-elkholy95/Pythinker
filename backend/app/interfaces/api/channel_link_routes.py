@@ -15,6 +15,7 @@ import os
 import secrets
 import string
 
+import httpx
 from fastapi import APIRouter, Depends
 
 from app.application.errors.exceptions import BadRequestError, NotFoundError
@@ -43,6 +44,8 @@ _CODE_LENGTH = 22
 _CODE_TTL_SECONDS = 1800  # 30 minutes
 _REDIS_KEY_PREFIX = "channel_link"
 _DEFAULT_TELEGRAM_BOT_USERNAME = "pythinker_bot"
+_TELEGRAM_BOT_API_TIMEOUT_SECONDS = 5.0
+_RESOLVED_TELEGRAM_BOT_USERNAME: str | None = None
 
 
 def _generate_link_code() -> str:
@@ -60,19 +63,57 @@ def _code_fingerprint(code: str) -> tuple[str, str]:
     return code[:4], hashlib.sha256(code.encode("utf-8")).hexdigest()[:12]
 
 
-def _telegram_bot_username() -> str:
-    """Resolve Telegram bot username from env with a stable fallback."""
-    raw = os.getenv("TELEGRAM_BOT_USERNAME", _DEFAULT_TELEGRAM_BOT_USERNAME)
-    username = raw.strip().lstrip("@")
-    return username or _DEFAULT_TELEGRAM_BOT_USERNAME
+async def _fetch_telegram_bot_username_from_token(token: str) -> str | None:
+    """Resolve bot username via Telegram ``getMe`` using ``TELEGRAM_BOT_TOKEN``."""
+    api_url = f"https://api.telegram.org/bot{token}/getMe"
+    try:
+        async with httpx.AsyncClient(timeout=_TELEGRAM_BOT_API_TIMEOUT_SECONDS) as client:
+            response = await client.get(api_url)
+            response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        logger.warning("Failed to resolve Telegram bot username via getMe: %s", exc)
+        return None
+
+    if not payload.get("ok"):
+        logger.warning("Telegram getMe returned non-ok response while resolving bot username")
+        return None
+
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        logger.warning("Telegram getMe returned malformed payload while resolving bot username")
+        return None
+
+    username = str(result.get("username", "")).strip().lstrip("@")
+    return username or None
 
 
-def _telegram_bot_url() -> str:
+async def _telegram_bot_username() -> str:
+    """Resolve Telegram bot username from env, then ``getMe``, then fallback."""
+    configured = os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
+    if configured:
+        return configured
+
+    global _RESOLVED_TELEGRAM_BOT_USERNAME
+    if _RESOLVED_TELEGRAM_BOT_USERNAME:
+        return _RESOLVED_TELEGRAM_BOT_USERNAME
+
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    if token:
+        fetched = await _fetch_telegram_bot_username_from_token(token)
+        if fetched:
+            _RESOLVED_TELEGRAM_BOT_USERNAME = fetched
+            return fetched
+
+    return _DEFAULT_TELEGRAM_BOT_USERNAME
+
+
+async def _telegram_bot_url() -> str:
     """Get canonical Telegram bot URL."""
-    return f"https://t.me/{_telegram_bot_username()}"
+    return f"https://t.me/{await _telegram_bot_username()}"
 
 
-def _telegram_deep_link(code: str) -> str:
+def _telegram_deep_link(code: str, bot_url: str) -> str:
     """Build a Telegram ``?start=`` deep link that triggers ``/start bind_<code>``.
 
     When the user clicks the link, Telegram opens the bot and sends
@@ -80,7 +121,7 @@ def _telegram_deep_link(code: str) -> str:
     ``MessageRouter._normalize_command_alias`` converts this into
     ``/link <code>`` for code redemption.
     """
-    return f"{_telegram_bot_url()}?start=bind_{code}"
+    return f"{bot_url}?start=bind_{code}"
 
 
 def _bind_command(channel: str, code: str) -> str:
@@ -140,8 +181,11 @@ async def generate_link_code(
     )
 
     bind_command = _bind_command(channel_type.value, code)
-    bot_url = _telegram_bot_url() if channel_type == ChannelType.TELEGRAM else ""
-    deep_link_url = _telegram_deep_link(code) if channel_type == ChannelType.TELEGRAM else ""
+    bot_url = ""
+    deep_link_url = ""
+    if channel_type == ChannelType.TELEGRAM:
+        bot_url = await _telegram_bot_url()
+        deep_link_url = _telegram_deep_link(code, bot_url)
 
     return APIResponse.success(
         GenerateLinkCodeResponse(

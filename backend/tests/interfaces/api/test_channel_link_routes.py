@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import app.interfaces.api.channel_link_routes as channel_link_routes
 from app.domain.models.channel import ChannelType
 from app.domain.models.user import User
 from app.interfaces.api.channel_link_routes import _generate_link_code, _get_linked_channels
@@ -27,6 +28,19 @@ from app.main import app
 
 def _make_user(user_id: str = "user-abc-123") -> User:
     return User(id=user_id, email="user@example.com", fullname="Test User")
+
+
+@pytest.fixture(autouse=True)
+def _reset_telegram_link_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate TELEGRAM_* env usage and in-module cache across tests."""
+    monkeypatch.delenv("TELEGRAM_BOT_USERNAME", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setattr(
+        channel_link_routes,
+        "_RESOLVED_TELEGRAM_BOT_USERNAME",
+        None,
+        raising=False,
+    )
 
 
 def test_generate_link_code_length():
@@ -211,6 +225,57 @@ async def test_generate_link_code_respects_telegram_bot_username_env(monkeypatch
     data = response.json()["data"]
     assert data["bot_url"] == "https://t.me/CustomPythinkerBot"
     assert data["deep_link_url"] == f"https://t.me/CustomPythinkerBot?start=bind_{data['code']}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_override_user")
+async def test_generate_link_code_uses_bot_api_username_when_env_missing(monkeypatch):
+    """If TELEGRAM_BOT_USERNAME is unset, resolve username via bot token."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:fake-token")
+    mock_redis = AsyncMock()
+    mock_redis.call = AsyncMock(return_value="OK")
+
+    with (
+        patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis),
+        patch(
+            "app.interfaces.api.channel_link_routes._fetch_telegram_bot_username_from_token",
+            new=AsyncMock(return_value="Pythinkbot"),
+            create=True,
+        ) as fetch_username,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/v1/channel-links/generate", json={})
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["bot_url"] == "https://t.me/Pythinkbot"
+    assert data["deep_link_url"] == f"https://t.me/Pythinkbot?start=bind_{data['code']}"
+    fetch_username.assert_awaited_once_with("123:fake-token")
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_override_user")
+async def test_generate_link_code_falls_back_when_bot_api_username_unavailable(monkeypatch):
+    """If bot token lookup fails, deep links should use the default bot handle."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:fake-token")
+    mock_redis = AsyncMock()
+    mock_redis.call = AsyncMock(return_value="OK")
+
+    with (
+        patch("app.interfaces.api.channel_link_routes.get_redis", return_value=mock_redis),
+        patch(
+            "app.interfaces.api.channel_link_routes._fetch_telegram_bot_username_from_token",
+            new=AsyncMock(return_value=None),
+            create=True,
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/v1/channel-links/generate", json={})
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["bot_url"] == "https://t.me/pythinker_bot"
+    assert data["deep_link_url"] == f"https://t.me/pythinker_bot?start=bind_{data['code']}"
 
 
 @pytest.mark.asyncio
