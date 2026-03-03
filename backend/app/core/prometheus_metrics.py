@@ -738,6 +738,37 @@ channel_link_redeem_failed_total = Counter(
     labels=["reason"],
 )
 
+# Telegram continuity + PDF delivery metrics
+telegram_session_reused_total = Counter(
+    name="pythinker_telegram_session_reused_total",
+    help_text="Total Telegram sessions reused for continuity",
+    labels=[],
+)
+
+telegram_session_rotated_total = Counter(
+    name="pythinker_telegram_session_rotated_total",
+    help_text="Total Telegram sessions rotated to a new session",
+    labels=["reason"],
+)
+
+telegram_pdf_generated_total = Counter(
+    name="pythinker_telegram_pdf_generated_total",
+    help_text="Total Telegram PDFs generated",
+    labels=[],
+)
+
+telegram_pdf_generation_failed_total = Counter(
+    name="pythinker_telegram_pdf_generation_failed_total",
+    help_text="Total Telegram PDF generation failures",
+    labels=["reason"],
+)
+
+telegram_pdf_sent_total = Counter(
+    name="pythinker_telegram_pdf_sent_total",
+    help_text="Total Telegram PDF documents sent",
+    labels=[],
+)
+
 
 # Registry of all metrics
 _metrics_registry = [
@@ -811,6 +842,11 @@ _metrics_registry = [
     channel_link_code_generated_total,
     channel_link_redeemed_total,
     channel_link_redeem_failed_total,
+    telegram_session_reused_total,
+    telegram_session_rotated_total,
+    telegram_pdf_generated_total,
+    telegram_pdf_generation_failed_total,
+    telegram_pdf_sent_total,
 ]
 
 # Workflow Phase Metrics (Monitoring Enhancement)
