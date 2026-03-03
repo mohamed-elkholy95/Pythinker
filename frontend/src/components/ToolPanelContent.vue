@@ -198,16 +198,18 @@
             class="absolute inset-0 bg-[var(--background-white-main)] flex flex-col items-stretch overflow-hidden"
             style="z-index: -1"
           >
-            <!-- URL bar - top-anchored status bar, pushed above browser to not cover headers -->
-            <Transition name="url-bar">
-              <div v-if="showLivePreviewUrlBar" class="live-preview-url-bar">
-                <div class="live-preview-url-status">
-                  <Loader2 v-if="isActiveOperation" :size="10" class="live-preview-url-spinner" />
-                  <Check v-else :size="10" />
-                </div>
-                <span class="live-preview-url-text">{{ livePreviewUrlBarText }}</span>
-              </div>
-            </Transition>
+            <!-- Browser chrome - visible in live view to match takeover affordance -->
+            <BrowserChrome
+              v-if="showLivePreviewChrome"
+              :url="livePreviewChromeUrl"
+              device="desktop"
+              :is-fullscreen="false"
+              :show-edit="false"
+              @navigate-home="handleBrowserChromeHome"
+              @open-external="handleBrowserChromeOpenExternal"
+              @refresh="handleBrowserChromeRefresh"
+              @toggle-fullscreen="handleBrowserChromeToggleFullscreen"
+            />
 
             <div class="flex-1 w-full min-h-0 relative">
               <LiveViewer
@@ -511,7 +513,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { Minimize2, MonitorUp, X, Loader2, Check, BarChart3, Palette } from 'lucide-vue-next';
+import { Minimize2, MonitorUp, X, Loader2, BarChart3, Palette } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -524,6 +526,7 @@ import TaskProgressBar from '@/components/TaskProgressBar.vue';
 
 // Content views are async to avoid loading heavy dependencies until needed.
 const LiveViewer = defineAsyncComponent(() => import('@/components/LiveViewer.vue'));
+const BrowserChrome = defineAsyncComponent(() => import('@/components/workspace/BrowserChrome.vue'));
 const LoadingState = defineAsyncComponent(() => import('@/components/toolViews/shared/LoadingState.vue'));
 const TerminalContentView = defineAsyncComponent(() => import('@/components/toolViews/TerminalContentView.vue'));
 const EditorContentView = defineAsyncComponent(() => import('@/components/toolViews/EditorContentView.vue'));
@@ -671,6 +674,18 @@ const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
 // Canvas live view
 const canvasLiveViewRef = ref<{ scheduleRefresh: () => void; refresh: () => void } | null>(null);
 const liveViewerRef = ref<{ processToolEvent?: (event: ToolEventData) => void } | null>(null);
+
+interface BrowserAgentCheckpointData {
+  action?: unknown;
+  action_function?: unknown;
+  step?: unknown;
+  coordinate_x?: unknown;
+  coordinate_y?: unknown;
+  x?: unknown;
+  y?: unknown;
+  index?: unknown;
+  url?: unknown;
+}
 
 /** Resolve canvas project ID from SSE prop or tool content args/result */
 const resolvedCanvasProjectId = computed(() => {
@@ -998,23 +1013,72 @@ const showPersistentBrowser = computed(() => {
 
 let _lastForwardedToolEventKey = '';
 
+const browserAgentCheckpoint = computed<BrowserAgentCheckpointData | null>(() => {
+  const raw = props.toolContent?.checkpoint_data;
+  if (!raw || typeof raw !== 'object') return null;
+  return raw as BrowserAgentCheckpointData;
+});
+
+const liveViewerFunction = computed(() => {
+  const checkpointFunction = browserAgentCheckpoint.value?.action_function;
+  if (typeof checkpointFunction === 'string' && checkpointFunction.trim().length > 0) {
+    return checkpointFunction;
+  }
+  return props.toolContent?.function || '';
+});
+
+const _numberFromUnknown = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  return undefined;
+};
+
+const _stringFromUnknown = (value: unknown): string | undefined => {
+  if (typeof value === 'string' && value.trim().length > 0) return value;
+  return undefined;
+};
+
+const liveViewerArgs = computed<Record<string, unknown>>(() => {
+  const merged: Record<string, unknown> = { ...(props.toolContent?.args || {}) };
+  const checkpoint = browserAgentCheckpoint.value;
+  if (!checkpoint) return merged;
+
+  const coordinateX = _numberFromUnknown(checkpoint.coordinate_x) ?? _numberFromUnknown(checkpoint.x);
+  const coordinateY = _numberFromUnknown(checkpoint.coordinate_y) ?? _numberFromUnknown(checkpoint.y);
+  const index = _numberFromUnknown(checkpoint.index);
+  const url = _stringFromUnknown(checkpoint.url);
+  const action = _stringFromUnknown(checkpoint.action);
+  const step = _numberFromUnknown(checkpoint.step);
+
+  if (coordinateX !== undefined) merged.coordinate_x = coordinateX;
+  if (coordinateY !== undefined) merged.coordinate_y = coordinateY;
+  if (index !== undefined) merged.index = index;
+  if (url !== undefined) merged.url = url;
+  if (action !== undefined) merged.action = action;
+  if (step !== undefined) merged.step = step;
+
+  return merged;
+});
+
 const forwardToolEventToLiveViewer = (): void => {
   if (!props.sessionId || !showPersistentBrowser.value || !liveViewerRef.value?.processToolEvent) return;
 
   const tool = props.toolContent;
-  if (!tool?.tool_call_id || !tool.function || !tool.status) return;
+  const functionName = liveViewerFunction.value;
+  if (!tool?.tool_call_id || !functionName || !tool.status) return;
 
-  const args = tool.args || {};
+  const args = liveViewerArgs.value;
   const eventKey = JSON.stringify([
     tool.tool_call_id,
     tool.status,
-    tool.function,
+    functionName,
     args.coordinate_x,
     args.coordinate_y,
     args.x,
     args.y,
     args.index,
     args.url,
+    args.action,
+    args.step,
   ]);
   if (eventKey === _lastForwardedToolEventKey) return;
   _lastForwardedToolEventKey = eventKey;
@@ -1025,8 +1089,8 @@ const forwardToolEventToLiveViewer = (): void => {
     tool_call_id: tool.tool_call_id,
     name: tool.name,
     status: tool.status === 'interrupted' ? 'called' : tool.status,
-    function: tool.function,
-    args: tool.args || {},
+    function: functionName,
+    args,
   });
 };
 
@@ -1057,23 +1121,12 @@ const resolvedBrowserUrl = computed(() => {
   return '';
 });
 
-const showLivePreviewUrlBar = computed(() => {
-  if (showLivePreviewPlaceholder.value) return false;
-  return isBrowserTool(toolName.value) && !!resolvedBrowserUrl.value;
+const showLivePreviewChrome = computed(() => {
+  if (showLivePreviewPlaceholder.value || !showPersistentBrowser.value) return false;
+  return currentViewType.value === 'live_preview' || isBrowserTool(toolName.value) || forceBrowserView.value;
 });
 
-const livePreviewUrlBarText = computed(() => {
-  const url = resolvedBrowserUrl.value;
-  if (!url) return '';
-  // Format the URL for display (strip protocol, truncate)
-  try {
-    const u = new URL(url);
-    const display = `${u.hostname}${u.pathname}`;
-    return display.length > 60 ? `${display.slice(0, 60)}...` : display;
-  } catch {
-    return url.length > 60 ? `${url.slice(0, 60)}...` : url;
-  }
-});
+const livePreviewChromeUrl = computed(() => resolvedBrowserUrl.value || '/');
 
 // ============ Terminal Content ============
 const shellOutput = ref('');
@@ -1257,6 +1310,7 @@ watch(
     props.toolContent?.args?.y,
     props.toolContent?.args?.index,
     props.toolContent?.args?.url,
+    props.toolContent?.checkpoint_data,
   ],
   () => {
     forwardToolEventToLiveViewer();
@@ -1618,6 +1672,26 @@ const onNewTerminalContent = () => {
   markNewOutput();
 };
 
+const handleBrowserChromeToggleFullscreen = () => {
+  // Fullscreen control is intentionally disabled for embedded live preview.
+};
+
+const handleBrowserChromeOpenExternal = () => {
+  const url = resolvedBrowserUrl.value;
+  if (!url) return;
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
+const handleBrowserChromeHome = async () => {
+  if (!props.sessionId) return;
+  await handleBrowseUrl('about:blank');
+};
+
+const handleBrowserChromeRefresh = async () => {
+  if (!props.sessionId) return;
+  await handleBrowseUrl(resolvedBrowserUrl.value || 'about:blank');
+};
+
 /**
  * Handle browse URL request from search results
  * Navigates the browser directly to the clicked URL
@@ -1701,64 +1775,5 @@ const handleBrowseUrl = async (url: string) => {
 
 .panel-content-header {
   box-shadow: inset 0 1px 0 0 var(--border-white);
-}
-
-/* URL bar — top-anchored, pill style that pushes browser down. */
-.live-preview-url-bar {
-  margin: 10px auto;
-  flex-shrink: 0;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  max-width: calc(100% - 16px);
-  gap: 5px;
-  padding: 4px 9px 4px 7px;
-  border-radius: 6px;
-  background: rgba(15, 15, 18, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(12px) saturate(160%);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-}
-
-.live-preview-url-status {
-  flex-shrink: 0;
-  color: rgba(255, 255, 255, 0.55);
-  display: flex;
-  align-items: center;
-  line-height: 1;
-}
-
-.live-preview-url-spinner {
-  animation: live-preview-spin 0.9s linear infinite;
-}
-
-@keyframes live-preview-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.live-preview-url-text {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.78);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-sans);
-  letter-spacing: 0.01em;
-}
-
-/* Slide-down / fade-up transition */
-.url-bar-enter-active {
-  transition: opacity 0.18s ease, transform 0.18s ease, margin-top 0.18s ease;
-}
-.url-bar-leave-active {
-  transition: opacity 0.14s ease, transform 0.14s ease, margin-top 0.14s ease;
-}
-.url-bar-enter-from,
-.url-bar-leave-to {
-  opacity: 0;
-  margin-top: -30px;
 }
 </style>

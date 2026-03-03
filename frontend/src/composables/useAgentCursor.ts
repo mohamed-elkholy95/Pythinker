@@ -15,7 +15,7 @@ import { shallowRef, onBeforeUnmount } from 'vue'
 import Konva from 'konva'
 import type { ToolEventData } from '@/types/event'
 import type { AgentActionType, CursorState } from '@/types/liveViewer'
-import { FUNCTION_TO_ACTION_TYPE } from '@/types/liveViewer'
+import { FUNCTION_TO_ACTION_TYPE, SANDBOX_HEIGHT, SANDBOX_WIDTH } from '@/types/liveViewer'
 import {
   isJitterMove,
   stepTowards,
@@ -316,7 +316,7 @@ export function useAgentCursor() {
 
     _applyCursorVisualForAction(actionType)
 
-    const coords = _extractCoordinates(event)
+    const coords = _extractCoordinates(event, actionType)
     if (!coords) {
       if (_layer) {
         _layer.batchDraw()
@@ -398,6 +398,7 @@ export function useAgentCursor() {
 
   function _extractCoordinates(
     event: ToolEventData,
+    actionType: AgentActionType,
   ): { x: number; y: number } | null {
     const args = event.args || {}
 
@@ -408,7 +409,23 @@ export function useAgentCursor() {
       return { x: args.x as number, y: args.y as number }
     }
 
-    return null
+    if (actionType === 'navigate') {
+      return { x: SANDBOX_WIDTH / 2, y: 40 }
+    }
+
+    if (actionType === 'scroll') {
+      const direction = event.function?.includes('down') || event.function?.includes('Down') ? 1 : -1
+      return {
+        x: SANDBOX_WIDTH / 2,
+        y: SANDBOX_HEIGHT / 2 + direction * 100,
+      }
+    }
+
+    if (isVisible.value) {
+      return { x: _targetX, y: _targetY }
+    }
+
+    return { x: SANDBOX_WIDTH / 2, y: SANDBOX_HEIGHT / 2 }
   }
 
   // ---------------------------------------------------------------------------
