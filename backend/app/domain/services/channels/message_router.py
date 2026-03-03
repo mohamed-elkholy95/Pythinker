@@ -82,6 +82,10 @@ class UserChannelRepository(Protocol):
         """Re-assign sessions from old to new user_id."""
         ...
 
+    async def migrate_session_ownership(self, old_user_id: str, new_user_id: str) -> None:
+        """Re-assign persisted session documents from old to new user_id."""
+        ...
+
 
 class LinkCodeStore(Protocol):
     """Abstraction for link-code storage (Redis-backed in production).
@@ -313,6 +317,10 @@ class MessageRouter:
                         web_user_id,
                         message.channel,
                     )
+                    await self._user_channel_repo.migrate_session_ownership(
+                        old_user_id,
+                        web_user_id,
+                    )
 
                 # Single-use: delete the code immediately after successful link.
                 await self._link_code_store.delete(redis_key)
@@ -379,6 +387,7 @@ class MessageRouter:
         # Create a new session
         session = await self._agent_service.create_session(
             user_id=user_id,
+            source=message.channel.value,
             initial_message=message.content,
             require_fresh_sandbox=True,
         )

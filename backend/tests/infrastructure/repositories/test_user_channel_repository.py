@@ -8,7 +8,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from pymongo import ReturnDocument
 
 from app.domain.models.channel import ChannelType
@@ -22,11 +21,13 @@ def mock_db() -> MagicMock:
     """Return a mock Motor database with two mock collections."""
     links_col = MagicMock()
     sessions_col = MagicMock()
+    session_docs_col = MagicMock()
     db = MagicMock()
     db.__getitem__ = MagicMock(
         side_effect=lambda name: {
             "user_channel_links": links_col,
             "channel_sessions": sessions_col,
+            "sessions": session_docs_col,
         }[name]
     )
     return db
@@ -69,6 +70,27 @@ async def test_get_user_by_channel_returns_user_id(
     result = await repo.get_user_by_channel(ChannelType.DISCORD, "discord-42")
 
     assert result == "channel-abc123def456"
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_channel_telegram_falls_back_to_stable_sender_prefix(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """Telegram lookup retries using numeric sender prefix when username variant misses."""
+    repo._links.find_one = AsyncMock(side_effect=[None, {"user_id": "web-user-abc"}])
+
+    result = await repo.get_user_by_channel(ChannelType.TELEGRAM, "5829880422|new_username")
+
+    assert result == "web-user-abc"
+    assert repo._links.find_one.await_count == 2
+
+    first_filter = repo._links.find_one.await_args_list[0].args[0]
+    assert first_filter == {"channel": "telegram", "sender_id": "5829880422|new_username"}
+
+    second_filter = repo._links.find_one.await_args_list[1].args[0]
+    assert second_filter["channel"] == "telegram"
+    assert second_filter["$or"][0]["sender_id"] == "5829880422"
+    assert second_filter["$or"][1]["sender_id"]["$regex"] == r"^5829880422\|"
 
 
 # ------------------------------------------------------------------
@@ -305,6 +327,30 @@ async def test_link_channel_to_user_returns_none_when_no_previous_doc(
     assert result is None
 
 
+@pytest.mark.asyncio
+async def test_link_channel_to_user_telegram_sender_with_username_uses_prefix_matching(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """Telegram link uses both full and prefix sender IDs to prevent username-rotation splits."""
+    repo._links.find_one_and_update = AsyncMock(return_value={"user_id": "channel-old-telegram"})
+
+    await repo.link_channel_to_user(
+        ChannelType.TELEGRAM,
+        "5829880422|new_username",
+        "web-user-xyz",
+    )
+
+    call_args = repo._links.find_one_and_update.call_args
+    filt = call_args[0][0]
+    assert filt["channel"] == "telegram"
+    assert filt["$or"][0]["sender_id"] == "5829880422|new_username"
+    assert filt["$or"][1]["sender_id"] == "5829880422"
+    assert filt["$or"][2]["sender_id"]["$regex"] == r"^5829880422\|"
+
+    update = call_args[0][1]
+    assert update["$setOnInsert"]["sender_id"] == "5829880422"
+
+
 # ------------------------------------------------------------------
 # get_linked_channels
 # ------------------------------------------------------------------
@@ -428,3 +474,28 @@ async def test_migrate_sessions_uses_string_channel(
 
     filt = repo._sessions.update_many.call_args[0][0]
     assert filt["channel"] == "slack"
+
+
+# ------------------------------------------------------------------
+# migrate_session_ownership
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_migrate_session_ownership_calls_update_many(
+    repo: MongoUserChannelRepository,
+) -> None:
+    """migrate_session_ownership updates session owner IDs in sessions collection."""
+    repo._session_docs.update_many = AsyncMock()
+
+    await repo.migrate_session_ownership("channel-old-abc", "web-user-new")
+
+    repo._session_docs.update_many.assert_awaited_once()
+    call_args = repo._session_docs.update_many.call_args
+
+    filt = call_args[0][0]
+    assert filt["user_id"] == "channel-old-abc"
+
+    update = call_args[0][1]
+    assert update["$set"]["user_id"] == "web-user-new"
+    assert "updated_at" in update["$set"]
