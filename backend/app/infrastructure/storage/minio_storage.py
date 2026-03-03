@@ -77,60 +77,71 @@ class MinIOStorage:
     def __init__(self):
         self._client: Minio | None = None
         self._settings = get_settings()
+        self._init_lock = asyncio.Lock()
+
+    async def ensure_initialized(self) -> None:
+        """Ensure MinIO client is initialized before use."""
+        await self.initialize()
 
     async def initialize(self) -> None:
         """Initialize MinIO client and ensure buckets exist."""
         if self._client is not None:
             return
 
-        try:
-            self._client = Minio(
-                self._settings.minio_endpoint,
-                access_key=self._settings.minio_access_key,
-                secret_key=self._settings.minio_secret_key,
-                secure=self._settings.minio_use_ssl,
-                region=self._settings.minio_region,
-            )
+        # Serialized startup avoids concurrent initialization races when services
+        # use MinIO outside FastAPI lifespan (e.g., gateway runner).
+        async with self._init_lock:
+            if self._client is not None:
+                return
 
-            # Ensure all buckets exist (blocking I/O → thread)
-            for bucket in [
-                self._settings.minio_bucket_name,
-                self._settings.minio_screenshots_bucket,
-                self._settings.minio_thumbnails_bucket,
-            ]:
-                exists = await asyncio.to_thread(self._client.bucket_exists, bucket)
-                if not exists:
-                    await asyncio.to_thread(self._client.make_bucket, bucket, location=self._settings.minio_region)
-                    logger.info("Created MinIO bucket '%s'", bucket)
-                else:
-                    logger.info("MinIO bucket '%s' already exists", bucket)
+            try:
+                self._client = Minio(
+                    self._settings.minio_endpoint,
+                    access_key=self._settings.minio_access_key,
+                    secret_key=self._settings.minio_secret_key,
+                    secure=self._settings.minio_use_ssl,
+                    region=self._settings.minio_region,
+                )
 
-                # Enable bucket versioning if configured (Phase 6E)
-                if self._settings.minio_versioning_enabled:
-                    try:
-                        from minio.versioningconfig import VersioningConfig
+                # Ensure all buckets exist (blocking I/O → thread)
+                for bucket in [
+                    self._settings.minio_bucket_name,
+                    self._settings.minio_screenshots_bucket,
+                    self._settings.minio_thumbnails_bucket,
+                ]:
+                    exists = await asyncio.to_thread(self._client.bucket_exists, bucket)
+                    if not exists:
+                        await asyncio.to_thread(self._client.make_bucket, bucket, location=self._settings.minio_region)
+                        logger.info("Created MinIO bucket '%s'", bucket)
+                    else:
+                        logger.info("MinIO bucket '%s' already exists", bucket)
 
-                        await asyncio.to_thread(
-                            self._client.set_bucket_versioning,
-                            bucket,
-                            VersioningConfig(status="Enabled"),
-                        )
-                        logger.info("Bucket versioning enabled for '%s'", bucket)
-                    except Exception as e:
-                        logger.warning("Failed to enable versioning on '%s': %s", bucket, e)
+                    # Enable bucket versioning if configured (Phase 6E)
+                    if self._settings.minio_versioning_enabled:
+                        try:
+                            from minio.versioningconfig import VersioningConfig
 
-            logger.info(
-                "Successfully connected to MinIO at %s",
-                self._settings.minio_endpoint,
-            )
-        except S3Error as e:
-            self._client = None
-            logger.error("Failed to initialize MinIO: %s", e)
-            raise
-        except Exception as e:
-            self._client = None
-            logger.error("Failed to connect to MinIO: %s", e)
-            raise
+                            await asyncio.to_thread(
+                                self._client.set_bucket_versioning,
+                                bucket,
+                                VersioningConfig(status="Enabled"),
+                            )
+                            logger.info("Bucket versioning enabled for '%s'", bucket)
+                        except Exception as e:
+                            logger.warning("Failed to enable versioning on '%s': %s", bucket, e)
+
+                logger.info(
+                    "Successfully connected to MinIO at %s",
+                    self._settings.minio_endpoint,
+                )
+            except S3Error as e:
+                self._client = None
+                logger.error("Failed to initialize MinIO: %s", e)
+                raise
+            except Exception as e:
+                self._client = None
+                logger.error("Failed to connect to MinIO: %s", e)
+                raise
 
     async def shutdown(self) -> None:
         """Shutdown MinIO client."""
@@ -155,6 +166,7 @@ class MinIOStorage:
         content_type: str = "image/jpeg",
     ) -> str:
         """Store screenshot in MinIO screenshots bucket. Returns the object key."""
+        await self.ensure_initialized()
         bucket = self._settings.minio_screenshots_bucket
         await asyncio.to_thread(
             _minio_retry,
@@ -178,6 +190,7 @@ class MinIOStorage:
         content_type: str = "image/webp",
     ) -> str:
         """Store thumbnail in MinIO thumbnails bucket. Returns the object key."""
+        await self.ensure_initialized()
         bucket = self._settings.minio_thumbnails_bucket
         await asyncio.to_thread(
             _minio_retry,
@@ -196,11 +209,13 @@ class MinIOStorage:
 
     async def get_screenshot(self, object_key: str) -> bytes:
         """Retrieve screenshot bytes from MinIO screenshots bucket."""
+        await self.ensure_initialized()
         bucket = self._settings.minio_screenshots_bucket
         return await asyncio.to_thread(self._get_object_bytes, bucket, object_key)
 
     async def get_thumbnail(self, object_key: str) -> bytes:
         """Retrieve thumbnail bytes from MinIO thumbnails bucket."""
+        await self.ensure_initialized()
         bucket = self._settings.minio_thumbnails_bucket
         return await asyncio.to_thread(self._get_object_bytes, bucket, object_key)
 
@@ -250,10 +265,12 @@ class MinIOStorage:
         Uses HTTP Range GET to avoid loading entire objects into memory.
         Useful for large files where only a portion is needed.
         """
+        await self.ensure_initialized()
         return await asyncio.to_thread(self._get_object_range_sync, bucket, object_key, offset, length)
 
     async def delete_screenshots_by_session(self, session_id: str) -> int:
         """Delete all screenshots and thumbnails for a session prefix."""
+        await self.ensure_initialized()
         return await asyncio.to_thread(self._delete_by_session_sync, session_id)
 
     def _delete_by_session_sync(self, session_id: str) -> int:

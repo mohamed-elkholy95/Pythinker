@@ -1559,14 +1559,11 @@ class ExecutionAgent(BaseAgent):
         )
 
     def _can_downgrade_delivery_integrity_issues(self, issues: list[str]) -> bool:
-        """Allow downgrade only for non-critical integrity failures.
-
-        hallucination_ratio_critical is intentionally excluded: it is handled as a
-        gate warning (not a blocking issue) so it never reaches this check.
-        """
+        """Allow downgrade only for non-critical integrity failures."""
         critical_issue_tokens = {
             "stream_truncation_unresolved",
             "citation_integrity_unresolved",
+            "hallucination_ratio_critical",
         }
         for issue in issues:
             token = (issue or "").split(":", 1)[0].strip().lower()

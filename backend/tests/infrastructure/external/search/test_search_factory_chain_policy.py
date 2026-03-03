@@ -5,12 +5,15 @@ from unittest.mock import patch
 
 import pytest
 
+from app.domain.models.search import SearchResults
+from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.search import factory as search_factory
 from app.infrastructure.external.search.factory import (
     DEFAULT_PROVIDER_CHAIN,
     FallbackSearchEngine,
     get_search_engine_from_factory,
 )
+from app.infrastructure.external.search.provider_health_ranker import ProviderHealthRanker
 
 
 class _DummyEngine:
@@ -18,6 +21,30 @@ class _DummyEngine:
         self, query: str, date_range: str | None = None
     ):  # pragma: no cover - not exercised in this unit test
         raise NotImplementedError
+
+
+class _ExhaustedEngine:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
+        self.calls += 1
+        return ToolResult.error(
+            message="All 6 Serper API keys exhausted",
+            data=SearchResults(query=query, date_range=date_range, total_results=0, results=[]),
+        )
+
+
+class _HealthyEngine:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
+        self.calls += 1
+        return ToolResult.ok(
+            message="ok",
+            data=SearchResults(query=query, date_range=date_range, total_results=0, results=[]),
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -262,6 +289,29 @@ def test_provider_kwargs_apply_search_profile_settings() -> None:
     assert serper_kwargs["quota_cooldown_seconds"] == 900
     assert exa_kwargs["max_results"] == 13
     assert exa_kwargs["search_type"] == "neural"
+
+
+@pytest.mark.asyncio
+async def test_fallback_engine_reorders_chain_after_provider_exhaustion() -> None:
+    """Providers that repeatedly exhaust should be deprioritized on subsequent requests."""
+    exhausted = _ExhaustedEngine()
+    healthy = _HealthyEngine()
+    ranker = ProviderHealthRanker()
+
+    with patch("app.infrastructure.external.search.factory.get_provider_health_ranker", return_value=ranker):
+        engine = FallbackSearchEngine([("serper", exhausted), ("tavily", healthy)])
+
+        # First request: starts in configured order.
+        first = await engine.search("query one")
+        assert first.success is True
+        assert exhausted.calls == 1
+        assert healthy.calls == 1
+
+        # Second request: health ranker should place healthy provider first.
+        second = await engine.search("query two")
+        assert second.success is True
+        assert exhausted.calls == 1
+        assert healthy.calls == 2
 
 
 def test_provider_kwargs_fallback_to_safe_defaults_for_invalid_profile_values() -> None:
