@@ -25,6 +25,7 @@ class SandboxContextManager:
     _cache: dict[str, Any] | None = None
     _cache_timestamp: datetime | None = None
     _cache_ttl = timedelta(hours=24)
+    _warned_no_context: bool = False
 
     @classmethod
     def load_context(cls, force_reload: bool = False) -> dict[str, Any] | None:
@@ -73,7 +74,9 @@ class SandboxContextManager:
             except Exception as e:
                 logger.error(f"Failed to load context from {path}: {e}")
 
-        logger.warning("No sandbox context available - agents will use default environment knowledge")
+        if not cls._warned_no_context:
+            logger.warning("No sandbox context available - agents will use default environment knowledge")
+            cls._warned_no_context = True
         return None
 
     @classmethod
