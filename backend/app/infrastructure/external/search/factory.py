@@ -17,6 +17,7 @@ from app.core.search_provider_policy import (
 from app.domain.external.search import SearchEngine
 from app.domain.models.search import SearchResults
 from app.domain.models.tool_result import ToolResult
+from app.infrastructure.external.search.provider_health_ranker import get_provider_health_ranker
 
 logger = logging.getLogger(__name__)
 _missing_config_warned: set[str] = set()
@@ -101,21 +102,25 @@ class FallbackSearchEngine:
 
     def __init__(self, providers: list[tuple[str, SearchEngine]]):
         self._providers = providers
+        self._health_ranker = get_provider_health_ranker()
         chain = " -> ".join(name for name, _ in providers)
         logger.info(f"Search fallback chain enabled: {chain}")
 
     async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
         errors: list[str] = []
+        ordered_providers = self._rank_providers_by_health()
 
-        for index, (provider_name, engine) in enumerate(self._providers):
+        for index, (provider_name, engine) in enumerate(ordered_providers):
             try:
                 result = await engine.search(query, date_range)
             except Exception as e:
                 errors.append(f"{provider_name}: {e}")
+                self._health_ranker.record_error(provider_name)
                 logger.warning(f"Search provider {provider_name} raised exception, trying next: {e}")
                 continue
 
             if result.success:
+                self._health_ranker.record_success(provider_name)
                 if index > 0 and errors:
                     logger.warning(
                         "Search fallback recovered with provider %s after failures: %s",
@@ -126,9 +131,13 @@ class FallbackSearchEngine:
 
             error_message = result.message or "unknown error"
             errors.append(f"{provider_name}: {error_message}")
+            if self._looks_like_rate_limit_or_exhaustion(error_message):
+                self._health_ranker.record_429(provider_name)
+            else:
+                self._health_ranker.record_error(provider_name)
             logger.warning(f"Search provider {provider_name} failed, trying next: {error_message}")
 
-        chain = " -> ".join(name for name, _ in self._providers)
+        chain = " -> ".join(name for name, _ in ordered_providers)
         final_error = f"All search providers failed ({chain}): {'; '.join(errors) if errors else 'unknown error'}"
         return ToolResult.error(
             message=final_error,
@@ -138,6 +147,26 @@ class FallbackSearchEngine:
                 total_results=0,
                 results=[],
             ),
+        )
+
+    def _rank_providers_by_health(self) -> list[tuple[str, SearchEngine]]:
+        """Reorder providers using sliding-window health scoring."""
+        provider_map = dict(self._providers)
+        ranked_names = self._health_ranker.rank([name for name, _ in self._providers])
+        return [(name, provider_map[name]) for name in ranked_names if name in provider_map]
+
+    @staticmethod
+    def _looks_like_rate_limit_or_exhaustion(error_message: str) -> bool:
+        lowered = error_message.lower()
+        return any(
+            marker in lowered
+            for marker in (
+                "429",
+                "rate limit",
+                "quota",
+                "credits",
+                "exhausted",
+            )
         )
 
 
