@@ -6,12 +6,12 @@
 # from the host into running containers via the Docker API (tar+cp), bypassing
 # OrbStack's TCC/FDA bind-mount restriction on ~/Desktop/Projects. Files land
 # on the container's native ext4 filesystem, giving instant inotify events to
-# Vite and uvicorn --reload — no polling required.
+# Vite and optional uvicorn --reload — no polling required.
 #
 # HMR flow:
 #   Edit file → Compose Watch (tar+cp to container) → inotify fires →
 #     Frontend: Vite HMR → instant browser update (no page reload)
-#     Backend:  uvicorn --reload → Python auto-restart (~1s)
+#     Backend:  uvicorn --reload (when BACKEND_ENABLE_RELOAD=1) → Python auto-restart (~1s)
 #     Sandbox:  uvicorn --reload → Python auto-restart (~1s)
 #
 # Commands:
@@ -113,7 +113,7 @@ case "$CMD" in
         echo "  Pythinker Dev — Docker Compose Watch"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "  Frontend : ./frontend/src → /app/src  [Vite HMR]"
-        echo "  Backend  : ./backend/app  → /app/app  [uvicorn --reload]"
+        echo "  Backend  : ./backend/app  → /app/app  [uvicorn reload opt-in]"
         echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
         echo ""
         echo "  Tip: containers already running? Use ./dev.sh attach instead."
@@ -128,7 +128,7 @@ case "$CMD" in
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "  Watching for file changes (containers already running)..."
         echo "  Frontend : ./frontend/src → /app/src  [Vite HMR]"
-        echo "  Backend  : ./backend/app  → /app/app  [uvicorn --reload]"
+        echo "  Backend  : ./backend/app  → /app/app  [uvicorn reload opt-in]"
         echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
