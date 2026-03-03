@@ -289,6 +289,10 @@ class FeatureFlagsSettingsMixin:
     feature_taskgroup_enabled: bool = True  # Use TaskGroup instead of asyncio.gather
     # Phase 2: SSE Streaming v2
     feature_sse_v2: bool = False  # Enhanced streaming API with structured events
+    # SSE reconnection: grace period before cancelling a non-terminal stream exhaustion.
+    # When the SSE stream exhausts but the agent is still running, defer cancellation
+    # by this many seconds to allow the frontend to reconnect seamlessly.
+    sse_disconnect_non_terminal_grace_seconds: float = 120.0
     # Phase 3: Zero-Hallucination Defense
     feature_structured_outputs: bool = False  # Pydantic structured LLM outputs with validation
     # Phase 4: Parallel Memory Architecture
