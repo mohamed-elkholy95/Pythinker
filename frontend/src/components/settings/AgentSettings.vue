@@ -129,13 +129,13 @@
             class="telegram-status-value"
             :class="{
               'telegram-status-value-linked': isTelegramLinked,
-              'telegram-status-value-pending': !isTelegramLinked && !!telegramBindCommand
+              'telegram-status-value-pending': !isTelegramLinked && !!bindCommand
             }"
           >
             <template v-if="isTelegramLinked">
               Connected {{ telegramLinkedSender }}
             </template>
-            <template v-else-if="telegramBindCommand">
+            <template v-else-if="bindCommand">
               Activation pending
             </template>
             <template v-else>
@@ -146,20 +146,20 @@
         <div class="telegram-status-actions">
           <button
             class="telegram-inline-btn"
-            :disabled="isLoadingChannelStatus"
-            @click="loadLinkedChannelStatus"
+            :disabled="isRefreshing"
+            @click="handleRefreshStatus"
           >
-            <Loader2 v-if="isLoadingChannelStatus" class="w-3.5 h-3.5 animate-spin" />
+            <Loader2 v-if="isRefreshing" class="w-3.5 h-3.5 animate-spin" />
             <RefreshCw v-else class="w-3.5 h-3.5" />
             Refresh
           </button>
           <button
             v-if="!isTelegramLinked"
             class="telegram-primary-btn"
-            :disabled="isGeneratingTelegramCode"
-            @click="handleGenerateTelegramCode"
+            :disabled="isGenerating"
+            @click="generate"
           >
-            <Loader2 v-if="isGeneratingTelegramCode" class="w-3.5 h-3.5 animate-spin" />
+            <Loader2 v-if="isGenerating" class="w-3.5 h-3.5 animate-spin" />
             <Link2 v-else class="w-3.5 h-3.5" />
             Link Account
           </button>
@@ -174,26 +174,26 @@
         </div>
       </div>
 
-      <div v-if="telegramBindCommand && !isTelegramLinked" class="telegram-code-panel">
+      <div v-if="bindCommand && !isTelegramLinked" class="telegram-code-panel">
         <div class="telegram-code-header">
           <span class="telegram-code-label">Bind command</span>
-          <button class="telegram-inline-btn" @click="openTelegramDeepLink">
+          <button class="telegram-inline-btn" @click="openDeepLink">
             <ExternalLink class="w-3.5 h-3.5" />
             Open Telegram
           </button>
         </div>
 
         <div class="telegram-code-row">
-          <code class="telegram-code-value">{{ telegramBindCommand }}</code>
-          <button class="telegram-copy-btn" @click="copyTelegramCommand">
-            <Check v-if="telegramCommandCopied" class="w-3.5 h-3.5" />
+          <code class="telegram-code-value">{{ activeCommand }}</code>
+          <button class="telegram-copy-btn" @click="copyCommand">
+            <Check v-if="isCopied" class="w-3.5 h-3.5" />
             <Copy v-else class="w-3.5 h-3.5" />
           </button>
         </div>
 
-        <div v-if="telegramLinkExpiresIn > 0" class="telegram-countdown">
+        <div v-if="countdown > 0" class="telegram-countdown">
           <Clock3 class="w-3.5 h-3.5" />
-          Expires in {{ formatTelegramCountdown(telegramLinkExpiresIn) }}
+          Expires in {{ formatCountdown(countdown) }}
         </div>
       </div>
 
@@ -359,7 +359,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { showErrorToast } from '@/utils/toast'
@@ -381,8 +381,7 @@ import {
   AlertCircle
 } from 'lucide-vue-next'
 import { getSettings, updateSettings, type UserSettings } from '@/api/settings'
-import { generateLinkCode, getLinkedChannels } from '@/api/channelLinks'
-import type { LinkedChannel } from '@/api/channelLinks'
+import { useTelegramLink } from '@/composables/useTelegramLink'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -411,34 +410,29 @@ const timeoutPresets = [
   { label: '10m', value: 600 },
 ]
 
-const linkedChannels = ref<LinkedChannel[]>([])
-const isLoadingChannelStatus = ref(false)
-const isGeneratingTelegramCode = ref(false)
-const telegramBindCommand = ref<string | null>(null)
-const telegramBotUrl = ref<string | null>(null)
-const telegramDeepLinkUrl = ref<string | null>(null)
-const telegramLinkExpiresIn = ref(0)
-const telegramCommandCopied = ref(false)
-const channelConnectError = ref<string | null>(null)
-const channelConnectFeedback = ref<string | null>(null)
-let telegramCopyTimeout: ReturnType<typeof window.setTimeout> | null = null
-let channelConnectFeedbackTimeout: ReturnType<typeof window.setTimeout> | null = null
-let telegramLinkStatusPollInterval: ReturnType<typeof window.setInterval> | null = null
-let telegramLinkCountdownInterval: ReturnType<typeof window.setInterval> | null = null
+// ── Telegram composable ──
+const {
+  isTelegramLinked,
+  isGenerating,
+  bindCommand,
+  activeCommand,
+  isCopied,
+  error: channelConnectError,
+  feedback: channelConnectFeedback,
+  countdown,
+  senderDisplay,
+  generate,
+  copyCommand,
+  openDeepLink,
+  loadChannels,
+  formatCountdown,
+} = useTelegramLink()
 
-const telegramLinkedChannel = computed(() =>
-  linkedChannels.value.find((channel) => channel.channel === 'telegram') ?? null
-)
-
-const isTelegramLinked = computed(() => telegramLinkedChannel.value !== null)
+const isRefreshing = ref(false)
 
 const telegramLinkedSender = computed(() => {
-  const senderId = telegramLinkedChannel.value?.sender_id || ''
-  const parts = senderId.split('|')
-  if (parts.length > 1 && parts[1]) {
-    return `as @${parts[1]}`
-  }
-  return senderId ? `as ${senderId}` : ''
+  const raw = senderDisplay.value
+  return raw ? `as ${raw}` : ''
 })
 
 const loadAgentSettings = async () => {
@@ -472,145 +466,12 @@ const toggleSkillAutoTrigger = async () => {
   await saveSettings()
 }
 
-const loadLinkedChannelStatus = async (options: { silent?: boolean } = {}) => {
-  if (!options.silent) {
-    isLoadingChannelStatus.value = true
-  }
-  channelConnectError.value = null
+const handleRefreshStatus = async () => {
+  isRefreshing.value = true
   try {
-    linkedChannels.value = await getLinkedChannels()
-    if (isTelegramLinked.value) {
-      clearTelegramLinkDraft()
-      if (telegramLinkStatusPollInterval) {
-        window.clearInterval(telegramLinkStatusPollInterval)
-        telegramLinkStatusPollInterval = null
-      }
-    }
-  } catch {
-    if (!options.silent) {
-      channelConnectError.value = 'Unable to load Telegram status.'
-    }
+    await loadChannels()
   } finally {
-    if (!options.silent) {
-      isLoadingChannelStatus.value = false
-    }
-  }
-}
-
-const setChannelConnectFeedback = (message: string, timeoutMs = 3500) => {
-  channelConnectFeedback.value = message
-  if (channelConnectFeedbackTimeout) {
-    window.clearTimeout(channelConnectFeedbackTimeout)
-  }
-  channelConnectFeedbackTimeout = window.setTimeout(() => {
-    channelConnectFeedback.value = null
-  }, timeoutMs)
-}
-
-const formatTelegramCountdown = (seconds: number) => {
-  const safeSeconds = Math.max(seconds, 0)
-  const minutes = Math.floor(safeSeconds / 60)
-  const remainder = safeSeconds % 60
-  return `${minutes}:${remainder.toString().padStart(2, '0')}`
-}
-
-const clearTelegramLinkDraft = () => {
-  telegramBindCommand.value = null
-  telegramBotUrl.value = null
-  telegramDeepLinkUrl.value = null
-  telegramLinkExpiresIn.value = 0
-  telegramCommandCopied.value = false
-  if (telegramLinkCountdownInterval) {
-    window.clearInterval(telegramLinkCountdownInterval)
-    telegramLinkCountdownInterval = null
-  }
-}
-
-const startTelegramLinkCountdown = () => {
-  if (telegramLinkCountdownInterval) {
-    window.clearInterval(telegramLinkCountdownInterval)
-  }
-  telegramLinkCountdownInterval = window.setInterval(() => {
-    telegramLinkExpiresIn.value -= 1
-    if (telegramLinkExpiresIn.value <= 0) {
-      clearTelegramLinkDraft()
-      setChannelConnectFeedback('Telegram link expired. Generate a new link.')
-      if (telegramLinkStatusPollInterval) {
-        window.clearInterval(telegramLinkStatusPollInterval)
-        telegramLinkStatusPollInterval = null
-      }
-    }
-  }, 1000)
-}
-
-const openTelegramDeepLink = () => {
-  const targetUrl = (
-    telegramBotUrl.value && telegramBindCommand.value
-      ? `${telegramBotUrl.value.trim().replace(/\/+$/, '')}?text=${encodeURIComponent(telegramBindCommand.value)}`
-      : telegramDeepLinkUrl.value || telegramBotUrl.value
-  )
-  if (!targetUrl) {
-    channelConnectError.value = 'Telegram link is unavailable. Generate a new link.'
-    return
-  }
-
-  const popup = window.open(targetUrl, '_blank', 'noopener,noreferrer')
-  if (popup) {
-    setChannelConnectFeedback('Telegram opened. Complete activation in chat.')
-  } else {
-    setChannelConnectFeedback('Popup blocked. Use the copied bind command manually.')
-  }
-}
-
-const startTelegramLinkStatusPolling = () => {
-  if (telegramLinkStatusPollInterval) {
-    window.clearInterval(telegramLinkStatusPollInterval)
-  }
-  telegramLinkStatusPollInterval = window.setInterval(() => {
-    void loadLinkedChannelStatus({ silent: true }).then(() => {
-      if (isTelegramLinked.value) {
-        setChannelConnectFeedback('Telegram connected. Your chats are now in your task list.')
-      }
-    })
-  }, 5000)
-}
-
-const handleGenerateTelegramCode = async () => {
-  isGeneratingTelegramCode.value = true
-  channelConnectError.value = null
-  try {
-    const result = await generateLinkCode('telegram')
-    clearTelegramLinkDraft()
-    telegramBindCommand.value = result.bind_command || `:bind ${result.code}`
-    telegramBotUrl.value = result.bot_url || null
-    telegramDeepLinkUrl.value = result.deep_link_url || result.bot_url || null
-    telegramLinkExpiresIn.value = result.expires_in_seconds
-    startTelegramLinkCountdown()
-    openTelegramDeepLink()
-    startTelegramLinkStatusPolling()
-  } catch {
-    channelConnectError.value = 'Failed to generate Telegram setup code.'
-  } finally {
-    isGeneratingTelegramCode.value = false
-  }
-}
-
-const copyTelegramCommand = async () => {
-  if (!telegramBindCommand.value) {
-    return
-  }
-  try {
-    await navigator.clipboard.writeText(telegramBindCommand.value)
-    telegramCommandCopied.value = true
-    setChannelConnectFeedback('Bind command copied.')
-    if (telegramCopyTimeout) {
-      window.clearTimeout(telegramCopyTimeout)
-    }
-    telegramCopyTimeout = window.setTimeout(() => {
-      telegramCommandCopied.value = false
-    }, 2000)
-  } catch {
-    channelConnectError.value = 'Failed to copy command.'
+    isRefreshing.value = false
   }
 }
 
@@ -637,29 +498,7 @@ const saveSettings = async () => {
 
 onMounted(async () => {
   await loadAgentSettings()
-  await loadLinkedChannelStatus()
-})
-
-onUnmounted(() => {
-  if (telegramCopyTimeout) {
-    window.clearTimeout(telegramCopyTimeout)
-    telegramCopyTimeout = null
-  }
-
-  if (channelConnectFeedbackTimeout) {
-    window.clearTimeout(channelConnectFeedbackTimeout)
-    channelConnectFeedbackTimeout = null
-  }
-
-  if (telegramLinkStatusPollInterval) {
-    window.clearInterval(telegramLinkStatusPollInterval)
-    telegramLinkStatusPollInterval = null
-  }
-
-  if (telegramLinkCountdownInterval) {
-    window.clearInterval(telegramLinkCountdownInterval)
-    telegramLinkCountdownInterval = null
-  }
+  await loadChannels()
 })
 </script>
 
