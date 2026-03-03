@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/channel-links", tags=["channel-links"])
 
 # Link code configuration
-_CODE_ALPHABET = string.ascii_letters + string.digits
+_CODE_ALPHABET = string.ascii_uppercase + string.digits
 _CODE_LENGTH = 22
 _CODE_TTL_SECONDS = 1800  # 30 minutes
 _REDIS_KEY_PREFIX = "channel_link"

@@ -172,6 +172,7 @@ class ListSessionItem(BaseModel):
     status: SessionStatus
     unread_message_count: int
     is_shared: bool = False
+    source: str = "web"
 
 
 class ListSessionResponse(BaseModel):
