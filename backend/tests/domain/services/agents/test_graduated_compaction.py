@@ -311,10 +311,7 @@ class TestAutoCompactRouting:
         memory._check_auto_compact()
 
         # Check that graduated compaction was used (one-liner markers)
-        has_graduated_marker = any(
-            "graduated-compacted" in msg.get("content", "")
-            for msg in memory.messages
-        )
+        has_graduated_marker = any("graduated-compacted" in msg.get("content", "") for msg in memory.messages)
         assert has_graduated_marker
 
     def test_auto_compact_uses_smart_when_graduated_disabled(self):
@@ -333,10 +330,7 @@ class TestAutoCompactRouting:
         memory._check_auto_compact()
 
         # Check that smart_compact was used (compacted markers)
-        has_compacted_marker = any(
-            "(compacted)" in msg.get("content", "")
-            for msg in memory.messages
-        )
+        has_compacted_marker = any("(compacted)" in msg.get("content", "") for msg in memory.messages)
         assert has_compacted_marker
 
 
@@ -359,12 +353,15 @@ class TestDetectSuccess:
 class TestIsAlreadyCompacted:
     """_is_already_compacted checks all compaction markers."""
 
-    @pytest.mark.parametrize("marker", [
-        "(compacted)",
-        "(removed)",
-        "graduated-compacted",
-        "_stored_externally",
-    ])
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            "(compacted)",
+            "(removed)",
+            "graduated-compacted",
+            "_stored_externally",
+        ],
+    )
     def test_detects_marker(self, marker):
         assert Memory._is_already_compacted(f"some content with {marker} in it") is True
 

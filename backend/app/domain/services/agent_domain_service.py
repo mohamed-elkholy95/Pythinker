@@ -406,9 +406,7 @@ class AgentDomainService:
                                             limit=2,
                                         )
                                         if mem_results:
-                                            memory_context = "\n".join(
-                                                f"- {m.memory.content}" for m in mem_results
-                                            )
+                                            memory_context = "\n".join(f"- {m.memory.content}" for m in mem_results)
                                     except Exception:
                                         logger.debug("Fast path memory retrieval failed", exc_info=True)
 

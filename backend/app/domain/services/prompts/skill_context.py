@@ -195,26 +195,19 @@ async def expand_dynamic_context(content: str, skill_source: "SkillSource | None
             output = f"[Command blocked: {error_msg}]"
         else:
             try:
-                # Run command with timeout using shell=False for security
-                result = await asyncio.wait_for(
-                    asyncio.get_running_loop().run_in_executor(
-                        None,
-                        lambda args=parsed_args: subprocess.run(  # noqa: S603 - Validated command execution in executor for skill dynamic context
-                            args,
-                            shell=False,  # SECURITY: Never use shell=True
-                            capture_output=True,
-                            text=True,
-                            timeout=30,
-                            # Prevent environment variable injection
-                            env={},
-                        ),
-                    ),
-                    timeout=35,
+                # Run command with timeout using create_subprocess_exec (never shell=True).
+                process = await asyncio.create_subprocess_exec(
+                    *parsed_args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    # Prevent environment variable injection.
+                    env={},
                 )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=35)
+                stdout_text = stdout.decode("utf-8", errors="replace").strip()
+                stderr_text = stderr.decode("utf-8", errors="replace").strip()
 
-                output = (
-                    result.stdout.strip() if result.returncode == 0 else f"[Command failed: {result.stderr.strip()}]"
-                )
+                output = stdout_text if process.returncode == 0 else f"[Command failed: {stderr_text}]"
             except (TimeoutError, subprocess.TimeoutExpired):
                 output = "[Command timed out]"
             except FileNotFoundError:
