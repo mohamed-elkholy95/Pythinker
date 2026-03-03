@@ -757,19 +757,37 @@ class AgentDomainService:
                             terminal_status = SessionStatus.FAILED
                         else:
                             # Orphaned session — task lost but status never updated.
-                            # This commonly happens when cancellation/reload races
-                            # with SSE reconnect and no terminal event was persisted.
-                            logger.warning(
-                                "Session %s is RUNNING but has no active task; marking CANCELLED",
-                                session_id,
-                            )
-                            await self._session_repository.update_status(session_id, SessionStatus.CANCELLED)
-                            interruption_event = ErrorEvent(
-                                error="Session task was interrupted before completion (for example by cancellation or service reload). Please retry."
-                            )
-                            await self._session_repository.add_event(session_id, interruption_event)
-                            yield interruption_event
-                            terminal_status = SessionStatus.CANCELLED
+                            # Guard: if the session was updated very recently (< 30s),
+                            # this is likely a reconnect race — the teardown just
+                            # cleared task_id while the agent asyncio task is still
+                            # alive.  Yield an idle DoneEvent instead of cancelling
+                            # a potentially live session.
+                            session_age = (datetime.now(UTC) - session.updated_at).total_seconds() if session else 999
+                            if session_age < 30.0:
+                                logger.info(
+                                    "Session %s is RUNNING with no task but updated %.1fs ago — "
+                                    "likely reconnect race, emitting done instead of cancelling",
+                                    session_id,
+                                    session_age,
+                                )
+                                yield DoneEvent(
+                                    title=session.title if session else "Session active",
+                                    summary="Session is being processed. Please wait.",
+                                )
+                                terminal_status = SessionStatus.COMPLETED
+                            else:
+                                logger.warning(
+                                    "Session %s is RUNNING but has no active task (stale %.1fs); marking CANCELLED",
+                                    session_id,
+                                    session_age,
+                                )
+                                await self._session_repository.update_status(session_id, SessionStatus.CANCELLED)
+                                interruption_event = ErrorEvent(
+                                    error="Session task was interrupted before completion (for example by cancellation or service reload). Please retry."
+                                )
+                                await self._session_repository.add_event(session_id, interruption_event)
+                                yield interruption_event
+                                terminal_status = SessionStatus.CANCELLED
                     else:
                         # Session is idle — no active task, no new input.
                         # Yield a DoneEvent so the frontend receives a terminal

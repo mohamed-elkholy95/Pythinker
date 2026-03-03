@@ -68,6 +68,7 @@ async def test_teardown_without_destroy_keeps_sandbox_reference() -> None:
     session_repo = AsyncMock()
     session_repo.find_by_id = AsyncMock(return_value=session)
     session_repo.save = AsyncMock()
+    session_repo.update_by_id = AsyncMock()
 
     task = MagicMock()
     task_cls = MagicMock()
@@ -85,7 +86,8 @@ async def test_teardown_without_destroy_keeps_sandbox_reference() -> None:
     assert session.task_id is None
     assert session.sandbox_id == "sandbox-id"
     assert session.sandbox_owned is True
-    session_repo.save.assert_awaited_once_with(session)
+    # Atomic update_by_id replaces the old save() for task_id+status
+    session_repo.update_by_id.assert_awaited_once_with(session.id, {"task_id": None})
 
 
 @pytest.mark.asyncio
