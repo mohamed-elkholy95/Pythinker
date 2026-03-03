@@ -344,6 +344,12 @@ class FeatureFlagsSettingsMixin:
     hallucination_escalation_threshold: float = 0.15  # 15% hallucination rate triggers escalation
     hallucination_escalation_min_samples: int = 10  # Min tool calls before rate is meaningful
 
+    # Context compression thresholds
+    # Trigger compression earlier (80%) to give headroom instead of near-exhaustion (96%+)
+    context_compression_trigger_pct: float = 0.80
+    # Target after compression: compress down to 65% to leave room for more turns
+    context_compression_target_pct: float = 0.65
+
     # Compression context preservation — inject failure lessons during token budget compression
     feature_compression_context_preservation_enabled: bool = True
 
