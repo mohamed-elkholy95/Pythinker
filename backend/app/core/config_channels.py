@@ -38,6 +38,8 @@ class ChannelSettingsMixin:
     telegram_pdf_include_toc: bool = True
     telegram_pdf_toc_min_sections: int = 3
     telegram_pdf_unicode_font: str = "DejaVuSans"
+    telegram_pdf_renderer: str = "playwright"  # reportlab | playwright
+    telegram_pdf_renderer_timeout_ms: int = 20000
     telegram_pdf_rate_limit_per_minute: int = 5
     telegram_pdf_file_id_cache_redis_enabled: bool = False
     telegram_pdf_max_generation_seconds: int = 30
