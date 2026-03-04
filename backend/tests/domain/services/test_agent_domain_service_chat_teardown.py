@@ -168,6 +168,30 @@ async def test_chat_no_active_task_within_grace_period_emits_done_not_cancel() -
 
 
 @pytest.mark.asyncio
+async def test_chat_no_active_task_recent_running_session_with_naive_updated_at_emits_done() -> None:
+    """Naive updated_at timestamps must not crash age arithmetic in reconnect races."""
+    task = None
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.RUNNING,
+        task_id=None,
+        sandbox_id="sandbox-id",
+        sandbox_owned=True,
+        # Emulate legacy Mongo records serialized without timezone info
+        updated_at=datetime.now(UTC).replace(tzinfo=None, microsecond=0),
+    )
+
+    service, teardown = _build_service(session, task)
+    events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
+
+    assert len(events) == 1
+    assert isinstance(events[0], DoneEvent)
+    teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
+
+
+@pytest.mark.asyncio
 async def test_chat_no_active_task_running_with_persisted_done_event_emits_done() -> None:
     """When status is stale RUNNING but a DoneEvent is already persisted, recover as COMPLETED."""
     task = None
