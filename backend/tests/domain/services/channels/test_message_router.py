@@ -212,7 +212,7 @@ class TestRouteInbound:
         repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
         repo.get_session_activity = AsyncMock(
             return_value={
-                "last_inbound_at": datetime(2026, 3, 4, 10, 0, 0),
+                "last_inbound_at": datetime(2026, 3, 4, 10, 0, 0),  # noqa: DTZ001 - explicit naive-timestamp test case
             }
         )
 
@@ -324,6 +324,37 @@ class TestRouteInbound:
         assert len(replies) == 1
         repo.touch_last_inbound_at.assert_awaited_once_with("user-abc", ChannelType.TELEGRAM, "tg-chat-99")
         repo.touch_last_outbound_at.assert_awaited_once_with("user-abc", ChannelType.TELEGRAM, "tg-chat-99")
+
+    @pytest.mark.asyncio
+    async def test_route_sends_long_research_ack_before_agent_reply(self) -> None:
+        """Long Telegram research-report prompts receive an immediate 10-15 minute estimate."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound(
+            "Create a comprehensive research report comparing GLM, Kimi, MiniMax, Claude, Codex, and Qwen pricing and coding capabilities"
+        )
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 2
+        assert "research report" in replies[0].content.lower()
+        assert "10-15 minutes" in replies[0].content
+        assert replies[1].content == "Hello from the agent!"
+
+    @pytest.mark.asyncio
+    async def test_route_sends_short_research_ack_with_faster_estimate(self) -> None:
+        """Shorter Telegram research-report prompts receive a faster estimate."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("Create a research report about Docker setup basics")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 2
+        assert "5-10 minutes" in replies[0].content
+        assert replies[1].content == "Hello from the agent!"
 
 
 # ---------------------------------------------------------------------------
