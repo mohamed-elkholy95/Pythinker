@@ -1247,6 +1247,63 @@ class BaseAgent:
                 truncated[key] = str_value
         return truncated
 
+    def _parse_tool_arguments(self, raw_arguments: Any, *, function_name: str) -> dict[str, Any]:
+        """Parse tool-call arguments using strict JSON object semantics.
+
+        Tool-call arguments are execution-critical. They must be a JSON object
+        so we can safely pass them as ``**kwargs``. Unlike generic LLM output
+        parsing, do not run permissive "repair" heuristics here because those
+        can silently transform prose/truncated text into incorrect keys.
+        """
+        if raw_arguments is None:
+            return {}
+
+        if isinstance(raw_arguments, dict):
+            return raw_arguments
+
+        if not isinstance(raw_arguments, str):
+            raise ValueError(f"expected JSON object string, got {type(raw_arguments).__name__}")
+
+        stripped = raw_arguments.strip()
+        if not stripped or stripped.lower() == "null":
+            return {}
+
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid JSON: {exc.msg}") from exc
+
+        if parsed is None:
+            return {}
+        if not isinstance(parsed, dict):
+            raise ValueError(f"expected JSON object for tool '{function_name}', got {type(parsed).__name__}")
+        return parsed
+
+    def _tool_requires_arguments(self, function_name: str) -> bool:
+        """Return True when the tool schema declares required parameters."""
+        for tool_def in self.get_available_tools() or []:
+            func = tool_def.get("function", {})
+            if func.get("name") != function_name:
+                continue
+            params = func.get("parameters", {}) or {}
+            required = params.get("required", []) or []
+            return len(required) > 0
+        return False
+
+    def _invalid_tool_args_result(self, *, function_name: str, raw_arguments: Any, error: ValueError) -> ToolResult:
+        """Create a deterministic error result for malformed tool-call arguments."""
+        raw_preview = self._truncate_text(str(raw_arguments), 240)
+        logger.warning(
+            "Skipping malformed tool call '%s': %s (raw_args=%s)",
+            function_name,
+            error,
+            raw_preview,
+        )
+        return ToolResult.error(
+            f"Invalid JSON arguments for tool '{function_name}'. "
+            "Please resend this tool call with a valid JSON object."
+        )
+
     def _to_tool_call(self, tc: dict) -> Any:
         """Convert an LLM tool_call dict to a ParallelToolExecutor ToolCall.
 
@@ -1505,7 +1562,39 @@ class BaseAgent:
                         continue
                     function_name = tool_call["function"]["name"]
                     tool_call_id = tool_call.get("id") or str(uuid.uuid4())
-                    function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
+                    raw_function_args = tool_call["function"].get("arguments", "{}")
+                    try:
+                        function_args = self._parse_tool_arguments(raw_function_args, function_name=function_name)
+                    except ValueError as parse_error:
+                        self._recent_truncation_count += 1
+                        parse_result = self._invalid_tool_args_result(
+                            function_name=function_name,
+                            raw_arguments=raw_function_args,
+                            error=parse_error,
+                        )
+                        tool_name = function_name or "unknown_tool"
+                        with contextlib.suppress(Exception):
+                            tool_name = self.get_tool(function_name).name
+                        yield self._create_tool_event(
+                            tool_call_id=tool_call_id,
+                            tool_name=tool_name,
+                            function_name=function_name,
+                            function_args={},
+                            status=ToolStatus.CALLED,
+                            function_result=parse_result,
+                        )
+                        tool_responses.append(
+                            {
+                                "role": "tool",
+                                "function_name": function_name,
+                                "tool_call_id": tool_call_id,
+                                "content": self._serialize_tool_result_for_memory(
+                                    parse_result, function_name=function_name
+                                ),
+                            }
+                        )
+                        continue
+
                     tool = self.get_tool(function_name)
                     security_assessment = self._security_assessor.assess_action(function_name, function_args)
                     confirmation_state = "awaiting_confirmation" if security_assessment.requires_confirmation else None
@@ -1625,7 +1714,38 @@ class BaseAgent:
 
                     function_name = tool_call["function"]["name"]
                     tool_call_id = tool_call.get("id") or str(uuid.uuid4())
-                    function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
+                    raw_function_args = tool_call["function"].get("arguments", "{}")
+                    try:
+                        function_args = self._parse_tool_arguments(raw_function_args, function_name=function_name)
+                    except ValueError as parse_error:
+                        self._recent_truncation_count += 1
+                        parse_result = self._invalid_tool_args_result(
+                            function_name=function_name,
+                            raw_arguments=raw_function_args,
+                            error=parse_error,
+                        )
+                        tool_name = function_name or "unknown_tool"
+                        with contextlib.suppress(Exception):
+                            tool_name = self.get_tool(function_name).name
+                        yield self._create_tool_event(
+                            tool_call_id=tool_call_id,
+                            tool_name=tool_name,
+                            function_name=function_name,
+                            function_args={},
+                            status=ToolStatus.CALLED,
+                            function_result=parse_result,
+                        )
+                        tool_responses.append(
+                            {
+                                "role": "tool",
+                                "function_name": function_name,
+                                "tool_call_id": tool_call_id,
+                                "content": self._serialize_tool_result_for_memory(
+                                    parse_result, function_name=function_name
+                                ),
+                            }
+                        )
+                        continue
 
                     tool = self.get_tool(function_name)
 
@@ -2008,18 +2128,29 @@ class BaseAgent:
             # Detect truncated responses via _finish_reason from LLM adapters
             is_truncated = message.get("_finish_reason") == "length" or message.get("_tool_args_truncated", False)
 
-            # Also detect truncation heuristically: if tool calls have
-            # empty args (repaired from malformed JSON), the LLM likely
-            # hit its output limit without reporting finish_reason=length.
-            # This catches providers like GLM that always say "stop".
+            # Also detect malformed/truncated tool-call arguments heuristically.
+            # Some providers return finish_reason="stop" even when tool args are
+            # cut off or malformed. Validate args strictly before execution.
             if not is_truncated and message.get("tool_calls"):
                 for tc in message.get("tool_calls", []):
                     func = tc.get("function", {}) if isinstance(tc, dict) else {}
-                    args = func.get("arguments", "")
-                    if args in ("{}", "", "null"):
-                        tool_name = func.get("name", "unknown")
+                    tool_name = func.get("name", "unknown")
+                    raw_args = func.get("arguments", "")
+
+                    try:
+                        parsed_args = self._parse_tool_arguments(raw_args, function_name=tool_name)
+                    except ValueError as parse_err:
                         logger.warning(
-                            "Tool call '%s' has empty args (likely truncated output) — treating as truncation",
+                            "Tool call '%s' has malformed args (%s) — treating as truncation",
+                            tool_name,
+                            parse_err,
+                        )
+                        is_truncated = True
+                        break
+
+                    if not parsed_args and self._tool_requires_arguments(tool_name):
+                        logger.warning(
+                            "Tool call '%s' has empty args despite required parameters — treating as truncation",
                             tool_name,
                         )
                         is_truncated = True
