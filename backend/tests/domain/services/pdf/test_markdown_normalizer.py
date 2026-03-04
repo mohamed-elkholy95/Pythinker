@@ -73,6 +73,17 @@ Result improved [2].
     assert normalized.unresolved_citations == []
 
 
+def test_normalizer_inserts_spacing_between_adjacent_citation_links() -> None:
+    content = """# Report
+
+Grouped evidence [10][11][12].
+"""
+
+    normalized = normalize_markdown_for_pdf(content, [])
+
+    assert "[10](#ref-10) [11](#ref-11) [12](#ref-12)" in normalized.markdown
+
+
 def test_normalizer_merges_existing_references_with_structured_sources() -> None:
     sources = [
         SourceCitation(
