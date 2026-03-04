@@ -79,3 +79,26 @@ async def test_browser_navigate_treats_default_ports_as_same_page() -> None:
     assert second.success is True
     assert "already visited" in (second.message or "").lower()
     assert mock_browser.navigate.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_browser_navigate_marks_http_404_as_failed_retrieval() -> None:
+    """HTTP error responses should be surfaced as failed retrievals."""
+    mock_browser = MagicMock()
+    mock_browser.navigate = AsyncMock(
+        return_value=ToolResult(
+            success=True,
+            message="ok",
+            data={
+                "url": "https://example.com/missing",
+                "status": 404,
+                "content": "Not Found",
+            },
+        ),
+    )
+
+    tool = BrowserTool(browser=mock_browser)
+    result = await tool.browser_navigate("https://example.com/missing")
+
+    assert result.success is False
+    assert "404" in (result.message or "")
