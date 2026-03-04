@@ -133,6 +133,7 @@ class FileService:
             raise BadRequestException("sudo is not allowed in this sandbox")
         # Check if file exists
         if not os.path.exists(file) and not sudo:
+            logger.info("File read miss: %s", file)
             raise ResourceNotFoundException(f"File does not exist: {file}")
 
         try:
