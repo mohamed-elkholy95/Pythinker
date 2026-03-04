@@ -60,6 +60,8 @@ class NanobotGateway:
 
     # Seconds without a successful channel poll before emitting a WARNING.
     POLL_WATCHDOG_TIMEOUT: float = 20.0
+    # Grace window for long-running inbound routing before considering it a stall.
+    INBOUND_PROCESSING_WARN_TIMEOUT: float = 180.0
 
     def __init__(
         self,
@@ -96,6 +98,8 @@ class NanobotGateway:
         self._watchdog_task: asyncio.Task[None] | None = None
         # Signalled by _consume_inbound on each successful bus poll iteration.
         self._activity_event: asyncio.Event = asyncio.Event()
+        # Monotonic timestamp when current inbound message routing started.
+        self._inbound_processing_started_monotonic: float | None = None
 
         # Build nanobot Config from Pythinker settings
         channels_cfg = ChannelsConfig(
@@ -242,6 +246,25 @@ class NanobotGateway:
                         timeout=self.POLL_WATCHDOG_TIMEOUT,
                     )
                 except TimeoutError:
+                    now = asyncio.get_running_loop().time()
+                    processing_started = self._inbound_processing_started_monotonic
+                    if processing_started is not None:
+                        processing_age = now - processing_started
+                        if processing_age < self.INBOUND_PROCESSING_WARN_TIMEOUT:
+                            logger.debug(
+                                "NanobotGateway: no poll activity while processing inbound message (%.1fs, grace %.0fs)",
+                                processing_age,
+                                self.INBOUND_PROCESSING_WARN_TIMEOUT,
+                            )
+                            continue
+                        logger.warning(
+                            "NanobotGateway: inbound processing appears stalled for %.1fs without channel poll activity "
+                            "(poll timeout %.0fs)",
+                            processing_age,
+                            self.POLL_WATCHDOG_TIMEOUT,
+                        )
+                        continue
+
                     logger.warning(
                         "NanobotGateway: no channel poll activity for %.0fs — "
                         "possible event-loop block or Telegram/Discord connection stall",
@@ -268,6 +291,7 @@ class NanobotGateway:
                     continue
 
                 self._activity_event.set()  # Signal successful message receipt to watchdog
+                self._inbound_processing_started_monotonic = asyncio.get_running_loop().time()
                 pt_msg = self._convert_inbound(nb_msg)
                 logger.info(
                     "Inbound message from %s sender=%s chat=%s",
@@ -286,6 +310,10 @@ class NanobotGateway:
                         nb_msg.channel,
                         nb_msg.chat_id,
                     )
+                finally:
+                    self._inbound_processing_started_monotonic = None
+                    # Route completion counts as poll activity for watchdog health.
+                    self._activity_event.set()
         except asyncio.CancelledError:
             logger.info("Inbound consumer cancelled")
             raise
