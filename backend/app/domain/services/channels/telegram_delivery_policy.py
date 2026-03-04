@@ -67,6 +67,7 @@ class TelegramDeliveryPolicy:
         toc_min_sections: int = 3,
         unicode_font: str = "DejaVuSans",
         rate_limit_per_minute: int = 5,
+        force_long_text_pdf: bool = False,
         temp_dir: Path | None = None,
         rate_limiter: TelegramPdfRateLimiter | None = None,
     ) -> None:
@@ -79,6 +80,7 @@ class TelegramDeliveryPolicy:
         self._toc_min_sections = toc_min_sections
         self._unicode_font = unicode_font
         self._rate_limit_per_minute = rate_limit_per_minute
+        self._force_long_text_pdf = force_long_text_pdf
         self._temp_dir = temp_dir or Path("/tmp/pythinker-telegram-pdf")
         self._temp_dir.mkdir(parents=True, exist_ok=True)
         self._rate_limiter = rate_limiter or InMemoryTelegramPdfRateLimiter()
@@ -134,7 +136,9 @@ class TelegramDeliveryPolicy:
         if not sanitized_content:
             return []
 
-        if self._is_borderline(event_type, sanitized_content) and not force_pdf:
+        long_content = self._is_long_content(event_type, sanitized_content)
+
+        if self._is_borderline(event_type, sanitized_content) and not force_pdf and not self._force_long_text_pdf:
             return [
                 self._build_text_outbound(
                     event_type,
@@ -155,10 +159,14 @@ class TelegramDeliveryPolicy:
         if not self._should_generate_pdf(event_type, sanitized_content, force_pdf=force_pdf):
             return [self._build_text_outbound(event_type, sanitized_title, sanitized_content, source)]
 
+        allow_text_fallback = not (self._force_long_text_pdf and (long_content or force_pdf))
+
         rate_limit_key = f"telegram_pdf:{user_id}:{source.chat_id}"
         allowed = await self._rate_limiter.allow(rate_limit_key, self._rate_limit_per_minute)
         if not allowed:
             logger.info("telegram.pdf.generate.fallback reason=rate_limit user=%s chat=%s", user_id, source.chat_id)
+            if not allow_text_fallback:
+                return [self._build_pdf_required_retry_outbound(source, reason="rate_limit")]
             return [
                 self._build_text_outbound(
                     event_type,
@@ -183,6 +191,7 @@ class TelegramDeliveryPolicy:
                 content=sanitized_content,
                 source=source,
                 sources=sources,
+                allow_text_fallback=allow_text_fallback,
             )
             return [ack, pdf_outbound]
 
@@ -193,6 +202,7 @@ class TelegramDeliveryPolicy:
                 content=sanitized_content,
                 source=source,
                 sources=sources,
+                allow_text_fallback=allow_text_fallback,
             )
         ]
 
@@ -211,6 +221,10 @@ class TelegramDeliveryPolicy:
         lower_bound = int(threshold * 0.8)
         return lower_bound <= len(content) < threshold
 
+    def _is_long_content(self, event_type: str, content: str) -> bool:
+        threshold = self._report_min_chars if event_type == "report" else self._message_min_chars
+        return len(content) >= threshold
+
     def _looks_report_like(self, content: str) -> bool:
         heading_count = len(re.findall(r"(?m)^#{1,6}\s+", content))
         has_citations = bool(re.search(r"(?im)\breferences?\b|\bsources?\b|\[\d+\]", content))
@@ -224,6 +238,7 @@ class TelegramDeliveryPolicy:
         content: str,
         source: InboundMessage,
         sources: list[SourceCitation] | None,
+        allow_text_fallback: bool,
     ) -> OutboundMessage:
         logger.info("telegram.pdf.generate.start chat=%s title=%s", source.chat_id, title)
         try:
@@ -257,6 +272,8 @@ class TelegramDeliveryPolicy:
             reason = type(exc).__name__.lower()
             pm.telegram_pdf_generation_failed_total.inc({"reason": reason})
             logger.exception("telegram.pdf.generate.fallback reason=%s title=%s", reason, title)
+            if not allow_text_fallback:
+                return self._build_pdf_required_retry_outbound(source, reason=reason)
             return self._build_text_outbound(
                 event_type,
                 title,
@@ -264,6 +281,24 @@ class TelegramDeliveryPolicy:
                 source,
                 metadata={"delivery_mode": "text", "pdf_fallback_reason": reason},
             )
+
+    def _build_pdf_required_retry_outbound(
+        self,
+        source: InboundMessage,
+        *,
+        reason: str,
+    ) -> OutboundMessage:
+        if reason == "rate_limit":
+            content = "PDF delivery is temporarily rate-limited. Please wait a minute and try /pdf again."
+        else:
+            content = "This response requires PDF delivery. PDF generation is temporarily unavailable, try /pdf again."
+        return OutboundMessage(
+            channel=source.channel,
+            chat_id=source.chat_id,
+            content=content,
+            reply_to=source.id,
+            metadata={"delivery_mode": "text", "pdf_required": True, "pdf_fallback_reason": reason},
+        )
 
     async def _render_pdf_attachment(
         self,
