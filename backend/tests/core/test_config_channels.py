@@ -57,6 +57,8 @@ class TestTelegramDefaults:
         assert settings.telegram_pdf_message_min_chars == 3500
         assert settings.telegram_pdf_report_min_chars == 2000
         assert settings.telegram_pdf_caption_max_chars == 900
+        assert settings.telegram_pdf_caption_enabled is False
+        assert settings.telegram_pdf_progress_ack_enabled is False
         assert settings.telegram_pdf_async_threshold_chars == 10000
         assert settings.telegram_pdf_cleanup_seconds == 600
         assert settings.telegram_pdf_include_toc is True
