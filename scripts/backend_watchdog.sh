@@ -10,7 +10,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 COMPOSE_FILE="${COMPOSE_FILE:-${PROJECT_ROOT}/docker-compose-development.yml}"
 SERVICE_NAME="${SERVICE_NAME:-backend}"
-CONTAINER_NAME="${CONTAINER_NAME:-pythinker-backend-1}"
+CONTAINER_NAME="${CONTAINER_NAME:-}"
 HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://localhost:8000/api/v1/health}"
 CHECK_INTERVAL="${CHECK_INTERVAL:-15}"
 MAX_CONSECUTIVE_FAILURES="${MAX_CONSECUTIVE_FAILURES:-3}"
@@ -23,6 +23,32 @@ FAILURE_COUNT=0
 LAST_RECOVERY_EPOCH=0
 STARTED_EPOCH="$(date +%s)"
 COMPOSE_CMD=()
+
+resolve_container_name() {
+    local logical_service="$1"
+    local names
+    names="$(docker ps -a --format '{{.Names}}')"
+
+    local candidate_main="pythinker-main-${logical_service}-1"
+    local candidate_legacy="pythinker-${logical_service}-1"
+
+    if echo "${names}" | grep -Fxq "${candidate_main}"; then
+        echo "${candidate_main}"
+        return 0
+    fi
+    if echo "${names}" | grep -Fxq "${candidate_legacy}"; then
+        echo "${candidate_legacy}"
+        return 0
+    fi
+
+    local fallback
+    fallback="$(echo "${names}" | grep -E "(^|-)${logical_service}-1$" | head -n 1)"
+    if [ -n "${fallback}" ]; then
+        echo "${fallback}"
+        return 0
+    fi
+    return 1
+}
 
 usage() {
     cat <<EOF
@@ -134,6 +160,10 @@ validate_config() {
             exit 1
         fi
     done
+
+    if [[ -z "${CONTAINER_NAME}" ]]; then
+        CONTAINER_NAME="$(resolve_container_name "${SERVICE_NAME}" || true)"
+    fi
 }
 
 init_compose_cmd() {
