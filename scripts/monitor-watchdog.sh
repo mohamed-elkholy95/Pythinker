@@ -4,7 +4,30 @@
 
 set -euo pipefail
 
-CONTAINER_NAME="pythinker-backend-1"
+resolve_backend_container() {
+    local names
+    names="$(docker ps -a --format '{{.Names}}')"
+
+    if echo "${names}" | grep -Fxq "pythinker-main-backend-1"; then
+        echo "pythinker-main-backend-1"
+        return 0
+    fi
+    if echo "${names}" | grep -Fxq "pythinker-backend-1"; then
+        echo "pythinker-backend-1"
+        return 0
+    fi
+
+    local fallback
+    fallback="$(echo "${names}" | grep -E '(^|-)backend-1$' | head -n 1)"
+    if [ -n "${fallback}" ]; then
+        echo "${fallback}"
+        return 0
+    fi
+
+    return 1
+}
+
+CONTAINER_NAME="${CONTAINER_NAME:-$(resolve_backend_container || true)}"
 SESSION_ID="${1:-}"  # Optional: pass session ID as first arg
 
 # Colors for output
@@ -20,6 +43,10 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # Check if container is running
+if [ -z "${CONTAINER_NAME}" ]; then
+    echo -e "${RED}Error: Could not resolve backend container name${NC}"
+    exit 1
+fi
 if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo -e "${RED}Error: Container ${CONTAINER_NAME} is not running${NC}"
     exit 1
