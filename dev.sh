@@ -13,11 +13,11 @@
 #     Frontend: Vite HMR → instant browser update (no page reload)
 #     Backend:  uvicorn --reload (when BACKEND_ENABLE_RELOAD=1) → Python auto-restart (~1s)
 #     Sandbox:  uvicorn --reload → Python auto-restart (~1s)
+#     Gateway:  always started (channel pipeline, Telegram etc.)
 #
 # Commands:
-#   ./dev.sh                    Build + start stack + live watch (DEFAULT)
+#   ./dev.sh                    Build + start full stack + live watch (DEFAULT)
 #   ./dev.sh watch              Same as above (explicit)
-#   ./dev.sh watch --gateway    Include Telegram channel gateway profile
 #   ./dev.sh attach             Attach watch to ALREADY-RUNNING containers (no rebuild)
 #   ./dev.sh up -d              Start without watch (no HMR — manual use only)
 #   ./dev.sh logs -f backend    Follow backend logs
@@ -98,18 +98,13 @@ fi
 
 # Optional flags:
 #   --monitoring -> include Prometheus + Grafana + Loki stack
-#   --gateway    -> include Telegram channel gateway profile
 COMPOSE_FILES="-f docker-compose-development.yml"
 ENABLE_MONITORING=0
-ENABLE_GATEWAY=0
 POSITIONAL_ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --monitoring)
             ENABLE_MONITORING=1
-            ;;
-        --gateway)
-            ENABLE_GATEWAY=1
             ;;
         *)
             POSITIONAL_ARGS+=("$arg")
@@ -122,32 +117,25 @@ if [[ "$ENABLE_MONITORING" -eq 1 ]]; then
     COMPOSE_FILES="$COMPOSE_FILES -f docker-compose-monitoring.yml"
 fi
 
-COMPOSE_PROFILE_ARGS=()
-if [[ "$ENABLE_GATEWAY" -eq 1 ]]; then
-    COMPOSE_PROFILE_ARGS+=(--profile gateway)
-fi
-
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 
 CMD="${1:-watch}"
 
 case "$CMD" in
     watch)
-        # Default dev workflow: build + start + live file sync via Docker Compose Watch
+        # Default dev workflow: build + start full stack + live file sync via Docker Compose Watch
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "  Pythinker Dev — Docker Compose Watch"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "  Frontend : ./frontend/src → /app/src  [Vite HMR]"
         echo "  Backend  : ./backend/app  → /app/app  [uvicorn reload opt-in]"
         echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
+        echo "  Gateway  : channel pipeline (Telegram etc.) [always on]"
         echo ""
         echo "  Tip: containers already running? Use ./dev.sh attach instead."
-        if [[ "$ENABLE_GATEWAY" -eq 0 ]]; then
-            echo "  Note: Telegram channel pipeline not started. Use --gateway to enable."
-        fi
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        $COMPOSE $COMPOSE_FILES "${COMPOSE_PROFILE_ARGS[@]}" up --build --watch
+        $COMPOSE $COMPOSE_FILES up --build --watch
         ;;
     attach)
         # Attach Compose Watch to ALREADY-RUNNING containers (no rebuild, no restart)
@@ -158,12 +146,10 @@ case "$CMD" in
         echo "  Frontend : ./frontend/src → /app/src  [Vite HMR]"
         echo "  Backend  : ./backend/app  → /app/app  [uvicorn reload opt-in]"
         echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
-        if [[ "$ENABLE_GATEWAY" -eq 0 ]]; then
-            echo "  Note: Telegram channel pipeline not started. Use --gateway to enable."
-        fi
+        echo "  Gateway  : channel pipeline (Telegram etc.) [always on]"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        $COMPOSE $COMPOSE_FILES "${COMPOSE_PROFILE_ARGS[@]}" watch --no-up
+        $COMPOSE $COMPOSE_FILES watch --no-up
         ;;
     sync)
         # Legacy: rsync to /private/tmp staging dirs
@@ -172,10 +158,10 @@ case "$CMD" in
         ;;
     up|start|restart)
         # Pass through to docker compose (no auto-sync needed — image has source code)
-        $COMPOSE $COMPOSE_FILES "${COMPOSE_PROFILE_ARGS[@]}" "$@"
+        $COMPOSE $COMPOSE_FILES "$@"
         ;;
     *)
         # All other compose commands pass through unchanged
-        $COMPOSE $COMPOSE_FILES "${COMPOSE_PROFILE_ARGS[@]}" "$@"
+        $COMPOSE $COMPOSE_FILES "$@"
         ;;
 esac
