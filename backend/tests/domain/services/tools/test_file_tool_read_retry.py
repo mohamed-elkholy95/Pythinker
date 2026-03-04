@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.file import FileTool
+from app.domain.services.tools.file import _SAME_FILE_WRITE_WINDOW_SECONDS, FileTool
 
 
 @pytest.mark.asyncio
@@ -91,3 +91,72 @@ async def test_file_write_strips_placeholder_and_meta_artifacts_for_markdown() -
     assert "[...]" not in written
     assert "The model's output was cut off before completion" not in written
     assert "# Findings" in written
+
+
+@pytest.mark.asyncio
+async def test_file_write_warns_on_content_regression_for_overwrite() -> None:
+    sandbox = AsyncMock()
+    sandbox.file_write = AsyncMock(return_value=ToolResult(success=True, message="ok"))
+
+    tool = FileTool(sandbox=sandbox, session_id="session-1")
+    file_path = "/workspace/output/report.md"
+    # Simulate previous larger write (v4) before a smaller overwrite (v5)
+    tool._recent_write_sizes[file_path] = 18031
+
+    result = await tool.file_write(file=file_path, content="x" * 10056, append=False)
+
+    assert result.success is True
+    assert "shrinks content from 18,031 to 10,056 bytes" in (result.message or "")
+    assert "file_str_replace" in (result.message or "")
+    assert tool._recent_write_sizes[file_path] == 10056
+
+
+@pytest.mark.asyncio
+async def test_file_write_skips_regression_warning_in_append_mode() -> None:
+    sandbox = AsyncMock()
+    sandbox.file_write = AsyncMock(return_value=ToolResult(success=True, message="ok"))
+
+    tool = FileTool(sandbox=sandbox, session_id="session-1")
+    file_path = "/workspace/output/report.md"
+    tool._recent_write_sizes[file_path] = 18031
+
+    result = await tool.file_write(file=file_path, content="x" * 10056, append=True)
+
+    assert result.success is True
+    assert "shrinks content from" not in (result.message or "")
+
+
+@pytest.mark.asyncio
+async def test_file_write_warns_on_repetitive_overwrite_loop() -> None:
+    sandbox = AsyncMock()
+    sandbox.file_write = AsyncMock(side_effect=lambda **_: ToolResult(success=True, message="ok"))
+
+    tool = FileTool(sandbox=sandbox, session_id="session-1")
+    file_path = "/workspace/output/report.md"
+
+    first = await tool.file_write(file=file_path, content="version-1", append=False)
+    second = await tool.file_write(file=file_path, content="version-2", append=False)
+    third = await tool.file_write(file=file_path, content="version-3", append=False)
+
+    assert first.success and second.success and third.success
+    assert "overwrite loop detected" not in (first.message or "")
+    assert "overwrite loop detected" not in (second.message or "")
+    assert "overwrite loop detected" in (third.message or "")
+    assert "file_str_replace" in (third.message or "")
+
+
+@pytest.mark.asyncio
+async def test_file_write_overwrite_loop_window_expires() -> None:
+    sandbox = AsyncMock()
+    sandbox.file_write = AsyncMock(return_value=ToolResult(success=True, message="ok"))
+
+    tool = FileTool(sandbox=sandbox, session_id="session-1")
+    file_path = "/workspace/output/report.md"
+
+    old_ts = time.monotonic() - (_SAME_FILE_WRITE_WINDOW_SECONDS + 1)
+    tool._write_history[file_path] = [old_ts, old_ts, old_ts]
+
+    result = await tool.file_write(file=file_path, content="fresh-write", append=False)
+
+    assert result.success is True
+    assert "overwrite loop detected" not in (result.message or "")
