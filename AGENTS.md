@@ -17,6 +17,7 @@ Concise instructions for automated agents working in this repo.
 - **Pydantic v2**: `@field_validator` must be `@classmethod` (guarded by `backend/tests/test_pydantic_validators.py`).
 - **Plan execution**: complete all phases; priorities indicate order, not optional steps.
 - **Backend env**: always use `conda activate pythinker`.
+- **Docker access policy (always)**: for Docker operations and container logs, use Docker CLI by default; use Docker MCP (`mcp__MCP_DOCKER__docker`) only when CLI is unavailable or MCP-specific integration is explicitly required.
 - **Context7 validation (always)**: validate all new implementations, files, and configurations against fetched Context7 MCP documentation to ensure accuracy and compliance before deployment.
 - **Ref MCP source priority (always)**: for latest documentation lookup and web search tasks, use `Ref` MCP tools first (`ref_search_documentation`, `ref_read_url`), then use other sources only as fallback/cross-check.
 - **Research-backed implementation (absolute)**: for every debug task, new feature, refactor, or architecture change, validate decisions against up-to-date reliable sources using Context7 MCP and internet browsing (prefer official/primary sources). Prioritize thoroughness and quality over brevity.
