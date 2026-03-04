@@ -214,6 +214,7 @@ class BaseAgent:
         # Initialize reliability components
         self._stuck_detector = StuckDetector(window_size=5, threshold=3)
         self._recent_truncation_count = 0  # Tracks consecutive truncated tool calls
+        self._truncation_retry_max_tokens: int | None = None
         self._token_manager = TokenManager(model_name=getattr(llm, "model_name", "gpt-4"))
         self._error_handler = ErrorHandler()
 
@@ -2063,9 +2064,12 @@ class BaseAgent:
             available_tools = self.get_available_tools()
             max_tokens_override: int | None = None
 
+            if self._truncation_retry_max_tokens is not None:
+                max_tokens_override = self._truncation_retry_max_tokens
+
             # Force text-only response after repeated truncations to escape
             # the empty-args loop (e.g. GLM-5 hitting output limits).
-            if self._recent_truncation_count >= self.max_consecutive_truncations:
+            if self._recent_truncation_count >= max(1, self.max_consecutive_truncations - 1):
                 available_tools = []
                 logger.warning(
                     "Forcing text-only response after %d consecutive truncations",
@@ -2074,7 +2078,10 @@ class BaseAgent:
 
             if budget_action == BudgetAction.REDUCE_VERBOSITY:
                 llm_default_max = int(getattr(self.llm, "max_tokens", 2048) or 2048)
-                max_tokens_override = max(512, llm_default_max // 2)
+                reduced_limit = max(512, llm_default_max // 2)
+                max_tokens_override = (
+                    reduced_limit if max_tokens_override is None else min(max_tokens_override, reduced_limit)
+                )
             elif budget_action == BudgetAction.FORCE_CONCLUDE:
                 await self._inject_budget_notice_if_needed(self._TOKEN_BUDGET_FORCE_CONCLUDE_MESSAGE)
             elif budget_action == BudgetAction.FORCE_HARD_STOP_NUDGE:
@@ -2160,6 +2167,11 @@ class BaseAgent:
                 # Tell the LLM to break content into smaller pieces to avoid
                 # hitting the output limit again.
                 self._recent_truncation_count += 1
+                llm_default_max = int(getattr(self.llm, "max_tokens", 2048) or 2048)
+                if self._truncation_retry_max_tokens is None:
+                    self._truncation_retry_max_tokens = max(512, llm_default_max // 2)
+                else:
+                    self._truncation_retry_max_tokens = max(512, self._truncation_retry_max_tokens // 2)
                 logger.warning(
                     "LLM response truncated with partial tool_calls (consecutive: %d) — requesting smaller output",
                     self._recent_truncation_count,
@@ -2284,6 +2296,7 @@ class BaseAgent:
             await self._add_to_memory([filtered_message])
             empty_response_count = 0  # Reset on successful non-empty response
             self._recent_truncation_count = 0  # Reset truncation counter on success
+            self._truncation_retry_max_tokens = None
             return filtered_message
 
         # Retry loop exhausted — return graceful fallback instead of crashing
@@ -2590,6 +2603,7 @@ class BaseAgent:
         self._stuck_detector.reset()
         self._stuck_recovery_exhausted = False
         self._recent_truncation_count = 0
+        self._truncation_retry_max_tokens = None
 
         # Reset per-step stability counters
         self._hallucination_count_this_step = 0
