@@ -31,6 +31,9 @@ RUN apt-get update && apt-get install -y gcc g++ python3-dev \
     python -m pip install --no-build-isolation --no-cache-dir editdistpy==0.1.6 && \
     uv pip install --system --no-cache -r requirements.txt
 
+# Install Chromium runtime and OS deps for Playwright PDF rendering.
+RUN playwright install --with-deps chromium
+
 # Scrapling fetchers require browser/runtime assets beyond pip wheels.
 # Official setup: pip install "scrapling[fetchers]" + `scrapling install`.
 RUN scrapling install
