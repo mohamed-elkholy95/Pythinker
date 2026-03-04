@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections.abc import Iterable
 from io import BytesIO
 from pathlib import Path
@@ -42,6 +43,7 @@ _INLINE_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _INLINE_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _INLINE_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)")
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_REFERENCES_HEADING_RE = re.compile(r"(?mi)^#{1,6}\s*(references?|sources?|bibliography|citations?)\s*$")
 
 _FONT_PATH_CANDIDATES: dict[str, tuple[Path, ...]] = {
     "DejaVuSans": (
@@ -194,7 +196,7 @@ def markdown_to_flowables(content: str, *, styles: StyleSheet1 | None = None) ->
 
         if _looks_like_table(lines, idx):
             flush_paragraph()
-            rows, consumed = _parse_table(lines[idx:])
+            rows, consumed = _parse_table(lines[idx:], sheet)
             table = Table(rows, repeatRows=1)
             table.setStyle(
                 TableStyle(
@@ -245,6 +247,7 @@ def build_pdf_bytes(
     font_name = register_unicode_font(preferred_font)
     styles = _build_styles(font_name=font_name)
     output = BytesIO()
+    safe_title = _sanitize_pdf_title(title)
 
     heading_count = _count_markdown_headings(content)
     should_include_toc = include_toc and heading_count >= toc_min_sections
@@ -253,14 +256,14 @@ def build_pdf_bytes(
     doc = _TocDocTemplate(
         output,
         pagesize=A4,
-        title=title,
+        title=safe_title,
         author=author,
         subject=effective_subject,
         creator=creator,
     )
 
     story: list[Flowable] = [
-        Paragraph(_inline_markdown_to_xml(title), styles["Title"]),
+        Paragraph(_inline_markdown_to_xml(safe_title), styles["Title"]),
         Spacer(1, 12),
     ]
 
@@ -277,7 +280,8 @@ def build_pdf_bytes(
         story.append(PageBreak())
 
     story.extend(markdown_to_flowables(content, styles=styles))
-    story.extend(_sources_to_flowables(sources or [], styles))
+    include_sources = not _has_references_heading(content)
+    story.extend(_sources_to_flowables(sources or [], styles, include_heading=include_sources))
 
     doc.multiBuild(story)
     output.seek(0)
@@ -315,9 +319,16 @@ class _TocDocTemplate(BaseDocTemplate):
         self.notify("TOCEntry", (level, flowable.getPlainText(), self.page))
 
 
-def _sources_to_flowables(sources: Iterable[SourceCitation], styles: StyleSheet1) -> list[Flowable]:
+def _sources_to_flowables(
+    sources: Iterable[SourceCitation],
+    styles: StyleSheet1,
+    *,
+    include_heading: bool = True,
+) -> list[Flowable]:
     items = list(sources)
     if not items:
+        return []
+    if not include_heading:
         return []
 
     flowables: list[Flowable] = [PageBreak(), Paragraph("References", styles["Heading2"]), Spacer(1, 6)]
@@ -394,8 +405,8 @@ def _looks_like_table(lines: list[str], idx: int) -> bool:
     return "|" in current and _TABLE_DIVIDER_RE.match(divider or "") is not None
 
 
-def _parse_table(lines: list[str]) -> tuple[list[list[str]], int]:
-    rows: list[list[str]] = []
+def _parse_table(lines: list[str], styles: StyleSheet1) -> tuple[list[list[Paragraph]], int]:
+    rows: list[list[Paragraph]] = []
     consumed = 0
     for line in lines:
         if "|" not in line:
@@ -404,14 +415,14 @@ def _parse_table(lines: list[str]) -> tuple[list[list[str]], int]:
             consumed += 1
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        rows.append([_inline_markdown_to_xml(cell) for cell in cells])
+        rows.append([Paragraph(_inline_markdown_to_xml(cell), styles["BodyText"]) for cell in cells])
         consumed += 1
 
     if not rows:
-        return [[""]], max(consumed, 1)
+        return [[Paragraph("", styles["BodyText"])]], max(consumed, 1)
     # Normalize row lengths for ReportLab table rendering.
     max_cols = max(len(row) for row in rows)
-    normalized_rows = [row + [""] * (max_cols - len(row)) for row in rows]
+    normalized_rows = [row + [Paragraph("", styles["BodyText"])] * (max_cols - len(row)) for row in rows]
     return normalized_rows, consumed
 
 
@@ -429,3 +440,24 @@ def _escape_xml(text: str) -> str:
 
 def _count_markdown_headings(content: str) -> int:
     return sum(1 for line in content.splitlines() if _HEADING_RE.match(line))
+
+
+def _has_references_heading(content: str) -> bool:
+    return _REFERENCES_HEADING_RE.search(content or "") is not None
+
+
+def _sanitize_pdf_title(title: str) -> str:
+    text = (title or "").strip()
+    if not text:
+        return "Report"
+
+    filtered_chars: list[str] = []
+    for char in text:
+        category = unicodedata.category(char)
+        # Remove symbol/other and surrogate characters (common emoji buckets)
+        if category in {"So", "Cs"}:
+            continue
+        filtered_chars.append(char)
+
+    sanitized = "".join(filtered_chars).strip()
+    return sanitized or "Report"
