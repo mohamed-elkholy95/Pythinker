@@ -284,3 +284,46 @@ class TestGLMHardCallTimeoutAlignment:
 
         # Both should be 90s
         assert timeout.read == 90.0
+
+
+# ============================================================================
+# Fix 6: Truncation retry token backoff
+# ============================================================================
+
+
+class TestTruncationRetryTokenBackoff:
+    @pytest.mark.asyncio
+    async def test_malformed_tool_call_truncation_retries_with_lower_max_tokens(self) -> None:
+        """After truncated tool-call args, next ask() should use reduced max_tokens."""
+        agent = _make_base_agent()
+
+        first = {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "file_write",
+                        # deliberately malformed / truncated JSON
+                        "arguments": '{"path":"report.md","content":"unterminated',
+                    },
+                }
+            ],
+            "_finish_reason": "length",
+        }
+        second = {"role": "assistant", "content": "done"}
+
+        agent.llm.ask = AsyncMock(side_effect=[first, second])
+        await agent._ensure_memory()
+        agent.get_available_tools = MagicMock(return_value=[])
+
+        result = await agent.ask_with_messages([{"role": "user", "content": "write report"}])
+
+        assert result.get("content") == "done"
+        assert agent.llm.ask.call_count == 2
+        first_call = agent.llm.ask.call_args_list[0].kwargs
+        second_call = agent.llm.ask.call_args_list[1].kwargs
+        assert first_call.get("max_tokens") is None
+        assert second_call.get("max_tokens") is not None
