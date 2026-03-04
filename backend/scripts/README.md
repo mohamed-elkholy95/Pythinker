@@ -2,6 +2,22 @@
 
 This directory contains utility scripts for database management and development.
 
+## PDF Visual Baseline
+
+### Generate Telegram PDF visual contract baseline
+
+Regenerates the perceptual hash baseline used by
+`tests/integration/test_telegram_pdf_visual_contract.py`.
+
+```bash
+# From backend directory
+python scripts/generate_pdf_visual_baseline.py
+```
+
+Requirements:
+- Playwright Chromium installed (`playwright install --with-deps chromium`)
+- `pdftoppm` available (`poppler-utils`)
+
 ## Database Management
 
 ### Initialize MongoDB Schema
