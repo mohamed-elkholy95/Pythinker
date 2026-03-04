@@ -100,6 +100,8 @@ class NanobotGateway:
         self._activity_event: asyncio.Event = asyncio.Event()
         # Monotonic timestamp when current inbound message routing started.
         self._inbound_processing_started_monotonic: float | None = None
+        # Monotonic timestamp for most recent observed progress while routing an inbound message.
+        self._inbound_processing_last_progress_monotonic: float | None = None
 
         # Build nanobot Config from Pythinker settings
         channels_cfg = ChannelsConfig(
@@ -249,17 +251,22 @@ class NanobotGateway:
                     now = asyncio.get_running_loop().time()
                     processing_started = self._inbound_processing_started_monotonic
                     if processing_started is not None:
+                        last_progress = self._inbound_processing_last_progress_monotonic or processing_started
                         processing_age = now - processing_started
-                        if processing_age < self.INBOUND_PROCESSING_WARN_TIMEOUT:
+                        progress_idle_age = now - last_progress
+                        if progress_idle_age < self.INBOUND_PROCESSING_WARN_TIMEOUT:
                             logger.debug(
-                                "NanobotGateway: no poll activity while processing inbound message (%.1fs, grace %.0fs)",
+                                "NanobotGateway: no poll activity while processing inbound message "
+                                "(idle %.1fs, total %.1fs, grace %.0fs)",
+                                progress_idle_age,
                                 processing_age,
                                 self.INBOUND_PROCESSING_WARN_TIMEOUT,
                             )
                             continue
                         logger.warning(
-                            "NanobotGateway: inbound processing appears stalled for %.1fs without channel poll activity "
-                            "(poll timeout %.0fs)",
+                            "NanobotGateway: inbound processing appears stalled for %.1fs since last progress "
+                            "(total %.1fs, poll timeout %.0fs)",
+                            progress_idle_age,
                             processing_age,
                             self.POLL_WATCHDOG_TIMEOUT,
                         )
@@ -291,7 +298,9 @@ class NanobotGateway:
                     continue
 
                 self._activity_event.set()  # Signal successful message receipt to watchdog
-                self._inbound_processing_started_monotonic = asyncio.get_running_loop().time()
+                processing_now = asyncio.get_running_loop().time()
+                self._inbound_processing_started_monotonic = processing_now
+                self._inbound_processing_last_progress_monotonic = processing_now
                 pt_msg = self._convert_inbound(nb_msg)
                 logger.info(
                     "Inbound message from %s sender=%s chat=%s",
@@ -303,6 +312,8 @@ class NanobotGateway:
                 # Route and relay outbound replies
                 try:
                     async for outbound in self._message_router.route_inbound(pt_msg):
+                        self._inbound_processing_last_progress_monotonic = asyncio.get_running_loop().time()
+                        self._activity_event.set()
                         await self.send_to_channel(outbound)
                 except Exception:
                     logger.exception(
@@ -312,6 +323,7 @@ class NanobotGateway:
                     )
                 finally:
                     self._inbound_processing_started_monotonic = None
+                    self._inbound_processing_last_progress_monotonic = None
                     # Route completion counts as poll activity for watchdog health.
                     self._activity_event.set()
         except asyncio.CancelledError:
