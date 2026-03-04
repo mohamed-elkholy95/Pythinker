@@ -66,6 +66,15 @@ class _FakeProgressEvent:
     type = "progress"
 
 
+class _FakeGotItAckEvent:
+    type = "message"
+    role = "assistant"
+    message = (
+        "Got it! I'll search Reddit and other sources to find current coupon codes and offers for GLM coding plan "
+        "and compile a research report for you."
+    )
+
+
 class SessionStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
@@ -355,6 +364,25 @@ class TestRouteInbound:
         assert len(replies) == 2
         assert "5-10 minutes" in replies[0].content
         assert replies[1].content == "Hello from the agent!"
+
+    @pytest.mark.asyncio
+    async def test_route_suppresses_generic_agent_got_it_after_router_ack(self) -> None:
+        """When router sends ETA acknowledgement, suppress generic first agent 'Got it!' message."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        final_event = _FakeMessageEvent()
+        final_event.message = "Final report is ready."
+        agent_svc = _make_agent_service(events=[_FakeGotItAckEvent(), final_event])
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound(
+            "Create a comprehensive research report comparing GLM pricing plans with coupon sources and references"
+        )
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 2
+        assert "10-15 minutes" in replies[0].content
+        assert "Got it! I'll search Reddit" not in replies[1].content
+        assert replies[1].content == "Final report is ready."
 
 
 # ---------------------------------------------------------------------------
