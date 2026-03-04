@@ -265,6 +265,14 @@ class MessageRouter:
             yield self._make_reply(message, TELEGRAM_LINK_REQUIRED_TEXT)
             return
 
+        # 6. Telegram UX: acknowledge long-running research-report requests immediately.
+        suppress_first_generic_agent_ack = False
+        if self._should_send_research_report_ack(message):
+            ack = self._make_reply(message, self._build_research_report_ack(message.content))
+            await self._record_outbound_activity(user_id, message, ack.content)
+            yield ack
+            suppress_first_generic_agent_ack = True
+
         try:
             session_id = await self._get_or_create_session(message, user_id)
         except Exception:
@@ -279,14 +287,6 @@ class MessageRouter:
                 "Sorry, I could not start a session. Please try again later.",
             )
             return
-
-        # 6. Telegram UX: acknowledge long-running research-report requests immediately.
-        suppress_first_generic_agent_ack = False
-        if self._should_send_research_report_ack(message):
-            ack = self._make_reply(message, self._build_research_report_ack(message.content))
-            await self._record_outbound_activity(user_id, message, ack.content)
-            yield ack
-            suppress_first_generic_agent_ack = True
 
         # 7. Stream agent events and convert to outbound messages
         try:
