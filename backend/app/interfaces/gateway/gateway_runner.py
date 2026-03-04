@@ -161,6 +161,8 @@ async def run_gateway() -> None:
         telegram_pdf_message_min_chars=settings.telegram_pdf_message_min_chars,
         telegram_pdf_report_min_chars=settings.telegram_pdf_report_min_chars,
         telegram_pdf_caption_max_chars=settings.telegram_pdf_caption_max_chars,
+        telegram_pdf_caption_enabled=settings.telegram_pdf_caption_enabled,
+        telegram_pdf_progress_ack_enabled=settings.telegram_pdf_progress_ack_enabled,
         telegram_pdf_async_threshold_chars=settings.telegram_pdf_async_threshold_chars,
         telegram_pdf_include_toc=settings.telegram_pdf_include_toc,
         telegram_pdf_toc_min_sections=settings.telegram_pdf_toc_min_sections,

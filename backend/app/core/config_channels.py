@@ -31,6 +31,8 @@ class ChannelSettingsMixin:
     telegram_pdf_message_min_chars: int = 3500
     telegram_pdf_report_min_chars: int = 2000
     telegram_pdf_caption_max_chars: int = 900
+    telegram_pdf_caption_enabled: bool = False
+    telegram_pdf_progress_ack_enabled: bool = False
     telegram_pdf_async_threshold_chars: int = 10000
     telegram_pdf_cleanup_seconds: int = 600
     telegram_pdf_include_toc: bool = True

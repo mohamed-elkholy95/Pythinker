@@ -138,6 +138,42 @@ async def test_send_document_uses_caption_parse_mode_and_cleanup(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_send_document_without_caption_sends_document_only(tmp_path: Path) -> None:
+    channel = _make_channel()
+    media_path = tmp_path / "report.pdf"
+    media_path.write_bytes(b"%PDF-1.4\n%fake\n")
+
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    outbound = OutboundMessage(
+        channel="telegram",
+        chat_id="5829880422",
+        content="",
+        media=[str(media_path)],
+        metadata={
+            "delivery_mode": "pdf_only",
+            "cleanup_media_paths": [str(media_path)],
+        },
+    )
+
+    await channel.send(outbound)
+
+    bot.send_document.assert_awaited_once()
+    kwargs = bot.send_document.await_args.kwargs
+    assert "caption" not in kwargs
+    assert "parse_mode" not in kwargs
+    bot.send_message.assert_not_awaited()
+    assert not media_path.exists()
+
+
+@pytest.mark.asyncio
 async def test_send_document_retries_on_retry_after(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     channel = _make_channel()
     media_path = tmp_path / "retry.pdf"

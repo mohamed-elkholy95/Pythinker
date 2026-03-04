@@ -43,24 +43,93 @@ _INLINE_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _INLINE_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)")
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 
-
-def register_unicode_font(preferred_font: str = "DejaVuSans") -> str:
-    """Register a Unicode-capable TTF font and return the chosen font name."""
-    if preferred_font in pdfmetrics.getRegisteredFontNames():
-        return preferred_font
-
-    candidates = [
+_FONT_PATH_CANDIDATES: dict[str, tuple[Path, ...]] = {
+    "DejaVuSans": (
         Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
         Path("/usr/local/share/fonts/DejaVuSans.ttf"),
         Path("/Library/Fonts/DejaVu Sans.ttf"),
         Path("C:/Windows/Fonts/DejaVuSans.ttf"),
-    ]
-    for path in candidates:
-        if path.exists():
-            pdfmetrics.registerFont(TTFont(preferred_font, str(path)))
-            return preferred_font
+    ),
+    "LiberationSans": (
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+        Path("/Library/Fonts/LiberationSans-Regular.ttf"),
+        Path("C:/Windows/Fonts/arial.ttf"),
+    ),
+    "FreeSans": (
+        Path("/usr/share/fonts/truetype/freefont/FreeSans.ttf"),
+        Path("/usr/local/share/fonts/FreeSans.ttf"),
+    ),
+    "Unifont": (
+        Path("/usr/share/fonts/opentype/unifont/unifont.otf"),
+        Path("/usr/local/share/fonts/unifont.otf"),
+    ),
+}
+_FONT_FALLBACK_ORDER: tuple[str, ...] = ("DejaVuSans", "LiberationSans", "FreeSans", "Unifont")
+_FONT_KEY_ALIASES: dict[str, str] = {
+    "dejavusans": "DejaVuSans",
+    "liberationsans": "LiberationSans",
+    "freesans": "FreeSans",
+    "unifont": "Unifont",
+}
+_FONT_FALLBACK_WARNED: set[tuple[str, str]] = set()
 
-    logger.warning("Unicode font %s not found, falling back to Helvetica", preferred_font)
+
+def _normalize_font_key(name: str) -> str:
+    return re.sub(r"[\s_-]+", "", name).lower()
+
+
+def _font_search_order(preferred_font: str) -> list[str]:
+    requested = preferred_font.strip() or "DejaVuSans"
+    canonical = _FONT_KEY_ALIASES.get(_normalize_font_key(requested), requested)
+    order = [canonical]
+    for fallback in _FONT_FALLBACK_ORDER:
+        if fallback not in order:
+            order.append(fallback)
+    return order
+
+
+def _font_paths(font_name: str) -> tuple[Path, ...]:
+    known = _FONT_PATH_CANDIDATES.get(font_name)
+    if known:
+        return known
+    direct_path = Path(font_name)
+    if direct_path.suffix.lower() in {".ttf", ".ttc", ".otf"}:
+        return (direct_path,)
+    return ()
+
+
+def _log_fallback_once(requested: str, chosen: str, path: Path | None = None) -> None:
+    key = (requested, chosen)
+    if key in _FONT_FALLBACK_WARNED:
+        return
+    _FONT_FALLBACK_WARNED.add(key)
+    if path is not None:
+        logger.warning("Unicode font %s not found, using fallback %s (%s)", requested, chosen, path)
+        return
+    logger.warning("Unicode font %s not found, using fallback %s", requested, chosen)
+
+
+def register_unicode_font(preferred_font: str = "DejaVuSans") -> str:
+    """Register a Unicode-capable TTF font and return the chosen font name."""
+    requested = preferred_font.strip() or "DejaVuSans"
+    for font_name in _font_search_order(requested):
+        if font_name in pdfmetrics.getRegisteredFontNames():
+            if font_name != requested:
+                _log_fallback_once(requested, font_name)
+            return font_name
+
+        for path in _font_paths(font_name):
+            if not path.exists():
+                continue
+            try:
+                pdfmetrics.registerFont(TTFont(font_name, str(path)))
+                if font_name != requested:
+                    _log_fallback_once(requested, font_name, path)
+                return font_name
+            except Exception:
+                logger.debug("Failed to register font %s from %s", font_name, path, exc_info=True)
+
+    logger.warning("Unicode font %s not found, falling back to Helvetica", requested)
     return "Helvetica"
 
 

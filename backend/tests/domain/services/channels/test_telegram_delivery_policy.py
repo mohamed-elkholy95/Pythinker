@@ -70,6 +70,8 @@ async def test_report_threshold_triggers_pdf_delivery(tmp_path: Path) -> None:
         assert outbound.media
         assert outbound.media[0].mime_type == "application/pdf"
         assert outbound.metadata["delivery_mode"] == "pdf_only"
+        assert outbound.content == ""
+        assert "caption" not in outbound.metadata
     finally:
         _cleanup_media(messages)
 
@@ -140,6 +142,7 @@ async def test_caption_output_respects_max_chars(tmp_path: Path) -> None:
         report_min_chars=10,
         message_min_chars=200,
         caption_max_chars=120,
+        pdf_caption_enabled=True,
         temp_dir=tmp_path,
     )
     event = _FakeReportEvent("Long", "Sentence one. Sentence two. Sentence three. " * 10)
@@ -171,6 +174,7 @@ async def test_async_threshold_returns_ack_and_document(tmp_path: Path) -> None:
         report_min_chars=50,
         message_min_chars=200,
         async_threshold_chars=120,
+        pdf_progress_ack_enabled=True,
         temp_dir=tmp_path,
     )
     sources = [
@@ -189,6 +193,25 @@ async def test_async_threshold_returns_ack_and_document(tmp_path: Path) -> None:
         assert len(messages) == 2
         assert "Generating PDF report" in messages[0].content
         assert messages[1].media
+    finally:
+        _cleanup_media(messages)
+
+
+@pytest.mark.asyncio
+async def test_async_threshold_without_progress_ack_returns_document_only(tmp_path: Path) -> None:
+    policy = TelegramDeliveryPolicy(
+        report_min_chars=50,
+        message_min_chars=200,
+        async_threshold_chars=120,
+        temp_dir=tmp_path,
+    )
+    event = _FakeReportEvent("Async", "E" * 200)
+
+    messages = await policy.build_for_event(event, _inbound(), user_id="user-8b")
+    try:
+        assert len(messages) == 1
+        assert messages[0].media
+        assert messages[0].content == ""
     finally:
         _cleanup_media(messages)
 
