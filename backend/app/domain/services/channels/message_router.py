@@ -676,8 +676,15 @@ class MessageRouter:
         for key in ("last_inbound_at", "last_outbound_at", "updated_at"):
             value = session_activity.get(key)
             if isinstance(value, datetime):
-                timestamps.append(value)
+                timestamps.append(MessageRouter._normalize_activity_timestamp(value))
         return max(timestamps) if timestamps else None
+
+    @staticmethod
+    def _normalize_activity_timestamp(value: datetime) -> datetime:
+        """Normalize activity timestamps to timezone-aware UTC datetimes."""
+        if value.tzinfo is None or value.utcoffset() is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
     @staticmethod
     def _normalized_status(session: object) -> str:
