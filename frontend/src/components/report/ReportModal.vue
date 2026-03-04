@@ -287,7 +287,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'share'): void;
-  (e: 'download'): void;
   (e: 'suggestionAction'): void;
 }>();
 
@@ -529,7 +528,6 @@ const handleDownloadMarkdown = () => {
   const filename = getSafeFilename(props.report.title) + '.md';
   const blob = new Blob([normalizedReportContent.value], { type: 'text/markdown;charset=utf-8' });
   saveAs(blob, filename);
-  emit('download');
 };
 
 // Download as PDF
@@ -575,7 +573,6 @@ const handleDownloadPdf = async () => {
     };
 
     await html2pdf().set(opt).from(element).save();
-    emit('download');
   } catch {
     showErrorToast('Failed to generate PDF');
   } finally {
@@ -663,7 +660,6 @@ const handleDownloadDocx = async () => {
 
     const blob = await Packer.toBlob(doc);
     saveAs(blob, getSafeFilename(props.report.title) + '.docx');
-    emit('download');
   } catch {
     showErrorToast('Failed to generate DOCX');
   } finally {
