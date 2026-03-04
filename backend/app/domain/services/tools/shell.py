@@ -9,6 +9,10 @@ from app.domain.services.tools.base import BaseTool, tool
 
 # Maximum shell output size in characters to prevent context window exhaustion
 MAX_SHELL_OUTPUT_CHARS = 50_000
+_KNOWN_PLACEHOLDER_SESSION_IDS = {
+    "00000000-0000-0000-0000-000000000000",
+    "550e8400-e29b-41d4-a716-446655440000",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,29 @@ class ShellTool(BaseTool):
             result.message = f"{truncated}\n\n[OUTPUT TRUNCATED — {len(result.message)} chars total, showing first {MAX_SHELL_OUTPUT_CHARS}]"
         return result
 
+    @staticmethod
+    def _validate_session_id(id: str, *, tool_name: str) -> ToolResult | None:
+        """Validate shell session ids and block known hallucinated placeholders.
+
+        Real session ids may be UUIDs or shorter opaque IDs (for example session keys),
+        so validation intentionally avoids UUID-only checks.
+        """
+        session_id = (id or "").strip()
+        if not session_id:
+            return ToolResult(
+                success=False,
+                message=f"VALIDATION ERROR: Missing required parameter 'id' for {tool_name}.",
+            )
+        if session_id in _KNOWN_PLACEHOLDER_SESSION_IDS:
+            return ToolResult(
+                success=False,
+                message=(
+                    "VALIDATION ERROR: Placeholder session ID detected. "
+                    "Use a real shell session id returned by shell_exec."
+                ),
+            )
+        return None
+
     @tool(
         name="shell_exec",
         description="Execute commands in a specified shell session. Use for running code, installing packages, or managing files.",
@@ -93,11 +120,9 @@ class ShellTool(BaseTool):
         # Default timeout for shell commands (5 minutes)
         shell_exec_timeout_seconds = 300
 
-        if not id or not id.strip():
-            return ToolResult(
-                success=False,
-                message="VALIDATION ERROR: Missing required parameter 'id' for shell_exec.",
-            )
+        validation_error = self._validate_session_id(id, tool_name="shell_exec")
+        if validation_error is not None:
+            return validation_error
         if not exec_dir or not exec_dir.strip():
             return ToolResult(
                 success=False,
@@ -174,6 +199,9 @@ class ShellTool(BaseTool):
         Returns:
             Shell session content
         """
+        validation_error = self._validate_session_id(id, tool_name="shell_view")
+        if validation_error is not None:
+            return validation_error
         result = await self.sandbox.view_shell(id)
         return self._truncate_output(result)
 
@@ -199,6 +227,9 @@ class ShellTool(BaseTool):
         Returns:
             Wait result
         """
+        validation_error = self._validate_session_id(id, tool_name="shell_wait")
+        if validation_error is not None:
+            return validation_error
         max_wait_seconds = 300
         if seconds is not None:
             seconds = min(seconds, max_wait_seconds)
@@ -228,6 +259,9 @@ class ShellTool(BaseTool):
         Returns:
             Write result
         """
+        validation_error = self._validate_session_id(id, tool_name="shell_write_to_process")
+        if validation_error is not None:
+            return validation_error
         return await self.sandbox.write_to_process(id, input, press_enter)
 
     @tool(
@@ -250,4 +284,7 @@ class ShellTool(BaseTool):
         Returns:
             Termination result
         """
+        validation_error = self._validate_session_id(id, tool_name="shell_kill_process")
+        if validation_error is not None:
+            return validation_error
         return await self.sandbox.kill_process(id)
