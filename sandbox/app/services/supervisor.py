@@ -3,6 +3,7 @@ import xmlrpc.client
 import socket
 import http.client
 import asyncio
+from urllib.parse import quote
 from datetime import datetime, timedelta
 from typing import List
 
@@ -48,6 +49,8 @@ class SupervisorService:
 
     def __init__(self):
         self.rpc_url = "/tmp/supervisor.sock"
+        self.rpc_username = settings.SUPERVISOR_RPC_USERNAME
+        self.rpc_password = settings.SUPERVISOR_RPC_PASSWORD
         self._connect_rpc()
 
         # Timeout management - enabled based on configuration
@@ -80,8 +83,11 @@ class SupervisorService:
     def _connect_rpc(self):
         """Connect to supervisord's RPC interface"""
         try:
+            username = quote(self.rpc_username, safe="")
+            password = quote(self.rpc_password, safe="")
             self.server = xmlrpc.client.ServerProxy(
-                "http://localhost", transport=UnixStreamTransport(self.rpc_url)
+                f"http://{username}:{password}@localhost",
+                transport=UnixStreamTransport(self.rpc_url),
             )
             # Test connection
             self.server.supervisor.getState()
