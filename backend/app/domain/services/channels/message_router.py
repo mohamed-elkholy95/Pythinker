@@ -60,6 +60,11 @@ _LONG_RESEARCH_SIGNAL_RE = re.compile(
     r"\b(comprehensive|deep|detailed|benchmark|compare|comparison|pricing|citations?|references?)\b",
     re.IGNORECASE,
 )
+_GENERIC_AGENT_ACK_PREFIX_RE = re.compile(r"^\s*got it!\s*", re.IGNORECASE)
+_GENERIC_AGENT_ACK_ACTION_RE = re.compile(
+    r"\b(i(?:'ll|\s+will)|let me)\b.*\b(search|research|compile|create|work on|look into|analy[sz]e|gather)\b",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -276,10 +281,12 @@ class MessageRouter:
             return
 
         # 6. Telegram UX: acknowledge long-running research-report requests immediately.
+        suppress_first_generic_agent_ack = False
         if self._should_send_research_report_ack(message):
             ack = self._make_reply(message, self._build_research_report_ack(message.content))
             await self._record_outbound_activity(user_id, message, ack.content)
             yield ack
+            suppress_first_generic_agent_ack = True
 
         # 7. Stream agent events and convert to outbound messages
         try:
@@ -288,10 +295,24 @@ class MessageRouter:
                 user_id=user_id,
                 message=message.content,
             ):
+                if self._should_suppress_generic_agent_ack_event(
+                    event,
+                    source=message,
+                    suppression_enabled=suppress_first_generic_agent_ack,
+                ):
+                    suppress_first_generic_agent_ack = False
+                    logger.info(
+                        "telegram.research_ack.suppressed_generic_agent_ack chat=%s",
+                        message.chat_id,
+                    )
+                    continue
+
                 outbounds = await self._event_to_outbounds(event, message, user_id=user_id)
                 if not outbounds:
                     continue
                 event_type = getattr(event, "type", None)
+                if event_type in {"message", "report", "error"}:
+                    suppress_first_generic_agent_ack = False
                 self._remember_latest_response(user_id, message, event, event_type=event_type)
                 for outbound in outbounds:
                     await self._record_outbound_activity(user_id, message, outbound.content)
@@ -842,6 +863,28 @@ class MessageRouter:
         if word_count >= 20 or _LONG_RESEARCH_SIGNAL_RE.search(compact_content):
             return "10-15 minutes"
         return "5-10 minutes"
+
+    @staticmethod
+    def _should_suppress_generic_agent_ack_event(
+        event: object,
+        *,
+        source: InboundMessage,
+        suppression_enabled: bool,
+    ) -> bool:
+        """Suppress generic first-step agent acknowledgements after router ETA ack."""
+        if not suppression_enabled or source.channel != ChannelType.TELEGRAM:
+            return False
+        if getattr(event, "type", None) != "message":
+            return False
+        if getattr(event, "role", "assistant") == "user":
+            return False
+
+        text = (getattr(event, "message", "") or "").strip()
+        if not text:
+            return False
+        if not _GENERIC_AGENT_ACK_PREFIX_RE.match(text):
+            return False
+        return bool(_GENERIC_AGENT_ACK_ACTION_RE.search(text))
 
     # ------------------------------------------------------------------
     # Helpers
