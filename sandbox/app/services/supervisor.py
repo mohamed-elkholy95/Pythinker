@@ -39,7 +39,14 @@ class UnixStreamTransport(xmlrpc.client.Transport):
         self.socket_path = socket_path
 
     def make_connection(self, host):
-        return UnixStreamHTTPConnection(host, self.socket_path)
+        # Match stdlib Transport behavior so basic-auth credentials in the
+        # XML-RPC URL become Authorization headers instead of polluting host.
+        if self._connection and host == self._connection[0]:
+            return self._connection[1]
+
+        chost, self._extra_headers, _x509 = self.get_host_info(host)
+        self._connection = host, UnixStreamHTTPConnection(chost, self.socket_path)
+        return self._connection[1]
 
 
 class SupervisorService:
