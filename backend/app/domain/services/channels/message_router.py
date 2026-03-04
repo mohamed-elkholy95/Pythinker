@@ -42,6 +42,13 @@ HELP_TEXT = (
     "  /help   — Show this help message"
 )
 
+TELEGRAM_LINK_REQUIRED_TEXT = (
+    "Please link your Telegram account first.\n\n"
+    "1) Open Pythinker web UI → Settings → Link Telegram\n"
+    "2) Generate a link code\n"
+    "3) Send `/link CODE` to this bot"
+)
+
 # Event types that produce user-visible outbound messages.
 _OUTBOUND_EVENT_TYPES = frozenset({"message", "report", "error"})
 
@@ -167,10 +174,12 @@ class MessageRouter:
         telegram_pdf_unicode_font: str = "DejaVuSans",
         telegram_pdf_rate_limit_per_minute: int = 5,
         telegram_pdf_delivery_enabled: bool = True,
+        telegram_require_linked_account: bool = False,
     ) -> None:
         self._agent_service = agent_service
         self._user_channel_repo = user_channel_repo
         self._link_code_store = link_code_store
+        self._telegram_require_linked_account = telegram_require_linked_account
         self._telegram_reuse_completed_sessions = telegram_reuse_completed_sessions
         self._telegram_session_idle_timeout_hours = telegram_session_idle_timeout_hours
         self._telegram_max_context_turns = telegram_max_context_turns
@@ -199,19 +208,43 @@ class MessageRouter:
         Yields zero or more ``OutboundMessage`` objects.  Internal agent events
         (plan, step, tool, etc.) are silently discarded.
         """
-        # 1. Resolve user (auto-register if unknown)
-        user_id = await self._resolve_user(message)
-        await self._record_inbound_activity(user_id, message)
-
-        # 2. Handle slash commands locally
+        # 1. Normalize command aliases before identity policy checks.
         content = self._normalize_command_alias(message.content.strip())
-        if content.split()[0].lower() in SLASH_COMMANDS if content else False:
+        command = content.split()[0].lower() if content else ""
+
+        # 2. Resolve user identity.
+        # Telegram strict mode can require a pre-linked account and disable
+        # auto-registration for unlinked senders.
+        user_id: str | None
+        if self._telegram_require_linked_account and message.channel == ChannelType.TELEGRAM:
+            user_id = await self._user_channel_repo.get_user_by_channel(message.channel, message.sender_id)
+            if user_id is None:
+                if command == "/link":
+                    async for reply in self._handle_slash_command(content, message, user_id=None):
+                        yield reply
+                    return
+                yield self._make_reply(message, TELEGRAM_LINK_REQUIRED_TEXT)
+                return
+        else:
+            user_id = await self._resolve_user(message)
+
+        # 3. Track inbound activity for resolved users.
+        if user_id is not None:
+            await self._record_inbound_activity(user_id, message)
+
+        # 4. Handle slash commands locally
+        if command in SLASH_COMMANDS:
             async for reply in self._handle_slash_command(content, message, user_id):
-                await self._record_outbound_activity(user_id, message, reply.content)
+                if user_id is not None:
+                    await self._record_outbound_activity(user_id, message, reply.content)
                 yield reply
             return
 
-        # 3. Get or create session
+        # 5. Get or create session
+        if user_id is None:
+            yield self._make_reply(message, TELEGRAM_LINK_REQUIRED_TEXT)
+            return
+
         try:
             session_id = await self._get_or_create_session(message, user_id)
         except Exception:
@@ -227,7 +260,7 @@ class MessageRouter:
             )
             return
 
-        # 4. Stream agent events and convert to outbound messages
+        # 6. Stream agent events and convert to outbound messages
         try:
             async for event in self._agent_service.chat(
                 session_id=session_id,
@@ -315,13 +348,17 @@ class MessageRouter:
         self,
         content: str,
         message: InboundMessage,
-        user_id: str,
+        user_id: str | None,
     ) -> AsyncGenerator[OutboundMessage, None]:
         """Intercept and respond to slash commands."""
         command = content.split()[0].lower()
 
         if command == "/help":
             yield self._make_reply(message, HELP_TEXT)
+            return
+
+        if user_id is None and command != "/link":
+            yield self._make_reply(message, TELEGRAM_LINK_REQUIRED_TEXT)
             return
 
         if command == "/new":
