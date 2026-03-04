@@ -687,6 +687,23 @@ class TestErrorHandling:
         assert "could not start a session" in replies[0].content.lower()
 
     @pytest.mark.asyncio
+    async def test_session_creation_failure_still_sends_immediate_research_ack(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        agent_svc = _make_agent_service()
+        agent_svc.create_session = AsyncMock(side_effect=RuntimeError("DB is down"))
+        agent_svc.get_session = AsyncMock(return_value=None)
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound(
+            "Create a comprehensive research report comparing GLM, Kimi, and Claude pricing and coding performance"
+        )
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 2
+        assert "10-15 minutes" in replies[0].content
+        assert "could not start a session" in replies[1].content.lower()
+
+    @pytest.mark.asyncio
     async def test_agent_chat_error_returns_error_message(self) -> None:
         repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
         agent_svc = _make_agent_service()
