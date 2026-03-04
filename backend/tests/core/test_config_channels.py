@@ -37,6 +37,9 @@ class TestTelegramDefaults:
     def test_proxy_url_empty(self, settings):
         assert settings.telegram_proxy_url == ""
 
+    def test_require_linked_account_disabled_by_default(self, settings):
+        assert settings.telegram_require_linked_account is False
+
     def test_reuse_completed_sessions_enabled(self, settings):
         assert settings.telegram_reuse_completed_sessions is True
 
@@ -147,6 +150,13 @@ class TestChannelEnvOverride:
 
         s = Settings()
         assert s.telegram_bot_token == "123456:ABC-DEF"
+
+    def test_telegram_require_linked_account_from_env(self, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_REQUIRE_LINKED_ACCOUNT", "true")
+        from app.core.config import Settings
+
+        s = Settings()
+        assert s.telegram_require_linked_account is True
 
     def test_cron_max_jobs_from_env(self, monkeypatch):
         monkeypatch.setenv("CRON_MAX_JOBS_PER_USER", "100")
