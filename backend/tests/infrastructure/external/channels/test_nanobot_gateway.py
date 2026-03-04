@@ -8,6 +8,7 @@ Verifies that the gateway correctly:
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -226,3 +227,41 @@ class TestLifecycle:
         """stop() is safe to call even if start() was never called."""
         await gateway_telegram.stop()
         gateway_telegram._channel_manager.stop_all.assert_awaited_once()
+
+
+class TestPollWatchdog:
+    @pytest.mark.asyncio()
+    async def test_watchdog_does_not_warn_during_recent_inflight_processing(
+        self,
+        gateway_telegram: NanobotGateway,
+    ) -> None:
+        """Recent in-flight message routing should not emit poll-stall warnings."""
+        gateway_telegram.POLL_WATCHDOG_TIMEOUT = 0.05
+        gateway_telegram.INBOUND_PROCESSING_WARN_TIMEOUT = 1.0
+        gateway_telegram._inbound_processing_started_monotonic = asyncio.get_running_loop().time()
+
+        with patch("app.infrastructure.external.channels.nanobot_gateway.logger.warning") as warning_mock:
+            watchdog_task = asyncio.create_task(gateway_telegram._run_poll_watchdog())
+            await asyncio.sleep(0.13)
+            watchdog_task.cancel()
+            await watchdog_task
+
+        warning_mock.assert_not_called()
+
+    @pytest.mark.asyncio()
+    async def test_watchdog_warns_when_inflight_processing_exceeds_threshold(
+        self,
+        gateway_telegram: NanobotGateway,
+    ) -> None:
+        """Very long in-flight processing should still emit stall warnings."""
+        gateway_telegram.POLL_WATCHDOG_TIMEOUT = 0.05
+        gateway_telegram.INBOUND_PROCESSING_WARN_TIMEOUT = 0.10
+        gateway_telegram._inbound_processing_started_monotonic = asyncio.get_running_loop().time() - 1.0
+
+        with patch("app.infrastructure.external.channels.nanobot_gateway.logger.warning") as warning_mock:
+            watchdog_task = asyncio.create_task(gateway_telegram._run_poll_watchdog())
+            await asyncio.sleep(0.08)
+            watchdog_task.cancel()
+            await watchdog_task
+
+        assert warning_mock.call_count >= 1
