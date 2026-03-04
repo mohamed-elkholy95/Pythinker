@@ -166,6 +166,7 @@ async def run_gateway() -> None:
         telegram_pdf_toc_min_sections=settings.telegram_pdf_toc_min_sections,
         telegram_pdf_unicode_font=settings.telegram_pdf_unicode_font,
         telegram_pdf_rate_limit_per_minute=settings.telegram_pdf_rate_limit_per_minute,
+        telegram_require_linked_account=settings.telegram_require_linked_account,
     )
 
     # NanobotGateway — may not exist yet during incremental development.

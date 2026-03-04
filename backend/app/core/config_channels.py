@@ -20,6 +20,7 @@ class ChannelSettingsMixin:
     telegram_webhook_mode: bool = False
     telegram_webhook_url: str = ""
     telegram_proxy_url: str = ""
+    telegram_require_linked_account: bool = False
     telegram_reuse_completed_sessions: bool = True
     telegram_session_idle_timeout_hours: int = 168
     telegram_max_context_turns: int = 50

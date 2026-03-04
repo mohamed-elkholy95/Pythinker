@@ -116,6 +116,9 @@ def _make_user_channel_repo(
     repo.get_session_key = AsyncMock(return_value=session_id)
     repo.set_session_key = AsyncMock()
     repo.clear_session_key = AsyncMock()
+    repo.link_channel_to_user = AsyncMock(return_value=None)
+    repo.migrate_sessions = AsyncMock()
+    repo.migrate_session_ownership = AsyncMock()
     repo.touch_last_inbound_at = AsyncMock()
     repo.touch_last_outbound_at = AsyncMock()
     repo.get_session_activity = AsyncMock(return_value=None)
@@ -321,6 +324,85 @@ class TestAutoRegistration:
         assert len(replies) == 1
         repo.create_channel_user.assert_awaited_once_with(ChannelType.TELEGRAM, "tg-user-42", "tg-chat-99")
         # Session was created for the new user
+        agent_svc.create_session.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Tests — Telegram strict account-link requirement
+# ---------------------------------------------------------------------------
+
+
+class TestTelegramLinkRequiredMode:
+    @pytest.mark.asyncio
+    async def test_unlinked_telegram_message_is_blocked_when_link_required(self) -> None:
+        """Strict mode blocks unlinked Telegram messages before auto-registration."""
+        repo = _make_user_channel_repo(user_id=None, session_id=None)
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+        router = MessageRouter(
+            agent_svc,
+            repo,
+            telegram_require_linked_account=True,
+        )
+
+        msg = _make_inbound("hello from unlinked telegram")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        assert "link your telegram account" in replies[0].content.lower()
+        repo.create_channel_user.assert_not_awaited()
+        agent_svc.create_session.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_unlinked_telegram_link_command_allowed_when_link_required(self) -> None:
+        """Strict mode still allows /link for unlinked Telegram senders."""
+        import json
+
+        repo = _make_user_channel_repo(user_id=None, session_id=None)
+        agent_svc = _make_agent_service()
+
+        link_code = "ABC123"
+        web_user_id = "web-user-xyz"
+        mock_store = AsyncMock()
+        mock_store.get = AsyncMock(return_value=json.dumps({"user_id": web_user_id, "channel": "telegram"}))
+        mock_store.delete = AsyncMock()
+
+        router = MessageRouter(
+            agent_svc,
+            repo,
+            link_code_store=mock_store,
+            telegram_require_linked_account=True,
+        )
+
+        msg = _make_inbound(f"/link {link_code}")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        assert "linked" in replies[0].content.lower()
+        repo.link_channel_to_user.assert_awaited_once_with(
+            ChannelType.TELEGRAM,
+            "tg-user-42",
+            web_user_id,
+        )
+        repo.create_channel_user.assert_not_awaited()
+        agent_svc.create_session.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_linked_telegram_user_routes_normally_when_link_required(self) -> None:
+        """Linked Telegram users continue normal chat flow in strict mode."""
+        repo = _make_user_channel_repo(user_id="user-linked-1", session_id=None)
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+        router = MessageRouter(
+            agent_svc,
+            repo,
+            telegram_require_linked_account=True,
+        )
+
+        msg = _make_inbound("hello once linked")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        assert replies[0].content == "Hello from the agent!"
+        repo.create_channel_user.assert_not_awaited()
         agent_svc.create_session.assert_awaited_once()
 
 
