@@ -13,6 +13,8 @@ from app.domain.services.channels.telegram_delivery_policy import (
     TelegramDeliveryPolicy,
     TelegramPdfRateLimiter,
 )
+from app.domain.services.pdf.models import ReportPdfPayload
+from app.domain.services.pdf.pdf_renderer import PdfReportRenderer
 
 
 class _FakeReportEvent:
@@ -35,6 +37,15 @@ class _FakeMessageEvent:
 class _DenyAllLimiter(TelegramPdfRateLimiter):
     async def allow(self, key: str, limit_per_minute: int) -> bool:
         return False
+
+
+class _StubPdfRenderer(PdfReportRenderer):
+    def __init__(self) -> None:
+        self.payloads: list[ReportPdfPayload] = []
+
+    async def render(self, payload: ReportPdfPayload) -> bytes:
+        self.payloads.append(payload)
+        return b"%PDF-1.4 stub"
 
 
 def _inbound(content: str = "hello") -> InboundMessage:
@@ -279,3 +290,25 @@ async def test_strict_long_text_mode_render_failure_returns_short_retry_message(
     assert messages[0].metadata["pdf_required"] is True
     assert "try /pdf again" in messages[0].content.lower()
     assert long_content not in messages[0].content
+
+
+@pytest.mark.asyncio
+async def test_custom_pdf_renderer_is_used_for_pdf_generation(tmp_path: Path) -> None:
+    renderer = _StubPdfRenderer()
+    policy = TelegramDeliveryPolicy(
+        report_min_chars=10,
+        message_min_chars=10,
+        temp_dir=tmp_path,
+        pdf_renderer=renderer,
+    )
+    event = _FakeReportEvent("Custom Renderer", "G" * 120)
+
+    messages = await policy.build_for_event(event, _inbound(), user_id="user-renderer")
+    try:
+        assert len(messages) == 1
+        assert messages[0].media
+        assert renderer.payloads
+        assert renderer.payloads[0].title == "Custom Renderer"
+        assert renderer.payloads[0].markdown_content == "G" * 120
+    finally:
+        _cleanup_media(messages)

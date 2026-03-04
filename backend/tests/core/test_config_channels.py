@@ -64,6 +64,8 @@ class TestTelegramDefaults:
         assert settings.telegram_pdf_include_toc is True
         assert settings.telegram_pdf_toc_min_sections == 3
         assert settings.telegram_pdf_unicode_font == "DejaVuSans"
+        assert settings.telegram_pdf_renderer == "playwright"
+        assert settings.telegram_pdf_renderer_timeout_ms == 20000
         assert settings.telegram_pdf_rate_limit_per_minute == 5
         assert settings.telegram_pdf_file_id_cache_redis_enabled is False
         assert settings.telegram_pdf_max_generation_seconds == 30
@@ -167,6 +169,15 @@ class TestChannelEnvOverride:
 
         s = Settings()
         assert s.telegram_pdf_force_long_text is True
+
+    def test_telegram_pdf_renderer_from_env(self, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_PDF_RENDERER", "playwright")
+        monkeypatch.setenv("TELEGRAM_PDF_RENDERER_TIMEOUT_MS", "15000")
+        from app.core.config import Settings
+
+        s = Settings()
+        assert s.telegram_pdf_renderer == "playwright"
+        assert s.telegram_pdf_renderer_timeout_ms == 15000
 
     def test_cron_max_jobs_from_env(self, monkeypatch):
         monkeypatch.setenv("CRON_MAX_JOBS_PER_USER", "100")
