@@ -292,7 +292,7 @@ class ShellService:
         """
         logger.debug(f"Viewing shell content for session: {session_id}")
         if session_id not in self.active_shells:
-            logger.error(f"Session ID not found: {session_id}")
+            logger.info(f"Session ID not found: {session_id}")
             raise ResourceNotFoundException(f"Session ID does not exist: {session_id}")
 
         shell = self.active_shells[session_id]
@@ -317,7 +317,7 @@ class ShellService:
         """
         logger.debug(f"Getting console records for session: {session_id}")
         if session_id not in self.active_shells:
-            logger.error(f"Session ID not found: {session_id}")
+            logger.info(f"Session ID not found: {session_id}")
             raise ResourceNotFoundException(f"Session ID does not exist: {session_id}")
 
         # Get raw console records and filter ANSI escape codes
@@ -343,7 +343,7 @@ class ShellService:
             f"Waiting for process in session: {session_id}, timeout: {seconds}s"
         )
         if session_id not in self.active_shells:
-            logger.error(f"Session ID not found: {session_id}")
+            logger.info(f"Session ID not found: {session_id}")
             raise ResourceNotFoundException(f"Session ID does not exist: {session_id}")
 
         shell = self.active_shells[session_id]
@@ -374,7 +374,7 @@ class ShellService:
             f"Writing to process in session: {session_id}, press_enter: {press_enter}"
         )
         if session_id not in self.active_shells:
-            logger.error(f"Session ID not found: {session_id}")
+            logger.info(f"Session ID not found: {session_id}")
             raise ResourceNotFoundException(f"Session ID does not exist: {session_id}")
 
         shell = self.active_shells[session_id]
@@ -413,7 +413,7 @@ class ShellService:
         """
         logger.info(f"Killing process in session: {session_id}")
         if session_id not in self.active_shells:
-            logger.error(f"Session ID not found: {session_id}")
+            logger.info(f"Session ID not found: {session_id}")
             raise ResourceNotFoundException(f"Session ID does not exist: {session_id}")
 
         shell = self.active_shells[session_id]
