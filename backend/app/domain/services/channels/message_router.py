@@ -57,7 +57,7 @@ _RESEARCH_REPORT_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 _LONG_RESEARCH_SIGNAL_RE = re.compile(
-    r"\b(comprehensive|deep|detailed|benchmark|compare|comparison|pricing|citations?|references?)\b",
+    r"\b(comprehensive|deep|detailed|benchmark|compare|comparison|pricing|citations?|references?|coupons?|offers?|deals?|discounts?|promos?|reddit)\b",
     re.IGNORECASE,
 )
 _GENERIC_AGENT_ACK_PREFIX_RE = re.compile(r"^\s*got it!\s*", re.IGNORECASE)
