@@ -641,6 +641,22 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
         if not result.success:
             return result
 
+        status_code: int | None = None
+        if result.data and isinstance(result.data, dict):
+            raw_status = result.data.get("status")
+            if isinstance(raw_status, int):
+                status_code = raw_status
+
+        if status_code is not None and status_code >= 400:
+            return ToolResult(
+                success=False,
+                message=(
+                    f"Navigation to {url} returned HTTP {status_code}. "
+                    "Treat this source as unavailable and use an alternative URL."
+                ),
+                data=result.data,
+            )
+
         # Parse intent
         try:
             browser_intent = BrowserIntent(intent.lower())
