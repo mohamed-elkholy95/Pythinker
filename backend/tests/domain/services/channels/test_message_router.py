@@ -366,6 +366,22 @@ class TestRouteInbound:
         assert replies[1].content == "Hello from the agent!"
 
     @pytest.mark.asyncio
+    async def test_route_sends_coupon_research_ack_with_longer_estimate(self) -> None:
+        """Coupon/deal report prompts use the 10-15 minute estimate."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound(
+            "Create a research report about latest coupon codes and offers for GLM coding plan from Reddit and other sources"
+        )
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 2
+        assert "10-15 minutes" in replies[0].content
+        assert replies[1].content == "Hello from the agent!"
+
+    @pytest.mark.asyncio
     async def test_route_suppresses_generic_agent_got_it_after_router_ack(self) -> None:
         """When router sends ETA acknowledgement, suppress generic first agent 'Got it!' message."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
