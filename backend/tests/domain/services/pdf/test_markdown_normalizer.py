@@ -71,3 +71,30 @@ Result improved [2].
     assert "1. Older source" in normalized.markdown
     assert "2. https://example.com/new" in normalized.markdown
     assert normalized.unresolved_citations == []
+
+
+def test_normalizer_merges_existing_references_with_structured_sources() -> None:
+    sources = [
+        SourceCitation(
+            url="https://example.com/one",
+            title="Source One",
+            snippet=None,
+            access_time=datetime.now(UTC),
+            source_type="search",
+        ),
+    ]
+    content = """# Report
+
+Result improved [1] and [2].
+
+## References
+
+[1] stale source text
+[2] https://example.com/two
+"""
+
+    normalized = normalize_markdown_for_pdf(content, sources)
+
+    assert "1. [Source One](https://example.com/one)" in normalized.markdown
+    assert "2. https://example.com/two" in normalized.markdown
+    assert normalized.unresolved_citations == []
