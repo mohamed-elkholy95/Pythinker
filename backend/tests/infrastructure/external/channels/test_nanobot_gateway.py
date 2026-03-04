@@ -231,6 +231,26 @@ class TestLifecycle:
 
 class TestPollWatchdog:
     @pytest.mark.asyncio()
+    async def test_watchdog_does_not_warn_when_recent_processing_progress_observed(
+        self,
+        gateway_telegram: NanobotGateway,
+    ) -> None:
+        """Long-running processing with recent progress should not be treated as stalled."""
+        gateway_telegram.POLL_WATCHDOG_TIMEOUT = 0.05
+        gateway_telegram.INBOUND_PROCESSING_WARN_TIMEOUT = 0.20
+        now = asyncio.get_running_loop().time()
+        gateway_telegram._inbound_processing_started_monotonic = now - 10.0
+        gateway_telegram._inbound_processing_last_progress_monotonic = now
+
+        with patch("app.infrastructure.external.channels.nanobot_gateway.logger.warning") as warning_mock:
+            watchdog_task = asyncio.create_task(gateway_telegram._run_poll_watchdog())
+            await asyncio.sleep(0.13)
+            watchdog_task.cancel()
+            await watchdog_task
+
+        warning_mock.assert_not_called()
+
+    @pytest.mark.asyncio()
     async def test_watchdog_does_not_warn_during_recent_inflight_processing(
         self,
         gateway_telegram: NanobotGateway,
