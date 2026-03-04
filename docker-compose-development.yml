@@ -151,8 +151,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     command: ["python", "-m", "app.interfaces.gateway.gateway_runner"]
-    profiles:
-      - gateway
+    volumes:
+      # Keep gateway runner source in sync with local backend changes.
+      - ./backend/app:/app/app
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - dspy_cache:/app/data/dspy_cache
     depends_on:
       backend:
         condition: service_healthy
@@ -164,6 +167,9 @@ services:
         condition: service_started
         required: true
       qdrant:
+        condition: service_started
+        required: true
+      minio:
         condition: service_started
         required: true
       sandbox:
@@ -188,6 +194,16 @@ services:
       - GRPC_ENABLE_FORK_SUPPORT=0
       - NODE_OPTIONS=--no-deprecation
       - FAST_MODEL=${FAST_MODEL:-}
+    develop:
+      watch:
+        - action: sync
+          path: ./backend/app
+          target: /app/app
+          ignore:
+            - "**/__pycache__"
+            - "**/*.pyc"
+        - action: rebuild
+          path: ./backend/requirements.txt
 
   sandbox:
     build:
