@@ -143,3 +143,63 @@ def test_slow_tool_breaker_ignores_noop_fast_model_override() -> None:
         )
 
     assert resolved is None
+
+
+def test_slow_tool_breaker_degraded_mode_enabled_when_fast_model_missing() -> None:
+    llm = _make_llm(api_base="https://api.openai.com/v1")
+    llm._slow_tool_call_breaker_until = 300.0
+
+    degraded = llm._should_use_slow_tool_breaker_degraded_mode(
+        request_tools=[{"type": "function"}],
+        model_override_for_attempt=None,
+        timeout_fallback_fast_model="",
+        now_monotonic=150.0,
+    )
+
+    assert degraded is True
+
+
+def test_slow_tool_breaker_degraded_mode_disabled_when_fast_model_available() -> None:
+    llm = _make_llm(api_base="https://api.openai.com/v1")
+    llm._slow_tool_call_breaker_until = 300.0
+
+    degraded = llm._should_use_slow_tool_breaker_degraded_mode(
+        request_tools=[{"type": "function"}],
+        model_override_for_attempt=None,
+        timeout_fallback_fast_model="claude-haiku-4-5-20251001",
+        now_monotonic=150.0,
+    )
+
+    assert degraded is False
+
+
+def test_slow_tool_breaker_degraded_timeout_cap() -> None:
+    llm = _make_llm(api_base="https://api.openai.com/v1")
+
+    capped_timeout = llm._cap_tool_timeout_for_slow_breaker(
+        120.0,
+        degraded_mode=True,
+    )
+    uncapped_timeout = llm._cap_tool_timeout_for_slow_breaker(
+        120.0,
+        degraded_mode=False,
+    )
+
+    assert capped_timeout == llm._SLOW_TOOL_BREAKER_DEGRADED_TIMEOUT_SECONDS
+    assert uncapped_timeout == 120.0
+
+
+def test_slow_tool_breaker_degraded_token_cap() -> None:
+    llm = _make_llm(api_base="https://api.openai.com/v1")
+
+    capped_tokens = llm._cap_tool_max_tokens_for_slow_breaker(
+        4096,
+        degraded_mode=True,
+    )
+    uncapped_tokens = llm._cap_tool_max_tokens_for_slow_breaker(
+        4096,
+        degraded_mode=False,
+    )
+
+    assert capped_tokens == llm._SLOW_TOOL_BREAKER_DEGRADED_MAX_TOKENS
+    assert uncapped_tokens == 4096

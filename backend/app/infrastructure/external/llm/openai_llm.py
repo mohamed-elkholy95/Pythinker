@@ -59,6 +59,8 @@ class OpenAILLM(LLM):
     _SLOW_TOOL_CALL_THRESHOLD_SECONDS: ClassVar[float] = 30.0
     _SLOW_TOOL_CALL_TRIP_COUNT: ClassVar[int] = 2
     _SLOW_TOOL_CALL_COOLDOWN_SECONDS: ClassVar[float] = 300.0
+    _SLOW_TOOL_BREAKER_DEGRADED_MAX_TOKENS: ClassVar[int] = 1024
+    _SLOW_TOOL_BREAKER_DEGRADED_TIMEOUT_SECONDS: ClassVar[float] = 60.0
 
     def __init__(
         self,
@@ -345,6 +347,39 @@ class OpenAILLM(LLM):
             self._slow_breaker_invalid_fast_model_warned = True
             self._slow_breaker_missing_fast_model_warned = True
         return ""
+
+    def _should_use_slow_tool_breaker_degraded_mode(
+        self,
+        *,
+        request_tools: list[dict[str, Any]] | None,
+        model_override_for_attempt: str | None,
+        timeout_fallback_fast_model: str,
+        now_monotonic: float | None = None,
+    ) -> bool:
+        """Return whether degraded guardrails should apply for slow tool calls.
+
+        When the slow-call breaker is active and FAST_MODEL is unavailable, reduce
+        tool-call cost locally (tokens + timeout) to protect step budgets.
+        """
+        if not request_tools:
+            return False
+        if model_override_for_attempt:
+            return False
+        if timeout_fallback_fast_model:
+            return False
+        return self._is_slow_tool_breaker_active(now_monotonic=now_monotonic)
+
+    def _cap_tool_timeout_for_slow_breaker(self, timeout_seconds: float, *, degraded_mode: bool) -> float:
+        """Cap tool-call timeout while degraded breaker mode is active."""
+        if timeout_seconds <= 0 or not degraded_mode:
+            return timeout_seconds
+        return min(timeout_seconds, self._SLOW_TOOL_BREAKER_DEGRADED_TIMEOUT_SECONDS)
+
+    def _cap_tool_max_tokens_for_slow_breaker(self, max_tokens: int, *, degraded_mode: bool) -> int:
+        """Cap tool-call output tokens while degraded breaker mode is active."""
+        if not degraded_mode:
+            return max_tokens
+        return min(max_tokens, self._SLOW_TOOL_BREAKER_DEGRADED_MAX_TOKENS)
 
     def _resolve_hard_call_timeout(self, settings: Any) -> float:
         """Resolve per-call hard timeout, with GLM override support."""
@@ -1590,6 +1625,8 @@ To extract data from a webpage:
             model_override_for_attempt=model_override_for_attempt,
             timeout_fallback_fast_model=timeout_fallback_fast_model,
         )
+        slow_tool_breaker_timeout_logged = False
+        slow_tool_breaker_token_cap_logged = False
 
         max_retries = 3
         base_delay = 1.0
@@ -1598,10 +1635,27 @@ To extract data from a webpage:
         for attempt in range(max_retries + 1):  # every try
             response = None
             tool_request_timeout = llm_tool_request_timeout
+            degraded_mode = self._should_use_slow_tool_breaker_degraded_mode(
+                request_tools=request_tools,
+                model_override_for_attempt=model_override_for_attempt,
+                timeout_fallback_fast_model=timeout_fallback_fast_model,
+            )
             if request_tools and llm_tool_request_timeout > 0 and tool_timeout_retries > 0:
                 tool_request_timeout = llm_tool_request_timeout * (2**tool_timeout_retries)
                 if llm_request_timeout > 0:
                     tool_request_timeout = min(tool_request_timeout, llm_request_timeout)
+            capped_tool_request_timeout = self._cap_tool_timeout_for_slow_breaker(
+                tool_request_timeout,
+                degraded_mode=degraded_mode,
+            )
+            if request_tools and capped_tool_request_timeout < tool_request_timeout and not slow_tool_breaker_timeout_logged:
+                logger.warning(
+                    "Slow tool-call breaker active without FAST_MODEL; tightening tool timeout from %.1fs to %.1fs",
+                    tool_request_timeout,
+                    capped_tool_request_timeout,
+                )
+                slow_tool_breaker_timeout_logged = True
+            tool_request_timeout = capped_tool_request_timeout
             call_timeout = self._combine_call_timeout(
                 tool_request_timeout if request_tools else llm_request_timeout,
                 hard_call_timeout,
@@ -1625,6 +1679,19 @@ To extract data from a webpage:
                         effective_model,
                     )
                     effective_max_tokens = llm_tool_max_tokens
+                if request_tools:
+                    capped_max_tokens = self._cap_tool_max_tokens_for_slow_breaker(
+                        effective_max_tokens,
+                        degraded_mode=degraded_mode,
+                    )
+                    if capped_max_tokens < effective_max_tokens and not slow_tool_breaker_token_cap_logged:
+                        logger.warning(
+                            "Slow tool-call breaker active without FAST_MODEL; capping tool-call max_tokens from %s to %s",
+                            effective_max_tokens,
+                            capped_max_tokens,
+                        )
+                        slow_tool_breaker_token_cap_logged = True
+                    effective_max_tokens = capped_max_tokens
 
                 # GPT-5 nano/mini and o1/o3 models have different parameter requirements
                 is_new_model = effective_model.startswith(("gpt-5", "o1", "o3"))
