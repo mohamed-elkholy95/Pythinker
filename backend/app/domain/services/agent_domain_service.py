@@ -108,6 +108,15 @@ class AgentDomainService:
         self._agent_execution_semaphore = asyncio.Semaphore(_settings.max_concurrent_executions)
         logger.info("AgentDomainService initialization completed")
 
+    @staticmethod
+    def _ensure_aware_utc(timestamp: datetime | None) -> datetime | None:
+        """Normalize potentially naive datetimes to aware UTC values."""
+        if timestamp is None:
+            return None
+        if timestamp.tzinfo is None or timestamp.tzinfo.utcoffset(timestamp) is None:
+            return timestamp.replace(tzinfo=UTC)
+        return timestamp.astimezone(UTC)
+
     # ------------------------------------------------------------------
     # Delegation properties for backward compatibility
     # Tests and internal code access these directly on the service instance.
@@ -324,9 +333,7 @@ class AgentDomainService:
 
                 if last_user_event and last_user_event.message == message:
                     now = datetime.now(UTC)
-                    latest_at = last_user_event.timestamp
-                    if latest_at.tzinfo is None:
-                        latest_at = latest_at.replace(tzinfo=UTC)
+                    latest_at = self._ensure_aware_utc(last_user_event.timestamp)
                     time_since_last = (now - latest_at).total_seconds()
                     if time_since_last < 300:  # Within 5 minutes (research tasks can take a while)
 
@@ -778,7 +785,8 @@ class AgentDomainService:
                             # a potentially live session.
                             # 180s matches the SSE non-terminal grace period (120s)
                             # plus margin for network delays and frontend retry backoff.
-                            session_age = (datetime.now(UTC) - session.updated_at).total_seconds() if session else 999
+                            updated_at = self._ensure_aware_utc(session.updated_at if session else None)
+                            session_age = (datetime.now(UTC) - updated_at).total_seconds() if updated_at else 999
                             if session_age < 180.0:
                                 logger.info(
                                     "Session %s is RUNNING with no task but updated %.1fs ago — "
