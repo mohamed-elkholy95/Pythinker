@@ -1300,8 +1300,7 @@ class BaseAgent:
             raw_preview,
         )
         return ToolResult.error(
-            f"Invalid JSON arguments for tool '{function_name}'. "
-            "Please resend this tool call with a valid JSON object."
+            f"Invalid JSON arguments for tool '{function_name}'. Please resend this tool call with a valid JSON object."
         )
 
     def _to_tool_call(self, tc: dict) -> Any:
