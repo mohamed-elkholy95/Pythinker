@@ -502,7 +502,6 @@
     :report="currentReport"
     :showToc="true"
     @close="closeReport"
-    @download="handleReportDownload"
   />
   <Dialog v-model:open="filePreviewOpen">
     <DialogContent
@@ -3284,21 +3283,6 @@ const handleReportRate = async (rating: number, feedback?: string) => {
   } catch {
     showErrorToast(t('Failed to submit rating'));
   }
-}
-
-// Handle report download
-const handleReportDownload = () => {
-  if (!currentReport.value) return;
-
-  const blob = new Blob([currentReport.value.content], { type: 'text/markdown' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${currentReport.value.title.replace(/[^a-zA-Z0-9]/g, '_')}.md`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 // ── Extracted event handlers for registry dispatch ──────────────────
