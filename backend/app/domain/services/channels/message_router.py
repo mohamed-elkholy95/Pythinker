@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -51,6 +52,14 @@ TELEGRAM_LINK_REQUIRED_TEXT = (
 
 # Event types that produce user-visible outbound messages.
 _OUTBOUND_EVENT_TYPES = frozenset({"message", "report", "error"})
+_RESEARCH_REPORT_REQUEST_RE = re.compile(
+    r"\bresearch\b[\s\S]{0,120}\breport\b|\breport\b[\s\S]{0,120}\bresearch\b",
+    re.IGNORECASE,
+)
+_LONG_RESEARCH_SIGNAL_RE = re.compile(
+    r"\b(comprehensive|deep|detailed|benchmark|compare|comparison|pricing|citations?|references?)\b",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +275,13 @@ class MessageRouter:
             )
             return
 
-        # 6. Stream agent events and convert to outbound messages
+        # 6. Telegram UX: acknowledge long-running research-report requests immediately.
+        if self._should_send_research_report_ack(message):
+            ack = self._make_reply(message, self._build_research_report_ack(message.content))
+            await self._record_outbound_activity(user_id, message, ack.content)
+            yield ack
+
+        # 7. Stream agent events and convert to outbound messages
         try:
             async for event in self._agent_service.chat(
                 session_id=session_id,
@@ -779,6 +794,54 @@ class MessageRouter:
     @staticmethod
     def _response_key(user_id: str, channel: ChannelType, chat_id: str) -> tuple[str, str, str]:
         return user_id, str(channel), chat_id
+
+    @staticmethod
+    def _should_send_research_report_ack(message: InboundMessage) -> bool:
+        """Return True when a Telegram prompt appears to request a research report."""
+        if message.channel != ChannelType.TELEGRAM:
+            return False
+        content = (message.content or "").strip()
+        if not content or content.startswith("/"):
+            return False
+        if not _RESEARCH_REPORT_REQUEST_RE.search(content):
+            return False
+        return len(content.split()) >= 6
+
+    @staticmethod
+    def _build_research_report_ack(content: str) -> str:
+        """Build immediate Telegram acknowledgement for long-running report requests."""
+        compact = " ".join((content or "").split()).strip()
+        topic = MessageRouter._extract_research_topic(compact)
+        estimate = MessageRouter._estimate_research_duration(compact)
+        return (
+            f"I'll create a research report on {topic}. "
+            f"This should take about {estimate} to complete."
+        )
+
+    @staticmethod
+    def _extract_research_topic(compact_content: str) -> str:
+        """Extract a readable topic phrase from the raw request text."""
+        lowered = compact_content.lower()
+        topic = compact_content
+        for marker in ("about", "on", "for"):
+            idx = lowered.find(f"{marker} ")
+            if idx >= 0:
+                topic = compact_content[idx + len(marker) + 1 :].strip()
+                break
+
+        if len(topic) > 140:
+            topic = f"{topic[:137].rstrip()}..."
+        if not topic:
+            topic = "your requested topic"
+        return topic
+
+    @staticmethod
+    def _estimate_research_duration(compact_content: str) -> str:
+        """Return a human estimate for research completion time."""
+        word_count = len(compact_content.split())
+        if word_count >= 20 or _LONG_RESEARCH_SIGNAL_RE.search(compact_content):
+            return "10-15 minutes"
+        return "5-10 minutes"
 
     # ------------------------------------------------------------------
     # Helpers
