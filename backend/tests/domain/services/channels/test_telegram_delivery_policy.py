@@ -207,3 +207,52 @@ async def test_rate_limit_exceeded_falls_back_to_text() -> None:
     assert len(messages) == 1
     assert messages[0].media == []
     assert messages[0].metadata["delivery_mode"] == "text"
+
+
+@pytest.mark.asyncio
+async def test_strict_long_text_mode_rate_limit_returns_short_retry_message() -> None:
+    policy = TelegramDeliveryPolicy(
+        report_min_chars=10,
+        message_min_chars=10,
+        rate_limiter=_DenyAllLimiter(),
+        force_long_text_pdf=True,
+    )
+    long_content = "Long output " * 30
+    event = _FakeReportEvent("Rate Limited", long_content)
+
+    messages = await policy.build_for_event(event, _inbound(), user_id="user-10")
+
+    assert len(messages) == 1
+    assert messages[0].media == []
+    assert messages[0].metadata["delivery_mode"] == "text"
+    assert messages[0].metadata["pdf_required"] is True
+    assert "rate-limited" in messages[0].content.lower()
+    assert long_content not in messages[0].content
+
+
+@pytest.mark.asyncio
+async def test_strict_long_text_mode_render_failure_returns_short_retry_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    policy = TelegramDeliveryPolicy(
+        report_min_chars=10,
+        message_min_chars=10,
+        temp_dir=tmp_path,
+        force_long_text_pdf=True,
+    )
+    long_content = "Failure output " * 30
+    event = _FakeReportEvent("Broken", long_content)
+
+    async def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(policy, "_render_pdf_attachment", _raise)
+
+    messages = await policy.build_for_event(event, _inbound(), user_id="user-11")
+
+    assert len(messages) == 1
+    assert messages[0].media == []
+    assert messages[0].metadata["delivery_mode"] == "text"
+    assert messages[0].metadata["pdf_required"] is True
+    assert "try /pdf again" in messages[0].content.lower()
+    assert long_content not in messages[0].content
