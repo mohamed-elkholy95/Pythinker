@@ -4,8 +4,37 @@
 
 set -euo pipefail
 
-BACKEND_CONTAINER="pythinker-backend-1"
-SANDBOX_CONTAINER="pythinker-sandbox-1"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+resolve_container_name() {
+    local logical_service="$1"
+    local names
+    names="$(docker ps -a --format '{{.Names}}')"
+
+    local candidate_main="pythinker-main-${logical_service}-1"
+    local candidate_legacy="pythinker-${logical_service}-1"
+
+    if echo "${names}" | grep -Fxq "${candidate_main}"; then
+        echo "${candidate_main}"
+        return 0
+    fi
+    if echo "${names}" | grep -Fxq "${candidate_legacy}"; then
+        echo "${candidate_legacy}"
+        return 0
+    fi
+
+    local fallback
+    fallback="$(echo "${names}" | grep -E "(^|-)${logical_service}-1$" | head -n 1)"
+    if [ -n "${fallback}" ]; then
+        echo "${fallback}"
+        return 0
+    fi
+    return 1
+}
+
+BACKEND_CONTAINER="$(resolve_container_name backend || true)"
+SANDBOX_CONTAINER="$(resolve_container_name sandbox || true)"
 SESSION_ID="${1:-}"
 
 # Colors
@@ -26,6 +55,10 @@ echo ""
 # Check containers
 check_container() {
     local container=$1
+    if [ -z "${container}" ]; then
+        echo -e "${RED}Warning: Container name could not be resolved${NC}"
+        return 1
+    fi
     if ! docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
         echo -e "${RED}Warning: Container ${container} is not running${NC}"
         return 1
@@ -35,6 +68,16 @@ check_container() {
 
 check_container "${BACKEND_CONTAINER}" || true
 check_container "${SANDBOX_CONTAINER}" || true
+
+ensure_container_running() {
+    local container="$1"
+    local label="$2"
+    if ! check_container "${container}"; then
+        echo -e "${RED}${label} container unavailable; select another mode or start containers first.${NC}"
+        return 1
+    fi
+    return 0
+}
 
 function show_menu() {
     echo -e "${GREEN}Select monitoring mode:${NC}"
@@ -59,10 +102,9 @@ function stream_unified() {
     echo -e "${YELLOW}Backend logs: CYAN | Sandbox logs: MAGENTA${NC}"
     echo ""
 
-    # Use docker compose logs if available, otherwise manual merge
-    if command -v docker-compose &> /dev/null; then
-        cd /Users/panda/Desktop/Projects/Pythinker
-        docker-compose logs -f --tail=50 backend sandbox
+    # Use project log wrapper if available, otherwise manual merge
+    if [ -x "${REPO_ROOT}/dev.sh" ]; then
+        (cd "${REPO_ROOT}" && ./dev.sh logs -f --tail=50 backend sandbox)
     else
         # Manual merge with color coding
         (docker logs ${BACKEND_CONTAINER} -f --tail 50 --timestamps 2>&1 | sed "s/^/$(echo -e ${CYAN})[BACKEND]$(echo -e ${NC}) /" ) &
@@ -72,16 +114,21 @@ function stream_unified() {
 }
 
 function stream_backend_only() {
+    ensure_container_running "${BACKEND_CONTAINER}" "Backend" || return 1
     echo -e "${CYAN}Streaming BACKEND logs only (Ctrl+C to stop)...${NC}"
     docker logs ${BACKEND_CONTAINER} -f --tail 100 --timestamps
 }
 
 function stream_sandbox_only() {
+    ensure_container_running "${SANDBOX_CONTAINER}" "Sandbox" || return 1
     echo -e "${MAGENTA}Streaming SANDBOX logs only (Ctrl+C to stop)...${NC}"
     docker logs ${SANDBOX_CONTAINER} -f --tail 100 --timestamps
 }
 
 function stream_session_logs() {
+    ensure_container_running "${BACKEND_CONTAINER}" "Backend" || return 1
+    ensure_container_running "${SANDBOX_CONTAINER}" "Sandbox" || return 1
+
     if [ -z "${SESSION_ID}" ]; then
         read -p "Enter session ID: " SESSION_ID
     fi
@@ -104,6 +151,9 @@ function stream_session_logs() {
 }
 
 function stream_side_by_side() {
+    ensure_container_running "${BACKEND_CONTAINER}" "Backend" || return 1
+    ensure_container_running "${SANDBOX_CONTAINER}" "Sandbox" || return 1
+
     echo -e "${YELLOW}Opening side-by-side view...${NC}"
     echo "Left: Backend | Right: Sandbox"
     echo ""
@@ -122,6 +172,9 @@ function stream_side_by_side() {
 }
 
 function show_recent_errors() {
+    ensure_container_running "${BACKEND_CONTAINER}" "Backend" || return 1
+    ensure_container_running "${SANDBOX_CONTAINER}" "Sandbox" || return 1
+
     echo -e "${RED}Recent Errors from BOTH containers (last 5 minutes):${NC}"
     echo ""
 
@@ -145,11 +198,24 @@ function show_container_health() {
 
     echo ""
     echo -e "${BLUE}Resource Usage:${NC}"
+    local stats_targets=()
+    if [ -n "${BACKEND_CONTAINER}" ] && docker ps --format '{{.Names}}' | grep -q "^${BACKEND_CONTAINER}$"; then
+        stats_targets+=("${BACKEND_CONTAINER}")
+    fi
+    if [ -n "${SANDBOX_CONTAINER}" ] && docker ps --format '{{.Names}}' | grep -q "^${SANDBOX_CONTAINER}$"; then
+        stats_targets+=("${SANDBOX_CONTAINER}")
+    fi
+    if [ ${#stats_targets[@]} -eq 0 ]; then
+        echo "No backend/sandbox containers currently running."
+        return
+    fi
     docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" \
-        ${BACKEND_CONTAINER} ${SANDBOX_CONTAINER}
+        "${stats_targets[@]}"
 }
 
 function show_sandbox_tool_execution() {
+    ensure_container_running "${SANDBOX_CONTAINER}" "Sandbox" || return 1
+
     echo -e "${MAGENTA}Sandbox Tool Execution Logs:${NC}"
     echo ""
 
@@ -172,6 +238,8 @@ function show_sandbox_tool_execution() {
 }
 
 function show_backend_api_logs() {
+    ensure_container_running "${BACKEND_CONTAINER}" "Backend" || return 1
+
     echo -e "${CYAN}Backend API Request Logs:${NC}"
     echo ""
 
@@ -188,6 +256,8 @@ function show_backend_api_logs() {
 }
 
 function show_docker_browser_logs() {
+    ensure_container_running "${SANDBOX_CONTAINER}" "Sandbox" || return 1
+
     echo -e "${MAGENTA}Docker/Browser Logs from Sandbox:${NC}"
     echo ""
 
@@ -210,6 +280,8 @@ function show_docker_browser_logs() {
 }
 
 function show_cdp_logs() {
+    ensure_container_running "${BACKEND_CONTAINER}" "Backend" || return 1
+
     echo -e "${BLUE}CDP Connection Logs:${NC}"
     echo ""
 
@@ -221,6 +293,9 @@ function show_cdp_logs() {
 }
 
 function show_complete_snapshot() {
+    ensure_container_running "${BACKEND_CONTAINER}" "Backend" || return 1
+    ensure_container_running "${SANDBOX_CONTAINER}" "Sandbox" || return 1
+
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}Complete System Snapshot${NC}"
     echo -e "${GREEN}========================================${NC}"

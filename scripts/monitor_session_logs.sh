@@ -14,10 +14,36 @@ print_header() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
-# Get container name
-CONTAINER="pythinker-backend-1"
+# Resolve backend container name (supports pythinker-main-* and legacy names)
+resolve_backend_container() {
+    local names
+    names="$(docker ps -a --format '{{.Names}}')"
+
+    if echo "${names}" | grep -Fxq "pythinker-main-backend-1"; then
+        echo "pythinker-main-backend-1"
+        return 0
+    fi
+    if echo "${names}" | grep -Fxq "pythinker-backend-1"; then
+        echo "pythinker-backend-1"
+        return 0
+    fi
+
+    local fallback
+    fallback="$(echo "${names}" | grep -E '(^|-)backend-1$' | head -n 1)"
+    if [ -n "${fallback}" ]; then
+        echo "${fallback}"
+        return 0
+    fi
+    return 1
+}
+
+CONTAINER="$(resolve_backend_container || true)"
 
 # Check if container is running
+if [ -z "${CONTAINER}" ]; then
+    echo "❌ Error: Could not resolve backend container name"
+    exit 1
+fi
 if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
     echo "❌ Error: Container ${CONTAINER} is not running"
     exit 1
