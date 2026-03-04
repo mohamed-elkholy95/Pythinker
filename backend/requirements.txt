@@ -132,6 +132,9 @@ python-socketio>=5.16.0,<6.0.0
 qq-botpy>=1.2.0,<2.0.0
 slackify-markdown>=0.2.0,<1.0.0
 readability-lxml>=0.8.4,<1.0.0
+# Requests 2.32.x warns at import time when chardet>=6 is present.
+# readability-lxml depends on chardet without an upper bound, so pin it here.
+chardet>=3.0.2,<6.0.0
 loguru>=0.7.3,<1.0.0
 oauth-cli-kit>=0.1.3,<1.0.0
 socksio>=1.0.0,<2.0.0
