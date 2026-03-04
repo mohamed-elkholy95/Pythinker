@@ -6,7 +6,7 @@ import pytest
 
 from app.domain.models.search import SearchResultItem, SearchResults
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.search import SearchTool
+from app.domain.services.tools.search import SearchTool, SearchType
 
 
 def _make_search_result(query: str = "test") -> ToolResult:
@@ -236,6 +236,34 @@ async def test_wide_research_trims_to_remaining_budget() -> None:
 
 
 @pytest.mark.asyncio
+async def test_wide_research_preserves_reserved_follow_up_budget() -> None:
+    """wide_research should leave reserve calls for follow-up verification."""
+    engine = AsyncMock()
+    engine.search = AsyncMock(return_value=_make_search_result())
+    engine.provider_name = "test"
+    tool = SearchTool(search_engine=engine)
+
+    # Leave only 3 API calls; implementation should reserve 2 for follow-up.
+    tool._budget.record_api_call(tool._budget._max_api - 3)
+
+    call_count = 0
+
+    async def counting_execute(query: str, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return _make_search_result(query)
+
+    tool._execute_typed_search = counting_execute
+
+    await tool.wide_research(
+        topic="reserve budget test",
+        queries=["q1", "q2", "q3"],
+    )
+
+    assert call_count <= 1
+
+
+@pytest.mark.asyncio
 async def test_wide_research_records_invocation() -> None:
     """wide_research records the invocation in budget tracker."""
     engine = AsyncMock()
@@ -281,6 +309,26 @@ async def test_execute_typed_search_blocked_by_budget() -> None:
     assert "budget exhausted" in result.message.lower()
     # Verify the engine was never called
     engine.search.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_typed_search_quota_failure_falls_back_to_browser() -> None:
+    """Quota-exhausted API failures should degrade to browser search when available."""
+    engine = AsyncMock()
+    engine.search = AsyncMock(
+        return_value=ToolResult(success=False, message='HTTP 400: {"message":"Not enough credits"}')
+    )
+    engine.provider_name = "serper"
+
+    tool = SearchTool(search_engine=engine, browser=MagicMock())
+    fallback_result = ToolResult(success=True, message="fallback result", data=SearchResults(query="q"))
+    tool._search_via_browser = AsyncMock(return_value=fallback_result)
+
+    result = await tool._execute_typed_search("quota fallback query", search_type=SearchType.INFO)
+
+    assert result.success is True
+    assert "fallback" in (result.message or "").lower()
+    tool._search_via_browser.assert_awaited_once()
 
 
 @pytest.mark.asyncio

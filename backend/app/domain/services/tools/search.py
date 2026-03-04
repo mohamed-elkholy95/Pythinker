@@ -363,6 +363,14 @@ class SearchTool(BaseTool):
     _cache_ttl: ClassVar[int] = 3600  # 1 hour cache TTL
     _cache_max_size: ClassVar[int] = 100  # Maximum cache entries
     _preview_url_cache_max_size: ClassVar[int] = 200
+    # Keep reserve for follow-up verification after wide research bursts.
+    _WIDE_RESEARCH_FOLLOWUP_RESERVE_CALLS: ClassVar[int] = 2
+    _QUOTA_ERROR_MARKERS: ClassVar[tuple[str, ...]] = (
+        "not enough credits",
+        "quota",
+        "rate limit",
+        "exhausted",
+    )
     _tracking_query_params: ClassVar[set[str]] = {
         "fbclid",
         "gclid",
@@ -770,6 +778,27 @@ class SearchTool(BaseTool):
         # Execute API search
         result = await self.search_engine.search(query, date_range)
 
+        # Quota-aware degradation: fallback to browser search when API credits are exhausted.
+        if not result.success and self._browser is not None and self._is_quota_exhaustion_error(result.message):
+            logger.warning(
+                "Search API quota exhaustion detected for query '%s'; attempting browser fallback",
+                query[:120],
+            )
+            fallback = await self._search_via_browser(query, date_range)
+            if fallback.success:
+                prefix = f"[{search_type.value.upper()} SEARCH via BROWSER FALLBACK]"
+                fallback.message = f"{prefix}\n{fallback.message}" if fallback.message else prefix
+                result = fallback
+            else:
+                result = ToolResult(
+                    success=False,
+                    message=(
+                        f"{result.message or 'Search provider quota exhausted'}; "
+                        f"browser fallback failed: {fallback.message or 'unknown browser error'}"
+                    ),
+                    data=result.data or fallback.data,
+                )
+
         # Record the API call in budget and Prometheus
         self._budget.record_api_call()
         try:
@@ -1043,6 +1072,13 @@ class SearchTool(BaseTool):
         """Check if query indicates a research task"""
         query_lower = query.lower()
         return any(kw in query_lower for kw in RESEARCH_KEYWORDS)
+
+    @classmethod
+    def _is_quota_exhaustion_error(cls, message: str | None) -> bool:
+        if not message:
+            return False
+        lowered = message.lower()
+        return any(marker in lowered for marker in cls._QUOTA_ERROR_MARKERS)
 
     def _add_verification_guidance(self, result: ToolResult, query: str) -> ToolResult:
         """Add verification guidance to search results for research queries"""
@@ -1358,10 +1394,20 @@ wide_research(
                 all_queries.extend((variant, stype) for variant in variants)
 
         # Trim to remaining budget
-        remaining = self._budget.remaining()
+        remaining = max(0, self._budget.remaining() - self._WIDE_RESEARCH_FOLLOWUP_RESERVE_CALLS)
         if len(all_queries) > remaining:
             logger.warning(f"Wide research queries trimmed to budget: {len(all_queries)} → {remaining}")
             all_queries = all_queries[:remaining]
+
+        if not all_queries:
+            return ToolResult(
+                success=False,
+                message=(
+                    f"[WIDE RESEARCH] Insufficient search budget for '{topic}'. "
+                    f"Reserved {self._WIDE_RESEARCH_FOLLOWUP_RESERVE_CALLS} API calls for follow-up verification."
+                ),
+                data=SearchResults(query=topic, date_range=date_range),
+            )
 
         logger.info(f"Wide research on '{topic}': {len(all_queries)} total queries across {len(stypes)} search types")
 
