@@ -134,6 +134,8 @@ async def run_gateway() -> None:
     agent_service = get_agent_service()
 
     from app.domain.services.channels.message_router import MessageRouter
+    from app.domain.services.channels.telegram_delivery_policy import TelegramDeliveryPolicy
+    from app.domain.services.pdf.reportlab_pdf_renderer import ReportLabPdfRenderer
 
     # LinkCodeStore adapter — wraps Redis for the /link command.
     # Uses the existing get_redis() singleton.
@@ -148,10 +150,42 @@ async def run_gateway() -> None:
         async def delete(self, key: str) -> None:
             await get_redis().call("delete", key)
 
+    reportlab_renderer = ReportLabPdfRenderer()
+    renderer_choice = (settings.telegram_pdf_renderer or "reportlab").strip().lower()
+    pdf_renderer = reportlab_renderer
+    if renderer_choice == "playwright":
+        try:
+            from app.infrastructure.external.pdf import PlaywrightPdfRenderer
+
+            pdf_renderer = PlaywrightPdfRenderer(
+                timeout_ms=settings.telegram_pdf_renderer_timeout_ms,
+                fallback_renderer=reportlab_renderer,
+            )
+        except Exception as exc:
+            logger.warning("Failed to initialize Playwright PDF renderer; using ReportLab fallback: %s", exc)
+            pdf_renderer = reportlab_renderer
+
+    telegram_delivery_policy = TelegramDeliveryPolicy(
+        pdf_delivery_enabled=settings.telegram_pdf_delivery_enabled,
+        message_min_chars=settings.telegram_pdf_message_min_chars,
+        report_min_chars=settings.telegram_pdf_report_min_chars,
+        caption_max_chars=settings.telegram_pdf_caption_max_chars,
+        pdf_caption_enabled=settings.telegram_pdf_caption_enabled,
+        pdf_progress_ack_enabled=settings.telegram_pdf_progress_ack_enabled,
+        async_threshold_chars=settings.telegram_pdf_async_threshold_chars,
+        include_toc=settings.telegram_pdf_include_toc,
+        toc_min_sections=settings.telegram_pdf_toc_min_sections,
+        unicode_font=settings.telegram_pdf_unicode_font,
+        rate_limit_per_minute=settings.telegram_pdf_rate_limit_per_minute,
+        force_long_text_pdf=settings.telegram_pdf_force_long_text,
+        pdf_renderer=pdf_renderer,
+    )
+
     message_router = MessageRouter(
         agent_service=agent_service,
         user_channel_repo=user_channel_repo,
         link_code_store=_RedisLinkCodeStore(),
+        telegram_delivery_policy=telegram_delivery_policy,
         telegram_reuse_completed_sessions=settings.telegram_reuse_completed_sessions,
         telegram_session_idle_timeout_hours=settings.telegram_session_idle_timeout_hours,
         telegram_max_context_turns=settings.telegram_max_context_turns,

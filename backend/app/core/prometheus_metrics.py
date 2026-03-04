@@ -757,6 +757,30 @@ telegram_pdf_generated_total = Counter(
     labels=[],
 )
 
+telegram_pdf_renderer_invocations_total = Counter(
+    name="pythinker_telegram_pdf_renderer_invocations_total",
+    help_text="Total Telegram PDF renderer invocation attempts",
+    labels=["renderer"],
+)
+
+telegram_pdf_renderer_success_total = Counter(
+    name="pythinker_telegram_pdf_renderer_success_total",
+    help_text="Total successful Telegram PDF renderer executions",
+    labels=["renderer"],
+)
+
+telegram_pdf_renderer_fallback_total = Counter(
+    name="pythinker_telegram_pdf_renderer_fallback_total",
+    help_text="Total Telegram PDF renderer fallbacks",
+    labels=["from_renderer", "to_renderer", "reason"],
+)
+
+telegram_pdf_citation_integrity_total = Counter(
+    name="pythinker_telegram_pdf_citation_integrity_total",
+    help_text="Citation normalization integrity outcomes for Telegram PDF rendering",
+    labels=["status"],  # status: ok, unresolved
+)
+
 telegram_pdf_generation_failed_total = Counter(
     name="pythinker_telegram_pdf_generation_failed_total",
     help_text="Total Telegram PDF generation failures",
@@ -845,6 +869,10 @@ _metrics_registry = [
     telegram_session_reused_total,
     telegram_session_rotated_total,
     telegram_pdf_generated_total,
+    telegram_pdf_renderer_invocations_total,
+    telegram_pdf_renderer_success_total,
+    telegram_pdf_renderer_fallback_total,
+    telegram_pdf_citation_integrity_total,
     telegram_pdf_generation_failed_total,
     telegram_pdf_sent_total,
 ]
