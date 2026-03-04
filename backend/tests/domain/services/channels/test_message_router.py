@@ -347,7 +347,8 @@ class TestRouteInbound:
         replies = [r async for r in router.route_inbound(msg)]
 
         assert len(replies) == 2
-        assert "research report" in replies[0].content.lower()
+        assert replies[0].content.startswith("I'll research ")
+        assert "This should take about" in replies[0].content
         assert "10-15 minutes" in replies[0].content
         assert replies[1].content == "Hello from the agent!"
 
