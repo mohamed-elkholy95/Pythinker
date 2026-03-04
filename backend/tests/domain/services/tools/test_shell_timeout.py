@@ -80,3 +80,16 @@ async def test_shell_exec_rejects_missing_session_id_without_sandbox_call():
     assert result.message is not None
     assert "missing required parameter 'id'" in result.message.lower()
     sandbox.exec_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shell_view_rejects_known_placeholder_session_id_without_sandbox_call():
+    sandbox = SimpleNamespace(view_shell=AsyncMock())
+    tool = ShellTool(sandbox=sandbox, security_critic=_SafeSecurityCritic())
+
+    result = await tool.shell_view(id="550e8400-e29b-41d4-a716-446655440000")
+
+    assert result.success is False
+    assert result.message is not None
+    assert "placeholder session id" in result.message.lower()
+    sandbox.view_shell.assert_not_awaited()
