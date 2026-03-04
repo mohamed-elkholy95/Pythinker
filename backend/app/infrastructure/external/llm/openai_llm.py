@@ -1648,7 +1648,11 @@ To extract data from a webpage:
                 tool_request_timeout,
                 degraded_mode=degraded_mode,
             )
-            if request_tools and capped_tool_request_timeout < tool_request_timeout and not slow_tool_breaker_timeout_logged:
+            if (
+                request_tools
+                and capped_tool_request_timeout < tool_request_timeout
+                and not slow_tool_breaker_timeout_logged
+            ):
                 logger.warning(
                     "Slow tool-call breaker active without FAST_MODEL; tightening tool timeout from %.1fs to %.1fs",
                     tool_request_timeout,
