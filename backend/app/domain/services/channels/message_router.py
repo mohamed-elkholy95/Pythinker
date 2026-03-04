@@ -835,8 +835,9 @@ class MessageRouter:
         topic = MessageRouter._extract_research_topic(compact)
         estimate = MessageRouter._estimate_research_duration(compact)
         return (
-            f"I'll create a research report on {topic}. "
-            f"This should take about {estimate} to complete."
+            f"I'll create a structured research report on {topic}, including current sources, "
+            "side-by-side analysis, and citations. "
+            f"Estimated completion time: {estimate}."
         )
 
     @staticmethod
