@@ -207,6 +207,28 @@ class TestRouteInbound:
         agent_svc.create_session.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_route_reuses_completed_session_for_telegram_with_naive_activity_timestamp(self) -> None:
+        """Naive activity timestamps should not break Telegram session reuse."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
+        repo.get_session_activity = AsyncMock(
+            return_value={
+                "last_inbound_at": datetime(2026, 3, 4, 10, 0, 0),
+            }
+        )
+
+        completed = _FakeSession("existing-sess", status=SessionStatus.COMPLETED)
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()], session=completed)
+        agent_svc.get_session = AsyncMock(return_value=completed)
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("Continue in Telegram")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        assert "could not start a session" not in replies[0].content.lower()
+        agent_svc.create_session.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_route_completed_session_not_reused_for_non_telegram(self) -> None:
         """Non-Telegram channels keep existing terminal-session rotation behavior."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
