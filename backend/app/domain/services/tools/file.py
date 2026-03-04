@@ -25,6 +25,8 @@ DATA_EXTENSIONS = {".csv", ".json", ".xml", ".yaml", ".yml"}
 
 _RECENT_WRITE_TTL_SECONDS = 300.0
 _RECENT_WRITE_MAX_ENTRIES = 256
+_SAME_FILE_WRITE_WINDOW_SECONDS = 180.0
+_SAME_FILE_WRITE_WARN_THRESHOLD = 3
 _REPORT_SANITIZE_SUFFIXES = {".md", ".markdown", ".txt", ".rst"}
 _PLACEHOLDER_LINE_RE = re.compile(r"^\s*\[(?:\.\.\.|…)\]\s*$")
 _LEADING_META_LINE_RE = re.compile(
@@ -129,6 +131,8 @@ class FileTool(BaseTool):
         self._recently_written: dict[str, float] = {}
         # Byte sizes of recent writes — used to detect content regression.
         self._recent_write_sizes: dict[str, int] = {}
+        # Same-file write history — used to detect overwrite loops.
+        self._write_history: dict[str, list[float]] = {}
 
     def _check_content_regression(self, path: str, new_content: str) -> str | None:
         """Return a warning string if new content is significantly smaller.
@@ -161,12 +165,38 @@ class FileTool(BaseTool):
         expired = [path for path, ts in self._recently_written.items() if now - ts > _RECENT_WRITE_TTL_SECONDS]
         for path in expired:
             self._recently_written.pop(path, None)
+            self._recent_write_sizes.pop(path, None)
+            self._write_history.pop(path, None)
 
         overflow = len(self._recently_written) - _RECENT_WRITE_MAX_ENTRIES
         if overflow > 0:
             # Drop oldest entries first.
             for path, _ in sorted(self._recently_written.items(), key=lambda item: item[1])[:overflow]:
                 self._recently_written.pop(path, None)
+                self._recent_write_sizes.pop(path, None)
+                self._write_history.pop(path, None)
+
+    def _check_repetitive_overwrites(self, path: str, *, append: bool) -> str | None:
+        """Return a warning when same file is overwritten repeatedly in a short window."""
+        if append:
+            return None
+
+        now = time.monotonic()
+        history = self._write_history.get(path, [])
+        history = [ts for ts in history if now - ts <= _SAME_FILE_WRITE_WINDOW_SECONDS]
+        history.append(now)
+        self._write_history[path] = history
+
+        if len(history) < _SAME_FILE_WRITE_WARN_THRESHOLD:
+            return None
+
+        warning = (
+            f"WARNING: file_write overwrite loop detected for '{path}' "
+            f"({len(history)} overwrites within {_SAME_FILE_WRITE_WINDOW_SECONDS:.0f}s). "
+            "Prefer file_str_replace for incremental edits to avoid content churn."
+        )
+        logger.warning(warning)
+        return warning
 
     @tool(
         name="file_read",
@@ -274,10 +304,15 @@ class FileTool(BaseTool):
         if trailing_newline:
             final_content = final_content + "\n"
 
-        # Check for content regression before writing (overwrite only)
-        regression_warning: str | None = None
+        # Check for content regression + overwrite loops before writing
+        write_warnings: list[str] = []
         if not append:
             regression_warning = self._check_content_regression(file, final_content)
+            if regression_warning:
+                write_warnings.append(regression_warning)
+        repetitive_warning = self._check_repetitive_overwrites(file, append=bool(append))
+        if repetitive_warning:
+            write_warnings.append(repetitive_warning)
 
         # Directly call sandbox's file_write method, pass all parameters
         result = await self.sandbox.file_write(
@@ -291,11 +326,13 @@ class FileTool(BaseTool):
         if result.success:
             self._recently_written[file] = time.monotonic()
             self._prune_recent_writes()
-            # Surface regression warning in tool result so the LLM can self-correct
-            if regression_warning and result.message:
-                result.message = f"{result.message}\n\n{regression_warning}"
-            elif regression_warning:
-                result.message = regression_warning
+            # Surface write warnings in tool result so the LLM can self-correct.
+            if write_warnings:
+                warning_block = "\n\n".join(write_warnings)
+                if result.message:
+                    result.message = f"{result.message}\n\n{warning_block}"
+                else:
+                    result.message = warning_block
         return result
 
     @tool(
