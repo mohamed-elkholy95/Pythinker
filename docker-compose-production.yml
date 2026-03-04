@@ -172,6 +172,8 @@ services:
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/opt/chrome-for-testing/chrome
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET}
+      - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:?Set SUPERVISOR_RPC_USERNAME}
+      - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:?Set SUPERVISOR_RPC_PASSWORD}
       - LIBGL_ALWAYS_SOFTWARE=1
     # Production: no host port exposure -- backend accesses via internal network
     shm_size: '2g'
