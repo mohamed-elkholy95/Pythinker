@@ -112,3 +112,49 @@ CHROME_FLAGS=(
 exec 3>&1
 "$CHROME" "${CHROME_FLAGS[@]}" 2>&1 1>&3 3>&- \
     | python3 /app/scripts/chrome_stderr_filter.py >&2 3>&-
+
+chrome_exit_code=${PIPESTATUS[0]:-0}
+stderr_filter_exit_code=${PIPESTATUS[1]:-0}
+
+if [ "$chrome_exit_code" -ne 0 ]; then
+    echo "[chrome-wrapper] Chrome exited with code ${chrome_exit_code}; collecting diagnostics..."
+    if [ "$chrome_exit_code" -eq 137 ]; then
+        echo "[chrome-wrapper] Exit 137 indicates SIGKILL (often OOM kill or external process kill)."
+    fi
+
+    if [ -r /sys/fs/cgroup/memory.events ]; then
+        echo "[chrome-wrapper] cgroup memory.events:"
+        cat /sys/fs/cgroup/memory.events
+    elif [ -r /sys/fs/cgroup/memory/memory.oom_control ]; then
+        echo "[chrome-wrapper] cgroup v1 memory.oom_control:"
+        cat /sys/fs/cgroup/memory/memory.oom_control
+        if [ -r /sys/fs/cgroup/memory/memory.failcnt ]; then
+            echo "[chrome-wrapper] cgroup v1 memory.failcnt:"
+            cat /sys/fs/cgroup/memory/memory.failcnt
+        fi
+    fi
+
+    if [ -r /sys/fs/cgroup/memory.current ]; then
+        echo "[chrome-wrapper] cgroup memory.current:"
+        cat /sys/fs/cgroup/memory.current
+    fi
+    if [ -r /sys/fs/cgroup/memory.max ]; then
+        echo "[chrome-wrapper] cgroup memory.max:"
+        cat /sys/fs/cgroup/memory.max
+    fi
+
+    if command -v free >/dev/null 2>&1; then
+        echo "[chrome-wrapper] free -m:"
+        free -m
+    fi
+    if command -v ps >/dev/null 2>&1; then
+        echo "[chrome-wrapper] chrome/chromium process snapshot:"
+        ps -eo pid,ppid,pmem,rss,args | grep -E "chrome|chromium" | grep -v grep || true
+    fi
+fi
+
+if [ "$stderr_filter_exit_code" -ne 0 ]; then
+    echo "[chrome-wrapper] chrome_stderr_filter exited with code ${stderr_filter_exit_code}."
+fi
+
+exit "$chrome_exit_code"
