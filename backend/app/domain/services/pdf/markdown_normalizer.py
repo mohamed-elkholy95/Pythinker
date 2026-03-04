@@ -12,6 +12,9 @@ _REFERENCES_HEADING_RE = re.compile(r"^#{1,4}\s*(references?|sources?|bibliograp
 _BOLD_REFERENCES_RE = re.compile(r"^\*{2}(references?|sources?|bibliography|citations?):?\*{2}\s*$", re.IGNORECASE)
 _INLINE_CITATION_RE = re.compile(r"(?<!\^)\[(\d{1,3})\](?!\()(?!:\s)")
 _PUNCTUATION_AFTER_CITATIONS_RE = re.compile(r" *((?:\[\d{1,3}\]\s*)+)([.!?,;])\s*$")
+_ADJACENT_LINKED_CITATION_RE = re.compile(
+    r"(\[\d{1,3}\]\(#ref-\d{1,3}\))(?=\[\d{1,3}\]\(#ref-\d{1,3}\))"
+)
 _ORDERED_REF_RE = re.compile(r"^\s*(\d+)\.\s+(.+)$")
 _BRACKET_REF_RE = re.compile(r"^\s*\[(\d+)\]\s+(.+)$")
 _LINK_REF_DEF_RE = re.compile(r"^\s*\[(\d+)\]:\s+(.+)$")
@@ -121,7 +124,10 @@ def _linkify_inline_citations(markdown: str) -> tuple[str, list[int]]:
             seen.add(number)
             return f"[{number}](#ref-{number})"
 
-        output.append(_INLINE_CITATION_RE.sub(_replace, punct_normalized))
+        linked_line = _INLINE_CITATION_RE.sub(_replace, punct_normalized)
+        # Keep adjacent citations visually distinct in the PDF (e.g. [10] [11] [12])
+        linked_line = _ADJACENT_LINKED_CITATION_RE.sub(r"\1 ", linked_line)
+        output.append(linked_line)
 
     return "\n".join(output).strip(), sorted(seen)
 
