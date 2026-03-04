@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # When set, all /api/v1/* requests must include X-Sandbox-Secret header
     SANDBOX_API_SECRET: Optional[str] = None
 
+    # Supervisord XML-RPC auth (unix_http_server/supervisorctl).
+    SUPERVISOR_RPC_USERNAME: str = "supervisor"
+    SUPERVISOR_RPC_PASSWORD: str = "supervisor-dev-password"
+
     # Log configuration
     LOG_LEVEL: str = "INFO"
 
