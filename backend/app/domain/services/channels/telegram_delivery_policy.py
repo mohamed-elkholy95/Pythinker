@@ -62,6 +62,8 @@ class TelegramDeliveryPolicy:
         message_min_chars: int = 3500,
         report_min_chars: int = 2000,
         caption_max_chars: int = 900,
+        pdf_caption_enabled: bool = False,
+        pdf_progress_ack_enabled: bool = False,
         async_threshold_chars: int = 10000,
         include_toc: bool = True,
         toc_min_sections: int = 3,
@@ -75,6 +77,8 @@ class TelegramDeliveryPolicy:
         self._message_min_chars = message_min_chars
         self._report_min_chars = report_min_chars
         self._caption_max_chars = min(caption_max_chars, 1024)
+        self._pdf_caption_enabled = pdf_caption_enabled
+        self._pdf_progress_ack_enabled = pdf_progress_ack_enabled
         self._async_threshold_chars = async_threshold_chars
         self._include_toc = include_toc
         self._toc_min_sections = toc_min_sections
@@ -177,7 +181,7 @@ class TelegramDeliveryPolicy:
                 )
             ]
 
-        if len(sanitized_content) >= self._async_threshold_chars and not force_pdf:
+        if len(sanitized_content) >= self._async_threshold_chars and not force_pdf and self._pdf_progress_ack_enabled:
             ack = OutboundMessage(
                 channel=source.channel,
                 chat_id=source.chat_id,
@@ -243,7 +247,7 @@ class TelegramDeliveryPolicy:
         logger.info("telegram.pdf.generate.start chat=%s title=%s", source.chat_id, title)
         try:
             attachment = await self._render_pdf_attachment(title=title, content=content, sources=sources)
-            caption = self._build_caption(title=title, content=content)
+            caption = self._build_caption(title=title, content=content) if self._pdf_caption_enabled else ""
             pm.telegram_pdf_generated_total.inc()
             pm.telegram_pdf_sent_total.inc()
             logger.info(
@@ -252,21 +256,23 @@ class TelegramDeliveryPolicy:
                 attachment.filename,
                 attachment.size_bytes,
             )
+            metadata = {
+                "delivery_mode": "pdf_only",
+                "report_title": title,
+                "cleanup_media_paths": [attachment.url],
+                "content_hash": self._content_hash(title, content),
+                "event_type": event_type,
+            }
+            if caption:
+                metadata["parse_mode"] = "HTML"
+                metadata["caption"] = caption
             return OutboundMessage(
                 channel=source.channel,
                 chat_id=source.chat_id,
                 content=caption,
                 reply_to=source.id,
                 media=[attachment],
-                metadata={
-                    "delivery_mode": "pdf_only",
-                    "report_title": title,
-                    "parse_mode": "HTML",
-                    "caption": caption,
-                    "cleanup_media_paths": [attachment.url],
-                    "content_hash": self._content_hash(title, content),
-                    "event_type": event_type,
-                },
+                metadata=metadata,
             )
         except Exception as exc:
             reason = type(exc).__name__.lower()

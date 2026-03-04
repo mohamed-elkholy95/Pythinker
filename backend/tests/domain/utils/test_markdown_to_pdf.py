@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from io import BytesIO
+from pathlib import Path
 from typing import cast
 
 from pypdf import PdfReader
 from reportlab.platypus import HRFlowable, ListFlowable, Paragraph, Preformatted, Table
 
 from app.domain.models.source_citation import SourceCitation
+import app.domain.utils.markdown_to_pdf as markdown_to_pdf
 from app.domain.utils.markdown_to_pdf import build_pdf_bytes, markdown_to_flowables
 
 
@@ -120,3 +122,31 @@ def test_build_pdf_bytes_renders_unicode_text_without_error() -> None:
     extracted = _extract_pdf_text(pdf_bytes)
     assert "Český nadpis" in extracted
     assert "Žluťoučký kůň, café!" in extracted
+
+
+def test_register_unicode_font_uses_fallback_font_when_preferred_missing(monkeypatch) -> None:
+    class _DummyTTFont:
+        def __init__(self, name: str, path: str) -> None:
+            self.name = name
+            self.path = path
+
+    register_calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(markdown_to_pdf.pdfmetrics, "getRegisteredFontNames", lambda: [])
+    monkeypatch.setattr(markdown_to_pdf.pdfmetrics, "registerFont", lambda ttfont: register_calls.append((ttfont.name, ttfont.path)))
+    monkeypatch.setattr(markdown_to_pdf, "TTFont", _DummyTTFont)
+    monkeypatch.setattr(
+        markdown_to_pdf,
+        "_FONT_PATH_CANDIDATES",
+        {
+            "DejaVuSans": (Path("/tmp/missing-dejavu.ttf"),),
+            "LiberationSans": (Path("/tmp/liberation.ttf"),),
+            "FreeSans": (Path("/tmp/freesans.ttf"),),
+            "Unifont": (Path("/tmp/unifont.otf"),),
+        },
+    )
+    monkeypatch.setattr(Path, "exists", lambda p: str(p) == "/tmp/liberation.ttf")
+
+    chosen = markdown_to_pdf.register_unicode_font("DejaVuSans")
+
+    assert chosen == "LiberationSans"
+    assert register_calls == [("LiberationSans", "/tmp/liberation.ttf")]
