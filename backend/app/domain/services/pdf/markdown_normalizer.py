@@ -131,10 +131,16 @@ def _build_references_block(
     sources: list[SourceCitation],
     existing_references: str,
 ) -> tuple[str, list[int]]:
+    parsed_existing = _parse_existing_references(existing_references)
+
     if sources:
         entries = {index: _format_source_reference(source) for index, source in enumerate(sources, start=1)}
+        # Preserve explicit in-document references for citation numbers not covered
+        # by structured sources to avoid artificial "Unresolved citation" rows.
+        for number, value in parsed_existing.items():
+            entries.setdefault(number, value)
     else:
-        entries = _parse_existing_references(existing_references)
+        entries = parsed_existing
 
     max_citation = max(citation_numbers) if citation_numbers else 0
     max_entry = max(entries) if entries else 0
