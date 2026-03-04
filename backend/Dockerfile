@@ -5,8 +5,11 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install curl
-RUN apt-get update && apt-get install -y curl
+# Install base tooling and Unicode fonts required by Telegram PDF generation.
+RUN apt-get update && apt-get install -y \
+    curl \
+    fonts-dejavu-core \
+    fonts-liberation
 
 # Install uv
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
