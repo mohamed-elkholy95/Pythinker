@@ -535,3 +535,53 @@ class TestRoundRobinConcurrency:
         assert isinstance(pool._round_robin_lock, asyncio.Lock), (
             f"Expected asyncio.Lock, got {type(pool._round_robin_lock)}"
         )
+
+
+class TestPoolHealthReporting:
+    """Test aggregate pool health reporting and alert thresholds."""
+
+    def test_check_pool_health_logs_critical_when_all_exhausted(self, basic_keys, caplog):
+        pool = APIKeyPool(
+            provider="serper",
+            keys=basic_keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+        )
+
+        future = time.time() + 300
+        for key_cfg in basic_keys:
+            pool._memory_exhausted[pool._hash_key(key_cfg.key)] = future
+
+        with caplog.at_level("CRITICAL"):
+            report = pool.check_pool_health()
+
+        assert report["healthy"] == 0
+        assert report["total"] == len(basic_keys)
+        assert report["health_ratio"] == 0.0
+        assert any("ALL keys exhausted" in rec.message for rec in caplog.records)
+
+    def test_check_pool_health_logs_warning_at_or_below_25pct(self, caplog):
+        keys = [
+            APIKeyConfig(key="key1", weight=1.0, priority=0),
+            APIKeyConfig(key="key2", weight=1.0, priority=1),
+            APIKeyConfig(key="key3", weight=1.0, priority=2),
+            APIKeyConfig(key="key4", weight=1.0, priority=3),
+        ]
+        pool = APIKeyPool(
+            provider="serper",
+            keys=keys,
+            strategy=RotationStrategy.ROUND_ROBIN,
+            redis_client=None,
+        )
+
+        future = time.time() + 300
+        for key_cfg in keys[:3]:
+            pool._memory_exhausted[pool._hash_key(key_cfg.key)] = future
+
+        with caplog.at_level("WARNING"):
+            report = pool.check_pool_health()
+
+        assert report["healthy"] == 1
+        assert report["total"] == 4
+        assert report["health_ratio"] == 0.25
+        assert any("Key pool critically low" in rec.message for rec in caplog.records)
