@@ -27,6 +27,7 @@ class ChannelSettingsMixin:
     telegram_context_summarization_enabled: bool = True
     telegram_context_summarization_threshold_turns: int = 50
     telegram_pdf_delivery_enabled: bool = True
+    telegram_pdf_force_long_text: bool = False
     telegram_pdf_message_min_chars: int = 3500
     telegram_pdf_report_min_chars: int = 2000
     telegram_pdf_caption_max_chars: int = 900
