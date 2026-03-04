@@ -53,6 +53,7 @@ class TestTelegramDefaults:
 
     def test_pdf_delivery_defaults(self, settings):
         assert settings.telegram_pdf_delivery_enabled is True
+        assert settings.telegram_pdf_force_long_text is False
         assert settings.telegram_pdf_message_min_chars == 3500
         assert settings.telegram_pdf_report_min_chars == 2000
         assert settings.telegram_pdf_caption_max_chars == 900
@@ -157,6 +158,13 @@ class TestChannelEnvOverride:
 
         s = Settings()
         assert s.telegram_require_linked_account is True
+
+    def test_telegram_pdf_force_long_text_from_env(self, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_PDF_FORCE_LONG_TEXT", "true")
+        from app.core.config import Settings
+
+        s = Settings()
+        assert s.telegram_pdf_force_long_text is True
 
     def test_cron_max_jobs_from_env(self, monkeypatch):
         monkeypatch.setenv("CRON_MAX_JOBS_PER_USER", "100")

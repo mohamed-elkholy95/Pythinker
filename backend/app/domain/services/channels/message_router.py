@@ -174,6 +174,7 @@ class MessageRouter:
         telegram_pdf_unicode_font: str = "DejaVuSans",
         telegram_pdf_rate_limit_per_minute: int = 5,
         telegram_pdf_delivery_enabled: bool = True,
+        telegram_pdf_force_long_text: bool = False,
         telegram_require_linked_account: bool = False,
     ) -> None:
         self._agent_service = agent_service
@@ -195,6 +196,7 @@ class MessageRouter:
             toc_min_sections=telegram_pdf_toc_min_sections,
             unicode_font=telegram_pdf_unicode_font,
             rate_limit_per_minute=telegram_pdf_rate_limit_per_minute,
+            force_long_text_pdf=telegram_pdf_force_long_text,
         )
         self._latest_responses: dict[tuple[str, str, str], dict[str, Any]] = {}
 
