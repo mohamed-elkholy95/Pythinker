@@ -81,6 +81,14 @@ jobs:
           pip install -r requirements.txt
           pip install -r tests/requirements.txt
 
+      - name: Install Playwright Chromium
+        run: playwright install --with-deps chromium
+
+      - name: Install poppler-utils (PDF visual contract)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+
       - name: Run tests
         env:
           MONGODB_URI: mongodb://localhost:27017
@@ -93,8 +101,9 @@ jobs:
           ENVIRONMENT: testing
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            echo "Push event: skipping integration tests for faster feedback"
+            echo "Push event: running unit/domain suite plus Telegram PDF integration contract"
             pytest tests/ -v --tb=short --ignore=tests/integration
+            pytest tests/integration/test_telegram_pdf_visual_contract.py -v --tb=short
           else
             echo "Pull request event: running full backend test suite"
             pytest tests/ -v --tb=short
