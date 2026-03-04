@@ -250,7 +250,9 @@ COPY --from=builder /app/requirements.txt /app/requirements.txt
 
 COPY supervisord.conf /app/supervisord.conf
 
-ENV UVI_ARGS="" FRAMEWORK_UVI_ARGS="" CHROME_ARGS="" SANDBOX_STREAMING_MODE=cdp_only
+ENV UVI_ARGS="" FRAMEWORK_UVI_ARGS="" CHROME_ARGS="" SANDBOX_STREAMING_MODE=cdp_only \
+    SUPERVISOR_RPC_USERNAME=supervisor \
+    SUPERVISOR_RPC_PASSWORD=supervisor-dev-password
 
 # BROWSER_PATH: When USE_CHROMIUM=1, symlink Playwright Chromium to the default path
 # so BROWSER_PATH=/opt/chrome-for-testing/chrome works for both modes.

@@ -93,6 +93,8 @@ services:
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/opt/chrome-for-testing/chrome
       - SANDBOX_API_SECRET=change-me-to-a-real-secret
+      - SUPERVISOR_RPC_USERNAME=supervisor
+      - SUPERVISOR_RPC_PASSWORD=change-me-supervisor-rpc-password
       - SANDBOX_STREAMING_MODE=cdp_only
     shm_size: '2g'
     security_opt:
