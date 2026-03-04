@@ -14,7 +14,9 @@ from typing import Protocol
 from app.core import prometheus_metrics as pm
 from app.domain.models.channel import InboundMessage, MediaAttachment, OutboundMessage
 from app.domain.models.source_citation import SourceCitation
-from app.domain.utils.markdown_to_pdf import build_pdf_bytes
+from app.domain.services.pdf.models import ReportPdfPayload
+from app.domain.services.pdf.pdf_renderer import PdfReportRenderer
+from app.domain.services.pdf.reportlab_pdf_renderer import ReportLabPdfRenderer
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,7 @@ class TelegramDeliveryPolicy:
         force_long_text_pdf: bool = False,
         temp_dir: Path | None = None,
         rate_limiter: TelegramPdfRateLimiter | None = None,
+        pdf_renderer: PdfReportRenderer | None = None,
     ) -> None:
         self._pdf_delivery_enabled = pdf_delivery_enabled
         self._message_min_chars = message_min_chars
@@ -88,6 +91,7 @@ class TelegramDeliveryPolicy:
         self._temp_dir = temp_dir or Path("/tmp/pythinker-telegram-pdf")
         self._temp_dir.mkdir(parents=True, exist_ok=True)
         self._rate_limiter = rate_limiter or InMemoryTelegramPdfRateLimiter()
+        self._pdf_renderer = pdf_renderer or ReportLabPdfRenderer()
 
     async def build_for_event(
         self,
@@ -313,14 +317,15 @@ class TelegramDeliveryPolicy:
         content: str,
         sources: list[SourceCitation] | None,
     ) -> MediaAttachment:
-        pdf_bytes = build_pdf_bytes(
+        payload = ReportPdfPayload(
             title=title,
-            content=content,
-            sources=sources,
+            markdown_content=content,
+            sources=sources or [],
             include_toc=self._include_toc,
             toc_min_sections=self._toc_min_sections,
             preferred_font=self._unicode_font,
         )
+        pdf_bytes = await self._pdf_renderer.render(payload)
         filename = self._build_filename(title)
         output_path = self._temp_dir / filename
         output_path.write_bytes(pdf_bytes)
