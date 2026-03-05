@@ -100,6 +100,7 @@ async def test_playwright_renderer_emits_linked_citations_and_reference_ids(monk
     assert pdf == b"pdf-bytes"
     html = captured_html["value"]
     assert 'href="#ref-1"' in html
+    assert ">[1]</a>" in html
     assert 'id="ref-1"' in html
     assert telegram_pdf_renderer_invocations_total.get({"renderer": "playwright"}) == 1
     assert telegram_pdf_renderer_success_total.get({"renderer": "playwright"}) == 1
