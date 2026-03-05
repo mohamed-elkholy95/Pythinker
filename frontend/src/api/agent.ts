@@ -199,6 +199,22 @@ export async function stopSession(sessionId: string): Promise<void> {
   }
 }
 
+/**
+ * Request graceful cancellation of a running session.
+ * Signals the active PlanActFlow to stop between steps.
+ * Returns 202 Accepted; the flow transitions to 'cancelled' asynchronously.
+ */
+export async function cancelSession(sessionId: string): Promise<void> {
+  try {
+    await apiClient.post(`/sessions/${sessionId}/cancel`);
+  } catch (error: unknown) {
+    // Session already completed/gone or not running — ignore
+    const status = (error as { response?: { status?: number } })?.response?.status
+    if (status === 404) return
+    throw error
+  }
+}
+
 export interface SessionStatusResponse {
   session_id: string
   status: SessionStatus
