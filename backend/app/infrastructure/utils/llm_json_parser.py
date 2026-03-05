@@ -17,7 +17,6 @@ class ParseStrategy(Enum):
     DIRECT = "direct"
     CHANNEL_MARKERS = "channel_markers"
     MARKDOWN_BLOCK = "markdown_block"
-    REGEX_EXTRACT = "regex_extract"
     CLEANUP_AND_PARSE = "cleanup_and_parse"
     LLM_EXTRACT_AND_FIX = "llm_extract_and_fix"
 
@@ -36,14 +35,28 @@ class LLMJsonParser(JsonParser):
         self.llm = llm
         self._warning_cache: set[str] = set()
         self._warning_cache_limit = 128
-        self.strategies = [
+        self._base_strategies = [
             self._try_direct_parse,
             self._try_channel_markers_parse,
             self._try_markdown_block_parse,
-            # self._try_regex_extract,
             self._try_cleanup_and_parse,
-            self._try_llm_extract_and_fix,
         ]
+
+    @staticmethod
+    def _is_llm_repair_allowed(
+        *,
+        tier: str | None,
+        allow_llm_json_repair: bool | None,
+    ) -> bool:
+        """Determine if stage-5 LLM semantic repair is allowed."""
+        if allow_llm_json_repair is not None:
+            return allow_llm_json_repair
+
+        if not tier:
+            return True
+
+        normalized = tier.upper()
+        return normalized not in {"A", "B"}
 
     def _warn_once(self, key: str, message: str) -> None:
         """Emit a warning once per key; repeated failures are downgraded to debug."""
@@ -55,7 +68,13 @@ class LLMJsonParser(JsonParser):
         self._warning_cache.add(key)
         logger.warning(message)
 
-    async def parse(self, text: str, default_value: Any | None = None) -> dict | list | Any:
+    async def parse(
+        self,
+        text: str,
+        default_value: Any | None = None,
+        tier: str | None = None,
+        allow_llm_json_repair: bool | None = None,
+    ) -> dict | list | Any:
         """
         Parse LLM output string to JSON using multiple strategies.
         Falls back to LLM parsing if local strategies fail.
@@ -80,8 +99,13 @@ class LLMJsonParser(JsonParser):
         # Strip Qwen3 thinking tags before parsing
         cleaned_output = self._strip_thinking_tags(text.strip())
 
+        # Stage-5 semantic LLM repair is disabled by default for A/B tiers.
+        strategies = list(self._base_strategies)
+        if self._is_llm_repair_allowed(tier=tier, allow_llm_json_repair=allow_llm_json_repair):
+            strategies.append(self._try_llm_extract_and_fix)
+
         # Try each parsing strategy
-        for i, strategy in enumerate(self.strategies):
+        for i, strategy in enumerate(strategies):
             try:
                 result = await strategy(cleaned_output)
                 if result is not None:
@@ -178,24 +202,6 @@ class LLMJsonParser(JsonParser):
             for match in matches:
                 try:
                     return json.loads(match.strip())
-                except json.JSONDecodeError:
-                    continue
-
-        return None
-
-    async def _try_regex_extract(self, text: str) -> Any | None:
-        """Extract JSON using regex patterns"""
-        # Look for JSON object patterns
-        json_patterns = [
-            r"\{.*\}",  # Object
-            r"\[.*\]",  # Array
-        ]
-
-        for pattern in json_patterns:
-            matches = re.findall(pattern, text, re.DOTALL)
-            for match in matches:
-                try:
-                    return json.loads(match)
                 except json.JSONDecodeError:
                     continue
 

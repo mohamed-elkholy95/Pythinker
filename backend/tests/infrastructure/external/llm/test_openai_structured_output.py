@@ -16,22 +16,23 @@ from app.infrastructure.external.llm.openai_llm import OpenAILLM
 
 
 class _FakeMessage:
-    def __init__(self, content: str):
+    def __init__(self, content: str, refusal: str | None = None):
         self.content = content
+        self.refusal = refusal
 
     def model_dump(self) -> dict[str, str]:
         return {"role": "assistant", "content": self.content}
 
 
 class _FakeChoice:
-    def __init__(self, content: str, finish_reason: str = "stop"):
-        self.message = _FakeMessage(content)
+    def __init__(self, content: str, finish_reason: str = "stop", refusal: str | None = None):
+        self.message = _FakeMessage(content, refusal=refusal)
         self.finish_reason = finish_reason
 
 
 class _FakeResponse:
-    def __init__(self, content: str):
-        self.choices = [_FakeChoice(content)]
+    def __init__(self, content: str, finish_reason: str = "stop", refusal: str | None = None):
+        self.choices = [_FakeChoice(content, finish_reason=finish_reason, refusal=refusal)]
         self.usage = None
 
     def model_dump(self) -> dict[str, str]:
@@ -144,6 +145,14 @@ class TestSupportsStructuredOutput:
             api_base="https://custom-llm.example.com/v1",
             model_name="custom-model",
         )
+        assert llm._supports_structured_output() is False
+
+    def test_glm_returns_false_from_capability_registry(self) -> None:
+        llm = _build_llm(
+            api_base="https://open.bigmodel.cn/api/paas/v4/",
+            model_name="glm-4-air",
+        )
+        llm._is_glm_api = True
         assert llm._supports_structured_output() is False
 
 
@@ -382,3 +391,68 @@ class TestAskOpenRouterProvider:
         extra_body = call_kwargs.get("extra_body", {})
         # No response_format → no require_parameters needed
         assert "provider" not in extra_body
+
+
+class TestAskStructuredStopReasons:
+    @pytest.mark.asyncio
+    async def test_content_filter_is_typed_error(self) -> None:
+        from app.domain.models.structured_output import StructuredContentFilterError
+
+        llm = _build_llm(
+            api_base="https://api.openai.com/v1",
+            model_name="gpt-4o",
+        )
+
+        create_mock = AsyncMock(
+            return_value=_FakeResponse(
+                '{"name":"blocked","value":1}',
+                finish_reason="content_filter",
+            )
+        )
+        llm.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock)))
+
+        with patch("app.infrastructure.external.llm.openai_llm.get_settings") as mock_settings:
+            settings_obj = SimpleNamespace(
+                use_instructor_structured_output=False,
+                llm_slow_request_threshold=30.0,
+            )
+            mock_settings.return_value = settings_obj
+
+            with pytest.raises(StructuredContentFilterError):
+                await llm.ask_structured(
+                    messages=[{"role": "user", "content": "test"}],
+                    response_model=_SampleModel,
+                    enable_caching=False,
+                )
+
+    @pytest.mark.asyncio
+    async def test_refusal_field_is_typed_error(self) -> None:
+        from app.domain.models.structured_output import StructuredRefusalError
+
+        llm = _build_llm(
+            api_base="https://api.openai.com/v1",
+            model_name="gpt-4o",
+        )
+
+        create_mock = AsyncMock(
+            return_value=_FakeResponse(
+                "",
+                finish_reason="stop",
+                refusal="Cannot comply",
+            )
+        )
+        llm.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create_mock)))
+
+        with patch("app.infrastructure.external.llm.openai_llm.get_settings") as mock_settings:
+            settings_obj = SimpleNamespace(
+                use_instructor_structured_output=False,
+                llm_slow_request_threshold=30.0,
+            )
+            mock_settings.return_value = settings_obj
+
+            with pytest.raises(StructuredRefusalError):
+                await llm.ask_structured(
+                    messages=[{"role": "user", "content": "test"}],
+                    response_model=_SampleModel,
+                    enable_caching=False,
+                )

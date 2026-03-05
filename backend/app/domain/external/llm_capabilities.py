@@ -33,6 +33,7 @@ class ProviderCapabilities:
 
     Attributes:
         json_schema: Supports ``response_format={type: json_schema, ...}``.
+        json_object: Supports ``response_format={type: json_object}``.
         tool_use: Supports tool / function calling.
         vision: Accepts image content in messages.
         thinking: Supports extended thinking / chain-of-thought mode.
@@ -48,7 +49,8 @@ class ProviderCapabilities:
             ``"string_only"`` — only plain strings (GLM, some older models).
     """
 
-    json_schema: bool = True
+    json_schema: bool = False
+    json_object: bool = False
     tool_use: bool = True
     vision: bool = False
     thinking: bool = False
@@ -74,6 +76,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "claude-*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=False,
             tool_use=True,
             vision=True,
             thinking=True,
@@ -90,6 +93,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "gpt-4o*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=True,
             tool_use=True,
             vision=True,
             streaming=True,
@@ -98,11 +102,27 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
             max_output_tokens=16_384,
         ),
     ),
+    # ── OpenAI GPT-5 family ──────────────────────────────────────────────
+    (
+        "gpt-5*",
+        ProviderCapabilities(
+            json_schema=True,
+            json_object=True,
+            tool_use=True,
+            vision=True,
+            thinking=True,
+            streaming=True,
+            parallel_tool_calls=True,
+            max_context_window=400_000,
+            max_output_tokens=128_000,
+        ),
+    ),
     # ── OpenAI GPT OSS (120B) ────────────────────────────────────────────
     (
         "openai/gpt-oss*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=True,
             tool_use=True,
             streaming=True,
             max_context_window=128_000,
@@ -115,6 +135,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "glm-*",
         ProviderCapabilities(
             json_schema=False,
+            json_object=False,
             tool_use=True,
             vision=False,
             thinking=False,
@@ -131,6 +152,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "deepseek*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=True,
             tool_use=True,
             streaming=True,
             parallel_tool_calls=True,
@@ -143,6 +165,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "qwen*coder*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=True,
             tool_use=True,
             streaming=True,
             parallel_tool_calls=True,
@@ -155,6 +178,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "qwen*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=True,
             tool_use=True,
             streaming=True,
             parallel_tool_calls=True,
@@ -167,6 +191,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "gemini-2.5*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=True,
             tool_use=True,
             vision=True,
             streaming=True,
@@ -180,6 +205,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "gemini-*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=True,
             tool_use=True,
             vision=True,
             streaming=True,
@@ -192,6 +218,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "moonshotai/*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=True,
             tool_use=True,
             streaming=True,
             parallel_tool_calls=True,
@@ -204,6 +231,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "xiaomi/mimo*",
         ProviderCapabilities(
             json_schema=True,
+            json_object=True,
             tool_use=True,
             streaming=True,
             max_context_window=32_768,
@@ -215,6 +243,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
         "llama*",
         ProviderCapabilities(
             json_schema=False,
+            json_object=False,
             tool_use=True,
             streaming=True,
             parallel_tool_calls=False,
@@ -229,6 +258,7 @@ _REGISTRY: list[tuple[str, ProviderCapabilities]] = [
 _API_BASE_OVERRIDES: dict[str, ProviderCapabilities] = {
     "open.bigmodel.cn": ProviderCapabilities(
         json_schema=False,
+        json_object=False,
         tool_use=True,
         streaming=True,
         parallel_tool_calls=False,
@@ -239,6 +269,7 @@ _API_BASE_OVERRIDES: dict[str, ProviderCapabilities] = {
     ),
     "z.ai": ProviderCapabilities(
         json_schema=False,
+        json_object=False,
         tool_use=True,
         streaming=True,
         parallel_tool_calls=False,

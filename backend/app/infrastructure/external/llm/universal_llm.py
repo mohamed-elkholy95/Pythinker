@@ -37,6 +37,7 @@ Switching providers at runtime:
 """
 
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar
 
@@ -463,6 +464,50 @@ class UniversalLLM:
             max_tokens=max_tokens,
         )
 
+    async def ask_structured_with_policy(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        response_model: type[T],
+        tier: str,
+        request_id: str | None = None,
+    ) -> T:
+        """Route structured requests through tier-aware StructuredOutputService."""
+        from app.application.services.structured_output_service import StructuredOutputService
+        from app.domain.models.structured_output import (
+            OutputTier,
+            StopReason,
+            StructuredContentFilterError,
+            StructuredOutputRequest,
+            StructuredOutputUnsupportedError,
+            StructuredRefusalError,
+            StructuredSchemaValidationError,
+            StructuredTruncationError,
+        )
+
+        normalized_tier = OutputTier(tier.upper())
+        service = StructuredOutputService(self)
+        result = await service.execute(
+            StructuredOutputRequest(
+                request_id=request_id or str(uuid.uuid4()),
+                schema_model=response_model,
+                tier=normalized_tier,
+                messages=messages,
+            )
+        )
+
+        if result.parsed is not None and result.stop_reason == StopReason.SUCCESS:
+            return result.parsed
+        if result.stop_reason == StopReason.REFUSAL:
+            raise StructuredRefusalError(result.refusal_message or "Structured output refusal")
+        if result.stop_reason == StopReason.TRUNCATED:
+            raise StructuredTruncationError("Structured output truncated")
+        if result.stop_reason == StopReason.CONTENT_FILTER:
+            raise StructuredContentFilterError("Structured output blocked by content filter")
+        if result.stop_reason == StopReason.UNSUPPORTED:
+            raise StructuredOutputUnsupportedError("Structured output unsupported for this provider/tier")
+        raise StructuredSchemaValidationError("Structured output could not be validated")
+
     async def ask_stream(
         self,
         messages: list[dict[str, Any]],
@@ -618,11 +663,8 @@ class UniversalLLM:
             json_text = extract_json_text(content)
             if json_text:
                 try:
-                    import json
-
-                    data = json.loads(json_text)
-                    return response_model.model_validate(data)
-                except (json.JSONDecodeError, ValidationError) as exc:
+                    return response_model.model_validate_json(json_text)
+                except ValidationError as exc:
                     last_error = exc
                     logger.debug(f"ask_json_validated attempt {attempt + 1}: validation failed: {exc}")
             else:

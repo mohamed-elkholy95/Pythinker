@@ -2,6 +2,7 @@
 
 import logging
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -34,3 +35,33 @@ async def test_llm_json_parser_fallback_returns_structured_default_without_warni
         if record.levelno == logging.WARNING and "All parsing strategies failed" in record.message
     )
     assert all_failed_warning_count == 1
+
+
+@pytest.mark.asyncio
+async def test_parse_tier_a_disables_llm_extract_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.infrastructure.utils.llm_json_parser.get_llm",
+        lambda: SimpleNamespace(ask=AsyncMock()),
+    )
+    parser = LLMJsonParser()
+    parser._try_llm_extract_and_fix = AsyncMock(return_value={"ok": True})  # type: ignore[method-assign]
+
+    result = await parser.parse("invalid json", default_value={"fallback": True}, tier="A")
+
+    assert result == {"fallback": True}
+    parser._try_llm_extract_and_fix.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_parse_tier_c_allows_llm_extract_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.infrastructure.utils.llm_json_parser.get_llm",
+        lambda: SimpleNamespace(ask=AsyncMock()),
+    )
+    parser = LLMJsonParser()
+    parser._try_llm_extract_and_fix = AsyncMock(return_value={"ok": True})  # type: ignore[method-assign]
+
+    result = await parser.parse("invalid json", default_value={"fallback": True}, tier="C")
+
+    assert result == {"ok": True}
+    parser._try_llm_extract_and_fix.assert_awaited()

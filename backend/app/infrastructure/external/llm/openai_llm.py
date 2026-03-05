@@ -10,12 +10,19 @@ from typing import Any, ClassVar, TypeVar
 
 import httpx
 from openai import AsyncOpenAI, RateLimitError
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.core.config import get_settings
 from app.core.retry import RetryConfig, calculate_delay
 from app.domain.exceptions.base import ConfigurationException, LLMException
 from app.domain.external.llm import LLM
+from app.domain.external.llm_capabilities import get_capabilities
+from app.domain.models.structured_output import (
+    StructuredContentFilterError,
+    StructuredRefusalError,
+    StructuredSchemaValidationError,
+    StructuredTruncationError,
+)
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.prompt_cache_manager import get_prompt_cache_manager
 from app.domain.services.agents.token_manager import TokenManager
@@ -2090,8 +2097,8 @@ To extract data from a webpage:
         if enable_caching and self._cache_manager:
             request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
 
-        # Build JSON schema from Pydantic model
-        schema = response_model.model_json_schema()
+        # Build and normalize JSON schema for strict-mode compatibility.
+        schema = self._normalize_strict_json_schema(response_model.model_json_schema())
 
         # Detect if model supports native structured outputs (GPT-4o+, GPT-5+, OpenRouter)
         supports_strict_schema = self._supports_structured_output()
@@ -2252,6 +2259,10 @@ To extract data from a webpage:
                 message = response.choices[0].message
                 content = message.content
 
+                refusal_message = getattr(message, "refusal", None)
+                if refusal_message:
+                    raise StructuredRefusalError(str(refusal_message))
+
                 # For reasoning models (Kimi Code, o1, etc.), check reasoning_content if content is empty
                 if not content and hasattr(message, "reasoning_content") and message.reasoning_content:
                     logger.info("Using reasoning_content as fallback for empty content field")
@@ -2259,6 +2270,8 @@ To extract data from a webpage:
 
                 # Check for truncation before parsing
                 finish_reason = response.choices[0].finish_reason
+                if finish_reason == "content_filter":
+                    raise StructuredContentFilterError("Structured output blocked by content filter")
                 if finish_reason == "length":
                     logger.warning("Structured output truncated (finish_reason=length), retrying")
                     if attempt == max_retries:
@@ -2280,7 +2293,7 @@ To extract data from a webpage:
                                     return result
                             except Exception as repair_err:
                                 logger.debug("JSON repair on truncated output failed: %s", repair_err)
-                        raise LLMException("Structured output truncated after all retries")
+                        raise StructuredTruncationError("Structured output truncated after all retries")
                     continue
 
                 if not content:
@@ -2298,30 +2311,28 @@ To extract data from a webpage:
                         raise LLMException("Empty response content")
                     continue
 
-                # Parse and validate with Pydantic
+                # Parse and validate with Pydantic (fast path via model_validate_json)
                 try:
-                    parsed = json.loads(content)
-                except json.JSONDecodeError:
+                    return response_model.model_validate_json(content)
+                except ValidationError:
                     # Try balanced-brace extraction for JSON embedded in prose/thinking
                     extracted = self._extract_json_from_text(content)
                     if extracted:
                         logger.info("Extracted JSON from prose via balanced-brace matching")
-                        parsed = json.loads(extracted)
-                    else:
-                        raise
-                return response_model.model_validate(parsed)
-
-            except json.JSONDecodeError as e:
-                logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
+                        return response_model.model_validate_json(extracted)
+                    raise
+            except (StructuredRefusalError, StructuredContentFilterError, StructuredTruncationError):
+                raise
+            except (ValidationError, json.JSONDecodeError) as e:
+                logger.warning(f"Structured validation error on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
-                    # Track semantic failure (HTTP 200 but invalid JSON)
                     try:
                         from app.core.prometheus_metrics import llm_json_parse_failures_total
 
                         llm_json_parse_failures_total.inc({"model": self._model_name, "method": "ask_structured"})
                     except Exception:
                         logger.debug("Failed to record ask_structured parse failure metric", exc_info=True)
-                    raise LLMException(f"Failed to parse JSON response: {e}") from e
+                    raise StructuredSchemaValidationError(f"Failed to validate structured response: {e}") from e
             except RateLimitError as e:
                 retry_after = None
                 if hasattr(e, "response") and e.response is not None:
@@ -2381,100 +2392,49 @@ To extract data from a webpage:
 
         raise LLMException("Failed to get structured response after all retries")
 
+    def _capabilities(self):
+        return get_capabilities(self._model_name, self._api_base)
+
+    @classmethod
+    def _normalize_strict_json_schema(cls, schema: dict[str, Any]) -> dict[str, Any]:
+        """Normalize schema for strict structured output requirements."""
+        if not isinstance(schema, dict):
+            return schema
+
+        def _walk(node: Any) -> Any:
+            if isinstance(node, dict):
+                if node.get("type") == "object" or "properties" in node:
+                    properties = node.get("properties")
+                    if isinstance(properties, dict):
+                        node["required"] = sorted(properties.keys())
+                        if "additionalProperties" not in node:
+                            node["additionalProperties"] = False
+                for key, value in list(node.items()):
+                    node[key] = _walk(value)
+            elif isinstance(node, list):
+                return [_walk(item) for item in node]
+            return node
+
+        return _walk(dict(schema))
+
     def _supports_structured_output(self) -> bool:
-        """Check if the model supports native structured output with strict schemas."""
-        # MLX and local models typically don't
+        """Check if model supports strict json_schema structured output."""
         if self._is_mlx_mode:
             return False
-
-        # OpenRouter natively supports json_schema for most models
-        if getattr(self, "_is_openrouter", False):
-            return True
-
-        # GPT-4o and later models support structured outputs
-        supported_prefixes = (
-            "gpt-4o",
-            "gpt-4-turbo",
-            "gpt-5",
-            "o1",
-            "o3",  # Reasoning models
-        )
-        return self._model_name.startswith(supported_prefixes)
+        return self._capabilities().json_schema
 
     def _supports_response_format_with_tools(self) -> bool:
-        """Check if the provider supports response_format parameter with tools.
-
-        Many OpenAI-compatible providers (DeepSeek, local servers, etc.) don't support
-        response_format when tools are being used.
-
-        Returns:
-            True if response_format can be used with tools, False otherwise
-        """
-        # Only official OpenAI API supports response_format with tools
-        if not self._api_base:
-            return False
-
-        # Check if using official OpenAI API
-        base = self._api_base.lower()
-        return "api.openai.com" in base or "openai.azure.com" in base
+        """Check if provider supports response_format + tools combination."""
+        caps = self._capabilities()
+        return caps.json_schema and caps.tool_use
 
     def _supports_parallel_tool_calls(self) -> bool:
-        """Check if the provider supports parallel tool calls.
-
-        GLM APIs do not support parallel tool calls — sending parallel_tool_calls=True
-        causes the request to fail. Only allow for verified OpenAI-family endpoints.
-        """
-        if getattr(self, "_is_glm_api", False):
-            return False
-        if not self._api_base:
-            return False
-        base = self._api_base.lower()
-        # DeepSeek V3.2 follows the OpenAI tool-calling spec and supports parallel calls
-        if getattr(self, "_is_deepseek", False):
-            return True
-        return "api.openai.com" in base or "openai.azure.com" in base
+        """Check if provider supports parallel tool calls."""
+        return self._capabilities().parallel_tool_calls
 
     def _supports_json_object_format(self) -> bool:
-        """Check if provider supports json_object response format.
-
-        Many OpenAI-compatible providers don't support json_object format:
-        - ZhipuAI GLM APIs (z.ai / bigmodel.cn) — not supported natively
-        - DeepInfra with NVIDIA models
-        - Most models on OpenRouter (except OpenAI/Anthropic/Google)
-        - Local inference servers
-
-        Returns:
-            True if json_object format is supported, False otherwise
-        """
-        if not self._api_base:
-            return True  # Default OpenAI supports it
-
-        base = self._api_base.lower()
-
-        # Official OpenAI API supports json_object
-        if "api.openai.com" in base or "openai.azure.com" in base:
-            return True
-
-        # GLM APIs (ZhipuAI / z.ai) do not support json_object response format.
-        # Passing it causes a 400 error. Use prompt-based JSON extraction instead.
-        if getattr(self, "_is_glm_api", False):
-            logger.debug(f"GLM API model {self._model_name} doesn't support json_object format")
-            return False
-
-        # DeepInfra has limited json_object support
-        # NVIDIA models on DeepInfra don't support it
-        model_lower = self._model_name.lower()
-        if "deepinfra" in base and ("nvidia" in model_lower or "nemotron" in model_lower):
-            logger.debug(f"DeepInfra NVIDIA model {self._model_name} doesn't support json_object format")
-            return False
-
-        # DeepSeek API supports json_object response format
-        if getattr(self, "_is_deepseek", False):
-            return True
-
-        # OpenRouter supports json_object/json_schema for most models natively.
-        # Conservative default: False for unknown providers.
-        return getattr(self, "_is_openrouter", False)
+        """Check if provider supports json_object response format."""
+        return self._capabilities().json_object
 
     async def ask_stream(
         self,
