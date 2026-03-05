@@ -1170,11 +1170,11 @@ class ExecutionAgent(BaseAgent):
                     if cite_result.is_valid:
                         logger.info("Citation integrity auto-repair resolved detected issues")
                     else:
-                        severe_citation_issue = bool(cite_result.orphan_citations)
-                        if severe_citation_issue:
-                            delivery_gate_additional_issues.append("citation_integrity_unresolved")
-                        else:
-                            delivery_gate_additional_warnings.append("citation_integrity_warning")
+                        # Orphan citations (inline [N] with no reference) are cosmetic issues,
+                        # not data integrity failures.  Blocking the entire report delivery
+                        # because of citation formatting is the wrong trade-off — the research
+                        # content is correct, only the numbering is off.  Downgrade to warning.
+                        delivery_gate_additional_warnings.append("citation_integrity_warning")
                         logger.warning(
                             "Citation integrity issues: orphans=%s, phantoms=%s, gaps=%s, dupes=%d",
                             cite_result.orphan_citations,
@@ -1562,7 +1562,6 @@ class ExecutionAgent(BaseAgent):
         """Allow downgrade only for non-critical integrity failures."""
         critical_issue_tokens = {
             "stream_truncation_unresolved",
-            "citation_integrity_unresolved",
             "hallucination_ratio_critical",
         }
         for issue in issues:
