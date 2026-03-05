@@ -1097,6 +1097,36 @@ To extract data from a webpage:
         return None
 
     @staticmethod
+    def _validate_tool_args_static(
+        args: dict[str, Any], schema: dict[str, Any]
+    ) -> list[str]:
+        """Validate tool call arguments against JSON schema.
+
+        Returns list of error messages (empty = valid).
+        Lightweight check — only validates required fields and basic types.
+        """
+        required = schema.get("required", [])
+        properties = schema.get("properties", {})
+
+        errors: list[str] = [
+            f"Missing required field: '{field}'"
+            for field in required
+            if field not in args
+        ]
+
+        for field, value in args.items():
+            if field in properties:
+                expected_type = properties[field].get("type")
+                if expected_type == "string" and not isinstance(value, str):
+                    errors.append(f"Field '{field}' must be string, got {type(value).__name__}")
+                elif expected_type == "boolean" and not isinstance(value, bool):
+                    errors.append(f"Field '{field}' must be boolean, got {type(value).__name__}")
+                elif expected_type == "integer" and not isinstance(value, int):
+                    errors.append(f"Field '{field}' must be integer, got {type(value).__name__}")
+
+        return errors
+
+    @staticmethod
     def _validate_extracted_tool_call(
         tool_name: str,
         arguments: dict[str, Any],
