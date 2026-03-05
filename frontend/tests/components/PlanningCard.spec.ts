@@ -73,4 +73,18 @@ describe('PlanningCard', () => {
     })
     expect(wrapper.text()).toContain('Starting execution')
   })
+
+  it('renders a custom title for plan-ready handoff state', () => {
+    const wrapper = mount(PlanningCard, {
+      props: {
+        title: 'Plan ready',
+        phase: 'executing_setup' as PlanningPhase,
+        message: 'Starting execution from the approved plan.',
+        progressPercent: 100,
+      },
+    })
+
+    expect(wrapper.text()).toContain('Plan ready')
+    expect(wrapper.text()).not.toContain('Agent is thinking')
+  })
 })
