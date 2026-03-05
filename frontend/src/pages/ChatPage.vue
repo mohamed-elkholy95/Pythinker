@@ -168,6 +168,13 @@
         <!-- Right side - spacer -->
         <div class="flex-1"></div>
       </div>
+      <!-- Phase progress strip - shown above messages during active agent runs -->
+      <PhaseStrip
+        v-if="showPhaseStrip"
+        :current-phase="phaseStripPhase!"
+        :start-time="phaseStripStartTime"
+        :step-progress="phaseStripStepProgress"
+      />
 	      <div
           v-if="chatViewMode === 'chat'"
 	        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1"
@@ -592,6 +599,7 @@ import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport'
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import PlanningCard from '@/components/PlanningCard.vue';
+import PhaseStrip from '@/components/PhaseStrip.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 // WideResearchOverlay removed — absorbed into Deep Research mode
 import ConnectionStatusBanner from '@/components/ConnectionStatusBanner.vue';
@@ -781,6 +789,7 @@ const createInitialState = () => ({
   agentModeOriginalPrompt: null as string | null, // Tracks original prompt for agent-mode echo suppression
   timeoutReason: null as 'connection' | 'workflow_idle' | 'workflow_limit' | null, // Discriminates timeout source
   activeReasoningState: 'idle' as ReasoningStage, // Reasoning pipeline state for active assistant message
+  phaseStripStartTime: 0 as number, // Timestamp when current agent run started (for PhaseStrip elapsed timer)
 });
 
 // Create reactive state
@@ -836,6 +845,7 @@ const {
   agentModeOriginalPrompt,
   timeoutReason,
   activeReasoningState,
+  phaseStripStartTime,
 } = toRefs(state);
 
 const chatViewMode = ref<'chat' | 'reasoning'>('chat');
@@ -1993,6 +2003,52 @@ const showPlanningCard = computed(() =>
   !!planningCardState.value &&
   (!plan.value || plan.value.steps.length === 0)
 );
+
+// ── PhaseStrip computed state ─────────────────────────────────────────────
+type PhaseStripPhase = 'planning' | 'verifying' | 'searching' | 'writing' | 'done'
+
+const phaseStripPhase = computed<PhaseStripPhase | null>(() => {
+  // After task is completed, show 'done' briefly (template hides strip shortly after)
+  if (isTaskCompleted.value) return 'done'
+
+  const progress = planningProgress.value
+  if (progress) {
+    const phaseMap: Record<string, PhaseStripPhase> = {
+      received: 'planning',
+      analyzing: 'planning',
+      planning: 'planning',
+      verifying: 'verifying',
+      executing_setup: 'searching',
+      finalizing: 'writing',
+      waiting: 'searching',
+    }
+    return phaseMap[progress.phase] ?? 'planning'
+  }
+
+  // No planning progress — derive phase from execution state
+  if (!isLoading.value) return null
+
+  if (isSummaryStreaming.value) return 'writing'
+  if (hasRunningStep.value || plan.value?.steps?.length) return 'searching'
+
+  return null
+})
+
+const phaseStripStepProgress = computed<{ current: number; total: number } | null>(() => {
+  const steps = plan.value?.steps
+  if (!steps || steps.length === 0) return null
+  const completed = steps.filter(
+    (s: { status?: string }) => s.status === 'completed' || s.status === 'failed' || s.status === 'skipped'
+  ).length
+  return { current: completed, total: steps.length }
+})
+
+const showPhaseStrip = computed(() =>
+  !isChatMode.value &&
+  isLoading.value &&
+  phaseStripPhase.value !== null &&
+  phaseStripStartTime.value > 0
+)
 
 // Add extra bottom scroll room when task progress bar or planning card is visible (no thumbnail).
 const showProgressDockSpacer = computed(() =>
@@ -3645,6 +3701,7 @@ const chat = async (
   agentModeOriginalPrompt.value = null;
   timeoutReason.value = null;
   activeReasoningState.value = 'idle';
+  phaseStripStartTime.value = Date.now();
   transitionTo('connecting')
   dismissConnectionBanner();
 
