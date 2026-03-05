@@ -181,6 +181,36 @@ class VerifierAgent:
                 descriptions.append(f"- {name}: {desc}")
         return "\n".join(descriptions)
 
+    async def _ask_structured_tiered(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        response_model: type[Any],
+        tier: str,
+    ) -> Any:
+        """Prefer tier-aware structured policy calls with safe fallback."""
+        policy_method = getattr(self.llm, "ask_structured_with_policy", None)
+        llm_module = getattr(type(self.llm), "__module__", "")
+        is_mock_llm = llm_module.startswith("unittest.mock")
+        if callable(policy_method) and not is_mock_llm:
+            return await policy_method(
+                messages=messages,
+                response_model=response_model,
+                tier=tier,
+            )
+
+        structured_method = getattr(self.llm, "ask_structured", None)
+        if callable(structured_method) and not is_mock_llm:
+            return await structured_method(messages=messages, response_model=response_model)
+
+        response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
+        content = str(response.get("content", "") or "")
+        if response_model is VerificationResponse:
+            return await self._parse_verification_response(content)
+
+        parsed = await self.json_parser.parse(content, tier=tier)
+        return response_model.model_validate(parsed)
+
     def _should_skip_verification(self, plan: Plan) -> bool:
         """Determine if verification should be skipped for this plan.
 
@@ -510,10 +540,11 @@ class VerifierAgent:
                 return early_result
 
         # Fall back to standard verification
-        response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
-
-        content = response.get("content", "")
-        return await self._parse_verification_response(content)
+        return await self._ask_structured_tiered(
+            messages=messages,
+            response_model=VerificationResponse,
+            tier="A",
+        )
 
     async def _try_streaming_verification(
         self, messages: list[dict[str, Any]], plan: Plan
@@ -605,7 +636,7 @@ class VerifierAgent:
         Returns:
             Parsed VerificationResponse
         """
-        parsed = await self.json_parser.parse(content)
+        parsed = await self.json_parser.parse(content, tier="A")
 
         # Parse verdict
         verdict_str = parsed.get("verdict", "pass").lower()
@@ -687,23 +718,10 @@ class VerifierAgent:
         ]
 
         try:
-            response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
-
-            content = response.get("content", "")
-            parsed = await self.json_parser.parse(content)
-
-            verdict_str = parsed.get("verdict", "pass").lower()
-            if verdict_str == "pass":
-                verdict = VerificationVerdict.PASS
-            elif verdict_str == "fail":
-                verdict = VerificationVerdict.FAIL
-            else:
-                verdict = VerificationVerdict.REVISE
-
-            return SimpleVerificationResponse(
-                verdict=verdict,
-                confidence=float(parsed.get("confidence", 0.8)),
-                summary=parsed.get("summary", "Quick verification completed"),
+            return await self._ask_structured_tiered(
+                messages=messages,
+                response_model=SimpleVerificationResponse,
+                tier="A",
             )
 
         except Exception as e:

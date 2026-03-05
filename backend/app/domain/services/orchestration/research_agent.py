@@ -187,7 +187,7 @@ Return JSON array of queries:
                 format="json_object",
             )
 
-            parsed = self.json_parser.parse(response)
+            parsed = await self.json_parser.parse(response, tier="B")
             return parsed.get("queries", [topic])
         except Exception as e:
             logger.error(f"Failed to generate queries: {e}")
@@ -268,7 +268,8 @@ Return JSON:
                 format="json_object",
             )
 
-            return self.json_parser.parse(response).get("synthesis", "")
+            parsed = await self.json_parser.parse(response, tier="B")
+            return parsed.get("synthesis", "")
         except Exception as e:
             logger.error(f"Failed to synthesize findings: {e}")
             return "Synthesis failed due to an error."

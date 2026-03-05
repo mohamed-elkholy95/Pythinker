@@ -341,7 +341,7 @@ class SelfConsistencyChecker:
                     response_format={"type": "json_object"},
                 )
                 content = result.get("content", "{}")
-                parsed = await self.json_parser.parse(content)
+                parsed = await self.json_parser.parse(content, tier="B")
                 return parsed.get("claims", [])
             except Exception as e:
                 logger.warning(f"Claim extraction failed: {e}")

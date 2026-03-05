@@ -341,7 +341,7 @@ class ChainOfVerification:
             )
 
             content = result.get("content", "")
-            parsed = await self.json_parser.parse(content)
+            parsed = await self.json_parser.parse(content, tier="A")
 
             questions_data = parsed.get("questions", [])
             questions = [
@@ -381,7 +381,7 @@ class ChainOfVerification:
             )
 
             content = result.get("content", "")
-            parsed = await self.json_parser.parse(content)
+            parsed = await self.json_parser.parse(content, tier="A")
 
             question.answer = parsed.get("answer", "")
             question.confidence = float(parsed.get("confidence", 0.5))
