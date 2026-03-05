@@ -1442,6 +1442,39 @@ class PlanActFlow(BaseFlow):
         self._verification_loops = 0
         return AgentStatus.PLANNING, "max verification loops reached; forcing replanning"
 
+    def _route_after_planning(
+        self,
+        *,
+        use_draft: bool,
+        settings: Any,
+    ) -> tuple[AgentStatus, str]:
+        """Determine the next status after plan creation.
+
+        Normal path: VERIFYING (when verifier is present) → EXECUTING.
+        Fast draft path: skip VERIFYING when all of the following hold:
+          - ``use_draft`` is True (feature flag on + research_mode set)
+          - the plan has <= ``fast_draft_plan_max_steps`` steps
+
+        Returns a ``(AgentStatus, reason)`` tuple; the caller is responsible
+        for calling ``_transition_to`` with the returned status.
+        """
+        if not self.plan or len(self.plan.steps) == 0:
+            return AgentStatus.COMPLETED, "plan has no steps"
+
+        max_steps: int = getattr(settings, "fast_draft_plan_max_steps", 5)
+        skip_verification = use_draft and len(self.plan.steps) <= max_steps
+
+        if self.verifier and not skip_verification:
+            return AgentStatus.VERIFYING, "verifier present; checking plan quality"
+
+        if skip_verification:
+            return (
+                AgentStatus.EXECUTING,
+                f"fast draft plan: skipping verification for {len(self.plan.steps)}-step plan",
+            )
+
+        return AgentStatus.EXECUTING, "no verifier configured; proceeding to execution"
+
     def _run_compliance_gates(self, content: str, attachments: list[Any] | None = None) -> ComplianceReport:
         """Run compliance gates on final output content."""
         artifacts: list[dict[str, Any]] = []
@@ -2436,6 +2469,12 @@ class PlanActFlow(BaseFlow):
                                 "Your FINAL step must compile and deliver all workspace files to the user."
                             )
 
+                        # Fast draft plan: use FAST_MODEL, skip expensive thinking phases
+                        use_draft = (
+                            settings.feature_fast_draft_plan
+                            and self._research_mode is not None
+                        )
+
                         async with LLMHeartbeat(
                             phase=PlanningPhase.PLANNING,
                             message="Generating plan...",
@@ -2445,6 +2484,7 @@ class PlanActFlow(BaseFlow):
                                 message,
                                 replan_context=replan_context,
                                 profile_patch_text=_planner_patch,
+                                draft=use_draft,
                             ):
                                 for hb_event in _planning_hb.drain():
                                     yield hb_event
@@ -2515,20 +2555,13 @@ class PlanActFlow(BaseFlow):
                     self._verification_verdict = None
                     self._verification_feedback = None
 
-                    if not self.plan or len(self.plan.steps) == 0:
-                        logger.info(f"Agent {self._agent_id} created plan successfully with no steps")
-                        self._transition_to(AgentStatus.COMPLETED)
-                    elif self.verifier:
-                        # Transition to verification if verifier is enabled
-                        logger.info(
-                            f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.VERIFYING}"
-                        )
-                        self._transition_to(AgentStatus.VERIFYING)
-                    else:
-                        logger.info(
-                            f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}"
-                        )
-                        self._transition_to(AgentStatus.EXECUTING)
+                    next_status, routing_reason = self._route_after_planning(
+                        use_draft=use_draft, settings=settings
+                    )
+                    logger.info(
+                        f"Agent {self._agent_id} post-planning route: {next_status.value} — {routing_reason}"
+                    )
+                    self._transition_to(next_status)
 
                 elif self.status == AgentStatus.VERIFYING:
                     # NEW: Emit verifying progress event
