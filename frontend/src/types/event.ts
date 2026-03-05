@@ -216,7 +216,7 @@ export interface StreamEventData extends BaseEventData {
   phase_metadata?: Record<string, unknown>;
 }
 
-export type PlanningPhase = 'received' | 'analyzing' | 'planning' | 'finalizing' | 'waiting';
+export type PlanningPhase = 'received' | 'analyzing' | 'planning' | 'verifying' | 'executing_setup' | 'finalizing' | 'waiting';
 
 export interface ProgressEventData extends BaseEventData {
   phase: PlanningPhase;
