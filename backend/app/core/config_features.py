@@ -338,6 +338,9 @@ class FeatureFlagsSettingsMixin:
     live_shell_max_polls: int = 600  # Max polls before stopping (300s at 500ms)
     feature_live_file_streaming: bool = False  # Emit incremental ToolStreamEvents for file_write
 
+    # Verification timeout — auto-pass if verification exceeds this (seconds). 0 = disabled.
+    verification_timeout_seconds: float = 8.0
+
     # Wall-clock limit per step (seconds). 0 = disabled. Env: MAX_STEP_WALL_CLOCK_SECONDS
     # 900s (15 min) accommodates research steps with 8-10 slow LLM calls (~60s each on
     # GLM-5) plus browser/search tool overhead, preventing premature force-failure.
