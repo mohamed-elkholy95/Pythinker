@@ -175,7 +175,6 @@ def get_step_limits(complexity: str) -> tuple:
     return COMPLEXITY_STEP_LIMITS.get(complexity, (DEFAULT_MIN_PLAN_STEPS, DEFAULT_MAX_PLAN_STEPS))
 
 
-
 def _step_from_description(index: int, desc) -> Step:
     """Create a Step from a StepDescription, preserving phase metadata."""
 
@@ -325,6 +324,8 @@ class PlannerAgent(BaseAgent):
         message: Message,
         replan_context: str | None = None,
         profile_patch_text: str | None = None,
+        *,
+        draft: bool = False,
     ) -> AsyncGenerator[BaseEvent, None]:
         """Create an execution plan for the given message.
 
@@ -338,6 +339,8 @@ class PlannerAgent(BaseAgent):
             message: The user message to create a plan for
             replan_context: Optional feedback from verification for replanning
             profile_patch_text: DSPy-optimized planner prompt patch (PR-5); None = baseline.
+            draft: When True, uses FAST_MODEL and skips expensive analysis phases
+                   (thinking stream, Tree-of-Thoughts) for faster, cheaper drafts.
 
         Yields:
             ProgressEvent for instant feedback, StreamEvent during thinking,
@@ -346,7 +349,9 @@ class PlannerAgent(BaseAgent):
         # Save original system prompt so skill context doesn't bleed across messages
         original_system_prompt = self.system_prompt
         try:
-            async for event in self._create_plan_inner(message, replan_context, profile_patch_text=profile_patch_text):
+            async for event in self._create_plan_inner(
+                message, replan_context, profile_patch_text=profile_patch_text, draft=draft
+            ):
                 yield event
         finally:
             self.system_prompt = original_system_prompt
@@ -356,6 +361,8 @@ class PlannerAgent(BaseAgent):
         message: Message,
         replan_context: str | None = None,
         profile_patch_text: str | None = None,
+        *,
+        draft: bool = False,
     ) -> AsyncGenerator[BaseEvent, None]:
         """Inner implementation of create_plan, wrapped by try/finally for prompt restore."""
         from app.domain.models.event import PlanningPhase, ProgressEvent
@@ -419,8 +426,8 @@ class PlannerAgent(BaseAgent):
         if not replan_context:
             task_complexity = get_task_complexity(message.message)
 
-        # Stream thinking phase for initial plans (skip on replans for speed)
-        if not replan_context:
+        # Stream thinking phase for initial plans (skip on replans or draft mode for speed)
+        if not replan_context and not draft:
             yield ProgressEvent(
                 phase=PlanningPhase.ANALYZING,
                 message="Analyzing task complexity...",
@@ -430,9 +437,9 @@ class PlannerAgent(BaseAgent):
             async for event in self._stream_thinking(message.message):
                 yield event
 
-        # Tree-of-Thoughts exploration for complex tasks
+        # Tree-of-Thoughts exploration for complex tasks (skipped in draft mode)
         tot_context = None
-        if self._thought_tree_explorer and not replan_context:
+        if self._thought_tree_explorer and not replan_context and not draft:
             complexity = task_complexity or get_task_complexity(message.message)
             if complexity == "complex":
                 try:
@@ -557,6 +564,16 @@ class PlannerAgent(BaseAgent):
         # Tier A: strict structured output path for critical planning decisions.
         fallback_error: str | None = None
 
+        # Resolve fast model override for draft mode
+        draft_model: str | None = None
+        if draft:
+            from app.core.config import get_settings
+
+            _settings = get_settings()
+            if _settings.fast_model:
+                draft_model = _settings.fast_model
+                logger.debug(f"Draft plan mode: using fast model '{draft_model}'")
+
         try:
             await self._add_to_memory([{"role": "user", "content": prompt}])
             await self._ensure_within_token_limit()
@@ -566,6 +583,7 @@ class PlannerAgent(BaseAgent):
                     messages=self.memory.get_messages(),
                     response_model=PlanResponse,
                     tier="A",
+                    model=draft_model,
                 )
 
                 yield ProgressEvent(
@@ -574,7 +592,7 @@ class PlannerAgent(BaseAgent):
                     estimated_steps=len(plan_response.steps),
                     progress_percent=80,
                     complexity_category=task_complexity,
-                    )
+                )
 
                 plan = Plan(
                     goal=plan_response.goal,
@@ -594,7 +612,7 @@ class PlannerAgent(BaseAgent):
                     estimated_steps=len(plan.steps),
                     progress_percent=95,
                     complexity_category=task_complexity,
-                    )
+                )
                 yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
                 return
             fallback_error = "LLM does not support ask_structured"
