@@ -1515,6 +1515,48 @@ llm_json_parse_failures_total = Counter(
     labels=["model", "method"],
 )
 
+structured_output_requests_total = Counter(
+    name="pythinker_structured_output_requests_total",
+    help_text="Total structured output requests by tier and selected strategy",
+    labels=["tier", "strategy"],
+)
+
+structured_output_success_total = Counter(
+    name="pythinker_structured_output_success_total",
+    help_text="Total successful structured output responses by tier and strategy",
+    labels=["tier", "strategy"],
+)
+
+structured_output_fallback_total = Counter(
+    name="pythinker_structured_output_fallback_total",
+    help_text="Total structured output fallbacks by tier and strategy",
+    labels=["tier", "strategy"],
+)
+
+structured_output_schema_retries_total = Counter(
+    name="pythinker_structured_output_schema_retries_total",
+    help_text="Total structured output schema retry attempts",
+    labels=["tier", "strategy"],
+)
+
+structured_output_refusals_total = Counter(
+    name="pythinker_structured_output_refusals_total",
+    help_text="Total structured output refusals",
+    labels=["tier", "strategy"],
+)
+
+structured_output_truncations_total = Counter(
+    name="pythinker_structured_output_truncations_total",
+    help_text="Total structured output truncations",
+    labels=["tier", "strategy"],
+)
+
+structured_output_content_filter_total = Counter(
+    name="pythinker_structured_output_content_filter_total",
+    help_text="Total structured output responses blocked by content filters",
+    labels=["tier", "strategy"],
+)
+
 _metrics_registry.extend(
     [
         event_store_archived_total,
@@ -1532,6 +1574,13 @@ _metrics_registry.extend(
         redis_keyspace_hit_ratio,
         mongodb_collscan_total,
         llm_json_parse_failures_total,
+        structured_output_requests_total,
+        structured_output_success_total,
+        structured_output_fallback_total,
+        structured_output_schema_retries_total,
+        structured_output_refusals_total,
+        structured_output_truncations_total,
+        structured_output_content_filter_total,
     ]
 )
 
