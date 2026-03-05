@@ -11,12 +11,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.domain.models.event import PlanningPhase, ProgressEvent, VerificationEvent, VerificationStatus
-
 
 # ---------------------------------------------------------------------------
 # Config default
@@ -44,7 +42,6 @@ def test_verification_timeout_config_env_override(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("VERIFICATION_TIMEOUT_SECONDS", "0.0")
 
     # Force a fresh settings parse so the env var is picked up.
-    import importlib
 
     import app.core.config as cfg_module
 

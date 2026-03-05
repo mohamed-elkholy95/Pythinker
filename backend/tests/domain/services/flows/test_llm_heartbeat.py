@@ -1,4 +1,5 @@
 """Tests for LLMHeartbeat periodic event emitter."""
+
 from __future__ import annotations
 
 import asyncio
@@ -44,13 +45,9 @@ async def test_heartbeat_stops_cleanly() -> None:
     await asyncio.sleep(0.2)
     events_after_stop = heartbeat.drain()
 
-    assert len(events_after_stop) == 0, (
-        f"Expected 0 events after stop, got {len(events_after_stop)}"
-    )
+    assert len(events_after_stop) == 0, f"Expected 0 events after stop, got {len(events_after_stop)}"
     # Sanity: we did receive events before stopping
-    assert len(events_at_stop) >= 1, (
-        f"Expected >=1 events before stop, got {len(events_at_stop)}"
-    )
+    assert len(events_at_stop) >= 1, f"Expected >=1 events before stop, got {len(events_at_stop)}"
 
 
 @pytest.mark.asyncio

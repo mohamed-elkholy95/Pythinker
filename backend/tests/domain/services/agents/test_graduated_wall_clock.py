@@ -1,6 +1,5 @@
 """Tests for graduated step wall-clock pressure thresholds."""
 
-import pytest
 
 from app.domain.services.agents.base import (
     _get_wall_clock_pressure_level,

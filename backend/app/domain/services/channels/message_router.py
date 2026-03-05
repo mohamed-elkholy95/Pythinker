@@ -335,7 +335,9 @@ class MessageRouter:
                     if event_type == "wait" and self._telegram_final_delivery_allow_wait_prompts:
                         if last_telegram_message_event is None:
                             continue
-                        outbounds = await self._event_to_outbounds(last_telegram_message_event, message, user_id=user_id)
+                        outbounds = await self._event_to_outbounds(
+                            last_telegram_message_event, message, user_id=user_id
+                        )
                         if not outbounds:
                             continue
                         last_telegram_wait_delivery_event = last_telegram_message_event

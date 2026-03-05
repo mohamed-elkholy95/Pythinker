@@ -220,7 +220,7 @@ class TestPlaceholderResultUnblocking:
 
         # Placeholder should be injected
         assert step1.result is not None
-        assert "[Step failed without results:" in step1.result
+        assert "[Step failed:" in step1.result
         assert "LLM retry loop exhausted" in step1.result
 
     def test_failed_step_without_result_unblocks_dependents(self) -> None:

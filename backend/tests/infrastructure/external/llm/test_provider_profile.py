@@ -3,7 +3,6 @@
 import pytest
 
 from app.infrastructure.external.llm.provider_profile import (
-    ProviderProfile,
     get_provider_profile,
 )
 
