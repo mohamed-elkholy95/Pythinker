@@ -140,6 +140,7 @@ class GetSessionResponse(BaseModel):
     session_id: str
     title: str | None = None
     status: SessionStatus
+    source: str = "web"
     research_mode: ResearchMode = ResearchMode.DEEP_RESEARCH
     streaming_mode: StreamingMode | None = None
     events: list[AgentSSEEvent] = Field(default_factory=list)
