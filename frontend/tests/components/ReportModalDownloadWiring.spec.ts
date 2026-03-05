@@ -10,8 +10,11 @@ describe('Report modal download wiring', () => {
 
     expect(chatPageSource).not.toContain('@download="handleReportDownload"')
     expect(chatPageSource).not.toContain('const handleReportDownload =')
+    expect(chatPageSource).toContain(':sessionId="sessionId"')
 
     expect(reportModalSource).not.toContain("(e: 'download')")
     expect(reportModalSource).not.toContain("emit('download')")
+    expect(reportModalSource).not.toContain("import html2pdf from 'html2pdf.js'")
+    expect(reportModalSource).toContain('downloadSessionReportPdf(')
   })
 })
