@@ -12,6 +12,22 @@ if TYPE_CHECKING:
     from app.domain.models.step_execution_context import StepExecutionContext
 
 # ============================================================================
+# REPORT CONSTRUCTION PROTOCOL (3A)
+# ============================================================================
+
+REPORT_CONSTRUCTION_PROTOCOL = """
+## Report Construction Protocol
+
+Follow these rules STRICTLY when creating research reports:
+
+1. **Single Report File**: Create exactly ONE markdown file for the report. Never create duplicates.
+2. **Outline First**: Write the full outline (headings + placeholders) in one file_write, then fill sections incrementally with file_str_replace.
+3. **Incremental Edits**: After initial creation, ALWAYS use file_str_replace (not file_write) to update sections. This prevents overwriting existing content.
+4. **No code_execute_python for Text**: NEVER use code_execute_python to save markdown/text. It is ONLY for: data analysis, calculations, charts, and code execution.
+5. **No Duplicate Files**: Check existing files before creating new ones. If a report file already exists, edit it — do not create report-2.md, report-copy.md, etc.
+"""
+
+# ============================================================================
 # ENHANCED EXECUTION SYSTEM PROMPT
 # ============================================================================
 
@@ -1337,6 +1353,18 @@ CITATION REQUIREMENTS:
 - ONLY cite sources listed in the Available Sources section — do not fabricate citations.
 - Every factual statement should have at least one citation.""")
 
+    # Citation numbering discipline (3B)
+    if has_sources and source_list:
+        source_count = len([ln for ln in source_list.strip().splitlines() if ln.strip()])
+        if source_count > 0:
+            parts.append(
+                f"\n## Citation Discipline\n"
+                f"You have exactly {source_count} sources available.\n"
+                f"Citation numbers MUST be in range [1]-[{source_count}].\n"
+                f"Do NOT invent citation numbers above [{source_count}].\n"
+                f"Every [N] inline citation MUST have a matching entry in ## References.\n"
+            )
+
     # Report structure
     source_col = "Source" if has_sources else "Notes"
     source_cell = "[1]" if has_sources else "Info"
@@ -1379,6 +1407,10 @@ This section MUST be present and complete.""")
     # Comparison matrix template
     if is_comparison:
         parts.append(_COMPARISON_MATRIX_TEMPLATE)
+
+    # Inject report construction protocol for research reports (3A)
+    if depth in ("STANDARD", "DEEP"):
+        parts.append(REPORT_CONSTRUCTION_PROTOCOL)
 
     # Design & formatting guidelines (shared)
     parts.append("""
