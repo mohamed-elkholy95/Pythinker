@@ -21,6 +21,7 @@ export enum ResearchMode {
 }
 
 export type StreamingMode = 'cdp_only'
+export type SessionSource = 'web' | 'telegram' | string
 
 export interface SandboxInfo {
     sandbox_id: string;
@@ -40,6 +41,7 @@ export interface GetSessionResponse {
     session_id: string;
     title: string | null;
     status: SessionStatus;
+    source: SessionSource;
     research_mode: ResearchMode;
     streaming_mode: StreamingMode | null;
     events: AgentSSEEvent[];
@@ -54,7 +56,7 @@ export interface ListSessionItem {
     status: SessionStatus;
     unread_message_count: number;
     is_shared: boolean;
-    source: string;
+    source: SessionSource;
 }
 
 export interface ListSessionResponse {
