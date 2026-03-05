@@ -121,6 +121,39 @@ class TestTruncationCounterResetBetweenSteps:
 
         assert agent._recent_truncation_count == 0
 
+    @pytest.mark.asyncio
+    async def test_compression_guard_warns_once_and_latches_until_reset(self) -> None:
+        """Compression oscillation guard should warn once and avoid repeated churn."""
+        agent = _make_base_agent(feature_flags={"token_budget_manager": True})
+        agent._ensure_memory = AsyncMock(return_value=None)
+        agent.memory = MagicMock(
+            get_messages=MagicMock(return_value=[{"role": "user", "content": "x"}]),
+            messages=[],
+            config=SimpleNamespace(use_graduated_compaction=False),
+        )
+        agent._token_budget = object()
+        agent._token_budget_manager = MagicMock()
+        agent._token_budget_manager.check_before_call.return_value = (False, "budget exceeded")
+        agent._token_budget_manager.compress_to_fit.return_value = [{"role": "user", "content": "x"}]
+        agent._compression_cycles_this_step = agent.max_compression_cycles_per_step
+
+        with patch("app.domain.services.agents.base.logger.warning") as warning_mock:
+            await agent._ensure_within_token_limit()
+            await agent._ensure_within_token_limit()
+
+        assert agent._compression_guard_active is True
+        assert agent._stuck_recovery_exhausted is True
+        assert warning_mock.call_count == 1
+
+    def test_reset_reliability_state_resets_compression_guard(self) -> None:
+        """reset_reliability_state() should clear the compression-guard latch."""
+        agent = _make_base_agent()
+        agent._compression_guard_active = True
+
+        agent.reset_reliability_state()
+
+        assert agent._compression_guard_active is False
+
 
 # ============================================================================
 # Fix 2: Tool-stripping after consecutive truncations

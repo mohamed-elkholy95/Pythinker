@@ -68,14 +68,14 @@ class RedisStreamTask(Task):
         Returns:
             bool: True if the task is cancelled, False otherwise
         """
-        request_cancellation = getattr(self._runner, "request_cancellation", None)
-        if callable(request_cancellation):
-            try:
-                request_cancellation()
-            except Exception as exc:
-                logger.debug("Failed to signal cooperative cancellation for task %s: %s", self._id, exc)
-
         if not self.done:
+            request_cancellation = getattr(self._runner, "request_cancellation", None)
+            if callable(request_cancellation):
+                try:
+                    request_cancellation()
+                except Exception as exc:
+                    logger.debug("Failed to signal cooperative cancellation for task %s: %s", self._id, exc)
+
             self._execution_task.cancel()
             logger.info(f"Task {self._id} cancelled")
             # DO NOT call _cleanup_registry() here — task is still stopping.

@@ -347,6 +347,28 @@ class TestPlannerAgent:
         # Should have generated some events (progress events at minimum)
         assert len(events) > 0
 
+    @pytest.mark.asyncio
+    async def test_emits_template_plan_when_structured_and_execute_paths_timeout(self, planner, mock_message):
+        """Planner should still return a usable plan when all LLM plan paths time out."""
+
+        planner.llm.ask_structured = AsyncMock(side_effect=TimeoutError("planner timed out"))
+
+        async def _timeout_execute(_prompt):
+            raise TimeoutError("execution fallback timed out")
+            yield  # pragma: no cover
+
+        planner.execute = _timeout_execute  # type: ignore[method-assign]
+
+        message = mock_message(message="Investigate current pricing and summarize best available options")
+        events = [event async for event in planner.create_plan(message, replan_context="Previous attempt timed out")]
+
+        plan_events = [event for event in events if hasattr(event, "plan")]
+        assert len(plan_events) == 1
+        plan = plan_events[0].plan
+        assert plan is not None
+        assert "fallback" in plan.title.lower()
+        assert len(plan.steps) >= 1
+
 
 class TestPlanNormalization:
     """Tests for plan step normalization."""

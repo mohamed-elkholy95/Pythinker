@@ -12,9 +12,7 @@ _REFERENCES_HEADING_RE = re.compile(r"^#{1,4}\s*(references?|sources?|bibliograp
 _BOLD_REFERENCES_RE = re.compile(r"^\*{2}(references?|sources?|bibliography|citations?):?\*{2}\s*$", re.IGNORECASE)
 _INLINE_CITATION_RE = re.compile(r"(?<!\^)\[(\d{1,3})\](?!\()(?!:\s)")
 _PUNCTUATION_AFTER_CITATIONS_RE = re.compile(r" *((?:\[\d{1,3}\]\s*)+)([.!?,;])\s*$")
-_ADJACENT_LINKED_CITATION_RE = re.compile(
-    r"(\[\d{1,3}\]\(#ref-\d{1,3}\))(?=\[\d{1,3}\]\(#ref-\d{1,3}\))"
-)
+_ADJACENT_LINKED_CITATION_RE = re.compile(r"(\[\d{1,3}\]\(#ref-\d{1,3}\))(?=\[\d{1,3}\]\(#ref-\d{1,3}\))")
 _ORDERED_REF_RE = re.compile(r"^\s*(\d+)\.\s+(.+)$")
 _BRACKET_REF_RE = re.compile(r"^\s*\[(\d+)\]\s+(.+)$")
 _LINK_REF_DEF_RE = re.compile(r"^\s*\[(\d+)\]:\s+(.+)$")

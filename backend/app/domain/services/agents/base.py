@@ -255,6 +255,7 @@ class BaseAgent:
         # Per-step counters for stability guards (reset at top of execute())
         self._hallucination_count_this_step: int = 0
         self._compression_cycles_this_step: int = 0
+        self._compression_guard_active: bool = False
         self._step_start_time: float | None = None
 
         # Per-session hallucination rate tracking (for model escalation)
@@ -1439,6 +1440,7 @@ class BaseAgent:
         # Reset per-step stability counters
         self._hallucination_count_this_step = 0
         self._compression_cycles_this_step = 0
+        self._compression_guard_active = False
         self._step_start_time = time.monotonic()
         self._recent_truncation_count = 0  # Prevent stale count from prior step
         self._stuck_recovery_exhausted = False
@@ -2318,6 +2320,9 @@ class BaseAgent:
         the legacy two-stage strategy (proactive compaction + hard trim).
         """
         await self._ensure_memory()
+        if self._compression_guard_active:
+            # Guard already tripped for this step; avoid repeated compression loops.
+            return
         current_messages = self.memory.get_messages()
 
         # ── Budget-aware path (Phase 2) ──────────────────────────────
@@ -2346,13 +2351,10 @@ class BaseAgent:
             if not ok:
                 self._compression_cycles_this_step += 1
                 if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
-                    logger.warning(
-                        "Compression oscillation guard triggered (%d/%d cycles this step). "
-                        "Skipping further compression to break feedback loop.",
-                        self._compression_cycles_this_step,
-                        self.max_compression_cycles_per_step,
+                    self._trip_compression_guard(
+                        stage_label="budget-aware",
+                        current_messages=current_messages,
                     )
-                    self._stuck_recovery_exhausted = True
                     return
                 logger.info("Token budget exceeded (%s), compressing to fit", reason)
                 compressed = self._token_budget_manager.compress_to_fit(
@@ -2377,13 +2379,10 @@ class BaseAgent:
         if token_count > self._token_manager._effective_limit * trigger_threshold:
             self._compression_cycles_this_step += 1
             if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
-                logger.warning(
-                    "Compression oscillation guard triggered (%d/%d cycles this step, legacy stage 1). "
-                    "Skipping further compression.",
-                    self._compression_cycles_this_step,
-                    self.max_compression_cycles_per_step,
+                self._trip_compression_guard(
+                    stage_label="legacy-stage-1",
+                    current_messages=current_messages,
                 )
-                self._stuck_recovery_exhausted = True
                 return
             # Use graduated compaction when enabled (preserves more info)
             flags = self._resolve_feature_flags()
@@ -2401,13 +2400,10 @@ class BaseAgent:
         if not self._token_manager.is_within_limit(current_messages):
             self._compression_cycles_this_step += 1
             if self._compression_cycles_this_step > self.max_compression_cycles_per_step:
-                logger.warning(
-                    "Compression oscillation guard triggered (%d/%d cycles this step, legacy stage 2). "
-                    "Skipping further compression.",
-                    self._compression_cycles_this_step,
-                    self.max_compression_cycles_per_step,
+                self._trip_compression_guard(
+                    stage_label="legacy-stage-2",
+                    current_messages=current_messages,
                 )
-                self._stuck_recovery_exhausted = True
                 return
             logger.warning("Memory exceeds token limit, trimming...")
             # Capture the first user message before trimming — it contains the original
@@ -2608,6 +2604,7 @@ class BaseAgent:
         # Reset per-step stability counters
         self._hallucination_count_this_step = 0
         self._compression_cycles_this_step = 0
+        self._compression_guard_active = False
         self._step_start_time = None
 
         # Reset per-agent efficiency monitor
@@ -2615,6 +2612,40 @@ class BaseAgent:
         self._efficiency_nudges.clear()
 
         logger.debug("Reliability state reset")
+
+    def _trip_compression_guard(self, stage_label: str, current_messages: list[dict[str, Any]]) -> None:
+        """Latch compression guard and apply one-shot emergency trim.
+
+        This prevents repeated compaction churn within the same step while still
+        preserving a minimal anchored context for graceful completion.
+        """
+        if self._compression_guard_active:
+            return
+        self._compression_guard_active = True
+        self._stuck_recovery_exhausted = True
+        logger.warning(
+            "Compression oscillation guard triggered (%d/%d cycles this step, %s). "
+            "Applying emergency context trim and skipping further compression this step.",
+            self._compression_cycles_this_step,
+            self.max_compression_cycles_per_step,
+            stage_label,
+        )
+
+        first_user_msg = next((m for m in current_messages if m.get("role") == "user"), None)
+        trimmed_messages, _tokens_removed = self._token_manager.trim_messages(
+            current_messages,
+            preserve_system=True,
+            preserve_recent=2,
+        )
+        if first_user_msg and not any(m is first_user_msg for m in trimmed_messages):
+            insert_idx = 0
+            for i, msg in enumerate(trimmed_messages):
+                if msg.get("role") == "system":
+                    insert_idx = i + 1
+                else:
+                    break
+            trimmed_messages.insert(insert_idx, first_user_msg)
+        self.memory.messages = trimmed_messages
 
     async def ask_streaming(self, request: str, format: str | None = None) -> AsyncGenerator[BaseEvent, None]:
         """Execute a request with streaming LLM response.
