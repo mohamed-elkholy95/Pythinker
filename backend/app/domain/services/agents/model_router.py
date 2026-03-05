@@ -270,15 +270,15 @@ class ModelRouter:
         # Map tier to Settings model configuration
         if tier == ModelTier.FAST:
             model_name = self.settings.fast_model
-            max_tokens = 4096
-            temperature = 0.2  # Lower for deterministic fast responses
+            max_tokens = getattr(self.settings, "fast_model_max_tokens", 4096)
+            temperature = getattr(self.settings, "fast_model_temperature", 0.2)
         elif tier == ModelTier.POWERFUL:
             model_name = self.settings.powerful_model
             max_tokens = self.settings.max_tokens  # Full context
             temperature = self.settings.temperature
         else:  # BALANCED (default)
             model_name = self.settings.effective_balanced_model
-            max_tokens = 8192  # Medium context
+            max_tokens = getattr(self.settings, "balanced_model_max_tokens", 8192)
             temperature = self.settings.temperature
 
         # Detect provider from model name
