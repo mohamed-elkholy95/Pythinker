@@ -1563,6 +1563,7 @@ class ExecutionAgent(BaseAgent):
         critical_issue_tokens = {
             "stream_truncation_unresolved",
             "hallucination_ratio_critical",
+            "citation_integrity_unresolved",
         }
         for issue in issues:
             token = (issue or "").split(":", 1)[0].strip().lower()

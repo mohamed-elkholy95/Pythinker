@@ -303,11 +303,13 @@ class TestGLMHardCallTimeoutAlignment:
     def test_glm_http_read_timeout_matches_hard_timeout(self) -> None:
         """GLM HTTP profile read timeout should match the hard call timeout."""
         from app.infrastructure.external.llm.openai_llm import OpenAILLM
+        from app.infrastructure.external.llm.provider_profile import get_provider_profile
 
         llm = OpenAILLM.__new__(OpenAILLM)
         llm._api_base = "https://api.z.ai/api/paas/v4"
         llm._is_glm_api = True
         llm._is_deepseek = False
+        llm._provider_profile = get_provider_profile("https://api.z.ai/api/paas/v4", "glm-4-plus")
 
         with patch(
             "app.infrastructure.external.llm.openai_llm.get_settings",

@@ -343,7 +343,7 @@ class FileTool(BaseTool):
 
         # Block write if enforcement triggered
         if any(w.startswith("ERROR") for w in write_warnings):
-            return ToolResult(output="\n".join(write_warnings))
+            return ToolResult.error(message="\n".join(write_warnings))
 
         # Directly call sandbox's file_write method, pass all parameters
         result = await self.sandbox.file_write(
