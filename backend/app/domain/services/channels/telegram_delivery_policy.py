@@ -144,6 +144,11 @@ class TelegramDeliveryPolicy:
         if not sanitized_content:
             return []
 
+        # Keep normal assistant messages as inline Telegram text by default.
+        # PDF auto-delivery is reserved for report events unless explicitly forced (/pdf).
+        if event_type != "report" and not force_pdf:
+            return [self._build_text_outbound(event_type, sanitized_title, sanitized_content, source)]
+
         long_content = self._is_long_content(event_type, sanitized_content)
 
         if self._is_borderline(event_type, sanitized_content) and not force_pdf and not self._force_long_text_pdf:
@@ -219,6 +224,8 @@ class TelegramDeliveryPolicy:
             return False
         if force_pdf:
             return True
+        if event_type != "report":
+            return False
         threshold = self._report_min_chars if event_type == "report" else self._message_min_chars
         if len(content) >= threshold:
             return True
