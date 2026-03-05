@@ -12,6 +12,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from nanobot.bus.events import InboundMessage as NbInbound
 
 from app.domain.models.channel import ChannelType, MediaAttachment, OutboundMessage
 from app.infrastructure.external.channels.nanobot_gateway import (
@@ -285,3 +286,112 @@ class TestPollWatchdog:
             await watchdog_task
 
         assert warning_mock.call_count >= 1
+
+
+class TestInboundRoutingConcurrency:
+    @pytest.mark.asyncio()
+    async def test_consumer_keeps_polling_when_one_route_is_inflight(
+        self,
+        gateway_telegram: NanobotGateway,
+    ) -> None:
+        """Second inbound message should be consumed even if first route is still running."""
+        first_route_started = asyncio.Event()
+        release_first_route = asyncio.Event()
+
+        async def route_inbound(message):
+            if message.chat_id == "chat-1":
+                first_route_started.set()
+                await release_first_route.wait()
+            yield OutboundMessage(
+                channel=ChannelType.TELEGRAM,
+                chat_id=message.chat_id,
+                content=f"processed {message.chat_id}",
+            )
+
+        queue_messages = [
+            NbInbound(
+                channel="telegram",
+                sender_id="sender-1",
+                chat_id="chat-1",
+                content="first",
+            ),
+            NbInbound(
+                channel="telegram",
+                sender_id="sender-2",
+                chat_id="chat-2",
+                content="second",
+            ),
+        ]
+
+        async def consume_inbound_side_effect() -> NbInbound:
+            if queue_messages:
+                return queue_messages.pop(0)
+            await asyncio.sleep(60)
+            raise RuntimeError("unexpected fallback")
+
+        gateway_telegram._message_router.route_inbound = route_inbound
+        gateway_telegram._bus.consume_inbound = AsyncMock(side_effect=consume_inbound_side_effect)
+        gateway_telegram.send_to_channel = AsyncMock()
+
+        consumer_task = asyncio.create_task(gateway_telegram._consume_inbound())
+
+        try:
+            await asyncio.wait_for(first_route_started.wait(), timeout=1.0)
+            await asyncio.sleep(0.05)
+            assert gateway_telegram._bus.consume_inbound.await_count >= 2
+        finally:
+            release_first_route.set()
+            consumer_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await consumer_task
+
+    @pytest.mark.asyncio()
+    async def test_consumer_emits_route_latency_telemetry_log(
+        self,
+        gateway_telegram: NanobotGateway,
+    ) -> None:
+        """Inbound processing should emit a structured latency telemetry log."""
+        outbound_sent = asyncio.Event()
+
+        async def route_inbound(message):
+            yield OutboundMessage(
+                channel=ChannelType.TELEGRAM,
+                chat_id=message.chat_id,
+                content=f"ok {message.chat_id}",
+            )
+
+        queue_messages = [
+            NbInbound(
+                channel="telegram",
+                sender_id="sender-1",
+                chat_id="chat-1",
+                content="hello",
+            ),
+        ]
+
+        async def consume_inbound_side_effect() -> NbInbound:
+            if queue_messages:
+                return queue_messages.pop(0)
+            await asyncio.sleep(60)
+            raise RuntimeError("unexpected fallback")
+
+        async def send_to_channel_side_effect(_message: OutboundMessage) -> None:
+            outbound_sent.set()
+
+        gateway_telegram._message_router.route_inbound = route_inbound
+        gateway_telegram._bus.consume_inbound = AsyncMock(side_effect=consume_inbound_side_effect)
+        gateway_telegram.send_to_channel = AsyncMock(side_effect=send_to_channel_side_effect)
+
+        with patch("app.infrastructure.external.channels.nanobot_gateway.logger.info") as info_mock:
+            consumer_task = asyncio.create_task(gateway_telegram._consume_inbound())
+            try:
+                await asyncio.wait_for(outbound_sent.wait(), timeout=1.0)
+            finally:
+                consumer_task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await consumer_task
+
+        assert any(
+            call.args and isinstance(call.args[0], str) and "inbound_route_telemetry" in call.args[0]
+            for call in info_mock.call_args_list
+        )
