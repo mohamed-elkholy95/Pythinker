@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _REFERENCES_HEADING_RE = re.compile(r"^(references?|sources?|bibliography|citations?)$", re.IGNORECASE)
 _BRACKET_REFERENCE_RE = re.compile(r"\[(\d{1,3})\]")
+_INLINE_CITATION_LABEL_RE = re.compile(r"^\d{1,3}$")
 
 
 class PlaywrightPdfRenderer(PdfReportRenderer):
@@ -64,6 +65,7 @@ class PlaywrightPdfRenderer(PdfReportRenderer):
             pm.telegram_pdf_citation_integrity_total.inc({"status": "ok"})
 
         body_html = self._markdown.render(normalized.markdown)
+        body_html = _decorate_inline_citation_links(body_html)
         body_html = _decorate_reference_ids(body_html)
 
         html = self._template.render(
@@ -154,6 +156,19 @@ def _decorate_reference_ids(html: str) -> str:
         else:
             _decorate_bracket_reference_ids(soup, sibling, anchored_numbers)
         sibling = sibling.find_next_sibling()
+
+    return str(soup)
+
+
+def _decorate_inline_citation_links(html: str) -> str:
+    """Render numeric citation links with visible markdown-style brackets."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    for anchor in soup.find_all("a"):
+        label = anchor.get_text(" ", strip=True)
+        if not _INLINE_CITATION_LABEL_RE.fullmatch(label):
+            continue
+        anchor.string = f"[{label}]"
 
     return str(soup)
 

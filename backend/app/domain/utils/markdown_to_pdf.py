@@ -43,6 +43,7 @@ _INLINE_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _INLINE_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _INLINE_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)")
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_INLINE_CITATION_LABEL_RE = re.compile(r"^\d{1,3}$")
 _REFERENCES_HEADING_RE = re.compile(r"(?mi)^#{1,6}\s*(references?|sources?|bibliography|citations?)\s*$")
 
 _FONT_PATH_CANDIDATES: dict[str, tuple[Path, ...]] = {
@@ -428,10 +429,23 @@ def _parse_table(lines: list[str], styles: StyleSheet1) -> tuple[list[list[Parag
 
 def _inline_markdown_to_xml(text: str) -> str:
     escaped = _escape_xml(text)
-    escaped = _INLINE_LINK_RE.sub(r'<a href="\2">\1</a>', escaped)
+    escaped = _INLINE_LINK_RE.sub(_render_inline_link, escaped)
     escaped = _INLINE_BOLD_RE.sub(r"<b>\1</b>", escaped)
     escaped = _INLINE_ITALIC_RE.sub(r"<i>\1</i>", escaped)
     return _INLINE_CODE_RE.sub(r'<font face="Courier">\1</font>', escaped)
+
+
+def _render_inline_link(match: re.Match[str]) -> str:
+    label = match.group(1).strip()
+    href = match.group(2).strip()
+
+    if _INLINE_CITATION_LABEL_RE.fullmatch(label):
+        # ReportLab raises on unresolved internal targets; keep marker text stable.
+        if href.startswith("#"):
+            return f"[{label}]"
+        return f'[<a href="{href}">{label}</a>]'
+
+    return f'<a href="{href}">{match.group(1)}</a>'
 
 
 def _escape_xml(text: str) -> str:
