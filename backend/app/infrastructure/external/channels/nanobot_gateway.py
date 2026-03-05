@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from nanobot.bus.events import InboundMessage as NbInbound
@@ -51,6 +52,14 @@ _CHANNEL_MAP: dict[str, ChannelType] = {
 _CHANNEL_REVERSE: dict[ChannelType, str] = {v: k for k, v in _CHANNEL_MAP.items()}
 
 
+@dataclass(slots=True)
+class _QueuedInboundMessage:
+    """Inbound message wrapper with enqueue timestamp for latency telemetry."""
+
+    message: NbInbound
+    received_monotonic: float
+
+
 class NanobotGateway:
     """Infrastructure adapter that bridges nanobot channels into Pythinker.
 
@@ -62,6 +71,8 @@ class NanobotGateway:
     POLL_WATCHDOG_TIMEOUT: float = 20.0
     # Grace window for long-running inbound routing before considering it a stall.
     INBOUND_PROCESSING_WARN_TIMEOUT: float = 180.0
+    # How long an idle per-chat worker can stay alive before self-terminating.
+    INBOUND_CHAT_WORKER_IDLE_SECONDS: float = 30.0
 
     def __init__(
         self,
@@ -102,6 +113,12 @@ class NanobotGateway:
         self._inbound_processing_started_monotonic: float | None = None
         # Monotonic timestamp for most recent observed progress while routing an inbound message.
         self._inbound_processing_last_progress_monotonic: float | None = None
+        # Per-chat workers allow concurrent processing across independent chats while preserving
+        # message ordering within each chat/session key.
+        self._inbound_worker_queues: dict[str, asyncio.Queue[_QueuedInboundMessage]] = {}
+        self._inbound_worker_tasks: dict[str, asyncio.Task[None]] = {}
+        self._inbound_processing_started_by_key: dict[str, float] = {}
+        self._inbound_processing_last_progress_by_key: dict[str, float] = {}
 
         # Build nanobot Config from Pythinker settings
         channels_cfg = ChannelsConfig(
@@ -187,6 +204,9 @@ class NanobotGateway:
                 await self._consumer_task
             self._consumer_task = None
 
+        # Cancel per-chat inbound workers
+        await self._cancel_inbound_workers()
+
         # Stop all channels
         await self._channel_manager.stop_all()
         logger.info("NanobotGateway stopped")
@@ -249,11 +269,8 @@ class NanobotGateway:
                     )
                 except TimeoutError:
                     now = asyncio.get_running_loop().time()
-                    processing_started = self._inbound_processing_started_monotonic
+                    processing_started, progress_idle_age, processing_age = self._get_processing_watchdog_stats(now)
                     if processing_started is not None:
-                        last_progress = self._inbound_processing_last_progress_monotonic or processing_started
-                        processing_age = now - processing_started
-                        progress_idle_age = now - last_progress
                         if progress_idle_age < self.INBOUND_PROCESSING_WARN_TIMEOUT:
                             logger.debug(
                                 "NanobotGateway: no poll activity while processing inbound message "
@@ -298,37 +315,187 @@ class NanobotGateway:
                     continue
 
                 self._activity_event.set()  # Signal successful message receipt to watchdog
-                processing_now = asyncio.get_running_loop().time()
-                self._inbound_processing_started_monotonic = processing_now
-                self._inbound_processing_last_progress_monotonic = processing_now
-                pt_msg = self._convert_inbound(nb_msg)
-                logger.info(
-                    "Inbound message from %s sender=%s chat=%s",
-                    pt_msg.channel,
-                    pt_msg.sender_id,
-                    pt_msg.chat_id,
-                )
-
-                # Route and relay outbound replies
-                try:
-                    async for outbound in self._message_router.route_inbound(pt_msg):
-                        self._inbound_processing_last_progress_monotonic = asyncio.get_running_loop().time()
-                        self._activity_event.set()
-                        await self.send_to_channel(outbound)
-                except Exception:
-                    logger.exception(
-                        "Error routing inbound message from %s/%s",
-                        nb_msg.channel,
-                        nb_msg.chat_id,
-                    )
-                finally:
-                    self._inbound_processing_started_monotonic = None
-                    self._inbound_processing_last_progress_monotonic = None
-                    # Route completion counts as poll activity for watchdog health.
-                    self._activity_event.set()
+                await self._enqueue_inbound_message(nb_msg)
         except asyncio.CancelledError:
             logger.info("Inbound consumer cancelled")
             raise
+
+    async def _enqueue_inbound_message(self, nb_msg: NbInbound) -> None:
+        """Enqueue inbound message to a per-chat worker queue."""
+        route_key = self._inbound_route_key(nb_msg)
+        queue = self._inbound_worker_queues.get(route_key)
+        if queue is None:
+            queue = asyncio.Queue()
+            self._inbound_worker_queues[route_key] = queue
+
+        queued_message = _QueuedInboundMessage(
+            message=nb_msg,
+            received_monotonic=asyncio.get_running_loop().time(),
+        )
+        await queue.put(queued_message)
+
+        worker_task = self._inbound_worker_tasks.get(route_key)
+        if worker_task is None or worker_task.done():
+            self._inbound_worker_tasks[route_key] = asyncio.create_task(
+                self._run_inbound_worker(route_key),
+                name=f"nanobot-inbound-worker:{route_key}",
+            )
+
+    async def _run_inbound_worker(self, route_key: str) -> None:
+        """Process queued inbound messages sequentially for a specific chat key."""
+        queue = self._inbound_worker_queues.get(route_key)
+        if queue is None:
+            return
+
+        try:
+            while True:
+                try:
+                    queued = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=self.INBOUND_CHAT_WORKER_IDLE_SECONDS,
+                    )
+                except TimeoutError:
+                    if queue.empty():
+                        break
+                    continue
+
+                try:
+                    await self._route_queued_inbound(route_key, queued)
+                finally:
+                    queue.task_done()
+        except asyncio.CancelledError:
+            raise
+        finally:
+            # Remove worker registration only if this task is still current.
+            current = self._inbound_worker_tasks.get(route_key)
+            if current is asyncio.current_task():
+                self._inbound_worker_tasks.pop(route_key, None)
+
+            queue_ref = self._inbound_worker_queues.get(route_key)
+            if queue_ref is queue and queue.empty():
+                self._inbound_worker_queues.pop(route_key, None)
+
+            self._mark_inbound_processing_complete(route_key)
+            self._activity_event.set()
+
+    async def _route_queued_inbound(self, route_key: str, queued: _QueuedInboundMessage) -> None:
+        """Route one queued inbound message through MessageRouter and channel delivery."""
+        now = asyncio.get_running_loop().time()
+        queued_ms = (now - queued.received_monotonic) * 1000.0
+        self._mark_inbound_processing_started(route_key, now)
+
+        pt_msg = self._convert_inbound(queued.message)
+        logger.info(
+            "Inbound message from %s sender=%s chat=%s",
+            pt_msg.channel,
+            pt_msg.sender_id,
+            pt_msg.chat_id,
+        )
+
+        route_started_monotonic = asyncio.get_running_loop().time()
+        first_outbound_ms: float | None = None
+        outbound_count = 0
+
+        try:
+            async for outbound in self._message_router.route_inbound(pt_msg):
+                outbound_count += 1
+                send_started = asyncio.get_running_loop().time()
+                if first_outbound_ms is None:
+                    first_outbound_ms = (send_started - route_started_monotonic) * 1000.0
+                self._mark_inbound_processing_progress(route_key, send_started)
+                await self.send_to_channel(outbound)
+                self._mark_inbound_processing_progress(route_key, asyncio.get_running_loop().time())
+                self._activity_event.set()
+        except Exception:
+            logger.exception(
+                "Error routing inbound message from %s/%s",
+                queued.message.channel,
+                queued.message.chat_id,
+            )
+        finally:
+            route_completed_monotonic = asyncio.get_running_loop().time()
+            route_ms = (route_completed_monotonic - route_started_monotonic) * 1000.0
+            first_outbound_field = "none" if first_outbound_ms is None else f"{first_outbound_ms:.2f}"
+            queue_depth = (
+                self._inbound_worker_queues.get(route_key).qsize() if route_key in self._inbound_worker_queues else 0
+            )
+            logger.info(
+                "inbound_route_telemetry key=%s channel=%s chat=%s queued_ms=%.2f route_ms=%.2f "
+                "first_outbound_ms=%s outbounds=%d queue_depth=%d",
+                route_key,
+                pt_msg.channel.value,
+                pt_msg.chat_id,
+                queued_ms,
+                route_ms,
+                first_outbound_field,
+                outbound_count,
+                queue_depth,
+            )
+            self._mark_inbound_processing_complete(route_key)
+            self._activity_event.set()
+
+    def _inbound_route_key(self, nb_msg: NbInbound) -> str:
+        """Return routing key used for per-chat worker partitioning."""
+        return nb_msg.session_key
+
+    async def _cancel_inbound_workers(self) -> None:
+        """Cancel all active per-chat inbound workers."""
+        worker_tasks = list(self._inbound_worker_tasks.values())
+        for task in worker_tasks:
+            task.cancel()
+        for task in worker_tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        self._inbound_worker_tasks.clear()
+        self._inbound_worker_queues.clear()
+        self._inbound_processing_started_by_key.clear()
+        self._inbound_processing_last_progress_by_key.clear()
+        self._inbound_processing_started_monotonic = None
+        self._inbound_processing_last_progress_monotonic = None
+
+    def _mark_inbound_processing_started(self, route_key: str, timestamp: float) -> None:
+        self._inbound_processing_started_by_key[route_key] = timestamp
+        self._inbound_processing_last_progress_by_key[route_key] = timestamp
+        self._sync_legacy_processing_markers()
+
+    def _mark_inbound_processing_progress(self, route_key: str, timestamp: float) -> None:
+        if route_key in self._inbound_processing_started_by_key:
+            self._inbound_processing_last_progress_by_key[route_key] = timestamp
+            self._sync_legacy_processing_markers()
+
+    def _mark_inbound_processing_complete(self, route_key: str) -> None:
+        self._inbound_processing_started_by_key.pop(route_key, None)
+        self._inbound_processing_last_progress_by_key.pop(route_key, None)
+        self._sync_legacy_processing_markers()
+
+    def _sync_legacy_processing_markers(self) -> None:
+        """Keep legacy single-value fields in sync for existing diagnostics/tests."""
+        if not self._inbound_processing_started_by_key:
+            self._inbound_processing_started_monotonic = None
+            self._inbound_processing_last_progress_monotonic = None
+            return
+
+        self._inbound_processing_started_monotonic = min(self._inbound_processing_started_by_key.values())
+        self._inbound_processing_last_progress_monotonic = max(self._inbound_processing_last_progress_by_key.values())
+
+    def _get_processing_watchdog_stats(self, now: float) -> tuple[float | None, float, float]:
+        """Return processing presence + worst observed idle/age for watchdog logic."""
+        if self._inbound_processing_started_by_key:
+            oldest_started = min(self._inbound_processing_started_by_key.values())
+            max_processing_age = max(now - started for started in self._inbound_processing_started_by_key.values())
+            max_progress_idle_age = max(
+                now - self._inbound_processing_last_progress_by_key.get(key, started)
+                for key, started in self._inbound_processing_started_by_key.items()
+            )
+            return oldest_started, max_progress_idle_age, max_processing_age
+
+        processing_started = self._inbound_processing_started_monotonic
+        if processing_started is None:
+            return None, 0.0, 0.0
+
+        last_progress = self._inbound_processing_last_progress_monotonic or processing_started
+        return processing_started, now - last_progress, now - processing_started
 
     # ------------------------------------------------------------------
     # Conversion helpers
