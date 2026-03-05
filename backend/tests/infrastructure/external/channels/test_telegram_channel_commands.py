@@ -89,7 +89,7 @@ async def test_forward_command_routes_supported_slash_commands(command_text: str
 
 
 @pytest.mark.asyncio
-async def test_help_command_mentions_pythinker_and_bind_alias() -> None:
+async def test_help_command_mentions_robot_icon_and_bind_alias() -> None:
     channel = _make_channel()
     update = _make_update("/help")
     context = SimpleNamespace(args=[])
@@ -98,7 +98,7 @@ async def test_help_command_mentions_pythinker_and_bind_alias() -> None:
 
     update.message.reply_text.assert_awaited_once()
     help_text = update.message.reply_text.await_args.args[0]
-    assert "Pythinker commands" in help_text
+    assert "🤖 Pythinker commands" in help_text
     assert "/bind <CODE>" in help_text
 
 
