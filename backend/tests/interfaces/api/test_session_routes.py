@@ -17,6 +17,7 @@ from app.core.prometheus_metrics import (
     sse_stream_events_total,
 )
 from app.domain.models.event import DoneEvent, PlanningPhase, ProgressEvent, ReportEvent
+from app.domain.models.session import ResearchMode, SessionStatus
 from app.interfaces.api.session_routes import (
     _cancel_pending_disconnect_cancellation,
     _event_phase_label,
@@ -28,6 +29,7 @@ from app.interfaces.api.session_routes import (
     chat,
     end_takeover,
     get_screenshot_image,
+    get_session,
     get_shared_screenshot_image,
     get_takeover_status,
     input_websocket,
@@ -116,6 +118,33 @@ async def test_stop_session_calls_agent_service_with_user_id_and_returns_success
     assert response.code == 0
     assert response.msg == "success"
     assert response.data is None
+
+
+@pytest.mark.asyncio
+async def test_get_session_includes_source_field_in_response():
+    session_id = "session-123"
+    current_user = SimpleNamespace(id="user-123")
+    session = SimpleNamespace(
+        id=session_id,
+        title="Telegram thread",
+        status=SessionStatus.COMPLETED,
+        source="telegram",
+        research_mode=ResearchMode.DEEP_RESEARCH,
+        events=[],
+        is_shared=False,
+    )
+    agent_service = SimpleNamespace(get_session_full=AsyncMock(return_value=session))
+
+    response = await get_session(
+        session_id=session_id,
+        current_user=current_user,
+        agent_service=agent_service,
+    )
+
+    assert response.code == 0
+    assert response.data is not None
+    assert response.data.session_id == session_id
+    assert response.data.source == "telegram"
 
 
 @pytest.mark.asyncio
