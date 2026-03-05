@@ -146,7 +146,7 @@ Respond with JSON in this format:
                 elif isinstance(event, MessageEvent):
                     # Try to parse result from response
                     try:
-                        parsed = await self.json_parser.parse(event.message)
+                        parsed = await self.json_parser.parse(event.message, tier="B")
                         step.success = parsed.get("success", False)
                         step.result = parsed.get("result", event.message)
                     except Exception:

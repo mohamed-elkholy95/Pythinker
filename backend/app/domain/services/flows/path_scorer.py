@@ -194,7 +194,7 @@ class PathScorer:
         )
 
         content = response.get("content", "")
-        parsed = await self.json_parser.parse(content)
+        parsed = await self.json_parser.parse(content, tier="B")
 
         return float(parsed.get("quality", 0.5))
 

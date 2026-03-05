@@ -232,7 +232,7 @@ class TaskComplexityAnalyzer:
             response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
             content = response.get("content", "")
-            parsed = await self.json_parser.parse(content)
+            parsed = await self.json_parser.parse(content, tier="C")
 
             # Parse complexity
             complexity_str = parsed.get("complexity", "moderate").lower()
