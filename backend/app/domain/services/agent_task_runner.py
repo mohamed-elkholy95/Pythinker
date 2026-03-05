@@ -183,6 +183,7 @@ class AgentTaskRunner(TaskRunner):
         self._pending_tool_calls: dict[str, dict] = {}
         self._cancel_event = asyncio.Event()
         self._cancel_token = CancellationToken(event=self._cancel_event, session_id=self._session_id)
+        self._terminal_status: SessionStatus | None = None
 
         # Tool event handler for action/observation metadata enrichment
         self._tool_event_handler = ToolEventHandler()
@@ -243,6 +244,18 @@ class AgentTaskRunner(TaskRunner):
 
     def request_cancellation(self) -> None:
         """Signal cooperative cancellation to long-running flow operations."""
+        if self._terminal_status in (
+            SessionStatus.COMPLETED,
+            SessionStatus.FAILED,
+            SessionStatus.CANCELLED,
+        ):
+            logger.debug(
+                "Ignoring cancellation request for Agent %s session %s in terminal state %s",
+                self._agent_id,
+                self._session_id,
+                self._terminal_status.value,
+            )
+            return
         if not self._cancel_event.is_set():
             self._cancel_event.set()
             logger.info("Cancellation requested for Agent %s session %s", self._agent_id, self._session_id)
@@ -1206,6 +1219,7 @@ class AgentTaskRunner(TaskRunner):
         """Process agent's message queue and run the agent's flow"""
         try:
             self._cancel_event.clear()
+            self._terminal_status = None
             if self._plan_act_flow is not None:
                 self._plan_act_flow.set_cancel_token(self._cancel_token)
             logger.info(f"Agent {self._agent_id} message processing task started (task_id={task.id})")
@@ -1307,6 +1321,7 @@ class AgentTaskRunner(TaskRunner):
                     await self._set_current_task(message)
 
                 _flow_ended_with_error = False
+                _flow_emitted_done = False
                 async for event in self._run_flow(message_obj, task):
                     # Check if task is paused (for user takeover)
                     while task.paused:
@@ -1335,6 +1350,8 @@ class AgentTaskRunner(TaskRunner):
                     # service's FAILED write and non-deterministically flip the status
                     # back to COMPLETED.
                     _flow_ended_with_error = isinstance(event, ErrorEvent)
+                    if isinstance(event, DoneEvent):
+                        _flow_emitted_done = True
                     if not await task.input_stream.is_empty():
                         break
 
@@ -1343,16 +1360,27 @@ class AgentTaskRunner(TaskRunner):
                 # domain service already writes FAILED when it reads the ErrorEvent;
                 # reinforce here to eliminate the race.
                 await self._session_repository.update_status(self._session_id, SessionStatus.FAILED)
+                self._terminal_status = SessionStatus.FAILED
                 logger.warning(
                     f"Agent {self._agent_id} flow ended with ErrorEvent — marking FAILED, skipping DoneEvent"
                 )
             else:
-                # Send DoneEvent when task completes normally
-                await self._put_and_add_event(task, DoneEvent())
                 await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
-                logger.info(f"Agent {self._agent_id} task completed successfully")
+                self._terminal_status = SessionStatus.COMPLETED
+                if _flow_emitted_done:
+                    logger.info(
+                        "Agent %s flow already emitted DoneEvent — skipping synthetic completion event",
+                        self._agent_id,
+                    )
+                else:
+                    # Send DoneEvent when task completes normally and flow did not
+                    # already terminate with one.
+                    await self._put_and_add_event(task, DoneEvent())
+                    logger.info(f"Agent {self._agent_id} task completed successfully")
         except asyncio.CancelledError:
             logger.info(f"Agent {self._agent_id} task cancelled")
+            if self._terminal_status is None:
+                self._terminal_status = SessionStatus.CANCELLED
             # Cancellation terminal status is managed by the caller path:
             # - explicit stop_session marks COMPLETED
             # - transport/disconnect cancellation marks FAILED
@@ -1362,6 +1390,7 @@ class AgentTaskRunner(TaskRunner):
             logger.exception(f"Agent {self._agent_id} task encountered exception: {e!s}")
             await self._put_and_add_event(task, ErrorEvent(error=f"Task error: {e!s}"))
             await self._session_repository.update_status(self._session_id, SessionStatus.FAILED)
+            self._terminal_status = SessionStatus.FAILED
 
     async def _run_flow(self, message: Message, task: Task | None = None) -> AsyncGenerator[BaseEvent, None]:
         """Process a single message through the agent's flow and yield events
