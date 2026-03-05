@@ -1,5 +1,4 @@
 """Tests for extracting one-line headlines from tool results."""
-import pytest
 
 from app.domain.services.flows.headline_extractor import extract_headline
 
