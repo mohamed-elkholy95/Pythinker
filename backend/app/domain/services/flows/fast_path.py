@@ -931,8 +931,7 @@ class FastPathRouter:
             from app.domain.services.prompts.system import get_current_datetime_signal
 
             system_content = (
-                "You are Pythinker, an AI assistant created by the Pythinker Team and Mohamed Elkholy. "
-                "You are NOT Claude. You are NOT made by Anthropic. "
+                "You are Pythinker, an AI assistant created by Mohamed Elkholy & the Pythinker Team. "
                 "Answer the following question concisely and accurately. "
                 "If you're not certain about something, say so. Keep your response focused and under 500 words.\n\n"
                 "Formatting rules:\n"

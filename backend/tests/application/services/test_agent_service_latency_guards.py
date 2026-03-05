@@ -308,7 +308,7 @@ async def test_chat_bypasses_full_initialization_for_greeting(monkeypatch):
 @pytest.mark.parametrize(
     ("message", "expected_fragment"),
     [
-        ("who created you?", "Pythinker Team and Mohamed Elkholy"),
+        ("who created you?", "Mohamed Elkholy & the Pythinker Team"),
         ("what model are you?", "exact backend model can vary by configuration"),
     ],
 )
