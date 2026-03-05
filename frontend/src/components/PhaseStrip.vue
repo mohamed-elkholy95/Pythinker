@@ -11,6 +11,10 @@ interface Props {
 
 const props = defineProps<Props>()
 
+const emit = defineEmits<{
+  (e: 'cancel'): void
+}>()
+
 const PHASES: { key: Phase; label: string }[] = [
   { key: 'planning', label: 'Planning' },
   { key: 'verifying', label: 'Verifying' },
@@ -99,6 +103,14 @@ const ariaValue = computed(() => {
         {{ stepProgress.current }} / {{ stepProgress.total }}
       </span>
       <span class="phase-strip__elapsed">{{ formattedElapsed }}</span>
+      <button
+        v-if="currentPhase !== 'done'"
+        class="phase-strip__cancel"
+        @click="emit('cancel')"
+        aria-label="Cancel task"
+      >
+        Cancel
+      </button>
     </div>
 
     <div v-if="stepProgress && stepProgress.total > 0" class="progress-bar">
@@ -215,6 +227,25 @@ const ariaValue = computed(() => {
 
 .phase-strip__steps {
   font-weight: var(--font-medium, 500);
+}
+
+/* --- Cancel button --- */
+.phase-strip__cancel {
+  padding: 2px 10px;
+  font-size: 0.7rem;
+  line-height: 1;
+  border-radius: 6px;
+  border: 1px solid var(--border-main, #e2e8f0);
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.phase-strip__cancel:hover {
+  border-color: var(--status-error, #ef4444);
+  color: var(--status-error, #ef4444);
 }
 
 /* --- Pulse animation --- */
