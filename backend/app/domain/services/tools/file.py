@@ -133,6 +133,8 @@ class FileTool(BaseTool):
         self._recent_write_sizes: dict[str, int] = {}
         # Same-file write history — used to detect overwrite loops.
         self._write_history: dict[str, list[float]] = {}
+        # Paths blocked from file_write due to overwrite loop enforcement.
+        self._overwrite_blocked_until: dict[str, float] = {}
 
     def _check_content_regression(self, path: str, new_content: str) -> str | None:
         """Return a warning string if new content is significantly smaller.
@@ -146,6 +148,15 @@ class FileTool(BaseTool):
 
         if prev_size is not None and prev_size > 500:
             shrink_ratio = new_size / prev_size
+            if shrink_ratio < 0.5:
+                error = (
+                    f"ERROR: file_write to '{path}' would shrink content from "
+                    f"{prev_size:,} to {new_size:,} bytes ({shrink_ratio:.0%}). "
+                    f"Write BLOCKED. Use file_str_replace to patch instead."
+                )
+                logger.error(error)
+                self._recent_write_sizes[path] = prev_size  # Don't update — preserve old size
+                return error
             if shrink_ratio < 0.6:
                 warning = (
                     f"WARNING: file_write to '{path}' shrinks content from "
@@ -177,11 +188,24 @@ class FileTool(BaseTool):
                 self._write_history.pop(path, None)
 
     def _check_repetitive_overwrites(self, path: str, *, append: bool) -> str | None:
-        """Return a warning when same file is overwritten repeatedly in a short window."""
+        """Return a warning/error when same file is overwritten repeatedly.
+
+        After the 3rd overwrite within the window, blocks file_write for 120 seconds.
+        """
         if append:
             return None
 
         now = time.monotonic()
+
+        # Check if path is currently blocked
+        blocked_until = self._overwrite_blocked_until.get(path, 0.0)
+        if now < blocked_until:
+            remaining = blocked_until - now
+            return (
+                f"ERROR: file_write BLOCKED for '{path}' for {remaining:.0f}s due to overwrite loop. "
+                f"Use file_str_replace for incremental edits instead."
+            )
+
         history = self._write_history.get(path, [])
         history = [ts for ts in history if now - ts <= _SAME_FILE_WRITE_WINDOW_SECONDS]
         history.append(now)
@@ -190,10 +214,13 @@ class FileTool(BaseTool):
         if len(history) < _SAME_FILE_WRITE_WARN_THRESHOLD:
             return None
 
+        # Block after 3rd overwrite for 120 seconds
+        self._overwrite_blocked_until[path] = now + 120.0
+
         warning = (
-            f"WARNING: file_write overwrite loop detected for '{path}' "
+            f"ERROR: file_write overwrite loop detected for '{path}' "
             f"({len(history)} overwrites within {_SAME_FILE_WRITE_WINDOW_SECONDS:.0f}s). "
-            "Prefer file_str_replace for incremental edits to avoid content churn."
+            f"file_write is BLOCKED for 120s. Use file_str_replace for incremental edits."
         )
         logger.warning(warning)
         return warning
@@ -313,6 +340,10 @@ class FileTool(BaseTool):
         repetitive_warning = self._check_repetitive_overwrites(file, append=bool(append))
         if repetitive_warning:
             write_warnings.append(repetitive_warning)
+
+        # Block write if enforcement triggered
+        if any(w.startswith("ERROR") for w in write_warnings):
+            return ToolResult(output="\n".join(write_warnings))
 
         # Directly call sandbox's file_write method, pass all parameters
         result = await self.sandbox.file_write(
