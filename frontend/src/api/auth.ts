@@ -1,5 +1,7 @@
 // Authentication API service
 import { apiClient, ApiResponse } from './client';
+import { AUTH_CONTRACT_VERSION, LoginResponseSchema, UserSchema } from '@/contracts/auth.schema';
+import { validateResponse } from './validatedClient';
 
 /**
  * User role type
@@ -143,7 +145,13 @@ export interface ResetPasswordRequest {
  */
 export async function login(request: LoginRequest): Promise<LoginResponse> {
   const response = await apiClient.post<ApiResponse<LoginResponse>>('/auth/login', request);
-  return response.data.data;
+  return validateResponse(
+    LoginResponseSchema,
+    response.data.data,
+    '/auth/login',
+    AUTH_CONTRACT_VERSION,
+    'A',
+  );
 }
 
 /**
@@ -191,7 +199,13 @@ export async function changeFullname(request: ChangeFullnameRequest): Promise<Us
  */
 export async function getCurrentUser(): Promise<User> {
   const response = await apiClient.get<ApiResponse<User>>('/auth/me');
-  return response.data.data;
+  return validateResponse(
+    UserSchema,
+    response.data.data,
+    '/auth/me',
+    AUTH_CONTRACT_VERSION,
+    'A',
+  );
 }
 
 /**
