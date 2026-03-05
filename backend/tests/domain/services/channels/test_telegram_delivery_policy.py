@@ -88,7 +88,7 @@ async def test_report_threshold_triggers_pdf_delivery(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_message_threshold_triggers_pdf_delivery(tmp_path: Path) -> None:
+async def test_message_threshold_stays_text_delivery(tmp_path: Path) -> None:
     policy = TelegramDeliveryPolicy(
         report_min_chars=200,
         message_min_chars=80,
@@ -97,11 +97,9 @@ async def test_message_threshold_triggers_pdf_delivery(tmp_path: Path) -> None:
     event = _FakeMessageEvent("B" * 80)
 
     messages = await policy.build_for_event(event, _inbound(), user_id="user-2")
-    try:
-        assert len(messages) == 1
-        assert messages[0].media
-    finally:
-        _cleanup_media(messages)
+    assert len(messages) == 1
+    assert messages[0].media == []
+    assert messages[0].metadata["delivery_mode"] == "text"
 
 
 @pytest.mark.asyncio
@@ -126,8 +124,26 @@ async def test_borderline_content_returns_inline_keyboard_offer() -> None:
     assert len(messages) == 1
     outbound = messages[0]
     assert outbound.media == []
-    assert "reply_markup" in outbound.metadata
-    assert outbound.metadata["reply_markup"]["inline_keyboard"][0][0]["text"] == "Get as PDF"
+    assert "reply_markup" not in outbound.metadata
+    assert outbound.metadata["delivery_mode"] == "text"
+
+
+@pytest.mark.asyncio
+async def test_message_force_pdf_still_generates_document(tmp_path: Path) -> None:
+    policy = TelegramDeliveryPolicy(
+        report_min_chars=200,
+        message_min_chars=10_000,
+        temp_dir=tmp_path,
+    )
+    event = _FakeMessageEvent("Force PDF for this response.")
+
+    messages = await policy.build_for_event(event, _inbound(), user_id="user-force", force_pdf=True)
+    try:
+        assert len(messages) == 1
+        assert messages[0].media
+        assert messages[0].metadata["delivery_mode"] == "pdf_only"
+    finally:
+        _cleanup_media(messages)
 
 
 @pytest.mark.asyncio
