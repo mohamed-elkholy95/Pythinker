@@ -4,6 +4,7 @@ import PlannerActivityIndicator from '@/components/ui/PlannerActivityIndicator.v
 import type { PlanningPhase } from '@/types/event'
 
 interface Props {
+  title?: string
   phase: PlanningPhase
   message: string
   progressPercent?: number
@@ -11,6 +12,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  title: 'Agent is thinking',
   complexityCategory: undefined,
 })
 
@@ -59,7 +61,7 @@ const badge = computed(() => {
       <div class="status-wrap">
         <PlannerActivityIndicator />
         <div class="status-copy">
-          <p class="status-title">Agent is thinking</p>
+          <p class="status-title">{{ title }}</p>
           <p class="status-phase">{{ phaseDescription }}</p>
         </div>
       </div>
@@ -220,6 +222,18 @@ const badge = computed(() => {
   }
   100% {
     transform: translateX(-30%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    transition: none;
+  }
+
+  .progress-fill--indeterminate {
+    width: 40%;
+    animation: none;
+    transform: none;
   }
 }
 </style>
