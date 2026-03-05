@@ -65,6 +65,7 @@ from app.domain.services.flows.fast_path import (
     QueryIntent,
     is_suggestion_follow_up_message,
 )
+from app.domain.services.flows.llm_heartbeat import LLMHeartbeat
 from app.domain.services.flows.phase_router import PhaseRouter
 from app.domain.services.flows.prompt_quick_validator import (
     CorrectionEvent,
@@ -2435,50 +2436,59 @@ class PlanActFlow(BaseFlow):
                                 "Your FINAL step must compile and deliver all workspace files to the user."
                             )
 
-                        async for event in self.planner.create_plan(
-                            message,
-                            replan_context=replan_context,
-                            profile_patch_text=_planner_patch,
-                        ):
-                            await self._check_cancelled()
-                            if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
-                                self.plan = event.plan
+                        async with LLMHeartbeat(
+                            phase=PlanningPhase.PLANNING,
+                            message="Generating plan...",
+                            interval_seconds=2.5,
+                        ) as _planning_hb:
+                            async for event in self.planner.create_plan(
+                                message,
+                                replan_context=replan_context,
+                                profile_patch_text=_planner_patch,
+                            ):
+                                for hb_event in _planning_hb.drain():
+                                    yield hb_event
+                                await self._check_cancelled()
+                                if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
+                                    self.plan = event.plan
 
-                                # Propagate pre-planning search context to execution agent
-                                if (
-                                    hasattr(self.planner, "_last_search_context")
-                                    and self.planner._last_search_context is not None
-                                ):
-                                    self.executor._pre_planning_search_context = self.planner._last_search_context
-                                    # Also propagate queries so SearchTool can return cached
-                                    # results instead of failing on dedup hits
-                                    if hasattr(self.planner, "_last_search_queries"):
-                                        self.executor._pre_planning_search_queries = self.planner._last_search_queries
-                                    logger.info("Propagated pre-planning search context to execution agent")
+                                    # Propagate pre-planning search context to execution agent
+                                    if (
+                                        hasattr(self.planner, "_last_search_context")
+                                        and self.planner._last_search_context is not None
+                                    ):
+                                        self.executor._pre_planning_search_context = self.planner._last_search_context
+                                        # Also propagate queries so SearchTool can return cached
+                                        # results instead of failing on dedup hits
+                                        if hasattr(self.planner, "_last_search_queries"):
+                                            self.executor._pre_planning_search_queries = self.planner._last_search_queries
+                                        logger.info("Propagated pre-planning search context to execution agent")
 
-                                # Infer smart dependencies while preferring parallel execution
-                                # to avoid single-point failure chains.
-                                self.plan.infer_smart_dependencies(use_sequential_fallback=False)
+                                    # Infer smart dependencies while preferring parallel execution
+                                    # to avoid single-point failure chains.
+                                    self.plan.infer_smart_dependencies(use_sequential_fallback=False)
 
-                                # Build and assign phases based on complexity
-                                self._assign_phases_to_plan()
+                                    # Build and assign phases based on complexity
+                                    self._assign_phases_to_plan()
 
-                                plan_span.set_attribute("plan.steps", len(event.plan.steps))
-                                plan_span.set_attribute("plan.title", event.plan.title)
-                                plan_span.set_attribute("plan.phases", len(self.plan.phases))
-                                logger.info(
-                                    f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps"
-                                )
+                                    plan_span.set_attribute("plan.steps", len(event.plan.steps))
+                                    plan_span.set_attribute("plan.title", event.plan.title)
+                                    plan_span.set_attribute("plan.phases", len(self.plan.phases))
+                                    logger.info(
+                                        f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps"
+                                    )
 
-                                # Initialize task state for recitation
-                                self._task_state_manager.initialize_from_plan(
-                                    objective=message.message,
-                                    steps=[{"id": s.id, "description": s.description} for s in event.plan.steps],
-                                )
+                                    # Initialize task state for recitation
+                                    self._task_state_manager.initialize_from_plan(
+                                        objective=message.message,
+                                        steps=[{"id": s.id, "description": s.description} for s in event.plan.steps],
+                                    )
 
-                                yield TitleEvent(title=event.plan.title)
-                                # Skip plan.message - execute silently without explaining
-                            yield event
+                                    yield TitleEvent(title=event.plan.title)
+                                    # Skip plan.message - execute silently without explaining
+                                yield event
+                        for hb_event in _planning_hb.drain():
+                            yield hb_event
 
                         # Restore planner prompt after deep research injection
                         self.planner.system_prompt = _saved_planner_prompt
@@ -2530,26 +2540,35 @@ class PlanActFlow(BaseFlow):
                     await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started verifying plan")
                     with trace_ctx.span("verifying", "agent_step") as verify_span:
-                        async for event in self.verifier.verify_plan(
-                            plan=self.plan, user_request=message.message, task_context=""
-                        ):
-                            await self._check_cancelled()
-                            yield event
+                        async with LLMHeartbeat(
+                            phase=PlanningPhase.VERIFYING,
+                            message="Checking plan quality...",
+                            interval_seconds=2.5,
+                        ) as _verifying_hb:
+                            async for event in self.verifier.verify_plan(
+                                plan=self.plan, user_request=message.message, task_context=""
+                            ):
+                                for hb_event in _verifying_hb.drain():
+                                    yield hb_event
+                                await self._check_cancelled()
+                                yield event
 
-                            # Capture verification result
-                            if isinstance(event, VerificationEvent):
-                                if event.status == VerificationStatus.PASSED:
-                                    self._verification_verdict = "pass"
-                                    verify_span.set_attribute("verification.verdict", "pass")
-                                elif event.status == VerificationStatus.REVISION_NEEDED:
-                                    self._verification_verdict = "revise"
-                                    self._verification_feedback = event.revision_feedback
-                                    self._verification_confidence = event.confidence
-                                    self._verification_loops += 1
-                                    verify_span.set_attribute("verification.verdict", "revise")
-                                elif event.status == VerificationStatus.FAILED:
-                                    self._verification_verdict = "fail"
-                                    verify_span.set_attribute("verification.verdict", "fail")
+                                # Capture verification result
+                                if isinstance(event, VerificationEvent):
+                                    if event.status == VerificationStatus.PASSED:
+                                        self._verification_verdict = "pass"
+                                        verify_span.set_attribute("verification.verdict", "pass")
+                                    elif event.status == VerificationStatus.REVISION_NEEDED:
+                                        self._verification_verdict = "revise"
+                                        self._verification_feedback = event.revision_feedback
+                                        self._verification_confidence = event.confidence
+                                        self._verification_loops += 1
+                                        verify_span.set_attribute("verification.verdict", "revise")
+                                    elif event.status == VerificationStatus.FAILED:
+                                        self._verification_verdict = "fail"
+                                        verify_span.set_attribute("verification.verdict", "fail")
+                        for hb_event in _verifying_hb.drain():
+                            yield hb_event
 
                     # Route based on verification verdict
                     if self._verification_verdict == "pass":
