@@ -185,6 +185,53 @@ class TestSendToChannel:
         assert nb_msg.metadata == {"thread_id": "t_789", "parse_mode": "Markdown"}
 
 
+class TestTelegramConfigWiring:
+    """Verify Telegram reliability settings are wired into nanobot config."""
+
+    def test_gateway_passes_telegram_reliability_settings(self, mock_router: MagicMock) -> None:
+        with patch(_PATCH_CM) as mock_cls:
+            mock_cls.return_value = _make_mock_cm(["telegram"])
+            gw = NanobotGateway(
+                message_router=mock_router,
+                telegram_token="123:FAKE_TOKEN",
+                telegram_allowed=["*"],
+                telegram_rate_limit_cooldown_seconds=7,
+                telegram_max_messages_per_batch=9,
+                telegram_final_delivery_only=False,
+                telegram_final_delivery_allow_wait_prompts=False,
+                telegram_polling_bootstrap_retries=11,
+                telegram_polling_stall_restart_enabled=False,
+                telegram_polling_stall_timeout_seconds=123,
+                telegram_send_retry_max_attempts=6,
+                telegram_send_retry_base_delay_seconds=1.5,
+                telegram_send_retry_max_delay_seconds=42.0,
+                telegram_send_retry_jitter=False,
+                telegram_send_circuit_breaker_enabled=False,
+                telegram_send_circuit_failure_threshold=8,
+                telegram_send_circuit_recovery_timeout_seconds=90,
+            )
+
+        assert gw is not None
+        call_args = mock_cls.call_args
+        assert call_args is not None
+        config_arg = call_args.args[0]
+        telegram_cfg = config_arg.channels.telegram
+        assert telegram_cfg.rate_limit_cooldown_seconds == 7
+        assert telegram_cfg.max_messages_per_batch == 9
+        assert telegram_cfg.final_delivery_only is False
+        assert telegram_cfg.final_delivery_allow_wait_prompts is False
+        assert telegram_cfg.polling_bootstrap_retries == 11
+        assert telegram_cfg.polling_stall_restart_enabled is False
+        assert telegram_cfg.polling_stall_timeout_seconds == 123
+        assert telegram_cfg.send_retry_max_attempts == 6
+        assert telegram_cfg.send_retry_base_delay_seconds == 1.5
+        assert telegram_cfg.send_retry_max_delay_seconds == 42.0
+        assert telegram_cfg.send_retry_jitter is False
+        assert telegram_cfg.send_circuit_breaker_enabled is False
+        assert telegram_cfg.send_circuit_failure_threshold == 8
+        assert telegram_cfg.send_circuit_recovery_timeout_seconds == 90
+
+
 class TestChannelMapping:
     """Verify _CHANNEL_MAP and _CHANNEL_REVERSE are consistent."""
 
