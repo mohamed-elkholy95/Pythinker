@@ -174,6 +174,7 @@
         :current-phase="phaseStripPhase!"
         :start-time="phaseStripStartTime"
         :step-progress="phaseStripStepProgress"
+        @cancel="handleCancel"
       />
 	      <div
           v-if="chatViewMode === 'chat'"
@@ -393,6 +394,9 @@
             />
           </Transition>
 
+          <!-- Partial Results - provisional findings accumulated during execution -->
+          <PartialResults :results="partialResults" />
+
           <!-- Task Progress Bar Container - shown above ChatBox when ToolPanel is closed -->
           <div v-if="showTaskProgressBar" class="relative mb-2">
             <!-- Scroll to bottom button - positioned above progress bar -->
@@ -574,6 +578,7 @@ import {
   WorkspaceEventData,
   ThoughtEventData,
   WaitEventData,
+  PartialResultEventData,
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
@@ -599,6 +604,7 @@ import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport'
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import PlanningCard from '@/components/PlanningCard.vue';
+import PartialResults from '@/components/PartialResults.vue';
 import PhaseStrip from '@/components/PhaseStrip.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 // WideResearchOverlay removed — absorbed into Deep Research mode
@@ -790,6 +796,7 @@ const createInitialState = () => ({
   timeoutReason: null as 'connection' | 'workflow_idle' | 'workflow_limit' | null, // Discriminates timeout source
   activeReasoningState: 'idle' as ReasoningStage, // Reasoning pipeline state for active assistant message
   phaseStripStartTime: 0 as number, // Timestamp when current agent run started (for PhaseStrip elapsed timer)
+  partialResults: [] as { stepIndex: number; stepTitle: string; headline: string; sourcesCount: number }[], // Provisional findings during execution
 });
 
 // Create reactive state
@@ -846,6 +853,7 @@ const {
   timeoutReason,
   activeReasoningState,
   phaseStripStartTime,
+  partialResults,
 } = toRefs(state);
 
 const chatViewMode = ref<'chat' | 'reasoning'>('chat');
@@ -1122,6 +1130,7 @@ const splitterHandleStyle = computed<Record<string, string>>(() => ({
 // Track session status
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
 const isSandboxInitializing = computed(() => sessionStatus.value === SessionStatus.INITIALIZING);
+const isCancelling = ref(false);
 const isWaitingForSessionReady = ref(false);
 const pendingInitialMessage = ref<{ message: string; files: FileInfo[]; thinkingMode: ThinkingMode } | null>(null);
 const currentThinkingMode = ref<ThinkingMode>('auto');
@@ -3132,6 +3141,7 @@ const handleReportEvent = (reportData: ReportEventData) => {
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
   allowStandaloneSummaryOnNextAssistant.value = false;
+  partialResults.value = [];
 
   const reportAttachments = reportData.attachments ?? [];
   removeRedundantAssistantAttachmentMessages(reportAttachments);
@@ -3342,6 +3352,7 @@ const finalizeSession = (
   activeReasoningState.value = 'completed';
   follow.value = false;
   planningProgress.value = null;
+  partialResults.value = [];
   isWaitingForReply.value = false;
   clearTakeoverCta();
   dismissConnectionBanner();
@@ -3465,6 +3476,16 @@ const handleReflectionEvent = (data: unknown) => {
   }
 }
 
+// ── Partial result handler (provisional findings during execution) ──
+const handlePartialResultEvent = (data: PartialResultEventData) => {
+  partialResults.value.push({
+    stepIndex: data.step_index,
+    stepTitle: data.step_title,
+    headline: data.headline,
+    sourcesCount: data.sources_count,
+  })
+}
+
 // ── Event handler registry (O(1) dispatch replaces 22-branch if/else) ──
 const eventRegistry = createEventHandlerRegistry({
   message: (data) => { handleMessageEvent(data as MessageEventData); suggestions.value = []; },
@@ -3496,6 +3517,7 @@ const eventRegistry = createEventHandlerRegistry({
   flow_transition: (data) => handleFlowTransitionEvent(data),
   verification: (data) => handleVerificationEvent(data),
   reflection: (data) => handleReflectionEvent(data),
+  partial_result: (data) => handlePartialResultEvent(data as PartialResultEventData),
 })
 
 // Process a single event (extracted from handleEvent for batching)
@@ -4192,6 +4214,19 @@ const handleFollowChange = (isFollowing: boolean) => {
 
 // Scroll follow state is managed by v-auto-follow-scroll directive via handleFollowChange.
 // No manual scroll handler needed.
+
+const handleCancel = async () => {
+  if (!sessionId.value || isCancelling.value) return
+  isCancelling.value = true
+  try {
+    await agentApi.cancelSession(sessionId.value)
+  } catch {
+    // Session may have already completed — ignore
+  } finally {
+    // Reset after a delay to allow the cancellation to propagate
+    setTimeout(() => { isCancelling.value = false }, 3000)
+  }
+}
 
 const handleStop = async () => {
   beginStreamAttempt();
