@@ -1558,7 +1558,17 @@ class BaseAgent:
             if self._step_start_time is not None:
                 from app.core.config import get_settings
 
-                wall_limit = getattr(get_settings(), "max_step_wall_clock_seconds", 600.0)
+                _settings = get_settings()
+                # Per-depth budgets override the global limit when research depth is known
+                _depth = getattr(self, "_research_depth", None)
+                if _depth == "QUICK":
+                    wall_limit = getattr(_settings, "step_budget_quick_seconds", 300.0)
+                elif _depth == "DEEP":
+                    wall_limit = getattr(_settings, "step_budget_deep_seconds", 900.0)
+                elif _depth == "STANDARD":
+                    wall_limit = getattr(_settings, "step_budget_standard_seconds", 600.0)
+                else:
+                    wall_limit = getattr(_settings, "max_step_wall_clock_seconds", 600.0)
                 if wall_limit > 0:
                     elapsed = time.monotonic() - self._step_start_time
                     if elapsed > wall_limit:
@@ -1971,6 +1981,15 @@ class BaseAgent:
                             "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
                         }
                     )
+
+            # Annotate tool results with step time after 50% mark (design 2A)
+            if wall_clock_advisory_sent and self._step_start_time is not None:
+                _now = time.monotonic()
+                _el = _now - self._step_start_time
+                _tag = f"\n[Step time: {_el:.0f}s/{wall_limit:.0f}s]"
+                for tr in tool_responses:
+                    if tr.get("role") == "tool" and isinstance(tr.get("content"), str):
+                        tr["content"] += _tag
 
             # If graceful completion was requested, add a hint to wrap up
             if graceful_completion_requested:
