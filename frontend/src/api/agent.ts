@@ -4,6 +4,13 @@ import { AgentSSEEvent, FollowUp } from '../types/event';
 import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse, StreamingMode, SessionStatus } from '../types/response';
 import type { FileInfo } from './file';
 import type { SourceCitation } from '../types/message';
+import {
+  AGENT_CONTRACT_VERSION,
+  CreateSessionResponseSchema,
+  GetSessionResponseSchema,
+  ListSessionResponseSchema,
+} from '@/contracts/agent.schema';
+import { validateResponse } from './validatedClient';
 
 const FILE_VIEW_CACHE_TTL_MS = 1500;
 const FILE_VIEW_CACHE_MAX_ENTRIES = 128;
@@ -86,12 +93,24 @@ export async function createSession(
     research_mode: research_mode || 'deep_research',
     ...restOptions,
   }, { headers });
-  return response.data.data;
+  return validateResponse(
+    CreateSessionResponseSchema,
+    response.data.data,
+    '/sessions',
+    AGENT_CONTRACT_VERSION,
+    'A',
+  );
 }
 
 export async function getSession(sessionId: string): Promise<GetSessionResponse> {
   const response = await apiClient.get<ApiResponse<GetSessionResponse>>(`/sessions/${sessionId}`);
-  return response.data.data;
+  return validateResponse(
+    GetSessionResponseSchema,
+    response.data.data,
+    `/sessions/${sessionId}`,
+    AGENT_CONTRACT_VERSION,
+    'A',
+  );
 }
 
 export interface ReportPdfDownloadRequest {
@@ -139,7 +158,13 @@ export async function getSessions(params: GetSessionsParams = {}): Promise<ListS
     limit: params.limit,
   };
   const response = await apiClient.get<ApiResponse<ListSessionResponse>>('/sessions', { params: query });
-  return response.data.data;
+  return validateResponse(
+    ListSessionResponseSchema,
+    response.data.data,
+    '/sessions',
+    AGENT_CONTRACT_VERSION,
+    'A',
+  );
 }
 
 export async function getSessionsSSE(callbacks?: SSECallbacks<ListSessionResponse>): Promise<() => void> {
