@@ -11,6 +11,7 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.channels.telegram import TelegramChannel
 from nanobot.config.schema import TelegramConfig
 from telegram.error import RetryAfter, TimedOut
+from telegram.ext import CallbackQueryHandler
 
 
 def _make_channel() -> TelegramChannel:
@@ -36,6 +37,59 @@ def _make_update(text: str) -> SimpleNamespace:
         first_name="John",
     )
     return SimpleNamespace(message=message, effective_user=user)
+
+
+def _make_callback_update(data: str) -> SimpleNamespace:
+    callback_query = SimpleNamespace(
+        data=data,
+        answer=AsyncMock(),
+        message=SimpleNamespace(chat_id=5829880422),
+        from_user=SimpleNamespace(id=5829880422, username="john"),
+    )
+    return SimpleNamespace(callback_query=callback_query, effective_user=callback_query.from_user)
+
+
+def _make_fake_application(channel: TelegramChannel):
+    add_handler_calls: list[object] = []
+    app = SimpleNamespace()
+    app.add_error_handler = MagicMock()
+    app.add_handler = MagicMock(side_effect=lambda handler, **kwargs: add_handler_calls.append(handler))
+    app.initialize = AsyncMock()
+    app.start = AsyncMock()
+    app.bot = SimpleNamespace(
+        get_me=AsyncMock(return_value=SimpleNamespace(username="nanobot_test")),
+        set_my_commands=AsyncMock(),
+    )
+
+    async def _start_polling(**kwargs):
+        channel._running = False
+        return
+
+    app.updater = SimpleNamespace(start_polling=AsyncMock(side_effect=_start_polling))
+    return app, add_handler_calls
+
+
+class _FakeBuilder:
+    def __init__(self, app: object):
+        self._app = app
+
+    def token(self, _value):
+        return self
+
+    def request(self, _value):
+        return self
+
+    def get_updates_request(self, _value):
+        return self
+
+    def proxy(self, _value):
+        return self
+
+    def get_updates_proxy(self, _value):
+        return self
+
+    def build(self):
+        return self._app
 
 
 @pytest.mark.asyncio
@@ -148,6 +202,41 @@ async def test_unknown_command_ignores_unparseable_command_text() -> None:
     await channel._unknown_command(update, context)
 
     update.message.reply_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_start_registers_callback_handler_and_polls_callback_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+    channel = _make_channel()
+    fake_app, add_handler_calls = _make_fake_application(channel)
+    monkeypatch.setattr("nanobot.channels.telegram.Application.builder", lambda: _FakeBuilder(fake_app))
+
+    await channel.start()
+
+    handler_types = {type(handler) for handler in add_handler_calls}
+    assert CallbackQueryHandler in handler_types
+
+    fake_app.updater.start_polling.assert_awaited_once()
+    allowed_updates = fake_app.updater.start_polling.await_args.kwargs["allowed_updates"]
+    assert "message" in allowed_updates
+    assert "callback_query" in allowed_updates
+
+
+@pytest.mark.asyncio
+async def test_callback_query_pdf_last_forwards_pdf_command() -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+
+    update = _make_callback_update("telegram:get_pdf:last")
+    context = SimpleNamespace()
+
+    await channel._on_callback_query(update, context)
+
+    update.callback_query.answer.assert_awaited_once()
+    channel._handle_message.assert_awaited_once_with(
+        sender_id="5829880422|john",
+        chat_id="5829880422",
+        content="/pdf",
+    )
 
 
 @pytest.mark.asyncio
