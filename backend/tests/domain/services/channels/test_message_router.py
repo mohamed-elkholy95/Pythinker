@@ -379,7 +379,24 @@ class TestRouteInbound:
         replies = [r async for r in router.route_inbound(msg)]
 
         assert len(replies) == 2
+        assert "including searching Reddit and other sources" not in replies[0].content
+        assert "from Reddit and other sources" in replies[0].content
         assert "10-15 minutes" in replies[0].content
+        assert replies[1].content == "Hello from the agent!"
+
+    @pytest.mark.asyncio
+    async def test_route_adds_source_clause_when_topic_has_no_source_context(self) -> None:
+        """When topic has no source mention, ack appends concise source coverage clause."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("Create a research report about GLM coding plan setup")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 2
+        assert "including searching Reddit and other sources" in replies[0].content
+        assert "5-10 minutes" in replies[0].content
         assert replies[1].content == "Hello from the agent!"
 
     @pytest.mark.asyncio
