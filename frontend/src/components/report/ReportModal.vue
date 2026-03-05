@@ -303,6 +303,8 @@ const showTocSidebar = ref(false);
 const isDownloading = ref(false);
 const isFullscreen = ref(false);
 const isCopied = ref(false);
+const DOWNLOAD_ACTION_COOLDOWN_MS = 800;
+const lastDownloadStartMs = ref(0);
 
 const normalizedReportContent = computed(() =>
   props.report?.content ? collapseDuplicateReportBlocks(props.report.content) : ''
@@ -521,47 +523,76 @@ const getSafeFilename = (title: string) => {
     .substring(0, 50);
 };
 
+const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+const canStartDownload = () => {
+  if (isDownloading.value || !props.report) {
+    return false;
+  }
+  return nowMs() - lastDownloadStartMs.value >= DOWNLOAD_ACTION_COOLDOWN_MS;
+};
+
+const beginDownload = () => {
+  if (!canStartDownload()) {
+    return false;
+  }
+  isDownloading.value = true;
+  lastDownloadStartMs.value = nowMs();
+  return true;
+};
+
+const finishDownload = () => {
+  isDownloading.value = false;
+};
+
 // Download as Markdown
 const handleDownloadMarkdown = () => {
-  if (!normalizedReportContent.value) return;
+  const report = props.report;
+  if (!normalizedReportContent.value || !report || !beginDownload()) return;
 
-  showDownloadOptions.value = false;
-  const filename = getSafeFilename(props.report.title) + '.md';
-  const blob = new Blob([normalizedReportContent.value], { type: 'text/markdown;charset=utf-8' });
-  saveAs(blob, filename);
+  try {
+    showDownloadOptions.value = false;
+    const filename = getSafeFilename(report.title) + '.md';
+    const blob = new Blob([normalizedReportContent.value], { type: 'text/markdown;charset=utf-8' });
+    saveAs(blob, filename);
+  } finally {
+    finishDownload();
+  }
 };
 
 // Download as PDF
 const handleDownloadPdf = async () => {
-  if (!props.report || !props.sessionId) {
-    showErrorToast('Failed to generate PDF');
+  const report = props.report;
+  if (!report || !beginDownload()) return;
+  if (!props.sessionId) {
+    finishDownload();
+    showErrorToast('Unable to generate PDF without an active session');
     return;
   }
 
   showDownloadOptions.value = false;
-  isDownloading.value = true;
 
   try {
     const { blob, filename } = await downloadSessionReportPdf(props.sessionId, {
-      title: props.report.title,
+      title: report.title,
       content: normalizedReportContent.value,
-      sources: props.report.sources || [],
-      author: props.report.author,
+      sources: report.sources ?? [],
+      author: report.author,
     });
-    saveAs(blob, filename || `${getSafeFilename(props.report.title)}.pdf`);
+    saveAs(blob, filename || `${getSafeFilename(report.title)}.pdf`);
   } catch {
     showErrorToast('Failed to generate PDF');
   } finally {
-    isDownloading.value = false;
+    finishDownload();
   }
 };
 
 // Download as DOCX
 const handleDownloadDocx = async () => {
-  if (!normalizedReportContent.value) return;
+  const report = props.report;
+  if (!normalizedReportContent.value || !report || !beginDownload()) return;
 
   showDownloadOptions.value = false;
-  isDownloading.value = true;
 
   try {
     const lines = normalizedReportContent.value.split('\n');
@@ -635,11 +666,11 @@ const handleDownloadDocx = async () => {
     });
 
     const blob = await Packer.toBlob(doc);
-    saveAs(blob, getSafeFilename(props.report.title) + '.docx');
+    saveAs(blob, getSafeFilename(report.title) + '.docx');
   } catch {
     showErrorToast('Failed to generate DOCX');
   } finally {
-    isDownloading.value = false;
+    finishDownload();
   }
 };
 

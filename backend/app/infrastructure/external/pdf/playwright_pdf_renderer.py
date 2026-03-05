@@ -21,6 +21,7 @@ from app.domain.services.pdf.pdf_renderer import PdfReportRenderer
 logger = logging.getLogger(__name__)
 
 _REFERENCES_HEADING_RE = re.compile(r"^(references?|sources?|bibliography|citations?)$", re.IGNORECASE)
+_BRACKET_REFERENCE_RE = re.compile(r"\[(\d{1,3})\]")
 
 
 class PlaywrightPdfRenderer(PdfReportRenderer):
@@ -140,6 +141,7 @@ def _decorate_reference_ids(html: str) -> str:
         return str(soup)
 
     number = 1
+    anchored_numbers: set[int] = set()
     sibling = references_heading.find_next_sibling()
     while sibling is not None:
         if sibling.name in {"h1", "h2", "h3", "h4"}:
@@ -147,10 +149,58 @@ def _decorate_reference_ids(html: str) -> str:
         if sibling.name in {"ol", "ul"}:
             for item in sibling.find_all("li", recursive=False):
                 item["id"] = f"ref-{number}"
+                anchored_numbers.add(number)
                 number += 1
+        else:
+            _decorate_bracket_reference_ids(soup, sibling, anchored_numbers)
         sibling = sibling.find_next_sibling()
 
     return str(soup)
+
+
+def _decorate_bracket_reference_ids(
+    soup: BeautifulSoup,
+    node,
+    anchored_numbers: set[int],
+) -> None:
+    """Attach anchors to bracket-style references like ``[1] Source``."""
+    for text_node in list(node.find_all(string=True)):
+        parent = text_node.parent
+        if parent is not None and parent.name in {"code", "pre", "a"}:
+            continue
+
+        text = str(text_node)
+        if "[" not in text:
+            continue
+
+        matches = list(_BRACKET_REFERENCE_RE.finditer(text))
+        if not matches:
+            continue
+
+        cursor = 0
+        replacement_parts: list[object] = []
+        for match in matches:
+            if match.start() > cursor:
+                replacement_parts.append(text[cursor : match.start()])
+
+            number = int(match.group(1))
+            marker = match.group(0)
+            if number not in anchored_numbers:
+                marker_node = soup.new_tag("span")
+                marker_node["id"] = f"ref-{number}"
+                marker_node.string = marker
+                replacement_parts.append(marker_node)
+                anchored_numbers.add(number)
+            else:
+                replacement_parts.append(marker)
+            cursor = match.end()
+
+        if cursor < len(text):
+            replacement_parts.append(text[cursor:])
+
+        for part in replacement_parts:
+            text_node.insert_before(part)
+        text_node.extract()
 
 
 def _renderer_label(renderer: PdfReportRenderer) -> str:

@@ -51,8 +51,6 @@ const pruneFileViewCache = (): void => {
   }
 };
 
-
-
 /**
  * Agent mode enum - determines which flow to use
  */

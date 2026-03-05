@@ -576,6 +576,7 @@ class PlannerAgent(BaseAgent):
         # Phase 4: Use Tenacity retry with validation feedback when feature enabled
         flags = self._resolve_feature_flags()
         use_structured = flags.get("structured_outputs", False)
+        fallback_error: str | None = None
 
         try:
             await self._add_to_memory([{"role": "user", "content": prompt}])
@@ -655,27 +656,52 @@ class PlannerAgent(BaseAgent):
                     return
                 except Exception as e:
                     logger.warning(f"Structured output failed, falling back to JSON parser: {e}")
+                    fallback_error = str(e)
         except Exception as e:
             logger.warning(f"Memory preparation failed: {e}")
+            fallback_error = str(e)
 
         # Fallback to original approach with JSON parser
-        async for event in self.execute(prompt):
-            if isinstance(event, MessageEvent):
-                logger.info(event.message)
-                parsed_response = await self.json_parser.parse(event.message)
-                plan = Plan.model_validate(parsed_response)
-                plan.steps = self._normalize_plan_steps(plan.steps, task_message=message.message)
-                yield ProgressEvent(
-                    phase=PlanningPhase.FINALIZING,
-                    message=f"Ready to execute {len(plan.steps)} steps!",
-                    estimated_steps=len(plan.steps),
-                    progress_percent=95,
-                    complexity_category=task_complexity,
-                    estimated_duration_seconds=duration_estimate,
-                )
-                yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
-            else:
-                yield event
+        created_plan = False
+        try:
+            async for event in self.execute(prompt):
+                if isinstance(event, MessageEvent):
+                    logger.info(event.message)
+                    parsed_response = await self.json_parser.parse(event.message)
+                    plan = Plan.model_validate(parsed_response)
+                    plan.steps = self._normalize_plan_steps(plan.steps, task_message=message.message)
+                    yield ProgressEvent(
+                        phase=PlanningPhase.FINALIZING,
+                        message=f"Ready to execute {len(plan.steps)} steps!",
+                        estimated_steps=len(plan.steps),
+                        progress_percent=95,
+                        complexity_category=task_complexity,
+                        estimated_duration_seconds=duration_estimate,
+                    )
+                    yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
+                    created_plan = True
+                else:
+                    yield event
+        except Exception as e:
+            fallback_error = str(e)
+            logger.warning("Planner JSON fallback failed, emitting resilient template plan: %s", e)
+
+        if not created_plan:
+            fallback_plan = self._build_timeout_fallback_plan(message, replan_context)
+            yield ProgressEvent(
+                phase=PlanningPhase.FINALIZING,
+                message="Planner timed out, using resilient fallback plan...",
+                estimated_steps=len(fallback_plan.steps),
+                progress_percent=95,
+                complexity_category=task_complexity,
+                estimated_duration_seconds=duration_estimate,
+            )
+            yield PlanEvent(status=PlanStatus.CREATED, plan=fallback_plan)
+            logger.warning(
+                "Planner emitted fallback plan for agent %s due to planning failure: %s",
+                self._agent_id,
+                fallback_error or "unknown error",
+            )
 
     async def update_plan(self, plan: Plan, step: Step) -> AsyncGenerator[BaseEvent, None]:
         prompt = UPDATE_PLAN_PROMPT.format(plan=plan.dump_json(), step=step.model_dump_json())
@@ -1265,8 +1291,42 @@ Respond with a JSON plan containing:
         except Exception as e:
             if isinstance(e, LLMKeysExhaustedError):
                 logger.debug("Plan creation skipped: %s", e)
+            elif isinstance(e, TimeoutError):
+                logger.warning(f"Plan creation timed out after {max_attempts} attempts: {e}")
             else:
                 logger.error(f"Plan creation failed after {max_attempts} attempts: {e}")
             return None
 
         return None
+
+    def _build_timeout_fallback_plan(self, message: Message, replan_context: str | None = None) -> Plan:
+        """Construct a deterministic fallback plan when all planner model paths fail."""
+        goal = (message.message or "").strip() or "Complete the user request"
+        fallback_steps: list[Step] = []
+
+        if replan_context:
+            fallback_steps.append(
+                Step(
+                    description=(
+                        "Address prior planning feedback: "
+                        + (replan_context[:180] + "..." if len(replan_context) > 180 else replan_context)
+                    )
+                )
+            )
+
+        fallback_steps.extend(
+            [
+                Step(description="Identify the exact deliverable and required constraints from the user request"),
+                Step(description="Collect the minimum evidence or data needed to complete the request safely"),
+                Step(description="Produce the final response with concise validation notes and source-backed caveats"),
+            ]
+        )
+
+        normalized_steps = self._normalize_plan_steps(fallback_steps, task_message=goal)
+        return Plan(
+            goal=goal,
+            title="Fallback Plan (Timeout Recovery)",
+            language="en",
+            message="Generated fallback plan because planner generation timed out.",
+            steps=normalized_steps,
+        )

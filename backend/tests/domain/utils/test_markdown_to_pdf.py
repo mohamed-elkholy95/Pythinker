@@ -10,8 +10,8 @@ from typing import cast
 from pypdf import PdfReader
 from reportlab.platypus import HRFlowable, ListFlowable, Paragraph, Preformatted, Table
 
-from app.domain.models.source_citation import SourceCitation
 import app.domain.utils.markdown_to_pdf as markdown_to_pdf
+from app.domain.models.source_citation import SourceCitation
 from app.domain.utils.markdown_to_pdf import build_pdf_bytes, markdown_to_flowables
 
 
@@ -133,7 +133,9 @@ def test_register_unicode_font_uses_fallback_font_when_preferred_missing(monkeyp
 
     register_calls: list[tuple[str, str]] = []
     monkeypatch.setattr(markdown_to_pdf.pdfmetrics, "getRegisteredFontNames", lambda: [])
-    monkeypatch.setattr(markdown_to_pdf.pdfmetrics, "registerFont", lambda ttfont: register_calls.append((ttfont.name, ttfont.path)))
+    monkeypatch.setattr(
+        markdown_to_pdf.pdfmetrics, "registerFont", lambda ttfont: register_calls.append((ttfont.name, ttfont.path))
+    )
     monkeypatch.setattr(markdown_to_pdf, "TTFont", _DummyTTFont)
     monkeypatch.setattr(
         markdown_to_pdf,

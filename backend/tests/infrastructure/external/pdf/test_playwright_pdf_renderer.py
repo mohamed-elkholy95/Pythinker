@@ -141,3 +141,16 @@ def test_decorate_reference_ids_assigns_anchors_to_reference_items() -> None:
 
     assert 'id="ref-1"' in rendered
     assert 'id="ref-2"' in rendered
+
+
+def test_decorate_reference_ids_assigns_anchors_to_bracket_reference_lines() -> None:
+    html = """
+    <h2>References</h2>
+    <p>[1] One source
+[2] Two source</p>
+    """
+
+    rendered = _decorate_reference_ids(html)
+
+    assert 'id="ref-1"' in rendered
+    assert 'id="ref-2"' in rendered
