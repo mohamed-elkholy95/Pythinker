@@ -25,6 +25,7 @@ from app.domain.models.event import (
     ErrorEvent,
     FlowTransitionEvent,
     MessageEvent,
+    PartialResultEvent,
     PlanEvent,
     PlanningPhase,
     PlanStatus,
@@ -65,6 +66,7 @@ from app.domain.services.flows.fast_path import (
     QueryIntent,
     is_suggestion_follow_up_message,
 )
+from app.domain.services.flows.headline_extractor import extract_headline
 from app.domain.services.flows.llm_heartbeat import LLMHeartbeat
 from app.domain.services.flows.phase_router import PhaseRouter
 from app.domain.services.flows.prompt_quick_validator import (
@@ -3050,6 +3052,24 @@ class PlanActFlow(BaseFlow):
 
                         # Emit PlanEvent so frontend progress bar reflects step completion immediately
                         yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
+
+                        # Emit PartialResultEvent so frontend can show a running headline
+                        # of what each step produced without waiting for the final report.
+                        if step.success:
+                            _step_idx = next(
+                                (i for i, s in enumerate(self.plan.steps) if s.id == step.id), -1
+                            )
+                            _result_text = step.result or ""
+                            _headline = extract_headline(
+                                _result_text,
+                                tool_name=step.description or "",
+                            )
+                            yield PartialResultEvent(
+                                step_index=max(_step_idx, 0),
+                                step_title=step.title or step.description or "",
+                                headline=_headline,
+                                sources_count=0,
+                            )
 
                         # Session bridging: save progress after each step
                         await self._save_progress_artifact()
