@@ -726,12 +726,17 @@ class AgentTaskRunner(TaskRunner):
             return attachments
 
         # Run Plotly chart orchestrator
-        chart_result = await self._plotly_chart_orchestrator.generate_chart(
-            report_title=event.title,
-            markdown_content=event.content,
-            report_id=event.id,
-            force_generation=force_generation,
-        )
+        chart_error: str | None = None
+        try:
+            chart_result = await self._plotly_chart_orchestrator.generate_chart(
+                report_title=event.title,
+                markdown_content=event.content,
+                report_id=event.id,
+                force_generation=force_generation,
+            )
+        except Exception as exc:
+            chart_result = None
+            chart_error = f"{type(exc).__name__}: {exc}"
 
         if chart_result is None:
             logger.warning(
@@ -739,7 +744,7 @@ class AgentTaskRunner(TaskRunner):
                 "Falling back to legacy SVG.",
                 event.id,
                 self._session_id,
-                getattr(chart_result, "error", "no chart data extracted"),
+                chart_error or "no chart data extracted from report",
             )
             return await self._ensure_legacy_svg_chart(
                 event,
