@@ -38,6 +38,16 @@
                 {{ title }}
               </span>
             </button>
+            <span
+              v-if="sessionSource === 'telegram'"
+              class="chat-source-badge"
+              data-testid="chat-source-telegram"
+              title="Telegram session"
+              aria-label="Telegram session"
+            >
+              <Send :size="10" />
+              <span>Telegram</span>
+            </span>
             <ResearchModeBadge :mode="sessionResearchMode" :compact="isToolPanelOpen" />
           </div>
 	          <!-- Right: Buttons -->
@@ -561,7 +571,7 @@ import {
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
-import { ArrowDown, FileSearch, Lock, Globe, Link, Check, Menu, MessageSquareText, GitBranch } from 'lucide-vue-next';
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check, Menu, MessageSquareText, GitBranch, Send } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import { downloadFile } from '../api/file';
@@ -1352,6 +1362,7 @@ const activeCanvasProjectId = ref<string | null>(null);
 
 // Track the session's research mode (set from SSE event or session creation)
 const sessionResearchMode = ref<agentApi.ResearchMode | null>(null);
+const sessionSource = ref<string>('web');
 
 const refreshSessionStatus = async (targetSessionId?: string) => {
   const activeSessionId = targetSessionId ?? sessionId.value;
@@ -1417,6 +1428,7 @@ const initializePendingSession = async () => {
     const idempotencyKey = crypto.randomUUID();
     const session = await agentApi.createSession(mode, { research_mode: researchMode, sandbox_wait_seconds: 0, idempotencyKey });
     sessionResearchMode.value = researchMode;
+    sessionSource.value = 'web';
     sessionId.value = session.session_id;
     if (pendingMessage) {
       emitSessionTitleHint({
@@ -1632,6 +1644,7 @@ const resetState = () => {
 
   // Reset session research mode
   sessionResearchMode.value = null;
+  sessionSource.value = 'web';
   isChatModeOverride.value = null;
 
   // Reset reactive state to initial values
@@ -3797,6 +3810,7 @@ const restoreSession = async (
 
     sessionStatus.value = session.status as SessionStatus;
     sessionResearchMode.value = (session.research_mode as agentApi.ResearchMode) || 'deep_research';
+    sessionSource.value = (session.source || 'web').toLowerCase();
     // Set title from session data so it doesn't stay as "New Chat"
     if (session.title?.trim()) {
       title.value = session.title;
@@ -4466,6 +4480,20 @@ const handleCopyLink = async () => {
   color: var(--text-tertiary);
   transform: rotate(90deg);
   flex-shrink: 0;
+}
+
+.chat-source-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  border-radius: 9999px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #229ed9;
+  background: rgba(34, 158, 217, 0.14);
 }
 
 .chat-bottom-dock {
