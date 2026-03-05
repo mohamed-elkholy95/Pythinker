@@ -289,3 +289,67 @@ def repair_citations(report_content: str, source_list: str) -> str:
         repaired = normalize_citation_numbering(repaired)
 
     return repaired
+
+
+class SourceRegistry:
+    """Pre-generation stable source numbering. Deduplicates by URL."""
+
+    def __init__(self) -> None:
+        self._url_to_id: dict[str, int] = {}
+        self._id_to_entry: dict[int, tuple[str, str]] = {}
+        self._next_id: int = 1
+
+    def register(self, url: str, title: str = "") -> int:
+        """Register a source URL. Returns stable ID (reuses if URL seen before)."""
+        normalized = url.strip().rstrip("/").lower()
+        if normalized in self._url_to_id:
+            return self._url_to_id[normalized]
+        sid = self._next_id
+        self._url_to_id[normalized] = sid
+        self._id_to_entry[sid] = (title, url)
+        self._next_id += 1
+        return sid
+
+    def get_id(self, url: str) -> int | None:
+        """Get ID for a URL, or None if not registered."""
+        return self._url_to_id.get(url.strip().rstrip("/").lower())
+
+    @property
+    def count(self) -> int:
+        return len(self._id_to_entry)
+
+    def build_references_section(self) -> str:
+        """Generate a ## References section from registered sources."""
+        lines = ["## References"]
+        for sid in sorted(self._id_to_entry):
+            title, url = self._id_to_entry[sid]
+            lines.append(f"[{sid}] {title} - {url}")
+        return "\n".join(lines)
+
+
+def fuzzy_match_orphan(
+    orphan_text: str, references: dict[int, str], threshold: float = 0.6
+) -> int | None:
+    """Try to fuzzy-match an orphan citation to an existing reference.
+
+    Returns reference ID if match found above threshold, else None.
+    Simple word-overlap scoring (no external dependencies).
+    """
+    orphan_words = set(orphan_text.lower().split())
+    if not orphan_words:
+        return None
+
+    best_id = None
+    best_score = 0.0
+
+    for ref_id, ref_text in references.items():
+        ref_words = set(ref_text.lower().split())
+        if not ref_words:
+            continue
+        overlap = len(orphan_words & ref_words)
+        score = overlap / max(len(orphan_words), len(ref_words))
+        if score > best_score and score >= threshold:
+            best_score = score
+            best_id = ref_id
+
+    return best_id
