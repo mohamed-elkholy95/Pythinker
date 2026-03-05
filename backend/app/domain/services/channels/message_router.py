@@ -39,7 +39,8 @@ HELP_TEXT = (
     "  /status — Show active session info\n"
     "  /link   — Link your Telegram to your web account\n"
     "  /pdf    — Send the last assistant response as a PDF\n"
-    "  :bind   — Alias of /link (works in Telegram deep-link flow)\n"
+    "  /bind   — Alias of /link\n"
+    "  :bind   — Legacy alias of /link\n"
     "  /help   — Show this help message"
 )
 
@@ -449,7 +450,7 @@ class MessageRouter:
             if len(parts) < 2 or not parts[1].strip():
                 yield self._make_reply(
                     message,
-                    "Usage: /link CODE (or :bind CODE)\n\nGenerate a link code from the web UI under Settings → Link Telegram.",
+                    "Usage: /link CODE (or /bind CODE)\n\nGenerate a link code from the web UI under Settings → Link Telegram.",
                 )
                 return
 
@@ -583,7 +584,7 @@ class MessageRouter:
         command = parts[0].lower()
         argument = parts[1].strip() if len(parts) > 1 else ""
 
-        if command == ":bind":
+        if command in {":bind", "/bind"}:
             return f"/link {argument}".strip()
 
         # Telegram deep-link starts as: /start bind_<CODE>

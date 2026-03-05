@@ -72,7 +72,7 @@ async def test_start_without_bind_payload_sends_greeting() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command_text", ["/stop", "/status", "/pdf", "/link ABC123"])
+@pytest.mark.parametrize("command_text", ["/stop", "/status", "/pdf", "/link ABC123", "/bind ABC123"])
 async def test_forward_command_routes_supported_slash_commands(command_text: str) -> None:
     channel = _make_channel()
     channel._handle_message = AsyncMock()
@@ -86,6 +86,20 @@ async def test_forward_command_routes_supported_slash_commands(command_text: str
         chat_id="5829880422",
         content=command_text,
     )
+
+
+@pytest.mark.asyncio
+async def test_help_command_mentions_pythinker_and_bind_alias() -> None:
+    channel = _make_channel()
+    update = _make_update("/help")
+    context = SimpleNamespace(args=[])
+
+    await channel._on_help(update, context)
+
+    update.message.reply_text.assert_awaited_once()
+    help_text = update.message.reply_text.await_args.args[0]
+    assert "Pythinker commands" in help_text
+    assert "/bind <CODE>" in help_text
 
 
 @pytest.mark.asyncio
@@ -110,12 +124,25 @@ async def test_unknown_command_sends_help_hint() -> None:
         "/status",
         "/pdf",
         "/link ABC123",
+        "/bind ABC123",
         "/help",
     ],
 )
 async def test_unknown_command_ignores_known_commands(command_text: str) -> None:
     channel = _make_channel()
     update = _make_update(command_text)
+    context = SimpleNamespace(args=[])
+
+    await channel._unknown_command(update, context)
+
+    update.message.reply_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unknown_command_ignores_unparseable_command_text() -> None:
+    channel = _make_channel()
+    update = _make_update("/foo")
+    update.message.text = None
     context = SimpleNamespace(args=[])
 
     await channel._unknown_command(update, context)
