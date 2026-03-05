@@ -1,6 +1,7 @@
 import logging
 from functools import lru_cache
 from inspect import isawaitable
+from typing import Any
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -47,6 +48,28 @@ logger = logging.getLogger(__name__)
 
 # Security scheme - Bearer Token only
 security_bearer = HTTPBearer(auto_error=False)
+
+
+def build_pdf_renderer_from_settings(settings: Any):
+    """Return the configured report PDF renderer with safe fallback."""
+    from app.domain.services.pdf.reportlab_pdf_renderer import ReportLabPdfRenderer
+
+    reportlab_renderer = ReportLabPdfRenderer()
+    renderer_choice = (getattr(settings, "telegram_pdf_renderer", "reportlab") or "reportlab").strip().lower()
+
+    if renderer_choice == "playwright":
+        try:
+            from app.infrastructure.external.pdf import PlaywrightPdfRenderer
+
+            timeout_ms = int(getattr(settings, "telegram_pdf_renderer_timeout_ms", 20_000))
+            return PlaywrightPdfRenderer(
+                timeout_ms=timeout_ms,
+                fallback_renderer=reportlab_renderer,
+            )
+        except Exception as exc:
+            logger.warning("Failed to initialize Playwright PDF renderer; using ReportLab fallback: %s", exc)
+
+    return reportlab_renderer
 
 
 @lru_cache

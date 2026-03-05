@@ -841,8 +841,7 @@ class MessageRouter:
         if _TOPIC_SOURCE_CONTEXT_RE.search(topic):
             return f"I'll research {topic}. This should take about {estimate}."
         return (
-            f"I'll research {topic}, including searching Reddit and other sources. "
-            f"This should take about {estimate}."
+            f"I'll research {topic}, including searching Reddit and other sources. This should take about {estimate}."
         )
 
     @staticmethod
