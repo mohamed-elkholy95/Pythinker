@@ -26,6 +26,7 @@ from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, Progre
 from app.domain.models.file import FileInfo
 from app.domain.models.session import Session, SessionStatus
 from app.domain.models.user import User
+from app.domain.services.flows.cancellation import CancellationSignal
 from app.domain.services.pdf.models import ReportPdfPayload
 from app.domain.services.stream_guard import (
     StreamErrorCategory,
@@ -182,6 +183,26 @@ SSE_NON_TERMINAL_STATUSES = {"pending", "initializing", "running", "waiting"}
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 _pending_disconnect_cancellations: dict[str, asyncio.Task[None]] = {}
+
+# Registry of active session cancellation signals, keyed by session_id.
+# Populated by register_cancellation_signal() when a flow starts and
+# cleared by unregister_cancellation_signal() when it finishes.
+_active_cancellation_signals: dict[str, CancellationSignal] = {}
+
+
+def register_cancellation_signal(session_id: str, signal: CancellationSignal) -> None:
+    """Register a cancellation signal for an active session."""
+    _active_cancellation_signals[session_id] = signal
+
+
+def unregister_cancellation_signal(session_id: str) -> None:
+    """Remove the cancellation signal when a session completes or fails."""
+    _active_cancellation_signals.pop(session_id, None)
+
+
+def get_cancellation_signal(session_id: str) -> CancellationSignal | None:
+    """Return the cancellation signal for a session, or None if not active."""
+    return _active_cancellation_signals.get(session_id)
 
 
 def _cancel_pending_disconnect_cancellation(session_id: str) -> None:
@@ -540,6 +561,25 @@ async def stop_session(
 ) -> APIResponse[None]:
     await agent_service.stop_session(session_id, current_user.id)
     return APIResponse.success()
+
+
+@router.post("/{session_id}/cancel", status_code=202)
+async def cancel_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    """Request graceful cancellation of a running session.
+
+    Signals the active PlanActFlow to stop between steps. Returns 202 Accepted
+    immediately; the flow will transition to 'cancelled' asynchronously.
+    Returns 404 if the session is not currently running (no active signal).
+    """
+    signal = get_cancellation_signal(session_id)
+    if signal is None:
+        raise HTTPException(status_code=404, detail="Session not found or not running")
+    signal.cancel()
+    logger.info("Cancellation requested for session %s by user %s", session_id, current_user.id)
+    return {"status": "cancelling", "session_id": session_id}
 
 
 @router.post("/{session_id}/pause", response_model=APIResponse[None])
