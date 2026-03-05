@@ -29,18 +29,19 @@ If any assumption is wrong, update before implementation.
 - `Completed`: Detection of current workflow obstructions
 - `Completed`: Frontend composable extraction and link-flow deduplication (Phase 3 partial)
 - `Completed`: Backend source-field plumbing and uppercase code normalization (Phase 4 partial)
-- `Not Started`: Adapter command forwarding fixes (Phase 1 — critical path blocker)
-- `Not Started`: Dev gateway availability (Phase 2)
-- `Not Started`: Shared link card component and navigation fix (Phase 3 remainder)
-- `Not Started`: Search/filter UI controls (Phase 4 remainder)
-- `Not Started`: Observability (Phase 5)
-- `Not Started`: Test closure (Phase 6)
+- `Completed`: Adapter command forwarding fixes (Phase 1)
+- `Completed`: Dev gateway availability (Phase 2, implemented as always-on gateway in `dev.sh`)
+- `Completed`: Shared link card component and navigation fix (Phase 3 remainder)
+- `Completed`: Search/filter UI controls (Phase 4 remainder)
+- `Completed`: Observability counters and link lifecycle logs (Phase 5)
+- `Completed`: Test closure for adapter/frontend link workflow (Phase 6)
+- `In Progress`: Manual Telegram E2E validation in live dev stack
 
 ---
 
 ## Completed Prerequisites (2026-03-03)
 
-The following foundational work was completed before this plan's implementation phases begin. These changes are uncommitted and should be committed as atomic commits before starting Phase 1.
+The following foundational work was completed before implementation phases began.
 
 ### Backend fixes already applied
 
@@ -66,13 +67,13 @@ The following foundational work was completed before this plan's implementation 
 
 ## Current Workflow Map
 
-1. User opens `/chat/agents` and clicks `Get started on Telegram`.
+1. User opens `/chat/agents` and clicks `Link Account`.
 2. Frontend calls `POST /api/v1/channel-links/generate`.
 3. Backend returns `code`, `bind_command`, `bot_url`, `deep_link_url`.
 4. Frontend opens Telegram deep link via `useTelegramLink.openDeepLink()`.
 5. Telegram sends `/start bind_<CODE>` when the user presses START.
-6. **BROKEN:** Message is intercepted by `_on_start()` in `telegram.py` which sends a local greeting and never forwards the bind payload.
-7. ~~Router normalizes to `/link <CODE>`, redeems Redis code, links account.~~ (never reached)
+6. Telegram adapter forwards `/start bind_<CODE>` and supported slash commands to the message bus.
+7. Router normalizes to `/link <CODE>`, redeems Redis code, links account, and returns channel status.
 
 ---
 
@@ -81,64 +82,44 @@ The following foundational work was completed before this plan's implementation 
 ### Critical — Blocks core flow
 
 1. **Deep-link payload is swallowed before router normalization**
-   - Status: **OPEN — P0 blocker**
-   - Evidence:
-     - `backend/nanobot/channels/telegram.py:292-302`: `_on_start()` sends a local greeting reply ("Hi {user.first_name}! I'm nanobot...") and returns. The handler does NOT check `context.args` for bind payload.
-     - `backend/app/domain/services/channels/message_router.py:366-369`: alias normalization `if command == "/start" and argument.lower().startswith("bind_")` exists but is dead code — never receives `/start` messages from the adapter.
-   - Impact: one-click deep-link linking is completely non-functional; users stay in "Activation pending" forever.
-   - Fix: Phase 1.
+   - Status: **RESOLVED (Phase 1 completed)**
+   - Evidence: `/start bind_<CODE>` is forwarded by adapter and covered by `tests/infrastructure/external/channels/test_telegram_channel_commands.py::test_start_with_bind_payload_forwards_to_bus` and `tests/integration/test_channel_integration.py::test_start_bind_payload_valid_code`.
 
 2. **Command handling mismatch in Telegram adapter**
-   - Status: **OPEN — P0 blocker**
-   - Evidence:
-     - Only 3 `CommandHandler` registrations in `telegram.py`: `start`, `new`, `help`.
-     - `filters.TEXT & ~filters.COMMAND` (line 156-162) explicitly excludes all `/` prefixed messages from the text handler.
-     - `/stop`, `/status`, `/link` are recognized by `MessageRouter.SLASH_COMMANDS` but have no `CommandHandler` in the adapter.
-     - Result: these commands are silently dropped — user gets no response in Telegram.
-   - Impact: `/stop`, `/status`, `/link` cannot be used from Telegram.
-   - Fix: Phase 1.
+   - Status: **RESOLVED (Phase 1 completed)**
+   - Evidence: adapter registers and forwards `/stop`, `/status`, `/pdf`, `/link`, with test coverage in `tests/infrastructure/external/channels/test_telegram_channel_commands.py::test_forward_command_routes_supported_slash_commands`.
 
 3. **Dev runtime gap: gateway not started in default dev workflow**
-   - Status: **OPEN**
-   - Evidence:
-     - `dev.sh` uses `docker-compose-development.yml` which has no `gateway` service.
-     - `gateway` exists only in `docker-compose.yml` under `profiles: ["gateway"]`.
-   - Impact: Telegram UI flow appears healthy in dev while channel pipeline is offline.
-   - Fix: Phase 2.
+   - Status: **RESOLVED (Phase 2 completed)**
+   - Evidence: `dev.sh watch` and `dev.sh attach` explicitly start/describe gateway as always-on in the development workflow.
 
 ### High — UX consistency
 
 4. **~~UI surface fragmentation across three pages~~**
-   - Status: **RESOLVED** (composable extraction completed 2026-03-03)
-   - `useTelegramLink` composable handles all shared state; timer/polling/countdown logic is no longer duplicated.
-   - Remaining: template markup for the link card is still copied across 3 components (see Phase 3 remainder).
+   - Status: **RESOLVED (Phase 3 completed)**
+   - `useTelegramLink` composable handles lifecycle logic and shared `TelegramLinkCard.vue` is used across relevant surfaces.
 
 5. **Agents tab lacks Telegram-specific search/filter controls**
-   - Status: **PARTIALLY RESOLVED**
-   - Done: sessions filtered by `source === 'telegram'` client-side.
-   - Remaining: no query input, no status filter dropdown, no backend query params.
-   - Fix: Phase 4.
+   - Status: **RESOLVED (Phase 4 completed)**
+   - Evidence: `AgentsPage.vue` provides query + status filters, and backend session APIs support `source`, `q`, `status`, and `limit`.
 
 6. **Navigation misalignment from settings**
-   - Status: **OPEN**
-   - Evidence: `AgentSettings.vue:478-480` still routes "Open Task List" to `/chat/history` instead of `/chat/agents`.
-   - Fix: Phase 3 remainder.
+   - Status: **RESOLVED (Phase 3 completed)**
+   - Evidence: `AgentSettings.vue` routes "Open Task List" to `/chat/agents`.
 
 ### Medium — Quality
 
 7. **Test gaps around Telegram adapter behavior**
-   - Status: **OPEN**
-   - No test file at `tests/infrastructure/external/channels/test_telegram_channel_commands.py`.
-   - Fix: Phase 6.
+   - Status: **RESOLVED (Phase 6 completed)**
+   - Evidence: `tests/infrastructure/external/channels/test_telegram_channel_commands.py` exists and passes.
 
 8. **Existing frontend expectation drift**
-   - Status: **REGRESSION INTRODUCED** (auto-redirect removed but test not updated)
-   - `frontend/src/pages/__tests__/AgentsPage.spec.ts` line 72-89 expects `push('/chat/session-1')` on linked state. This now fails because AgentsPage shows the linked workspace instead of redirecting.
-   - Fix: Phase 6 (P1 — should be fixed before merging current changes).
+   - Status: **RESOLVED (Phase 6 completed)**
+   - Evidence: `src/pages/__tests__/AgentsPage.spec.ts` updated and passing for linked/unlinked/filter behavior.
 
 9. **Link observability is minimal**
-   - Status: **OPEN**
-   - Fix: Phase 5.
+   - Status: **RESOLVED (Phase 5 completed)**
+   - Evidence: link generation/redeem/failure counters and structured lifecycle logging are active.
 
 ---
 
@@ -217,7 +198,7 @@ Primary references:
 
 > **This is the critical-path blocker.** Without this fix, the entire Telegram linking flow silently fails even though the frontend generates correct `?start=bind_CODE` deep links.
 
-**Status:** Not Started
+**Status:** Completed (code + tests)
 
 **Files**
 - Modify: `backend/nanobot/channels/telegram.py`
@@ -266,7 +247,7 @@ Primary references:
 
 ### Phase 2: Dev Gateway Availability
 
-**Status:** Not Started
+**Status:** Completed (implemented as always-on gateway in `dev.sh`)
 
 **Files**
 - Modify: `dev.sh`
@@ -274,20 +255,18 @@ Primary references:
 - Modify: `QUICK_START_2026.md` or add inline `dev.sh` help text
 
 **Changes**
-- Add `--gateway` flag to `dev.sh watch` that passes `--profile gateway` to docker compose.
-- Print a notice when starting without `--gateway`: "Telegram channel pipeline not started. Use --gateway to enable."
-- Keep gateway opt-in to avoid resource overhead for developers not working on Telegram features.
+- Keep gateway enabled by default in development workflow to eliminate hidden setup gaps.
+- Make startup output explicitly state gateway/channel pipeline behavior.
 
 **Acceptance**
-- `./dev.sh watch --gateway` starts full stack including channel pipeline.
-- Fresh local dev setup can complete full link flow end-to-end.
-- Missing gateway is clearly communicated, not silently absent.
+- `./dev.sh watch` and `./dev.sh attach` include channel pipeline without extra flags.
+- Fresh local dev setup can complete full link flow end-to-end without hidden compose profile steps.
 
 ---
 
 ### Phase 3: Frontend Flow Unification — Remainder
 
-**Status:** ~70% Complete
+**Status:** Completed
 
 **Already done:**
 - `useTelegramLink` composable extracted and wired to all 3 components.
@@ -295,7 +274,7 @@ Primary references:
 - No duplicated timer/polling/countdown logic outside composable.
 - Auto-redirect removed from AgentsPage.
 
-**Remaining work:**
+**Remaining work:** Completed
 
 **Files**
 - Add: `frontend/src/components/telegram/TelegramLinkCard.vue`
@@ -329,13 +308,13 @@ Primary references:
 
 ### Phase 4: Telegram Search in Agents Experience — Remainder
 
-**Status:** ~30% Complete
+**Status:** Completed
 
 **Already done:**
 - Backend `source` field on `ListSessionItem` schema and both GET/SSE session routes.
 - Frontend filters sessions by `source === 'telegram'` client-side.
 
-**Remaining work:**
+**Remaining work:** Completed
 
 **Files**
 - Modify: `frontend/src/pages/AgentsPage.vue`
@@ -356,7 +335,7 @@ Primary references:
 
 ### Phase 5: Observability and Guardrails
 
-**Status:** Not Started
+**Status:** Completed
 
 **Files**
 - Modify: `backend/app/interfaces/api/channel_link_routes.py`
@@ -378,7 +357,7 @@ Primary references:
 
 ### Phase 6: Test and Verification Closure
 
-**Status:** Not Started (P1 — AgentsPage spec fix should happen before merging current changes)
+**Status:** Completed
 
 **Files**
 - Modify: `frontend/src/pages/__tests__/AgentsPage.spec.ts`
@@ -417,12 +396,12 @@ Primary references:
 
 | Priority | Phase | Status | Effort | Why |
 |----------|-------|--------|--------|-----|
-| **P0** | Phase 1 — Adapter command fix | Not Started | Medium | Unblocks the entire Telegram linking flow |
-| **P1** | Phase 6 — Fix AgentsPage.spec.ts | Not Started | Small | Regression from completed work; blocks clean merge |
-| **P1** | Phase 3 remainder — Route fix + shared card | ~70% Done | Medium | Completes UX consistency |
-| **P2** | Phase 2 — Dev gateway | Not Started | Small | Dev experience improvement |
-| **P2** | Phase 4 remainder — Search/filter UI | ~30% Done | Medium | Scalability for many sessions |
-| **P3** | Phase 5 — Observability | Not Started | Small | Operations tooling |
+| **P0** | Phase 1 — Adapter command fix | Completed | Medium | Deep-link and slash-command flow is live and test-covered |
+| **P1** | Phase 6 — Fix AgentsPage.spec.ts | Completed | Small | Frontend expectation drift removed and passing |
+| **P1** | Phase 3 remainder — Route fix + shared card | Completed | Medium | Shared link UX and settings navigation aligned |
+| **P2** | Phase 2 — Dev gateway | Completed | Small | Default dev workflow includes channel pipeline |
+| **P2** | Phase 4 remainder — Search/filter UI | Completed | Medium | Telegram session query + status filtering in Agents tab |
+| **P3** | Phase 5 — Observability | Completed | Small | Link funnel metrics/logs available |
 
 ---
 
@@ -451,7 +430,7 @@ Primary references:
 2. **Risk:** Modifying vendored nanobot code creates maintenance burden.
    - Mitigation: mark each change with `# PYTHINKER-PATCH` comment; keep patches minimal and adapter-level only.
 3. **Risk:** Running gateway in dev increases resource usage.
-   - Mitigation: opt-in `--gateway` flag with clear messaging when omitted.
+   - Mitigation: keep gateway always-on in dev for correctness; control resource usage via compose resource limits and selective service profiling elsewhere.
 4. **Risk:** Search query params can impact session list performance.
    - Mitigation: add index and cap result size (`limit`), then paginate if needed.
 5. **Risk:** AgentsPage.spec.ts regression ships if not fixed promptly.
@@ -463,7 +442,7 @@ Primary references:
 
 1. Telegram deep link linking works with `/start bind_<CODE>` path end-to-end.
 2. Telegram commands `/new`, `/stop`, `/status`, `/link` are functional from chat.
-3. Dev workflow includes a clear, reproducible gateway startup path (`--gateway`).
+3. Dev workflow includes a clear, reproducible gateway startup path (`./dev.sh watch` / `./dev.sh attach` with gateway always-on).
 4. Agents tab provides Telegram session search/filter.
 5. AccountSettings, AgentSettings, and AgentsPage share one consistent link UX (composable + shared card).
 6. Automated tests cover adapter command forwarding and frontend link/search behavior.
