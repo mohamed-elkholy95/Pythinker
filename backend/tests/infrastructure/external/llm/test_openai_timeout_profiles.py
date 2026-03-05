@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
+from app.infrastructure.external.llm.provider_profile import get_provider_profile
 
 
 def _make_llm(*, api_base: str, is_glm: bool = False, is_deepseek: bool = False) -> OpenAILLM:
@@ -9,6 +10,13 @@ def _make_llm(*, api_base: str, is_glm: bool = False, is_deepseek: bool = False)
     llm._api_base = api_base
     llm._is_glm_api = is_glm
     llm._is_deepseek = is_deepseek
+    llm._provider_profile = get_provider_profile(api_base, "")
+    # Slow circuit-breaker instance attributes (set in __init__ by Task 5)
+    llm._slow_tool_threshold = OpenAILLM._SLOW_TOOL_CALL_THRESHOLD_SECONDS
+    llm._slow_tool_trip_count = OpenAILLM._SLOW_TOOL_CALL_TRIP_COUNT
+    llm._slow_tool_cooldown = OpenAILLM._SLOW_TOOL_CALL_COOLDOWN_SECONDS
+    llm._slow_breaker_max_tokens = OpenAILLM._SLOW_TOOL_BREAKER_DEGRADED_MAX_TOKENS
+    llm._slow_breaker_timeout = OpenAILLM._SLOW_TOOL_BREAKER_DEGRADED_TIMEOUT_SECONDS
     return llm
 
 
