@@ -197,6 +197,8 @@ class MessageRouter:
         telegram_pdf_delivery_enabled: bool = True,
         telegram_pdf_force_long_text: bool = False,
         telegram_require_linked_account: bool = False,
+        telegram_final_delivery_only: bool = True,
+        telegram_final_delivery_allow_wait_prompts: bool = True,
     ) -> None:
         self._agent_service = agent_service
         self._user_channel_repo = user_channel_repo
@@ -207,6 +209,8 @@ class MessageRouter:
         self._telegram_max_context_turns = telegram_max_context_turns
         self._telegram_context_summarization_enabled = telegram_context_summarization_enabled
         self._telegram_context_summarization_threshold_turns = telegram_context_summarization_threshold_turns
+        self._telegram_final_delivery_only = telegram_final_delivery_only
+        self._telegram_final_delivery_allow_wait_prompts = telegram_final_delivery_allow_wait_prompts
         self._telegram_delivery_policy = telegram_delivery_policy or TelegramDeliveryPolicy(
             pdf_delivery_enabled=telegram_pdf_delivery_enabled,
             message_min_chars=telegram_pdf_message_min_chars,
@@ -294,6 +298,10 @@ class MessageRouter:
             return
 
         # 7. Stream agent events and convert to outbound messages
+        telegram_final_delivery_mode = self._telegram_final_delivery_enabled(message.channel)
+        last_telegram_message_event: object | None = None
+        last_telegram_report_event: object | None = None
+        last_telegram_wait_delivery_event: object | None = None
         try:
             async for event in self._agent_service.chat(
                 session_id=session_id,
@@ -312,16 +320,55 @@ class MessageRouter:
                     )
                     continue
 
+                event_type = getattr(event, "type", None)
+                if telegram_final_delivery_mode:
+                    if event_type in {"message", "report"}:
+                        self._remember_latest_response(user_id, message, event, event_type=event_type)
+                        if event_type == "message":
+                            role = getattr(event, "role", "assistant")
+                            if role == "assistant":
+                                last_telegram_message_event = event
+                        else:
+                            last_telegram_report_event = event
+                        continue
+
+                    if event_type == "wait" and self._telegram_final_delivery_allow_wait_prompts:
+                        if last_telegram_message_event is None:
+                            continue
+                        outbounds = await self._event_to_outbounds(last_telegram_message_event, message, user_id=user_id)
+                        if not outbounds:
+                            continue
+                        last_telegram_wait_delivery_event = last_telegram_message_event
+                        for outbound in outbounds:
+                            await self._record_outbound_activity(user_id, message, outbound.content)
+                            yield outbound
+                        continue
+
+                    if event_type != "error":
+                        continue
+
                 outbounds = await self._event_to_outbounds(event, message, user_id=user_id)
                 if not outbounds:
                     continue
-                event_type = getattr(event, "type", None)
+                if not telegram_final_delivery_mode:
+                    event_type = getattr(event, "type", None)
                 if event_type in {"message", "report", "error"}:
                     suppress_first_generic_agent_ack = False
                 self._remember_latest_response(user_id, message, event, event_type=event_type)
                 for outbound in outbounds:
                     await self._record_outbound_activity(user_id, message, outbound.content)
                     yield outbound
+
+            if telegram_final_delivery_mode:
+                final_event = last_telegram_report_event or last_telegram_message_event
+                if final_event is not None and final_event is not last_telegram_wait_delivery_event:
+                    final_type = getattr(final_event, "type", None)
+                    final_outbounds = await self._event_to_outbounds(final_event, message, user_id=user_id)
+                    if final_outbounds:
+                        self._remember_latest_response(user_id, message, final_event, event_type=final_type)
+                        for outbound in final_outbounds:
+                            await self._record_outbound_activity(user_id, message, outbound.content)
+                            yield outbound
         except Exception:
             logger.exception("Agent error for session %s (user %s)", session_id, user_id)
             error_reply = self._make_reply(
@@ -891,6 +938,10 @@ class MessageRouter:
         if not _GENERIC_AGENT_ACK_PREFIX_RE.match(text):
             return False
         return bool(_GENERIC_AGENT_ACK_ACTION_RE.search(text))
+
+    def _telegram_final_delivery_enabled(self, channel: ChannelType) -> bool:
+        """Return whether Telegram final-only delivery mode is active for the channel."""
+        return channel == ChannelType.TELEGRAM and self._telegram_final_delivery_only
 
     # ------------------------------------------------------------------
     # Helpers

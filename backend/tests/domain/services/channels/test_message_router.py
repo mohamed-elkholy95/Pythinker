@@ -75,6 +75,22 @@ class _FakeGotItAckEvent:
     )
 
 
+class _DynamicMessageEvent:
+    type = "message"
+    role = "assistant"
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+
+class _DynamicReportEvent:
+    type = "report"
+
+    def __init__(self, title: str, content: str) -> None:
+        self.title = title
+        self.content = content
+
+
 class SessionStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
@@ -417,6 +433,59 @@ class TestRouteInbound:
         assert "10-15 minutes" in replies[0].content
         assert "Got it! I'll search Reddit" not in replies[1].content
         assert replies[1].content == "Final report is ready."
+
+    @pytest.mark.asyncio
+    async def test_telegram_final_only_emits_only_final_report(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(
+            events=[
+                _DynamicMessageEvent("Thinking..."),
+                _DynamicMessageEvent("Collecting sources..."),
+                _DynamicReportEvent("Final Report", "Done."),
+            ]
+        )
+        router = MessageRouter(agent_svc, repo, telegram_final_delivery_only=True)
+
+        msg = _make_inbound("Run task")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        assert "Final Report" in replies[0].content
+        assert "Thinking..." not in replies[0].content
+
+    @pytest.mark.asyncio
+    async def test_telegram_final_only_falls_back_to_last_message(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(
+            events=[
+                _DynamicMessageEvent("Phase 1"),
+                _DynamicMessageEvent("Phase 2"),
+                _DynamicMessageEvent("Final answer"),
+            ]
+        )
+        router = MessageRouter(agent_svc, repo, telegram_final_delivery_only=True)
+
+        msg = _make_inbound("Run task")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        assert replies[0].content == "Final answer"
+
+    @pytest.mark.asyncio
+    async def test_non_telegram_still_streams_intermediate_messages(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(
+            events=[
+                _DynamicMessageEvent("Step 1"),
+                _DynamicMessageEvent("Step 2"),
+            ]
+        )
+        router = MessageRouter(agent_svc, repo, telegram_final_delivery_only=True)
+
+        msg = _make_inbound("Run task", channel=ChannelType.WEB, chat_id="web-chat-42")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert [reply.content for reply in replies] == ["Step 1", "Step 2"]
 
 
 # ---------------------------------------------------------------------------
