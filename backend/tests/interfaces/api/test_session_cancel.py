@@ -1,95 +1,84 @@
-"""Tests for the session cancellation registry and cancel endpoint."""
+"""Tests for the POST /sessions/{id}/cancel endpoint.
+
+Verifies that the cancel endpoint delegates to AgentService.request_cancellation()
+which sets the cooperative CancellationToken event, causing PlanActFlow._check_cancelled()
+to raise CancelledError between steps.
+"""
+
+from unittest.mock import MagicMock
+
 import pytest
 
 from app.domain.services.flows.cancellation import CancellationSignal
 
 
-def test_cancel_registry_lifecycle() -> None:
-    """register → get → unregister round-trip works correctly."""
-    from app.interfaces.api.session_routes import (
-        get_cancellation_signal,
-        register_cancellation_signal,
-        unregister_cancellation_signal,
-    )
-
-    session_id = "lifecycle-test-session"
-    signal = CancellationSignal()
-
-    register_cancellation_signal(session_id, signal)
-    assert get_cancellation_signal(session_id) is signal
-
-    unregister_cancellation_signal(session_id)
-    assert get_cancellation_signal(session_id) is None
-
-
-def test_cancel_nonexistent_returns_none() -> None:
-    """get_cancellation_signal returns None for unknown session_id."""
-    from app.interfaces.api.session_routes import get_cancellation_signal
-
-    assert get_cancellation_signal("nonexistent-session-xyz") is None
-
-
-def test_unregister_nonexistent_is_safe() -> None:
-    """unregister_cancellation_signal does not raise for unknown session_id."""
-    from app.interfaces.api.session_routes import unregister_cancellation_signal
-
-    # Should not raise KeyError or any other exception.
-    unregister_cancellation_signal("does-not-exist")
-
-
-def test_register_overwrites_existing_signal() -> None:
-    """Registering a new signal for an active session replaces the old one."""
-    from app.interfaces.api.session_routes import (
-        get_cancellation_signal,
-        register_cancellation_signal,
-        unregister_cancellation_signal,
-    )
-
-    session_id = "overwrite-test-session"
-    signal_a = CancellationSignal()
-    signal_b = CancellationSignal()
-
-    register_cancellation_signal(session_id, signal_a)
-    register_cancellation_signal(session_id, signal_b)
-
-    assert get_cancellation_signal(session_id) is signal_b
-    assert get_cancellation_signal(session_id) is not signal_a
-
-    # Cleanup
-    unregister_cancellation_signal(session_id)
-
-
-def test_cancellation_signal_is_set_after_cancel() -> None:
-    """Calling signal.cancel() sets is_cancelled to True."""
+def test_cancellation_signal_basic_lifecycle() -> None:
+    """CancellationSignal cancel/reset round-trip."""
     signal = CancellationSignal()
     assert not signal.is_cancelled
 
     signal.cancel()
     assert signal.is_cancelled
 
+    signal.reset()
+    assert not signal.is_cancelled
 
-def test_multiple_sessions_are_independent() -> None:
-    """Registry entries for different sessions do not interfere."""
-    from app.interfaces.api.session_routes import (
-        get_cancellation_signal,
-        register_cancellation_signal,
-        unregister_cancellation_signal,
+
+def test_cancellation_signal_is_idempotent() -> None:
+    """Calling cancel() multiple times is safe."""
+    signal = CancellationSignal()
+    signal.cancel()
+    signal.cancel()
+    assert signal.is_cancelled
+
+
+@pytest.mark.asyncio
+async def test_cancel_endpoint_calls_request_cancellation() -> None:
+    """POST /sessions/{id}/cancel delegates to agent_service.request_cancellation()."""
+    from app.interfaces.api.session_routes import cancel_session
+
+    mock_user = MagicMock()
+    mock_user.id = "test-user"
+
+    mock_agent_service = MagicMock()
+
+    result = await cancel_session(
+        session_id="test-session-123",
+        current_user=mock_user,
+        agent_service=mock_agent_service,
     )
 
-    id_a = "multi-session-a"
-    id_b = "multi-session-b"
-    signal_a = CancellationSignal()
-    signal_b = CancellationSignal()
+    mock_agent_service.request_cancellation.assert_called_once_with("test-session-123")
+    assert result["status"] == "cancelling"
+    assert result["session_id"] == "test-session-123"
 
-    register_cancellation_signal(id_a, signal_a)
-    register_cancellation_signal(id_b, signal_b)
 
-    assert get_cancellation_signal(id_a) is signal_a
-    assert get_cancellation_signal(id_b) is signal_b
+@pytest.mark.asyncio
+async def test_cancel_endpoint_is_idempotent() -> None:
+    """Calling cancel twice does not raise — request_cancellation is idempotent."""
+    from app.interfaces.api.session_routes import cancel_session
 
-    unregister_cancellation_signal(id_a)
-    assert get_cancellation_signal(id_a) is None
-    # id_b should still be registered
-    assert get_cancellation_signal(id_b) is signal_b
+    mock_user = MagicMock()
+    mock_user.id = "test-user"
+    mock_agent_service = MagicMock()
 
-    unregister_cancellation_signal(id_b)
+    await cancel_session("s1", current_user=mock_user, agent_service=mock_agent_service)
+    await cancel_session("s1", current_user=mock_user, agent_service=mock_agent_service)
+
+    assert mock_agent_service.request_cancellation.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_cancel_endpoint_returns_202_shape() -> None:
+    """Response body has 'status' and 'session_id' fields."""
+    from app.interfaces.api.session_routes import cancel_session
+
+    mock_user = MagicMock()
+    mock_user.id = "test-user"
+    mock_agent_service = MagicMock()
+
+    result = await cancel_session("abc-123", current_user=mock_user, agent_service=mock_agent_service)
+
+    assert isinstance(result, dict)
+    assert "status" in result
+    assert "session_id" in result
