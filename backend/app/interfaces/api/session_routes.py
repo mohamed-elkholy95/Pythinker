@@ -400,6 +400,7 @@ async def get_session(
             session_id=session.id,
             title=session.title,
             status=session.status,
+            source=getattr(session, "source", "web"),
             research_mode=session.research_mode,
             streaming_mode=get_settings().sandbox_streaming_mode.value,
             events=await EventMapper.events_to_sse_events(session.events),
