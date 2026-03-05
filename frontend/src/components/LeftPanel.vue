@@ -116,8 +116,41 @@
         <template v-if="isSearching && searchQuery">{{ filteredSessions.length }} {{ t('results') }}</template>
         <template v-else>{{ t('All tasks') }}</template>
       </div>
+      <div v-if="!isAgentsWorkspace" class="session-source-filter-row" data-testid="session-source-filters">
+        <button
+          type="button"
+          class="session-source-filter-btn"
+          :class="{ 'session-source-filter-btn-active': channelFilter === 'all' }"
+          data-testid="session-source-filter-all"
+          @click="setChannelFilter('all')"
+        >
+          All
+        </button>
+        <button
+          type="button"
+          class="session-source-filter-btn"
+          :class="{ 'session-source-filter-btn-active': channelFilter === 'telegram' }"
+          data-testid="session-source-filter-telegram"
+          @click="setChannelFilter('telegram')"
+        >
+          Telegram
+        </button>
+        <button
+          type="button"
+          class="session-source-filter-btn"
+          :class="{ 'session-source-filter-btn-active': channelFilter === 'web' }"
+          data-testid="session-source-filter-web"
+          @click="setChannelFilter('web')"
+        >
+          Web
+        </button>
+      </div>
       <div class="flex flex-col flex-1 min-h-0">
-        <div v-if="filteredSessions.length > 0" class="flex flex-col flex-1 min-h-0 overflow-auto pt-1 pb-4 px-2 overflow-x-hidden minimal-scrollbar">
+        <div
+          v-if="filteredSessions.length > 0"
+          class="flex flex-col flex-1 min-h-0 overflow-auto pt-1 pb-4 px-2 overflow-x-hidden minimal-scrollbar"
+          data-testid="session-list"
+        >
           <SessionItem v-for="session in filteredSessions" :key="session.session_id" :session="session"
             @deleted="handleSessionDeleted"
             @stopped="handleSessionStopped" />
@@ -195,6 +228,8 @@ const { sessions: liveSessions, refresh: refreshSessionFeed } = useSessionListFe
 
 const sessions = ref<ListSessionItem[]>([])
 const optimisticTitleHints = ref<Record<string, { title: string; createdAt: number }>>({})
+type SessionChannelFilter = 'all' | 'telegram' | 'web'
+const channelFilter = ref<SessionChannelFilter>('all')
 
 // Search state
 const searchQuery = ref('')
@@ -242,10 +277,15 @@ const isAgentsWorkspace = computed(() =>
   route.matched.some((record) => record.meta?.workspace === 'agents')
 )
 
+const normalizedSource = (session: ListSessionItem): string => (session.source || 'web').toLowerCase()
+
 const visibleSessions = computed(() => {
-  const scopedSessions = isAgentsWorkspace.value
-    ? sessions.value.filter((session) => session.source === 'telegram')
-    : sessions.value
+  const effectiveFilter = isAgentsWorkspace.value ? 'telegram' : channelFilter.value
+
+  const scopedSessions = sessions.value.filter((session) => {
+    if (effectiveFilter === 'all') return true
+    return normalizedSource(session) === effectiveFilter
+  })
 
   return scopedSessions.filter((session) => hasResolvedTaskTitle(session))
 })
@@ -260,6 +300,10 @@ const filteredSessions = computed(() => {
 })
 
 const isAgentsRoute = computed(() => isAgentsWorkspace.value)
+
+const setChannelFilter = (filter: SessionChannelFilter) => {
+  channelFilter.value = filter
+}
 
 const openSearch = async () => {
   isSearching.value = true
@@ -310,6 +354,7 @@ const mergeWithOptimisticSession = (serverSessions: ListSessionItem[]): ListSess
     status: SessionStatus.PENDING,
     unread_message_count: 0,
     is_shared: false,
+    source: 'web',
   }, ...serverSessions]
 }
 
@@ -647,6 +692,38 @@ watch(() => route.path, async (newPath, oldPath) => {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-tertiary);
+}
+
+.session-source-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 6px;
+}
+
+.session-source-filter-btn {
+  height: 24px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0 10px;
+  transition: all 0.15s ease;
+}
+
+.session-source-filter-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-main);
+  background: var(--fill-tsp-gray-main);
+}
+
+.session-source-filter-btn-active {
+  color: var(--text-primary);
+  border-color: rgba(34, 158, 217, 0.45);
+  background: rgba(34, 158, 217, 0.14);
 }
 
 /* ===== NEW TASK BUTTON ===== */

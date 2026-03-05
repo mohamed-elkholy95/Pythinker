@@ -42,11 +42,22 @@
 
       <!-- Title -->
       <div class="flex-1 min-w-0">
-        <span class="block truncate text-sm text-[var(--text-primary)]"
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="block truncate text-sm text-[var(--text-primary)]"
           :class="isCurrentSession ? 'font-medium' : 'font-normal'"
           :title="displayTitle">
           {{ displayTitle }}
-        </span>
+          </span>
+          <span
+            v-if="isTelegramSession"
+            class="session-source-badge"
+            data-testid="session-source-telegram"
+            title="Telegram session"
+            aria-label="Telegram session"
+          >
+            <Send :size="10" />
+          </span>
+        </div>
       </div>
 
       <!-- Menu button (appears on hover) -->
@@ -73,7 +84,7 @@ import { useContextMenu, createMenuItem, createDangerMenuItem } from '../composa
 import { useDialog } from '../composables/useDialog';
 import { deleteSession, stopSession, shareSession, renameSession } from '../api/agent';
 import { showSuccessToast, showErrorToast } from '../utils/toast';
-import { Trash, Square, Share2, Pencil } from 'lucide-vue-next';
+import { Trash, Square, Share2, Pencil, Send } from 'lucide-vue-next';
 import { copyToClipboard } from '../utils/dom';
 
 interface Props {
@@ -106,6 +117,8 @@ const isCurrentSession = computed(() => {
 const isAgentsWorkspace = computed(() =>
   route.matched.some((record) => record.meta?.workspace === 'agents')
 );
+
+const isTelegramSession = computed(() => props.session.source === 'telegram');
 
 const isRunning = computed(() => {
   return props.session.status === SessionStatus.RUNNING || props.session.status === SessionStatus.PENDING;
@@ -218,5 +231,17 @@ const handleSessionMenuClick = (event: MouseEvent) => {
 }
 .animate-spin-slow {
   animation: spin-slow 1.2s linear infinite;
+}
+
+.session-source-badge {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #229ed9;
+  background: rgba(34, 158, 217, 0.14);
 }
 </style>
