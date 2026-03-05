@@ -183,6 +183,19 @@ class CircuitBreaker:
         # Store which type triggered the open (for open_seconds property)
         self._open_reason: str = "none"  # "429_storm" | "5xx_storm"
 
+    @classmethod
+    def from_settings(cls) -> "CircuitBreaker":
+        """Create a CircuitBreaker from application settings."""
+        try:
+            from app.core.config import get_settings
+            settings = get_settings()
+            return cls(
+                threshold=getattr(settings, "key_pool_cb_threshold", CIRCUIT_BREAKER_THRESHOLD),
+                reset_timeout=float(getattr(settings, "key_pool_cb_reset_timeout_5xx", CIRCUIT_BREAKER_RESET_TIMEOUT)),
+            )
+        except Exception:
+            return cls()
+
     @property
     def open_seconds(self) -> float:
         """Returns the open window duration depending on what triggered the open.
