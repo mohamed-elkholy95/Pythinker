@@ -385,12 +385,13 @@
           <!-- Hide when timed_out to avoid flicker during auto-retry reconnect cycles -->
           <Transition name="planning-card">
             <PlanningCard
-              v-if="showPlanningCard && planningCardState"
+              v-if="showPlanningCard && activePlanningCardState"
               class="mb-2"
-              :phase="planningCardState.phase"
-              :message="planningCardState.message"
-              :progressPercent="planningCardState.progressPercent"
-              :complexityCategory="planningCardState.complexityCategory"
+              :title="activePlanningCardState.title"
+              :phase="activePlanningCardState.phase"
+              :message="activePlanningCardState.message"
+              :progressPercent="activePlanningCardState.progressPercent"
+              :complexityCategory="activePlanningCardState.complexityCategory"
             />
           </Transition>
 
@@ -569,6 +570,7 @@ import {
   ReportEventData,
   StreamEventData,
   ProgressEventData,
+  PlanningPhase,
   PhaseTransitionEventData,
   CheckpointSavedEventData,
   SkillDeliveryEventData,
@@ -620,7 +622,11 @@ import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 import { useErrorBoundary } from '@/composables/useErrorBoundary';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 import { toEpochSeconds } from '@/utils/time';
-import { buildPlanningCardState } from '@/utils/planningCard';
+import {
+  buildPlanningCardState,
+  createPlanningPreviewBatcher,
+  normalizePlanningPhase,
+} from '@/utils/planningCard';
 import {
   getRestoreAbortReason,
   isTerminalSessionStatus,
@@ -680,6 +686,8 @@ const {
 // SSE connection management with stale detection
 let staleReconnectTimer: ReturnType<typeof setTimeout> | null = null
 let linkCopiedTimer: ReturnType<typeof setTimeout> | null = null
+let planningHandoffTimer: ReturnType<typeof setTimeout> | null = null
+const PLANNING_HANDOFF_MS = 650
 
 const handleStaleConnection = () => {
   console.warn('[SSE] Connection stale detected - attempting reconnection')
@@ -858,6 +866,43 @@ const {
 
 const chatViewMode = ref<'chat' | 'reasoning'>('chat');
 const reasoningTreeRef = ref<InstanceType<typeof ReasoningTreeView> | null>(null);
+const plannerThinkingPreview = ref('');
+const planningPreviewBatcher = createPlanningPreviewBatcher((nextText) => {
+  plannerThinkingPreview.value = nextText;
+});
+type ActivePlanningCardState = {
+  title?: string
+  phase: PlanningPhase
+  message: string
+  progressPercent?: number
+  complexityCategory?: 'simple' | 'medium' | 'complex'
+}
+const planningHandoffState = ref<ActivePlanningCardState | null>(null);
+
+const clearPlanningHandoff = (): void => {
+  if (planningHandoffTimer) {
+    clearTimeout(planningHandoffTimer);
+    planningHandoffTimer = null;
+  }
+  planningHandoffState.value = null;
+};
+
+const startPlanningHandoff = (
+  complexityCategory?: 'simple' | 'medium' | 'complex',
+): void => {
+  clearPlanningHandoff();
+  planningHandoffState.value = {
+    title: 'Plan ready',
+    phase: 'executing_setup',
+    message: 'Starting execution from the approved plan.',
+    progressPercent: 100,
+    complexityCategory,
+  };
+  planningHandoffTimer = setTimeout(() => {
+    planningHandoffTimer = null;
+    planningHandoffState.value = null;
+  }, PLANNING_HANDOFF_MS);
+};
 
 // Track latest running step description for NeuralFlow
 const lastStepDescription = ref<string | undefined>(undefined)
@@ -1572,6 +1617,8 @@ const cleanupStreamingState = () => {
   logChatSseDiagnostics('stream:cleanup')
   stopFallbackStatusPolling();
   thinkingText.value = '';
+  planningPreviewBatcher.reset('');
+  clearPlanningHandoff();
   isThinkingStreaming.value = false;
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
@@ -1770,6 +1817,8 @@ onUnmounted(() => {
     clearTimeout(staleReconnectTimer);
     staleReconnectTimer = null;
   }
+  clearPlanningHandoff();
+  planningPreviewBatcher.dispose();
   connectionStore.stopStaleDetection();
   stopFallbackStatusPolling();
 });
@@ -1999,8 +2048,12 @@ const planningCardState = computed(() => buildPlanningCardState({
       }
     : null,
   isThinkingStreaming: isThinkingStreaming.value,
-  thinkingText: thinkingText.value,
+  thinkingText: plannerThinkingPreview.value,
 }));
+
+const activePlanningCardState = computed<ActivePlanningCardState | null>(() =>
+  planningHandoffState.value ?? planningCardState.value
+);
 
 const showPlanningCard = computed(() =>
   !isChatMode.value &&
@@ -2009,8 +2062,8 @@ const showPlanningCard = computed(() =>
   !isTaskCompleted.value &&
   responsePhase.value !== 'timed_out' &&
   sessionResearchMode.value === 'deep_research' &&
-  !!planningCardState.value &&
-  (!plan.value || plan.value.steps.length === 0)
+  !!activePlanningCardState.value &&
+  (!!planningHandoffState.value || !plan.value || plan.value.steps.length === 0)
 );
 
 // ── PhaseStrip computed state ─────────────────────────────────────────────
@@ -2881,9 +2934,12 @@ const handleTitleEvent = (titleData: TitleEventData) => {
 // Handle plan event
 const handlePlanEvent = (planData: PlanEventData) => {
   // Clear thinking text and planning progress when plan arrives
+  const handoffComplexity = planningProgress.value?.complexityCategory;
   thinkingText.value = '';
+  planningPreviewBatcher.reset('');
   isThinkingStreaming.value = false;
   planningProgress.value = null;  // Clear progress - plan is ready
+  startPlanningHandoff(handoffComplexity);
   plan.value = planData;
 }
 
@@ -2911,9 +2967,12 @@ const handleStreamEvent = (streamData: StreamEventData) => {
   if (streamData.is_final) {
     isThinkingStreaming.value = false;
     thinkingText.value = '';
+    planningPreviewBatcher.reset('');
   } else {
+    const nextThinkingText = `${thinkingText.value}${streamData.content}`;
     isThinkingStreaming.value = true;
-    thinkingText.value += streamData.content;
+    thinkingText.value = nextThinkingText;
+    planningPreviewBatcher.push(nextThinkingText);
   }
 }
 
@@ -2921,6 +2980,8 @@ const handleStreamEvent = (streamData: StreamEventData) => {
 watch(isTaskCompleted, (completed) => {
   if (!completed) return;
   planningProgress.value = null;
+  planningPreviewBatcher.reset('');
+  clearPlanningHandoff();
 });
 
 // Handle progress event (instant feedback during planning)
@@ -2930,18 +2991,20 @@ const handleProgressEvent = (progressData: ProgressEventData) => {
   // Ignore late progress events after completion (can occur during stream tailing).
   if (isTaskCompleted.value) {
     planningProgress.value = null;
+    planningPreviewBatcher.reset('');
     return;
   }
 
   // Update planning progress for UI
-  const validPhases = ['received', 'analyzing', 'planning', 'finalizing', 'waiting'] as const;
-  const phase = validPhases.includes(progressData.phase as typeof validPhases[number])
-    ? progressData.phase as typeof validPhases[number]
-    : 'received';
+  const phase = normalizePlanningPhase(progressData.phase);
     
   if (phase === 'received') activeReasoningState.value = 'parsing';
   else if (phase === 'analyzing') activeReasoningState.value = 'intent';
   else if (phase === 'planning') activeReasoningState.value = 'planning';
+  else if (phase === 'verifying') activeReasoningState.value = 'quality_checking';
+  else if (phase === 'executing_setup') activeReasoningState.value = 'generation';
+
+  planningPreviewBatcher.cancelPending();
 
   planningProgress.value = {
     phase,
