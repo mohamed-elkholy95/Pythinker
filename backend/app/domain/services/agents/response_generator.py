@@ -464,6 +464,20 @@ class ResponseGenerator:
         if additional_issues:
             issues.extend(additional_issues)
 
+        # Graduated severity (design 4C)
+        critical_count = sum(1 for i in issues if i.get("severity") == "critical") if issues and isinstance(issues[0], dict) else 0
+        if critical_count > 0 or len(issues) >= 3:
+            gate_severity = "red"
+        elif len(issues) > 0:
+            gate_severity = "yellow"
+        else:
+            gate_severity = "green"
+
+        logger.info(
+            "Delivery gate: %s (%d issues, %d critical)",
+            gate_severity, len(issues), critical_count,
+        )
+
         if warnings:
             logger.warning("Delivery integrity warnings: %s", "; ".join(warnings))
 
