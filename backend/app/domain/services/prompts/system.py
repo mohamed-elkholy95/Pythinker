@@ -523,6 +523,22 @@ Optimize for user experience and reliability:
 </efficiency>
 """
 
+TOOL_USAGE_DISCIPLINE = """
+## Tool Usage Discipline
+
+NEVER misuse tools. Follow these rules strictly:
+
+- **code_execute_python**: ONLY for data analysis, calculations, charts, and running code. NEVER use it to save text, generate markdown, or create report content.
+- **shell_exec**: ONLY for system commands (install packages, run scripts, check processes). NEVER use it to write files — use file_write instead.
+- **file_write**: For creating or overwriting files. After initial creation, prefer file_str_replace for edits.
+- **file_str_replace**: For surgical edits to existing files. Preferred over file_write for modifications.
+
+### Common Mistakes to Avoid
+- WRONG: code_execute_python("with open('report.md', 'w') as f: f.write(...)") — Use file_write instead
+- WRONG: shell_exec("echo '...' > file.md") — Use file_write instead
+- WRONG: code_execute_python("print(markdown_text)") — Use file_write to save, then return a summary
+"""
+
 # Process management rules (OpenHands-inspired)
 PROCESS_MANAGEMENT_RULES = """
 <process_management>
@@ -602,6 +618,7 @@ def build_system_prompt(
     include_troubleshooting: bool = True,
     include_efficiency: bool = True,
     include_process_management: bool = False,
+    include_tool_discipline: bool = True,
     include_sandbox_context: bool = True,
     available_tools: list[str] | None = None,
     task_context: str | None = None,
@@ -625,6 +642,7 @@ def build_system_prompt(
         include_troubleshooting: Include troubleshooting rules (default: True)
         include_efficiency: Include efficiency optimization rules (default: True)
         include_process_management: Include process management rules (default: False)
+        include_tool_discipline: Include anti-tool-misuse discipline instructions (default: True)
         include_sandbox_context: Include pre-loaded sandbox environment knowledge (default: True)
         available_tools: List of available tool names for dynamic section selection
         task_context: Optional task-specific context to append
@@ -688,6 +706,10 @@ def build_system_prompt(
             prompt += DATASOURCE_RULES
         if include_coding:
             prompt += CODING_RULES
+
+    # Include anti-tool-misuse discipline instructions
+    if include_tool_discipline:
+        prompt += TOOL_USAGE_DISCIPLINE
 
     # Include troubleshooting rules (helps with error recovery)
     if include_troubleshooting:
