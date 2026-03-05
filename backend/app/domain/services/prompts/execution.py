@@ -1412,6 +1412,19 @@ This section MUST be present and complete.""")
     if depth in ("STANDARD", "DEEP"):
         parts.append(REPORT_CONSTRUCTION_PROTOCOL)
 
+    # Comprehensiveness signal for DEEP research (design 3D)
+    if depth == "DEEP":
+        parts.append("""
+## Comprehensiveness Requirements (DEEP Research)
+
+Your report MUST include ALL of the following:
+1. **Comparative Analysis**: Compare at least 2-3 alternatives or approaches
+2. **Real-World Examples**: Include concrete examples, case studies, or benchmarks
+3. **Limitations & Trade-offs**: Discuss known limitations, edge cases, and trade-offs
+4. **Actionable Recommendations**: End with specific, prioritized recommendations
+5. **Quantitative Data**: Include numbers, metrics, or benchmarks where available
+""")
+
     # Design & formatting guidelines (shared)
     parts.append("""
 DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
