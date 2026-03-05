@@ -100,11 +100,19 @@ const ariaValue = computed(() => {
       </span>
       <span class="phase-strip__elapsed">{{ formattedElapsed }}</span>
     </div>
+
+    <div v-if="stepProgress && stepProgress.total > 0" class="progress-bar">
+      <div
+        class="progress-fill"
+        :style="{ width: `${(stepProgress.current / stepProgress.total) * 100}%` }"
+      />
+    </div>
   </div>
 </template>
 
 <style scoped>
 .phase-strip {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -220,5 +228,22 @@ const ariaValue = computed(() => {
     box-shadow: 0 0 0 4px transparent;
     opacity: 0.7;
   }
+}
+
+/* --- Determinate progress bar --- */
+.progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--border-main, #e5e7eb);
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--status-running, #3b82f6);
+  transition: width 0.5s ease;
+  border-radius: 0 1px 1px 0;
 }
 </style>
