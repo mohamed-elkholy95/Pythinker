@@ -16,7 +16,6 @@ from app.domain.models.agent_response import PlanResponse, StepResponse
 from app.domain.models.message import Message
 from app.domain.services.agents.planner import PlannerAgent
 
-
 # ---------------------------------------------------------------------------
 # Helpers / Fixtures
 # ---------------------------------------------------------------------------
@@ -115,7 +114,7 @@ async def test_non_draft_uses_default_model():
         # _stream_thinking is an async generator; mock it to yield nothing
         async def _empty_gen(*_a, **_kw):
             return
-            yield  # noqa: unreachable
+            yield
 
         mock_think.side_effect = _empty_gen
         settings = MagicMock()

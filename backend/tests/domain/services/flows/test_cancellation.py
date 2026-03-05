@@ -1,6 +1,9 @@
 """Tests for cooperative CancellationSignal."""
+
 import asyncio
+
 import pytest
+
 from app.domain.services.flows.cancellation import CancellationSignal
 
 
@@ -38,7 +41,7 @@ async def test_wait_returns_true_when_cancelled():
         await asyncio.sleep(0.05)
         signal.cancel()
 
-    asyncio.create_task(cancel_later())
+    bg_task = asyncio.create_task(cancel_later())  # noqa: RUF006, F841
     result = await signal.wait(deadline=1.0)
     assert result is True
 
