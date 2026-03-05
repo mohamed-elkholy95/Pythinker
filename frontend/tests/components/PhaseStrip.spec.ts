@@ -51,4 +51,28 @@ describe('PhaseStrip', () => {
     const done = wrapper.find('[data-phase="done"]')
     expect(done.classes()).toContain('phase--pending')
   })
+
+  it('shows progress bar when step progress is available', () => {
+    const wrapper = mount(PhaseStrip, {
+      props: {
+        currentPhase: 'searching' as const,
+        startTime: Date.now(),
+        stepProgress: { current: 2, total: 4 },
+      },
+    })
+    const bar = wrapper.find('.progress-fill')
+    expect(bar.exists()).toBe(true)
+    expect(bar.attributes('style')).toContain('width: 50%')
+  })
+
+  it('hides progress bar when no step progress', () => {
+    const wrapper = mount(PhaseStrip, {
+      props: {
+        currentPhase: 'planning' as const,
+        startTime: Date.now(),
+        stepProgress: null,
+      },
+    })
+    expect(wrapper.find('.progress-bar').exists()).toBe(false)
+  })
 })
