@@ -22,6 +22,9 @@ class FlowStatus(str, Enum):
     COMPLETED = "completed"
     ERROR = "error"
     PAUSED = "paused"
+    VERIFYING = "verifying"
+    REFLECTING = "reflecting"
+    FAILED = "failed"
 
 
 class FlowStateSnapshot(BaseModel):
