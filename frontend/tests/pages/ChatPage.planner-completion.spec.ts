@@ -50,6 +50,85 @@ describe('ChatPage - Planner Completion Behavior', () => {
 
     expect(planningProgress.value).toBeNull()
   })
+
+  it('keeps planning card visible during a short plan-ready handoff', () => {
+    const showSessionWarmupMessage = ref(false)
+    const isToolPanelOpen = ref(false)
+    const isTaskCompleted = ref(false)
+    const responsePhase = ref<'streaming' | 'timed_out'>('streaming')
+    const sessionResearchMode = ref<'deep_research' | 'fast_search'>('deep_research')
+    const planningCardState = ref<{
+      phase: string
+      message: string
+    } | null>(null)
+    const planningHandoffState = ref<{
+      title?: string
+      phase: string
+      message: string
+    } | null>({
+      title: 'Plan ready',
+      phase: 'executing_setup',
+      message: 'Starting execution from the approved plan.',
+    })
+    const planStepCount = ref(3)
+
+    const activePlanningCardState = computed(() =>
+      planningHandoffState.value ?? planningCardState.value
+    )
+
+    const showPlanningCard = computed(() =>
+      !showSessionWarmupMessage.value &&
+      !isToolPanelOpen.value &&
+      !isTaskCompleted.value &&
+      responsePhase.value !== 'timed_out' &&
+      sessionResearchMode.value === 'deep_research' &&
+      !!activePlanningCardState.value &&
+      (!!planningHandoffState.value || planStepCount.value === 0)
+    )
+
+    expect(showPlanningCard.value).toBe(true)
+  })
+
+  it('clears plan-ready handoff after the timeout', () => {
+    const planningHandoffState = ref<{
+      title?: string
+      phase: string
+      message: string
+      progressPercent?: number
+    } | null>(null)
+    let planningHandoffTimer: ReturnType<typeof setTimeout> | null = null
+
+    const clearPlanningHandoff = () => {
+      if (planningHandoffTimer) {
+        clearTimeout(planningHandoffTimer)
+        planningHandoffTimer = null
+      }
+      planningHandoffState.value = null
+    }
+
+    const startPlanningHandoff = () => {
+      clearPlanningHandoff()
+      planningHandoffState.value = {
+        title: 'Plan ready',
+        phase: 'executing_setup',
+        message: 'Starting execution from the approved plan.',
+        progressPercent: 100,
+      }
+      planningHandoffTimer = setTimeout(() => {
+        planningHandoffTimer = null
+        planningHandoffState.value = null
+      }, 650)
+    }
+
+    startPlanningHandoff()
+    expect(planningHandoffState.value?.title).toBe('Plan ready')
+
+    vi.advanceTimersByTime(649)
+    expect(planningHandoffState.value?.title).toBe('Plan ready')
+
+    vi.advanceTimersByTime(1)
+    expect(planningHandoffState.value).toBeNull()
+  })
 })
 
 // ── PhaseStrip integration logic tests ──────────────────────────────

@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildPlanningCardState,
+  createPlanningPreviewBatcher,
+  normalizePlanningPhase,
   summarizeThinkingText,
   type PlanningProgressState,
 } from '@/utils/planningCard'
@@ -78,5 +80,59 @@ describe('planningCard utils', () => {
     expect(result.startsWith('This first sentence is deliberately long')).toBe(true)
     expect(result.endsWith('...')).toBe(true)
     expect(result.includes('Second sentence')).toBe(false)
+  })
+
+  it('preserves extended planning phases instead of collapsing them to received', () => {
+    expect(normalizePlanningPhase('verifying')).toBe('verifying')
+    expect(normalizePlanningPhase('executing_setup')).toBe('executing_setup')
+  })
+
+  it('falls back to received for unknown planning phases', () => {
+    expect(normalizePlanningPhase('not_a_real_phase')).toBe('received')
+  })
+})
+
+describe('planning preview batcher', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('flushes the first preview immediately and batches later updates', () => {
+    const seen: string[] = []
+    const batcher = createPlanningPreviewBatcher((next) => {
+      seen.push(next)
+    }, 50)
+
+    batcher.push('A')
+    batcher.push('AB')
+    batcher.push('ABC')
+
+    expect(seen).toEqual(['A'])
+
+    vi.advanceTimersByTime(49)
+    expect(seen).toEqual(['A'])
+
+    vi.advanceTimersByTime(1)
+    expect(seen).toEqual(['A', 'ABC'])
+  })
+
+  it('resets immediately and cancels pending batched updates', () => {
+    const seen: string[] = []
+    const batcher = createPlanningPreviewBatcher((next) => {
+      seen.push(next)
+    }, 50)
+
+    batcher.push('Thinking')
+    batcher.push('Thinking harder')
+    batcher.reset('')
+
+    expect(seen).toEqual(['Thinking', ''])
+
+    vi.advanceTimersByTime(50)
+    expect(seen).toEqual(['Thinking', ''])
   })
 })
