@@ -10,7 +10,7 @@ from pathlib import Path
 from loguru import logger
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 from telegram.error import NetworkError, RetryAfter, TimedOut
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
 from nanobot.bus.events import OutboundMessage
@@ -167,6 +167,7 @@ class TelegramChannel(BaseChannel):
         self._app.add_handler(CommandHandler("link", self._forward_command))
         self._app.add_handler(CommandHandler("bind", self._forward_command))
         self._app.add_handler(CommandHandler("help", self._on_help))
+        self._app.add_handler(CallbackQueryHandler(self._on_callback_query, pattern=r"^telegram:get_pdf:last$"))
 
         # Add message handler for text, photos, voice, documents
         self._app.add_handler(
@@ -200,7 +201,7 @@ class TelegramChannel(BaseChannel):
 
         # Start polling (this runs until stopped)
         await self._app.updater.start_polling(
-            allowed_updates=["message"],
+            allowed_updates=["message", "callback_query"],
             drop_pending_updates=True  # Ignore old messages on startup
         )
 
@@ -551,6 +552,29 @@ class TelegramChannel(BaseChannel):
             sender_id=self._sender_id(update.effective_user),
             chat_id=str(update.message.chat_id),
             content=update.message.text,
+        )
+
+    async def _on_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline keyboard callbacks and forward supported actions to router."""
+        del context
+        callback = update.callback_query
+        if callback is None:
+            return
+
+        data = (callback.data or "").strip()
+        await callback.answer()
+
+        if data != "telegram:get_pdf:last":
+            return
+
+        user = callback.from_user
+        if user is None or callback.message is None:
+            return
+
+        await self._handle_message(
+            sender_id=self._sender_id(user),
+            chat_id=str(callback.message.chat_id),
+            content="/pdf",
         )
 
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
