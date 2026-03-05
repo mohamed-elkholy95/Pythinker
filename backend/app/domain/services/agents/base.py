@@ -1517,7 +1517,7 @@ class BaseAgent:
 
             tool_calls = message["tool_calls"]
             tool_responses = []
-            skip_tool_execution_for_wall_clock = False
+            wall_clock_pressure_active: str | None = None
 
             # Check for hallucination loop escalation
             if self._hallucination_detector.should_inject_correction_prompt():
@@ -1603,7 +1603,7 @@ class BaseAgent:
                             ),
                         }])
                         graceful_completion_requested = True
-                        skip_tool_execution_for_wall_clock = True
+                        wall_clock_pressure_active = "URGENT"
 
                     elif pressure == "CRITICAL" and not wall_clock_critical_sent:
                         wall_clock_critical_sent = True
@@ -1620,7 +1620,7 @@ class BaseAgent:
                             ),
                         }])
                         graceful_completion_requested = True
-                        skip_tool_execution_for_wall_clock = True
+                        wall_clock_pressure_active = "CRITICAL"
 
             # Check if we're approaching the limit
             remaining_budget = iteration_budget - iteration_spent
@@ -1641,8 +1641,13 @@ class BaseAgent:
                 )
                 graceful_completion_requested = True
 
-            if skip_tool_execution_for_wall_clock:
-                tool_calls = []
+            if wall_clock_pressure_active:
+                tool_calls = [
+                    tc for tc in tool_calls
+                    if not _should_block_tool_at_pressure(
+                        tc.get("function", {}).get("name", ""), wall_clock_pressure_active,
+                    )
+                ]
 
             # Check if we can execute tools in parallel
             if self._can_parallelize_tools(tool_calls):
