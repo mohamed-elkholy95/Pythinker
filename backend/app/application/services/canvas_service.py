@@ -368,13 +368,22 @@ class CanvasService:
         user_prompt = f"Instruction: {instruction}\n\nCanvas context (JSON):\n{json.dumps(context, indent=2)}"
 
         try:
-            plan = await llm.ask_structured(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                response_model=CanvasEditPlan,
-            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            policy_method = getattr(llm, "ask_structured_with_policy", None)
+            if callable(policy_method):
+                plan = await policy_method(
+                    messages=messages,
+                    response_model=CanvasEditPlan,
+                    tier="B",
+                )
+            else:
+                plan = await llm.ask_structured(
+                    messages=messages,
+                    response_model=CanvasEditPlan,
+                )
         except Exception as exc:
             logger.warning("AI edit parsing failed: %s", exc)
             return None

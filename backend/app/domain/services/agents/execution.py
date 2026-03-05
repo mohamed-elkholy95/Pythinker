@@ -397,7 +397,7 @@ class ExecutionAgent(BaseAgent):
                 elif isinstance(event, MessageEvent):
                     parsed_response: Any = None
                     try:
-                        parsed_response = await self.json_parser.parse(event.message)
+                        parsed_response = await self.json_parser.parse(event.message, tier="B")
                     except Exception as parse_err:
                         logger.warning(f"Failed to parse step response as JSON: {parse_err}")
                         parsed_response = parse_json_response(event.message, default=None)

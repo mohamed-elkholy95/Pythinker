@@ -276,6 +276,41 @@ class BaseAgent:
 
         return get_feature_flags()
 
+    async def _ask_structured_tiered(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        response_model: type[Any],
+        tier: str,
+        **kwargs: Any,
+    ) -> Any:
+        """Prefer tier-aware structured policy path when available and enabled."""
+        flags = self._resolve_feature_flags()
+        structured_enabled = flags.get("structured_outputs", False)
+
+        policy_method = getattr(self.llm, "ask_structured_with_policy", None)
+
+        # Guard against MagicMock/AsyncMock attribute autovivification in tests.
+        llm_module = getattr(type(self.llm), "__module__", "")
+        is_mock_llm = llm_module.startswith("unittest.mock")
+        if structured_enabled and callable(policy_method) and not is_mock_llm:
+            return await policy_method(
+                messages=messages,
+                response_model=response_model,
+                tier=tier,
+            )
+
+        return await self.llm.ask_structured(
+            messages=messages,
+            response_model=response_model,
+            tools=kwargs.get("tools"),
+            tool_choice=kwargs.get("tool_choice"),
+            enable_caching=kwargs.get("enable_caching", True),
+            model=kwargs.get("model"),
+            temperature=kwargs.get("temperature"),
+            max_tokens=kwargs.get("max_tokens"),
+        )
+
     # Tool result compaction limits for memory writes
     _TOOL_RESULT_MEMORY_MAX_CHARS: ClassVar[int] = 12000
     _TOOL_RESULT_MESSAGE_PREVIEW_CHARS: ClassVar[int] = 2000

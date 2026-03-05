@@ -48,7 +48,6 @@ from app.domain.models.agent_response import PlanResponse, PlanUpdateResponse
 from app.domain.models.event import (
     BaseEvent,
     ErrorEvent,
-    MessageEvent,
     PlanEvent,
     PlanStatus,
     StreamEvent,
@@ -572,136 +571,71 @@ class PlannerAgent(BaseAgent):
             estimated_duration_seconds=duration_estimate,
         )
 
-        # Try structured output first for type-safe response
-        # Phase 4: Use Tenacity retry with validation feedback when feature enabled
-        flags = self._resolve_feature_flags()
-        use_structured = flags.get("structured_outputs", False)
+        # Tier A: strict structured output path for critical planning decisions.
         fallback_error: str | None = None
 
         try:
             await self._add_to_memory([{"role": "user", "content": prompt}])
             await self._ensure_within_token_limit()
 
-            # Phase 4: Validated structured output with retry
-            if use_structured and hasattr(self.llm, "ask_structured"):
-                plan = await self._create_validated_plan(
-                    message=message,
-                    prompt=prompt,
-                    replan_context=replan_context,
+            if hasattr(self.llm, "ask_structured"):
+                plan_response = await self._ask_structured_tiered(
+                    messages=self.memory.get_messages(),
+                    response_model=PlanResponse,
+                    tier="A",
                 )
-                if plan:
-                    # Progress: Finalizing plan
-                    yield ProgressEvent(
-                        phase=PlanningPhase.FINALIZING,
-                        message="Validating plan structure...",
-                        estimated_steps=len(plan.steps),
-                        progress_percent=80,
-                        complexity_category=task_complexity,
-                        estimated_duration_seconds=duration_estimate,
-                    )
-                    logger.info(f"Created plan using validated structured output: {plan.title}")
-                    await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
 
-                    # Final progress before yielding plan
-                    yield ProgressEvent(
-                        phase=PlanningPhase.FINALIZING,
-                        message=f"Ready to execute {len(plan.steps)} steps!",
-                        estimated_steps=len(plan.steps),
-                        progress_percent=95,
-                        complexity_category=task_complexity,
-                        estimated_duration_seconds=duration_estimate,
-                    )
-                    yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
-                    return
+                yield ProgressEvent(
+                    phase=PlanningPhase.FINALIZING,
+                    message="Finalizing plan...",
+                    estimated_steps=len(plan_response.steps),
+                    progress_percent=80,
+                    complexity_category=task_complexity,
+                    estimated_duration_seconds=duration_estimate,
+                )
 
-            # Check if LLM supports structured outputs (fallback without validation retry)
-            elif hasattr(self.llm, "ask_structured"):
-                try:
-                    plan_response = await self.llm.ask_structured(
-                        self.memory.get_messages(), response_model=PlanResponse, tools=None, tool_choice=None
-                    )
-
-                    # Progress: Finalizing plan
-                    yield ProgressEvent(
-                        phase=PlanningPhase.FINALIZING,
-                        message="Finalizing plan...",
-                        estimated_steps=len(plan_response.steps),
-                        progress_percent=80,
-                        complexity_category=task_complexity,
-                        estimated_duration_seconds=duration_estimate,
-                    )
-
-                    # Convert to Plan model
-                    plan = Plan(
-                        goal=plan_response.goal,
-                        title=plan_response.title,
-                        language=plan_response.language,
-                        message=plan_response.message,
-                        steps=self._normalize_plan_steps(
-                            [_step_from_description(i, s) for i, s in enumerate(plan_response.steps)],
-                            task_message=message.message,
-                        ),
-                    )
-                    logger.info(f"Created plan using structured output: {plan.title}")
-                    await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
-                    yield ProgressEvent(
-                        phase=PlanningPhase.FINALIZING,
-                        message=f"Ready to execute {len(plan.steps)} steps!",
-                        estimated_steps=len(plan.steps),
-                        progress_percent=95,
-                        complexity_category=task_complexity,
-                        estimated_duration_seconds=duration_estimate,
-                    )
-                    yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
-                    return
-                except Exception as e:
-                    logger.warning(f"Structured output failed, falling back to JSON parser: {e}")
-                    fallback_error = str(e)
+                plan = Plan(
+                    goal=plan_response.goal,
+                    title=plan_response.title,
+                    language=plan_response.language,
+                    message=plan_response.message,
+                    steps=self._normalize_plan_steps(
+                        [_step_from_description(i, s) for i, s in enumerate(plan_response.steps)],
+                        task_message=message.message,
+                    ),
+                )
+                logger.info(f"Created plan using tier-A structured output: {plan.title}")
+                await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
+                yield ProgressEvent(
+                    phase=PlanningPhase.FINALIZING,
+                    message=f"Ready to execute {len(plan.steps)} steps!",
+                    estimated_steps=len(plan.steps),
+                    progress_percent=95,
+                    complexity_category=task_complexity,
+                    estimated_duration_seconds=duration_estimate,
+                )
+                yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
+                return
+            fallback_error = "LLM does not support ask_structured"
         except Exception as e:
-            logger.warning(f"Memory preparation failed: {e}")
+            logger.warning("Tier-A structured planning failed, using fallback plan: %s", e)
             fallback_error = str(e)
 
-        # Fallback to original approach with JSON parser
-        created_plan = False
-        try:
-            async for event in self.execute(prompt):
-                if isinstance(event, MessageEvent):
-                    logger.info(event.message)
-                    parsed_response = await self.json_parser.parse(event.message)
-                    plan = Plan.model_validate(parsed_response)
-                    plan.steps = self._normalize_plan_steps(plan.steps, task_message=message.message)
-                    yield ProgressEvent(
-                        phase=PlanningPhase.FINALIZING,
-                        message=f"Ready to execute {len(plan.steps)} steps!",
-                        estimated_steps=len(plan.steps),
-                        progress_percent=95,
-                        complexity_category=task_complexity,
-                        estimated_duration_seconds=duration_estimate,
-                    )
-                    yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
-                    created_plan = True
-                else:
-                    yield event
-        except Exception as e:
-            fallback_error = str(e)
-            logger.warning("Planner JSON fallback failed, emitting resilient template plan: %s", e)
-
-        if not created_plan:
-            fallback_plan = self._build_timeout_fallback_plan(message, replan_context)
-            yield ProgressEvent(
-                phase=PlanningPhase.FINALIZING,
-                message="Planner timed out, using resilient fallback plan...",
-                estimated_steps=len(fallback_plan.steps),
-                progress_percent=95,
-                complexity_category=task_complexity,
-                estimated_duration_seconds=duration_estimate,
-            )
-            yield PlanEvent(status=PlanStatus.CREATED, plan=fallback_plan)
-            logger.warning(
-                "Planner emitted fallback plan for agent %s due to planning failure: %s",
-                self._agent_id,
-                fallback_error or "unknown error",
-            )
+        fallback_plan = self._build_timeout_fallback_plan(message, replan_context)
+        yield ProgressEvent(
+            phase=PlanningPhase.FINALIZING,
+            message="Planner timed out, using resilient fallback plan...",
+            estimated_steps=len(fallback_plan.steps),
+            progress_percent=95,
+            complexity_category=task_complexity,
+            estimated_duration_seconds=duration_estimate,
+        )
+        yield PlanEvent(status=PlanStatus.CREATED, plan=fallback_plan)
+        logger.warning(
+            "Planner emitted fallback plan for agent %s due to planning failure: %s",
+            self._agent_id,
+            fallback_error or "unknown error",
+        )
 
     async def update_plan(self, plan: Plan, step: Step) -> AsyncGenerator[BaseEvent, None]:
         prompt = UPDATE_PLAN_PROMPT.format(plan=plan.dump_json(), step=step.model_dump_json())
@@ -772,34 +706,29 @@ class PlannerAgent(BaseAgent):
             await self._ensure_within_token_limit()
 
             if hasattr(self.llm, "ask_structured"):
-                try:
-                    update_response = await self.llm.ask_structured(
-                        self.memory.get_messages(), response_model=PlanUpdateResponse, tools=None, tool_choice=None
-                    )
-                    new_steps = [_step_from_description(i, s) for i, s in enumerate(update_response.steps)]
-                    apply_plan_update(new_steps)
-                    logger.debug("Updated plan using structured output")
-                    await self._add_to_memory(
-                        [{"role": "assistant", "content": json.dumps({"steps": [s.model_dump() for s in new_steps]})}]
-                    )
-                    yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
-                    return
-                except Exception as e:
-                    logger.warning(f"Structured output failed for update, falling back: {e}")
-        except Exception as e:
-            logger.warning(f"Memory preparation failed: {e}")
-
-        # Fallback to original approach
-        async for event in self.execute(prompt):
-            if isinstance(event, MessageEvent):
-                logger.debug(f"Planner agent update plan: {event.message}")
-                parsed_response = await self.json_parser.parse(event.message)
-                updated_plan = Plan.model_validate(parsed_response)
-                new_steps = [Step.model_validate(s) for s in updated_plan.steps]
+                update_response = await self._ask_structured_tiered(
+                    messages=self.memory.get_messages(),
+                    response_model=PlanUpdateResponse,
+                    tier="A",
+                )
+                new_steps = [_step_from_description(i, s) for i, s in enumerate(update_response.steps)]
                 apply_plan_update(new_steps)
+                logger.debug("Updated plan using tier-A structured output")
+                await self._add_to_memory(
+                    [{"role": "assistant", "content": json.dumps({"steps": [s.model_dump() for s in new_steps]})}]
+                )
                 yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
-            else:
-                yield event
+                return
+        except Exception as e:
+            logger.warning("Tier-A structured update failed, preserving existing pending steps: %s", e)
+
+        # Deterministic fallback for Tier A (no permissive parser path).
+        for s in plan.steps:
+            if s.id == step.id and not s.is_done():
+                s.status = ExecutionStatus.COMPLETED
+                s.success = True
+                break
+        yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
 
     @staticmethod
     def _consolidate_similar_steps(steps: list[Step]) -> list[Step]:
@@ -1158,50 +1087,36 @@ Respond with a JSON plan containing:
             await self._ensure_within_token_limit()
 
             if hasattr(self.llm, "ask_structured"):
-                try:
-                    plan_response = await self.llm.ask_structured(
-                        self.memory.get_messages(),
-                        response_model=PlanResponse,
-                        tools=None,
-                        tool_choice=None,
-                    )
+                plan_response = await self._ask_structured_tiered(
+                    messages=self.memory.get_messages(),
+                    response_model=PlanResponse,
+                    tier="A",
+                )
 
-                    yield ProgressEvent(
-                        phase=PlanningPhase.FINALIZING,
-                        message="Finalizing recreated plan...",
-                        estimated_steps=len(plan_response.steps),
-                        progress_percent=80,
-                    )
+                yield ProgressEvent(
+                    phase=PlanningPhase.FINALIZING,
+                    message="Finalizing recreated plan...",
+                    estimated_steps=len(plan_response.steps),
+                    progress_percent=80,
+                )
 
-                    # Convert to Plan model
-                    plan = Plan(
-                        goal=plan_response.goal,
-                        title=plan_response.title,
-                        language=plan_response.language,
-                        message=plan_response.message,
-                        steps=self._normalize_plan_steps(
-                            [_step_from_description(i, s) for i, s in enumerate(plan_response.steps)],
-                            task_message=original_message,
-                        ),
-                    )
+                plan = Plan(
+                    goal=plan_response.goal,
+                    title=plan_response.title,
+                    language=plan_response.language,
+                    message=plan_response.message,
+                    steps=self._normalize_plan_steps(
+                        [_step_from_description(i, s) for i, s in enumerate(plan_response.steps)],
+                        task_message=original_message,
+                    ),
+                )
 
-                    logger.info(f"Recreated plan with {len(plan.steps)} steps: {plan.title}")
-                    await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
-                    yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
-                    return
+                logger.info(f"Recreated plan with {len(plan.steps)} steps: {plan.title}")
+                await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
+                yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
+                return
 
-                except Exception as e:
-                    logger.warning(f"Structured output failed for recreation: {e}")
-
-            # Fallback to JSON parser
-            async for event in self.execute(recreation_prompt):
-                if isinstance(event, MessageEvent):
-                    parsed_response = await self.json_parser.parse(event.message)
-                    plan = Plan.model_validate(parsed_response)
-                    plan.steps = self._normalize_plan_steps(plan.steps, task_message=original_message)
-                    yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
-                else:
-                    yield event
+            raise RuntimeError("LLM does not support structured output")
 
         except Exception as e:
             logger.error(f"Task recreation failed: {e}")

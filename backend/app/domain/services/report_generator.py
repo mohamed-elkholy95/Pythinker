@@ -61,10 +61,18 @@ class ReportGenerator:
         for attempt in range(self.MAX_RETRIES):
             try:
                 # Use structured output for type-safe generation
-                report = await self.llm.ask_structured(
-                    messages=messages,
-                    response_model=model_class,
-                )
+                policy_method = getattr(self.llm, "ask_structured_with_policy", None)
+                if callable(policy_method):
+                    report = await policy_method(
+                        messages=messages,
+                        response_model=model_class,
+                        tier="A",
+                    )
+                else:
+                    report = await self.llm.ask_structured(
+                        messages=messages,
+                        response_model=model_class,
+                    )
 
                 # Build metadata
                 metadata = ReportMetadata(
