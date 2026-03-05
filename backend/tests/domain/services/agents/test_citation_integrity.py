@@ -155,3 +155,63 @@ class TestNormalizeCitationNumbering:
             "[2] Source B - https://b.com\n"
         )
         assert normalize_citation_numbering(report) == report
+
+
+class TestSourceRegistry:
+    """Test pre-generation stable source numbering."""
+
+    def test_registry_assigns_stable_ids(self):
+        from app.domain.services.agents.citation_integrity import SourceRegistry
+
+        registry = SourceRegistry()
+        id1 = registry.register("https://example.com/a", "Source A")
+        id2 = registry.register("https://example.com/b", "Source B")
+        id3 = registry.register("https://example.com/a", "Source A Duplicate")
+
+        assert id1 == 1
+        assert id2 == 2
+        assert id3 == 1  # Same URL → same ID
+        assert registry.count == 2
+
+    def test_registry_get_id(self):
+        from app.domain.services.agents.citation_integrity import SourceRegistry
+
+        registry = SourceRegistry()
+        registry.register("https://example.com/a", "Source A")
+        assert registry.get_id("https://example.com/a") == 1
+        assert registry.get_id("https://unknown.com") is None
+
+    def test_registry_builds_references(self):
+        from app.domain.services.agents.citation_integrity import SourceRegistry
+
+        registry = SourceRegistry()
+        registry.register("https://example.com/a", "Source A")
+        registry.register("https://example.com/b", "Source B")
+        refs = registry.build_references_section()
+        assert "[1] Source A - https://example.com/a" in refs
+        assert "[2] Source B - https://example.com/b" in refs
+
+    def test_fuzzy_match_no_match(self):
+        from app.domain.services.agents.citation_integrity import fuzzy_match_orphan
+
+        refs = {1: "JAX Framework Overview - https://jax.dev"}
+        result = fuzzy_match_orphan("completely unrelated text about cooking", refs)
+        assert result is None
+
+    def test_fuzzy_match_with_overlap(self):
+        from app.domain.services.agents.citation_integrity import fuzzy_match_orphan
+
+        refs = {
+            1: "JAX Framework Overview guide tutorial",
+            2: "PyTorch Deep Learning basics",
+        }
+        result = fuzzy_match_orphan("JAX Framework performance guide", refs)
+        assert result == 1
+
+    def test_url_normalization(self):
+        from app.domain.services.agents.citation_integrity import SourceRegistry
+
+        registry = SourceRegistry()
+        id1 = registry.register("https://Example.com/path/", "Source")
+        id2 = registry.register("https://example.com/path", "Source 2")
+        assert id1 == id2  # Same after normalization
