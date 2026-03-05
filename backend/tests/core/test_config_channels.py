@@ -74,6 +74,18 @@ class TestTelegramDefaults:
     def test_telegram_adapter_resilience_defaults(self, settings):
         assert settings.telegram_rate_limit_cooldown_seconds == 3
         assert settings.telegram_max_messages_per_batch == 5
+        assert settings.telegram_final_delivery_only is True
+        assert settings.telegram_final_delivery_allow_wait_prompts is True
+        assert settings.telegram_polling_bootstrap_retries == 5
+        assert settings.telegram_polling_stall_restart_enabled is True
+        assert settings.telegram_polling_stall_timeout_seconds == 60
+        assert settings.telegram_send_retry_max_attempts == 5
+        assert settings.telegram_send_retry_base_delay_seconds == 1.0
+        assert settings.telegram_send_retry_max_delay_seconds == 30.0
+        assert settings.telegram_send_retry_jitter is True
+        assert settings.telegram_send_circuit_breaker_enabled is True
+        assert settings.telegram_send_circuit_failure_threshold == 5
+        assert settings.telegram_send_circuit_recovery_timeout_seconds == 30
 
 
 class TestDiscordDefaults:
@@ -192,3 +204,10 @@ class TestChannelEnvOverride:
 
         s = Settings()
         assert s.subagent_max_concurrent == 5
+
+    def test_telegram_final_delivery_only_from_env(self, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_FINAL_DELIVERY_ONLY", "false")
+        from app.core.config import Settings
+
+        s = Settings()
+        assert s.telegram_final_delivery_only is False

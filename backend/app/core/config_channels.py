@@ -46,6 +46,18 @@ class ChannelSettingsMixin:
     telegram_pdf_max_memory_mb: int = 100
     telegram_rate_limit_cooldown_seconds: int = 3
     telegram_max_messages_per_batch: int = 5
+    telegram_final_delivery_only: bool = True
+    telegram_final_delivery_allow_wait_prompts: bool = True
+    telegram_polling_bootstrap_retries: int = 5
+    telegram_polling_stall_restart_enabled: bool = True
+    telegram_polling_stall_timeout_seconds: int = 60
+    telegram_send_retry_max_attempts: int = 5
+    telegram_send_retry_base_delay_seconds: float = 1.0
+    telegram_send_retry_max_delay_seconds: float = 30.0
+    telegram_send_retry_jitter: bool = True
+    telegram_send_circuit_breaker_enabled: bool = True
+    telegram_send_circuit_failure_threshold: int = 5
+    telegram_send_circuit_recovery_timeout_seconds: int = 30
 
     # ── Discord ───────────────────────────────────────────────────────────
     discord_bot_token: str = ""
