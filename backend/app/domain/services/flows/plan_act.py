@@ -1322,7 +1322,17 @@ class PlanActFlow(BaseFlow):
         try:
             from app.domain.services.agents.token_budget_manager import TokenBudgetManager
 
-            budget_mgr = TokenBudgetManager(self.executor._token_manager)
+            # Read hard planning cap from settings (default 0.30)
+            from app.core.config import get_settings as _get_budget_settings
+
+            _bs = _get_budget_settings()
+            planning_cap = getattr(_bs, "token_budget_planning_cap", 0.30)
+
+            budget_mgr = TokenBudgetManager(
+                self.executor._token_manager,
+                research_mode=self._research_mode,
+                planning_cap=planning_cap,
+            )
             self._token_budget = budget_mgr.create_budget()
 
             # Propagate budget to all agents

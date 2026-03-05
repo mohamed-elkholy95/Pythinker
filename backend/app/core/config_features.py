@@ -278,7 +278,7 @@ class FeatureFlagsSettingsMixin:
     # Fast draft planning — uses FAST_MODEL for research tasks, skips verification
     # When enabled for research_mode tasks: planner uses FAST_MODEL, verification skipped
     # if plan has <= fast_draft_plan_max_steps steps
-    feature_fast_draft_plan: bool = False
+    feature_fast_draft_plan: bool = True
     fast_draft_plan_max_steps: int = 5
 
     # Chart Generation (Plotly Migration Phase 4)
@@ -353,7 +353,11 @@ class FeatureFlagsSettingsMixin:
     step_budget_deep_seconds: float = 900.0      # DEEP research: 15 min
 
     # Architecture Enhancement Plan — Phase 2: Token Budget Manager & Context Handler
-    feature_token_budget_manager: bool = False  # Proactive phase-level token budgeting
+    feature_token_budget_manager: bool = True  # Proactive phase-level token budgeting
+
+    # Hard cap: planning phase may never exceed this fraction of total budget,
+    # regardless of research mode profile. Prevents runaway planning.
+    token_budget_planning_cap: float = 0.30
 
     # Repetitive same-tool loop detection (2026-03-01 session reliability fixes)
     feature_repetitive_tool_detection_enabled: bool = True
