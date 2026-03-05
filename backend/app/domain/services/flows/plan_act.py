@@ -1294,6 +1294,8 @@ class PlanActFlow(BaseFlow):
         if new_status == AgentStatus.EXECUTING:
             self._plan_validation_failures = 0
             self._error_recovery.reset_cycle_counter()
+            # Pre-search health check (design 5B)
+            self._log_search_health()
 
         # Set phase-based tool filtering on agents to reduce hallucination
         if new_status == AgentStatus.PLANNING:
@@ -1349,6 +1351,38 @@ class PlanActFlow(BaseFlow):
         except Exception as e:
             logger.warning("Failed to initialize token budget (non-critical): %s", e)
             self._token_budget = None
+
+    def _log_search_health(self) -> None:
+        """Schedule async search provider health check before execution (design 5B)."""
+        try:
+            engine = self._search_engine
+            if engine and hasattr(engine, "get_health_summary"):
+                _health_task = asyncio.ensure_future(self._log_search_health_async(engine))
+                _health_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+        except Exception:
+            logger.debug("Search health check scheduling failed (non-critical)", exc_info=True)
+
+    @staticmethod
+    async def _log_search_health_async(engine: Any) -> None:
+        """Async helper: log search provider health summary."""
+        try:
+            summary = await engine.get_health_summary()
+            if not summary:
+                return
+            healthy = sum(1 for v in summary.values() if v.get("healthy_keys", 0) > 0)
+            total = len(summary)
+            logger.info(
+                "Search health before execution: %d/%d providers healthy",
+                healthy, total,
+            )
+            for name, info in summary.items():
+                if info.get("healthy_keys", 0) == 0:
+                    logger.warning(
+                        "Search provider %s has no healthy keys (%d total, %d exhausted)",
+                        name, info.get("total_keys", 0), info.get("exhausted_keys", 0),
+                    )
+        except Exception:
+            logger.debug("Search health check failed (non-critical)", exc_info=True)
 
     def _rebalance_token_budget(self, old_status: AgentStatus, new_status: AgentStatus) -> None:
         """Rebalance unused tokens from completed phase to next phase.
