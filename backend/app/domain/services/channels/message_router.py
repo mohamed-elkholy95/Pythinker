@@ -60,6 +60,10 @@ _LONG_RESEARCH_SIGNAL_RE = re.compile(
     r"\b(comprehensive|deep|detailed|benchmark|compare|comparison|pricing|citations?|references?|coupons?|offers?|deals?|discounts?|promos?|reddit)\b",
     re.IGNORECASE,
 )
+_TOPIC_SOURCE_CONTEXT_RE = re.compile(
+    r"\b(reddit|subreddit|other\s+sources?|multiple\s+sources?|various\s+sources?|forums?|web|internet|online)\b",
+    re.IGNORECASE,
+)
 _GENERIC_AGENT_ACK_PREFIX_RE = re.compile(r"^\s*got it!\s*", re.IGNORECASE)
 _GENERIC_AGENT_ACK_ACTION_RE = re.compile(
     r"\b(i(?:'ll|\s+will)|let me)\b.*\b(search|research|compile|create|work on|look into|analy[sz]e|gather)\b",
@@ -834,6 +838,8 @@ class MessageRouter:
         compact = " ".join((content or "").split()).strip()
         topic = MessageRouter._extract_research_topic(compact)
         estimate = MessageRouter._estimate_research_duration(compact)
+        if _TOPIC_SOURCE_CONTEXT_RE.search(topic):
+            return f"I'll research {topic}. This should take about {estimate}."
         return (
             f"I'll research {topic}, including searching Reddit and other sources. "
             f"This should take about {estimate}."
