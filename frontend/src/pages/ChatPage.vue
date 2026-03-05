@@ -377,13 +377,12 @@
           <!-- Hide when timed_out to avoid flicker during auto-retry reconnect cycles -->
           <Transition name="planning-card">
             <PlanningCard
-              v-if="showPlanningCard"
+              v-if="showPlanningCard && planningCardState"
               class="mb-2"
-              :phase="planningProgress.phase"
-              :message="planningProgress.message"
-              :progressPercent="planningProgress.percent"
-              :complexityCategory="planningProgress.complexityCategory"
-              :currentPlanningMessage="currentPlanningMessage"
+              :phase="planningCardState.phase"
+              :message="planningCardState.message"
+              :progressPercent="planningCardState.progressPercent"
+              :complexityCategory="planningCardState.complexityCategory"
             />
           </Transition>
 
@@ -607,6 +606,7 @@ import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 import { useErrorBoundary } from '@/composables/useErrorBoundary';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 import { toEpochSeconds } from '@/utils/time';
+import { buildPlanningCardState } from '@/utils/planningCard';
 import {
   getRestoreAbortReason,
   isTerminalSessionStatus,
@@ -764,7 +764,7 @@ const createInitialState = () => ({
   toolTimeline: [] as ToolContent[],
   panelToolId: undefined as string | undefined,
   isInitializing: false, // True when starting up the sandbox environment
-  planningProgress: null as { phase: 'received' | 'analyzing' | 'planning' | 'finalizing'; message: string; percent: number; estimatedDurationSeconds?: number; complexityCategory?: 'simple' | 'medium' | 'complex' } | null, // Planning progress
+  planningProgress: null as { phase: 'received' | 'analyzing' | 'planning' | 'verifying' | 'executing_setup' | 'finalizing' | 'waiting'; message: string; percent: number; estimatedDurationSeconds?: number; complexityCategory?: 'simple' | 'medium' | 'complex' } | null, // Planning progress
   isWaitingForReply: false, // True when agent is waiting for user input
   showTakeoverCta: false, // Show one-click takeover CTA for captcha/login waits
   takeoverCtaReason: undefined as string | undefined,
@@ -1560,7 +1560,6 @@ const cleanupStreamingState = () => {
   isInitializing.value = false;
   planningProgress.value = null;
   lastStepDescription.value = undefined;
-  stopPlanningMessageCycle();
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value = null;
   }
@@ -1754,7 +1753,6 @@ onUnmounted(() => {
   }
   connectionStore.stopStaleDetection();
   stopFallbackStatusPolling();
-  stopPlanningMessageCycle();
 });
 
 const getLastStep = (): StepContent | undefined => {
@@ -1972,6 +1970,19 @@ const showTaskProgressBar = computed(() =>
   (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
 );
 
+const planningCardState = computed(() => buildPlanningCardState({
+  planningProgress: planningProgress.value
+    ? {
+        phase: planningProgress.value.phase,
+        message: planningProgress.value.message,
+        percent: planningProgress.value.percent,
+        complexityCategory: planningProgress.value.complexityCategory,
+      }
+    : null,
+  isThinkingStreaming: isThinkingStreaming.value,
+  thinkingText: thinkingText.value,
+}));
+
 const showPlanningCard = computed(() =>
   !isChatMode.value &&
   !showSessionWarmupMessage.value &&
@@ -1979,7 +1990,7 @@ const showPlanningCard = computed(() =>
   !isTaskCompleted.value &&
   responsePhase.value !== 'timed_out' &&
   sessionResearchMode.value === 'deep_research' &&
-  !!planningProgress.value &&
+  !!planningCardState.value &&
   (!plan.value || plan.value.steps.length === 0)
 );
 
@@ -2808,7 +2819,6 @@ const handlePlanEvent = (planData: PlanEventData) => {
   thinkingText.value = '';
   isThinkingStreaming.value = false;
   planningProgress.value = null;  // Clear progress - plan is ready
-  stopPlanningMessageCycle();
   plan.value = planData;
 }
 
@@ -2842,54 +2852,10 @@ const handleStreamEvent = (streamData: StreamEventData) => {
   }
 }
 
-// ===== Planning Messages - Interesting rotating phrases =====
-const PLANNING_MESSAGES = [
-  "Analyzing task complexity...",
-  "Mapping out the approach...",
-  "Crafting the perfect strategy...",
-  "Connecting the dots...",
-  "Architecting the solution...",
-  "Weighing the options...",
-  "Charting the course...",
-  "Piecing together the puzzle...",
-  "Calibrating the plan...",
-  "Orchestrating the steps...",
-  "Fine-tuning the approach...",
-  "Exploring possibilities...",
-  "Building the roadmap...",
-  "Designing the workflow...",
-  "Structuring the execution...",
-];
-
-const planningMessageIndex = ref(0);
-let planningMessageInterval: ReturnType<typeof setInterval> | null = null;
-
-// Cycle through planning messages for visual interest
-const startPlanningMessageCycle = () => {
-  if (planningMessageInterval) return;
-  planningMessageIndex.value = Math.floor(Math.random() * PLANNING_MESSAGES.length);
-  planningMessageInterval = setInterval(() => {
-    planningMessageIndex.value = (planningMessageIndex.value + 1) % PLANNING_MESSAGES.length;
-  }, 2500);
-};
-
-const stopPlanningMessageCycle = () => {
-  if (planningMessageInterval) {
-    clearInterval(planningMessageInterval);
-    planningMessageInterval = null;
-  }
-};
-
-// Task completion should immediately stop and hide planner progress UI.
+// Task completion should immediately hide planner progress UI.
 watch(isTaskCompleted, (completed) => {
   if (!completed) return;
   planningProgress.value = null;
-  stopPlanningMessageCycle();
-});
-
-// Computed: current planning message (cycles through interesting phrases)
-const currentPlanningMessage = computed(() => {
-  return PLANNING_MESSAGES[planningMessageIndex.value];
 });
 
 // Handle progress event (instant feedback during planning)
@@ -2899,12 +2865,8 @@ const handleProgressEvent = (progressData: ProgressEventData) => {
   // Ignore late progress events after completion (can occur during stream tailing).
   if (isTaskCompleted.value) {
     planningProgress.value = null;
-    stopPlanningMessageCycle();
     return;
   }
-
-  // Start message cycling if not already running
-  startPlanningMessageCycle();
 
   // Update planning progress for UI
   const validPhases = ['received', 'analyzing', 'planning', 'finalizing', 'waiting'] as const;
@@ -3324,7 +3286,6 @@ const finalizeSession = (
   activeReasoningState.value = 'completed';
   follow.value = false;
   planningProgress.value = null;
-  stopPlanningMessageCycle();
   isWaitingForReply.value = false;
   clearTakeoverCta();
   dismissConnectionBanner();
