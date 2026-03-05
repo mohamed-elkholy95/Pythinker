@@ -169,6 +169,54 @@ class FallbackSearchEngine:
             )
         )
 
+    async def get_health_summary(self) -> dict[str, Any]:
+        """Return health status of all providers in the chain."""
+        summary: dict[str, Any] = {"providers": [], "healthy_count": 0, "total_count": 0}
+        engines = getattr(self, "_engines", None) or getattr(self, "_provider_engines", None) or self._providers
+        if isinstance(engines, list):
+            # If engines is a list of (name, engine) tuples (self._providers format)
+            for item in engines:
+                if isinstance(item, tuple) and len(item) == 2:
+                    name, engine = item
+                else:
+                    name = type(item).__name__
+                    engine = item
+                summary["total_count"] += 1
+                pool = getattr(engine, "_key_pool", None)
+                if pool:
+                    healthy = getattr(pool, "healthy_key_count", 0)
+                    total = getattr(pool, "total_key_count", 1)
+                    summary["providers"].append({
+                        "name": name,
+                        "healthy_keys": healthy,
+                        "total_keys": total,
+                        "status": "healthy" if healthy > 0 else "exhausted",
+                    })
+                    if healthy > 0:
+                        summary["healthy_count"] += 1
+                else:
+                    summary["providers"].append({"name": name, "status": "unknown"})
+                    summary["healthy_count"] += 1
+        elif isinstance(engines, dict):
+            for name, engine in engines.items():
+                summary["total_count"] += 1
+                pool = getattr(engine, "_key_pool", None)
+                if pool:
+                    healthy = getattr(pool, "healthy_key_count", 0)
+                    total = getattr(pool, "total_key_count", 1)
+                    summary["providers"].append({
+                        "name": name,
+                        "healthy_keys": healthy,
+                        "total_keys": total,
+                        "status": "healthy" if healthy > 0 else "exhausted",
+                    })
+                    if healthy > 0:
+                        summary["healthy_count"] += 1
+                else:
+                    summary["providers"].append({"name": name, "status": "unknown"})
+                    summary["healthy_count"] += 1
+        return summary
+
 
 class RerankingSearchEngine:
     """Search engine wrapper that applies optional post-search reranking."""
