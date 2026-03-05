@@ -119,9 +119,10 @@ class TelegramChannel(BaseChannel):
         BotCommand("status", "Show current session status"),
         BotCommand("pdf", "Get the last response as a PDF"),
         BotCommand("link", "Link your account with a code"),
+        BotCommand("bind", "Alias of /link for link codes"),
         BotCommand("help", "Show available commands"),
     ]
-    _KNOWN_SLASH_COMMANDS = frozenset({"start", "new", "stop", "status", "pdf", "link", "help"})
+    _KNOWN_SLASH_COMMANDS = frozenset({"start", "new", "stop", "status", "pdf", "link", "bind", "help"})
 
     def __init__(
         self,
@@ -164,6 +165,7 @@ class TelegramChannel(BaseChannel):
         self._app.add_handler(CommandHandler("status", self._forward_command))
         self._app.add_handler(CommandHandler("pdf", self._forward_command))
         self._app.add_handler(CommandHandler("link", self._forward_command))
+        self._app.add_handler(CommandHandler("bind", self._forward_command))
         self._app.add_handler(CommandHandler("help", self._on_help))
 
         # Add message handler for text, photos, voice, documents
@@ -493,7 +495,7 @@ class TelegramChannel(BaseChannel):
 
         user = update.effective_user
         await update.message.reply_text(
-            f"👋 Hi {user.first_name}! I'm nanobot.\n\n"
+            f"👋 Hi {user.first_name}! I'm Pythinker.\n\n"
             "Send me a message and I'll respond!\n"
             "Type /help to see available commands."
         )
@@ -503,12 +505,13 @@ class TelegramChannel(BaseChannel):
         if not update.message:
             return
         await update.message.reply_text(
-            "🐈 nanobot commands:\n"
+            "Pythinker commands:\n"
             "/new — Start a new conversation\n"
             "/stop — Stop the current task\n"
             "/status — Show current session status\n"
             "/pdf — Get the last response as a PDF\n"
             "/link <CODE> — Link your web account\n"
+            "/bind <CODE> — Alias of /link\n"
             "/help — Show available commands"
         )
 
@@ -517,6 +520,8 @@ class TelegramChannel(BaseChannel):
         if not update.message:
             return
         command_name = self._extract_command_name(update.message.text)
+        if command_name is None:
+            return
         # Known commands can still reach this callback because handlers run by group.
         # Ignore them here so users do not see a false "Unknown command" response.
         if command_name in self._KNOWN_SLASH_COMMANDS:
