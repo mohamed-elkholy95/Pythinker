@@ -122,6 +122,35 @@ def _extract_search_result_urls(result: ToolResult | None) -> list[str]:
     return urls
 
 
+# ── Graduated wall-clock pressure (design 2A) ─────────────────────────
+
+_WRITE_TOOLS = frozenset({"file_write", "file_str_replace", "code_save_artifact"})
+
+
+def _get_wall_clock_pressure_level(elapsed: float, budget: float) -> str | None:
+    """Return pressure level based on elapsed/budget ratio."""
+    if budget <= 0:
+        return None
+    ratio = elapsed / budget
+    if ratio >= 0.90:
+        return "CRITICAL"
+    if ratio >= 0.75:
+        return "URGENT"
+    if ratio >= 0.50:
+        return "ADVISORY"
+    return None
+
+
+def _should_block_tool_at_pressure(tool_name: str, level: str) -> bool:
+    """Check if a tool should be blocked at the given pressure level."""
+    if level == "CRITICAL":
+        return tool_name not in _WRITE_TOOLS
+    if level == "URGENT":
+        read_tools = frozenset(t.value for t in ToolName.read_only_tools())
+        return tool_name in read_tools
+    return False
+
+
 class BaseAgent:
     """
     Base agent class, defining the basic behavior of the agent
@@ -1469,7 +1498,9 @@ class BaseAgent:
         step_iteration_count = 0  # Per-step iteration counter
         warning_emitted = False
         graceful_completion_requested = False
-        wall_clock_warning_injected = False
+        wall_clock_advisory_sent = False
+        wall_clock_urgent_sent = False
+        wall_clock_critical_sent = False
         wall_clock_exceeded = False
 
         # Reset per-step stability counters
@@ -1539,32 +1570,55 @@ class BaseAgent:
                         wall_clock_exceeded = True
                         self._stuck_recovery_exhausted = True
                         break
-                    if not wall_clock_warning_injected and elapsed >= wall_limit * 0.65:
-                        wall_clock_warning_injected = True
+                    # ── Graduated wall-clock pressure ──────────────────
+                    pressure = _get_wall_clock_pressure_level(elapsed, wall_limit)
+
+                    if pressure == "ADVISORY" and not wall_clock_advisory_sent:
+                        wall_clock_advisory_sent = True
+                        logger.info(
+                            "Step wall-clock at 50%% (%.0fs/%.0fs); advisory injected.",
+                            elapsed, wall_limit,
+                        )
+                        await self._add_to_memory([{
+                            "role": "user",
+                            "content": (
+                                f"STEP TIME ADVISORY: You have used 50% of the step time budget "
+                                f"({elapsed:.0f}s of {wall_limit:.0f}s). "
+                                f"Begin wrapping up research and focus on writing output."
+                            ),
+                        }])
+
+                    elif pressure == "URGENT" and not wall_clock_urgent_sent:
+                        wall_clock_urgent_sent = True
                         logger.warning(
-                            "Step wall-clock usage reached %.0f%% (%.0fs/%.0fs); injecting wrap-up guidance.",
-                            (elapsed / wall_limit) * 100,
-                            elapsed,
-                            wall_limit,
+                            "Step wall-clock at 75%% (%.0fs/%.0fs); blocking read-only tools.",
+                            elapsed, wall_limit,
                         )
-                        # Inject warning into memory WITHOUT spawning an extra LLM call.
-                        # The next regular iteration will include this user message so
-                        # the model sees it without wasting ~60s on a dedicated round-trip.
-                        await self._add_to_memory(
-                            [
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        "STEP TIME WARNING: You have used 65% of the step time budget "
-                                        f"({elapsed:.0f}s of {wall_limit:.0f}s). "
-                                        "Conclude this step now: summarize current findings and avoid "
-                                        "starting new tool calls. Wrap up immediately."
-                                    ),
-                                }
-                            ]
+                        await self._add_to_memory([{
+                            "role": "user",
+                            "content": (
+                                f"STEP TIME URGENT: 75% of budget used ({elapsed:.0f}s of {wall_limit:.0f}s). "
+                                f"Read-only tools are now BLOCKED. You MUST finalize your output immediately. "
+                                f"Use file_write or file_str_replace to save findings NOW."
+                            ),
+                        }])
+                        graceful_completion_requested = True
+                        skip_tool_execution_for_wall_clock = True
+
+                    elif pressure == "CRITICAL" and not wall_clock_critical_sent:
+                        wall_clock_critical_sent = True
+                        logger.warning(
+                            "Step wall-clock at 90%% (%.0fs/%.0fs); blocking ALL non-write tools.",
+                            elapsed, wall_limit,
                         )
-                        # Do not execute the pending tool calls for this cycle.
-                        # Let the next model turn see the warning and wrap up.
+                        await self._add_to_memory([{
+                            "role": "user",
+                            "content": (
+                                f"STEP TIME CRITICAL: 90% of budget used ({elapsed:.0f}s of {wall_limit:.0f}s). "
+                                f"ALL tools except file_write and code_save_artifact are BLOCKED. "
+                                f"Write your output NOW or it will be lost."
+                            ),
+                        }])
                         graceful_completion_requested = True
                         skip_tool_execution_for_wall_clock = True
 
