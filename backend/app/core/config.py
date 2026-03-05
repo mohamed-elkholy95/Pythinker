@@ -43,6 +43,7 @@ from app.core.config_enums import FlowMode, StreamingMode
 from app.core.config_features import (
     AgentSafetySettingsMixin,
     FeatureFlagsSettingsMixin,
+    KeyPoolSettingsMixin,
     MultiAgentSettingsMixin,
     ObservabilitySettingsMixin,
     PromptOptimizationSettingsMixin,
@@ -101,6 +102,7 @@ class Settings(
     ObservabilitySettingsMixin,
     TimelineSettingsMixin,
     FeatureFlagsSettingsMixin,
+    KeyPoolSettingsMixin,
     ResearchSettingsMixin,
     TypoCorrectionSettingsMixin,
     PromptOptimizationSettingsMixin,
