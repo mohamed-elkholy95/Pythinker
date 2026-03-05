@@ -175,19 +175,6 @@ def get_step_limits(complexity: str) -> tuple:
     return COMPLEXITY_STEP_LIMITS.get(complexity, (DEFAULT_MIN_PLAN_STEPS, DEFAULT_MAX_PLAN_STEPS))
 
 
-# Duration estimates (low, high) in seconds for each complexity tier
-COMPLEXITY_DURATION_ESTIMATES: dict[str, tuple[int, int]] = {
-    "simple": (30, 60),
-    "medium": (60, 180),
-    "complex": (180, 480),
-}
-
-
-def estimate_task_duration(complexity: str) -> int:
-    """Return midpoint duration estimate in seconds for the given complexity."""
-    low, high = COMPLEXITY_DURATION_ESTIMATES.get(complexity, (60, 180))
-    return (low + high) // 2
-
 
 def _step_from_description(index: int, desc) -> Step:
     """Create a Step from a StepDescription, preserving phase metadata."""
@@ -429,10 +416,8 @@ class PlannerAgent(BaseAgent):
 
         # Compute complexity early so all ProgressEvents can include it
         task_complexity: str | None = None
-        duration_estimate: int | None = None
         if not replan_context:
             task_complexity = get_task_complexity(message.message)
-            duration_estimate = estimate_task_duration(task_complexity)
 
         # Stream thinking phase for initial plans (skip on replans for speed)
         if not replan_context:
@@ -441,7 +426,6 @@ class PlannerAgent(BaseAgent):
                 message="Analyzing task complexity...",
                 progress_percent=20,
                 complexity_category=task_complexity,
-                estimated_duration_seconds=duration_estimate,
             )
             async for event in self._stream_thinking(message.message):
                 yield event
@@ -568,7 +552,6 @@ class PlannerAgent(BaseAgent):
             message="Creating execution plan...",
             progress_percent=40,
             complexity_category=task_complexity,
-            estimated_duration_seconds=duration_estimate,
         )
 
         # Tier A: strict structured output path for critical planning decisions.
@@ -591,8 +574,7 @@ class PlannerAgent(BaseAgent):
                     estimated_steps=len(plan_response.steps),
                     progress_percent=80,
                     complexity_category=task_complexity,
-                    estimated_duration_seconds=duration_estimate,
-                )
+                    )
 
                 plan = Plan(
                     goal=plan_response.goal,
@@ -612,8 +594,7 @@ class PlannerAgent(BaseAgent):
                     estimated_steps=len(plan.steps),
                     progress_percent=95,
                     complexity_category=task_complexity,
-                    estimated_duration_seconds=duration_estimate,
-                )
+                    )
                 yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
                 return
             fallback_error = "LLM does not support ask_structured"
@@ -628,7 +609,6 @@ class PlannerAgent(BaseAgent):
             estimated_steps=len(fallback_plan.steps),
             progress_percent=95,
             complexity_category=task_complexity,
-            estimated_duration_seconds=duration_estimate,
         )
         yield PlanEvent(status=PlanStatus.CREATED, plan=fallback_plan)
         logger.warning(

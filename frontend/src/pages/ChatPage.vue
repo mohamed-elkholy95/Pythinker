@@ -382,7 +382,6 @@
               :phase="planningProgress.phase"
               :message="planningProgress.message"
               :progressPercent="planningProgress.percent"
-              :estimatedDurationSeconds="planningProgress.estimatedDurationSeconds"
               :complexityCategory="planningProgress.complexityCategory"
               :currentPlanningMessage="currentPlanningMessage"
             />

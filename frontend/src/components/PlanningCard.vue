@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Clock, Check } from 'lucide-vue-next'
+import { Check } from 'lucide-vue-next'
 import PlannerActivityIndicator from '@/components/ui/PlannerActivityIndicator.vue'
 import type { PlanningPhase } from '@/types/event'
 
@@ -8,13 +8,11 @@ interface Props {
   phase: PlanningPhase
   message: string
   progressPercent: number
-  estimatedDurationSeconds?: number
   complexityCategory?: 'simple' | 'medium' | 'complex'
   currentPlanningMessage: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  estimatedDurationSeconds: undefined,
   complexityCategory: undefined,
 })
 
@@ -41,14 +39,10 @@ const stepClass = (index: number) => ({
   'step--pending': index > currentPhaseIndex.value,
 })
 
-const timeLabel = computed(() => {
-  if (!props.estimatedDurationSeconds) return null
-  const s = props.estimatedDurationSeconds
-  if (s <= 60) return '~30-60s'
-  if (s <= 120) return '~1-2 min'
-  if (s <= 300) return '~1-3 min'
-  return '~3-8 min'
-})
+// Time estimate removed — keyword-based heuristics cannot accurately predict
+// actual task duration (depends on LLM speed, search count, network, browser).
+// Showing a confidently wrong estimate is worse than no estimate.
+// The complexity badge provides sufficient context.
 
 const BADGE_STYLES: Record<string, { label: string; cls: string }> = {
   simple: { label: 'Simple', cls: 'badge--simple' },
@@ -103,17 +97,12 @@ const progressWidth = computed(() => `${Math.min(Math.max(props.progressPercent,
       </span>
     </div>
 
-    <!-- Row 3: Time estimate + Progress bar + Complexity badge -->
+    <!-- Row 3: Progress bar + Complexity badge -->
     <div
-      v-if="timeLabel || badge"
+      v-if="badge"
       class="card-footer"
     >
-      <!-- Time estimate -->
-      <div v-if="timeLabel" class="time-label">
-        <Clock :size="12" class="time-icon" />
-        <span>Est. {{ timeLabel }}</span>
-      </div>
-      <div v-else class="time-label-spacer" />
+      <div class="time-label-spacer" />
 
       <!-- Thin progress bar -->
       <div class="progress-track">
@@ -260,21 +249,6 @@ const progressWidth = computed(() => `${Math.min(Math.max(props.progressPercent,
   align-items: center;
   gap: 10px;
   padding-top: 2px;
-}
-
-.time-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted, #94a3b8);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.time-icon {
-  opacity: 0.7;
 }
 
 .time-label-spacer {
