@@ -58,6 +58,13 @@ def test_markdown_to_flowables_preserves_links() -> None:
     assert '<a href="https://example.com">Example</a>' in paragraph.text
 
 
+def test_markdown_to_flowables_preserves_brackets_for_numeric_citation_links() -> None:
+    flowables = markdown_to_flowables("Claim [1](https://example.com/source).")
+    paragraph = next(item for item in flowables if isinstance(item, Paragraph))
+    paragraph = cast(Paragraph, paragraph)
+    assert '[<a href="https://example.com/source">1</a>]' in paragraph.text
+
+
 def test_build_pdf_bytes_sets_metadata_and_bibliography() -> None:
     sources = [
         SourceCitation(
