@@ -1096,6 +1096,40 @@ To extract data from a webpage:
             pass
         return None
 
+    def _apply_tool_arg_validation(
+        self, result: dict[str, Any], tools: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Validate tool call arguments against schemas for truncation-prone providers.
+
+        On failure: log warning and flag the tool call as having bad args so the
+        agent layer can inject a synthetic error tool response.
+        """
+        tool_schemas: dict[str, dict[str, Any]] = {}
+        for t in tools:
+            func = t.get("function", {})
+            if func.get("name"):
+                tool_schemas[func["name"]] = func.get("parameters", {})
+
+        for tc in result.get("tool_calls", []):
+            func = tc.get("function", {})
+            name = func.get("name", "")
+            schema = tool_schemas.get(name)
+            if not schema:
+                continue
+            try:
+                args = json.loads(func.get("arguments", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                tc["_validation_errors"] = ["Malformed JSON in arguments"]
+                continue
+            errors = self._validate_tool_args_static(args, schema)
+            if errors:
+                logger.warning(
+                    "Tool arg validation failed for %s: %s (model=%s)",
+                    name, errors, self._model_name,
+                )
+                tc["_validation_errors"] = errors
+        return result
+
     @staticmethod
     def _validate_tool_args_static(
         args: dict[str, Any], schema: dict[str, Any]
@@ -1865,6 +1899,14 @@ To extract data from a webpage:
                     if parsed_tool_call:
                         logger.info("MLX mode: Parsed tool call from text response")
                         return parsed_tool_call
+
+                # Tool argument pre-validation for truncation-prone providers
+                if (
+                    result.get("tool_calls")
+                    and request_tools
+                    and self._provider_profile.tool_arg_truncation_prone
+                ):
+                    result = self._apply_tool_arg_validation(result, request_tools)
 
                 return result
 
