@@ -510,6 +510,7 @@
   <ReportModal
     v-model:open="isReportModalOpen"
     :report="currentReport"
+    :sessionId="sessionId"
     :showToc="true"
     @close="closeReport"
   />

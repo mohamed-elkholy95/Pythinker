@@ -85,6 +85,7 @@ def test_build_pdf_bytes_sets_metadata_and_bibliography() -> None:
     assert metadata.author == "Pythinker AI Agent"
     assert metadata.creator == "Pythinker / ReportLab"
     assert "References" in extracted
+    assert "[1]" in extracted
     assert "Example Source" in extracted
     assert "https://example.com/source-1" in extracted
 

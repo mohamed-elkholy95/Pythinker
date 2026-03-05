@@ -333,7 +333,7 @@ def _sources_to_flowables(
 
     flowables: list[Flowable] = [PageBreak(), Paragraph("References", styles["Heading2"]), Spacer(1, 6)]
     for idx, source in enumerate(items, start=1):
-        line = f'{idx}. <b>{_escape_xml(source.title)}</b> — <a href="{_escape_xml(source.url)}">{_escape_xml(source.url)}</a>'
+        line = f'[{idx}] <b>{_escape_xml(source.title)}</b> — <a href="{_escape_xml(source.url)}">{_escape_xml(source.url)}</a>'
         flowables.append(Paragraph(line, styles["BodyText"]))
         if source.snippet:
             flowables.append(Paragraph(_escape_xml(source.snippet), styles["BodyText"]))
