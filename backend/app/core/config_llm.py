@@ -133,6 +133,19 @@ class LLMTimeoutSettingsMixin:
     # 2 retries = 3 total attempts with exponential backoff.
     llm_tool_timeout_max_retries: int = 2
 
+    # Slow tool-call circuit breaker (design 1B)
+    # Replaces hardcoded constants in openai_llm.py lines 66-70
+    llm_slow_breaker_degraded_max_tokens: int = 4096   # Was hardcoded 1024
+    llm_slow_breaker_degraded_timeout: float = 90.0     # Was hardcoded 60.0
+    llm_slow_tool_threshold: float = 30.0               # Seconds before a tool call is "slow"
+    llm_slow_tool_trip_count: int = 2                    # Consecutive slow calls to trip breaker
+    llm_slow_tool_cooldown: float = 300.0               # Seconds before breaker resets
+
+    # Model router tier settings (design 5C)
+    fast_model_max_tokens: int = 4096
+    fast_model_temperature: float = 0.2
+    balanced_model_max_tokens: int = 8192
+
 
 class LLMConcurrencySettingsMixin:
     """LLM concurrency, token management, and semantic cache configuration."""
