@@ -275,6 +275,12 @@ class FeatureFlagsSettingsMixin:
     # Pre-Planning Search: inject real-time web results into planning prompts
     feature_pre_planning_search: bool = False
 
+    # Fast draft planning — uses FAST_MODEL for research tasks, skips verification
+    # When enabled for research_mode tasks: planner uses FAST_MODEL, verification skipped
+    # if plan has <= fast_draft_plan_max_steps steps
+    feature_fast_draft_plan: bool = False
+    fast_draft_plan_max_steps: int = 5
+
     # Chart Generation (Plotly Migration Phase 4)
     feature_plotly_charts_enabled: bool = True  # Use Plotly charts instead of SVG
 
