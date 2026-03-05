@@ -3,11 +3,32 @@ import { apiClient, API_CONFIG, ApiResponse, createEventSourceConnection, create
 import { AgentSSEEvent, FollowUp } from '../types/event';
 import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse, StreamingMode, SessionStatus } from '../types/response';
 import type { FileInfo } from './file';
+import type { SourceCitation } from '../types/message';
 
 const FILE_VIEW_CACHE_TTL_MS = 1500;
 const FILE_VIEW_CACHE_MAX_ENTRIES = 128;
 const fileViewResponseCache = new Map<string, { expiresAt: number; response: FileViewResponse }>();
 const fileViewInFlightRequests = new Map<string, Promise<FileViewResponse>>();
+
+const getFilenameFromContentDisposition = (contentDisposition: string | undefined, fallback: string): string => {
+  if (!contentDisposition) return fallback;
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;\n]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/['"]/g, ''));
+    } catch {
+      return utf8Match[1].replace(/['"]/g, '');
+    }
+  }
+
+  const filenameMatch = contentDisposition.match(/filename="?([^";\n]+)"?/i);
+  if (filenameMatch?.[1]) {
+    return filenameMatch[1];
+  }
+
+  return fallback;
+};
 
 const pruneFileViewCache = (): void => {
   const now = Date.now();
@@ -73,6 +94,36 @@ export async function createSession(
 export async function getSession(sessionId: string): Promise<GetSessionResponse> {
   const response = await apiClient.get<ApiResponse<GetSessionResponse>>(`/sessions/${sessionId}`);
   return response.data.data;
+}
+
+export interface ReportPdfDownloadRequest {
+  title: string;
+  content: string;
+  sources?: SourceCitation[];
+  author?: string;
+}
+
+export interface ReportPdfDownloadResponse {
+  blob: Blob;
+  filename: string;
+}
+
+export async function downloadSessionReportPdf(
+  sessionId: string,
+  payload: ReportPdfDownloadRequest
+): Promise<ReportPdfDownloadResponse> {
+  const response = await apiClient.post(`/sessions/${sessionId}/report/pdf`, payload, {
+    responseType: 'blob',
+  });
+
+  const fallbackTitle = payload.title || 'report';
+  const fallbackFilename = `${fallbackTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'report'}.pdf`;
+  const filename = getFilenameFromContentDisposition(response.headers['content-disposition'], fallbackFilename);
+
+  return {
+    blob: response.data as Blob,
+    filename,
+  };
 }
 
 export interface GetSessionsParams {

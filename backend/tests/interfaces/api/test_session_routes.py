@@ -3,11 +3,13 @@
 import asyncio
 import json
 import logging
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.application.errors.exceptions import BadRequestError, NotFoundError
 from app.core.prometheus_metrics import (
     reset_all_metrics,
     sse_reconnect_first_non_heartbeat_seconds,
@@ -18,6 +20,7 @@ from app.core.prometheus_metrics import (
 )
 from app.domain.models.event import DoneEvent, PlanningPhase, ProgressEvent, ReportEvent
 from app.domain.models.session import ResearchMode, SessionStatus
+from app.domain.models.source_citation import SourceCitation
 from app.interfaces.api.session_routes import (
     _cancel_pending_disconnect_cancellation,
     _event_phase_label,
@@ -27,6 +30,7 @@ from app.interfaces.api.session_routes import (
     _safe_exc_text,
     _schedule_disconnect_cancellation,
     chat,
+    download_session_report_pdf,
     end_takeover,
     get_screenshot_image,
     get_session,
@@ -39,7 +43,7 @@ from app.interfaces.api.session_routes import (
     takeover_navigation_action,
     takeover_navigation_history,
 )
-from app.interfaces.schemas.session import ChatRequest, FollowUpContext
+from app.interfaces.schemas.session import ChatRequest, FollowUpContext, ReportPdfDownloadRequest
 
 
 @pytest.fixture(autouse=True)
@@ -145,6 +149,81 @@ async def test_get_session_includes_source_field_in_response():
     assert response.data is not None
     assert response.data.session_id == session_id
     assert response.data.source == "telegram"
+
+
+@pytest.mark.asyncio
+async def test_download_session_report_pdf_returns_pdf_attachment():
+    session_id = "session-pdf-1"
+    current_user = SimpleNamespace(id="user-123")
+    agent_service = SimpleNamespace(get_session=AsyncMock(return_value=SimpleNamespace(id=session_id)))
+    renderer = SimpleNamespace(render=AsyncMock(return_value=b"%PDF-1.4"))
+    request = ReportPdfDownloadRequest(
+        title="Q1 Revenue Report",
+        content="# Summary\n\nSee findings [1].",
+        sources=[
+            SourceCitation(
+                url="https://example.com/source",
+                title="Example Source",
+                snippet=None,
+                access_time=datetime.now(UTC),
+                source_type="search",
+            )
+        ],
+        author="Analyst",
+    )
+
+    with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+        mock_settings.return_value = SimpleNamespace(
+            telegram_pdf_include_toc=True,
+            telegram_pdf_toc_min_sections=3,
+            telegram_pdf_unicode_font="DejaVuSans",
+        )
+        with patch("app.interfaces.api.session_routes.build_configured_pdf_renderer", return_value=renderer):
+            response = await download_session_report_pdf(
+                session_id=session_id,
+                request=request,
+                current_user=current_user,
+                agent_service=agent_service,
+            )
+
+    assert response.status_code == 200
+    assert response.media_type == "application/pdf"
+    assert response.body == b"%PDF-1.4"
+    assert response.headers["content-disposition"].startswith("attachment; filename*=UTF-8''q1-revenue-report.pdf")
+    agent_service.get_session.assert_awaited_once_with(session_id, current_user.id)
+    renderer.render.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_download_session_report_pdf_rejects_empty_content():
+    session_id = "session-pdf-2"
+    current_user = SimpleNamespace(id="user-123")
+    agent_service = SimpleNamespace(get_session=AsyncMock(return_value=SimpleNamespace(id=session_id)))
+    request = ReportPdfDownloadRequest(title="Report", content="   ", sources=[])
+
+    with pytest.raises(BadRequestError, match="Report content cannot be empty"):
+        await download_session_report_pdf(
+            session_id=session_id,
+            request=request,
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+
+@pytest.mark.asyncio
+async def test_download_session_report_pdf_raises_not_found_for_missing_session():
+    session_id = "session-pdf-404"
+    current_user = SimpleNamespace(id="user-123")
+    agent_service = SimpleNamespace(get_session=AsyncMock(return_value=None))
+    request = ReportPdfDownloadRequest(title="Report", content="# Body", sources=[])
+
+    with pytest.raises(NotFoundError, match="Session not found"):
+        await download_session_report_pdf(
+            session_id=session_id,
+            request=request,
+            current_user=current_user,
+            agent_service=agent_service,
+        )
 
 
 @pytest.mark.asyncio

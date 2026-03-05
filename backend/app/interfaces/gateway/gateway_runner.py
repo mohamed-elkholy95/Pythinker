@@ -130,12 +130,12 @@ async def run_gateway() -> None:
     # AgentService — required by MessageRouter for session management.
     # Uses the same singleton factory as the main backend.
     from app.interfaces.dependencies import get_agent_service
+    from app.interfaces.gateway.pdf_renderer_factory import build_configured_pdf_renderer
 
     agent_service = get_agent_service()
 
     from app.domain.services.channels.message_router import MessageRouter
     from app.domain.services.channels.telegram_delivery_policy import TelegramDeliveryPolicy
-    from app.domain.services.pdf.reportlab_pdf_renderer import ReportLabPdfRenderer
 
     # LinkCodeStore adapter — wraps Redis for the /link command.
     # Uses the existing get_redis() singleton.
@@ -150,20 +150,7 @@ async def run_gateway() -> None:
         async def delete(self, key: str) -> None:
             await get_redis().call("delete", key)
 
-    reportlab_renderer = ReportLabPdfRenderer()
-    renderer_choice = (settings.telegram_pdf_renderer or "reportlab").strip().lower()
-    pdf_renderer = reportlab_renderer
-    if renderer_choice == "playwright":
-        try:
-            from app.infrastructure.external.pdf import PlaywrightPdfRenderer
-
-            pdf_renderer = PlaywrightPdfRenderer(
-                timeout_ms=settings.telegram_pdf_renderer_timeout_ms,
-                fallback_renderer=reportlab_renderer,
-            )
-        except Exception as exc:
-            logger.warning("Failed to initialize Playwright PDF renderer; using ReportLab fallback: %s", exc)
-            pdf_renderer = reportlab_renderer
+    pdf_renderer = build_configured_pdf_renderer(settings=settings)
 
     telegram_delivery_policy = TelegramDeliveryPolicy(
         pdf_delivery_enabled=settings.telegram_pdf_delivery_enabled,

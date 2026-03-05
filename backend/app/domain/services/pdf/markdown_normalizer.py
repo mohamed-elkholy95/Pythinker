@@ -161,7 +161,7 @@ def _build_references_block(
         if not entry:
             unresolved.append(number)
             entry = "Unresolved citation"
-        lines.append(f"{number}. {entry}")
+        lines.append(f"[{number}] {entry}")
 
     return "\n".join(lines), unresolved
 
