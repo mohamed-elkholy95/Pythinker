@@ -47,7 +47,17 @@ class StepFailureHandler:
         # partial results" and dependents are not permanently stuck.
         if blocked_ids:
             if not failed_step.result:
-                failed_step.result = f"[Step failed without results: {(failed_step.error or 'execution error')[:120]}]"
+                # Collect files written during this step for richer context
+                files_info = ""
+                if hasattr(failed_step, "artifacts") and failed_step.artifacts:
+                    file_list = ", ".join(str(f) for f in failed_step.artifacts[:5])
+                    files_info = f" Files created: {file_list}."
+
+                failed_step.result = (
+                    f"[Step failed: {(failed_step.error or 'execution error')[:120]}."
+                    f"{files_info}"
+                    f" Partial results may be available in workspace files.]"
+                )
                 logger.info(
                     "Injected placeholder result on step %s to unblock %d dependents",
                     failed_step.id,
