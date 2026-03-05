@@ -100,6 +100,30 @@ async def test_unknown_command_sends_help_hint() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command_text",
+    [
+        "/start",
+        "/start@Pythinker_bot bind_ABC123",
+        "/new",
+        "/stop",
+        "/status",
+        "/pdf",
+        "/link ABC123",
+        "/help",
+    ],
+)
+async def test_unknown_command_ignores_known_commands(command_text: str) -> None:
+    channel = _make_channel()
+    update = _make_update(command_text)
+    context = SimpleNamespace(args=[])
+
+    await channel._unknown_command(update, context)
+
+    update.message.reply_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_send_document_uses_caption_parse_mode_and_cleanup(tmp_path: Path) -> None:
     channel = _make_channel()
     media_path = tmp_path / "report.pdf"

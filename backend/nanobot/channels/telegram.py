@@ -121,6 +121,7 @@ class TelegramChannel(BaseChannel):
         BotCommand("link", "Link your account with a code"),
         BotCommand("help", "Show available commands"),
     ]
+    _KNOWN_SLASH_COMMANDS = frozenset({"start", "new", "stop", "status", "pdf", "link", "help"})
 
     def __init__(
         self,
@@ -515,7 +516,21 @@ class TelegramChannel(BaseChannel):
         """Handle unknown slash commands with a help hint."""
         if not update.message:
             return
+        command_name = self._extract_command_name(update.message.text)
+        # Known commands can still reach this callback because handlers run by group.
+        # Ignore them here so users do not see a false "Unknown command" response.
+        if command_name in self._KNOWN_SLASH_COMMANDS:
+            return
         await update.message.reply_text("Unknown command. Use /help to see available commands.")
+
+    @staticmethod
+    def _extract_command_name(text: str | None) -> str | None:
+        """Parse slash command token, supporting optional `/cmd@BotName` form."""
+        if not text or not text.startswith("/"):
+            return None
+        token = text.split(maxsplit=1)[0]
+        command = token[1:].split("@", 1)[0].strip().lower()
+        return command or None
 
     @staticmethod
     def _sender_id(user) -> str:
