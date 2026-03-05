@@ -116,9 +116,17 @@ def test_provider_capabilities_frozen():
 
 def test_default_capabilities_values():
     caps = ProviderCapabilities()
-    assert caps.json_schema is True
+    assert caps.json_schema is False
+    assert caps.json_object is False
     assert caps.tool_use is True
     assert caps.vision is False
     assert caps.max_context_window == 128_000
     assert caps.system_message_position == "any"
     assert caps.content_format == "flexible"
+
+
+def test_gpt5_family_supports_thinking_and_strict_json():
+    caps = get_capabilities("gpt-5-mini")
+    assert caps.json_schema is True
+    assert caps.json_object is True
+    assert caps.thinking is True

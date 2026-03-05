@@ -15,8 +15,13 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from app.core.config import get_settings
-from app.domain.exceptions.base import ConfigurationException, LLMException
+from app.domain.exceptions.base import ConfigurationException
 from app.domain.external.llm import LLM
+from app.domain.models.structured_output import (
+    StructuredRefusalError,
+    StructuredSchemaValidationError,
+    StructuredTruncationError,
+)
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.usage_context import get_usage_context
@@ -466,6 +471,19 @@ class AnthropicLLM(LLM):
                 "messages": anthropic_messages,
             }
 
+            # Native structured output path via output_config.format (preferred).
+            if response_format and response_format.get("type") == "json_schema":
+                json_schema = response_format.get("json_schema", {})
+                schema_obj = json_schema.get("schema")
+                if isinstance(schema_obj, dict):
+                    params["output_config"] = {
+                        "format": {
+                            "type": "json_schema",
+                            "name": json_schema.get("name", "structured_output"),
+                            "schema": schema_obj,
+                        }
+                    }
+
             # Anthropic uses temperature differently - 0 to 1
             if effective_temperature is not None:
                 params["temperature"] = min(1.0, max(0.0, effective_temperature))
@@ -561,88 +579,53 @@ class AnthropicLLM(LLM):
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> T:
-        """Send chat request with structured output validation and graduated retry.
+        """Send chat request with strict structured output validation."""
+        return await self._ask_structured_output_config(
+            messages=messages,
+            response_model=response_model,
+            enable_caching=enable_caching,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
-        Retry strategy:
-        - Attempt 1: Normal temperature, standard prompt
-        - Attempt 2: Lower temperature (0.3), include validation error feedback
-        - Attempt 3: Temperature 0, simplified extraction prompt
-
-        Args:
-            messages: List of messages
-            response_model: Pydantic model class for response validation
-            tools: Optional additional tools
-            tool_choice: Optional tool choice
-            enable_caching: Whether to use prompt caching
-
-        Returns:
-            Validated Pydantic model instance
-        """
+    async def _ask_structured_output_config(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        response_model: type[T],
+        enable_caching: bool,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> T:
         schema = response_model.model_json_schema()
-
-        structured_tool = {
-            "type": "function",
-            "function": {
-                "name": "return_structured_response",
-                "description": f"Return a response matching the {response_model.__name__} schema",
-                "parameters": schema,
+        response = await self.ask(
+            messages=messages,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": response_model.__name__, "schema": schema},
             },
-        }
+            enable_caching=enable_caching,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
-        max_attempts = 3
-        last_error: str | None = None
-        original_temp = self._temperature
+        finish_reason = response.get("_finish_reason")
+        if finish_reason == "refusal":
+            raise StructuredRefusalError("Anthropic refusal for structured output")
+        if finish_reason == "length":
+            raise StructuredTruncationError("Anthropic structured output truncated")
 
-        for attempt in range(max_attempts):
-            try:
-                # Graduated temperature: normal → 0.3 → 0.0
-                if attempt == 1:
-                    self._temperature = 0.3
-                elif attempt == 2:
-                    self._temperature = 0.0
+        content = response.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise StructuredSchemaValidationError("Anthropic output_config returned empty content")
 
-                enhanced_messages = list(messages)
-                if attempt > 0 and last_error:
-                    enhanced_messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                f"Your previous response had a validation error: {last_error}. "
-                                "Please respond using the return_structured_response tool with valid data."
-                            ),
-                        }
-                    )
-                elif enhanced_messages and enhanced_messages[-1].get("role") == "user":
-                    enhanced_messages[-1] = {
-                        **enhanced_messages[-1],
-                        "content": enhanced_messages[-1].get("content", "")
-                        + "\n\nPlease respond using the return_structured_response tool.",
-                    }
-
-                response = await self.ask(
-                    messages=enhanced_messages,
-                    tools=[structured_tool],
-                    tool_choice="required",
-                    enable_caching=enable_caching,
-                )
-
-                if response.get("tool_calls"):
-                    for tc in response["tool_calls"]:
-                        if tc["function"]["name"] == "return_structured_response":
-                            args = tc["function"]["arguments"]
-                            if isinstance(args, str):
-                                args = json.loads(args)
-                            return response_model.model_validate(args)
-
-                last_error = "Model did not call return_structured_response tool"
-
-            except Exception as e:
-                last_error = str(e)[:500]
-                logger.warning(f"Structured output attempt {attempt + 1}/{max_attempts} failed: {last_error}")
-            finally:
-                self._temperature = original_temp
-
-        raise LLMException(f"Failed to get structured response after {max_attempts} attempts: {last_error}")
+        try:
+            return response_model.model_validate_json(content)
+        except Exception as exc:
+            raise StructuredSchemaValidationError(str(exc)) from exc
 
     async def ask_stream(
         self,
