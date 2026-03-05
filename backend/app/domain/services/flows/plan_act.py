@@ -5,7 +5,7 @@ import os
 import re
 import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager, nullcontext, suppress
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
@@ -2574,36 +2574,57 @@ class PlanActFlow(BaseFlow):
                     # Verify plan before execution (Phase 1: Plan-Verify-Execute)
                     await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started verifying plan")
-                    with trace_ctx.span("verifying", "agent_step") as verify_span:
-                        async with LLMHeartbeat(
-                            phase=PlanningPhase.VERIFYING,
-                            message="Checking plan quality...",
-                            interval_seconds=2.5,
-                        ) as _verifying_hb:
-                            async for event in self.verifier.verify_plan(
-                                plan=self.plan, user_request=message.message, task_context=""
-                            ):
+                    _verification_timeout = getattr(
+                        self._settings, "verification_timeout_seconds", 0.0
+                    )
+                    try:
+                        async with (
+                            asyncio.timeout(_verification_timeout)
+                            if _verification_timeout > 0
+                            else nullcontext()
+                        ):
+                            with trace_ctx.span("verifying", "agent_step") as verify_span:
+                                async with LLMHeartbeat(
+                                    phase=PlanningPhase.VERIFYING,
+                                    message="Checking plan quality...",
+                                    interval_seconds=2.5,
+                                ) as _verifying_hb:
+                                    async for event in self.verifier.verify_plan(
+                                        plan=self.plan, user_request=message.message, task_context=""
+                                    ):
+                                        for hb_event in _verifying_hb.drain():
+                                            yield hb_event
+                                        await self._check_cancelled()
+                                        yield event
+
+                                        # Capture verification result
+                                        if isinstance(event, VerificationEvent):
+                                            if event.status == VerificationStatus.PASSED:
+                                                self._verification_verdict = "pass"
+                                                verify_span.set_attribute("verification.verdict", "pass")
+                                            elif event.status == VerificationStatus.REVISION_NEEDED:
+                                                self._verification_verdict = "revise"
+                                                self._verification_feedback = event.revision_feedback
+                                                self._verification_confidence = event.confidence
+                                                self._verification_loops += 1
+                                                verify_span.set_attribute("verification.verdict", "revise")
+                                            elif event.status == VerificationStatus.FAILED:
+                                                self._verification_verdict = "fail"
+                                                verify_span.set_attribute("verification.verdict", "fail")
                                 for hb_event in _verifying_hb.drain():
                                     yield hb_event
-                                await self._check_cancelled()
-                                yield event
-
-                                # Capture verification result
-                                if isinstance(event, VerificationEvent):
-                                    if event.status == VerificationStatus.PASSED:
-                                        self._verification_verdict = "pass"
-                                        verify_span.set_attribute("verification.verdict", "pass")
-                                    elif event.status == VerificationStatus.REVISION_NEEDED:
-                                        self._verification_verdict = "revise"
-                                        self._verification_feedback = event.revision_feedback
-                                        self._verification_confidence = event.confidence
-                                        self._verification_loops += 1
-                                        verify_span.set_attribute("verification.verdict", "revise")
-                                    elif event.status == VerificationStatus.FAILED:
-                                        self._verification_verdict = "fail"
-                                        verify_span.set_attribute("verification.verdict", "fail")
-                        for hb_event in _verifying_hb.drain():
-                            yield hb_event
+                    except TimeoutError:
+                        logger.warning(
+                            "Agent %s: verification timed out after %.1fs — auto-passing to execution",
+                            self._agent_id,
+                            _verification_timeout,
+                        )
+                        self._verification_verdict = "pass"
+                        yield ProgressEvent(
+                            phase=PlanningPhase.EXECUTING_SETUP,
+                            message="Verification timed out — proceeding to execution",
+                            progress_percent=0,
+                        )
 
                     # Route based on verification verdict
                     if self._verification_verdict == "pass":
