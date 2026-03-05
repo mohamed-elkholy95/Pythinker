@@ -950,6 +950,16 @@ class EvalMetricsEvent(BaseEvent):
     passed: bool = True  # True if no metric exceeded warning threshold
 
 
+class PartialResultEvent(BaseEvent):
+    """Emitted after each step completes with a headline summary of results found so far."""
+
+    type: Literal["partial_result"] = "partial_result"
+    step_index: int
+    step_title: str
+    headline: str  # One-line summary, e.g. "Found 12 results about renewable energy trends"
+    sources_count: int = 0
+
+
 # Discriminated union on 'type' field for efficient Pydantic v2 validation
 # Using Union[] syntax required for Annotated discriminator pattern
 AgentEvent = Annotated[
@@ -995,6 +1005,7 @@ AgentEvent = Annotated[
         ResearchModeEvent,
         PhaseEvent,
         EvalMetricsEvent,
+        PartialResultEvent,
     ],
     Discriminator("type"),
 ]
