@@ -191,6 +191,8 @@ async def run_gateway() -> None:
         telegram_pdf_rate_limit_per_minute=settings.telegram_pdf_rate_limit_per_minute,
         telegram_pdf_force_long_text=settings.telegram_pdf_force_long_text,
         telegram_require_linked_account=settings.telegram_require_linked_account,
+        telegram_final_delivery_only=settings.telegram_final_delivery_only,
+        telegram_final_delivery_allow_wait_prompts=settings.telegram_final_delivery_allow_wait_prompts,
     )
 
     # NanobotGateway — may not exist yet during incremental development.
