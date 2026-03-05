@@ -7,15 +7,15 @@ import re
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import httpx
 import websockets
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from sse_starlette.event import ServerSentEvent
 from sse_starlette.sse import EventSourceResponse
 
-from app.application.errors.exceptions import NotFoundError, UnauthorizedError
+from app.application.errors.exceptions import BadRequestError, NotFoundError, UnauthorizedError
 from app.application.services.agent_service import AgentService
 from app.application.services.screenshot_service import ScreenshotQueryService
 from app.application.services.token_service import TokenService
@@ -26,6 +26,7 @@ from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, Progre
 from app.domain.models.file import FileInfo
 from app.domain.models.session import Session, SessionStatus
 from app.domain.models.user import User
+from app.domain.services.pdf.models import ReportPdfPayload
 from app.domain.services.stream_guard import (
     StreamErrorCategory,
     StreamErrorCode,
@@ -48,6 +49,7 @@ from app.interfaces.dependencies import (
     get_token_service,
     verify_signature_websocket,
 )
+from app.interfaces.gateway.pdf_renderer_factory import build_configured_pdf_renderer
 from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.event import EventMapper
 from app.interfaces.schemas.file import FileViewRequest, FileViewResponse
@@ -65,6 +67,7 @@ from app.interfaces.schemas.session import (
     ListSessionItem,
     ListSessionResponse,
     RenameSessionRequest,
+    ReportPdfDownloadRequest,
     ResumeSessionRequest,
     SandboxInfo,
     SessionStatusResponse,
@@ -337,6 +340,14 @@ def _filter_sessions_for_listing(
     return filtered[:limit]
 
 
+def _build_safe_pdf_filename(title: str) -> str:
+    """Return a stable attachment filename for report PDFs."""
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "-", (title or "").strip().lower()).strip("-")
+    if not normalized:
+        normalized = "report"
+    return f"{normalized[:80]}.pdf"
+
+
 @router.put("", response_model=APIResponse[CreateSessionResponse])
 async def create_session(
     http_request: Request,
@@ -407,6 +418,44 @@ async def get_session(
             is_shared=session.is_shared,
         )
     )
+
+
+@router.post("/{session_id}/report/pdf")
+async def download_session_report_pdf(
+    session_id: str,
+    request: ReportPdfDownloadRequest,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> Response:
+    """Generate a report PDF for a session-owned report payload."""
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+
+    markdown_content = request.content.strip()
+    if not markdown_content:
+        raise BadRequestError("Report content cannot be empty")
+
+    settings = get_settings()
+    payload = ReportPdfPayload(
+        title=request.title.strip() or "Report",
+        markdown_content=markdown_content,
+        sources=request.sources,
+        author=(request.author or "Pythinker AI Agent").strip() or "Pythinker AI Agent",
+        include_toc=settings.telegram_pdf_include_toc,
+        toc_min_sections=settings.telegram_pdf_toc_min_sections,
+        preferred_font=settings.telegram_pdf_unicode_font,
+    )
+    renderer = build_configured_pdf_renderer(settings=settings)
+    pdf_bytes = await renderer.render(payload)
+
+    filename = _build_safe_pdf_filename(payload.title)
+    encoded_filename = quote(filename, safe="")
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+        "Cache-Control": "no-store",
+    }
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 
 @router.get("/{session_id}/status", response_model=APIResponse[SessionStatusResponse])

@@ -9,6 +9,7 @@ from app.application.schemas.session import (
     ShellViewResponse as ApplicationShellViewResponse,
 )
 from app.domain.models.session import AgentMode, ResearchMode, SessionStatus
+from app.domain.models.source_citation import SourceCitation
 from app.interfaces.schemas.event import AgentSSEEvent
 
 ConsoleRecord = ApplicationConsoleRecord
@@ -209,6 +210,15 @@ class RenameSessionRequest(BaseModel):
     """Rename session request schema"""
 
     title: str = Field(..., min_length=1, max_length=500, description="New title for the session")
+
+
+class ReportPdfDownloadRequest(BaseModel):
+    """Request body for generating a report PDF."""
+
+    title: str = Field(default="Report", min_length=1, max_length=500)
+    content: str = Field(..., min_length=1)
+    sources: list[SourceCitation] = Field(default_factory=list)
+    author: str | None = Field(default=None, max_length=200)
 
 
 class DeleteSessionResponse(BaseModel):

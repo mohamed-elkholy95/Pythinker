@@ -240,7 +240,6 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
-import html2pdf from 'html2pdf.js';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
 import {
@@ -260,6 +259,7 @@ import {
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { downloadSessionReportPdf } from '@/api/agent';
 import type { ReportData } from './types';
 import TiptapReportEditor from './TiptapReportEditor.vue';
 import { collapseDuplicateReportBlocks, prepareMarkdownForViewer } from './reportContentNormalizer';
@@ -279,6 +279,7 @@ interface Suggestion {
 
 const props = defineProps<{
   report: ReportData | null;
+  sessionId?: string;
   showToc?: boolean;
   showSuggestion?: boolean;
   suggestion?: Suggestion;
@@ -532,47 +533,22 @@ const handleDownloadMarkdown = () => {
 
 // Download as PDF
 const handleDownloadPdf = async () => {
-  const container = documentContainerRef.value;
-  if (!container || !props.report) return;
+  if (!props.report || !props.sessionId) {
+    showErrorToast('Failed to generate PDF');
+    return;
+  }
 
   showDownloadOptions.value = false;
   isDownloading.value = true;
 
   try {
-    const element = container.querySelector('.document-content');
-    if (!element) return;
-
-    const renderScale = Math.min(3, Math.max(2, window.devicePixelRatio || 2));
-    const windowWidth = Math.ceil((element as HTMLElement).scrollWidth);
-    const windowHeight = Math.ceil((element as HTMLElement).scrollHeight);
-
-    const opt = {
-      margin: [15, 15, 15, 15],
-      filename: getSafeFilename(props.report.title) + '.pdf',
-      image: { type: 'png', quality: 1 },
-      html2canvas: {
-        scale: renderScale,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        windowWidth,
-        windowHeight,
-        onclone: (clonedDocument: Document) => {
-          const clonedElement = clonedDocument.querySelector('.document-content');
-          clonedElement?.classList.add('pdf-export-mode');
-        }
-      },
-      jsPDF: {
-        unit: 'mm',
-        format: 'a4',
-        orientation: 'portrait'
-      },
-      pagebreak: {
-        mode: ['css', 'legacy'],
-        avoid: ['pre', 'table', 'blockquote', 'figure', 'img']
-      }
-    };
-
-    await html2pdf().set(opt).from(element).save();
+    const { blob, filename } = await downloadSessionReportPdf(props.sessionId, {
+      title: props.report.title,
+      content: normalizedReportContent.value,
+      sources: props.report.sources || [],
+      author: props.report.author,
+    });
+    saveAs(blob, filename || `${getSafeFilename(props.report.title)}.pdf`);
   } catch {
     showErrorToast('Failed to generate PDF');
   } finally {

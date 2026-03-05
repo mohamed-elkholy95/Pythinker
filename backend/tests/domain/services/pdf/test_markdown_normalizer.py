@@ -33,9 +33,9 @@ def test_normalizer_linkifies_inline_citations_and_builds_references_from_source
     assert "[2](#ref-2)" in normalized.markdown
     assert "[3](#ref-3)" in normalized.markdown
     assert "## References" in normalized.markdown
-    assert "1. [Source One](https://example.com/one)" in normalized.markdown
-    assert "2. [Source Two](https://example.com/two)" in normalized.markdown
-    assert "3. Unresolved citation" in normalized.markdown
+    assert "[1] [Source One](https://example.com/one)" in normalized.markdown
+    assert "[2] [Source Two](https://example.com/two)" in normalized.markdown
+    assert "[3] Unresolved citation" in normalized.markdown
     assert normalized.unresolved_citations == [3]
 
 
@@ -68,8 +68,8 @@ Result improved [2].
 
     normalized = normalize_markdown_for_pdf(content, [])
 
-    assert "1. Older source" in normalized.markdown
-    assert "2. https://example.com/new" in normalized.markdown
+    assert "[1] Older source" in normalized.markdown
+    assert "[2] https://example.com/new" in normalized.markdown
     assert normalized.unresolved_citations == []
 
 
@@ -106,6 +106,6 @@ Result improved [1] and [2].
 
     normalized = normalize_markdown_for_pdf(content, sources)
 
-    assert "1. [Source One](https://example.com/one)" in normalized.markdown
-    assert "2. https://example.com/two" in normalized.markdown
+    assert "[1] [Source One](https://example.com/one)" in normalized.markdown
+    assert "[2] https://example.com/two" in normalized.markdown
     assert normalized.unresolved_citations == []
