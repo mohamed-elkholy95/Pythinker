@@ -60,11 +60,11 @@ class SmartRouter:
     """
 
     IDENTITY_RESPONSE: ClassVar[str] = (
-        "I am Pythinker, an AI assistant created by the Pythinker Team and Mohamed Elkholy."
+        "I am Pythinker, an AI assistant created by Mohamed Elkholy & the Pythinker Team."
     )
     MODEL_RESPONSE: ClassVar[str] = (
-        "I am Pythinker. My exact backend model can vary by configuration, and I am created by the "
-        "Pythinker Team and Mohamed Elkholy."
+        "I am Pythinker. My exact backend model can vary by configuration, and I am created by "
+        "Mohamed Elkholy & the Pythinker Team."
     )
 
     # Patterns for direct responses (no LLM needed)
