@@ -12,7 +12,6 @@ import pytest
 from app.domain.models.state_model import AgentStatus
 from app.domain.services.flows.plan_act import PlanActFlow
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -68,9 +67,7 @@ def test_research_mode_with_draft_flag_skips_verification() -> None:
     settings = _make_settings(feature_fast_draft_plan=True, fast_draft_plan_max_steps=5)
     flow = _make_flow(research_mode="deep_research", has_verifier=True, plan_steps=3)
 
-    status, reason = flow._route_after_planning(
-        use_draft=_use_draft(flow, settings), settings=settings
-    )
+    status, reason = flow._route_after_planning(use_draft=_use_draft(flow, settings), settings=settings)
 
     assert status == AgentStatus.EXECUTING
     assert "fast draft" in reason
@@ -82,9 +79,7 @@ def test_non_research_mode_still_verifies() -> None:
     settings = _make_settings(feature_fast_draft_plan=True, fast_draft_plan_max_steps=5)
     flow = _make_flow(research_mode=None, has_verifier=True, plan_steps=3)
 
-    status, reason = flow._route_after_planning(
-        use_draft=_use_draft(flow, settings), settings=settings
-    )
+    status, reason = flow._route_after_planning(use_draft=_use_draft(flow, settings), settings=settings)
 
     assert status == AgentStatus.VERIFYING
     assert "verifier" in reason
@@ -95,9 +90,7 @@ def test_draft_flag_off_still_verifies() -> None:
     settings = _make_settings(feature_fast_draft_plan=False, fast_draft_plan_max_steps=5)
     flow = _make_flow(research_mode="deep_research", has_verifier=True, plan_steps=3)
 
-    status, reason = flow._route_after_planning(
-        use_draft=_use_draft(flow, settings), settings=settings
-    )
+    status, reason = flow._route_after_planning(use_draft=_use_draft(flow, settings), settings=settings)
 
     assert status == AgentStatus.VERIFYING
     assert "verifier" in reason
@@ -108,9 +101,7 @@ def test_large_draft_plan_still_verifies() -> None:
     settings = _make_settings(feature_fast_draft_plan=True, fast_draft_plan_max_steps=5)
     flow = _make_flow(research_mode="deep_research", has_verifier=True, plan_steps=6)
 
-    status, reason = flow._route_after_planning(
-        use_draft=_use_draft(flow, settings), settings=settings
-    )
+    status, reason = flow._route_after_planning(use_draft=_use_draft(flow, settings), settings=settings)
 
     assert status == AgentStatus.VERIFYING
     assert "verifier" in reason
@@ -121,9 +112,7 @@ def test_no_plan_routes_to_completed() -> None:
     settings = _make_settings(feature_fast_draft_plan=True)
     flow = _make_flow(research_mode="deep_research", has_verifier=True, plan_steps=0)
 
-    status, reason = flow._route_after_planning(
-        use_draft=_use_draft(flow, settings), settings=settings
-    )
+    status, reason = flow._route_after_planning(use_draft=_use_draft(flow, settings), settings=settings)
 
     assert status == AgentStatus.COMPLETED
     assert "no steps" in reason
@@ -134,9 +123,7 @@ def test_no_verifier_routes_to_executing() -> None:
     settings = _make_settings(feature_fast_draft_plan=False)
     flow = _make_flow(research_mode=None, has_verifier=False, plan_steps=4)
 
-    status, reason = flow._route_after_planning(
-        use_draft=_use_draft(flow, settings), settings=settings
-    )
+    status, reason = flow._route_after_planning(use_draft=_use_draft(flow, settings), settings=settings)
 
     assert status == AgentStatus.EXECUTING
     assert "no verifier" in reason
@@ -147,9 +134,7 @@ def test_draft_exactly_at_max_steps_skips_verification() -> None:
     settings = _make_settings(feature_fast_draft_plan=True, fast_draft_plan_max_steps=5)
     flow = _make_flow(research_mode="wide_research", has_verifier=True, plan_steps=5)
 
-    status, reason = flow._route_after_planning(
-        use_draft=_use_draft(flow, settings), settings=settings
-    )
+    status, reason = flow._route_after_planning(use_draft=_use_draft(flow, settings), settings=settings)
 
     assert status == AgentStatus.EXECUTING
     assert "fast draft" in reason
@@ -160,9 +145,7 @@ def test_draft_one_over_max_steps_verifies() -> None:
     settings = _make_settings(feature_fast_draft_plan=True, fast_draft_plan_max_steps=5)
     flow = _make_flow(research_mode="wide_research", has_verifier=True, plan_steps=6)
 
-    status, reason = flow._route_after_planning(
-        use_draft=_use_draft(flow, settings), settings=settings
-    )
+    status, _reason = flow._route_after_planning(use_draft=_use_draft(flow, settings), settings=settings)
 
     assert status == AgentStatus.VERIFYING
 
@@ -173,8 +156,6 @@ def test_any_research_mode_triggers_draft(mode: str) -> None:
     settings = _make_settings(feature_fast_draft_plan=True, fast_draft_plan_max_steps=5)
     flow = _make_flow(research_mode=mode, has_verifier=True, plan_steps=3)
 
-    status, _ = flow._route_after_planning(
-        use_draft=_use_draft(flow, settings), settings=settings
-    )
+    status, _ = flow._route_after_planning(use_draft=_use_draft(flow, settings), settings=settings)
 
     assert status == AgentStatus.EXECUTING
