@@ -734,10 +734,12 @@ class AgentTaskRunner(TaskRunner):
         )
 
         if chart_result is None:
-            logger.info(
-                "Plotly chart unavailable for report_id=%s session=%s; falling back to legacy SVG generator",
+            logger.warning(
+                "Plotly chart unavailable for report_id=%s session=%s: %s. "
+                "Falling back to legacy SVG.",
                 event.id,
                 self._session_id,
+                getattr(chart_result, "error", "no chart data extracted"),
             )
             return await self._ensure_legacy_svg_chart(
                 event,
