@@ -113,6 +113,17 @@ class ToolEfficiencyMonitor:
         self._same_tool_trigger_count: int = 0
         self._last_same_tool_signal_at_count: int = 0
 
+    def record_tool_call(self, tool_name: str) -> None:
+        """Alias for record() — record a tool call and update counters.
+
+        Provided for call-site clarity when the caller wants to be explicit
+        that a single tool invocation is being logged.
+
+        Args:
+            tool_name: Name of the tool that was called
+        """
+        self.record(tool_name)
+
     def record(self, tool_name: str) -> None:
         """Record a tool call and update counters.
 
