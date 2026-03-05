@@ -490,8 +490,9 @@ class TestSlashCommandLinkAccount:
         repo.migrate_session_ownership.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_bind_alias_valid_code(self) -> None:
-        """:bind CODE should be normalized and processed exactly like /link CODE."""
+    @pytest.mark.parametrize("alias_prefix", [":bind", "/bind"])
+    async def test_bind_alias_valid_code(self, alias_prefix: str) -> None:
+        """Bind aliases should be normalized and processed exactly like /link CODE."""
         import json
 
         web_user_id = "web-user-99"
@@ -508,7 +509,7 @@ class TestSlashCommandLinkAccount:
 
         router = MessageRouter(agent_svc, repo, link_code_store=mock_store)
 
-        inbound = _make_inbound(f":bind {link_code}")
+        inbound = _make_inbound(f"{alias_prefix} {link_code}")
         replies: list[OutboundMessage] = [r async for r in router.route_inbound(inbound)]
 
         assert len(replies) == 1
