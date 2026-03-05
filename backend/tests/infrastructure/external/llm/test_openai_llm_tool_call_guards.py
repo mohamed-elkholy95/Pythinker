@@ -24,6 +24,13 @@ def _build_llm() -> OpenAILLM:
     llm._last_stream_metadata = None
     llm._slow_tool_call_streak = 0
     llm._slow_tool_call_breaker_until = 0.0
+    llm._slow_breaker_missing_fast_model_warned = False
+    llm._slow_breaker_invalid_fast_model_warned = False
+    llm._slow_tool_threshold = 30.0
+    llm._slow_tool_trip_count = 2
+    llm._slow_tool_cooldown = 300.0
+    llm._slow_breaker_max_tokens = 1024
+    llm._slow_breaker_timeout = 60.0
     llm._record_usage = AsyncMock()
     return llm
 

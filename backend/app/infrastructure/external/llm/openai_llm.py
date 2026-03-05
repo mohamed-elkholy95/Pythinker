@@ -133,6 +133,11 @@ class OpenAILLM(LLM):
         self._temperature = temperature if temperature is not None else settings.temperature
         self._max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
         self._api_base = api_base or settings.api_base
+
+        # Resolve provider capability profile (replaces scattered _is_* booleans)
+        from app.infrastructure.external.llm.provider_profile import get_provider_profile
+        self._provider_profile = get_provider_profile(self._api_base, self._model_name)
+
         self._supports_stream_usage = self._detect_stream_usage_support()
         self._last_stream_metadata: dict[str, Any] | None = None
         self._slow_tool_call_streak: int = 0
@@ -140,6 +145,24 @@ class OpenAILLM(LLM):
         self._slow_breaker_missing_fast_model_warned: bool = False
         self._slow_breaker_invalid_fast_model_warned: bool = False
 
+        # Slow tool-call circuit breaker settings (configurable via env)
+        self._slow_tool_threshold = float(
+            getattr(settings, "llm_slow_tool_threshold", self._SLOW_TOOL_CALL_THRESHOLD_SECONDS)
+        )
+        self._slow_tool_trip_count = int(
+            getattr(settings, "llm_slow_tool_trip_count", self._SLOW_TOOL_CALL_TRIP_COUNT)
+        )
+        self._slow_tool_cooldown = float(
+            getattr(settings, "llm_slow_tool_cooldown", self._SLOW_TOOL_CALL_COOLDOWN_SECONDS)
+        )
+        self._slow_breaker_max_tokens = int(
+            getattr(settings, "llm_slow_breaker_degraded_max_tokens", self._SLOW_TOOL_BREAKER_DEGRADED_MAX_TOKENS)
+        )
+        self._slow_breaker_timeout = float(
+            getattr(settings, "llm_slow_breaker_degraded_timeout", self._SLOW_TOOL_BREAKER_DEGRADED_TIMEOUT_SECONDS)
+        )
+
+        # NOTE: _is_* flags kept for backward compatibility. Prefer self._provider_profile.
         # Detect if using local MLX server (doesn't support native tool calling)
         self._is_mlx_mode = self._detect_mlx_mode()
 
@@ -209,18 +232,9 @@ class OpenAILLM(LLM):
             "ollama": {"connect": 3.0, "read": 600.0, "write": 30.0, "pool": 10.0},
         }
 
-        provider_key = "default"
-        api_base = (self._api_base or "").lower()
-        if getattr(self, "_is_glm_api", False):
-            provider_key = "glm"
-        elif getattr(self, "_is_deepseek", False):
-            provider_key = "deepseek"
-        elif any(marker in api_base for marker in ("openai.com", "openrouter.ai", "kimi.com", "kimi.ai")):
-            provider_key = "openai"
-        elif any(marker in api_base for marker in ("localhost", "127.0.0.1", "host.docker.internal", ":11434")):
-            provider_key = "ollama"
-        elif "anthropic.com" in api_base:
-            provider_key = "anthropic"
+        provider_key = self._provider_profile.name
+        if provider_key not in profiles:
+            provider_key = "default"
 
         cfg = dict(profiles.get(provider_key, profiles["default"]))
         if is_streaming:
@@ -266,25 +280,25 @@ class OpenAILLM(LLM):
 
         now = now_monotonic if now_monotonic is not None else time.monotonic()
         self._refresh_slow_tool_breaker_state(now)
-        if duration_seconds >= self._SLOW_TOOL_CALL_THRESHOLD_SECONDS:
+        if duration_seconds >= self._slow_tool_threshold:
             self._slow_tool_call_streak += 1
-            if self._slow_tool_call_streak >= self._SLOW_TOOL_CALL_TRIP_COUNT:
-                self._slow_tool_call_breaker_until = now + self._SLOW_TOOL_CALL_COOLDOWN_SECONDS
+            if self._slow_tool_call_streak >= self._slow_tool_trip_count:
+                self._slow_tool_call_breaker_until = now + self._slow_tool_cooldown
                 if fast_model:
                     logger.warning(
                         "Slow tool-call circuit breaker tripped (%d calls >= %.0fs); using fast model '%s' for %.0fs",
                         self._slow_tool_call_streak,
-                        self._SLOW_TOOL_CALL_THRESHOLD_SECONDS,
+                        self._slow_tool_threshold,
                         fast_model,
-                        self._SLOW_TOOL_CALL_COOLDOWN_SECONDS,
+                        self._slow_tool_cooldown,
                     )
                 else:
                     logger.warning(
                         "Slow tool-call circuit breaker tripped (%d calls >= %.0fs) with FAST_MODEL unset; "
                         "cooldown active for %.0fs on primary model",
                         self._slow_tool_call_streak,
-                        self._SLOW_TOOL_CALL_THRESHOLD_SECONDS,
-                        self._SLOW_TOOL_CALL_COOLDOWN_SECONDS,
+                        self._slow_tool_threshold,
+                        self._slow_tool_cooldown,
                     )
             return
 
@@ -380,13 +394,13 @@ class OpenAILLM(LLM):
         """Cap tool-call timeout while degraded breaker mode is active."""
         if timeout_seconds <= 0 or not degraded_mode:
             return timeout_seconds
-        return min(timeout_seconds, self._SLOW_TOOL_BREAKER_DEGRADED_TIMEOUT_SECONDS)
+        return min(timeout_seconds, self._slow_breaker_timeout)
 
     def _cap_tool_max_tokens_for_slow_breaker(self, max_tokens: int, *, degraded_mode: bool) -> int:
         """Cap tool-call output tokens while degraded breaker mode is active."""
         if not degraded_mode:
             return max_tokens
-        return min(max_tokens, self._SLOW_TOOL_BREAKER_DEGRADED_MAX_TOKENS)
+        return min(max_tokens, self._slow_breaker_max_tokens)
 
     def _resolve_hard_call_timeout(self, settings: Any) -> float:
         """Resolve per-call hard timeout, with GLM override support."""
