@@ -34,6 +34,18 @@ class TelegramConfig(Base):
     rate_limit_cooldown_seconds: int = 3  # Cooldown used for RetryAfter/transient retries
     max_messages_per_batch: int = 5  # Hard limit for split text chunks per outbound message
     pdf_file_id_cache_redis_enabled: bool = False  # Toggle Redis file_id cache for repeated PDFs
+    final_delivery_only: bool = True  # Send only final answer artifact (no inline step chatter)
+    final_delivery_allow_wait_prompts: bool = True  # Allow user-input wait prompts even in final-only mode
+    polling_bootstrap_retries: int = 5  # PTB polling bootstrap retries
+    polling_stall_restart_enabled: bool = True  # Enable channel restart on stall detection
+    polling_stall_timeout_seconds: int = 60  # Stall timeout before requesting restart
+    send_retry_max_attempts: int = 5  # Max attempts for outbound Telegram API calls
+    send_retry_base_delay_seconds: float = 1.0  # Retry backoff base delay
+    send_retry_max_delay_seconds: float = 30.0  # Retry backoff max delay cap
+    send_retry_jitter: bool = True  # Apply jitter in retry backoff
+    send_circuit_breaker_enabled: bool = True  # Enable Telegram send circuit breaker
+    send_circuit_failure_threshold: int = 5  # Failure threshold before opening circuit
+    send_circuit_recovery_timeout_seconds: int = 30  # Circuit recovery timeout
 
 
 class FeishuConfig(Base):
