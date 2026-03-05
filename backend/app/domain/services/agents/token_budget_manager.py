@@ -141,6 +141,35 @@ class TokenBudgetManager:
         BudgetPhase.SUMMARIZATION: 0.15,
     }
 
+    # Research-mode profiles: shift budget toward execution/summarization
+    # since research tasks spend most tokens on search + synthesis.
+    RESEARCH_ALLOCATIONS: ClassVar[dict[str, dict[BudgetPhase, float]]] = {
+        "deep_research": {
+            BudgetPhase.SYSTEM_PROMPT: 0.10,
+            BudgetPhase.PLANNING: 0.10,
+            BudgetPhase.EXECUTION: 0.50,
+            BudgetPhase.MEMORY_CONTEXT: 0.10,
+            BudgetPhase.SUMMARIZATION: 0.20,
+        },
+        "wide_research": {
+            BudgetPhase.SYSTEM_PROMPT: 0.10,
+            BudgetPhase.PLANNING: 0.10,
+            BudgetPhase.EXECUTION: 0.50,
+            BudgetPhase.MEMORY_CONTEXT: 0.10,
+            BudgetPhase.SUMMARIZATION: 0.20,
+        },
+        "fast_search": {
+            BudgetPhase.SYSTEM_PROMPT: 0.10,
+            BudgetPhase.PLANNING: 0.08,
+            BudgetPhase.EXECUTION: 0.52,
+            BudgetPhase.MEMORY_CONTEXT: 0.10,
+            BudgetPhase.SUMMARIZATION: 0.20,
+        },
+    }
+
+    # Hard cap: planning fraction may never exceed this value.
+    MAX_PLANNING_FRACTION: ClassVar[float] = 0.30
+
     # Minimum tokens per phase (floor to prevent starvation)
     MIN_PHASE_TOKENS = 1000
 
@@ -151,9 +180,35 @@ class TokenBudgetManager:
         self,
         token_manager: TokenManager,
         allocations: dict[BudgetPhase, float] | None = None,
+        research_mode: str | None = None,
+        planning_cap: float | None = None,
     ) -> None:
         self._token_manager = token_manager
-        self._allocations = allocations or self.DEFAULT_ALLOCATIONS
+        # Select allocations: explicit > research-mode profile > default
+        if allocations is not None:
+            self._allocations = allocations
+        elif research_mode and research_mode in self.RESEARCH_ALLOCATIONS:
+            self._allocations = self.RESEARCH_ALLOCATIONS[research_mode]
+            logger.info("Using %s budget profile for planning", research_mode)
+        else:
+            self._allocations = self.DEFAULT_ALLOCATIONS
+
+        # Enforce hard planning cap from settings or class default
+        cap = planning_cap if planning_cap is not None else self.MAX_PLANNING_FRACTION
+        planning_frac = self._allocations.get(BudgetPhase.PLANNING, 0.15)
+        if planning_frac > cap:
+            excess = planning_frac - cap
+            self._allocations = dict(self._allocations)
+            self._allocations[BudgetPhase.PLANNING] = cap
+            # Redistribute excess to execution
+            self._allocations[BudgetPhase.EXECUTION] = (
+                self._allocations.get(BudgetPhase.EXECUTION, 0.45) + excess
+            )
+            logger.info(
+                "Planning fraction capped at %.0f%% (was %.0f%%), excess → execution",
+                cap * 100,
+                planning_frac * 100,
+            )
 
     def create_budget(self, max_tokens: int | None = None) -> TokenBudget:
         """Create a new token budget with phase allocations.
