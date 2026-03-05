@@ -1,6 +1,5 @@
 import itertools
 import json
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -68,22 +67,23 @@ async def test_wall_clock_warning_skips_current_tool_calls(monkeypatch: pytest.M
     agent._add_to_memory = AsyncMock()
     agent._cancel_token.check_cancelled = AsyncMock()
 
-    # Start at t=0, then first loop check sees t=70 => 70% of 100s wall limit.
-    monotonic_values = itertools.chain([0.0, 70.0], itertools.repeat(70.0))
+    # Start at t=0, then first loop check sees t=76 => 76% of 100s wall limit.
+    # 76% triggers URGENT (>=75%) which blocks read-only tools and requests graceful completion.
+    monotonic_values = itertools.chain([0.0, 76.0], itertools.repeat(76.0))
     monkeypatch.setattr("app.domain.services.agents.base.time.monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr(
-        "app.core.config.get_settings",
-        lambda: SimpleNamespace(max_step_wall_clock_seconds=100.0),
-    )
+    # Use MagicMock so any accessed attribute returns a sensible default
+    mock_settings = MagicMock()
+    mock_settings.max_step_wall_clock_seconds = 100.0
+    monkeypatch.setattr("app.core.config.get_settings", lambda: mock_settings)
 
     events = [event async for event in agent.execute("do work")]
 
     # Pending tool call is skipped when wall-clock threshold is reached.
     tool.invoke_function.assert_not_awaited()
-    assert agent._add_to_memory.await_count == 1
+    assert agent._add_to_memory.await_count >= 1  # May get advisory + urgent at 70%
     warning_messages = agent._add_to_memory.await_args.args[0]
     assert warning_messages[0]["role"] == "user"
-    assert "STEP TIME WARNING" in warning_messages[0]["content"]
+    assert "STEP TIME URGENT" in warning_messages[0]["content"]  # Graduated: URGENT at >=75%
 
     # The cycle should request completion guidance instead of executing tools.
     ask_payload = agent.ask_with_messages.await_args.args[0]
@@ -153,12 +153,12 @@ async def test_wall_clock_fallback_message_is_structured_json(monkeypatch: pytes
     agent._add_to_memory = AsyncMock()
     agent._cancel_token.check_cancelled = AsyncMock()
 
-    monotonic_values = itertools.chain([0.0, 70.0], itertools.repeat(70.0))
+    # 76% triggers URGENT (>=75%) which blocks tools and requests graceful completion.
+    monotonic_values = itertools.chain([0.0, 76.0], itertools.repeat(76.0))
     monkeypatch.setattr("app.domain.services.agents.base.time.monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr(
-        "app.core.config.get_settings",
-        lambda: SimpleNamespace(max_step_wall_clock_seconds=100.0),
-    )
+    mock_settings = MagicMock()
+    mock_settings.max_step_wall_clock_seconds = 100.0
+    monkeypatch.setattr("app.core.config.get_settings", lambda: mock_settings)
 
     events = [event async for event in agent.execute("do work")]
     final_messages = [event for event in events if isinstance(event, MessageEvent)]

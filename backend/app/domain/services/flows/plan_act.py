@@ -2472,10 +2472,7 @@ class PlanActFlow(BaseFlow):
                             )
 
                         # Fast draft plan: use FAST_MODEL, skip expensive thinking phases
-                        use_draft = (
-                            settings.feature_fast_draft_plan
-                            and self._research_mode is not None
-                        )
+                        use_draft = settings.feature_fast_draft_plan and self._research_mode is not None
 
                         async with LLMHeartbeat(
                             phase=PlanningPhase.PLANNING,
@@ -2503,7 +2500,9 @@ class PlanActFlow(BaseFlow):
                                         # Also propagate queries so SearchTool can return cached
                                         # results instead of failing on dedup hits
                                         if hasattr(self.planner, "_last_search_queries"):
-                                            self.executor._pre_planning_search_queries = self.planner._last_search_queries
+                                            self.executor._pre_planning_search_queries = (
+                                                self.planner._last_search_queries
+                                            )
                                         logger.info("Propagated pre-planning search context to execution agent")
 
                                     # Infer smart dependencies while preferring parallel execution
@@ -2557,12 +2556,8 @@ class PlanActFlow(BaseFlow):
                     self._verification_verdict = None
                     self._verification_feedback = None
 
-                    next_status, routing_reason = self._route_after_planning(
-                        use_draft=use_draft, settings=settings
-                    )
-                    logger.info(
-                        f"Agent {self._agent_id} post-planning route: {next_status.value} — {routing_reason}"
-                    )
+                    next_status, routing_reason = self._route_after_planning(use_draft=use_draft, settings=settings)
+                    logger.info(f"Agent {self._agent_id} post-planning route: {next_status.value} — {routing_reason}")
                     self._transition_to(next_status)
 
                 elif self.status == AgentStatus.VERIFYING:
@@ -2574,14 +2569,10 @@ class PlanActFlow(BaseFlow):
                     # Verify plan before execution (Phase 1: Plan-Verify-Execute)
                     await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started verifying plan")
-                    _verification_timeout = getattr(
-                        self._settings, "verification_timeout_seconds", 0.0
-                    )
+                    _verification_timeout = getattr(self._settings, "verification_timeout_seconds", 0.0)
                     try:
                         async with (
-                            asyncio.timeout(_verification_timeout)
-                            if _verification_timeout > 0
-                            else nullcontext()
+                            asyncio.timeout(_verification_timeout) if _verification_timeout > 0 else nullcontext()
                         ):
                             with trace_ctx.span("verifying", "agent_step") as verify_span:
                                 async with LLMHeartbeat(
@@ -3077,9 +3068,7 @@ class PlanActFlow(BaseFlow):
                         # Emit PartialResultEvent so frontend can show a running headline
                         # of what each step produced without waiting for the final report.
                         if step.success:
-                            _step_idx = next(
-                                (i for i, s in enumerate(self.plan.steps) if s.id == step.id), -1
-                            )
+                            _step_idx = next((i for i, s in enumerate(self.plan.steps) if s.id == step.id), -1)
                             _result_text = step.result or ""
                             _headline = extract_headline(
                                 _result_text,

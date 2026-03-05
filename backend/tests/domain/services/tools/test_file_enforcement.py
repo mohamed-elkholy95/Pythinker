@@ -2,8 +2,6 @@
 
 import time
 
-import pytest
-
 from app.domain.services.tools.file import FileTool
 
 
