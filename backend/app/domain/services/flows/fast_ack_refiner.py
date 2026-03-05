@@ -101,8 +101,11 @@ class FastAcknowledgmentRefiner:
                     "- Be professional, direct, and action-oriented.\n"
                     "- Correct obvious typos and awkward phrasing from the user request.\n"
                     "- State what you will do next immediately (review/research/build/create/fix as appropriate).\n"
+                    "- You may include a brief time estimate (e.g. 'This should take about 5-10 minutes.').\n"
                     "- Do not ask follow-up questions.\n"
                     "- Do not include bullet points or markdown.\n"
+                    "- NEVER mention specific search sites, sources, or platforms (Reddit, Google, Stack Overflow,\n"
+                    "  GitHub, Wikipedia, forums, blogs, etc.). Just say 'research' or 'look into'.\n"
                     "- NEVER expand vague references into specific version numbers, model names, or product details.\n"
                     "  If the user says 'latest Claude' just say 'latest Claude' — do NOT guess 'Claude 3.5 Sonnet'.\n"
                     "  Mirror the user's own wording for product/model names."
@@ -137,6 +140,26 @@ class FastAcknowledgmentRefiner:
             normalized,
             flags=re.IGNORECASE,
         )
+
+        # Strip specific source/site mentions the LLM may hallucinate.
+        # Handles: "including searching Reddit and other sources",
+        # "by checking Stack Overflow and GitHub", "from Google", etc.
+        _sites = (
+            r"Reddit|Google|Stack\s*Overflow|GitHub|Wikipedia|Hacker\s*News|"
+            r"Quora|Medium|Twitter|X\.com|YouTube|forums?|blogs?"
+        )
+        # Full phrase: ", including searching Reddit and other sources"
+        normalized = re.sub(
+            rf",?\s*(?:including\s+)?(?:by\s+)?(?:searching|checking|browsing|looking\s+at|from)\s+"
+            rf"(?:{_sites})(?:\s*,?\s*(?:and\s+)?(?:{_sites}))*"
+            rf"(?:\s+and\s+other\s+sources?)?(?:\s+for\s+[\w\s]{{1,40}})?",
+            "",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        # Collapse any resulting double spaces or orphaned punctuation
+        normalized = re.sub(r"\s*\.\s*\.", ".", normalized)
+        normalized = re.sub(r"  +", " ", normalized).strip()
 
         # Enforce required opener and concise length boundary.
         if not normalized.startswith("Got it!"):
