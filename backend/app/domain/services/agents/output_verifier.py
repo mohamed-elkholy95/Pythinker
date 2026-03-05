@@ -74,6 +74,7 @@ class OutputVerifier:
         "_lettuce_enabled",
         "_llm",
         "_metrics",
+        "_research_depth",
         "_resolve_feature_flags_fn",
         "_source_tracker",
         "_user_request",
@@ -103,6 +104,7 @@ class OutputVerifier:
         self._resolve_feature_flags_fn = resolve_feature_flags_fn
         self._cove_enabled: bool = cove_enabled
         self._lettuce_enabled: bool = lettuce_enabled
+        self._research_depth: str | None = None
 
         # Mutable state (set per-run by the caller)
         self._user_request: str | None = None
