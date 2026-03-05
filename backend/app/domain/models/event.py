@@ -565,6 +565,8 @@ class PlanningPhase(str, Enum):
     FINALIZING = "finalizing"  # Parsing and validating plan
     HEARTBEAT = "heartbeat"  # Keep-alive during long agent operations (no UI change)
     WAITING = "waiting"  # Long-running execution wait beacon (non-transport heartbeat)
+    VERIFYING = "verifying"  # Plan verification in progress
+    EXECUTING_SETUP = "executing_setup"  # Preparing to execute (between verification and first tool)
 
 
 class ProgressEvent(BaseEvent):

@@ -2521,6 +2521,11 @@ class PlanActFlow(BaseFlow):
                         self._transition_to(AgentStatus.EXECUTING)
 
                 elif self.status == AgentStatus.VERIFYING:
+                    # NEW: Emit verifying progress event
+                    yield ProgressEvent(
+                        phase=PlanningPhase.VERIFYING,
+                        message="Checking plan quality...",
+                    )
                     # Verify plan before execution (Phase 1: Plan-Verify-Execute)
                     await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started verifying plan")
@@ -2560,6 +2565,11 @@ class PlanActFlow(BaseFlow):
                                 logger.info(f"Agent {self._agent_id} plan failed validation after verification")
                                 self._transition_to(AgentStatus.PLANNING)
                         else:
+                            yield ProgressEvent(
+                                phase=PlanningPhase.EXECUTING_SETUP,
+                                message="Preparing to execute plan...",
+                                progress_percent=0,
+                            )
                             self._transition_to(AgentStatus.EXECUTING)
                     elif self._verification_verdict == "revise":
                         next_status, transition_reason = self._route_after_revision_needed()
@@ -2574,6 +2584,11 @@ class PlanActFlow(BaseFlow):
                                 else:
                                     self._transition_to(AgentStatus.PLANNING)
                             else:
+                                yield ProgressEvent(
+                                    phase=PlanningPhase.EXECUTING_SETUP,
+                                    message="Preparing to execute plan...",
+                                    progress_percent=0,
+                                )
                                 self._transition_to(AgentStatus.EXECUTING)
                         elif next_status == AgentStatus.SUMMARIZING:
                             logger.warning(
@@ -2606,6 +2621,11 @@ class PlanActFlow(BaseFlow):
                                 logger.info(f"Agent {self._agent_id} plan failed validation after verification")
                                 self._transition_to(AgentStatus.PLANNING)
                         else:
+                            yield ProgressEvent(
+                                phase=PlanningPhase.EXECUTING_SETUP,
+                                message="Preparing to execute plan...",
+                                progress_percent=0,
+                            )
                             self._transition_to(AgentStatus.EXECUTING)
 
                 elif self.status == AgentStatus.EXECUTING:
