@@ -397,8 +397,8 @@ class APIKeyPool:
         self._exhaustion_timestamps: dict[str, float] = {}  # key_hash -> when marked exhausted
         self._adaptive_ttl_multiplier: float = 1.0  # shrinks on early recovery (floor: 0.25)
 
-        # Circuit breaker for upstream outage protection
-        self.circuit_breaker = CircuitBreaker()
+        # Circuit breaker for upstream outage protection (settings-driven)
+        self.circuit_breaker = CircuitBreaker.from_settings()
 
         # Cooldown: suppress repeated "all keys exhausted" warnings
         self._last_exhaustion_warning: float = 0.0
