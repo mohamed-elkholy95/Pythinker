@@ -275,6 +275,27 @@ class OutputVerifier:
                 # Build grounding context from collected sources
                 source_context = self.build_source_context()
 
+                # Use expanded context for DEEP research (design 4B)
+                from app.core.config import get_settings
+                settings = get_settings()
+                default_size = getattr(settings, "hallucination_grounding_context_size", 4096)
+                if getattr(self, "_research_depth", None) == "DEEP":
+                    context_size = getattr(settings, "hallucination_grounding_context_deep", 8192)
+                else:
+                    context_size = default_size
+                # Trim chunks so total chars do not exceed context_size
+                trimmed_context: list[str] = []
+                _total = 0
+                for _chunk in source_context:
+                    if _total + len(_chunk) > context_size:
+                        _remaining = context_size - _total
+                        if _remaining > 50:
+                            trimmed_context.append(_chunk[:_remaining])
+                        break
+                    trimmed_context.append(_chunk)
+                    _total += len(_chunk)
+                source_context = trimmed_context or source_context
+
                 lettuce_result = verifier.verify(
                     context=source_context,
                     question=query,
@@ -324,10 +345,12 @@ class OutputVerifier:
                     )
 
                     # Tiered response based on hallucination severity:
-                    # - >25%: disclaimer (too many spans to redact cleanly)
-                    # - 10-25%: redact individual spans with […] markers
-                    # - <10%: pass through (noise-level, not actionable)
-                    if lettuce_result.hallucination_ratio > 0.25:
+                    # - >block_threshold: disclaimer (too many spans to redact cleanly)
+                    # - warn_threshold-block_threshold: reliability notice
+                    # - <warn_threshold: pass through (noise-level, not actionable)
+                    _block_threshold = getattr(settings, "hallucination_block_threshold", 0.25)
+                    _warn_threshold = getattr(settings, "hallucination_warn_threshold", 0.10)
+                    if lettuce_result.hallucination_ratio > _block_threshold:
                         disclaimer = (
                             "\n\n> **Note:** Some information in this response "
                             "could not be fully verified against available sources."
@@ -339,7 +362,7 @@ class OutputVerifier:
                             hallucination_ratio=lettuce_result.hallucination_ratio,
                             span_count=len(lettuce_result.hallucinated_spans),
                         )
-                    if lettuce_result.hallucination_ratio > 0.10:
+                    if lettuce_result.hallucination_ratio > _warn_threshold:
                         # Use a disclaimer instead of span redaction.  Redacting spans with
                         # `[…]` markers corrupts Mermaid diagrams, table cells, and chart
                         # extraction — the same markers appear in truncation artifacts,
