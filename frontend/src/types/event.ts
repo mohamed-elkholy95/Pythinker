@@ -43,6 +43,7 @@ export type AgentSSEEvent = {
     | 'flow_transition'
     | 'verification'
     | 'reflection'
+    | 'partial_result'
     | 'phase';
   data:
     | ToolEventData
@@ -74,7 +75,8 @@ export type AgentSSEEvent = {
     | FlowSelectionEventData
     | FlowTransitionEventData
     | VerificationEventData
-    | ReflectionEventData;
+    | ReflectionEventData
+    | PartialResultEventData;
 }
 
 export interface BaseEventData {
@@ -381,4 +383,14 @@ export interface ReflectionEventData extends BaseEventData {
   confidence?: number;
   summary?: string;
   trigger_reason?: string;
+}
+
+// ── Partial result events (provisional findings during execution) ─────
+
+export interface PartialResultEventData extends BaseEventData {
+  type: 'partial_result';
+  step_index: number;
+  step_title: string;
+  headline: string;
+  sources_count: number;
 }
