@@ -138,7 +138,9 @@ async def test_file_write_warns_on_repetitive_overwrite_loop() -> None:
     second = await tool.file_write(file=file_path, content="version-2", append=False)
     third = await tool.file_write(file=file_path, content="version-3", append=False)
 
-    assert first.success and second.success and third.success
+    assert first.success and second.success
+    # 3rd overwrite is BLOCKED — returns error per design 2B enforcement
+    assert third.success is False
     assert "overwrite loop detected" not in (first.message or "")
     assert "overwrite loop detected" not in (second.message or "")
     assert "overwrite loop detected" in (third.message or "")
