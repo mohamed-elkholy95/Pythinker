@@ -334,7 +334,7 @@ class ReflectionAgent:
         response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
         content = response.get("content", "")
-        parsed = await self.json_parser.parse(content)
+        parsed = await self.json_parser.parse(content, tier="B")
 
         # Parse decision
         decision_str = parsed.get("decision", "continue").lower()
@@ -486,7 +486,7 @@ class ReflectionAgent:
             response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
             content = response.get("content", "")
-            parsed = await self.json_parser.parse(content)
+            parsed = await self.json_parser.parse(content, tier="B")
 
             # Parse decision
             decision_str = parsed.get("decision", "adjust").lower()

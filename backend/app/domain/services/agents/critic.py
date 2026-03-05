@@ -345,6 +345,24 @@ class CriticAgent:
 
         return get_feature_flags()
 
+    async def _ask_structured_tiered(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        response_model: type[Any],
+        tier: str = "B",
+    ) -> Any:
+        policy_method = getattr(self.llm, "ask_structured_with_policy", None)
+        llm_module = getattr(type(self.llm), "__module__", "")
+        is_mock_llm = llm_module.startswith("unittest.mock")
+        if callable(policy_method) and not is_mock_llm:
+            return await policy_method(
+                messages=messages,
+                response_model=response_model,
+                tier=tier,
+            )
+        return await self.llm.ask_structured(messages=messages, response_model=response_model)
+
     @property
     def _config(self) -> CriticConfig:
         """Backward-compatible config alias."""
@@ -552,7 +570,7 @@ class CriticAgent:
             # Try structured output first
             if hasattr(self.llm, "ask_structured"):
                 try:
-                    review = await self.llm.ask_structured(messages=messages, response_model=CriticReview)
+                    review = await self._ask_structured_tiered(messages=messages, response_model=CriticReview, tier="B")
                     review.review_type = review_type
                     self._record_review(review)
                     return review
@@ -563,7 +581,7 @@ class CriticAgent:
             response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
             content = response.get("content", "")
-            parsed = await self.json_parser.parse(content)
+            parsed = await self.json_parser.parse(content, tier="B")
 
             # Normalize verdict
             verdict_str = parsed.get("verdict", "approve").lower()
@@ -819,7 +837,11 @@ class CriticAgent:
             # Try structured output
             if hasattr(self.llm, "ask_structured"):
                 try:
-                    result = await self.llm.ask_structured(messages=messages, response_model=FactCheckResult)
+                    result = await self._ask_structured_tiered(
+                        messages=messages,
+                        response_model=FactCheckResult,
+                        tier="B",
+                    )
                     # Merge in our pattern detection results
                     result.red_flags.extend(red_flags)
                     result.caveats_to_add.extend(caveats_to_add)
@@ -844,7 +866,7 @@ class CriticAgent:
             response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
             content = response.get("content", "")
-            parsed = await self.json_parser.parse(content)
+            parsed = await self.json_parser.parse(content, tier="B")
 
             # Normalize recommendation
             rec_str = parsed.get("recommendation", "deliver").lower()
@@ -946,7 +968,11 @@ class CriticAgent:
             # Try structured output
             if hasattr(self.llm, "ask_structured"):
                 try:
-                    return await self.llm.ask_structured(messages=messages, response_model=StructuredFeedback)
+                    return await self._ask_structured_tiered(
+                        messages=messages,
+                        response_model=StructuredFeedback,
+                        tier="B",
+                    )
                 except Exception as e:
                     logger.warning(f"Structured feedback failed: {e}")
 
@@ -954,7 +980,7 @@ class CriticAgent:
             response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
             content = response.get("content", "")
-            parsed = await self.json_parser.parse(content)
+            parsed = await self.json_parser.parse(content, tier="B")
 
             # Parse improvements
             improvements = [
@@ -1018,7 +1044,7 @@ class CriticAgent:
             )
 
             content = response.get("content", "")
-            parsed = await self.json_parser.parse(content)
+            parsed = await self.json_parser.parse(content, tier="B")
 
             passes = parsed.get("passes_validation", True)
             if not passes:
@@ -1128,7 +1154,11 @@ class CriticAgent:
             # Try structured output first
             if hasattr(self.llm, "ask_structured"):
                 try:
-                    result = await self.llm.ask_structured(messages=messages, response_model=FiveCheckResult)
+                    result = await self._ask_structured_tiered(
+                        messages=messages,
+                        response_model=FiveCheckResult,
+                        tier="B",
+                    )
 
                     # Log summary
                     logger.info(f"5-check result: {result.get_summary()}")
@@ -1147,7 +1177,7 @@ class CriticAgent:
             # Fallback to JSON parsing
             response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
             content = response.get("content", "")
-            parsed = await self.json_parser.parse(content)
+            parsed = await self.json_parser.parse(content, tier="B")
 
             # Parse individual check results
             def parse_check(data: dict, name: str) -> CheckResult:

@@ -104,12 +104,20 @@ class ResearchQueryDecomposer:
         ]
 
         try:
-            result = await llm.ask_structured(
-                messages=messages,
-                response_model=DecomposedQueries,
-                temperature=0.3,
-                max_tokens=1024,
-            )
+            policy_method = getattr(llm, "ask_structured_with_policy", None)
+            if callable(policy_method):
+                result = await policy_method(
+                    messages=messages,
+                    response_model=DecomposedQueries,
+                    tier="B",
+                )
+            else:
+                result = await llm.ask_structured(
+                    messages=messages,
+                    response_model=DecomposedQueries,
+                    temperature=0.3,
+                    max_tokens=1024,
+                )
             sub_questions = result.sub_questions
         except Exception:
             logger.warning(
