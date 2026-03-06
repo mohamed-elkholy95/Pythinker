@@ -263,6 +263,10 @@ class PlanActFlow(BaseFlow):
         self._checkpoint_interval = 5  # Write checkpoint every 5 steps
         self._steps_completed_count = 0
 
+        # Fix 6: Track uploaded report attachments for manifest injection at summarization time.
+        # Populated from session files before summarization; consumed by _build_artifact_manifest().
+        self._report_attachments: list[dict[str, str]] = []
+
         # Role-scoped memory for context injection (Phase 4: Role-Scoped Memory Access)
         from app.domain.services.role_scoped_memory import RoleScopedMemory
 
@@ -1383,6 +1387,26 @@ class PlanActFlow(BaseFlow):
                     )
         except Exception:
             logger.debug("Search health check failed (non-critical)", exc_info=True)
+
+    @staticmethod
+    def _build_artifact_manifest(attachments: list[dict[str, str]] | None) -> str:
+        """Build a deliverables section from uploaded attachments for summarization.
+
+        Returns an empty string if no attachments are provided, so callers
+        can safely append the result to the system prompt.
+        """
+        if not attachments:
+            return ""
+        lines = []
+        for att in attachments:
+            fname = att.get("filename", "unknown")
+            lines.append(f"- {fname}")
+        return (
+            "\n\n## Deliverables\n"
+            "The following files were created and uploaded during this session:\n"
+            + "\n".join(lines)
+            + "\n\nReference these files by name in your summary where relevant."
+        )
 
     def _rebalance_token_budget(self, old_status: AgentStatus, new_status: AgentStatus) -> None:
         """Rebalance unused tokens from completed phase to next phase.
@@ -3120,7 +3144,7 @@ class PlanActFlow(BaseFlow):
                             )
                             yield PartialResultEvent(
                                 step_index=max(_step_idx, 0),
-                                step_title=step.title or step.description or "",
+                                step_title=step.description or "",
                                 headline=_headline,
                                 sources_count=0,
                             )
@@ -3349,6 +3373,31 @@ class PlanActFlow(BaseFlow):
                             "Injected session files listing (%d files) into summarization context",
                             len(session_files),
                         )
+
+                    # Fix 6: Snapshot session files into _report_attachments so the artifact
+                    # manifest covers files that were stored in session but may not yet be
+                    # reflected in the storage upload pipeline at summarization time.
+                    if session_files and not self._report_attachments:
+                        self._report_attachments = [
+                            {
+                                "filename": f.filename,
+                                "storage_key": getattr(f, "storage_key", "") or f.file_path or "",
+                            }
+                            for f in session_files
+                        ]
+
+                    # Inject artifact manifest from any tracked report attachments into the
+                    # summarization context.  _report_attachments may also be populated by the
+                    # file-sync pipeline before summarization runs (e.g. MinIO uploads that are
+                    # not yet reflected in session.files).
+                    if self._report_attachments:
+                        manifest = self._build_artifact_manifest(self._report_attachments)
+                        if manifest:
+                            self.executor.system_prompt += manifest
+                            logger.info(
+                                "Injected artifact manifest (%d files) into summarization context",
+                                len(self._report_attachments),
+                            )
 
                     # Fallback: ensure executor has user_request for topic anchoring,
                     # even when no steps executed (normally set in execute_step()).
