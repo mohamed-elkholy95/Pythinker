@@ -17,17 +17,17 @@ class LLMSettingsMixin:
     llm_provider: str = "auto"
 
     # OpenAI-compatible provider (default)
-    # Works with OpenRouter, Kimi Code, DeepSeek, OpenAI, and other OpenAI-compatible APIs
+    # Works with Kimi Code, OpenRouter, DeepSeek, OpenAI, and other OpenAI-compatible APIs
     api_key: str | None = None
-    api_key_2: str | None = None  # Fallback OpenAI/OpenRouter key #1
-    api_key_3: str | None = None  # Fallback OpenAI/OpenRouter key #2
-    api_base: str = "https://openrouter.ai/api/v1"
+    api_key_2: str | None = None  # Fallback key #1
+    api_key_3: str | None = None  # Fallback key #2
+    api_base: str = "https://api.kimi.com/coding/v1"
 
     # Model configuration
-    # Qwen3-Coder-Next: 80B MoE (3B active), 262k context, $0.12/$0.75 per 1M tokens
-    model_name: str = "qwen/qwen3-coder-next"
-    temperature: float = 0.3  # Lower temperature for deterministic JSON responses
-    max_tokens: int = 16000  # Output token limit per LLM call
+    # Kimi 2.5 Code: Moonshot AI coding model, 128k context
+    model_name: str = "kimi-for-coding"
+    temperature: float = 0.6
+    max_tokens: int = 8192  # Output token limit per LLM call
     summarization_max_tokens: int = 32000  # Higher limit for report/summary generation
 
     # Ollama configuration
@@ -48,15 +48,10 @@ class LLMSettingsMixin:
 
     # Adaptive Model Selection (DeepCode Integration Phase 1)
     # Enables dynamic model routing based on step complexity for cost optimization.
-    # Works with any OpenAI-compatible provider (OpenRouter, DeepInfra, etc.).
+    # Works with any OpenAI-compatible provider (Kimi, OpenRouter, DeepInfra, etc.).
     #
-    # Recommended MoE presets (via OpenRouter):
-    #   FAST:     openai/gpt-oss-120b       ($0.04/$0.19/M)  — 5.1B active, Apache 2.0
-    #             xiaomi/mimo-v2-flash       ($0.09/$0.29/M)  — 15B active, hybrid-thinking
-    #   BALANCED: deepseek/deepseek-chat     ($0.25/$0.38/M)  — 37B active, "thinking in tool-use"
-    #             zhipu-ai/glm-4-air         ($0.30/$0.90/M)  — 90.6% tool-calling success
-    #   POWERFUL: moonshotai/kimi-k2.5       ($0.60/$3.00/M)  — 32B active, Agent Swarm (100 sub-agents)
-    #             deepseek/deepseek-chat-v3-0324-speciale ($0.40/$1.20/M)
+    # Default: all tiers use kimi-for-coding (Kimi 2.5 Code)
+    # Override per tier as needed via FAST_MODEL / BALANCED_MODEL / POWERFUL_MODEL
     adaptive_model_selection_enabled: bool = False
     fast_model: str = ""  # Fast tier: summaries, simple transforms (empty = use model_name)
     balanced_model: str = ""  # Balanced tier: standard execution (empty = use model_name)
@@ -119,6 +114,11 @@ class LLMTimeoutSettingsMixin:
     # budget reduces slow turns and limits runaway verbose generations.
     # Set to 0 to disable this cap.
     llm_tool_max_tokens: int = 2048
+
+    # Higher token budget for file-writing tool calls (file_write, file_append).
+    # These produce large content payloads that exceed the default tool cap.
+    # Set to 0 to use the base max_tokens instead.
+    llm_file_write_max_tokens: int = 16384
 
     # Guardrail timeout for tool-enabled calls. This prevents multi-minute stalls
     # from slow providers during orchestration-heavy sessions.

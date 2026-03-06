@@ -68,6 +68,18 @@ class OpenAILLM(LLM):
     _SLOW_TOOL_CALL_COOLDOWN_SECONDS: ClassVar[float] = 300.0
     _SLOW_TOOL_BREAKER_DEGRADED_MAX_TOKENS: ClassVar[int] = 1024
     _SLOW_TOOL_BREAKER_DEGRADED_TIMEOUT_SECONDS: ClassVar[float] = 60.0
+    _FILE_WRITE_TOOL_NAMES: ClassVar[frozenset[str]] = frozenset({"file_write", "file_append"})
+
+    @staticmethod
+    def _has_file_write_tool(tools: list[dict[str, Any]] | None) -> bool:
+        """Return True if the tool list includes file_write or file_append."""
+        if not tools:
+            return False
+        for tool in tools:
+            func = tool.get("function") or {}
+            if func.get("name") in OpenAILLM._FILE_WRITE_TOOL_NAMES:
+                return True
+        return False
 
     def __init__(
         self,
@@ -1760,14 +1772,23 @@ To extract data from a webpage:
                 effective_model = self._resolve_model_override(model_override_for_attempt)
                 effective_temperature = temperature if temperature is not None else self._temperature
                 effective_max_tokens = max_tokens if max_tokens is not None else self._max_tokens
+                _file_write_max = getattr(settings, "llm_file_write_max_tokens", 0)
                 if request_tools and llm_tool_max_tokens > 0 and effective_max_tokens > llm_tool_max_tokens:
-                    logger.debug(
-                        "Capping tool-call max_tokens from %s to %s for model %s",
-                        effective_max_tokens,
-                        llm_tool_max_tokens,
-                        effective_model,
-                    )
-                    effective_max_tokens = llm_tool_max_tokens
+                    if self._has_file_write_tool(request_tools) and _file_write_max > 0:
+                        effective_max_tokens = min(effective_max_tokens, _file_write_max)
+                        logger.debug(
+                            "file_write tool detected — using elevated max_tokens %s (not capped to %s)",
+                            effective_max_tokens,
+                            llm_tool_max_tokens,
+                        )
+                    else:
+                        logger.debug(
+                            "Capping tool-call max_tokens from %s to %s for model %s",
+                            effective_max_tokens,
+                            llm_tool_max_tokens,
+                            effective_model,
+                        )
+                        effective_max_tokens = llm_tool_max_tokens
                 if request_tools:
                     capped_max_tokens = self._cap_tool_max_tokens_for_slow_breaker(
                         effective_max_tokens,
