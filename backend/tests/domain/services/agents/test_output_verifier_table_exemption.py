@@ -1,7 +1,7 @@
 """Tests for markdown table exemption from hallucination checking."""
+
 from __future__ import annotations
-import re
-import pytest
+
 from app.domain.services.agents.output_verifier import OutputVerifier
 
 
@@ -22,11 +22,7 @@ class TestTableExemption:
         assert "Some conclusion text." in stripped
 
     def test_preserves_tables_without_citations(self):
-        text = (
-            "| Name | Value |\n"
-            "|------|-------|\n"
-            "| foo | bar |\n"
-        )
+        text = "| Name | Value |\n|------|-------|\n| foo | bar |\n"
         stripped = OutputVerifier._strip_cited_tables(text)
         assert "| foo | bar |" in stripped
 
@@ -37,11 +33,7 @@ class TestTableExemption:
 
     def test_strips_header_row_of_cited_table(self):
         """Header and separator of a table with cited data rows should also be stripped."""
-        text = (
-            "| Model | Score | Source |\n"
-            "|-------|-------|--------|\n"
-            "| GPT-5.4 | 77.2% | [16] |\n"
-        )
+        text = "| Model | Score | Source |\n|-------|-------|--------|\n| GPT-5.4 | 77.2% | [16] |\n"
         stripped = OutputVerifier._strip_cited_tables(text)
         # The entire table block should be gone since data rows have citations
         assert "| Model |" not in stripped
