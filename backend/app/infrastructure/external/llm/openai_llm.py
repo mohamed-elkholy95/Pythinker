@@ -148,6 +148,7 @@ class OpenAILLM(LLM):
 
         # Resolve provider capability profile (replaces scattered _is_* booleans)
         from app.infrastructure.external.llm.provider_profile import get_provider_profile
+
         self._provider_profile = get_provider_profile(self._api_base, self._model_name)
 
         self._supports_stream_usage = self._detect_stream_usage_support()
@@ -161,9 +162,7 @@ class OpenAILLM(LLM):
         self._slow_tool_threshold = float(
             getattr(settings, "llm_slow_tool_threshold", self._SLOW_TOOL_CALL_THRESHOLD_SECONDS)
         )
-        self._slow_tool_trip_count = int(
-            getattr(settings, "llm_slow_tool_trip_count", self._SLOW_TOOL_CALL_TRIP_COUNT)
-        )
+        self._slow_tool_trip_count = int(getattr(settings, "llm_slow_tool_trip_count", self._SLOW_TOOL_CALL_TRIP_COUNT))
         self._slow_tool_cooldown = float(
             getattr(settings, "llm_slow_tool_cooldown", self._SLOW_TOOL_CALL_COOLDOWN_SECONDS)
         )
@@ -1109,7 +1108,9 @@ To extract data from a webpage:
         return None
 
     def _apply_tool_arg_validation(
-        self, result: dict[str, Any], tools: list[dict[str, Any]],
+        self,
+        result: dict[str, Any],
+        tools: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Validate tool call arguments against schemas for truncation-prone providers.
 
@@ -1137,15 +1138,15 @@ To extract data from a webpage:
             if errors:
                 logger.warning(
                     "Tool arg validation failed for %s: %s (model=%s)",
-                    name, errors, self._model_name,
+                    name,
+                    errors,
+                    self._model_name,
                 )
                 tc["_validation_errors"] = errors
         return result
 
     @staticmethod
-    def _validate_tool_args_static(
-        args: dict[str, Any], schema: dict[str, Any]
-    ) -> list[str]:
+    def _validate_tool_args_static(args: dict[str, Any], schema: dict[str, Any]) -> list[str]:
         """Validate tool call arguments against JSON schema.
 
         Returns list of error messages (empty = valid).
@@ -1154,11 +1155,7 @@ To extract data from a webpage:
         required = schema.get("required", [])
         properties = schema.get("properties", {})
 
-        errors: list[str] = [
-            f"Missing required field: '{field}'"
-            for field in required
-            if field not in args
-        ]
+        errors: list[str] = [f"Missing required field: '{field}'" for field in required if field not in args]
 
         for field, value in args.items():
             if field in properties:
@@ -1376,6 +1373,16 @@ To extract data from a webpage:
             recovered.insert(0, {"role": "system", "content": "Continue the conversation."})
 
         return self._sanitize_messages(recovered)
+
+    @staticmethod
+    def _needs_proactive_sanitize(provider_profile: Any) -> bool:
+        """Return True for providers known to reject non-standard message schemas.
+
+        These providers (kimi, GLM) have strict requirements around role names and
+        message structure. Pre-sanitizing their transcripts eliminates the 1-7s
+        latency penalty of a failed first attempt followed by recovery retry.
+        """
+        return getattr(provider_profile, "strict_schema", False)
 
     def _sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Sanitize messages for strict OpenAI-compatible APIs (Zhipu GLM, OpenRouter, etc.).
@@ -1729,6 +1736,12 @@ To extract data from a webpage:
         base_delay = 1.0
         validation_recovery_attempted = False
 
+        # Proactive sanitization for strict providers — eliminates first-attempt
+        # schema rejections that add 1-7s latency on every call.
+        if self._needs_proactive_sanitize(self._provider_profile):
+            request_messages = self._build_validation_recovery_messages(request_messages)
+            validation_recovery_attempted = True  # Don't re-sanitize on retry
+
         for attempt in range(max_retries + 1):  # every try
             response = None
             tool_request_timeout = llm_tool_request_timeout
@@ -1922,11 +1935,7 @@ To extract data from a webpage:
                         return parsed_tool_call
 
                 # Tool argument pre-validation for truncation-prone providers
-                if (
-                    result.get("tool_calls")
-                    and request_tools
-                    and self._provider_profile.tool_arg_truncation_prone
-                ):
+                if result.get("tool_calls") and request_tools and self._provider_profile.tool_arg_truncation_prone:
                     result = self._apply_tool_arg_validation(result, request_tools)
 
                 return result
@@ -2248,6 +2257,12 @@ To extract data from a webpage:
         # indicates the model needs thinking enabled to produce output.
         disable_thinking = self._is_thinking_api
         validation_recovery_attempted = False
+
+        # Proactive sanitization for strict providers — eliminates first-attempt
+        # schema rejections that add 1-7s latency on every call.
+        if self._needs_proactive_sanitize(self._provider_profile):
+            request_messages = self._build_validation_recovery_messages(request_messages)
+            validation_recovery_attempted = True  # Don't re-sanitize on retry
 
         # Use model override if provided (DeepCode Phase 1: adaptive model selection)
         effective_model = self._resolve_model_override(model)
@@ -2629,6 +2644,12 @@ To extract data from a webpage:
             request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
 
         validation_recovery_attempted = False
+
+        # Proactive sanitization for strict providers — eliminates first-attempt
+        # schema rejections that add 1-7s latency on every call.
+        if self._needs_proactive_sanitize(self._provider_profile):
+            request_messages = self._build_validation_recovery_messages(request_messages)
+            validation_recovery_attempted = True  # Don't re-sanitize on retry
 
         # Use model override if provided (DeepCode Phase 1: adaptive model selection)
         effective_model = self._resolve_model_override(model)
