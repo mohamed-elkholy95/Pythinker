@@ -427,6 +427,12 @@ class NanobotGateway:
                 if first_outbound_ms is None:
                     first_outbound_ms = (send_started - route_started_monotonic) * 1000.0
                 self._mark_inbound_processing_progress(route_key, send_started)
+
+                # Progress heartbeats update the stall tracker but don't send to user
+                if outbound.metadata and outbound.metadata.get("_progress_heartbeat"):
+                    self._activity_event.set()
+                    continue
+
                 await self.send_to_channel(outbound)
                 self._mark_inbound_processing_progress(route_key, asyncio.get_running_loop().time())
                 self._activity_event.set()
