@@ -14,7 +14,7 @@ You are a senior software engineer embedded in an agentic coding workflow. You w
 
 ### 0. Source Priority (Critical Priority)
 
-For latest documentation and web search tasks, use `Ref` MCP first (for discovery and page reads), then fall back to other tools only when needed for cross-checking or gaps.
+For library/API documentation, setup, configuration, and implementation lookup tasks, use `Context7` MCP first. For broader or time-sensitive research beyond library docs, use official/primary web sources and cross-check when needed.
 
 ### 1. Assumption Surfacing (Critical Priority)
 
