@@ -303,13 +303,13 @@ class TestRouteInbound:
 
     @pytest.mark.asyncio
     async def test_route_filters_internal_events(self) -> None:
-        """Only message, report, error events produce outbound messages."""
+        """Only message, report, error, progress events produce outbound messages."""
         events = [
             _FakePlanEvent(),
             _FakeStepEvent(),
             _FakeToolEvent(),
             _FakeProgressEvent(),
-            _FakeMessageEvent(),  # only this should produce output
+            _FakeMessageEvent(),  # produces visible output
             _FakeDoneEvent(),
         ]
         repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
@@ -319,8 +319,10 @@ class TestRouteInbound:
         msg = _make_inbound("Research something")
         replies = [r async for r in router.route_inbound(msg)]
 
-        assert len(replies) == 1
-        assert replies[0].content == "Hello from the agent!"
+        # Progress events produce heartbeat outbounds (not user-visible)
+        visible_replies = [r for r in replies if not r.metadata.get("_progress_heartbeat")]
+        assert len(visible_replies) == 1
+        assert visible_replies[0].content == "Hello from the agent!"
 
     @pytest.mark.asyncio
     async def test_route_skips_user_echo_events(self) -> None:
