@@ -1,6 +1,7 @@
 """Tests for adaptive tool max_tokens — file_write gets higher budget."""
+
 from __future__ import annotations
-import pytest
+
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
 
 

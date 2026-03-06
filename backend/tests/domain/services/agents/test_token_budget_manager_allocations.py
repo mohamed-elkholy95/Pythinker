@@ -1,6 +1,7 @@
 """Tests for deep_research budget allocation rebalance."""
+
 from __future__ import annotations
-import pytest
+
 from app.domain.services.agents.token_budget_manager import (
     BudgetPhase,
     TokenBudgetManager,
