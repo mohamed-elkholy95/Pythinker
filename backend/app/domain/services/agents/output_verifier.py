@@ -148,6 +148,71 @@ class OutputVerifier:
 
         return chunks
 
+    # ── Table Exemption ────────────────────────────────────────────────
+
+    @staticmethod
+    def _strip_cited_tables(text: str) -> str:
+        """Remove markdown table blocks that contain citation markers [N].
+
+        Tables with inline citations are sourced data — LettuceDetect cannot
+        cross-reference structured tabular content against source text,
+        producing false positives on the most valuable report sections.
+
+        Strategy: Two-pass approach.
+        Pass 1: Identify contiguous table blocks (runs of lines starting/ending with |).
+        Pass 2: If ANY data row in the block contains [N], remove the entire block.
+        """
+        if not text:
+            return text
+
+        lines = text.split("\n")
+        # Group lines into table blocks and non-table segments
+        segments: list[tuple[str, list[str]]] = []  # ("table"|"text", lines)
+        current_type = "text"
+        current_lines: list[str] = []
+
+        for line in lines:
+            stripped = line.strip()
+            is_table_row = stripped.startswith("|") and stripped.endswith("|") and len(stripped) > 1
+
+            if is_table_row and current_type == "table":
+                current_lines.append(line)
+            elif is_table_row and current_type == "text":
+                if current_lines:
+                    segments.append((current_type, current_lines))
+                current_type = "table"
+                current_lines = [line]
+            elif not is_table_row and current_type == "table":
+                segments.append((current_type, current_lines))
+                current_type = "text"
+                current_lines = [line]
+            else:
+                current_lines.append(line)
+
+        if current_lines:
+            segments.append((current_type, current_lines))
+
+        # Rebuild text, skipping table blocks that contain citations
+        result_lines: list[str] = []
+        cited_row_count = 0
+        for seg_type, seg_lines in segments:
+            if seg_type == "table":
+                has_citation = any(
+                    re.search(r"\[\d+\]", line) for line in seg_lines
+                )
+                if has_citation:
+                    cited_row_count += sum(1 for ln in seg_lines if re.search(r"\[\d+\]", ln))
+                    continue  # Skip entire table block
+            result_lines.extend(seg_lines)
+
+        if cited_row_count > 0:
+            logger.info(
+                "Exempted %d cited table row(s) from hallucination check",
+                cited_row_count,
+            )
+
+        return "\n".join(result_lines)
+
     # ── Needs Verification (Heuristic Gate) ────────────────────────────
 
     def needs_verification(self, content: str, query: str) -> bool:
@@ -298,10 +363,13 @@ class OutputVerifier:
                     _total += len(_chunk)
                 source_context = trimmed_context or source_context
 
+                # Exempt cited markdown tables from hallucination checking
+                content_for_verification = self._strip_cited_tables(content)
+
                 lettuce_result = verifier.verify(
                     context=source_context,
                     question=query,
-                    answer=content,
+                    answer=content_for_verification,
                 )
 
                 if not lettuce_result.skipped and lettuce_result.has_hallucinations:
