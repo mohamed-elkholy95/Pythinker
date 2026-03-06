@@ -1738,7 +1738,7 @@ To extract data from a webpage:
 
         # Proactive sanitization for strict providers — eliminates first-attempt
         # schema rejections that add 1-7s latency on every call.
-        if self._needs_proactive_sanitize(self._provider_profile):
+        if self._needs_proactive_sanitize(getattr(self, "_provider_profile", None)):
             request_messages = self._build_validation_recovery_messages(request_messages)
             validation_recovery_attempted = True  # Don't re-sanitize on retry
 
@@ -2260,7 +2260,7 @@ To extract data from a webpage:
 
         # Proactive sanitization for strict providers — eliminates first-attempt
         # schema rejections that add 1-7s latency on every call.
-        if self._needs_proactive_sanitize(self._provider_profile):
+        if self._needs_proactive_sanitize(getattr(self, "_provider_profile", None)):
             request_messages = self._build_validation_recovery_messages(request_messages)
             validation_recovery_attempted = True  # Don't re-sanitize on retry
 
@@ -2647,7 +2647,7 @@ To extract data from a webpage:
 
         # Proactive sanitization for strict providers — eliminates first-attempt
         # schema rejections that add 1-7s latency on every call.
-        if self._needs_proactive_sanitize(self._provider_profile):
+        if self._needs_proactive_sanitize(getattr(self, "_provider_profile", None)):
             request_messages = self._build_validation_recovery_messages(request_messages)
             validation_recovery_attempted = True  # Don't re-sanitize on retry
 
