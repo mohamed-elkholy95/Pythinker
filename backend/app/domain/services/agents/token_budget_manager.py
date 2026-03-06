@@ -146,9 +146,9 @@ class TokenBudgetManager:
     RESEARCH_ALLOCATIONS: ClassVar[dict[str, dict[BudgetPhase, float]]] = {
         "deep_research": {
             BudgetPhase.SYSTEM_PROMPT: 0.10,
-            BudgetPhase.PLANNING: 0.10,
+            BudgetPhase.PLANNING: 0.15,        # was 0.10
             BudgetPhase.EXECUTION: 0.50,
-            BudgetPhase.MEMORY_CONTEXT: 0.10,
+            BudgetPhase.MEMORY_CONTEXT: 0.05,   # was 0.10
             BudgetPhase.SUMMARIZATION: 0.20,
         },
         "wide_research": {
