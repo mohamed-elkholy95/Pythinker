@@ -177,11 +177,14 @@ Pythinker has been enhanced with 8 major reliability and performance improvement
 
 **Configuration (.env):**
 ```bash
-# Adaptive Model Selection
-ADAPTIVE_MODEL_SELECTION_ENABLED=true
-FAST_MODEL=claude-haiku-4-5-20251001      # Latest Haiku (updated 2026-02-17)
-BALANCED_MODEL=                           # Empty = use MODEL_NAME
-POWERFUL_MODEL=claude-sonnet-4-6          # Latest Sonnet (updated 2026-02-17)
+# Default: Kimi 2.5 Code (all tiers)
+API_BASE=https://api.kimi.com/coding/v1
+MODEL_NAME=kimi-for-coding
+ADAPTIVE_MODEL_SELECTION_ENABLED=false
+# Override per tier if needed:
+#FAST_MODEL=kimi-for-coding
+#BALANCED_MODEL=kimi-for-coding
+#POWERFUL_MODEL=kimi-for-coding
 ```
 
 **Documentation:**
