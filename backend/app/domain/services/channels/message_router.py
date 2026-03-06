@@ -51,8 +51,8 @@ TELEGRAM_LINK_REQUIRED_TEXT = (
     "3) Send `/link CODE` to this bot"
 )
 
-# Event types that produce user-visible outbound messages.
-_OUTBOUND_EVENT_TYPES = frozenset({"message", "report", "error"})
+# Event types that produce outbound messages (progress is heartbeat-only, not user-visible).
+_OUTBOUND_EVENT_TYPES = frozenset({"message", "report", "error", "progress"})
 _RESEARCH_REPORT_REQUEST_RE = re.compile(
     r"\bresearch\b[\s\S]{0,120}\breport\b|\breport\b[\s\S]{0,120}\bresearch\b",
     re.IGNORECASE,
@@ -346,7 +346,7 @@ class MessageRouter:
                             yield outbound
                         continue
 
-                    if event_type != "error":
+                    if event_type not in {"error", "progress"}:
                         continue
 
                 outbounds = await self._event_to_outbounds(event, message, user_id=user_id)
@@ -404,9 +404,10 @@ class MessageRouter:
     def _event_to_outbound(self, event: object, source: InboundMessage) -> OutboundMessage | None:
         """Convert an agent event to an OutboundMessage, or ``None`` for internal events.
 
-        Only ``message``, ``report``, and ``error`` events produce outbound
-        messages.  All other event types (plan, step, tool, done, progress,
-        etc.) are silently dropped — they are internal to the agent pipeline.
+        Only ``message``, ``report``, ``error``, and ``progress`` events produce
+        outbound messages.  Progress events carry no visible content — they serve
+        as heartbeats to reset the gateway's stall tracker.  All other event types
+        (plan, step, tool, done, etc.) are silently dropped.
         """
         event_type = getattr(event, "type", None)
         if event_type not in _OUTBOUND_EVENT_TYPES:
@@ -433,6 +434,16 @@ class MessageRouter:
         if event_type == "error":
             error_msg = getattr(event, "error", "Unknown error")
             return self._make_reply(source, f"Error: {error_msg}")
+
+        if event_type == "progress":
+            # Progress heartbeat — no visible content, just resets the gateway's stall tracker
+            return OutboundMessage(
+                channel=source.channel,
+                chat_id=source.chat_id,
+                content="",  # No visible content
+                reply_to=source.id,
+                metadata={"_progress_heartbeat": True},
+            )
 
         return None  # pragma: no cover
 
