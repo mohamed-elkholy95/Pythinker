@@ -37,6 +37,7 @@ class ProviderProfile:
     requires_orphan_cleanup: bool = False
     slow_tool_threshold: float = 30.0
     slow_tool_trip_count: int = 2
+    strict_schema: bool = False  # True for providers that reject developer role, complex tool messages, etc.
 
 
 # ── Pre-built profiles ────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ _PROFILES: dict[str, ProviderProfile] = {
         needs_thinking_suppression=True,
         tool_arg_truncation_prone=True,
         requires_orphan_cleanup=True,
+        strict_schema=True,
     ),
     "deepseek": ProviderProfile(
         name="deepseek",
@@ -87,6 +89,7 @@ _PROFILES: dict[str, ProviderProfile] = {
         connect_timeout=5.0,
         read_timeout=120.0,
         needs_thinking_suppression=True,
+        strict_schema=True,
     ),
 }
 
