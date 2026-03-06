@@ -1326,10 +1326,9 @@ class PlanActFlow(BaseFlow):
             return
 
         try:
-            from app.domain.services.agents.token_budget_manager import TokenBudgetManager
-
             # Read hard planning cap from settings (default 0.30)
             from app.core.config import get_settings as _get_budget_settings
+            from app.domain.services.agents.token_budget_manager import TokenBudgetManager
 
             _bs = _get_budget_settings()
             planning_cap = getattr(_bs, "token_budget_planning_cap", 0.30)
@@ -1377,13 +1376,16 @@ class PlanActFlow(BaseFlow):
             total = len(summary)
             logger.info(
                 "Search health before execution: %d/%d providers healthy",
-                healthy, total,
+                healthy,
+                total,
             )
             for name, info in summary.items():
                 if info.get("healthy_keys", 0) == 0:
                     logger.warning(
                         "Search provider %s has no healthy keys (%d total, %d exhausted)",
-                        name, info.get("total_keys", 0), info.get("exhausted_keys", 0),
+                        name,
+                        info.get("total_keys", 0),
+                        info.get("exhausted_keys", 0),
                     )
         except Exception:
             logger.debug("Search health check failed (non-critical)", exc_info=True)
