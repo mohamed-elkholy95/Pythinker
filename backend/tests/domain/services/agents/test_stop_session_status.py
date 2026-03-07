@@ -1,7 +1,8 @@
 """Tests that stop_session tears down with CANCELLED, not COMPLETED."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.domain.models.session import Session, SessionStatus
 from app.domain.services.agents.agent_session_lifecycle import AgentSessionLifecycle

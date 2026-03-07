@@ -17,7 +17,6 @@ from app.domain.models.event import MessageEvent
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.base import BaseAgent
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
