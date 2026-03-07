@@ -1010,6 +1010,145 @@ async def chat(
 
         return EventSourceResponse(completed_generator(), headers=protocol_headers)
 
+    # ---------------------------------------------------------------------------
+    # Short-circuit for active sessions owned by another process (e.g. gateway).
+    #
+    # When the gateway runs a Telegram task, the task lives in the gateway's
+    # in-memory registry.  The backend's AgentDomainService has no visibility
+    # into it — _get_task() returns None — and the "reconnect race" heuristic
+    # in process_message() would incorrectly emit DoneEvent and tear down the
+    # session while the gateway is still processing.
+    #
+    # Instead we poll MongoDB for new events written by the gateway and stream
+    # them to the frontend until the session reaches a terminal state.
+    # ---------------------------------------------------------------------------
+    session_source = getattr(session, "source", "web") or "web"
+    normalized_session_status = _normalize_session_status(session.status)
+    is_remote_active_session = (
+        normalized_session_status in SSE_NON_TERMINAL_STATUSES and session_source != "web" and not has_fresh_input
+    )
+    if is_remote_active_session:
+        logger.info(
+            "Session %s is %s on remote process (source=%s) — "
+            "streaming events via MongoDB polling instead of process_message()",
+            session_id,
+            normalized_session_status,
+            session_source,
+        )
+
+        _remote_poll_interval = 3.0  # seconds between MongoDB polls
+        _remote_poll_timeout = 600.0  # max 10 minutes before giving up
+        _remote_heartbeat_interval = 25.0  # keep SSE alive
+
+        resume_cursor = request.event_id or http_request.headers.get("Last-Event-ID")
+
+        async def remote_session_generator() -> AsyncGenerator[ServerSentEvent, None]:
+            """Poll MongoDB for events from a gateway-owned session."""
+            sent_event_ids: set[str] = set()
+            elapsed = 0.0
+            last_heartbeat = 0.0
+
+            # Pre-populate sent set with events the frontend already has
+            initial_events = getattr(session, "events", None) or []
+            if resume_cursor:
+                found_cursor = False
+                for ev in initial_events:
+                    ev_id = getattr(ev, "id", None) or getattr(ev, "event_id", None)
+                    if not ev_id:
+                        continue
+                    ev_id_str = str(ev_id)
+                    sent_event_ids.add(ev_id_str)
+                    if ev_id_str == resume_cursor:
+                        found_cursor = True
+                        break
+                if not found_cursor:
+                    # Cursor not found — mark all existing events as sent
+                    for ev in initial_events:
+                        ev_id = getattr(ev, "id", None) or getattr(ev, "event_id", None)
+                        if ev_id:
+                            sent_event_ids.add(str(ev_id))
+            else:
+                # No cursor — mark all existing events as already sent
+                for ev in initial_events:
+                    ev_id = getattr(ev, "id", None) or getattr(ev, "event_id", None)
+                    if ev_id:
+                        sent_event_ids.add(str(ev_id))
+
+            while elapsed < _remote_poll_timeout:
+                if await http_request.is_disconnected():
+                    logger.info("Remote session poller: client disconnected for %s", session_id)
+                    return
+
+                # Heartbeat to keep SSE alive
+                now = asyncio.get_running_loop().time()
+                if now - last_heartbeat >= _remote_heartbeat_interval:
+                    yield ServerSentEvent(comment="heartbeat")
+                    last_heartbeat = now
+
+                await asyncio.sleep(_remote_poll_interval)
+                elapsed += _remote_poll_interval
+
+                # Re-fetch session from MongoDB
+                fresh_session = await agent_service.get_session_full(session_id, current_user.id)
+                if not fresh_session:
+                    logger.warning("Remote session poller: session %s disappeared", session_id)
+                    return
+
+                # Stream any new events
+                fresh_events = getattr(fresh_session, "events", None) or []
+                for ev in fresh_events:
+                    ev_id = getattr(ev, "id", None) or getattr(ev, "event_id", None)
+                    ev_id_str = str(ev_id) if ev_id else None
+                    if ev_id_str and ev_id_str in sent_event_ids:
+                        continue
+                    if ev_id_str:
+                        sent_event_ids.add(ev_id_str)
+
+                    sse_event = await EventMapper.event_to_sse_event(ev)
+                    if sse_event:
+                        yield ServerSentEvent(
+                            event=sse_event.event,
+                            data=sse_event.data.model_dump_json() if sse_event.data else None,
+                        )
+
+                # Check for terminal status
+                normalized_status = _normalize_session_status(fresh_session.status)
+                if normalized_status in ("completed", "failed", "cancelled"):
+                    logger.info(
+                        "Remote session poller: session %s reached %s",
+                        session_id,
+                        normalized_status,
+                    )
+                    # Emit a final done event if not already in the events
+                    done_event = DoneEvent(title=fresh_session.title or "Task completed")
+                    sse_done = await EventMapper.event_to_sse_event(done_event)
+                    if sse_done:
+                        yield ServerSentEvent(
+                            event=sse_done.event,
+                            data=sse_done.data.model_dump_json() if sse_done.data else None,
+                        )
+                    return
+
+            # Timeout — don't tear down, just close the stream gracefully
+            logger.info(
+                "Remote session poller: timeout after %.0fs for session %s (still %s)",
+                _remote_poll_timeout,
+                session_id,
+                session.status,
+            )
+            done_event = DoneEvent(
+                title=session.title or "Session active",
+                summary="Session is still being processed. Refresh to see latest results.",
+            )
+            sse_done = await EventMapper.event_to_sse_event(done_event)
+            if sse_done:
+                yield ServerSentEvent(
+                    event=sse_done.event,
+                    data=sse_done.data.model_dump_json() if sse_done.data else None,
+                )
+
+        return EventSourceResponse(remote_session_generator(), headers=protocol_headers)
+
     settings = get_settings()
     use_sse_v2 = settings.feature_sse_v2
     disconnect_cancellation_grace_seconds = SSE_DISCONNECT_CANCELLATION_GRACE_SECONDS
