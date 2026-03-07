@@ -470,9 +470,6 @@ class ResponseGenerator:
             promoted_warnings: list[str] = []
             remaining_warnings: list[str] = []
             for warning in warnings:
-                if warning == "hallucination_verification_skipped":
-                    promoted_warnings.append(warning)
-                    continue
                 if warning.startswith("coverage_missing:") and "artifact references" in warning.lower():
                     promoted_warnings.append(warning)
                     continue
