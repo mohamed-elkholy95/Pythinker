@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 from loguru import logger
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
@@ -19,6 +21,16 @@ from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
 
 
+@dataclass(slots=True)
+class _TelegramPreviewState:
+    """Tracks the lifecycle of a streamed Telegram preview message."""
+
+    content: str = ""
+    message_id: int | None = None
+    last_sent_at: float = 0.0
+    last_text: str = ""
+
+
 def _markdown_to_telegram_html(text: str) -> str:
     """
     Convert markdown to Telegram-safe HTML.
@@ -28,44 +40,46 @@ def _markdown_to_telegram_html(text: str) -> str:
 
     # 1. Extract and protect code blocks (preserve content from other processing)
     code_blocks: list[str] = []
+
     def save_code_block(m: re.Match) -> str:
         code_blocks.append(m.group(1))
         return f"\x00CB{len(code_blocks) - 1}\x00"
 
-    text = re.sub(r'```[\w]*\n?([\s\S]*?)```', save_code_block, text)
+    text = re.sub(r"```[\w]*\n?([\s\S]*?)```", save_code_block, text)
 
     # 2. Extract and protect inline code
     inline_codes: list[str] = []
+
     def save_inline_code(m: re.Match) -> str:
         inline_codes.append(m.group(1))
         return f"\x00IC{len(inline_codes) - 1}\x00"
 
-    text = re.sub(r'`([^`]+)`', save_inline_code, text)
+    text = re.sub(r"`([^`]+)`", save_inline_code, text)
 
     # 3. Headers # Title -> just the title text
-    text = re.sub(r'^#{1,6}\s+(.+)$', r'\1', text, flags=re.MULTILINE)
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"\1", text, flags=re.MULTILINE)
 
     # 4. Blockquotes > text -> just the text (before HTML escaping)
-    text = re.sub(r'^>\s*(.*)$', r'\1', text, flags=re.MULTILINE)
+    text = re.sub(r"^>\s*(.*)$", r"\1", text, flags=re.MULTILINE)
 
     # 5. Escape HTML special characters
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     # 6. Links [text](url) - must be before bold/italic to handle nested cases
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
 
     # 7. Bold **text** or __text__
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'__(.+?)__', r'<b>\1</b>', text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"__(.+?)__", r"<b>\1</b>", text)
 
     # 8. Italic _text_ (avoid matching inside words like some_var_name)
-    text = re.sub(r'(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])', r'<i>\1</i>', text)
+    text = re.sub(r"(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])", r"<i>\1</i>", text)
 
     # 9. Strikethrough ~~text~~
-    text = re.sub(r'~~(.+?)~~', r'<s>\1</s>', text)
+    text = re.sub(r"~~(.+?)~~", r"<s>\1</s>", text)
 
     # 10. Bullet lists - item -> • item
-    text = re.sub(r'^[-*]\s+', '• ', text, flags=re.MULTILINE)
+    text = re.sub(r"^[-*]\s+", "• ", text, flags=re.MULTILINE)
 
     # 11. Restore inline code with HTML tags
     for i, code in enumerate(inline_codes):
@@ -92,9 +106,9 @@ def _split_message(content: str, max_len: int = 4000) -> list[str]:
             chunks.append(content)
             break
         cut = content[:max_len]
-        pos = cut.rfind('\n')
+        pos = cut.rfind("\n")
         if pos == -1:
-            pos = cut.rfind(' ')
+            pos = cut.rfind(" ")
         if pos == -1:
             pos = max_len
         chunks.append(content[:pos])
@@ -112,7 +126,7 @@ class TelegramChannel(BaseChannel):
     name = "telegram"
 
     # Commands registered with Telegram's command menu
-    BOT_COMMANDS = [
+    BOT_COMMANDS: ClassVar[list[BotCommand]] = [
         BotCommand("start", "Start the bot"),
         BotCommand("new", "Start a new conversation"),
         BotCommand("stop", "Stop the current task"),
@@ -140,6 +154,8 @@ class TelegramChannel(BaseChannel):
         self._media_group_tasks: dict[str, asyncio.Task] = {}
         self._pdf_file_id_cache: dict[str, tuple[str, float]] = {}
         self._pdf_file_id_cache_ttl_seconds = 24 * 60 * 60
+        self._preview_states: dict[str, _TelegramPreviewState] = {}
+        self._shutdown_event: asyncio.Event = asyncio.Event()
 
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
@@ -148,6 +164,7 @@ class TelegramChannel(BaseChannel):
             return
 
         self._running = True
+        self._shutdown_event = asyncio.Event()
 
         # Build the application with larger connection pool to avoid pool-timeout on long runs
         req = HTTPXRequest(connection_pool_size=16, pool_timeout=5.0, connect_timeout=30.0, read_timeout=30.0)
@@ -174,7 +191,7 @@ class TelegramChannel(BaseChannel):
             MessageHandler(
                 (filters.TEXT | filters.PHOTO | filters.VOICE | filters.AUDIO | filters.Document.ALL)
                 & ~filters.COMMAND,
-                self._on_message
+                self._on_message,
             )
         )
         # PYTHINKER-PATCH: unknown slash commands should return a help hint.
@@ -202,16 +219,18 @@ class TelegramChannel(BaseChannel):
         # Start polling (this runs until stopped)
         await self._app.updater.start_polling(
             allowed_updates=["message", "callback_query"],
-            drop_pending_updates=True  # Ignore old messages on startup
+            drop_pending_updates=True,  # Ignore old messages on startup
         )
 
         # Keep running until stopped
-        while self._running:
-            await asyncio.sleep(1)
+        if not self._running:
+            return
+        await self._shutdown_event.wait()
 
     async def stop(self) -> None:
         """Stop the Telegram bot."""
         self._running = False
+        self._shutdown_event.set()
 
         # Cancel all typing indicators
         for chat_id in list(self._typing_tasks):
@@ -221,6 +240,7 @@ class TelegramChannel(BaseChannel):
             task.cancel()
         self._media_group_tasks.clear()
         self._media_group_buffers.clear()
+        self._preview_states.clear()
 
         if self._app:
             logger.info("Stopping Telegram bot...")
@@ -255,16 +275,13 @@ class TelegramChannel(BaseChannel):
             logger.error("Invalid chat_id: {}", msg.chat_id)
             return
 
+        metadata = msg.metadata or {}
         reply_params = None
         if self.config.reply_to_message:
-            reply_to_message_id = msg.metadata.get("message_id")
+            reply_to_message_id = metadata.get("message_id")
             if reply_to_message_id:
-                reply_params = ReplyParameters(
-                    message_id=reply_to_message_id,
-                    allow_sending_without_reply=True
-                )
+                reply_params = ReplyParameters(message_id=reply_to_message_id, allow_sending_without_reply=True)
 
-        metadata = msg.metadata or {}
         parse_mode = str(metadata.get("parse_mode", "HTML"))
         delivery_mode = str(metadata.get("delivery_mode", "text"))
         reply_markup = self._coerce_reply_markup(metadata.get("reply_markup"))
@@ -274,8 +291,31 @@ class TelegramChannel(BaseChannel):
         caption_sent = False
         media_success = True
 
+        if bool(metadata.get("_progress")) and bool(metadata.get("_telegram_stream")):
+            if not self._is_stream_preview_message(msg):
+                return
+            await self._send_or_edit_preview(
+                msg,
+                chat_id=chat_id,
+                parse_mode=parse_mode,
+                reply_params=reply_params,
+            )
+            return
+
+        if self._has_preview_state(msg):
+            preview_finalized = await self._finalize_preview_with_text(
+                msg,
+                chat_id=chat_id,
+                parse_mode=parse_mode,
+                delivery_mode=delivery_mode,
+                reply_markup=reply_markup,
+            )
+            if preview_finalized:
+                return
+            await self._clear_preview(msg, chat_id=chat_id)
+
         # Send media files first. For document mode, caption is sent on the first document.
-        for media_path in (msg.media or []):
+        for media_path in msg.media or []:
             try:
                 media_type = self._get_media_type(media_path)
                 sender = {
@@ -283,7 +323,9 @@ class TelegramChannel(BaseChannel):
                     "voice": self._app.bot.send_voice,
                     "audio": self._app.bot.send_audio,
                 }.get(media_type, self._app.bot.send_document)
-                param = "photo" if media_type == "photo" else media_type if media_type in ("voice", "audio") else "document"
+                param = (
+                    "photo" if media_type == "photo" else media_type if media_type in ("voice", "audio") else "document"
+                )
 
                 send_kwargs: dict[str, object] = {
                     "chat_id": chat_id,
@@ -307,7 +349,8 @@ class TelegramChannel(BaseChannel):
                     send_kwargs[param] = media_path
                     response = await self._send_with_retry(sender, **send_kwargs)
                 else:
-                    with open(media_path, "rb") as handle:
+                    # PTB expects a live file handle for local uploads during the awaited send call.
+                    with open(media_path, "rb") as handle:  # noqa: ASYNC230
                         send_kwargs[param] = handle
                         response = await self._send_with_retry(sender, **send_kwargs)
 
@@ -363,7 +406,7 @@ class TelegramChannel(BaseChannel):
 
         self._cleanup_temp_files(cleanup_paths)
 
-    async def _send_with_retry(self, sender, **kwargs):  # noqa: ANN001, ANN202
+    async def _send_with_retry(self, sender, **kwargs):
         """Send with RetryAfter/transient retry handling."""
         max_attempts = 3
         base_delay = max(1, int(getattr(self.config, "rate_limit_cooldown_seconds", 3)))
@@ -372,7 +415,9 @@ class TelegramChannel(BaseChannel):
                 return await sender(**kwargs)
             except RetryAfter as exc:
                 retry_after = exc.retry_after
-                seconds = float(retry_after.total_seconds()) if hasattr(retry_after, "total_seconds") else float(retry_after)
+                seconds = (
+                    float(retry_after.total_seconds()) if hasattr(retry_after, "total_seconds") else float(retry_after)
+                )
                 wait_seconds = max(seconds, float(base_delay))
                 logger.warning("Telegram rate limited, retrying in {}s", wait_seconds)
                 await asyncio.sleep(wait_seconds)
@@ -383,6 +428,163 @@ class TelegramChannel(BaseChannel):
                 logger.warning("Telegram transient send error (attempt {}): {}", attempt + 1, exc)
                 await asyncio.sleep(backoff)
         raise RuntimeError("Telegram send retries exhausted")
+
+    def _is_stream_preview_message(self, msg: OutboundMessage) -> bool:
+        """Return whether an outbound is a streamed Telegram preview delta."""
+        metadata = msg.metadata or {}
+        return (
+            str(getattr(self.config, "streaming", "partial")).lower() != "off"
+            and bool(metadata.get("_progress"))
+            and bool(metadata.get("_telegram_stream"))
+        )
+
+    def _has_preview_state(self, msg: OutboundMessage) -> bool:
+        """Return whether a preview lifecycle exists for this outbound."""
+        return self._preview_key(msg) in self._preview_states
+
+    def _preview_key(self, msg: OutboundMessage) -> str:
+        """Key preview state by chat and source Telegram message id."""
+        metadata = msg.metadata or {}
+        source_message_id = metadata.get("message_id")
+        return f"{msg.chat_id}:{source_message_id or 'root'}"
+
+    async def _send_or_edit_preview(
+        self,
+        msg: OutboundMessage,
+        *,
+        chat_id: int,
+        parse_mode: str,
+        reply_params: ReplyParameters | None,
+    ) -> None:
+        """Accumulate stream deltas into a single preview message."""
+        if not self._app:
+            return
+
+        state = self._preview_states.setdefault(self._preview_key(msg), _TelegramPreviewState())
+        if msg.content:
+            state.content += msg.content
+
+        is_final = bool((msg.metadata or {}).get("_telegram_stream_final"))
+        if not state.content and is_final:
+            if state.message_id is None:
+                self._preview_states.pop(self._preview_key(msg), None)
+            return
+
+        rendered_text = self._render_preview_text(state.content, parse_mode=parse_mode)
+        if not rendered_text or len(rendered_text) > 4000:
+            return
+
+        min_initial_chars = max(0, int(getattr(self.config, "streaming_min_initial_chars", 30)))
+        if state.message_id is None and len(state.content) < min_initial_chars:
+            return
+
+        now = time.monotonic()
+        throttle_seconds = max(0.0, float(getattr(self.config, "streaming_throttle_seconds", 1.0)))
+        if (
+            state.message_id is not None
+            and not is_final
+            and throttle_seconds > 0.0
+            and now - state.last_sent_at < throttle_seconds
+        ):
+            return
+
+        if rendered_text == state.last_text:
+            return
+
+        if state.message_id is None:
+            send_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "text": rendered_text,
+                "reply_parameters": reply_params,
+            }
+            if parse_mode == "HTML":
+                send_kwargs["parse_mode"] = "HTML"
+            sent_message = await self._send_with_retry(
+                self._app.bot.send_message,
+                **send_kwargs,
+            )
+            sent_message_id = getattr(sent_message, "message_id", None)
+            if isinstance(sent_message_id, int):
+                state.message_id = sent_message_id
+        else:
+            edit_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "message_id": state.message_id,
+                "text": rendered_text,
+            }
+            if parse_mode == "HTML":
+                edit_kwargs["parse_mode"] = "HTML"
+            await self._send_with_retry(
+                self._app.bot.edit_message_text,
+                **edit_kwargs,
+            )
+
+        state.last_text = rendered_text
+        state.last_sent_at = now
+
+    async def _finalize_preview_with_text(
+        self,
+        msg: OutboundMessage,
+        *,
+        chat_id: int,
+        parse_mode: str,
+        delivery_mode: str,
+        reply_markup: InlineKeyboardMarkup | None,
+    ) -> bool:
+        """Edit the preview in place when the final reply is text-only and eligible."""
+        if not self._app:
+            return False
+
+        state = self._preview_states.get(self._preview_key(msg))
+        if state is None or state.message_id is None:
+            return False
+        if msg.media or delivery_mode == "pdf_only":
+            return False
+
+        rendered_text = self._render_preview_text(msg.content, parse_mode=parse_mode)
+        if not rendered_text or len(rendered_text) > 4000:
+            return False
+
+        if rendered_text != state.last_text:
+            edit_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "message_id": state.message_id,
+                "text": rendered_text,
+                "reply_markup": reply_markup,
+            }
+            if parse_mode == "HTML":
+                edit_kwargs["parse_mode"] = "HTML"
+            await self._send_with_retry(
+                self._app.bot.edit_message_text,
+                **edit_kwargs,
+            )
+
+        self._preview_states.pop(self._preview_key(msg), None)
+        return True
+
+    async def _clear_preview(self, msg: OutboundMessage, *, chat_id: int) -> None:
+        """Remove any preview state and delete the visible preview message if present."""
+        state = self._preview_states.pop(self._preview_key(msg), None)
+        if state is None or state.message_id is None:
+            return
+        await self._delete_preview_message(chat_id=chat_id, message_id=state.message_id)
+
+    async def _delete_preview_message(self, *, chat_id: int, message_id: int) -> None:
+        """Delete a visible preview message."""
+        if not self._app:
+            return
+        await self._send_with_retry(
+            self._app.bot.delete_message,
+            chat_id=chat_id,
+            message_id=message_id,
+        )
+
+    @staticmethod
+    def _render_preview_text(text: str, *, parse_mode: str) -> str:
+        """Render preview text using the same parse-mode rules as normal sends."""
+        if parse_mode == "HTML":
+            return _markdown_to_telegram_html(text)
+        return text
 
     def _cleanup_temp_files(self, paths: list[str]) -> None:
         """Delete temporary generated files after send attempts."""
@@ -408,8 +610,8 @@ class TelegramChannel(BaseChannel):
                 cached = await get_redis().call("get", redis_key, max_retries=1)
                 if isinstance(cached, str) and cached:
                     return cached
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Telegram Redis file_id cache lookup failed: {}", exc)
 
         # Fallback cache: in-process memory.
         cached = self._pdf_file_id_cache.get(content_hash)
@@ -438,8 +640,8 @@ class TelegramChannel(BaseChannel):
                     file_id,
                     max_retries=1,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Telegram Redis file_id cache store failed: {}", exc)
 
         expires_at = time.time() + self._pdf_file_id_cache_ttl_seconds
         self._pdf_file_id_cache[content_hash] = (file_id, expires_at)
@@ -621,10 +823,11 @@ class TelegramChannel(BaseChannel):
         if media_file and self._app:
             try:
                 file = await self._app.bot.get_file(media_file.file_id)
-                ext = self._get_extension(media_type, getattr(media_file, 'mime_type', None))
+                ext = self._get_extension(media_type, getattr(media_file, "mime_type", None))
 
                 # Save to workspace/media/
                 from pathlib import Path
+
                 media_dir = Path.home() / ".nanobot" / "media"
                 media_dir.mkdir(parents=True, exist_ok=True)
 
@@ -636,6 +839,7 @@ class TelegramChannel(BaseChannel):
                 # Handle voice transcription
                 if media_type == "voice" or media_type == "audio":
                     from nanobot.providers.transcription import GroqTranscriptionProvider
+
                     transcriber = GroqTranscriptionProvider(api_key=self.groq_api_key)
                     transcription = await transcriber.transcribe(file_path)
                     if transcription:
@@ -662,11 +866,15 @@ class TelegramChannel(BaseChannel):
             key = f"{str_chat_id}:{media_group_id}"
             if key not in self._media_group_buffers:
                 self._media_group_buffers[key] = {
-                    "sender_id": sender_id, "chat_id": str_chat_id,
-                    "contents": [], "media": [],
+                    "sender_id": sender_id,
+                    "chat_id": str_chat_id,
+                    "contents": [],
+                    "media": [],
                     "metadata": {
-                        "message_id": message.message_id, "user_id": user.id,
-                        "username": user.username, "first_name": user.first_name,
+                        "message_id": message.message_id,
+                        "user_id": user.id,
+                        "username": user.username,
+                        "first_name": user.first_name,
                         "is_group": message.chat.type != "private",
                     },
                 }
@@ -693,8 +901,8 @@ class TelegramChannel(BaseChannel):
                 "user_id": user.id,
                 "username": user.username,
                 "first_name": user.first_name,
-                "is_group": message.chat.type != "private"
-            }
+                "is_group": message.chat.type != "private",
+            },
         )
 
     async def _flush_media_group(self, key: str) -> None:
@@ -705,8 +913,10 @@ class TelegramChannel(BaseChannel):
                 return
             content = "\n".join(buf["contents"]) or "[empty message]"
             await self._handle_message(
-                sender_id=buf["sender_id"], chat_id=buf["chat_id"],
-                content=content, media=list(dict.fromkeys(buf["media"])),
+                sender_id=buf["sender_id"],
+                chat_id=buf["chat_id"],
+                content=content,
+                media=list(dict.fromkeys(buf["media"])),
                 metadata=buf["metadata"],
             )
         finally:
@@ -743,8 +953,12 @@ class TelegramChannel(BaseChannel):
         """Get file extension based on media type."""
         if mime_type:
             ext_map = {
-                "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
-                "audio/ogg": ".ogg", "audio/mpeg": ".mp3", "audio/mp4": ".m4a",
+                "image/jpeg": ".jpg",
+                "image/png": ".png",
+                "image/gif": ".gif",
+                "audio/ogg": ".ogg",
+                "audio/mpeg": ".mp3",
+                "audio/mp4": ".m4a",
             }
             if mime_type in ext_map:
                 return ext_map[mime_type]

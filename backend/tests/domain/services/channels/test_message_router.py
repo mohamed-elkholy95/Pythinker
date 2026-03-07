@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.models.channel import ChannelType, InboundMessage
+from app.domain.models.event import StreamEvent
 from app.domain.services.channels.message_router import (
     HELP_TEXT,
     MessageRouter,
@@ -489,6 +490,60 @@ class TestRouteInbound:
 
         assert [reply.content for reply in replies] == ["Step 1", "Step 2"]
 
+    @pytest.mark.asyncio
+    async def test_telegram_streaming_emits_preview_outbounds_before_final(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(
+            events=[
+                StreamEvent(content="Thinking", is_final=False, phase="thinking"),
+                StreamEvent(content=" more", is_final=False, phase="thinking"),
+                _DynamicMessageEvent("Final answer"),
+            ]
+        )
+        router = MessageRouter(
+            agent_svc,
+            repo,
+            telegram_final_delivery_only=True,
+            telegram_streaming="partial",
+        )
+
+        inbound = _make_inbound("Run task")
+        inbound.metadata["message_id"] = 777
+        replies = [r async for r in router.route_inbound(inbound)]
+
+        assert len(replies) == 3
+        assert replies[0].content == "Thinking"
+        assert replies[0].metadata["message_id"] == 777
+        assert replies[0].metadata["_progress"] is True
+        assert replies[0].metadata["_telegram_stream"] is True
+        assert replies[0].metadata["_telegram_stream_phase"] == "thinking"
+        assert replies[0].metadata["_telegram_stream_final"] is False
+        assert replies[1].content == " more"
+        assert replies[1].metadata["message_id"] == 777
+        assert replies[-1].metadata["message_id"] == 777
+        assert replies[-1].content == "Final answer"
+
+    @pytest.mark.asyncio
+    async def test_telegram_streaming_off_preserves_existing_final_only_behavior(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(
+            events=[
+                StreamEvent(content="Thinking", is_final=False, phase="thinking"),
+                _DynamicMessageEvent("Final answer"),
+            ]
+        )
+        router = MessageRouter(
+            agent_svc,
+            repo,
+            telegram_final_delivery_only=True,
+            telegram_streaming="off",
+        )
+
+        replies = [r async for r in router.route_inbound(_make_inbound("Run task"))]
+
+        assert len(replies) == 1
+        assert replies[0].content == "Final answer"
+
 
 # ---------------------------------------------------------------------------
 # Tests — auto-registration
@@ -768,6 +823,37 @@ class TestEventToOutbound:
 
         result = router._event_to_outbound(_FakeUserMessageEvent(), source)
         assert result is None
+
+    def test_stream_event_produces_telegram_preview_metadata(self) -> None:
+        router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
+        source = _make_inbound()
+        source.metadata["message_id"] = 777
+
+        result = router._event_to_outbound(
+            StreamEvent(content="Thinking", is_final=False, phase="thinking"),
+            source,
+        )
+
+        assert result is not None
+        assert result.content == "Thinking"
+        assert result.reply_to == source.id
+        assert result.metadata == {
+            "message_id": 777,
+            "_progress": True,
+            "_telegram_stream": True,
+            "_telegram_stream_phase": "thinking",
+            "_telegram_stream_final": False,
+        }
+
+    def test_message_event_preserves_telegram_message_id_in_metadata(self) -> None:
+        router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
+        source = _make_inbound()
+        source.metadata["message_id"] = 888
+
+        result = router._event_to_outbound(_FakeMessageEvent(), source)
+
+        assert result is not None
+        assert result.metadata["message_id"] == 888
 
 
 # ---------------------------------------------------------------------------

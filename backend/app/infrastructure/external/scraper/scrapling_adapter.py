@@ -297,9 +297,7 @@ class ScraplingAdapter:
 
     # ── Escalation ────────────────────────────────────────────────────────────
 
-    async def fetch_with_escalation(
-        self, url: str, *, start_tier: int = 1, **kwargs: object
-    ) -> ScrapedContent:
+    async def fetch_with_escalation(self, url: str, *, start_tier: int = 1, **kwargs: object) -> ScrapedContent:
         """Three-tier escalation: HTTP → Dynamic → Stealthy.
 
         Args:
