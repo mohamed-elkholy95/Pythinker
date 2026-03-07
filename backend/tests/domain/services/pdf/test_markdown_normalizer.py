@@ -84,11 +84,18 @@ Grouped evidence [10][11][12].
     assert "[10](#ref-10) [11](#ref-11) [12](#ref-12)" in normalized.markdown
 
 
-def test_normalizer_merges_existing_references_with_structured_sources() -> None:
+def test_normalizer_preserves_existing_reference_numbering_when_structured_sources_disagree() -> None:
     sources = [
         SourceCitation(
-            url="https://example.com/one",
-            title="Source One",
+            url="https://www.reddit.com/r/LocalLLaMA/comments/example",
+            title="Reddit benchmark thread",
+            snippet=None,
+            access_time=datetime.now(UTC),
+            source_type="search",
+        ),
+        SourceCitation(
+            url="https://example.com/secondary",
+            title="Secondary write-up",
             snippet=None,
             access_time=datetime.now(UTC),
             source_type="search",
@@ -100,12 +107,14 @@ Result improved [1] and [2].
 
 ## References
 
-[1] stale source text
-[2] https://example.com/two
+[1] Vals AI benchmark report — https://www.vals.ai/benchmark
+[2] OpenAI model release notes — https://openai.com/index/introducing-gpt-5/
 """
 
     normalized = normalize_markdown_for_pdf(content, sources)
 
-    assert "[1] [Source One](https://example.com/one)" in normalized.markdown
-    assert "[2] https://example.com/two" in normalized.markdown
+    assert "[1] Vals AI benchmark report — https://www.vals.ai/benchmark" in normalized.markdown
+    assert "[2] OpenAI model release notes — https://openai.com/index/introducing-gpt-5/" in normalized.markdown
+    assert "Reddit benchmark thread" not in normalized.markdown
+    assert "Secondary write-up" not in normalized.markdown
     assert normalized.unresolved_citations == []
