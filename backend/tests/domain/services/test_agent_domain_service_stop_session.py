@@ -99,11 +99,11 @@ async def test_stop_session_skips_destroy_for_unowned_sandbox(mock_get_settings:
     sandbox_cls.get.assert_not_awaited()
     assert session.sandbox_id is None
     assert session.task_id is None
-    assert session.status == SessionStatus.COMPLETED
+    assert session.status == SessionStatus.CANCELLED
 
 
 @pytest.mark.asyncio
-async def test_stop_session_sets_completed_status_and_saves_session():
+async def test_stop_session_sets_cancelled_status_and_saves_session():
     session = Session(
         id="session-id",
         user_id="user-id",
@@ -129,7 +129,7 @@ async def test_stop_session_sets_completed_status_and_saves_session():
 
     await service.stop_session("session-id")
 
-    assert session.status == SessionStatus.COMPLETED
+    assert session.status == SessionStatus.CANCELLED
     # Atomic update_by_id replaces save() for task_id+status
     session_repo.update_by_id.assert_awaited_once()
 
@@ -165,7 +165,7 @@ async def test_stop_session_handles_missing_task_gracefully():
 
     task_cls.get.assert_called_once_with("missing-task-id")
     assert session.task_id is None
-    assert session.status == SessionStatus.COMPLETED
+    assert session.status == SessionStatus.CANCELLED
     session_repo.update_by_id.assert_awaited_once()
 
 
