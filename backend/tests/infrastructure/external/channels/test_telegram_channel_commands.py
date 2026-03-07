@@ -594,8 +594,7 @@ async def test_streaming_off_skips_preview_logic() -> None:
         )
     )
 
-    assert bot.send_message.await_count == 2
-    assert bot.send_message.await_args_list[0].kwargs["text"] == "Hello"
-    assert bot.send_message.await_args_list[1].kwargs["text"] == "Final answer"
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["text"] == "Final answer"
     bot.edit_message_text.assert_not_awaited()
     bot.delete_message.assert_not_awaited()
