@@ -598,3 +598,67 @@ async def test_streaming_off_skips_preview_logic() -> None:
     assert bot.send_message.await_args.kwargs["text"] == "Final answer"
     bot.edit_message_text.assert_not_awaited()
     bot.delete_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_channel_finalizes_preview_against_original_message_context() -> None:
+    channel = _make_channel(
+        streaming="partial",
+        streaming_throttle_seconds=0.0,
+        streaming_min_initial_chars=1,
+        reply_to_message=True,
+    )
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(
+            side_effect=[
+                SimpleNamespace(message_id=321),
+                SimpleNamespace(message_id=654),
+            ]
+        ),
+        edit_message_text=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Preview one",
+            metadata={"_progress": True, "_telegram_stream": True, "message_id": 99},
+        )
+    )
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Preview two",
+            metadata={"_progress": True, "_telegram_stream": True, "message_id": 100},
+        )
+    )
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Final answer for 99",
+            metadata={"message_id": 99},
+        )
+    )
+
+    assert bot.send_message.await_count == 2
+    first_reply_params = bot.send_message.await_args_list[0].kwargs["reply_parameters"]
+    second_reply_params = bot.send_message.await_args_list[1].kwargs["reply_parameters"]
+    assert first_reply_params is not None
+    assert second_reply_params is not None
+    assert first_reply_params.message_id == 99
+    assert second_reply_params.message_id == 100
+
+    bot.edit_message_text.assert_awaited_once()
+    edit_kwargs = bot.edit_message_text.await_args.kwargs
+    assert edit_kwargs["chat_id"] == 5829880422
+    assert edit_kwargs["message_id"] == 321
+    assert edit_kwargs["text"] == "Final answer for 99"
