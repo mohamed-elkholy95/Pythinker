@@ -76,6 +76,9 @@ class TestTelegramDefaults:
         assert settings.telegram_max_messages_per_batch == 5
         assert settings.telegram_final_delivery_only is True
         assert settings.telegram_final_delivery_allow_wait_prompts is True
+        assert settings.telegram_streaming == "partial"
+        assert settings.telegram_streaming_throttle_seconds == 1.0
+        assert settings.telegram_streaming_min_initial_chars == 30
         assert settings.telegram_polling_bootstrap_retries == 5
         assert settings.telegram_polling_stall_restart_enabled is True
         assert settings.telegram_polling_stall_timeout_seconds == 60
