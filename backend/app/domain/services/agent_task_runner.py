@@ -758,8 +758,7 @@ class AgentTaskRunner(TaskRunner):
 
         if chart_result is None:
             logger.warning(
-                "Plotly chart unavailable for report_id=%s session=%s: %s. "
-                "Falling back to legacy SVG.",
+                "Plotly chart unavailable for report_id=%s session=%s: %s. Falling back to legacy SVG.",
                 event.id,
                 self._session_id,
                 chart_error or "no chart data extracted from report",

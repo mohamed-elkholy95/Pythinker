@@ -49,8 +49,7 @@ async def test_stop_session_calls_teardown_with_cancelled_status(
     teardown_mock.assert_awaited_once()
     _, kwargs = teardown_mock.call_args
     assert kwargs["status"] == SessionStatus.CANCELLED, (
-        f"Expected CANCELLED but got {kwargs['status']!r}. "
-        "stop_session is an interruption, not a natural completion."
+        f"Expected CANCELLED but got {kwargs['status']!r}. stop_session is an interruption, not a natural completion."
     )
 
 

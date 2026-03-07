@@ -146,9 +146,9 @@ class TokenBudgetManager:
     RESEARCH_ALLOCATIONS: ClassVar[dict[str, dict[BudgetPhase, float]]] = {
         "deep_research": {
             BudgetPhase.SYSTEM_PROMPT: 0.10,
-            BudgetPhase.PLANNING: 0.15,        # was 0.10
+            BudgetPhase.PLANNING: 0.15,  # was 0.10
             BudgetPhase.EXECUTION: 0.50,
-            BudgetPhase.MEMORY_CONTEXT: 0.05,   # was 0.10
+            BudgetPhase.MEMORY_CONTEXT: 0.05,  # was 0.10
             BudgetPhase.SUMMARIZATION: 0.20,
         },
         "wide_research": {
@@ -201,9 +201,7 @@ class TokenBudgetManager:
             self._allocations = dict(self._allocations)
             self._allocations[BudgetPhase.PLANNING] = cap
             # Redistribute excess to execution
-            self._allocations[BudgetPhase.EXECUTION] = (
-                self._allocations.get(BudgetPhase.EXECUTION, 0.45) + excess
-            )
+            self._allocations[BudgetPhase.EXECUTION] = self._allocations.get(BudgetPhase.EXECUTION, 0.45) + excess
             logger.info(
                 "Planning fraction capped at %.0f%% (was %.0f%%), excess → execution",
                 cap * 100,
