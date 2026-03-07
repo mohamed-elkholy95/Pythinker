@@ -55,6 +55,21 @@ from app.domain.services.tools.tool_tracing import get_tool_tracer
 from app.domain.utils.json_parser import JsonParser
 from app.domain.utils.json_repair import parse_json_response
 
+_TOOL_MARKER_PATTERN = re.compile(r"^\[Attempted to call \w+ with ")
+
+
+def _is_tool_marker_text(text: str) -> bool:
+    """Detect tool-call marker text produced by message_normalizer.
+
+    These strings are never valid step results — they are artifacts of
+    orphaned tool_calls being converted to readable text.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    return bool(_TOOL_MARKER_PATTERN.match(stripped))
+
+
 # Module-level metrics instance (can be overridden for testing)
 _metrics: MetricsPort = get_null_metrics()
 
@@ -396,6 +411,13 @@ class ExecutionAgent(BaseAgent):
                     )
                     yield StepEvent(status=StepStatus.FAILED, step=step)
                 elif isinstance(event, MessageEvent):
+                    # Skip tool-marker artifacts from message_normalizer
+                    if _is_tool_marker_text(event.message):
+                        logger.warning(
+                            "Step response is tool-marker text (normalizer artifact); "
+                            "skipping JSON parse"
+                        )
+                        continue
                     parsed_response: Any = None
                     try:
                         parsed_response = await self.json_parser.parse(event.message, tier="B")
