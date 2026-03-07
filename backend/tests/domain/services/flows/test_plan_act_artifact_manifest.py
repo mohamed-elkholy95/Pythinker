@@ -70,6 +70,33 @@ class TestBuildArtifactManifest:
         for name in names:
             assert f"- {name}" in manifest
 
+    def test_scope_filtered_manifest_excludes_stale_files(self):
+        from app.domain.models.file import FileInfo
+        from app.domain.services.flows.plan_act import PlanActFlow
+
+        files = [
+            FileInfo(
+                filename="old-report.md",
+                file_path="/workspace/s1/runs/run-1/reports/old-report.md",
+                metadata={"delivery_scope": "run-1"},
+            ),
+            FileInfo(
+                filename="current-report.md",
+                file_path="/workspace/s1/runs/run-2/reports/current-report.md",
+                metadata={"delivery_scope": "run-2"},
+            ),
+        ]
+
+        filtered = PlanActFlow._filter_files_for_delivery_scope(
+            files,
+            "run-2",
+            "/workspace/s1/runs/run-2",
+        )
+        manifest = PlanActFlow._build_artifact_manifest([{"filename": file_info.filename} for file_info in filtered])
+
+        assert "current-report.md" in manifest
+        assert "old-report.md" not in manifest
+
     def test_report_attachments_instance_variable_initialized(self):
         """_report_attachments must be initialized as an empty list in __init__."""
         # Import only the class — do not instantiate (requires heavy deps).
