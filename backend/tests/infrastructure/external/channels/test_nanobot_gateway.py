@@ -231,6 +231,27 @@ class TestTelegramConfigWiring:
         assert telegram_cfg.send_circuit_failure_threshold == 8
         assert telegram_cfg.send_circuit_recovery_timeout_seconds == 90
 
+    def test_gateway_passes_telegram_streaming_settings(self, mock_router: MagicMock) -> None:
+        with patch(_PATCH_CM) as mock_cls:
+            mock_cls.return_value = _make_mock_cm(["telegram"])
+            gw = NanobotGateway(
+                message_router=mock_router,
+                telegram_token="123:FAKE_TOKEN",
+                telegram_allowed=["*"],
+                telegram_streaming="partial",
+                telegram_streaming_throttle_seconds=1.25,
+                telegram_streaming_min_initial_chars=45,
+            )
+
+        assert gw is not None
+        call_args = mock_cls.call_args
+        assert call_args is not None
+        config_arg = call_args.args[0]
+        telegram_cfg = config_arg.channels.telegram
+        assert telegram_cfg.streaming == "partial"
+        assert telegram_cfg.streaming_throttle_seconds == 1.25
+        assert telegram_cfg.streaming_min_initial_chars == 45
+
 
 class TestChannelMapping:
     """Verify _CHANNEL_MAP and _CHANNEL_REVERSE are consistent."""
