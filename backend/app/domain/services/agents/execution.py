@@ -35,6 +35,7 @@ from app.domain.services.agents.critic import CriticAgent, CriticConfig
 from app.domain.services.agents.output_coverage_validator import OutputCoverageValidator
 from app.domain.services.agents.output_verifier import OutputVerifier
 from app.domain.services.agents.prompt_adapter import PromptAdapter
+from app.domain.services.agents.report_output_sanitizer import sanitize_report_output
 from app.domain.services.agents.response_compressor import ResponseCompressor
 from app.domain.services.agents.response_generator import ResponseGenerator
 from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
@@ -1141,7 +1142,7 @@ class ExecutionAgent(BaseAgent):
             # when the content still carries `[…]` streaming artifacts.
             if truncation_exhausted or self._has_truncation_artifacts(message_content):
                 truncation_notice = (
-                    "> ⚠️ **Incomplete Report:** This report contains sections that were not fully "
+                    "> **Incomplete Report:** This report contains sections that were not fully "
                     "generated due to output length limits. Sections marked `[…]` contain truncated "
                     "content. The available research findings are included below.\n\n"
                 )
@@ -1189,9 +1190,6 @@ class ExecutionAgent(BaseAgent):
             except Exception as e:
                 logger.debug("Citation integrity check failed: %s", e)
                 delivery_gate_additional_warnings.append("citation_integrity_check_failed")
-
-            # Extract title from first # heading
-            message_title = self._extract_title(message_content)
 
             # Phase 2: Post-processing — hallucination verification
             should_run_verification = (
@@ -1368,6 +1366,9 @@ class ExecutionAgent(BaseAgent):
                 except Exception as e:
                     logger.debug(f"Reward hacking detection failed: {e}")
 
+            message_content = sanitize_report_output(message_content)
+            message_title = self._extract_title(message_content)
+
             yield StepEvent(
                 status=StepStatus.COMPLETED,
                 step=Step(
@@ -1438,8 +1439,9 @@ class ExecutionAgent(BaseAgent):
             if _cancel_best.strip():
                 _cancel_partial = self._clean_report_content(_cancel_best.strip())
                 if _cancel_partial:
+                    _cancel_partial = sanitize_report_output(_cancel_partial)
                     _cancel_notice = (
-                        "> ⚠️ **Partial Report:** Generation was interrupted by a time limit. "
+                        "> **Partial Report:** Generation was interrupted by a time limit. "
                         "The content below represents findings collected before the interrupt.\n\n"
                     )
                     _cancel_title = self._extract_title(_cancel_partial) or "Research Summary"

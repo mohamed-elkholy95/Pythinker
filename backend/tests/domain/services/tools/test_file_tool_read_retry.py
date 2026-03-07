@@ -94,6 +94,20 @@ async def test_file_write_strips_placeholder_and_meta_artifacts_for_markdown() -
 
 
 @pytest.mark.asyncio
+async def test_file_write_strips_decorative_emoji_prefixes_for_markdown_reports() -> None:
+    sandbox = AsyncMock()
+    sandbox.file_write = AsyncMock(return_value=ToolResult(success=True, message="ok"))
+
+    tool = FileTool(sandbox=sandbox, session_id="session-1")
+    raw = "# 🔬 Title\n\n## 📊 Findings\n\n## 📎 Deliverables\n"
+
+    await tool.file_write(file="/workspace/report.md", content=raw)
+
+    written = sandbox.file_write.await_args.kwargs["content"]
+    assert written == "# Title\n\n## Findings\n\n## Deliverables"
+
+
+@pytest.mark.asyncio
 async def test_file_write_warns_on_content_regression_for_overwrite() -> None:
     sandbox = AsyncMock()
     sandbox.file_write = AsyncMock(return_value=ToolResult(success=True, message="ok"))
