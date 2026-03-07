@@ -27,3 +27,17 @@ def test_filter_session_files_for_active_delivery_scope_prefers_metadata() -> No
     result = PlanActFlow._filter_files_for_delivery_scope(files, active_scope, scope_root)
 
     assert [file_info.filename for file_info in result] == ["current-report.md"]
+
+
+def test_filter_session_files_for_delivery_scope_passthrough_when_scope_disabled() -> None:
+    """Legacy behavior should remain unchanged when scope isolation is off."""
+    from app.domain.services.flows.plan_act import PlanActFlow
+
+    files = [
+        FileInfo(filename="report-1.md", file_path="/workspace/s1/report-1.md"),
+        FileInfo(filename="report-2.md", file_path="/workspace/s1/report-2.md"),
+    ]
+
+    result = PlanActFlow._filter_files_for_delivery_scope(files, None, None)
+
+    assert result == files
