@@ -244,7 +244,7 @@ class AgentSessionLifecycle:
         await self._teardown_session_runtime(
             session_id,
             session=session,
-            status=SessionStatus.COMPLETED,
+            status=SessionStatus.CANCELLED,
             destroy_sandbox=True,
         )
 
