@@ -286,7 +286,7 @@ class TestCancelledErrorPartialReport:
         from app.domain.models.event import ReportEvent, StreamEvent
 
         agent = _make_execution_agent_for_summarize()
-        partial_text = "# AI Trends\n\nLarge language models are growing rapidly."
+        partial_text = "# 🔬 AI Trends\n\n## 📊 Findings\n\nLarge language models are growing rapidly."
 
         async def _cancelling_iter(*_args, **_kwargs):
             yield StreamEvent(content=partial_text, is_final=False, phase="summarizing")
@@ -302,7 +302,9 @@ class TestCancelledErrorPartialReport:
         report_events = [e for e in collected_events if isinstance(e, ReportEvent)]
         assert len(report_events) == 1, f"Expected 1 partial ReportEvent, got {len(report_events)}: {collected_events}"
         assert "[Partial]" in report_events[0].title
-        assert "⚠️" in report_events[0].content
+        assert "⚠️" not in report_events[0].content
+        assert "🔬" not in report_events[0].content
+        assert "📊" not in report_events[0].content
         assert "Partial Report" in report_events[0].content
 
     @pytest.mark.asyncio

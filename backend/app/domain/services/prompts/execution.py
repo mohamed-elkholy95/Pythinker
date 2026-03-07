@@ -1163,14 +1163,14 @@ ENHANCED_SUMMARIZE_PROMPT = """Deliver the completed result as a professional, v
 
 REPORT STRUCTURE (follow this format exactly):
 
-# 🔬 [Clear, Descriptive Title]
+# [Clear, Descriptive Title]
 
 ---
 
 ## Introduction
 Brief context and scope of the research (2-3 sentences).
 
-## 📊 [Main Section 1]
+## [Main Section 1]
 ### [Subsection if needed]
 Content with **bold** for key terms. Use RICH TABLES for comparisons:
 
@@ -1178,7 +1178,7 @@ Content with **bold** for key terms. Use RICH TABLES for comparisons:
 |----------|---------|-------|
 | Item 1   | Value   | Info  |
 
-## 🔍 [Main Section 2]
+## [Main Section 2]
 Continue with clear, factual content.
 
 ## Conclusion
@@ -1188,7 +1188,6 @@ Key takeaways and recommendations.
 [1] Source Name - URL
 
 DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
-- Use emoji prefixes on section headings (## 🎯 Section, ## 📊 Data, ## 🔍 Analysis, ## 💡 Insights, ## 🏆 Results)
 - Use horizontal rules (---) to separate major sections for visual clarity
 - Use TABLES extensively for any structured comparisons, feature lists, pricing, or specifications — tables are rendered with premium styling
 - For comparisons/versus reports: include a dedicated "## Comparison Table" or "## Benchmark Comparison" section with clear column headers
@@ -1374,7 +1373,7 @@ CITATION REQUIREMENTS:
     parts.append(f"""
 REPORT STRUCTURE (follow this format exactly):
 
-# 🔬 [Clear, Descriptive Title]
+# [Clear, Descriptive Title]
 
 ---
 
@@ -1386,7 +1385,7 @@ REPORT STRUCTURE (follow this format exactly):
 ## Introduction
 Brief context and scope of the research (2-3 sentences).
 
-## 📊 [Main Section 1]
+## [Main Section 1]
 ### [Subsection if needed]
 Content{citation_hint}. Use RICH TABLES for comparisons:
 
@@ -1394,7 +1393,7 @@ Content{citation_hint}. Use RICH TABLES for comparisons:
 |----------|---------|{"--------|" if has_sources else "-------|"}
 | Item 1   | Value   | {source_cell}    |
 
-## 🔍 [Main Section 2]
+## [Main Section 2]
 Continue with clear, factual content{citation_inline}.
 
 ## Conclusion
@@ -1428,7 +1427,6 @@ Your report MUST include ALL of the following:
     # Design & formatting guidelines (shared)
     parts.append("""
 DESIGN & FORMATTING GUIDELINES (CRITICAL — follow these for premium output):
-- Use emoji prefixes on section headings (## 🎯 Section, ## 📊 Data, ## 🔍 Analysis, ## 💡 Insights, ## 🏆 Results)
 - Use horizontal rules (---) to separate major sections for visual clarity
 - Use TABLES extensively for any structured data, comparisons, feature lists, pricing, or specifications
 - For workflows, architectures, or relationships: use Mermaid diagrams:
@@ -1667,7 +1665,7 @@ def build_execution_prompt_from_context(
 
     if ctx.blocker_warnings:
         blocker_text = "\n".join(f"- {b}" for b in ctx.blocker_warnings)
-        prompt = f"{prompt}\n\n## ⚠️ Active Blockers\n{blocker_text}"
+        prompt = f"{prompt}\n\n## Active Blockers\n{blocker_text}"
 
     if ctx.error_pattern_signal:
         prompt = f"{prompt}\n\n## Proactive Guidance\n{ctx.error_pattern_signal}"
