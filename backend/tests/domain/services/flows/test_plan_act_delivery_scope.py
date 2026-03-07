@@ -79,7 +79,7 @@ async def test_load_scoped_session_files_for_summary_sets_delivery_channel_and_f
 
     result = await flow._load_scoped_session_files_for_summary()
 
-    flow.executor.set_delivery_channel.assert_called_once_with("telegram")
+    assert flow.executor.set_delivery_channel.call_args_list == [((None,), {}), (("telegram",), {})]
     assert [file_info.filename for file_info in result] == ["current-report.md"]
 
 
