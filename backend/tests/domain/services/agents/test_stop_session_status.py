@@ -1,7 +1,8 @@
 """Tests that stop_session tears down with CANCELLED, not COMPLETED."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.domain.models.session import Session, SessionStatus
 from app.domain.services.agents.agent_session_lifecycle import AgentSessionLifecycle
@@ -48,8 +49,7 @@ async def test_stop_session_calls_teardown_with_cancelled_status(
     teardown_mock.assert_awaited_once()
     _, kwargs = teardown_mock.call_args
     assert kwargs["status"] == SessionStatus.CANCELLED, (
-        f"Expected CANCELLED but got {kwargs['status']!r}. "
-        "stop_session is an interruption, not a natural completion."
+        f"Expected CANCELLED but got {kwargs['status']!r}. stop_session is an interruption, not a natural completion."
     )
 
 

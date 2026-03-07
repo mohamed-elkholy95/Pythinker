@@ -17,22 +17,16 @@ class TestToolArgValidation:
     }
 
     def test_valid_args_pass(self):
-        errors = OpenAILLM._validate_tool_args_static(
-            {"file": "/workspace/report.md", "content": "hello"}, self.SCHEMA
-        )
+        errors = OpenAILLM._validate_tool_args_static({"file": "/workspace/report.md", "content": "hello"}, self.SCHEMA)
         assert errors == []
 
     def test_missing_required_field(self):
-        errors = OpenAILLM._validate_tool_args_static(
-            {"content": "hello"}, self.SCHEMA
-        )
+        errors = OpenAILLM._validate_tool_args_static({"content": "hello"}, self.SCHEMA)
         assert len(errors) == 1
         assert "file" in errors[0]
 
     def test_wrong_type(self):
-        errors = OpenAILLM._validate_tool_args_static(
-            {"file": 123, "content": "hello"}, self.SCHEMA
-        )
+        errors = OpenAILLM._validate_tool_args_static({"file": 123, "content": "hello"}, self.SCHEMA)
         assert len(errors) == 1
         assert "string" in errors[0]
 
@@ -41,7 +35,5 @@ class TestToolArgValidation:
         assert len(errors) == 2  # Both required fields missing
 
     def test_extra_fields_ignored(self):
-        errors = OpenAILLM._validate_tool_args_static(
-            {"file": "x", "content": "y", "extra": 42}, self.SCHEMA
-        )
+        errors = OpenAILLM._validate_tool_args_static({"file": "x", "content": "y", "extra": 42}, self.SCHEMA)
         assert errors == []

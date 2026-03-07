@@ -1,6 +1,8 @@
 """Test step executor last-resort fallback includes raw message preview."""
-import pytest
+
 from unittest.mock import MagicMock
+
+import pytest
 
 from app.domain.models.plan import Step
 from app.domain.services.agents.step_executor import StepExecutor

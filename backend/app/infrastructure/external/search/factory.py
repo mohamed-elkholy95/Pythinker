@@ -186,12 +186,14 @@ class FallbackSearchEngine:
                 if pool:
                     healthy = getattr(pool, "healthy_key_count", 0)
                     total = getattr(pool, "total_key_count", 1)
-                    summary["providers"].append({
-                        "name": name,
-                        "healthy_keys": healthy,
-                        "total_keys": total,
-                        "status": "healthy" if healthy > 0 else "exhausted",
-                    })
+                    summary["providers"].append(
+                        {
+                            "name": name,
+                            "healthy_keys": healthy,
+                            "total_keys": total,
+                            "status": "healthy" if healthy > 0 else "exhausted",
+                        }
+                    )
                     if healthy > 0:
                         summary["healthy_count"] += 1
                 else:
@@ -204,12 +206,14 @@ class FallbackSearchEngine:
                 if pool:
                     healthy = getattr(pool, "healthy_key_count", 0)
                     total = getattr(pool, "total_key_count", 1)
-                    summary["providers"].append({
-                        "name": name,
-                        "healthy_keys": healthy,
-                        "total_keys": total,
-                        "status": "healthy" if healthy > 0 else "exhausted",
-                    })
+                    summary["providers"].append(
+                        {
+                            "name": name,
+                            "healthy_keys": healthy,
+                            "total_keys": total,
+                            "status": "healthy" if healthy > 0 else "exhausted",
+                        }
+                    )
                     if healthy > 0:
                         summary["healthy_count"] += 1
                 else:

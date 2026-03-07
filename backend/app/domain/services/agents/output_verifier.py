@@ -197,9 +197,7 @@ class OutputVerifier:
         cited_row_count = 0
         for seg_type, seg_lines in segments:
             if seg_type == "table":
-                has_citation = any(
-                    re.search(r"\[\d+\]", line) for line in seg_lines
-                )
+                has_citation = any(re.search(r"\[\d+\]", line) for line in seg_lines)
                 if has_citation:
                     cited_row_count += sum(1 for ln in seg_lines if re.search(r"\[\d+\]", ln))
                     continue  # Skip entire table block
@@ -344,6 +342,7 @@ class OutputVerifier:
 
                 # Use expanded context for DEEP research (design 4B)
                 from app.core.config import get_settings
+
                 settings = get_settings()
                 default_size = getattr(settings, "hallucination_grounding_context_size", 4096)
                 if getattr(self, "_research_depth", None) == "DEEP":
