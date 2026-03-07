@@ -188,6 +188,7 @@ class CircuitBreaker:
         """Create a CircuitBreaker from application settings."""
         try:
             from app.core.config import get_settings
+
             settings = get_settings()
             return cls(
                 threshold=getattr(settings, "key_pool_cb_threshold", CIRCUIT_BREAKER_THRESHOLD),

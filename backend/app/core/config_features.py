@@ -349,9 +349,9 @@ class FeatureFlagsSettingsMixin:
 
     # Graduated step wall-clock pressure (design 2A)
     # Per-depth budgets override max_step_wall_clock_seconds when research_depth is known
-    step_budget_quick_seconds: float = 300.0    # QUICK research: 5 min
+    step_budget_quick_seconds: float = 300.0  # QUICK research: 5 min
     step_budget_standard_seconds: float = 600.0  # STANDARD research: 10 min
-    step_budget_deep_seconds: float = 900.0      # DEEP research: 15 min
+    step_budget_deep_seconds: float = 900.0  # DEEP research: 15 min
 
     # Architecture Enhancement Plan — Phase 2: Token Budget Manager & Context Handler
     feature_token_budget_manager: bool = True  # Proactive phase-level token budgeting
@@ -375,9 +375,9 @@ class FeatureFlagsSettingsMixin:
     hallucination_escalation_min_samples: int = 10  # Min tool calls before rate is meaningful
 
     # Hallucination mitigation thresholds (design 4B)
-    hallucination_warn_threshold: float = 0.05     # 5% -> warning in delivery gate
-    hallucination_block_threshold: float = 0.15    # 15% -> block delivery, re-summarize
-    hallucination_annotate_spans: bool = False      # Annotate flagged spans in output
+    hallucination_warn_threshold: float = 0.05  # 5% -> warning in delivery gate
+    hallucination_block_threshold: float = 0.15  # 15% -> block delivery, re-summarize
+    hallucination_annotate_spans: bool = False  # Annotate flagged spans in output
     hallucination_grounding_context_size: int = 4096  # Chars of source context for LettuceDetect
     hallucination_grounding_context_deep: int = 8192  # Expanded context for DEEP research
 
@@ -440,9 +440,9 @@ class FeatureFlagsSettingsMixin:
 class KeyPoolSettingsMixin:
     """API key pool circuit breaker configuration (design 5A)."""
 
-    key_pool_cb_threshold: int = 5           # Consecutive failures to trip breaker
+    key_pool_cb_threshold: int = 5  # Consecutive failures to trip breaker
     key_pool_cb_reset_timeout_5xx: int = 300  # Seconds before 5xx breaker resets
-    key_pool_cb_reset_timeout_429: int = 45   # Seconds before 429 breaker resets
+    key_pool_cb_reset_timeout_429: int = 45  # Seconds before 429 breaker resets
     key_pool_exhaustion_recovery_ttl: int = 1800  # Seconds before exhausted pool re-checks
 
 

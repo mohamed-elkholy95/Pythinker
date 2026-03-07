@@ -368,11 +368,7 @@ class FileSyncManager:
     def _is_report_artifact(file_path: str) -> bool:
         """Identify report artifacts that should keep report-specific metadata."""
         basename = os.path.basename(file_path)
-        return (
-            "/output/reports/" in file_path
-            or basename.startswith("report-")
-            or basename.startswith("full-report-")
-        )
+        return "/output/reports/" in file_path or basename.startswith("report-") or basename.startswith("full-report-")
 
     # ── MIME Inference ─────────────────────────────────────────────────
 
