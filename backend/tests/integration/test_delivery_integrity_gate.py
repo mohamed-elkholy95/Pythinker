@@ -20,7 +20,7 @@ class TestDeliveryIntegrityGateIntegration:
 
     @pytest.fixture
     def executor(self, mock_llm, mock_agent_repository, mock_json_parser, mock_tools):
-        return ExecutionAgent(
+        executor = ExecutionAgent(
             agent_id="integration-executor",
             agent_repository=mock_agent_repository,
             llm=mock_llm,
@@ -28,6 +28,8 @@ class TestDeliveryIntegrityGateIntegration:
             json_parser=mock_json_parser,
             feature_flags={"delivery_integrity_gate": True},
         )
+        executor.set_delivery_channel("telegram")
+        return executor
 
     @pytest.mark.asyncio
     async def test_completed_plan_summary_recovers_stream_truncation(self, executor, mock_llm, plan_factory):
@@ -97,9 +99,7 @@ class TestDeliveryIntegrityGateIntegration:
         assert not any(isinstance(event, ReportEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_completed_plan_summary_uses_pretrim_report_when_summary_drops_references(
-        self, executor, mock_llm
-    ):
+    async def test_completed_plan_summary_uses_pretrim_report_when_summary_drops_references(self, executor, mock_llm):
         """Weak report-shaped summaries should fall back to the grounded pre-trim draft."""
         weak_summary = (
             "# Final Report\n\n"
@@ -118,7 +118,7 @@ class TestDeliveryIntegrityGateIntegration:
         gate_inputs: list[str] = []
 
         executor._user_request = "Provide a grounded final report."
-        executor._pre_trim_report_cache = grounded_pretrim
+        executor._extract_report_from_file_write_memory = MagicMock(return_value=grounded_pretrim)
         executor._needs_verification = MagicMock(return_value=False)
         executor._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
 
@@ -148,3 +148,47 @@ class TestDeliveryIntegrityGateIntegration:
         assert report.content == grounded_pretrim
         assert any(content == grounded_pretrim for content in gate_inputs)
         assert report.content != weak_summary
+
+    @pytest.mark.asyncio
+    async def test_completed_plan_summary_blocks_when_summary_and_pretrim_report_both_fail_grounding(
+        self, executor, mock_llm
+    ):
+        """Telegram final delivery should fail closed when neither summary nor draft is grounded."""
+        weak_summary = (
+            "# Final Report\n\n"
+            "## Findings\n"
+            "This summary still lacks the required evidence trail.\n\n"
+            "## Conclusion\n"
+            "Do not deliver this."
+        )
+        weak_pretrim = (
+            "# Final Report\n\n"
+            "## Findings\n"
+            "This cached draft is also missing citations and references.\n\n"
+            "## Conclusion\n"
+            "Still not grounded."
+        )
+
+        executor._user_request = "Provide a grounded final report."
+        executor._extract_report_from_file_write_memory = MagicMock(return_value=weak_pretrim)
+        executor._needs_verification = MagicMock(return_value=False)
+        executor._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+        executor._run_delivery_integrity_gate = MagicMock(
+            return_value=(False, ["coverage_missing:artifact references"])
+        )
+        mock_llm.ask.return_value = {"content": '["Follow-up question?"]'}
+
+        async def weak_summary_stream(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield weak_summary
+
+        mock_llm.ask_stream = weak_summary_stream
+
+        events = [event async for event in executor.summarize(all_steps_completed=True)]
+
+        assert any(isinstance(event, ErrorEvent) for event in events)
+        assert not any(isinstance(event, ReportEvent) for event in events)

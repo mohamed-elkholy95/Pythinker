@@ -1433,7 +1433,11 @@ class PlanActFlow(BaseFlow):
                 filtered.append(file_info)
                 continue
 
-            if delivery_scope_root and file_info.file_path and file_info.file_path.startswith(f"{delivery_scope_root}/"):
+            if (
+                delivery_scope_root
+                and file_info.file_path
+                and file_info.file_path.startswith(f"{delivery_scope_root}/")
+            ):
                 filtered.append(file_info)
                 continue
 
@@ -3433,6 +3437,7 @@ class PlanActFlow(BaseFlow):
                     session_files: list[FileInfo] = []
                     try:
                         session = await self._session_repository.find_by_id(self._session_id)
+                        self.executor.set_delivery_channel(getattr(session, "source", None) if session else None)
                         if session and session.files:
                             session_files = self._filter_files_for_delivery_scope(
                                 session.files,

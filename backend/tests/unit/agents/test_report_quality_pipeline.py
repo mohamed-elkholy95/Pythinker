@@ -11,6 +11,7 @@ Covers:
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -31,6 +32,7 @@ def _make_rg() -> ResponseGenerator:
         memory=memory,
         source_tracker=source_tracker,
         metrics=metrics,
+        resolve_feature_flags_fn=lambda: {"delivery_integrity_gate": True},
     )
 
 
@@ -125,6 +127,60 @@ class TestHasTruncationArtifacts:
         rg = _make_rg()
         mermaid = "```mermaid\ngraph TD\n  A --> […]\n```"
         assert rg.has_truncation_artifacts(mermaid) is True
+
+
+class TestTelegramDeliveryIntegrityGate:
+    def test_delivery_integrity_gate_blocks_report_issues_for_telegram_only(self):
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        rg = _make_rg()
+        coverage_result = SimpleNamespace(is_valid=False, missing_requirements=["artifact references"])
+        content = "# Final Report\n\n## Findings\nGrounded claim [1]."
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        passed, issues = rg.run_delivery_integrity_gate(
+            content=content,
+            response_policy=policy,
+            coverage_result=coverage_result,
+            stream_metadata={"provider": "test"},
+            truncation_exhausted=False,
+            additional_warnings=["hallucination_verification_skipped"],
+            delivery_channel="telegram",
+        )
+
+        assert passed is False
+        assert "hallucination_verification_skipped" in issues
+        assert "coverage_missing:artifact references" in issues
+        assert "missing_references_section" in issues
+
+    def test_delivery_integrity_gate_keeps_same_report_issues_as_warnings_for_web(self):
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        rg = _make_rg()
+        coverage_result = SimpleNamespace(is_valid=False, missing_requirements=["artifact references"])
+        content = "# Final Report\n\n## Findings\nGrounded claim [1]."
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        passed, issues = rg.run_delivery_integrity_gate(
+            content=content,
+            response_policy=policy,
+            coverage_result=coverage_result,
+            stream_metadata={"provider": "test"},
+            truncation_exhausted=False,
+            additional_warnings=["hallucination_verification_skipped"],
+            delivery_channel="web",
+        )
+
+        assert passed is True
+        assert issues == []
 
 
 def _make_output_verifier(*, lettuce_enabled: bool = True):
@@ -256,15 +312,18 @@ def _make_execution_agent_for_summarize():
     agent._pre_trim_report_cache = None
     agent._collected_sources = False
     agent._response_policy = None
+    agent._delivery_channel = None
 
+    llm = MagicMock()
     rg = ResponseGenerator(
-        llm=MagicMock(),
+        llm=llm,
         memory=MagicMock(get_messages=MagicMock(return_value=[])),
         source_tracker=MagicMock(get_collected_sources=MagicMock(return_value=[])),
         metrics=MagicMock(),
+        resolve_feature_flags_fn=lambda: {"delivery_integrity_gate": False},
     )
     agent._response_generator = rg
-    agent.llm = MagicMock()
+    agent.llm = llm
     agent.memory = MagicMock(get_messages=MagicMock(return_value=[{"role": "user", "content": "query"}]))
     agent._add_to_memory = AsyncMock()
     agent._ensure_within_token_limit = AsyncMock()
@@ -274,6 +333,16 @@ def _make_execution_agent_for_summarize():
     agent._extract_report_from_file_write_memory = MagicMock(return_value=None)
     agent._ensure_complete_references = MagicMock(side_effect=lambda x: x)
     agent._build_numbered_source_list = MagicMock(return_value="")
+    agent._needs_verification = MagicMock(return_value=False)
+    agent._verify_hallucination = AsyncMock(return_value=SimpleNamespace(content="", blocking_issues=[], warnings=[]))
+    agent._output_coverage_validator = MagicMock(
+        validate=MagicMock(return_value=SimpleNamespace(is_valid=True, missing_requirements=[]))
+    )
+    agent._response_compressor = MagicMock(compress=MagicMock(side_effect=lambda content, **_: content))
+    agent._run_delivery_integrity_gate = MagicMock(return_value=(True, []))
+    agent._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+    agent._append_delivery_integrity_fallback = MagicMock(side_effect=lambda content, _issues: content)
+    agent._generate_follow_up_suggestions = AsyncMock(return_value=[])
     return agent
 
 
@@ -327,3 +396,81 @@ class TestCancelledErrorPartialReport:
 
         report_events = [e for e in collected_events if isinstance(e, ReportEvent)]
         assert len(report_events) == 0
+
+
+class TestDirectDeliveryShortCircuit:
+    def test_can_deliver_pretrim_report_directly_requires_completed_telegram_report(self):
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        agent = _make_execution_agent_for_summarize()
+        agent._pre_trim_report_cache = "# Final Report\n\n" + ("Grounded detail [1]\n" * 120)
+        agent._run_delivery_integrity_gate = MagicMock(return_value=(True, []))
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result"],
+            allow_compression=False,
+        )
+
+        assert (
+            agent._can_deliver_pretrim_report_directly(
+                response_policy=policy,
+                all_steps_completed=False,
+                delivery_channel="telegram",
+            )
+            is False
+        )
+        assert (
+            agent._can_deliver_pretrim_report_directly(
+                response_policy=policy,
+                all_steps_completed=True,
+                delivery_channel="web",
+            )
+            is False
+        )
+        assert (
+            agent._can_deliver_pretrim_report_directly(
+                response_policy=policy,
+                all_steps_completed=True,
+                delivery_channel="telegram",
+            )
+            is True
+        )
+
+    @pytest.mark.asyncio
+    async def test_summarize_skips_llm_when_pretrim_report_is_already_deliverable(self):
+        from app.domain.models.event import ReportEvent
+
+        agent = _make_execution_agent_for_summarize()
+        grounded_pretrim = (
+            "# Final Report\n\n"
+            "## Findings\n"
+            + ("Grounded detail with source support [1].\n" * 80)
+            + "\n## References\n[1] https://example.com/source\n"
+        )
+
+        agent._delivery_channel = "telegram"
+        agent._resolve_feature_flags = MagicMock(return_value={"delivery_integrity_gate": True})
+        agent._extract_report_from_file_write_memory = MagicMock(return_value=grounded_pretrim)
+        agent._needs_verification = MagicMock(return_value=False)
+        agent._can_deliver_pretrim_report_directly = MagicMock(return_value=True)
+        agent._run_delivery_integrity_gate = MagicMock(
+            side_effect=lambda *args, **kwargs: (
+                (kwargs.get("content", args[0] if args else "") == grounded_pretrim),
+                [] if kwargs.get("content", args[0] if args else "") == grounded_pretrim else ["ungrounded"],
+            )
+        )
+
+        async def should_not_stream(*_args, **_kwargs):
+            raise AssertionError("ask_stream should not be called when the pre-trim draft is already deliverable")
+            yield  # pragma: no cover
+
+        agent.llm.ask_stream = should_not_stream
+
+        events = [event async for event in agent.summarize(all_steps_completed=True)]
+
+        report = next(event for event in events if isinstance(event, ReportEvent))
+        assert report.content == grounded_pretrim
+        assert any(
+            (kwargs.get("content", args[0] if args else "") == grounded_pretrim)
+            for args, kwargs in agent._run_delivery_integrity_gate.call_args_list
+        )
