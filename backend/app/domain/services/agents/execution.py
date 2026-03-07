@@ -103,6 +103,7 @@ class ExecutionAgent(BaseAgent):
     format: str = "json_object"
     SUMMARY_STREAM_COALESCE_MAX_CHARS: int = 320
     SUMMARY_STREAM_COALESCE_FLUSH_SECONDS: float = 0.05
+    MIN_DIRECT_DELIVERY_REPORT_LENGTH: int = 1200
 
     def __init__(
         self,
@@ -233,10 +234,15 @@ class ExecutionAgent(BaseAgent):
         # *before* token trimming, so summarization recovery can find it even
         # after aggressive context pruning.
         self._pre_trim_report_cache: str | None = None
+        self._delivery_channel: str | None = None
 
     def set_request_contract(self, contract) -> None:
         """Set request contract for search fidelity and entity context (Phase 4)."""
         self._request_contract = contract
+
+    def set_delivery_channel(self, delivery_channel: str | None) -> None:
+        """Set the active delivery channel for final delivery policy decisions."""
+        self._delivery_channel = delivery_channel
 
     def set_response_policy(self, policy: ResponsePolicy | None) -> None:
         """Set per-run response policy for summarize stage."""
@@ -669,6 +675,7 @@ class ExecutionAgent(BaseAgent):
         try:
             flags = self._resolve_feature_flags()
             delivery_integrity_enabled = flags.get("delivery_integrity_gate", False)
+            delivery_channel = getattr(self, "_delivery_channel", None)
             accumulated_text = ""
             attempt_text = ""  # pre-initialised so CancelledError handler can always read it
             stream_messages = list(self.memory.get_messages())
@@ -684,165 +691,165 @@ class ExecutionAgent(BaseAgent):
             _summarize_model: str | None = _get_settings().fast_model or None
             _summarize_max_tokens: int = _get_settings().summarization_max_tokens
 
-            # Phase 1: Stream tokens live via StreamEvent
-            while True:
-                stream_attempt += 1
-                attempt_text = ""
-
-                stream_iter = self.llm.ask_stream(
-                    stream_messages,
-                    tools=None,
-                    tool_choice=None,
-                    model=_summarize_model,
-                    max_tokens=_summarize_max_tokens,
+            if self._can_deliver_pretrim_report_directly(
+                response_policy=active_policy,
+                all_steps_completed=all_steps_completed,
+                delivery_channel=delivery_channel,
+            ):
+                message_content = self._pre_trim_report_cache or ""
+                stream_metadata = {"provider": "pretrim_cache", "finish_reason": "stop", "truncated": False}
+                logger.info(
+                    "Skipping summarization — pre-trim draft passed gate directly (%d chars)",
+                    len(message_content),
                 )
-                async for stream_event in self._iter_coalesced_stream_events(stream_iter, phase="summarizing"):
-                    attempt_text += stream_event.content
-                    yield stream_event
+                yield StreamEvent(content="", is_final=True, phase="summarizing")
+            else:
+                # Phase 1: Stream tokens live via StreamEvent
+                while True:
+                    stream_attempt += 1
+                    attempt_text = ""
 
-                if stream_attempt == 1:
-                    accumulated_text = attempt_text
-                else:
-                    accumulated_text = self._merge_stream_continuation(accumulated_text, attempt_text)
+                    stream_iter = self.llm.ask_stream(
+                        stream_messages,
+                        tools=None,
+                        tool_choice=None,
+                        model=_summarize_model,
+                        max_tokens=_summarize_max_tokens,
+                    )
+                    async for stream_event in self._iter_coalesced_stream_events(stream_iter, phase="summarizing"):
+                        attempt_text += stream_event.content
+                        yield stream_event
 
-                stream_metadata = self._get_last_stream_metadata()
-                # ── Multi-signal truncation detection ──────────────────────────
-                # Signal 1: explicit "truncated" flag from response_generator
-                # Signal 2: LLM provider set finish_reason="length" (reliable providers)
-                # Signal 3: Token-count heuristic — catches GLM-5 and other providers
-                #   that silently truncate at their output-token budget without setting
-                #   finish_reason="length".  If estimated output tokens (chars ÷ 4) reach
-                #   ≥ 85 % of the configured max_tokens budget, the output was almost
-                #   certainly cut off.  The 0.85 ratio provides a safe margin: a complete
-                #   response can reach up to ~75 % of max_tokens before this fires.
-                _est_output_tokens = max(len(attempt_text) // 4, 1)
-                _near_token_limit = _est_output_tokens >= int(_summarize_max_tokens * 0.85)
-                is_truncated_stream = (
-                    bool(stream_metadata.get("truncated"))
-                    or stream_metadata.get("finish_reason") == "length"
-                    or _near_token_limit
-                )
-                if delivery_integrity_enabled and is_truncated_stream:
-                    if _near_token_limit and not (
-                        bool(stream_metadata.get("truncated")) or stream_metadata.get("finish_reason") == "length"
-                    ):
-                        logger.warning(
-                            "Truncation heuristic: ~%d est. output tokens at %.0f%% of %d-token "
-                            "budget (finish_reason=%r) — treating as silently truncated",
-                            _est_output_tokens,
-                            _est_output_tokens * 100.0 / _summarize_max_tokens,
-                            _summarize_max_tokens,
-                            stream_metadata.get("finish_reason"),
-                        )
-                    self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="detected")
-                if not (delivery_integrity_enabled and is_truncated_stream):
-                    break
+                    if stream_attempt == 1:
+                        accumulated_text = attempt_text
+                    else:
+                        accumulated_text = self._merge_stream_continuation(accumulated_text, attempt_text)
 
-                if stream_attempt > max_stream_continuations:
-                    # --- Escalation: try ONE final continuation with the powerful model ---
-                    _powerful_model: str | None = _get_settings().powerful_model or None
-                    _can_escalate = _powerful_model and _summarize_model and _powerful_model != _summarize_model
-                    if _can_escalate:
-                        logger.info(
-                            "Delivery integrity: fast model exhausted after %d attempts, "
-                            "escalating to powerful model (%s) for final continuation",
-                            max_stream_continuations,
-                            _powerful_model,
-                        )
-                        assistant_fragment = attempt_text.strip() or accumulated_text[-4000:]
-                        if assistant_fragment.strip():
-                            # Same minimal-context trim as regular continuation path —
-                            # by escalation time stream_messages may hold several rounds
-                            # of appended fragments, leaving the powerful model even less
-                            # output budget.  Reset to system + last user msg only.
-                            _esc_sys = [m for m in stream_messages if m.get("role") == "system"]
-                            _esc_last_user = next(
-                                (m for m in reversed(stream_messages) if m.get("role") == "user"), None
+                    stream_metadata = self._get_last_stream_metadata()
+                    _est_output_tokens = max(len(attempt_text) // 4, 1)
+                    _near_token_limit = _est_output_tokens >= int(_summarize_max_tokens * 0.85)
+                    is_truncated_stream = (
+                        bool(stream_metadata.get("truncated"))
+                        or stream_metadata.get("finish_reason") == "length"
+                        or _near_token_limit
+                    )
+                    if delivery_integrity_enabled and is_truncated_stream:
+                        if _near_token_limit and not (
+                            bool(stream_metadata.get("truncated")) or stream_metadata.get("finish_reason") == "length"
+                        ):
+                            logger.warning(
+                                "Truncation heuristic: ~%d est. output tokens at %.0f%% of %d-token "
+                                "budget (finish_reason=%r) — treating as silently truncated",
+                                _est_output_tokens,
+                                _est_output_tokens * 100.0 / _summarize_max_tokens,
+                                _summarize_max_tokens,
+                                stream_metadata.get("finish_reason"),
                             )
-                            _esc_base = [*_esc_sys, *([_esc_last_user] if _esc_last_user else [])]
-                            stream_messages = [
-                                *_esc_base,
-                                {"role": "assistant", "content": assistant_fragment},
-                                {"role": "user", "content": self._build_continuation_prompt(accumulated_text)},
-                            ]
-                            escalation_text = ""
-                            stream_iter = self.llm.ask_stream(
-                                stream_messages,
-                                tools=None,
-                                tool_choice=None,
-                                model=_powerful_model,
-                                max_tokens=_summarize_max_tokens,
+                        self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="detected")
+                    if not (delivery_integrity_enabled and is_truncated_stream):
+                        break
+
+                    if stream_attempt > max_stream_continuations:
+                        _powerful_model: str | None = _get_settings().powerful_model or None
+                        _can_escalate = _powerful_model and _summarize_model and _powerful_model != _summarize_model
+                        if _can_escalate:
+                            logger.info(
+                                "Delivery integrity: fast model exhausted after %d attempts, "
+                                "escalating to powerful model (%s) for final continuation",
+                                max_stream_continuations,
+                                _powerful_model,
                             )
-                            async for stream_event in self._iter_coalesced_stream_events(
-                                stream_iter, phase="summarizing"
-                            ):
-                                escalation_text += stream_event.content
-                                yield stream_event
-                            accumulated_text = self._merge_stream_continuation(accumulated_text, escalation_text)
-                            escalation_meta = self._get_last_stream_metadata()
-                            escalation_truncated = (
-                                bool(escalation_meta.get("truncated"))
-                                or escalation_meta.get("finish_reason") == "length"
-                            )
-                            if not escalation_truncated:
-                                self._record_stream_truncation_metric(
-                                    stream_metadata=escalation_meta, outcome="recovered_escalation"
+                            assistant_fragment = attempt_text.strip() or accumulated_text[-4000:]
+                            if assistant_fragment.strip():
+                                _esc_sys = [m for m in stream_messages if m.get("role") == "system"]
+                                _esc_last_user = next(
+                                    (m for m in reversed(stream_messages) if m.get("role") == "user"), None
                                 )
-                                # Recovered via escalation — skip exhaustion path
-                                break
-                            self._record_stream_truncation_metric(
-                                stream_metadata=escalation_meta, outcome="unresolved_after_escalation"
-                            )
+                                _esc_base = [*_esc_sys, *([_esc_last_user] if _esc_last_user else [])]
+                                stream_messages = [
+                                    *_esc_base,
+                                    {"role": "assistant", "content": assistant_fragment},
+                                    {"role": "user", "content": self._build_continuation_prompt(accumulated_text)},
+                                ]
+                                escalation_text = ""
+                                stream_iter = self.llm.ask_stream(
+                                    stream_messages,
+                                    tools=None,
+                                    tool_choice=None,
+                                    model=_powerful_model,
+                                    max_tokens=_summarize_max_tokens,
+                                )
+                                async for stream_event in self._iter_coalesced_stream_events(
+                                    stream_iter, phase="summarizing"
+                                ):
+                                    escalation_text += stream_event.content
+                                    yield stream_event
+                                accumulated_text = self._merge_stream_continuation(accumulated_text, escalation_text)
+                                escalation_meta = self._get_last_stream_metadata()
+                                escalation_truncated = (
+                                    bool(escalation_meta.get("truncated"))
+                                    or escalation_meta.get("finish_reason") == "length"
+                                )
+                                if not escalation_truncated:
+                                    self._record_stream_truncation_metric(
+                                        stream_metadata=escalation_meta, outcome="recovered_escalation"
+                                    )
+                                    break
+                                self._record_stream_truncation_metric(
+                                    stream_metadata=escalation_meta,
+                                    outcome="unresolved_after_escalation",
+                                )
+                        else:
+                            _can_escalate = False
 
-                    truncation_exhausted = True
+                        truncation_exhausted = True
+                        logger.warning(
+                            "Delivery integrity: stream remained truncated after %d continuation attempts"
+                            + (" + escalation" if _can_escalate else ""),
+                            max_stream_continuations,
+                        )
+                        self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="unresolved")
+                        break
+
                     logger.warning(
-                        "Delivery integrity: stream remained truncated after %d continuation attempts"
-                        + (" + escalation" if _can_escalate else ""),
+                        "Delivery integrity: stream truncation detected (finish_reason=%s, model=%s), "
+                        "requesting continuation (%d/%d)",
+                        stream_metadata.get("finish_reason"),
+                        _summarize_model or "default",
+                        stream_attempt,
                         max_stream_continuations,
                     )
-                    self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="unresolved")
-                    break
+                    assistant_fragment = attempt_text.strip() or accumulated_text[-2000:]
+                    if not assistant_fragment.strip():
+                        truncation_exhausted = True
+                        logger.warning(
+                            "Delivery integrity: truncation detected with empty fragment, aborting continuation"
+                        )
+                        self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="unresolved")
+                        break
 
-                logger.warning(
-                    "Delivery integrity: stream truncation detected (finish_reason=%s, model=%s), "
-                    "requesting continuation (%d/%d)",
-                    stream_metadata.get("finish_reason"),
-                    _summarize_model or "default",
-                    stream_attempt,
-                    max_stream_continuations,
-                )
-                assistant_fragment = attempt_text.strip() or accumulated_text[-2000:]
-                if not assistant_fragment.strip():
-                    truncation_exhausted = True
-                    logger.warning("Delivery integrity: truncation detected with empty fragment, aborting continuation")
-                    self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="unresolved")
-                    break
+                    _sys_msgs = [m for m in stream_messages if m.get("role") == "system"]
+                    _last_user = next((m for m in reversed(stream_messages) if m.get("role") == "user"), None)
+                    _continuation_base = [*_sys_msgs, *([_last_user] if _last_user else [])]
+                    stream_messages = [
+                        *_continuation_base,
+                        {"role": "assistant", "content": assistant_fragment},
+                        {"role": "user", "content": self._build_continuation_prompt(accumulated_text)},
+                    ]
+                    self._record_stream_truncation_metric(
+                        stream_metadata=stream_metadata,
+                        outcome="continuation_requested",
+                    )
 
-                # Trim to minimal context: system msg + last user summarize prompt only.
-                # Appending the full stream_messages history on each retry causes context
-                # explosion — GLM-5 and similar models shrink their output budget as the
-                # prompt grows, causing every continuation to also truncate.
-                _sys_msgs = [m for m in stream_messages if m.get("role") == "system"]
-                _last_user = next((m for m in reversed(stream_messages) if m.get("role") == "user"), None)
-                _continuation_base = [*_sys_msgs, *([_last_user] if _last_user else [])]
-                stream_messages = [
-                    *_continuation_base,
-                    {"role": "assistant", "content": assistant_fragment},
-                    {"role": "user", "content": self._build_continuation_prompt(accumulated_text)},
-                ]
-                self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="continuation_requested")
+                if delivery_integrity_enabled and stream_attempt > 1 and not truncation_exhausted:
+                    is_final_truncated = (
+                        bool(stream_metadata.get("truncated")) or stream_metadata.get("finish_reason") == "length"
+                    )
+                    if not is_final_truncated:
+                        self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="recovered")
 
-            if delivery_integrity_enabled and stream_attempt > 1 and not truncation_exhausted:
-                is_final_truncated = (
-                    bool(stream_metadata.get("truncated")) or stream_metadata.get("finish_reason") == "length"
-                )
-                if not is_final_truncated:
-                    self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="recovered")
-
-            # Signal streaming complete
-            yield StreamEvent(content="", is_final=True, phase="summarizing")
-
-            message_content = accumulated_text.strip()
+                yield StreamEvent(content="", is_final=True, phase="summarizing")
+                message_content = accumulated_text.strip()
             message_content = self._collapse_duplicate_report_payload(message_content)
 
             # Strip hallucinated tool-call XML and boilerplate that the LLM
@@ -1030,7 +1037,11 @@ class ExecutionAgent(BaseAgent):
 
             # DeepCode Phase 2.2: Pattern-based truncation detection
             # Enhances finish_reason="length" detection with content pattern matching
-            if delivery_integrity_enabled and not truncation_exhausted:
+            if (
+                delivery_integrity_enabled
+                and not truncation_exhausted
+                and stream_metadata.get("provider") != "pretrim_cache"
+            ):
                 try:
                     from app.domain.services.agents.truncation_detector import get_truncation_detector
 
@@ -1289,6 +1300,8 @@ class ExecutionAgent(BaseAgent):
                         labels={"reason": "coverage_drop"},
                     )
 
+            telegram_final_delivery = (delivery_channel or "").strip().lower() == "telegram"
+
             gate_passed, gate_issues = self._run_delivery_integrity_gate(
                 content=message_content,
                 response_policy=active_policy,
@@ -1297,8 +1310,43 @@ class ExecutionAgent(BaseAgent):
                 truncation_exhausted=truncation_exhausted,
                 additional_issues=delivery_gate_additional_issues,
                 additional_warnings=delivery_gate_additional_warnings,
+                delivery_channel=delivery_channel,
             )
-            if not gate_passed and self._can_auto_repair_delivery_integrity(gate_issues, message_content):
+            if not gate_passed and self._pre_trim_report_cache:
+                pretrim_content = self._pre_trim_report_cache
+                if pretrim_content.strip() and pretrim_content != message_content:
+                    pretrim_coverage = self._output_coverage_validator.validate(
+                        output=pretrim_content,
+                        user_request=self._user_request or "",
+                        required_sections=_required_sections,
+                    )
+                    fallback_passed, fallback_issues = self._run_delivery_integrity_gate(
+                        content=pretrim_content,
+                        response_policy=active_policy,
+                        coverage_result=pretrim_coverage,
+                        stream_metadata={"provider": "pretrim_cache", "finish_reason": "stop", "truncated": False},
+                        truncation_exhausted=False,
+                        additional_issues=delivery_gate_additional_issues,
+                        additional_warnings=delivery_gate_additional_warnings,
+                        delivery_channel=delivery_channel,
+                    )
+                    if fallback_passed:
+                        logger.info(
+                            "Summary failed gate but pre-trim draft passed (%d chars) — using draft",
+                            len(pretrim_content),
+                        )
+                        message_content = pretrim_content
+                        coverage_result = pretrim_coverage
+                        gate_passed = True
+                        gate_issues = []
+                    else:
+                        gate_issues = fallback_issues
+
+            if (
+                not gate_passed
+                and not telegram_final_delivery
+                and self._can_auto_repair_delivery_integrity(gate_issues, message_content)
+            ):
                 repaired_content = self._append_delivery_integrity_fallback(message_content, gate_issues)
                 repaired_coverage = self._output_coverage_validator.validate(
                     output=repaired_content,
@@ -1315,6 +1363,7 @@ class ExecutionAgent(BaseAgent):
                     truncation_exhausted=False,
                     additional_issues=delivery_gate_additional_issues,
                     additional_warnings=delivery_gate_additional_warnings,
+                    delivery_channel=delivery_channel,
                 )
                 if repaired_passed:
                     logger.info(
@@ -1330,7 +1379,11 @@ class ExecutionAgent(BaseAgent):
 
             if not gate_passed:
                 issue_text = "; ".join(gate_issues)
-                if all_steps_completed and self._can_downgrade_delivery_integrity_issues(gate_issues):
+                if (
+                    all_steps_completed
+                    and not telegram_final_delivery
+                    and self._can_downgrade_delivery_integrity_issues(gate_issues)
+                ):
                     # All plan steps succeeded — blocking the report is worse than
                     # delivering it with minor integrity gaps.  Downgrade to warning
                     # and proceed with delivery so the user sees their completed work.
@@ -1560,6 +1613,48 @@ class ExecutionAgent(BaseAgent):
         """Collapse duplicate full-report payloads (delegated to ResponseGenerator)."""
         return self._response_generator.collapse_duplicate_report_payload(content)
 
+    def _can_deliver_pretrim_report_directly(
+        self,
+        *,
+        response_policy: ResponsePolicy,
+        all_steps_completed: bool,
+        delivery_channel: str | None = None,
+    ) -> bool:
+        """Return whether the cached draft can bypass the summarize LLM call."""
+        pretrim_report = self._pre_trim_report_cache or ""
+        pretrim_report_stripped = pretrim_report.strip()
+        if not pretrim_report_stripped:
+            return False
+        if not all_steps_completed:
+            return False
+        if (delivery_channel or "").strip().lower() != "telegram":
+            return False
+        if len(pretrim_report_stripped) < self.MIN_DIRECT_DELIVERY_REPORT_LENGTH:
+            return False
+
+        coverage_validator = getattr(self, "_output_coverage_validator", None)
+        if coverage_validator is None:
+            return False
+
+        required_sections = response_policy.min_required_sections
+        if all_steps_completed:
+            required_sections = [section for section in required_sections if section.lower() != "next step"]
+
+        coverage_result = coverage_validator.validate(
+            output=pretrim_report,
+            user_request=self._user_request or "",
+            required_sections=required_sections,
+        )
+        gate_passed, _ = self._run_delivery_integrity_gate(
+            content=pretrim_report,
+            response_policy=response_policy,
+            coverage_result=coverage_result,
+            stream_metadata={"provider": "pretrim_cache", "finish_reason": "stop", "truncated": False},
+            truncation_exhausted=False,
+            delivery_channel=delivery_channel,
+        )
+        return gate_passed
+
     def _run_delivery_integrity_gate(
         self,
         content: str,
@@ -1569,6 +1664,7 @@ class ExecutionAgent(BaseAgent):
         truncation_exhausted: bool,
         additional_issues: list[str] | None = None,
         additional_warnings: list[str] | None = None,
+        delivery_channel: str | None = None,
     ) -> tuple[bool, list[str]]:
         """Fail-closed delivery gate (delegated to ResponseGenerator)."""
         self._response_generator._metrics = _metrics  # sync module-level metrics
@@ -1580,6 +1676,7 @@ class ExecutionAgent(BaseAgent):
             truncation_exhausted,
             additional_issues=additional_issues,
             additional_warnings=additional_warnings,
+            delivery_channel=delivery_channel,
         )
 
     def _can_downgrade_delivery_integrity_issues(self, issues: list[str]) -> bool:
