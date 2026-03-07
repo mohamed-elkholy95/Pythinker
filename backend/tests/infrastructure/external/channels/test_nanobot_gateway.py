@@ -184,6 +184,37 @@ class TestSendToChannel:
         nb_msg = gateway_telegram._bus.publish_outbound.call_args[0][0]
         assert nb_msg.metadata == {"thread_id": "t_789", "parse_mode": "Markdown"}
 
+    @pytest.mark.asyncio()
+    async def test_gateway_preserves_message_id_metadata_for_preview_keying(
+        self,
+        gateway_telegram: NanobotGateway,
+    ) -> None:
+        """Preview/final delivery metadata should survive unchanged into nanobot."""
+        message = OutboundMessage(
+            channel=ChannelType.TELEGRAM,
+            chat_id="chat_123",
+            content="Thinking",
+            metadata={
+                "message_id": 777,
+                "_progress": True,
+                "_telegram_stream": True,
+                "_telegram_stream_phase": "thinking",
+                "_telegram_stream_final": False,
+            },
+        )
+
+        gateway_telegram._bus.publish_outbound = AsyncMock()
+        await gateway_telegram.send_to_channel(message)
+
+        nb_msg = gateway_telegram._bus.publish_outbound.call_args[0][0]
+        assert nb_msg.metadata == {
+            "message_id": 777,
+            "_progress": True,
+            "_telegram_stream": True,
+            "_telegram_stream_phase": "thinking",
+            "_telegram_stream_final": False,
+        }
+
 
 class TestTelegramConfigWiring:
     """Verify Telegram reliability settings are wired into nanobot config."""

@@ -452,17 +452,21 @@ class MessageRouter:
         if event_type == "stream":
             if not self._telegram_streaming_enabled(source.channel):
                 return None
+            metadata = self._telegram_message_id_metadata(source)
+            metadata.update(
+                {
+                    "_progress": True,
+                    "_telegram_stream": True,
+                    "_telegram_stream_phase": getattr(event, "phase", "thinking"),
+                    "_telegram_stream_final": bool(getattr(event, "is_final", False)),
+                }
+            )
             return OutboundMessage(
                 channel=source.channel,
                 chat_id=source.chat_id,
                 content=getattr(event, "content", "") or "",
                 reply_to=source.id,
-                metadata={
-                    "_progress": True,
-                    "_telegram_stream": True,
-                    "_telegram_stream_phase": getattr(event, "phase", "thinking"),
-                    "_telegram_stream_final": bool(getattr(event, "is_final", False)),
-                },
+                metadata=metadata,
             )
 
         return None  # pragma: no cover
@@ -992,4 +996,15 @@ class MessageRouter:
             chat_id=source.chat_id,
             content=content,
             reply_to=source.id,
+            metadata=MessageRouter._telegram_message_id_metadata(source),
         )
+
+    @staticmethod
+    def _telegram_message_id_metadata(source: InboundMessage) -> dict[str, Any]:
+        """Preserve the originating Telegram message id for downstream reply/edit routing."""
+        if source.channel != ChannelType.TELEGRAM:
+            return {}
+        message_id = source.metadata.get("message_id")
+        if message_id is None:
+            return {}
+        return {"message_id": message_id}

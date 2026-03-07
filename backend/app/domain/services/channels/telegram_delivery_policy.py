@@ -196,7 +196,11 @@ class TelegramDeliveryPolicy:
                 chat_id=source.chat_id,
                 content="Generating PDF report...",
                 reply_to=source.id,
-                metadata={"delivery_mode": "text", "async_pdf": True},
+                metadata={
+                    **self._source_message_metadata(source),
+                    "delivery_mode": "text",
+                    "async_pdf": True,
+                },
             )
             pdf_outbound = await self._build_pdf_outbound(
                 event_type=event_type,
@@ -268,6 +272,7 @@ class TelegramDeliveryPolicy:
                 attachment.size_bytes,
             )
             metadata = {
+                **self._source_message_metadata(source),
                 "delivery_mode": "pdf_only",
                 "report_title": title,
                 "cleanup_media_paths": [attachment.url],
@@ -314,7 +319,12 @@ class TelegramDeliveryPolicy:
             chat_id=source.chat_id,
             content=content,
             reply_to=source.id,
-            metadata={"delivery_mode": "text", "pdf_required": True, "pdf_fallback_reason": reason},
+            metadata={
+                **self._source_message_metadata(source),
+                "delivery_mode": "text",
+                "pdf_required": True,
+                "pdf_fallback_reason": reason,
+            },
         )
 
     async def _render_pdf_attachment(
@@ -359,6 +369,7 @@ class TelegramDeliveryPolicy:
     ) -> OutboundMessage:
         text = f"## {title}\n\n{content}" if event_type == "report" else content
         payload = {"delivery_mode": "text"}
+        payload.update(self._source_message_metadata(source))
         if metadata:
             payload.update(metadata)
         return OutboundMessage(
@@ -368,6 +379,16 @@ class TelegramDeliveryPolicy:
             reply_to=source.id,
             metadata=payload,
         )
+
+    @staticmethod
+    def _source_message_metadata(source: InboundMessage) -> dict[str, object]:
+        """Preserve the originating Telegram message id for downstream delivery decisions."""
+        if source.channel != "telegram":
+            return {}
+        message_id = source.metadata.get("message_id")
+        if message_id is None:
+            return {}
+        return {"message_id": message_id}
 
     def _build_caption(self, *, title: str, content: str) -> str:
         title_html = html.escape(title.strip() or "Report")

@@ -507,15 +507,20 @@ class TestRouteInbound:
             telegram_streaming="partial",
         )
 
-        replies = [r async for r in router.route_inbound(_make_inbound("Run task"))]
+        inbound = _make_inbound("Run task")
+        inbound.metadata["message_id"] = 777
+        replies = [r async for r in router.route_inbound(inbound)]
 
         assert len(replies) == 3
         assert replies[0].content == "Thinking"
+        assert replies[0].metadata["message_id"] == 777
         assert replies[0].metadata["_progress"] is True
         assert replies[0].metadata["_telegram_stream"] is True
         assert replies[0].metadata["_telegram_stream_phase"] == "thinking"
         assert replies[0].metadata["_telegram_stream_final"] is False
         assert replies[1].content == " more"
+        assert replies[1].metadata["message_id"] == 777
+        assert replies[-1].metadata["message_id"] == 777
         assert replies[-1].content == "Final answer"
 
     @pytest.mark.asyncio
@@ -822,6 +827,7 @@ class TestEventToOutbound:
     def test_stream_event_produces_telegram_preview_metadata(self) -> None:
         router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
         source = _make_inbound()
+        source.metadata["message_id"] = 777
 
         result = router._event_to_outbound(
             StreamEvent(content="Thinking", is_final=False, phase="thinking"),
@@ -832,11 +838,22 @@ class TestEventToOutbound:
         assert result.content == "Thinking"
         assert result.reply_to == source.id
         assert result.metadata == {
+            "message_id": 777,
             "_progress": True,
             "_telegram_stream": True,
             "_telegram_stream_phase": "thinking",
             "_telegram_stream_final": False,
         }
+
+    def test_message_event_preserves_telegram_message_id_in_metadata(self) -> None:
+        router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
+        source = _make_inbound()
+        source.metadata["message_id"] = 888
+
+        result = router._event_to_outbound(_FakeMessageEvent(), source)
+
+        assert result is not None
+        assert result.metadata["message_id"] == 888
 
 
 # ---------------------------------------------------------------------------
