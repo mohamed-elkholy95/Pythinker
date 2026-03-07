@@ -271,33 +271,35 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Successfully initialized Beanie")
 
-        # Seed official skills
-        try:
-            from app.infrastructure.seeds.skills_seed import seed_official_skills
+        # Seed operations and plugin discovery — only one worker needs to run these
+        if await _try_acquire_startup_singleton("seed_and_plugins", ttl_seconds=300):
+            # Seed official skills
+            try:
+                from app.infrastructure.seeds.skills_seed import seed_official_skills
 
-            skill_count = await seed_official_skills()
-            logger.info(f"Seeded {skill_count} official skills")
-        except Exception as e:
-            logger.warning(f"Failed to seed skills (non-critical): {e}")
+                skill_count = await seed_official_skills()
+                logger.info(f"Seeded {skill_count} official skills")
+            except Exception as e:
+                logger.warning(f"Failed to seed skills (non-critical): {e}")
 
-        # Load pip-installed skill plugins (AgentSkills entry-point discovery)
-        try:
-            from app.infrastructure.plugins.skill_plugin_loader import load_skill_plugins
+            # Load pip-installed skill plugins (AgentSkills entry-point discovery)
+            try:
+                from app.infrastructure.plugins.skill_plugin_loader import load_skill_plugins
 
-            plugin_count = await load_skill_plugins()
-            if plugin_count > 0:
-                logger.info(f"Loaded {plugin_count} skill plugin(s) via entry-points")
-        except Exception as e:
-            logger.warning(f"Failed to load skill plugins (non-critical): {e}")
+                plugin_count = await load_skill_plugins()
+                if plugin_count > 0:
+                    logger.info(f"Loaded {plugin_count} skill plugin(s) via entry-points")
+            except Exception as e:
+                logger.warning(f"Failed to load skill plugins (non-critical): {e}")
 
-        # Seed official connectors
-        try:
-            from app.infrastructure.seeds.connectors_seed import seed_connectors
+            # Seed official connectors
+            try:
+                from app.infrastructure.seeds.connectors_seed import seed_connectors
 
-            connector_count = await seed_connectors()
-            logger.info(f"Seeded {connector_count} official connectors")
-        except Exception as e:
-            logger.warning(f"Failed to seed connectors (non-critical): {e}")
+                connector_count = await seed_connectors()
+                logger.info(f"Seeded {connector_count} official connectors")
+            except Exception as e:
+                logger.warning(f"Failed to seed connectors (non-critical): {e}")
 
         # Initialize MinIO (required for screenshot storage + optional file storage)
         try:
@@ -391,17 +393,17 @@ async def lifespan(app: FastAPI):
             _health_state["qdrant"] = False
 
         # Eagerly create memory indexes to avoid first-request latency spike.
-        # Without this, ensure_indexes() fires lazily on the first memory write
-        # (create/search), adding ~50-200ms to the initial session's processing.
-        try:
-            from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
+        # Only one worker needs to create indexes (idempotent but avoids 4x DB calls).
+        if await _try_acquire_startup_singleton("memory_index_creation", ttl_seconds=300):
+            try:
+                from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
 
-            db = get_mongodb().client[settings.mongodb_database]
-            memory_repo = MongoMemoryRepository(database=db)
-            await memory_repo.ensure_indexes()
-            logger.info("Memory repository indexes pre-created at startup")
-        except Exception as e:
-            logger.warning(f"Memory index pre-creation failed (will retry on first use): {e}")
+                db = get_mongodb().client[settings.mongodb_database]
+                memory_repo = MongoMemoryRepository(database=db)
+                await memory_repo.ensure_indexes()
+                logger.info("Memory repository indexes pre-created at startup")
+            except Exception as e:
+                logger.warning(f"Memory index pre-creation failed (will retry on first use): {e}")
 
         # Initialize BM25 encoder from existing memories (for hybrid search)
         try:
