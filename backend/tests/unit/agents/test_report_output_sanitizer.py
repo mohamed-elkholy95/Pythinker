@@ -27,3 +27,11 @@ def test_sanitize_report_output_preserves_code_fences() -> None:
     result = sanitize_report_output(content)
 
     assert result == content
+
+
+def test_sanitize_report_output_preserves_quoted_source_content() -> None:
+    content = "> Survey wording copied from source"
+
+    result = sanitize_report_output(content)
+
+    assert result == content
