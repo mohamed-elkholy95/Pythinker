@@ -469,6 +469,57 @@ async def test_progress_preview_creates_then_edits_single_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_progress_preview_uses_generic_preview_text_metadata() -> None:
+    channel = _make_channel(
+        streaming="partial",
+        streaming_throttle_seconds=0.0,
+        streaming_min_initial_chars=1,
+    )
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+        edit_message_text=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="",
+            metadata={
+                "_progress": True,
+                "_telegram_stream": True,
+                "_telegram_stream_preview_text": "Working on it...",
+                "message_id": 99,
+            },
+        )
+    )
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="garbled raw chunk that should stay hidden",
+            metadata={
+                "_progress": True,
+                "_telegram_stream": True,
+                "_telegram_stream_preview_text": "Preparing the final response...",
+                "message_id": 99,
+            },
+        )
+    )
+
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["text"] == "Working on it..."
+    bot.edit_message_text.assert_awaited_once()
+    assert bot.edit_message_text.await_args.kwargs["text"] == "Preparing the final response..."
+
+
+@pytest.mark.asyncio
 async def test_final_text_edits_existing_preview_instead_of_sending_new_message() -> None:
     channel = _make_channel(
         streaming="partial",

@@ -461,7 +461,10 @@ class TelegramChannel(BaseChannel):
             return
 
         state = self._preview_states.setdefault(self._preview_key(msg), _TelegramPreviewState())
-        if msg.content:
+        preview_override = (msg.metadata or {}).get("_telegram_stream_preview_text")
+        if isinstance(preview_override, str):
+            state.content = preview_override
+        elif msg.content:
             state.content += msg.content
 
         is_final = bool((msg.metadata or {}).get("_telegram_stream_final"))

@@ -366,7 +366,10 @@ class TestRouteInbound:
         replies = [r async for r in router.route_inbound(msg)]
 
         assert len(replies) == 2
-        assert replies[0].content.startswith("I'll research ")
+        assert replies[0].content == (
+            "I'm working on the research report and will send it here when it's ready. "
+            "This should take about 10-15 minutes."
+        )
         assert "This should take about" in replies[0].content
         assert "10-15 minutes" in replies[0].content
         assert replies[1].content == "Hello from the agent!"
@@ -382,6 +385,10 @@ class TestRouteInbound:
         replies = [r async for r in router.route_inbound(msg)]
 
         assert len(replies) == 2
+        assert replies[0].content == (
+            "I'm working on the research report and will send it here when it's ready. "
+            "This should take about 5-10 minutes."
+        )
         assert "5-10 minutes" in replies[0].content
         assert replies[1].content == "Hello from the agent!"
 
@@ -398,14 +405,14 @@ class TestRouteInbound:
         replies = [r async for r in router.route_inbound(msg)]
 
         assert len(replies) == 2
-        assert "including searching Reddit and other sources" not in replies[0].content
-        assert "from Reddit and other sources" in replies[0].content
+        assert "reddit" not in replies[0].content.lower()
+        assert "other sources" not in replies[0].content.lower()
         assert "10-15 minutes" in replies[0].content
         assert replies[1].content == "Hello from the agent!"
 
     @pytest.mark.asyncio
-    async def test_route_adds_source_clause_when_topic_has_no_source_context(self) -> None:
-        """When topic has no source mention, ack appends concise source coverage clause."""
+    async def test_route_keeps_research_ack_generic_when_topic_has_no_source_context(self) -> None:
+        """Research ack stays generic instead of inferring or expanding source coverage."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
         agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
         router = MessageRouter(agent_svc, repo)
@@ -414,7 +421,10 @@ class TestRouteInbound:
         replies = [r async for r in router.route_inbound(msg)]
 
         assert len(replies) == 2
-        assert "including searching Reddit and other sources" in replies[0].content
+        assert replies[0].content == (
+            "I'm working on the research report and will send it here when it's ready. "
+            "This should take about 5-10 minutes."
+        )
         assert "5-10 minutes" in replies[0].content
         assert replies[1].content == "Hello from the agent!"
 
@@ -512,14 +522,16 @@ class TestRouteInbound:
         replies = [r async for r in router.route_inbound(inbound)]
 
         assert len(replies) == 3
-        assert replies[0].content == "Thinking"
+        assert replies[0].content == ""
         assert replies[0].metadata["message_id"] == 777
         assert replies[0].metadata["_progress"] is True
         assert replies[0].metadata["_telegram_stream"] is True
         assert replies[0].metadata["_telegram_stream_phase"] == "thinking"
         assert replies[0].metadata["_telegram_stream_final"] is False
-        assert replies[1].content == " more"
+        assert replies[0].metadata["_telegram_stream_preview_text"] == "Working on it..."
+        assert replies[1].content == ""
         assert replies[1].metadata["message_id"] == 777
+        assert replies[1].metadata["_telegram_stream_preview_text"] == "Working on it..."
         assert replies[-1].metadata["message_id"] == 777
         assert replies[-1].content == "Final answer"
 
@@ -824,7 +836,7 @@ class TestEventToOutbound:
         result = router._event_to_outbound(_FakeUserMessageEvent(), source)
         assert result is None
 
-    def test_stream_event_produces_telegram_preview_metadata(self) -> None:
+    def test_stream_event_produces_generic_telegram_preview_metadata(self) -> None:
         router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
         source = _make_inbound()
         source.metadata["message_id"] = 777
@@ -835,7 +847,7 @@ class TestEventToOutbound:
         )
 
         assert result is not None
-        assert result.content == "Thinking"
+        assert result.content == ""
         assert result.reply_to == source.id
         assert result.metadata == {
             "message_id": 777,
@@ -843,6 +855,7 @@ class TestEventToOutbound:
             "_telegram_stream": True,
             "_telegram_stream_phase": "thinking",
             "_telegram_stream_final": False,
+            "_telegram_stream_preview_text": "Working on it...",
         }
 
     def test_message_event_preserves_telegram_message_id_in_metadata(self) -> None:
