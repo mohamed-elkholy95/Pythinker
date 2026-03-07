@@ -35,3 +35,19 @@ def test_sanitize_report_output_preserves_quoted_source_content() -> None:
     result = sanitize_report_output(content)
 
     assert result == content
+
+
+def test_sanitize_report_output_strips_partial_report_notice_prefix() -> None:
+    content = "> ⚠️ **Partial Report:** Generation was interrupted."
+
+    result = sanitize_report_output(content)
+
+    assert result == "> **Partial Report:** Generation was interrupted."
+
+
+def test_sanitize_report_output_preserves_generic_quoted_source_with_emoji() -> None:
+    content = "> 🔬 Survey wording copied from source"
+
+    result = sanitize_report_output(content)
+
+    assert result == content
