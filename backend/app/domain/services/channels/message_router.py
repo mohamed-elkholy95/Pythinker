@@ -61,10 +61,6 @@ _LONG_RESEARCH_SIGNAL_RE = re.compile(
     r"\b(comprehensive|deep|detailed|benchmark|compare|comparison|pricing|citations?|references?|coupons?|offers?|deals?|discounts?|promos?|reddit)\b",
     re.IGNORECASE,
 )
-_TOPIC_SOURCE_CONTEXT_RE = re.compile(
-    r"\b(reddit|subreddit|other\s+sources?|multiple\s+sources?|various\s+sources?|forums?|web|internet|online)\b",
-    re.IGNORECASE,
-)
 _GENERIC_AGENT_ACK_PREFIX_RE = re.compile(r"^\s*got it!\s*", re.IGNORECASE)
 _GENERIC_AGENT_ACK_ACTION_RE = re.compile(
     r"\b(i(?:'ll|\s+will)|let me)\b.*\b(search|research|compile|create|work on|look into|analy[sz]e|gather)\b",
@@ -452,19 +448,23 @@ class MessageRouter:
         if event_type == "stream":
             if not self._telegram_streaming_enabled(source.channel):
                 return None
+            is_final = bool(getattr(event, "is_final", False))
             metadata = self._telegram_message_id_metadata(source)
             metadata.update(
                 {
                     "_progress": True,
                     "_telegram_stream": True,
                     "_telegram_stream_phase": getattr(event, "phase", "thinking"),
-                    "_telegram_stream_final": bool(getattr(event, "is_final", False)),
+                    "_telegram_stream_final": is_final,
                 }
             )
+            preview_text = self._telegram_stream_preview_text(event)
+            if preview_text is not None:
+                metadata["_telegram_stream_preview_text"] = preview_text
             return OutboundMessage(
                 channel=source.channel,
                 chat_id=source.chat_id,
-                content=getattr(event, "content", "") or "",
+                content="",
                 reply_to=source.id,
                 metadata=metadata,
             )
@@ -921,30 +921,11 @@ class MessageRouter:
     def _build_research_report_ack(content: str) -> str:
         """Build immediate Telegram acknowledgement for long-running report requests."""
         compact = " ".join((content or "").split()).strip()
-        topic = MessageRouter._extract_research_topic(compact)
         estimate = MessageRouter._estimate_research_duration(compact)
-        if _TOPIC_SOURCE_CONTEXT_RE.search(topic):
-            return f"I'll research {topic}. This should take about {estimate}."
         return (
-            f"I'll research {topic}, including searching Reddit and other sources. This should take about {estimate}."
+            "I'm working on the research report and will send it here when it's ready. "
+            f"This should take about {estimate}."
         )
-
-    @staticmethod
-    def _extract_research_topic(compact_content: str) -> str:
-        """Extract a readable topic phrase from the raw request text."""
-        lowered = compact_content.lower()
-        topic = compact_content
-        for marker in ("about", "on", "for"):
-            idx = lowered.find(f"{marker} ")
-            if idx >= 0:
-                topic = compact_content[idx + len(marker) + 1 :].strip()
-                break
-
-        if len(topic) > 140:
-            topic = f"{topic[:137].rstrip()}..."
-        if not topic:
-            topic = "your requested topic"
-        return topic
 
     @staticmethod
     def _estimate_research_duration(compact_content: str) -> str:
@@ -983,6 +964,17 @@ class MessageRouter:
     def _telegram_streaming_enabled(self, channel: ChannelType) -> bool:
         """Return whether Telegram preview streaming is active for the channel."""
         return channel == ChannelType.TELEGRAM and self._telegram_streaming != "off"
+
+    @staticmethod
+    def _telegram_stream_preview_text(event: object) -> str | None:
+        """Return a small generic status string for Telegram preview streaming."""
+        if bool(getattr(event, "is_final", False)):
+            return None
+
+        phase = str(getattr(event, "phase", "thinking") or "thinking").strip().lower()
+        if phase in {"summarizing", "synthesizing", "finalizing"}:
+            return "Preparing the final response..."
+        return "Working on it..."
 
     # ------------------------------------------------------------------
     # Helpers
