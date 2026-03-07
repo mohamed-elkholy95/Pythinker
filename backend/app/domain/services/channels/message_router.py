@@ -1004,7 +1004,10 @@ class MessageRouter:
         """Preserve the originating Telegram message id for downstream reply/edit routing."""
         if source.channel != ChannelType.TELEGRAM:
             return {}
-        message_id = source.metadata.get("message_id")
+        metadata = getattr(source, "metadata", None)
+        if not isinstance(metadata, dict):
+            return {}
+        message_id = metadata.get("message_id")
         if message_id is None:
             return {}
         return {"message_id": message_id}
