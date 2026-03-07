@@ -193,6 +193,7 @@ async def run_gateway() -> None:
         telegram_require_linked_account=settings.telegram_require_linked_account,
         telegram_final_delivery_only=settings.telegram_final_delivery_only,
         telegram_final_delivery_allow_wait_prompts=settings.telegram_final_delivery_allow_wait_prompts,
+        telegram_streaming=settings.telegram_streaming,
     )
 
     # NanobotGateway — may not exist yet during incremental development.
@@ -215,6 +216,9 @@ async def run_gateway() -> None:
         telegram_pdf_file_id_cache_redis_enabled=settings.telegram_pdf_file_id_cache_redis_enabled,
         telegram_final_delivery_only=settings.telegram_final_delivery_only,
         telegram_final_delivery_allow_wait_prompts=settings.telegram_final_delivery_allow_wait_prompts,
+        telegram_streaming=settings.telegram_streaming,
+        telegram_streaming_throttle_seconds=settings.telegram_streaming_throttle_seconds,
+        telegram_streaming_min_initial_chars=settings.telegram_streaming_min_initial_chars,
         telegram_polling_bootstrap_retries=settings.telegram_polling_bootstrap_retries,
         telegram_polling_stall_restart_enabled=settings.telegram_polling_stall_restart_enabled,
         telegram_polling_stall_timeout_seconds=settings.telegram_polling_stall_timeout_seconds,

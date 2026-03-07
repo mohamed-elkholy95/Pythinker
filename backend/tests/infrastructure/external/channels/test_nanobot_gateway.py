@@ -184,6 +184,37 @@ class TestSendToChannel:
         nb_msg = gateway_telegram._bus.publish_outbound.call_args[0][0]
         assert nb_msg.metadata == {"thread_id": "t_789", "parse_mode": "Markdown"}
 
+    @pytest.mark.asyncio()
+    async def test_gateway_preserves_message_id_metadata_for_preview_keying(
+        self,
+        gateway_telegram: NanobotGateway,
+    ) -> None:
+        """Preview/final delivery metadata should survive unchanged into nanobot."""
+        message = OutboundMessage(
+            channel=ChannelType.TELEGRAM,
+            chat_id="chat_123",
+            content="Thinking",
+            metadata={
+                "message_id": 777,
+                "_progress": True,
+                "_telegram_stream": True,
+                "_telegram_stream_phase": "thinking",
+                "_telegram_stream_final": False,
+            },
+        )
+
+        gateway_telegram._bus.publish_outbound = AsyncMock()
+        await gateway_telegram.send_to_channel(message)
+
+        nb_msg = gateway_telegram._bus.publish_outbound.call_args[0][0]
+        assert nb_msg.metadata == {
+            "message_id": 777,
+            "_progress": True,
+            "_telegram_stream": True,
+            "_telegram_stream_phase": "thinking",
+            "_telegram_stream_final": False,
+        }
+
 
 class TestTelegramConfigWiring:
     """Verify Telegram reliability settings are wired into nanobot config."""
@@ -230,6 +261,27 @@ class TestTelegramConfigWiring:
         assert telegram_cfg.send_circuit_breaker_enabled is False
         assert telegram_cfg.send_circuit_failure_threshold == 8
         assert telegram_cfg.send_circuit_recovery_timeout_seconds == 90
+
+    def test_gateway_passes_telegram_streaming_settings(self, mock_router: MagicMock) -> None:
+        with patch(_PATCH_CM) as mock_cls:
+            mock_cls.return_value = _make_mock_cm(["telegram"])
+            gw = NanobotGateway(
+                message_router=mock_router,
+                telegram_token="123:FAKE_TOKEN",
+                telegram_allowed=["*"],
+                telegram_streaming="partial",
+                telegram_streaming_throttle_seconds=1.25,
+                telegram_streaming_min_initial_chars=45,
+            )
+
+        assert gw is not None
+        call_args = mock_cls.call_args
+        assert call_args is not None
+        config_arg = call_args.args[0]
+        telegram_cfg = config_arg.channels.telegram
+        assert telegram_cfg.streaming == "partial"
+        assert telegram_cfg.streaming_throttle_seconds == 1.25
+        assert telegram_cfg.streaming_min_initial_chars == 45
 
 
 class TestChannelMapping:

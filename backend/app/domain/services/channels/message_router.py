@@ -52,7 +52,7 @@ TELEGRAM_LINK_REQUIRED_TEXT = (
 )
 
 # Event types that produce outbound messages (progress is heartbeat-only, not user-visible).
-_OUTBOUND_EVENT_TYPES = frozenset({"message", "report", "error", "progress"})
+_OUTBOUND_EVENT_TYPES = frozenset({"message", "report", "error", "progress", "stream"})
 _RESEARCH_REPORT_REQUEST_RE = re.compile(
     r"\bresearch\b[\s\S]{0,120}\breport\b|\breport\b[\s\S]{0,120}\bresearch\b",
     re.IGNORECASE,
@@ -199,6 +199,7 @@ class MessageRouter:
         telegram_require_linked_account: bool = False,
         telegram_final_delivery_only: bool = True,
         telegram_final_delivery_allow_wait_prompts: bool = True,
+        telegram_streaming: str = "partial",
     ) -> None:
         self._agent_service = agent_service
         self._user_channel_repo = user_channel_repo
@@ -211,6 +212,7 @@ class MessageRouter:
         self._telegram_context_summarization_threshold_turns = telegram_context_summarization_threshold_turns
         self._telegram_final_delivery_only = telegram_final_delivery_only
         self._telegram_final_delivery_allow_wait_prompts = telegram_final_delivery_allow_wait_prompts
+        self._telegram_streaming = telegram_streaming
         self._telegram_delivery_policy = telegram_delivery_policy or TelegramDeliveryPolicy(
             pdf_delivery_enabled=telegram_pdf_delivery_enabled,
             message_min_chars=telegram_pdf_message_min_chars,
@@ -346,7 +348,9 @@ class MessageRouter:
                             yield outbound
                         continue
 
-                    if event_type not in {"error", "progress"}:
+                    if event_type == "stream" and self._telegram_streaming_enabled(message.channel):
+                        pass
+                    elif event_type not in {"error", "progress"}:
                         continue
 
                 outbounds = await self._event_to_outbounds(event, message, user_id=user_id)
@@ -443,6 +447,26 @@ class MessageRouter:
                 content="",  # No visible content
                 reply_to=source.id,
                 metadata={"_progress_heartbeat": True},
+            )
+
+        if event_type == "stream":
+            if not self._telegram_streaming_enabled(source.channel):
+                return None
+            metadata = self._telegram_message_id_metadata(source)
+            metadata.update(
+                {
+                    "_progress": True,
+                    "_telegram_stream": True,
+                    "_telegram_stream_phase": getattr(event, "phase", "thinking"),
+                    "_telegram_stream_final": bool(getattr(event, "is_final", False)),
+                }
+            )
+            return OutboundMessage(
+                channel=source.channel,
+                chat_id=source.chat_id,
+                content=getattr(event, "content", "") or "",
+                reply_to=source.id,
+                metadata=metadata,
             )
 
         return None  # pragma: no cover
@@ -956,6 +980,10 @@ class MessageRouter:
         """Return whether Telegram final-only delivery mode is active for the channel."""
         return channel == ChannelType.TELEGRAM and self._telegram_final_delivery_only
 
+    def _telegram_streaming_enabled(self, channel: ChannelType) -> bool:
+        """Return whether Telegram preview streaming is active for the channel."""
+        return channel == ChannelType.TELEGRAM and self._telegram_streaming != "off"
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -968,4 +996,18 @@ class MessageRouter:
             chat_id=source.chat_id,
             content=content,
             reply_to=source.id,
+            metadata=MessageRouter._telegram_message_id_metadata(source),
         )
+
+    @staticmethod
+    def _telegram_message_id_metadata(source: InboundMessage) -> dict[str, Any]:
+        """Preserve the originating Telegram message id for downstream reply/edit routing."""
+        if source.channel != ChannelType.TELEGRAM:
+            return {}
+        metadata = getattr(source, "metadata", None)
+        if not isinstance(metadata, dict):
+            return {}
+        message_id = metadata.get("message_id")
+        if message_id is None:
+            return {}
+        return {"message_id": message_id}
