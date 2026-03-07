@@ -175,7 +175,8 @@ class TestPostPromptAppendages:
         """Blocker warnings are appended with proper formatting."""
         ctx = _make_ctx(blocker_warnings=["Auth not configured", "DB not migrated"])
         result = build_execution_prompt_from_context(ctx)
-        assert "Active Blockers" in result
+        assert "## Active Blockers" in result
+        assert "## ⚠️ Active Blockers" not in result
         assert "- Auth not configured" in result
         assert "- DB not migrated" in result
 

@@ -3365,7 +3365,7 @@ class PlanActFlow(BaseFlow):
                             "\n\n## Session Deliverables\n"
                             "The following files were created during this session:\n"
                             f"{file_listing}\n\n"
-                            'Include a "## 📎 Deliverables" section in your final report '
+                            'Include a "## Deliverables" section in your final report '
                             "listing each file with a brief description of what it contains or demonstrates. "
                             "Show only the filename (not the full internal path) — these paths are internal "
                             "to the sandbox and meaningless to the user."
