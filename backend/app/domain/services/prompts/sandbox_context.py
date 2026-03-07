@@ -486,6 +486,6 @@ def get_sandbox_context_prompt(force_reload: bool = False) -> str:
     return manager.generate_prompt_section(context)
 
 
-# Auto-load context on module import for caching
-with contextlib.suppress(BaseException):
-    SandboxContextManager.load_context()
+# Context is loaded lazily on first use via load_context() —
+# no module-level auto-load to avoid spurious warnings in services
+# (e.g. gateway) where the sandbox context file is unavailable.
