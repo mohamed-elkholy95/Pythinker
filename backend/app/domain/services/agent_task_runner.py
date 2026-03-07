@@ -194,6 +194,7 @@ class AgentTaskRunner(TaskRunner):
         self._plotly_chart_orchestrator = PlotlyChartOrchestrator(sandbox=self._sandbox, session_id=session_id)
         self._delivery_scope_id: str | None = None
         self._delivery_scope_root: str | None = None
+        self._workspace_deliverables_root: str | None = None  # Set from session.workspace_structure
 
         # File sync manager — delegated from AgentTaskRunner (Phase 3C extraction)
         self._file_sync_manager = FileSyncManager(
@@ -605,6 +606,29 @@ class AgentTaskRunner(TaskRunner):
         """Sync event attachments to storage (delegated to FileSyncManager)."""
         await self._file_sync_manager.sync_event_attachments_to_storage(event)
 
+    async def _resolve_workspace_deliverables_root(self) -> str:
+        """Resolve the deliverables directory from session workspace_structure.
+
+        Falls back to /workspace/{session_id} if no workspace template was applied.
+        """
+        if self._workspace_deliverables_root:
+            return self._workspace_deliverables_root
+
+        try:
+            session = await self._session_repository.find_by_id(self._session_id)
+            if session and session.workspace_structure and "deliverables" in session.workspace_structure:
+                self._workspace_deliverables_root = "/workspace/deliverables"
+                logger.debug(
+                    "Resolved workspace deliverables root: %s (session=%s)",
+                    self._workspace_deliverables_root,
+                    self._session_id,
+                )
+                return self._workspace_deliverables_root
+        except Exception as e:
+            logger.debug("Could not resolve workspace deliverables: %s", e)
+
+        return f"/workspace/{self._session_id}"
+
     async def _ensure_report_file(self, event: ReportEvent) -> None:
         """Persist report content as a file in the sandbox and attach it to the event."""
         if not self._sandbox:
@@ -613,7 +637,7 @@ class AgentTaskRunner(TaskRunner):
             return
 
         existing = event.attachments or []
-        workspace_root = self._delivery_scope_root or f"/workspace/{self._session_id}"
+        workspace_root = self._delivery_scope_root or await self._resolve_workspace_deliverables_root()
         report_metadata: dict[str, object] = {"is_report": True, "title": event.title}
         if self._delivery_scope_id and self._delivery_scope_root:
             report_metadata.update(
