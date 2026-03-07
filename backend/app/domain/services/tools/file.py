@@ -10,6 +10,7 @@ from pathlib import Path
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.agents.report_output_sanitizer import sanitize_report_output
 from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,7 @@ def _sanitize_written_content(file_path: str, content: str) -> str:
         cleaned = "\n".join(report_lines)
         cleaned = _DELIVERY_NOTE_RE.sub("", cleaned)
         cleaned = _TRAILING_META_RE.sub("", cleaned)
+        cleaned = sanitize_report_output(cleaned)
 
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip("\n")
