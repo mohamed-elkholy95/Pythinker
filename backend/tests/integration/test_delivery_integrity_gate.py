@@ -95,3 +95,56 @@ class TestDeliveryIntegrityGateIntegration:
 
         assert any(isinstance(event, ErrorEvent) for event in events)
         assert not any(isinstance(event, ReportEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_completed_plan_summary_uses_pretrim_report_when_summary_drops_references(
+        self, executor, mock_llm
+    ):
+        """Weak report-shaped summaries should fall back to the grounded pre-trim draft."""
+        weak_summary = (
+            "# Final Report\n\n"
+            "## Findings\n"
+            "The summary omitted references but still looks like a polished report.\n\n"
+            "## Conclusion\n"
+            "Delivery should not use this version."
+        )
+        grounded_pretrim = (
+            "# Final Report\n\n"
+            "## Findings\n"
+            "Grounded finding tied to a source [1].\n\n"
+            "## References\n"
+            "[1] https://example.com/source"
+        )
+        gate_inputs: list[str] = []
+
+        executor._user_request = "Provide a grounded final report."
+        executor._pre_trim_report_cache = grounded_pretrim
+        executor._needs_verification = MagicMock(return_value=False)
+        executor._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+
+        def gate_side_effect(*args, **kwargs):
+            content = kwargs.get("content", args[0] if args else "")
+            gate_inputs.append(content)
+            if content == grounded_pretrim:
+                return True, []
+            return False, ["coverage_missing:artifact references"]
+
+        executor._run_delivery_integrity_gate = MagicMock(side_effect=gate_side_effect)
+        mock_llm.ask.return_value = {"content": '["Follow-up question?"]'}
+
+        async def weak_summary_stream(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield weak_summary
+
+        mock_llm.ask_stream = weak_summary_stream
+
+        events = [event async for event in executor.summarize(all_steps_completed=True)]
+
+        report = next(event for event in events if isinstance(event, ReportEvent))
+        assert report.content == grounded_pretrim
+        assert any(content == grounded_pretrim for content in gate_inputs)
+        assert report.content != weak_summary
