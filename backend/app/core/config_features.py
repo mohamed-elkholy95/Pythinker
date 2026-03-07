@@ -251,6 +251,7 @@ class FeatureFlagsSettingsMixin:
     feature_strict_numeric_verification: bool = True  # Reject unverified numeric claims
     feature_reject_ungrounded_reports: bool = False  # Start permissive, can enable later
     feature_delivery_integrity_gate: bool = True  # Enforce truncation/completeness gate
+    feature_delivery_scope_isolation: bool = False  # Isolate deliverables per run in reused sessions
 
     # Adaptive Verbosity + Clarification (2026-02-09 plan)
     feature_adaptive_verbosity_shadow: bool = False

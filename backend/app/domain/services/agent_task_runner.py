@@ -192,6 +192,8 @@ class AgentTaskRunner(TaskRunner):
         self._comparison_chart_generator = ComparisonChartGenerator()
         # Phase 4: Plotly chart orchestrator (feature-flagged)
         self._plotly_chart_orchestrator = PlotlyChartOrchestrator(sandbox=self._sandbox, session_id=session_id)
+        self._delivery_scope_id: str | None = None
+        self._delivery_scope_root: str | None = None
 
         # File sync manager — delegated from AgentTaskRunner (Phase 3C extraction)
         self._file_sync_manager = FileSyncManager(
@@ -396,6 +398,7 @@ class AgentTaskRunner(TaskRunner):
                 memory_service=self._memory_service,
                 user_id=self._user_id,
                 file_sweep_callback=self._sweep_workspace_files,
+                scope_callback=self._set_delivery_scope,
                 feature_flags=feature_flags,
                 browser_agent_enabled=settings.browser_agent_enabled,
                 rapidfuzz_matcher=rapidfuzz_matcher,
@@ -425,6 +428,12 @@ class AgentTaskRunner(TaskRunner):
                 f"(verification={settings.enable_plan_verification}, multi_agent={self._enable_multi_agent}, "
                 f"memory_service={'enabled' if self._memory_service else 'disabled'})"
             )
+
+    def _set_delivery_scope(self, scope_id: str | None, workspace_root: str | None) -> None:
+        """Record the active delivery scope and mirror it into file sync."""
+        self._delivery_scope_id = scope_id
+        self._delivery_scope_root = workspace_root.rstrip("/") if workspace_root else None
+        self._file_sync_manager.set_delivery_scope(scope_id, workspace_root)
 
     def _init_coordinator_flow(self) -> None:
         """Initialize CoordinatorFlow for full multi-agent swarm execution"""
@@ -604,6 +613,15 @@ class AgentTaskRunner(TaskRunner):
             return
 
         existing = event.attachments or []
+        workspace_root = self._delivery_scope_root or f"/workspace/{self._session_id}"
+        report_metadata: dict[str, object] = {"is_report": True, "title": event.title}
+        if self._delivery_scope_id and self._delivery_scope_root:
+            report_metadata.update(
+                {
+                    "delivery_scope": self._delivery_scope_id,
+                    "delivery_root": self._delivery_scope_root,
+                }
+            )
 
         # Include the full pre-summarization markdown (from the agent's file_write
         # during execution) as an attachment so users get the complete original report
@@ -612,7 +630,7 @@ class AgentTaskRunner(TaskRunner):
         if full_content and full_content.strip() and full_content.strip() != event.content.strip():
             full_name = f"full-report-{event.id}.md"
             if not self._has_attachment(existing, full_name):
-                full_path = f"/workspace/{self._session_id}/{full_name}"
+                full_path = f"{workspace_root}/{full_name}"
                 try:
                     result = await self._sandbox.file_write(file=full_path, content=full_content)
                     write_ok = result is None or not hasattr(result, "success") or result.success
@@ -624,7 +642,7 @@ class AgentTaskRunner(TaskRunner):
                             size=full_size,
                             content_type="text/markdown",
                             user_id=self._user_id,
-                            metadata={"is_report": True, "is_full_report": True, "title": event.title},
+                            metadata={**report_metadata, "is_full_report": True},
                         )
                         existing = [*existing, full_info]
                         logger.info(
@@ -639,7 +657,7 @@ class AgentTaskRunner(TaskRunner):
 
         expected_name = f"report-{event.id}.md"
         if not self._has_attachment(existing, expected_name):
-            file_path = f"/workspace/{self._session_id}/{expected_name}"
+            file_path = f"{workspace_root}/{expected_name}"
             try:
                 result = await self._sandbox.file_write(file=file_path, content=event.content)
                 if result is not None and hasattr(result, "success") and not result.success:
@@ -656,7 +674,7 @@ class AgentTaskRunner(TaskRunner):
                 size=report_size,
                 content_type="text/markdown",
                 user_id=self._user_id,
-                metadata={"is_report": True, "title": event.title},
+                metadata=dict(report_metadata),
             )
             existing = [*existing, report_info]
 
