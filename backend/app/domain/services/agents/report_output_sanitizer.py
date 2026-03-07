@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 _HEADING_RE = re.compile(r"^(#{1,6}\s+)(.+)$")
-_BLOCKQUOTE_RE = re.compile(r"^(>\s+)(.+)$")
+_NOTICE_PREFIX_RE = re.compile(r"^(>\s+)(?:(?:⚠️|⚠)\s+)?(\*\*(?:Incomplete Report|Partial Report):\*\*.*)$")
 _DECORATIVE_PREFIXES: tuple[str, ...] = (
     "⚠️",
     "⚠",
@@ -50,9 +50,9 @@ def _sanitize_line(line: str) -> str:
         prefix, rest = heading_match.groups()
         return f"{prefix}{_strip_decorative_prefixes(rest)}"
 
-    blockquote_match = _BLOCKQUOTE_RE.match(line)
-    if blockquote_match:
-        prefix, rest = blockquote_match.groups()
+    notice_match = _NOTICE_PREFIX_RE.match(line)
+    if notice_match:
+        prefix, rest = notice_match.groups()
         return f"{prefix}{_strip_decorative_prefixes(rest)}"
 
     return line
