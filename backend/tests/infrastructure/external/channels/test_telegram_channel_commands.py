@@ -14,11 +14,12 @@ from telegram.error import RetryAfter, TimedOut
 from telegram.ext import CallbackQueryHandler
 
 
-def _make_channel() -> TelegramChannel:
+def _make_channel(**config_overrides: object) -> TelegramChannel:
     config = TelegramConfig(
         enabled=True,
         token="123:fake",
         allow_from=["*"],
+        **config_overrides,
     )
     bus = MagicMock()
     bus.publish_inbound = AsyncMock()
@@ -422,3 +423,179 @@ async def test_send_document_reuses_cached_file_id(tmp_path: Path) -> None:
     assert bot.send_document.await_count == 2
     second_kwargs = bot.send_document.await_args_list[1].kwargs
     assert second_kwargs["document"] == "cached-file-id"
+
+
+@pytest.mark.asyncio
+async def test_progress_preview_creates_then_edits_single_message() -> None:
+    channel = _make_channel(
+        streaming="partial",
+        streaming_throttle_seconds=0.0,
+        streaming_min_initial_chars=1,
+    )
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+        edit_message_text=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Hello",
+            metadata={"_progress": True, "_telegram_stream": True, "message_id": 99},
+        )
+    )
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content=" world",
+            metadata={"_progress": True, "_telegram_stream": True, "message_id": 99},
+        )
+    )
+
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["text"] == "Hello"
+    bot.edit_message_text.assert_awaited_once()
+    assert bot.edit_message_text.await_args.kwargs["chat_id"] == 5829880422
+    assert bot.edit_message_text.await_args.kwargs["message_id"] == 321
+    assert bot.edit_message_text.await_args.kwargs["text"] == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_final_text_edits_existing_preview_instead_of_sending_new_message() -> None:
+    channel = _make_channel(
+        streaming="partial",
+        streaming_throttle_seconds=0.0,
+        streaming_min_initial_chars=1,
+    )
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+        edit_message_text=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Thinking",
+            metadata={"_progress": True, "_telegram_stream": True, "message_id": 99},
+        )
+    )
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Final answer",
+            metadata={"message_id": 99},
+        )
+    )
+
+    bot.send_message.assert_awaited_once()
+    bot.edit_message_text.assert_awaited_once()
+    assert bot.edit_message_text.await_args.kwargs["text"] == "Final answer"
+
+
+@pytest.mark.asyncio
+async def test_media_or_pdf_final_clears_preview_and_uses_existing_delivery_path(tmp_path: Path) -> None:
+    channel = _make_channel(
+        streaming="partial",
+        streaming_throttle_seconds=0.0,
+        streaming_min_initial_chars=1,
+    )
+    media_path = tmp_path / "final.pdf"
+    media_path.write_bytes(b"%PDF")
+
+    bot = SimpleNamespace(
+        send_document=AsyncMock(return_value=SimpleNamespace(document=SimpleNamespace(file_id="pdf-file-id"))),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+        edit_message_text=AsyncMock(),
+        delete_message=AsyncMock(return_value=True),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Thinking",
+            metadata={"_progress": True, "_telegram_stream": True, "message_id": 99},
+        )
+    )
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Caption",
+            media=[str(media_path)],
+            metadata={
+                "delivery_mode": "pdf_only",
+                "caption": "Caption",
+                "parse_mode": "HTML",
+                "message_id": 99,
+            },
+        )
+    )
+
+    bot.send_message.assert_awaited_once()
+    bot.edit_message_text.assert_not_awaited()
+    bot.delete_message.assert_awaited_once()
+    assert bot.delete_message.await_args.kwargs == {"chat_id": 5829880422, "message_id": 321}
+    bot.send_document.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_streaming_off_skips_preview_logic() -> None:
+    channel = _make_channel(
+        streaming="off",
+        streaming_throttle_seconds=0.0,
+        streaming_min_initial_chars=1,
+    )
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+        edit_message_text=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Hello",
+            metadata={"_progress": True, "_telegram_stream": True, "message_id": 99},
+        )
+    )
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Final answer",
+            metadata={"message_id": 99},
+        )
+    )
+
+    assert bot.send_message.await_count == 2
+    assert bot.send_message.await_args_list[0].kwargs["text"] == "Hello"
+    assert bot.send_message.await_args_list[1].kwargs["text"] == "Final answer"
+    bot.edit_message_text.assert_not_awaited()
+    bot.delete_message.assert_not_awaited()
