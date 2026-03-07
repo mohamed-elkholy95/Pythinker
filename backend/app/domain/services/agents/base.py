@@ -1587,31 +1587,41 @@ class BaseAgent:
                         wall_clock_advisory_sent = True
                         logger.info(
                             "Step wall-clock at 50%% (%.0fs/%.0fs); advisory injected.",
-                            elapsed, wall_limit,
+                            elapsed,
+                            wall_limit,
                         )
-                        await self._add_to_memory([{
-                            "role": "user",
-                            "content": (
-                                f"STEP TIME ADVISORY: You have used 50% of the step time budget "
-                                f"({elapsed:.0f}s of {wall_limit:.0f}s). "
-                                f"Begin wrapping up research and focus on writing output."
-                            ),
-                        }])
+                        await self._add_to_memory(
+                            [
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"STEP TIME ADVISORY: You have used 50% of the step time budget "
+                                        f"({elapsed:.0f}s of {wall_limit:.0f}s). "
+                                        f"Begin wrapping up research and focus on writing output."
+                                    ),
+                                }
+                            ]
+                        )
 
                     elif pressure == "URGENT" and not wall_clock_urgent_sent:
                         wall_clock_urgent_sent = True
                         logger.warning(
                             "Step wall-clock at 75%% (%.0fs/%.0fs); blocking read-only tools.",
-                            elapsed, wall_limit,
+                            elapsed,
+                            wall_limit,
                         )
-                        await self._add_to_memory([{
-                            "role": "user",
-                            "content": (
-                                f"STEP TIME URGENT: 75% of budget used ({elapsed:.0f}s of {wall_limit:.0f}s). "
-                                f"Read-only tools are now BLOCKED. You MUST finalize your output immediately. "
-                                f"Use file_write or file_str_replace to save findings NOW."
-                            ),
-                        }])
+                        await self._add_to_memory(
+                            [
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"STEP TIME URGENT: 75% of budget used ({elapsed:.0f}s of {wall_limit:.0f}s). "
+                                        f"Read-only tools are now BLOCKED. You MUST finalize your output immediately. "
+                                        f"Use file_write or file_str_replace to save findings NOW."
+                                    ),
+                                }
+                            ]
+                        )
                         graceful_completion_requested = True
                         wall_clock_pressure_active = "URGENT"
 
@@ -1619,16 +1629,21 @@ class BaseAgent:
                         wall_clock_critical_sent = True
                         logger.warning(
                             "Step wall-clock at 90%% (%.0fs/%.0fs); blocking ALL non-write tools.",
-                            elapsed, wall_limit,
+                            elapsed,
+                            wall_limit,
                         )
-                        await self._add_to_memory([{
-                            "role": "user",
-                            "content": (
-                                f"STEP TIME CRITICAL: 90% of budget used ({elapsed:.0f}s of {wall_limit:.0f}s). "
-                                f"ALL tools except file_write and code_save_artifact are BLOCKED. "
-                                f"Write your output NOW or it will be lost."
-                            ),
-                        }])
+                        await self._add_to_memory(
+                            [
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"STEP TIME CRITICAL: 90% of budget used ({elapsed:.0f}s of {wall_limit:.0f}s). "
+                                        f"ALL tools except file_write and code_save_artifact are BLOCKED. "
+                                        f"Write your output NOW or it will be lost."
+                                    ),
+                                }
+                            ]
+                        )
                         graceful_completion_requested = True
                         wall_clock_pressure_active = "CRITICAL"
 
@@ -1653,9 +1668,11 @@ class BaseAgent:
 
             if wall_clock_pressure_active:
                 tool_calls = [
-                    tc for tc in tool_calls
+                    tc
+                    for tc in tool_calls
                     if not _should_block_tool_at_pressure(
-                        tc.get("function", {}).get("name", ""), wall_clock_pressure_active,
+                        tc.get("function", {}).get("name", ""),
+                        wall_clock_pressure_active,
                     )
                 ]
 

@@ -26,6 +26,7 @@ from app.domain.services.agents.base import BaseAgent
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_memory_mock() -> MagicMock:
     """Return a minimal AgentMemory-compatible mock.
 
@@ -125,6 +126,7 @@ def _build_agent(tools: list | None = None, *, format_override: str = "json_obje
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_tool() -> MagicMock:
     return _make_tool_mock()
@@ -138,6 +140,7 @@ def agent(mock_tool: MagicMock) -> BaseAgent:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestFormatContractRecovery:
     """End-to-end: tool calls → non-JSON response → format re-enforcement → valid JSON."""
@@ -156,9 +159,7 @@ class TestFormatContractRecovery:
           - Its content is the valid JSON from the re-enforcement call.
           - ask_with_messages was called exactly twice.
         """
-        valid_json = json.dumps(
-            {"success": True, "result": "Search complete", "attachments": []}
-        )
+        valid_json = json.dumps({"success": True, "result": "Search complete", "attachments": []})
 
         # Round 1 (initial ask): LLM requests a tool call
         agent.ask = AsyncMock(
@@ -188,9 +189,7 @@ class TestFormatContractRecovery:
         events = [event async for event in agent.execute("Search for test data")]
         message_events = [e for e in events if isinstance(e, MessageEvent)]
 
-        assert len(message_events) == 1, (
-            f"Expected exactly 1 MessageEvent, got {len(message_events)}: {message_events}"
-        )
+        assert len(message_events) == 1, f"Expected exactly 1 MessageEvent, got {len(message_events)}: {message_events}"
 
         # The final message must be valid JSON from the re-enforcement call
         parsed = json.loads(message_events[0].message)
@@ -218,9 +217,7 @@ class TestFormatContractRecovery:
 
         The test asserts that ask_with_messages is called exactly once.
         """
-        valid_json = json.dumps(
-            {"success": True, "result": "Already valid", "attachments": []}
-        )
+        valid_json = json.dumps({"success": True, "result": "Already valid", "attachments": []})
 
         agent.ask = AsyncMock(
             return_value={
@@ -247,8 +244,7 @@ class TestFormatContractRecovery:
 
         # Exactly 1 ask_with_messages call: tool result only, no re-enforcement
         assert agent.ask_with_messages.await_count == 1, (
-            f"Expected 1 ask_with_messages call (no re-enforcement), "
-            f"got {agent.ask_with_messages.await_count}"
+            f"Expected 1 ask_with_messages call (no re-enforcement), got {agent.ask_with_messages.await_count}"
         )
 
     @pytest.mark.asyncio
@@ -322,9 +318,7 @@ class TestFormatContractRecovery:
         The re-enforcement block checks for empty content (not just invalid JSON),
         so a response with content='' or content=None must also cause a second call.
         """
-        valid_json = json.dumps(
-            {"success": True, "result": "Recovered from empty", "attachments": []}
-        )
+        valid_json = json.dumps({"success": True, "result": "Recovered from empty", "attachments": []})
 
         agent.ask = AsyncMock(
             return_value={
@@ -342,8 +336,8 @@ class TestFormatContractRecovery:
         # Second returns valid JSON
         agent.ask_with_messages = AsyncMock(
             side_effect=[
-                {"content": ""},          # empty → _needs_format_fix = True
-                {"content": valid_json},   # re-enforcement response
+                {"content": ""},  # empty → _needs_format_fix = True
+                {"content": valid_json},  # re-enforcement response
             ]
         )
 
@@ -367,9 +361,7 @@ class TestFormatContractRecovery:
           Round 3: LLM returns prose (non-JSON) — re-enforcement fires
           Round 4: Re-enforcement call returns valid JSON
         """
-        valid_json = json.dumps(
-            {"success": True, "result": "Multi-hop complete", "attachments": []}
-        )
+        valid_json = json.dumps({"success": True, "result": "Multi-hop complete", "attachments": []})
 
         tool_call_response = {
             "tool_calls": [
@@ -385,9 +377,9 @@ class TestFormatContractRecovery:
 
         agent.ask_with_messages = AsyncMock(
             side_effect=[
-                tool_call_response,        # Round 2: another tool call
+                tool_call_response,  # Round 2: another tool call
                 {"content": "After searching twice, here is what I found..."},  # prose
-                {"content": valid_json},   # re-enforcement response
+                {"content": valid_json},  # re-enforcement response
             ]
         )
 
