@@ -8,7 +8,7 @@ import re
 from datetime import UTC
 from pathlib import Path
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markdown_it import MarkdownIt
 from playwright.async_api import async_playwright
@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 _REFERENCES_HEADING_RE = re.compile(r"^(references?|sources?|bibliography|citations?)$", re.IGNORECASE)
 _BRACKET_REFERENCE_RE = re.compile(r"\[(\d{1,3})\]")
 _INLINE_CITATION_LABEL_RE = re.compile(r"^\d{1,3}$")
+_GITHUB_ALERT_RE = re.compile(r"^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$", re.IGNORECASE | re.DOTALL)
+_ALERT_TITLES = {
+    "note": "Note",
+    "tip": "Tip",
+    "important": "Important",
+    "warning": "Warning",
+    "caution": "Caution",
+}
 
 
 class PlaywrightPdfRenderer(PdfReportRenderer):
@@ -67,6 +75,7 @@ class PlaywrightPdfRenderer(PdfReportRenderer):
         body_html = self._markdown.render(normalized.markdown)
         body_html = _decorate_inline_citation_links(body_html)
         body_html = _decorate_reference_ids(body_html)
+        body_html = _decorate_alert_blockquotes(body_html)
 
         html = self._template.render(
             title=(payload.title or "Report").strip() or "Report",
@@ -173,6 +182,36 @@ def _decorate_inline_citation_links(html: str) -> str:
     return str(soup)
 
 
+def _decorate_alert_blockquotes(html: str) -> str:
+    """Convert GitHub alert blockquotes into styled PDF callouts."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    for blockquote in soup.find_all("blockquote"):
+        paragraphs = blockquote.find_all("p", recursive=False)
+        if not paragraphs:
+            continue
+
+        first_paragraph = paragraphs[0]
+        first_text = first_paragraph.get_text("\n", strip=False).lstrip()
+        match = _GITHUB_ALERT_RE.match(first_text)
+        if not match:
+            continue
+
+        alert_kind = match.group(1).lower()
+        blockquote["class"] = [*blockquote.get("class", []), "alert", f"alert-{alert_kind}"]
+
+        title_node = soup.new_tag("p")
+        title_node["class"] = ["alert-title"]
+        title_node.string = _ALERT_TITLES.get(alert_kind, alert_kind.title())
+        blockquote.insert(0, title_node)
+
+        _strip_alert_marker(first_paragraph)
+        if not first_paragraph.get_text(" ", strip=True) and not first_paragraph.find(True):
+            first_paragraph.decompose()
+
+    return str(soup)
+
+
 def _decorate_bracket_reference_ids(
     soup: BeautifulSoup,
     node,
@@ -216,6 +255,32 @@ def _decorate_bracket_reference_ids(
         for part in replacement_parts:
             text_node.insert_before(part)
         text_node.extract()
+
+
+def _strip_alert_marker(paragraph) -> None:
+    """Remove the leading GitHub alert marker from a paragraph in-place."""
+    for child in list(paragraph.contents):
+        if not isinstance(child, NavigableString):
+            if str(child).strip():
+                break
+            continue
+
+        raw_text = str(child)
+        stripped = raw_text.lstrip()
+        if not stripped:
+            continue
+
+        match = _GITHUB_ALERT_RE.match(stripped)
+        if not match:
+            break
+
+        leading = raw_text[: len(raw_text) - len(stripped)]
+        replacement = match.group(2)
+        if replacement:
+            child.replace_with(f"{leading}{replacement}")
+        else:
+            child.extract()
+        return
 
 
 def _renderer_label(renderer: PdfReportRenderer) -> str:
