@@ -10,7 +10,7 @@ export const UserSchema = z.object({
   is_active: z.boolean(),
   created_at: z.string(),
   updated_at: z.string(),
-  last_login_at: z.string().optional(),
+  last_login_at: z.string().nullish(),
 });
 
 export const LoginResponseSchema = z.object({
