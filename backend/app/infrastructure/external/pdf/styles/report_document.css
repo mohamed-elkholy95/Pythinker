@@ -122,6 +122,65 @@ body {
   break-inside: avoid;
 }
 
+.doc-body blockquote.alert {
+  border-left-width: 6px;
+  color: #111827;
+}
+
+.doc-body blockquote.alert p {
+  margin: 8px 0 0;
+}
+
+.doc-body blockquote.alert p:first-of-type {
+  margin-top: 0;
+}
+
+.doc-body blockquote.alert .alert-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.doc-body blockquote.alert.alert-note {
+  background: #eff6ff;
+  border-left-color: #2563eb;
+}
+
+.doc-body blockquote.alert.alert-note .alert-title {
+  color: #1d4ed8;
+}
+
+.doc-body blockquote.alert.alert-tip {
+  background: #ecfdf5;
+  border-left-color: #10b981;
+}
+
+.doc-body blockquote.alert.alert-tip .alert-title {
+  color: #047857;
+}
+
+.doc-body blockquote.alert.alert-important {
+  background: #fff7ed;
+  border-left-color: #f97316;
+}
+
+.doc-body blockquote.alert.alert-important .alert-title {
+  color: #c2410c;
+}
+
+.doc-body blockquote.alert.alert-warning,
+.doc-body blockquote.alert.alert-caution {
+  background: #fefce8;
+  border-left-color: #eab308;
+}
+
+.doc-body blockquote.alert.alert-warning .alert-title,
+.doc-body blockquote.alert.alert-caution .alert-title {
+  color: #a16207;
+}
+
 .doc-body code {
   background: #f3f4f6;
   padding: 2px 6px;

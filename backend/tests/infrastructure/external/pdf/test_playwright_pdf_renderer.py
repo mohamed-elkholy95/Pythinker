@@ -129,6 +129,36 @@ async def test_playwright_renderer_records_unresolved_citation_diagnostic(monkey
     assert telegram_pdf_citation_integrity_total.get({"status": "unresolved"}) == 1
 
 
+@pytest.mark.asyncio
+async def test_playwright_renderer_formats_github_alert_blockquotes(monkeypatch: pytest.MonkeyPatch) -> None:
+    renderer = PlaywrightPdfRenderer(timeout_ms=1_000)
+    captured_html: dict[str, str] = {}
+
+    async def _capture(html: str) -> bytes:
+        captured_html["value"] = html
+        return b"pdf-bytes"
+
+    monkeypatch.setattr(renderer, "_render_with_playwright", _capture)
+
+    payload = ReportPdfPayload(
+        title="Alerts",
+        markdown_content="# Report\n\n> [!IMPORTANT]\n> Keep this visible.\n\n> [!WARNING]\n> Double-check the data.",
+        sources=[],
+        generated_at=datetime.now(UTC),
+    )
+
+    pdf = await renderer.render(payload)
+
+    assert pdf == b"pdf-bytes"
+    html = captured_html["value"]
+    assert 'class="alert alert-important"' in html
+    assert 'class="alert alert-warning"' in html
+    assert "Important" in html
+    assert "Warning" in html
+    assert "[!IMPORTANT]" not in html
+    assert "[!WARNING]" not in html
+
+
 def test_decorate_reference_ids_assigns_anchors_to_reference_items() -> None:
     html = """
     <h2>References</h2>
