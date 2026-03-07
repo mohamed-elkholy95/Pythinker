@@ -179,7 +179,12 @@ class StepExecutor:
         step.success = False
         step.result = None
         step.attachments = []
-        step.error = "Step response did not match expected JSON schema"
+        preview = (raw_message or "")[:200].strip()
+        step.error = (
+            f"Step response did not match expected JSON schema. Raw preview: {preview}"
+            if preview
+            else "Step response did not match expected JSON schema"
+        )
         return False
 
     # ── Source Tracking ───────────────────────────────────────────────
