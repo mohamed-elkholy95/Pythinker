@@ -46,18 +46,21 @@ export const apiClient = axios.create({
   },
 });
 
-// Request interceptor, add authentication token
-apiClient.interceptors.request.use(
-  (config) => {
-    // Add authentication token if available
-    const token = getStoredToken();
-    if (token && !config.headers.Authorization) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+/**
+ * Parse JWT expiry. Returns seconds remaining, or 0 if expired/invalid.
+ */
+function tokenExpiresIn(token: string): number {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return 0;
+    const payload = parts[1]!.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(atob(payload)) as { exp?: number };
+    if (typeof decoded.exp !== 'number') return 0;
+    return Math.max(0, decoded.exp - Math.floor(Date.now() / 1000));
+  } catch {
+    return 0;
+  }
+}
 
 // Track if we're currently refreshing token to prevent multiple concurrent requests
 let isRefreshing = false;
@@ -158,6 +161,39 @@ const refreshAuthToken = async (): Promise<string | null> => {
     isRefreshing = false;
   }
 };
+
+// Request interceptor — preemptively refresh expired tokens before sending
+apiClient.interceptors.request.use(
+  async (config) => {
+    const reqConfig = config as InternalAxiosRequestConfig & { __isRefreshRequest?: boolean };
+    // Skip for refresh requests and auth endpoints to avoid loops
+    if (reqConfig.__isRefreshRequest || /\/auth\/(login|logout|register|status)/.test(reqConfig.url ?? '')) {
+      const token = getStoredToken();
+      if (token && !config.headers.Authorization) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    }
+
+    let token = getStoredToken();
+
+    // If the access token is expired (or expires within 5s), refresh proactively
+    if (token && tokenExpiresIn(token) < 5 && getStoredRefreshToken()) {
+      try {
+        const newToken = await refreshAuthToken();
+        if (newToken) token = newToken;
+      } catch {
+        // Refresh failed — let the request proceed and the 401 interceptor handle it
+      }
+    }
+
+    if (token && !config.headers.Authorization) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error),
+);
 
 // Response interceptor callbacks — extracted as named functions so plugins
 // can eject and re-register them without accessing undocumented Axios internals.
