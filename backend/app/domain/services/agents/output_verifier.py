@@ -150,6 +150,11 @@ class OutputVerifier:
 
     # ── Table Exemption ────────────────────────────────────────────────
 
+    _NUMERIC_TABLE_RE = re.compile(
+        r"[\$€£]\s*\d|[\d.]+\s*%|\d+\.\d+\s*points|score.per.dollar",
+        re.IGNORECASE,
+    )
+
     @staticmethod
     def _strip_cited_tables(text: str) -> str:
         """Remove markdown table blocks that contain citation markers [N].
@@ -192,21 +197,31 @@ class OutputVerifier:
         if current_lines:
             segments.append((current_type, current_lines))
 
-        # Rebuild text, skipping table blocks that contain citations
+        # Rebuild text, skipping table blocks that contain citations or
+        # dense numeric/currency data (LettuceDetect cannot verify computed values).
         result_lines: list[str] = []
         cited_row_count = 0
+        numeric_table_count = 0
         for seg_type, seg_lines in segments:
             if seg_type == "table":
                 has_citation = any(re.search(r"\[\d+\]", line) for line in seg_lines)
                 if has_citation:
                     cited_row_count += sum(1 for ln in seg_lines if re.search(r"\[\d+\]", ln))
                     continue  # Skip entire table block
+                # Also exempt tables dense with numeric/currency values —
+                # LettuceDetect fundamentally cannot verify arithmetic derivations.
+                data_rows = [ln for ln in seg_lines if not re.match(r"^\s*\|[-:| ]+\|\s*$", ln)]
+                numeric_rows = sum(1 for ln in data_rows if OutputVerifier._NUMERIC_TABLE_RE.search(ln))
+                if data_rows and numeric_rows / len(data_rows) > 0.5:
+                    numeric_table_count += len(data_rows)
+                    continue  # Skip numeric-heavy table block
             result_lines.extend(seg_lines)
 
-        if cited_row_count > 0:
+        if cited_row_count > 0 or numeric_table_count > 0:
             logger.info(
-                "Exempted %d cited table row(s) from hallucination check",
+                "Exempted %d cited table row(s) and %d numeric table row(s) from hallucination check",
                 cited_row_count,
+                numeric_table_count,
             )
 
         return "\n".join(result_lines)
