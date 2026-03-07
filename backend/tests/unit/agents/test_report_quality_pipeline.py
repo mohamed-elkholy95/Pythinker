@@ -153,9 +153,9 @@ class TestTelegramDeliveryIntegrityGate:
         )
 
         assert passed is False
-        assert "hallucination_verification_skipped" in issues
         assert "coverage_missing:artifact references" in issues
         assert "missing_references_section" in issues
+        assert "hallucination_verification_skipped" not in issues
 
     def test_delivery_integrity_gate_keeps_same_report_issues_as_warnings_for_web(self):
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
@@ -474,3 +474,107 @@ class TestDirectDeliveryShortCircuit:
             (kwargs.get("content", args[0] if args else "") == grounded_pretrim)
             for args, kwargs in agent._run_delivery_integrity_gate.call_args_list
         )
+
+    @pytest.mark.asyncio
+    async def test_summarize_telegram_auto_repairs_artifact_reference_gap_when_verification_is_skipped(self):
+        from app.domain.models.event import ErrorEvent, ReportEvent
+        from app.domain.services.agents.execution import ExecutionAgent
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        agent = _make_execution_agent_for_summarize()
+        agent._response_generator._resolve_feature_flags_fn = lambda: {"delivery_integrity_gate": True}
+        raw_report = (
+            "# Final Report\n\n"
+            "## Final Result\n"
+            "Trending repositories were analyzed and summarized.\n\n"
+            "## Findings\n"
+            "The report is otherwise ready for delivery.\n"
+        )
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        agent._delivery_channel = "telegram"
+        agent._resolve_feature_flags = MagicMock(return_value={"delivery_integrity_gate": True})
+        agent._needs_verification = MagicMock(return_value=True)
+        agent._verify_hallucination = AsyncMock(
+            return_value=SimpleNamespace(
+                content=raw_report,
+                blocking_issues=[],
+                warnings=["hallucination_verification_skipped"],
+            )
+        )
+        agent._output_coverage_validator = MagicMock(
+            validate=MagicMock(
+                side_effect=lambda output, **_: SimpleNamespace(
+                    is_valid="## Artifact References" in output,
+                    missing_requirements=[] if "## Artifact References" in output else ["artifact references"],
+                )
+            )
+        )
+        agent._run_delivery_integrity_gate = ExecutionAgent._run_delivery_integrity_gate.__get__(agent, ExecutionAgent)
+        agent._can_auto_repair_delivery_integrity = ExecutionAgent._can_auto_repair_delivery_integrity.__get__(
+            agent, ExecutionAgent
+        )
+        agent._append_delivery_integrity_fallback = ExecutionAgent._append_delivery_integrity_fallback.__get__(
+            agent, ExecutionAgent
+        )
+
+        async def summary_stream(*_args, **_kwargs):
+            agent.llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield raw_report
+
+        agent.llm.ask_stream = summary_stream
+        agent.llm.ask = AsyncMock(return_value={"content": '["Follow-up question?"]'})
+
+        events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
+
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+        report = next(event for event in events if isinstance(event, ReportEvent))
+        assert "## Artifact References" in report.content
+
+    @pytest.mark.asyncio
+    async def test_summarize_telegram_gate_failure_emits_generic_error(self):
+        from app.domain.models.event import ErrorEvent
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        agent = _make_execution_agent_for_summarize()
+        raw_report = (
+            "# Final Report\n\n"
+            "## Final Result\n"
+            "Trending repositories were analyzed and summarized.\n\n"
+            "## Findings\n"
+            "The report is otherwise ready for delivery.\n"
+        )
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        agent._delivery_channel = "telegram"
+        agent._run_delivery_integrity_gate = MagicMock(return_value=(False, ["coverage_missing:artifact references"]))
+        agent._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+
+        async def summary_stream(*_args, **_kwargs):
+            agent.llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield raw_report
+
+        agent.llm.ask_stream = summary_stream
+        agent.llm.ask = AsyncMock(return_value={"content": '["Follow-up question?"]'})
+
+        events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
+
+        error = next(event for event in events if isinstance(event, ErrorEvent))
+        assert error.error == "I couldn't send the final response for this request. Please send it again."
+        assert "coverage_missing:artifact references" not in error.error

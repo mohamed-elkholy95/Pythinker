@@ -1339,11 +1339,7 @@ class ExecutionAgent(BaseAgent):
                     else:
                         gate_issues = fallback_issues
 
-            if (
-                not gate_passed
-                and not telegram_final_delivery
-                and self._can_auto_repair_delivery_integrity(gate_issues, message_content)
-            ):
+            if not gate_passed and self._can_auto_repair_delivery_integrity(gate_issues, message_content):
                 repaired_content = self._append_delivery_integrity_fallback(message_content, gate_issues)
                 repaired_coverage = self._output_coverage_validator.validate(
                     output=repaired_content,
@@ -1403,7 +1399,12 @@ class ExecutionAgent(BaseAgent):
                             step_type=StepType.FINALIZATION,
                         ),
                     )
-                    yield ErrorEvent(error=f"Delivery integrity gate blocked output: {issue_text}")
+                    user_error = (
+                        "I couldn't send the final response for this request. Please send it again."
+                        if telegram_final_delivery
+                        else f"Delivery integrity gate blocked output: {issue_text}"
+                    )
+                    yield ErrorEvent(error=user_error)
                     return
 
             _metrics.record_counter("response_policy_mode_total", labels={"mode": active_policy.mode.value})
