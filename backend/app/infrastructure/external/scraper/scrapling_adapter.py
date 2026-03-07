@@ -297,22 +297,35 @@ class ScraplingAdapter:
 
     # ── Escalation ────────────────────────────────────────────────────────────
 
-    async def fetch_with_escalation(self, url: str, **kwargs: object) -> ScrapedContent:
-        """Three-tier escalation: HTTP → Dynamic → Stealthy."""
+    async def fetch_with_escalation(
+        self, url: str, *, start_tier: int = 1, **kwargs: object
+    ) -> ScrapedContent:
+        """Three-tier escalation: HTTP → Dynamic → Stealthy.
+
+        Args:
+            url: URL to fetch.
+            start_tier: Tier to start from (1=HTTP, 2=Dynamic, 3=Stealthy).
+                        Use start_tier=2 when a prior HTTP fetch already returned
+                        empty content (e.g. spider fallback for JS-rendered sites).
+        """
         min_len = self._settings.scraping_min_content_length
 
-        # Tier 1: HTTP
-        result = await self.fetch(url, **kwargs)
-        if self._is_terminal_client_status(result):
-            logger.debug(
-                "Scrapling Tier 1 returned terminal client status %s for %s; skipping escalation",
-                result.status_code,
-                url,
-            )
-            return result
-        if not should_escalate(result, min_len):
-            logger.debug(f"Scrapling Tier 1 resolved {url} ({len(result.text)} chars)")
-            return result
+        # Tier 1: HTTP (skipped if start_tier > 1)
+        if start_tier <= 1:
+            result = await self.fetch(url, **kwargs)
+            if self._is_terminal_client_status(result):
+                logger.debug(
+                    "Scrapling Tier 1 returned terminal client status %s for %s; skipping escalation",
+                    result.status_code,
+                    url,
+                )
+                return result
+            if not should_escalate(result, min_len):
+                logger.debug(f"Scrapling Tier 1 resolved {url} ({len(result.text)} chars)")
+                return result
+        else:
+            # Provide a baseline result for downstream tiers
+            result = ScrapedContent(success=False, url=url, text="", tier_used="skipped")
 
         # Tier 2: Dynamic
         if self._settings.scraping_escalation_enabled:
@@ -455,7 +468,7 @@ class ScraplingAdapter:
 
         if fallback_needed:
             logger.info(
-                "ResearchSpider missing content for %d/%d URLs; falling back to tiered fetch",
+                "ResearchSpider missing content for %d/%d URLs; falling back to tiered fetch (start_tier=2)",
                 len(fallback_needed),
                 len(urls),
             )
@@ -464,7 +477,8 @@ class ScraplingAdapter:
 
             async def _fallback_fetch(url: str) -> ScrapedContent:
                 async with semaphore:
-                    return await self.fetch_with_escalation(url)
+                    # Spider already tried HTTP and got empty content — skip to Dynamic tier
+                    return await self.fetch_with_escalation(url, start_tier=2)
 
             fallback_results = await asyncio.gather(*[_fallback_fetch(url) for url in fallback_needed])
             for fallback in fallback_results:
