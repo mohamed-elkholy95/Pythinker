@@ -2022,6 +2022,38 @@ class BaseAgent:
                 retry_hint="Try breaking your request into smaller, focused tasks.",
             )
 
+        # Re-enforce JSON format after tool-calling loop completes.
+        # The while-loop ran without format enforcement (initial_format=None) to
+        # avoid empty-response bugs with some LLM providers.  Now that the loop
+        # has exited we must verify the response is valid JSON and, if not, make
+        # one extra ask_with_messages() call with format="json_object".
+        if has_tools and format == "json_object":
+            _final_text = (message.get("content") or "").strip()
+            _needs_format_fix = False
+            if _final_text:
+                try:
+                    json.loads(_final_text)
+                except (ValueError, TypeError):
+                    _needs_format_fix = True
+            else:
+                _needs_format_fix = True
+
+            if _needs_format_fix:
+                logger.info("Re-enforcing JSON format on post-tool-loop response")
+                message = await self.ask_with_messages(
+                    [
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your previous response was not in the required JSON format. "
+                                "Restate your response as ONLY a valid JSON object matching the "
+                                "expected schema. No prose, no markdown fencing."
+                            ),
+                        }
+                    ],
+                    format="json_object",
+                )
+
         final_content = message.get("content")
         if not final_content:
             logger.warning("Agent produced empty final message — yielding fallback")
