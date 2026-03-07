@@ -41,6 +41,30 @@ class TestTableExemption:
     def test_empty_string(self):
         assert OutputVerifier._strip_cited_tables("") == ""
 
+    def test_strips_numeric_heavy_tables(self):
+        """Tables with dense currency/percentage data should be exempt (unverifiable by LettuceDetect)."""
+        text = (
+            "Cost comparison:\n\n"
+            "| Model | SWE-bench Score | Price per 1M Input | Score per Dollar |\n"
+            "|-------|-----------------|-------------------|------------------|\n"
+            "| GLM-5 | 77.8% | ~$0.60 | **129.7 points/$** |\n"
+            "| Kimi K2.5 | ~44% | $0.60 | ~73.3 points/$ |\n"
+            "| Claude | ~82% | $15.00 | ~5.5 points/$ |\n\n"
+            "Some conclusion."
+        )
+        stripped = OutputVerifier._strip_cited_tables(text)
+        assert "| GLM-5 |" not in stripped
+        assert "| Kimi K2.5 |" not in stripped
+        assert "Cost comparison:" in stripped
+        assert "Some conclusion." in stripped
+
+    def test_preserves_non_numeric_tables_without_citations(self):
+        """Tables with plain text (no numbers, no citations) should be preserved."""
+        text = "| Name | Status |\n|------|--------|\n| Alpha | active |\n| Beta | paused |\n"
+        stripped = OutputVerifier._strip_cited_tables(text)
+        assert "| Alpha | active |" in stripped
+        assert "| Beta | paused |" in stripped
+
     def test_multiple_cited_tables(self):
         text = (
             "Table 1:\n"
