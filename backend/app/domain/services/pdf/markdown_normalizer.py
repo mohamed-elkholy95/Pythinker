@@ -35,7 +35,8 @@ def normalize_markdown_for_pdf(content: str, sources: list[SourceCitation] | Non
     Rules:
     - Linkify inline citations as markdown links: `[N](#ref-N)`.
     - Keep citations out of fenced code blocks.
-    - Build references from structured sources when available.
+    - Prefer explicit in-document references as the source of truth when present.
+    - Build references from structured sources only when the markdown has no references section.
     - Add placeholders for unresolved citation numbers to avoid mismatches.
     """
     normalized_content = _normalize_layout(content)
@@ -137,14 +138,12 @@ def _build_references_block(
 ) -> tuple[str, list[int]]:
     parsed_existing = _parse_existing_references(existing_references)
 
-    if sources:
-        entries = {index: _format_source_reference(source) for index, source in enumerate(sources, start=1)}
-        # Preserve explicit in-document references for citation numbers not covered
-        # by structured sources to avoid artificial "Unresolved citation" rows.
-        for number, value in parsed_existing.items():
-            entries.setdefault(number, value)
-    else:
+    if parsed_existing:
         entries = parsed_existing
+    elif sources:
+        entries = {index: _format_source_reference(source) for index, source in enumerate(sources, start=1)}
+    else:
+        entries = {}
 
     max_citation = max(citation_numbers) if citation_numbers else 0
     max_entry = max(entries) if entries else 0
