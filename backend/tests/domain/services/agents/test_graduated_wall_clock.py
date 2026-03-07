@@ -1,6 +1,5 @@
 """Tests for graduated step wall-clock pressure thresholds."""
 
-
 from app.domain.services.agents.base import (
     _get_wall_clock_pressure_level,
     _should_block_tool_at_pressure,
