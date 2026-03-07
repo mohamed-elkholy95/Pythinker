@@ -14,14 +14,13 @@ and repository I/O are replaced with lightweight mocks.
 """
 
 import json
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from app.domain.models.event import MessageEvent
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.base import BaseAgent
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers
