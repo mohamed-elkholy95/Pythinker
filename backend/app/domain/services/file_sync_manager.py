@@ -331,6 +331,44 @@ class FileSyncManager:
         self._sandbox = sandbox
         self._file_storage = file_storage
         self._session_repository = session_repository
+        self._delivery_scope_id: str | None = None
+        self._workspace_root: str | None = None
+
+    def set_delivery_scope(self, scope_id: str | None, workspace_root: str | None) -> None:
+        """Scope future sweeps and synced metadata to the active delivery root."""
+        self._delivery_scope_id = scope_id
+        self._workspace_root = workspace_root.rstrip("/") if workspace_root else None
+
+    def _get_workspace_root(self) -> str:
+        """Return the active workspace root for sweeping and file tagging."""
+        return self._workspace_root or f"/workspace/{self._session_id}"
+
+    def _augment_sync_metadata(
+        self,
+        file_path: str,
+        metadata: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Merge delivery-scope and report metadata into synced files."""
+        merged = dict(metadata or {})
+
+        if self._delivery_scope_id and self._workspace_root:
+            merged.update(
+                {
+                    "delivery_scope": self._delivery_scope_id,
+                    "delivery_root": self._workspace_root,
+                }
+            )
+
+        if self._is_report_artifact(file_path):
+            merged["is_report"] = True
+
+        return merged or None
+
+    @staticmethod
+    def _is_report_artifact(file_path: str) -> bool:
+        """Identify report artifacts that should keep report-specific metadata."""
+        basename = os.path.basename(file_path)
+        return "/output/reports/" in file_path or basename.startswith("report-") or basename.startswith("full-report-")
 
     # ── MIME Inference ─────────────────────────────────────────────────
 
@@ -376,6 +414,8 @@ class FileSyncManager:
         if not file_path or not file_path.strip():
             logger.warning("Agent %s: Cannot sync file with empty path", self._agent_id)
             return None
+
+        metadata = self._augment_sync_metadata(file_path, metadata)
 
         try:
             file_data = await self._sandbox.file_download(file_path)
@@ -618,7 +658,7 @@ class FileSyncManager:
             List of newly synced FileInfo objects.
         """
         try:
-            workspace_root = f"/workspace/{self._session_id}"
+            workspace_root = self._get_workspace_root()
 
             prune_clauses = " -o ".join(f'-name "{d}"' for d in sorted(SKIP_DIRECTORIES))
             ext_clauses = " -o ".join(f'-name "*{ext}"' for ext in sorted(DELIVERABLE_EXTENSIONS))
