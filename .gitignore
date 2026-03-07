@@ -20,6 +20,9 @@ wheels/
 .installed.cfg
 *.egg
 
+# Sandbox session artifacts
+sandbox/research_report*.md
+
 # Virtual Environment
 venv/
 env/
