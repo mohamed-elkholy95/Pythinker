@@ -29,6 +29,7 @@ _RECENT_WRITE_MAX_ENTRIES = 256
 _SAME_FILE_WRITE_WINDOW_SECONDS = 180.0
 _SAME_FILE_WRITE_WARN_THRESHOLD = 3
 _REPORT_SANITIZE_SUFFIXES = {".md", ".markdown", ".txt", ".rst"}
+_REPORT_ARTIFACT_BASENAMES = {"report.md", "full-report.md"}
 _PLACEHOLDER_LINE_RE = re.compile(r"^\s*\[(?:\.\.\.|…)\]\s*$")
 _LEADING_META_LINE_RE = re.compile(
     r"^\s*(?:"
@@ -83,12 +84,33 @@ def _dedup_leading_lines(content: str) -> str:
     return content
 
 
-def _should_sanitize_report_artifacts(file_path: str) -> bool:
+def _should_sanitize_report_artifacts(file_path: str, metadata: dict[str, object] | None = None) -> bool:
     """Limit aggressive content sanitation to report-style text files."""
-    return Path(file_path).suffix.lower() in _REPORT_SANITIZE_SUFFIXES
+    if Path(file_path).suffix.lower() not in _REPORT_SANITIZE_SUFFIXES:
+        return False
+    return _is_report_artifact(file_path, metadata)
 
 
-def _sanitize_written_content(file_path: str, content: str) -> str:
+def _is_report_artifact(file_path: str, metadata: dict[str, object] | None = None) -> bool:
+    """Identify report artifacts eligible for report-specific cleanup."""
+    if bool((metadata or {}).get("is_report")):
+        return True
+
+    normalized_path = file_path.replace("\\", "/")
+    basename = Path(normalized_path).name.lower()
+    return (
+        "/output/reports/" in normalized_path
+        or basename.startswith("report-")
+        or basename.startswith("full-report-")
+        or basename in _REPORT_ARTIFACT_BASENAMES
+    )
+
+
+def _sanitize_written_content(
+    file_path: str,
+    content: str,
+    metadata: dict[str, object] | None = None,
+) -> str:
     """Remove common LLM write artifacts before persisting to disk."""
     if not content:
         return content
@@ -97,7 +119,7 @@ def _sanitize_written_content(file_path: str, content: str) -> str:
     lines = [line for line in cleaned.split("\n") if not _PLACEHOLDER_LINE_RE.match(line)]
     cleaned = "\n".join(lines)
 
-    if _should_sanitize_report_artifacts(file_path):
+    if _should_sanitize_report_artifacts(file_path, metadata):
         report_lines = cleaned.split("\n")
         while report_lines and _LEADING_META_LINE_RE.match(report_lines[0]):
             report_lines.pop(0)
@@ -293,6 +315,7 @@ class FileTool(BaseTool):
             "append": {"type": "boolean", "description": "(Optional) Whether to use append mode"},
             "leading_newline": {"type": "boolean", "description": "(Optional) Whether to add a leading newline"},
             "trailing_newline": {"type": "boolean", "description": "(Optional) Whether to add a trailing newline"},
+            "metadata": {"type": "object", "description": "(Optional) File metadata such as is_report"},
             "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
         },
         required=["file", "content"],
@@ -304,6 +327,7 @@ class FileTool(BaseTool):
         append: bool | None = False,
         leading_newline: bool | None = False,
         trailing_newline: bool | None = False,
+        metadata: dict[str, object] | None = None,
         sudo: bool | None = False,
     ) -> ToolResult:
         """Write content to file
@@ -314,6 +338,7 @@ class FileTool(BaseTool):
             append: (Optional) Whether to use append mode
             leading_newline: (Optional) Whether to add a leading newline
             trailing_newline: (Optional) Whether to add a trailing newline
+            metadata: (Optional) File metadata used for report-specific cleanup
             sudo: (Optional) Whether to use sudo privileges
 
         Returns:
@@ -326,7 +351,7 @@ class FileTool(BaseTool):
         # (common LLM artifact: repeating the title/header line)
         if not append:
             final_content = _dedup_leading_lines(final_content)
-            final_content = _sanitize_written_content(file, final_content)
+            final_content = _sanitize_written_content(file, final_content, metadata)
 
         if leading_newline:
             final_content = "\n" + final_content
