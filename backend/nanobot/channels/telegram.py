@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
@@ -17,6 +18,16 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
+
+
+@dataclass(slots=True)
+class _TelegramPreviewState:
+    """Tracks the lifecycle of a streamed Telegram preview message."""
+
+    content: str = ""
+    message_id: int | None = None
+    last_sent_at: float = 0.0
+    last_text: str = ""
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -140,6 +151,7 @@ class TelegramChannel(BaseChannel):
         self._media_group_tasks: dict[str, asyncio.Task] = {}
         self._pdf_file_id_cache: dict[str, tuple[str, float]] = {}
         self._pdf_file_id_cache_ttl_seconds = 24 * 60 * 60
+        self._preview_states: dict[str, _TelegramPreviewState] = {}
 
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
@@ -221,6 +233,7 @@ class TelegramChannel(BaseChannel):
             task.cancel()
         self._media_group_tasks.clear()
         self._media_group_buffers.clear()
+        self._preview_states.clear()
 
         if self._app:
             logger.info("Stopping Telegram bot...")
@@ -255,16 +268,16 @@ class TelegramChannel(BaseChannel):
             logger.error("Invalid chat_id: {}", msg.chat_id)
             return
 
+        metadata = msg.metadata or {}
         reply_params = None
         if self.config.reply_to_message:
-            reply_to_message_id = msg.metadata.get("message_id")
+            reply_to_message_id = metadata.get("message_id")
             if reply_to_message_id:
                 reply_params = ReplyParameters(
                     message_id=reply_to_message_id,
                     allow_sending_without_reply=True
                 )
 
-        metadata = msg.metadata or {}
         parse_mode = str(metadata.get("parse_mode", "HTML"))
         delivery_mode = str(metadata.get("delivery_mode", "text"))
         reply_markup = self._coerce_reply_markup(metadata.get("reply_markup"))
@@ -273,6 +286,27 @@ class TelegramChannel(BaseChannel):
         caption_value = str(metadata.get("caption", msg.content or ""))
         caption_sent = False
         media_success = True
+
+        if self._is_stream_preview_message(msg):
+            await self._send_or_edit_preview(
+                msg,
+                chat_id=chat_id,
+                parse_mode=parse_mode,
+                reply_params=reply_params,
+            )
+            return
+
+        if self._has_preview_state(msg):
+            preview_finalized = await self._finalize_preview_with_text(
+                msg,
+                chat_id=chat_id,
+                parse_mode=parse_mode,
+                delivery_mode=delivery_mode,
+                reply_markup=reply_markup,
+            )
+            if preview_finalized:
+                return
+            await self._clear_preview(msg, chat_id=chat_id)
 
         # Send media files first. For document mode, caption is sent on the first document.
         for media_path in (msg.media or []):
@@ -383,6 +417,163 @@ class TelegramChannel(BaseChannel):
                 logger.warning("Telegram transient send error (attempt {}): {}", attempt + 1, exc)
                 await asyncio.sleep(backoff)
         raise RuntimeError("Telegram send retries exhausted")
+
+    def _is_stream_preview_message(self, msg: OutboundMessage) -> bool:
+        """Return whether an outbound is a streamed Telegram preview delta."""
+        metadata = msg.metadata or {}
+        return (
+            str(getattr(self.config, "streaming", "partial")).lower() != "off"
+            and bool(metadata.get("_progress"))
+            and bool(metadata.get("_telegram_stream"))
+        )
+
+    def _has_preview_state(self, msg: OutboundMessage) -> bool:
+        """Return whether a preview lifecycle exists for this outbound."""
+        return self._preview_key(msg) in self._preview_states
+
+    def _preview_key(self, msg: OutboundMessage) -> str:
+        """Key preview state by chat and source Telegram message id."""
+        metadata = msg.metadata or {}
+        source_message_id = metadata.get("message_id")
+        return f"{msg.chat_id}:{source_message_id or 'root'}"
+
+    async def _send_or_edit_preview(
+        self,
+        msg: OutboundMessage,
+        *,
+        chat_id: int,
+        parse_mode: str,
+        reply_params: ReplyParameters | None,
+    ) -> None:
+        """Accumulate stream deltas into a single preview message."""
+        if not self._app:
+            return
+
+        state = self._preview_states.setdefault(self._preview_key(msg), _TelegramPreviewState())
+        if msg.content:
+            state.content += msg.content
+
+        is_final = bool((msg.metadata or {}).get("_telegram_stream_final"))
+        if not state.content and is_final:
+            if state.message_id is None:
+                self._preview_states.pop(self._preview_key(msg), None)
+            return
+
+        rendered_text = self._render_preview_text(state.content, parse_mode=parse_mode)
+        if not rendered_text or len(rendered_text) > 4000:
+            return
+
+        min_initial_chars = max(0, int(getattr(self.config, "streaming_min_initial_chars", 30)))
+        if state.message_id is None and len(state.content) < min_initial_chars:
+            return
+
+        now = time.monotonic()
+        throttle_seconds = max(0.0, float(getattr(self.config, "streaming_throttle_seconds", 1.0)))
+        if (
+            state.message_id is not None
+            and not is_final
+            and throttle_seconds > 0.0
+            and now - state.last_sent_at < throttle_seconds
+        ):
+            return
+
+        if rendered_text == state.last_text:
+            return
+
+        if state.message_id is None:
+            send_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "text": rendered_text,
+                "reply_parameters": reply_params,
+            }
+            if parse_mode == "HTML":
+                send_kwargs["parse_mode"] = "HTML"
+            sent_message = await self._send_with_retry(
+                self._app.bot.send_message,
+                **send_kwargs,
+            )
+            sent_message_id = getattr(sent_message, "message_id", None)
+            if isinstance(sent_message_id, int):
+                state.message_id = sent_message_id
+        else:
+            edit_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "message_id": state.message_id,
+                "text": rendered_text,
+            }
+            if parse_mode == "HTML":
+                edit_kwargs["parse_mode"] = "HTML"
+            await self._send_with_retry(
+                self._app.bot.edit_message_text,
+                **edit_kwargs,
+            )
+
+        state.last_text = rendered_text
+        state.last_sent_at = now
+
+    async def _finalize_preview_with_text(
+        self,
+        msg: OutboundMessage,
+        *,
+        chat_id: int,
+        parse_mode: str,
+        delivery_mode: str,
+        reply_markup: InlineKeyboardMarkup | None,
+    ) -> bool:
+        """Edit the preview in place when the final reply is text-only and eligible."""
+        if not self._app:
+            return False
+
+        state = self._preview_states.get(self._preview_key(msg))
+        if state is None or state.message_id is None:
+            return False
+        if msg.media or delivery_mode == "pdf_only":
+            return False
+
+        rendered_text = self._render_preview_text(msg.content, parse_mode=parse_mode)
+        if not rendered_text or len(rendered_text) > 4000:
+            return False
+
+        if rendered_text != state.last_text:
+            edit_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "message_id": state.message_id,
+                "text": rendered_text,
+                "reply_markup": reply_markup,
+            }
+            if parse_mode == "HTML":
+                edit_kwargs["parse_mode"] = "HTML"
+            await self._send_with_retry(
+                self._app.bot.edit_message_text,
+                **edit_kwargs,
+            )
+
+        self._preview_states.pop(self._preview_key(msg), None)
+        return True
+
+    async def _clear_preview(self, msg: OutboundMessage, *, chat_id: int) -> None:
+        """Remove any preview state and delete the visible preview message if present."""
+        state = self._preview_states.pop(self._preview_key(msg), None)
+        if state is None or state.message_id is None:
+            return
+        await self._delete_preview_message(chat_id=chat_id, message_id=state.message_id)
+
+    async def _delete_preview_message(self, *, chat_id: int, message_id: int) -> None:
+        """Delete a visible preview message."""
+        if not self._app:
+            return
+        await self._send_with_retry(
+            self._app.bot.delete_message,
+            chat_id=chat_id,
+            message_id=message_id,
+        )
+
+    @staticmethod
+    def _render_preview_text(text: str, *, parse_mode: str) -> str:
+        """Render preview text using the same parse-mode rules as normal sends."""
+        if parse_mode == "HTML":
+            return _markdown_to_telegram_html(text)
+        return text
 
     def _cleanup_temp_files(self, paths: list[str]) -> None:
         """Delete temporary generated files after send attempts."""
