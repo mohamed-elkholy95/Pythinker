@@ -847,7 +847,8 @@ class AgentDomainService:
             if terminal_status is not None:
                 await self._teardown_session_runtime(session_id, status=terminal_status, destroy_sandbox=False)
 
-            logger.info(f"Session {session_id} completed")
+            status_label = terminal_status.value if terminal_status else "finished"
+            logger.info("Session %s %s", session_id, status_label)
 
         except Exception as e:
             logger.exception(f"Error in Session {session_id}")
