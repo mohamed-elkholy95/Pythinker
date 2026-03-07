@@ -193,6 +193,7 @@ async def run_gateway() -> None:
         telegram_require_linked_account=settings.telegram_require_linked_account,
         telegram_final_delivery_only=settings.telegram_final_delivery_only,
         telegram_final_delivery_allow_wait_prompts=settings.telegram_final_delivery_allow_wait_prompts,
+        telegram_streaming=settings.telegram_streaming,
     )
 
     # NanobotGateway — may not exist yet during incremental development.
