@@ -108,6 +108,38 @@ async def test_file_write_strips_decorative_emoji_prefixes_for_markdown_reports(
 
 
 @pytest.mark.asyncio
+async def test_file_write_preserves_generic_markdown_outside_report_paths() -> None:
+    sandbox = AsyncMock()
+    sandbox.file_write = AsyncMock(return_value=ToolResult(success=True, message="ok"))
+
+    tool = FileTool(sandbox=sandbox, session_id="session-1")
+    raw = "# 🔬 Notes\n\n> ⚠️ Quoted source text should stay as written.\n"
+
+    await tool.file_write(file="/workspace/notes.md", content=raw)
+
+    written = sandbox.file_write.await_args.kwargs["content"]
+    assert written == raw.rstrip("\n")
+
+
+@pytest.mark.asyncio
+async def test_file_write_sanitizes_metadata_tagged_report_even_outside_report_path() -> None:
+    sandbox = AsyncMock()
+    sandbox.file_write = AsyncMock(return_value=ToolResult(success=True, message="ok"))
+
+    tool = FileTool(sandbox=sandbox, session_id="session-1")
+    raw = "# 🔬 Title\n\n## 📊 Findings\n"
+
+    await tool.file_write(
+        file="/workspace/notes.md",
+        content=raw,
+        metadata={"is_report": True},
+    )
+
+    written = sandbox.file_write.await_args.kwargs["content"]
+    assert written == "# Title\n\n## Findings"
+
+
+@pytest.mark.asyncio
 async def test_file_write_warns_on_content_regression_for_overwrite() -> None:
     sandbox = AsyncMock()
     sandbox.file_write = AsyncMock(return_value=ToolResult(success=True, message="ok"))
