@@ -1497,6 +1497,25 @@ class PlanActFlow(BaseFlow):
             rm_cmd = f"rm -rf {runs_root}/{stale_dir}"
             await self._sandbox.exec_command(self._session_id, "/workspace", rm_cmd)
 
+    async def _load_scoped_session_files_for_summary(self) -> list[FileInfo]:
+        """Fetch session files for summarization and clear stale delivery-channel state on failure."""
+        self.executor.set_delivery_channel(None)
+        try:
+            session = await self._session_repository.find_by_id(self._session_id)
+        except Exception as e:
+            logger.warning(f"Failed to fetch session files: {e}")
+            return []
+
+        self.executor.set_delivery_channel(getattr(session, "source", None) if session else None)
+        if not session or not session.files:
+            return []
+
+        return self._filter_files_for_delivery_scope(
+            session.files,
+            self._delivery_scope_id,
+            self._delivery_scope_root,
+        )
+
     def _rebalance_token_budget(self, old_status: AgentStatus, new_status: AgentStatus) -> None:
         """Rebalance unused tokens from completed phase to next phase.
 
@@ -3434,19 +3453,9 @@ class PlanActFlow(BaseFlow):
                         )
 
                     # Fetch session files to include in the final report
-                    session_files: list[FileInfo] = []
-                    try:
-                        session = await self._session_repository.find_by_id(self._session_id)
-                        self.executor.set_delivery_channel(getattr(session, "source", None) if session else None)
-                        if session and session.files:
-                            session_files = self._filter_files_for_delivery_scope(
-                                session.files,
-                                self._delivery_scope_id,
-                                self._delivery_scope_root,
-                            )
-                            logger.debug(f"Found {len(session_files)} session files to include in report")
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch session files: {e}")
+                    session_files = await self._load_scoped_session_files_for_summary()
+                    if session_files:
+                        logger.debug(f"Found {len(session_files)} session files to include in report")
 
                     # For ALL modes: inject session files into summarization context
                     # so the LLM can reference them in the final report.
