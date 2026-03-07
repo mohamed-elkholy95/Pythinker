@@ -624,6 +624,131 @@ async def test_chat_forwards_last_event_id_header_when_request_event_id_missing(
 
 
 @pytest.mark.asyncio
+async def test_chat_remote_pending_session_streams_persisted_events_without_calling_agent_chat():
+    """Gateway-owned non-terminal sessions should be observed, not resumed locally."""
+    session_id = "sess-remote-pending"
+    initial_progress = ProgressEvent(
+        id="evt-1",
+        phase=PlanningPhase.RECEIVED,
+        message="Queued from Telegram",
+        progress_percent=5,
+    )
+    report_event = ReportEvent(
+        id="evt-2",
+        title="Final Report",
+        content="# Final Report\n\nDelivered from gateway.",
+    )
+    pending_session = SimpleNamespace(
+        id=session_id,
+        status="pending",
+        title="Telegram task",
+        source="telegram",
+        events=[initial_progress],
+    )
+    completed_session = SimpleNamespace(
+        id=session_id,
+        status="completed",
+        title="Telegram task",
+        source="telegram",
+        events=[initial_progress, report_event],
+    )
+    chat_called = False
+
+    async def _unexpected_chat(**_kwargs):
+        nonlocal chat_called
+        chat_called = True
+        raise AssertionError("agent_service.chat should not run for gateway-owned pending sessions")
+        yield  # pragma: no cover
+
+    agent_service = SimpleNamespace(
+        get_session_full=AsyncMock(side_effect=[pending_session, completed_session]),
+        chat=_unexpected_chat,
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest()
+
+    response = await chat(
+        session_id=session_id,
+        request=request,
+        http_request=_make_http_request(),
+        current_user=current_user,
+        agent_service=agent_service,
+    )
+
+    events = [event for event in await _collect_sse_events(response) if event["event"]]
+
+    assert [event["event"] for event in events] == ["report", "done"]
+    assert events[0]["data"]["event_id"] == "evt-2"
+    assert chat_called is False
+
+
+@pytest.mark.asyncio
+async def test_chat_remote_running_session_replays_events_after_resume_cursor():
+    """Remote session replay should emit only events after the supplied cursor."""
+    session_id = "sess-remote-running"
+    first_progress = ProgressEvent(
+        id="evt-1",
+        phase=PlanningPhase.RECEIVED,
+        message="Gateway accepted request",
+        progress_percent=5,
+    )
+    second_progress = ProgressEvent(
+        id="evt-2",
+        phase=PlanningPhase.ANALYZING,
+        message="Collecting evidence",
+        progress_percent=45,
+    )
+    report_event = ReportEvent(
+        id="evt-3",
+        title="Final Report",
+        content="# Final Report\n\nAll findings included.",
+    )
+    running_session = SimpleNamespace(
+        id=session_id,
+        status="running",
+        title="Telegram task",
+        source="telegram",
+        events=[first_progress, second_progress],
+    )
+    completed_session = SimpleNamespace(
+        id=session_id,
+        status="completed",
+        title="Telegram task",
+        source="telegram",
+        events=[first_progress, second_progress, report_event],
+    )
+    chat_called = False
+
+    async def _unexpected_chat(**_kwargs):
+        nonlocal chat_called
+        chat_called = True
+        raise AssertionError("agent_service.chat should not run for gateway-owned running sessions")
+        yield  # pragma: no cover
+
+    agent_service = SimpleNamespace(
+        get_session_full=AsyncMock(side_effect=[running_session, completed_session]),
+        chat=_unexpected_chat,
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest(event_id="evt-1")
+
+    response = await chat(
+        session_id=session_id,
+        request=request,
+        http_request=_make_http_request(),
+        current_user=current_user,
+        agent_service=agent_service,
+    )
+
+    events = [event for event in await _collect_sse_events(response) if event["event"]]
+
+    assert [event["event"] for event in events] == ["progress", "report", "done"]
+    assert events[0]["data"]["event_id"] == "evt-2"
+    assert events[1]["data"]["event_id"] == "evt-3"
+    assert chat_called is False
+
+
+@pytest.mark.asyncio
 async def test_chat_reconnect_records_latency_and_phase_metrics():
     """Reconnect streams should record first real-event latency and phase-tagged event counts."""
     session_id = "sess-metrics"
