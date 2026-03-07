@@ -36,6 +36,9 @@ class TelegramConfig(Base):
     pdf_file_id_cache_redis_enabled: bool = False  # Toggle Redis file_id cache for repeated PDFs
     final_delivery_only: bool = True  # Send only final answer artifact (no inline step chatter)
     final_delivery_allow_wait_prompts: bool = True  # Allow user-input wait prompts even in final-only mode
+    streaming: Literal["off", "partial", "block", "progress"] = "partial"
+    streaming_throttle_seconds: float = 1.0
+    streaming_min_initial_chars: int = 30
     polling_bootstrap_retries: int = 5  # PTB polling bootstrap retries
     polling_stall_restart_enabled: bool = True  # Enable channel restart on stall detection
     polling_stall_timeout_seconds: int = 60  # Stall timeout before requesting restart

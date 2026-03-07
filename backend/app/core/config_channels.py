@@ -48,6 +48,9 @@ class ChannelSettingsMixin:
     telegram_max_messages_per_batch: int = 5
     telegram_final_delivery_only: bool = True
     telegram_final_delivery_allow_wait_prompts: bool = True
+    telegram_streaming: str = "partial"
+    telegram_streaming_throttle_seconds: float = 1.0
+    telegram_streaming_min_initial_chars: int = 30
     telegram_polling_bootstrap_retries: int = 5
     telegram_polling_stall_restart_enabled: bool = True
     telegram_polling_stall_timeout_seconds: int = 60
