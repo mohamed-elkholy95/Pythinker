@@ -217,6 +217,37 @@ class TestSweepWorkspaceFiles:
         assert "find /workspace/test-session" in command
 
     @pytest.mark.asyncio
+    async def test_sweep_ignores_files_outside_active_delivery_scope(
+        self, runner, mock_sandbox, mock_session_repository, mock_file_storage
+    ):
+        """A scoped sweep should ignore stale files from previous runs in a reused session."""
+        runner._file_sync_manager.set_delivery_scope("run-2", "/workspace/test-session/runs/run-2")
+        mock_sandbox.exec_command = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                data={
+                    "output": (
+                        "/workspace/test-session/runs/run-1/report-old.md\n"
+                        "/workspace/test-session/runs/run-2/report-current.md\n"
+                    )
+                },
+            )
+        )
+        mock_file_storage.upload_file = AsyncMock(
+            side_effect=lambda _file_data, file_name, _user_id, **_kwargs: FileInfo(
+                file_id=f"id-{file_name}",
+                filename=file_name,
+            )
+        )
+        session = MagicMock()
+        session.files = []
+        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+
+        result = await runner._sweep_workspace_files()
+
+        assert [file_info.filename for file_info in result] == ["report-current.md"]
+
+    @pytest.mark.asyncio
     async def test_dedup_keeps_single_similar_artifact_basename(
         self, runner, mock_sandbox, mock_session_repository, mock_file_storage, monkeypatch
     ):
