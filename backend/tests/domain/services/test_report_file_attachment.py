@@ -103,6 +103,26 @@ class TestReportFileAttachment:
         assert event.attachments[0].file_path == "/workspace/test-session/report-report-1.md"
 
     @pytest.mark.asyncio
+    async def test_report_event_is_written_under_active_delivery_scope(self, runner, mock_sandbox):
+        event = ReportEvent(
+            id="report-scoped-1",
+            title="Scoped Report",
+            content="# Hello\n\nScoped body.",
+            attachments=None,
+        )
+        runner._delivery_scope_id = "run-2"
+        runner._delivery_scope_root = "/workspace/test-session/runs/run-2"
+
+        await runner._ensure_report_file(event)
+
+        mock_sandbox.file_write.assert_called_once()
+        assert event.attachments is not None
+        assert len(event.attachments) == 1
+        assert event.attachments[0].file_path == "/workspace/test-session/runs/run-2/report-report-scoped-1.md"
+        assert event.attachments[0].metadata is not None
+        assert event.attachments[0].metadata.get("delivery_scope") == "run-2"
+
+    @pytest.mark.asyncio
     async def test_comparison_report_generates_chart_attachment(self, runner, mock_sandbox):
         event = ReportEvent(
             id="report-chart-1",

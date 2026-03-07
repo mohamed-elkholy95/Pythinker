@@ -1125,6 +1125,12 @@ delivery_integrity_stream_truncation_total = Counter(
     labels=["provider", "finish_reason", "outcome"],
 )
 
+delivery_scope_files_filtered_total = Counter(
+    name="pythinker_delivery_scope_files_filtered_total",
+    help_text="Files excluded from delivery by scope filtering",
+    labels=["reason"],
+)
+
 # Phase 4: Grounding Safety Metrics (Aggregated - removed session_id to prevent high cardinality)
 grounded_claims_total = Counter(
     name="pythinker_grounded_claims_total",
@@ -1335,6 +1341,7 @@ _metrics_registry.extend(
         delivery_integrity_gate_warning_total,
         delivery_integrity_gate_block_reason_total,
         delivery_integrity_stream_truncation_total,
+        delivery_scope_files_filtered_total,
         # Phase 4: Grounding Safety Metrics
         grounded_claims_total,
         hallucination_detected_total,

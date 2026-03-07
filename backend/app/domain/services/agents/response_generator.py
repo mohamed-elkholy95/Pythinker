@@ -419,6 +419,7 @@ class ResponseGenerator:
         truncation_exhausted: bool,
         additional_issues: list[str] | None = None,
         additional_warnings: list[str] | None = None,
+        delivery_channel: str | None = None,
     ) -> tuple[bool, list[str]]:
         """Fail-closed delivery gate for truncation/completeness risks."""
         flags = self._resolve_feature_flags_fn() if self._resolve_feature_flags_fn else {}
@@ -464,8 +465,32 @@ class ResponseGenerator:
         if additional_issues:
             issues.extend(additional_issues)
 
+        is_telegram_final_delivery = (delivery_channel or "").strip().lower() == "telegram"
+        if is_telegram_final_delivery and self.is_report_structure(content):
+            promoted_warnings: list[str] = []
+            remaining_warnings: list[str] = []
+            for warning in warnings:
+                if warning == "hallucination_verification_skipped":
+                    promoted_warnings.append(warning)
+                    continue
+                if warning.startswith("coverage_missing:") and "artifact references" in warning.lower():
+                    promoted_warnings.append(warning)
+                    continue
+                remaining_warnings.append(warning)
+            warnings = remaining_warnings
+            issues.extend(promoted_warnings)
+
+            has_inline_citations = bool(re.search(r"\[\d+\]", content))
+            has_collected_sources = bool(self._source_tracker.get_collected_sources())
+            if has_inline_citations or has_collected_sources:
+                _, report_issues = self.is_research_report_quality(content)
+                if "missing_references_section" in report_issues and "missing_references_section" not in issues:
+                    issues.append("missing_references_section")
+
         # Graduated severity (design 4C)
-        critical_count = sum(1 for i in issues if i.get("severity") == "critical") if issues and isinstance(issues[0], dict) else 0
+        critical_count = (
+            sum(1 for i in issues if i.get("severity") == "critical") if issues and isinstance(issues[0], dict) else 0
+        )
         if critical_count > 0 or len(issues) >= 3:
             gate_severity = "red"
         elif len(issues) > 0:
@@ -475,7 +500,9 @@ class ResponseGenerator:
 
         logger.info(
             "Delivery gate: %s (%d issues, %d critical)",
-            gate_severity, len(issues), critical_count,
+            gate_severity,
+            len(issues),
+            critical_count,
         )
 
         if warnings:
