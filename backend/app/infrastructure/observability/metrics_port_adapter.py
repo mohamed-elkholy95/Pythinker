@@ -32,6 +32,7 @@ class PrometheusMetricsAdapter(MetricsPort):
             "delivery_integrity_gate_warning_total": pm.delivery_integrity_gate_warning_total,
             "delivery_integrity_gate_block_reason_total": pm.delivery_integrity_gate_block_reason_total,
             "delivery_integrity_stream_truncation_total": pm.delivery_integrity_stream_truncation_total,
+            "delivery_scope_files_filtered_total": pm.delivery_scope_files_filtered_total,
         }
 
         # DeepCode metrics use increment() which delegates to record_counter.

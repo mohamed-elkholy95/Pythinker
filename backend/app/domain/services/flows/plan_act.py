@@ -198,6 +198,7 @@ class PlanActFlow(BaseFlow):
         memory_service: Optional["MemoryService"] = None,
         user_id: str | None = None,
         file_sweep_callback: Callable[[], Coroutine[Any, Any, None]] | None = None,
+        scope_callback: Callable[[str | None, str | None], None] | None = None,
         feature_flags: dict[str, bool] | None = None,
         browser_agent_enabled: bool = False,
         alert_port=None,
@@ -233,6 +234,9 @@ class PlanActFlow(BaseFlow):
         self._last_transition_time: float = time.time()
         self.plan = None
         self._file_sweep_callback = file_sweep_callback
+        self._scope_callback = scope_callback
+        self._delivery_scope_id: str | None = None
+        self._delivery_scope_root: str | None = None
 
         # Store references for multi-agent factory initialization
         self._llm = llm
@@ -1410,6 +1414,108 @@ class PlanActFlow(BaseFlow):
             + "\n\nReference these files by name in your summary where relevant."
         )
 
+    @staticmethod
+    def _filter_files_for_delivery_scope(
+        files: list[FileInfo],
+        delivery_scope_id: str | None,
+        delivery_scope_root: str | None,
+    ) -> list[FileInfo]:
+        """Restrict delivery files to the active run scope when isolation is enabled."""
+        if not delivery_scope_id and not delivery_scope_root:
+            return files
+
+        filtered: list[FileInfo] = []
+        excluded_by_reason: dict[str, int] = {"metadata_mismatch": 0, "path_mismatch": 0}
+
+        for file_info in files:
+            metadata = file_info.metadata or {}
+            if delivery_scope_id and metadata.get("delivery_scope") == delivery_scope_id:
+                filtered.append(file_info)
+                continue
+
+            if (
+                delivery_scope_root
+                and file_info.file_path
+                and file_info.file_path.startswith(f"{delivery_scope_root}/")
+            ):
+                filtered.append(file_info)
+                continue
+
+            if delivery_scope_id and metadata.get("delivery_scope") not in (None, delivery_scope_id):
+                excluded_by_reason["metadata_mismatch"] += 1
+            else:
+                excluded_by_reason["path_mismatch"] += 1
+
+        excluded_count = len(files) - len(filtered)
+        if excluded_count > 0:
+            logger.info("Delivery scope filtered %d of %d files", excluded_count, len(files))
+            metrics = get_metrics()
+            for reason, count in excluded_by_reason.items():
+                if count > 0:
+                    metrics.record_counter(
+                        "delivery_scope_files_filtered_total",
+                        value=count,
+                        labels={"reason": reason},
+                    )
+
+        return filtered
+
+    def _initialize_delivery_scope(self) -> None:
+        """Create a per-run delivery scope for reused sessions when enabled."""
+        self._delivery_scope_id = None
+        self._delivery_scope_root = None
+        self._report_attachments = []
+
+        if not self._resolve_feature_flags().get("delivery_scope_isolation"):
+            if self._scope_callback:
+                self._scope_callback(None, None)
+            return
+
+        scope_id = uuid4().hex
+        self._delivery_scope_id = scope_id
+        self._delivery_scope_root = f"/workspace/{self._session_id}/runs/{scope_id}"
+        if self._scope_callback:
+            self._scope_callback(scope_id, self._delivery_scope_root)
+
+    async def _prune_old_delivery_scopes(self, keep_latest: int = 3) -> None:
+        """Bound delivery-scope retention for long-lived reused sessions."""
+        if not self._delivery_scope_root:
+            return
+
+        runs_root = f"/workspace/{self._session_id}/runs"
+        ls_cmd = f"ls -1t {runs_root} 2>/dev/null"
+        result = await self._sandbox.exec_command(self._session_id, "/workspace", ls_cmd)
+        if not result.success:
+            return
+
+        output = (result.data or {}).get("output", "").strip()
+        if not output:
+            return
+
+        dirs = [name.strip() for name in output.split("\n") if re.match(r"^[A-Za-z0-9._-]+$", name.strip())]
+        for stale_dir in dirs[keep_latest:]:
+            rm_cmd = f"rm -rf {runs_root}/{stale_dir}"
+            await self._sandbox.exec_command(self._session_id, "/workspace", rm_cmd)
+
+    async def _load_scoped_session_files_for_summary(self) -> list[FileInfo]:
+        """Fetch session files for summarization and clear stale delivery-channel state on failure."""
+        self.executor.set_delivery_channel(None)
+        try:
+            session = await self._session_repository.find_by_id(self._session_id)
+        except Exception as e:
+            logger.warning(f"Failed to fetch session files: {e}")
+            return []
+
+        self.executor.set_delivery_channel(getattr(session, "source", None) if session else None)
+        if not session or not session.files:
+            return []
+
+        return self._filter_files_for_delivery_scope(
+            session.files,
+            self._delivery_scope_id,
+            self._delivery_scope_root,
+        )
+
     def _rebalance_token_budget(self, old_status: AgentStatus, new_status: AgentStatus) -> None:
         """Rebalance unused tokens from completed phase to next phase.
 
@@ -1883,6 +1989,8 @@ class PlanActFlow(BaseFlow):
     async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:
         """Internal run method with tracing."""
         await self._check_cancelled()
+        self._initialize_delivery_scope()
+        await self._prune_old_delivery_scopes()
 
         # Phase 2: Initialize proactive token budget at flow start
         self._initialize_token_budget()
@@ -1892,7 +2000,7 @@ class PlanActFlow(BaseFlow):
 
         # Step 2: Create structured output workspace for Deep Research
         if self._research_mode == "deep_research":
-            workspace_base = f"/workspace/{self._session_id}"
+            workspace_base = self._delivery_scope_root or f"/workspace/{self._session_id}"
             workspace_path = f"{workspace_base}/output"
             workspace_structure = {
                 "reports": "Markdown reports, analysis documents",
@@ -2523,7 +2631,8 @@ class PlanActFlow(BaseFlow):
                         # Deep Research: inject browser-first emphasis + workspace instructions
                         _saved_planner_prompt = self.planner.system_prompt
                         if self._research_mode == "deep_research":
-                            wp = self._workspace_output_path or f"/workspace/{self._session_id}/output"
+                            workspace_base = self._delivery_scope_root or f"/workspace/{self._session_id}"
+                            wp = self._workspace_output_path or f"{workspace_base}/output"
                             self.planner.system_prompt += (
                                 "\n\n## Research Strategy: Browser-First Deep Research\n"
                                 "You are a researcher agent. Your PRIMARY instrument is the web browser. "
@@ -3344,14 +3453,9 @@ class PlanActFlow(BaseFlow):
                         )
 
                     # Fetch session files to include in the final report
-                    session_files: list[FileInfo] = []
-                    try:
-                        session = await self._session_repository.find_by_id(self._session_id)
-                        if session and session.files:
-                            session_files = session.files
-                            logger.debug(f"Found {len(session_files)} session files to include in report")
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch session files: {e}")
+                    session_files = await self._load_scoped_session_files_for_summary()
+                    if session_files:
+                        logger.debug(f"Found {len(session_files)} session files to include in report")
 
                     # For ALL modes: inject session files into summarization context
                     # so the LLM can reference them in the final report.
@@ -3543,6 +3647,12 @@ class PlanActFlow(BaseFlow):
 
                                 # Merge session files with any attachments from the LLM
                                 event_attachments = event.attachments if hasattr(event, "attachments") else None
+                                if event_attachments:
+                                    event_attachments = self._filter_files_for_delivery_scope(
+                                        event_attachments,
+                                        self._delivery_scope_id,
+                                        self._delivery_scope_root,
+                                    )
                                 all_attachments = list(session_files) if session_files else []
                                 if event_attachments:
                                     # Add LLM attachments that aren't already in session files
