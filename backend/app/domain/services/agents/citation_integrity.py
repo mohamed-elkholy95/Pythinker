@@ -327,9 +327,7 @@ class SourceRegistry:
         return "\n".join(lines)
 
 
-def fuzzy_match_orphan(
-    orphan_text: str, references: dict[int, str], threshold: float = 0.6
-) -> int | None:
+def fuzzy_match_orphan(orphan_text: str, references: dict[int, str], threshold: float = 0.6) -> int | None:
     """Try to fuzzy-match an orphan citation to an existing reference.
 
     Returns reference ID if match found above threshold, else None.

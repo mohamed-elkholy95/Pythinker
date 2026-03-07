@@ -1,4 +1,5 @@
 """Test step executor last-resort fallback includes raw message preview."""
+
 from unittest.mock import MagicMock
 
 import pytest

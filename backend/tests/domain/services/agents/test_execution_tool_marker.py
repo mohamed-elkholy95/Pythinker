@@ -1,4 +1,5 @@
 """Test tool-marker text detection in execution module."""
+
 import pytest
 
 from app.domain.services.agents.execution import _is_tool_marker_text
@@ -15,7 +16,7 @@ NON_MARKER_MESSAGES = [
     "I have completed the research task.",
     "",
     "The [Attempted to call] pattern is inside prose.",
-    '[Some other bracket pattern]',
+    "[Some other bracket pattern]",
 ]
 
 

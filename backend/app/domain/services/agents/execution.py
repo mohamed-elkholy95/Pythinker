@@ -419,10 +419,7 @@ class ExecutionAgent(BaseAgent):
                 elif isinstance(event, MessageEvent):
                     # Skip tool-marker artifacts from message_normalizer
                     if _is_tool_marker_text(event.message):
-                        logger.warning(
-                            "Step response is tool-marker text (normalizer artifact); "
-                            "skipping JSON parse"
-                        )
+                        logger.warning("Step response is tool-marker text (normalizer artifact); skipping JSON parse")
                         continue
                     parsed_response: Any = None
                     try:
