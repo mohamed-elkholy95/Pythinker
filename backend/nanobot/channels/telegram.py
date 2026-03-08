@@ -3,21 +3,38 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import ClassVar
 
 from loguru import logger
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    MessageReactionHandler,
+    filters,
+)
 from telegram.request import HTTPXRequest
 
+from nanobot.bus.events import InboundMessage as BusInboundMessage
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
+from nanobot.channels.telegram_update_offset_store import (
+    read_telegram_update_offset,
+    write_telegram_update_offset,
+)
+from nanobot.channels.telegram_webhook import TelegramWebhookListener, start_telegram_webhook_listener
 from nanobot.config.schema import TelegramConfig
 
 
@@ -120,6 +137,12 @@ def _split_message(content: str, max_len: int = 4000) -> list[str]:
 _TELEGRAM_HTML_PARSE_ERR_RE = re.compile(r"can't parse entities|parse entities|find end of the entity", re.IGNORECASE)
 _TELEGRAM_THREAD_NOT_FOUND_RE = re.compile(r"message thread not found", re.IGNORECASE)
 _TELEGRAM_MESSAGE_NOT_MODIFIED_RE = re.compile(r"message is not modified", re.IGNORECASE)
+_TELEGRAM_RECENT_UPDATE_TTL_SECONDS = 5 * 60.0
+_TELEGRAM_RECENT_UPDATE_MAX = 2000
+_TELEGRAM_SENT_MESSAGE_TTL_SECONDS = 24 * 60 * 60.0
+_TELEGRAM_SENT_MESSAGE_MAX = 4000
+_TELEGRAM_MAX_COMMANDS = 100
+_TELEGRAM_MENU_COMMAND_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 
 
 class TelegramChannel(BaseChannel):
@@ -161,7 +184,13 @@ class TelegramChannel(BaseChannel):
         self._pdf_file_id_cache: dict[str, tuple[str, float]] = {}
         self._pdf_file_id_cache_ttl_seconds = 24 * 60 * 60
         self._preview_states: dict[str, _TelegramPreviewState] = {}
+        self._recent_update_keys: OrderedDict[str, float] = OrderedDict()
+        self._sent_message_keys: OrderedDict[tuple[str, int], float] = OrderedDict()
         self._shutdown_event: asyncio.Event = asyncio.Event()
+        self._active_polling_request: asyncio.Task | None = None
+        self._webhook_listener: TelegramWebhookListener | None = None
+        self._bot_username: str | None = None
+        self._bot_user_id: int | None = None
 
     async def start(self) -> None:
         """Start the Telegram bot with polling or webhook delivery."""
@@ -169,14 +198,24 @@ class TelegramChannel(BaseChannel):
             logger.error("Telegram bot token not configured")
             return
 
+        webhook_mode = bool(getattr(self.config, "webhook_mode", False))
+        secret_token = str(getattr(self.config, "webhook_secret", "") or "").strip()
+        if webhook_mode and not secret_token:
+            raise ValueError("Telegram webhook mode requires webhook_secret")
+
         self._running = True
         self._shutdown_event = asyncio.Event()
+        self._active_polling_request = None
+        self._webhook_listener = None
+        self._bot_username = None
+        self._bot_user_id = None
 
         # Build the application with larger connection pool to avoid pool-timeout on long runs
         req = HTTPXRequest(connection_pool_size=16, pool_timeout=5.0, connect_timeout=30.0, read_timeout=30.0)
         builder = Application.builder().token(self.config.token).request(req).get_updates_request(req)
         if self.config.proxy:
             builder = builder.proxy(self.config.proxy).get_updates_proxy(self.config.proxy)
+        builder = builder.updater(None)
         self._app = builder.build()
         self._app.add_error_handler(self._on_error)
 
@@ -190,12 +229,22 @@ class TelegramChannel(BaseChannel):
         self._app.add_handler(CommandHandler("link", self._forward_command))
         self._app.add_handler(CommandHandler("bind", self._forward_command))
         self._app.add_handler(CommandHandler("help", self._on_help))
-        self._app.add_handler(CallbackQueryHandler(self._on_callback_query, pattern=r"^telegram:get_pdf:last$"))
+        self._app.add_handler(CallbackQueryHandler(self._on_callback_query))
+        self._app.add_handler(MessageReactionHandler(self._on_message_reaction))
 
-        # Add message handler for text, photos, voice, documents
+        # Add message handler for text, photos, voice, documents, videos, and stickers.
         self._app.add_handler(
             MessageHandler(
-                (filters.TEXT | filters.PHOTO | filters.VOICE | filters.AUDIO | filters.Document.ALL)
+                (
+                    filters.TEXT
+                    | filters.PHOTO
+                    | filters.VOICE
+                    | filters.AUDIO
+                    | filters.Document.ALL
+                    | filters.VIDEO
+                    | filters.VIDEO_NOTE
+                    | filters.Sticker.ALL
+                )
                 & ~filters.COMMAND,
                 self._on_message,
             )
@@ -206,59 +255,44 @@ class TelegramChannel(BaseChannel):
             group=1,
         )
 
-        logger.info("Starting Telegram bot (polling mode)...")
-
-        # Initialize and start polling
-        await self._app.initialize()
-        await self._app.start()
-
-        # Get bot info and register command menu
-        bot_info = await self._app.bot.get_me()
-        logger.info("Telegram bot @{} connected", bot_info.username)
-
         try:
-            await self._app.bot.set_my_commands(self.BOT_COMMANDS)
-            logger.debug("Telegram bot commands registered")
-        except Exception as e:
-            logger.warning("Failed to register bot commands: {}", e)
+            logger.info("Starting Telegram bot ({})...", "webhook" if webhook_mode else "polling")
 
-        allowed_updates = ["message", "callback_query"]
-        if getattr(self.config, "webhook_mode", False):
-            secret_token = str(getattr(self.config, "webhook_secret", "") or "").strip()
-            if not secret_token:
-                logger.error("Telegram webhook mode requires webhook_secret")
+            await self._app.initialize()
+            await self._app.start()
+
+            # Get bot info and register command menu
+            bot_info = await self._app.bot.get_me()
+            self._bot_username = getattr(bot_info, "username", None)
+            self._bot_user_id = getattr(bot_info, "id", None)
+            logger.info("Telegram bot @{} connected", bot_info.username)
+
+            try:
+                await self._app.bot.set_my_commands(self._build_registered_bot_commands())
+                logger.debug("Telegram bot commands registered")
+            except Exception as e:
+                logger.warning("Failed to register bot commands: {}", e)
+
+            allowed_updates = self._resolve_allowed_updates()
+            if webhook_mode:
+                self._webhook_listener = await start_telegram_webhook_listener(
+                    application=self._app,
+                    secret_token=secret_token,
+                    path=str(getattr(self.config, "webhook_path", "/telegram-webhook") or "/telegram-webhook"),
+                    host=str(getattr(self.config, "webhook_host", "127.0.0.1") or "127.0.0.1"),
+                    port=int(getattr(self.config, "webhook_port", 8787)),
+                    public_url=str(getattr(self.config, "webhook_url", "") or "").strip() or None,
+                    allowed_updates=allowed_updates,
+                )
+                if not self._running:
+                    return
+                await self._shutdown_event.wait()
                 return
 
-            webhook_path = str(getattr(self.config, "webhook_path", "/telegram-webhook") or "/telegram-webhook")
-            webhook_host = str(getattr(self.config, "webhook_host", "127.0.0.1") or "127.0.0.1")
-            webhook_port = int(getattr(self.config, "webhook_port", 8787))
-            webhook_url = str(getattr(self.config, "webhook_url", "") or "").strip() or None
-
-            await self._app.updater.start_webhook(
-                listen=webhook_host,
-                port=webhook_port,
-                url_path=webhook_path.lstrip("/"),
-                bootstrap_retries=int(getattr(self.config, "polling_bootstrap_retries", 5)),
-                webhook_url=webhook_url,
-                allowed_updates=allowed_updates,
-                drop_pending_updates=True,
-                secret_token=secret_token,
-            )
-        else:
-            try:
-                await self._app.bot.delete_webhook(drop_pending_updates=True)
-            except Exception as exc:
-                logger.debug("Telegram delete_webhook before polling failed: {}", exc)
-
-            await self._app.updater.start_polling(
-                allowed_updates=allowed_updates,
-                drop_pending_updates=True,
-            )
-
-        # Keep running until stopped
-        if not self._running:
-            return
-        await self._shutdown_event.wait()
+            await self._run_polling_loop(allowed_updates=allowed_updates)
+        except Exception:
+            await self.stop()
+            raise
 
     async def stop(self) -> None:
         """Stop the Telegram bot."""
@@ -274,18 +308,26 @@ class TelegramChannel(BaseChannel):
         self._media_group_tasks.clear()
         self._media_group_buffers.clear()
         self._preview_states.clear()
+        self._recent_update_keys.clear()
+        self._sent_message_keys.clear()
+        if self._active_polling_request is not None:
+            self._active_polling_request.cancel()
 
         if self._app:
             logger.info("Stopping Telegram bot...")
-            if getattr(self.config, "webhook_mode", False):
+            if self._webhook_listener is not None:
                 try:
-                    await self._app.bot.delete_webhook(drop_pending_updates=False)
+                    await self._webhook_listener.stop()
                 except Exception as exc:
-                    logger.debug("Telegram delete_webhook during shutdown failed: {}", exc)
-            await self._app.updater.stop()
+                    logger.debug("Telegram webhook listener shutdown failed: {}", exc)
+                finally:
+                    self._webhook_listener = None
             await self._app.stop()
             await self._app.shutdown()
             self._app = None
+        self._active_polling_request = None
+        self._bot_username = None
+        self._bot_user_id = None
 
     @staticmethod
     def _get_media_type(path: str) -> str:
@@ -298,6 +340,14 @@ class TelegramChannel(BaseChannel):
         if ext in ("mp3", "m4a", "wav", "aac"):
             return "audio"
         return "document"
+
+    @staticmethod
+    def _reaction_notification_mode(value: object) -> str:
+        """Normalize Telegram reaction notification mode to OpenClaw's runtime set."""
+        normalized = str(value or "own").strip().lower()
+        if normalized in {"off", "own", "all"}:
+            return normalized
+        return "own"
 
     @staticmethod
     def _normalize_streaming_mode(value: object) -> str:
@@ -409,6 +459,8 @@ class TelegramChannel(BaseChannel):
     ):
         """Send or edit Telegram text, retrying plain text on HTML parse failures."""
         send_kwargs = dict(kwargs)
+        if send_kwargs.get("reply_markup") is None:
+            send_kwargs.pop("reply_markup", None)
         send_kwargs["text"] = text
         if parse_mode == "HTML":
             send_kwargs["parse_mode"] = "HTML"
@@ -463,39 +515,657 @@ class TelegramChannel(BaseChannel):
                 return await self._send_with_thread_fallback(sender, **fallback_kwargs)
             return await self._send_with_retry(sender, **fallback_kwargs)
 
+    def _prune_recent_updates(self, now_monotonic: float) -> None:
+        """Drop expired dedupe keys and cap the cache to the configured max size."""
+        while self._recent_update_keys:
+            oldest_key = next(iter(self._recent_update_keys))
+            seen_at = self._recent_update_keys[oldest_key]
+            if now_monotonic - seen_at <= _TELEGRAM_RECENT_UPDATE_TTL_SECONDS:
+                break
+            self._recent_update_keys.popitem(last=False)
+
+        while len(self._recent_update_keys) > _TELEGRAM_RECENT_UPDATE_MAX:
+            self._recent_update_keys.popitem(last=False)
+
+    @staticmethod
+    def _message_like_from_update(update: Update) -> object | None:
+        """Resolve the primary Telegram message-like payload from an update."""
+        return (
+            getattr(update, "message", None)
+            or getattr(update, "edited_message", None)
+            or getattr(update, "channel_post", None)
+            or getattr(update, "edited_channel_post", None)
+            or getattr(getattr(update, "callback_query", None), "message", None)
+        )
+
+    @classmethod
+    def _update_dedupe_key(cls, update: Update) -> str | None:
+        """Build an OpenClaw-style dedupe key for Telegram updates."""
+        update_id = getattr(update, "update_id", None)
+        if isinstance(update_id, int):
+            return f"update:{update_id}"
+
+        callback = getattr(update, "callback_query", None)
+        callback_id = getattr(callback, "id", None)
+        if isinstance(callback_id, str) and callback_id.strip():
+            return f"callback:{callback_id.strip()}"
+
+        message = cls._message_like_from_update(update)
+        chat = getattr(message, "chat", None)
+        chat_id = getattr(chat, "id", None)
+        if chat_id is None:
+            chat_id = getattr(message, "chat_id", None)
+        message_id = getattr(message, "message_id", None)
+        if chat_id is not None and isinstance(message_id, int):
+            return f"message:{chat_id}:{message_id}"
+        return None
+
+    def _should_skip_update(self, update: Update) -> bool:
+        """Return whether this Telegram update was recently processed already."""
+        key = self._update_dedupe_key(update)
+        if not key:
+            return False
+
+        now_monotonic = time.monotonic()
+        self._prune_recent_updates(now_monotonic)
+        if key in self._recent_update_keys:
+            self._recent_update_keys.move_to_end(key)
+            self._recent_update_keys[key] = now_monotonic
+            logger.debug("Telegram duplicate update skipped: {}", key)
+            return True
+
+        self._recent_update_keys[key] = now_monotonic
+        self._recent_update_keys.move_to_end(key)
+        self._prune_recent_updates(now_monotonic)
+        return False
+
+    def _prune_sent_message_keys(self, now_monotonic: float) -> None:
+        """Drop expired sent-message cache entries and cap the cache size."""
+        while self._sent_message_keys:
+            oldest_key = next(iter(self._sent_message_keys))
+            seen_at = self._sent_message_keys[oldest_key]
+            if now_monotonic - seen_at <= _TELEGRAM_SENT_MESSAGE_TTL_SECONDS:
+                break
+            self._sent_message_keys.popitem(last=False)
+
+        while len(self._sent_message_keys) > _TELEGRAM_SENT_MESSAGE_MAX:
+            self._sent_message_keys.popitem(last=False)
+
+    def _remember_sent_message(self, *, chat_id: int | str, message_id: object) -> None:
+        """Remember a bot-authored message id so reaction routing can filter on own messages."""
+        if not isinstance(message_id, int):
+            return
+        key = (str(chat_id), message_id)
+        now_monotonic = time.monotonic()
+        self._sent_message_keys[key] = now_monotonic
+        self._sent_message_keys.move_to_end(key)
+        self._prune_sent_message_keys(now_monotonic)
+
+    def _was_sent_by_bot(self, *, chat_id: int | str, message_id: object) -> bool:
+        """Return whether the message id was recently produced by this bot."""
+        if not isinstance(message_id, int):
+            return False
+        now_monotonic = time.monotonic()
+        self._prune_sent_message_keys(now_monotonic)
+        key = (str(chat_id), message_id)
+        if key not in self._sent_message_keys:
+            return False
+        self._sent_message_keys[key] = now_monotonic
+        self._sent_message_keys.move_to_end(key)
+        return True
+
+    @staticmethod
+    def _should_keep_typing_for_outbound(msg: OutboundMessage) -> bool:
+        """Return whether Telegram typing should remain active after this outbound."""
+        metadata = msg.metadata or {}
+        if bool(metadata.get("_telegram_keep_typing")):
+            return True
+        if bool(metadata.get("_progress_heartbeat")):
+            return True
+        if bool(metadata.get("async_pdf")):
+            return True
+        return bool(metadata.get("_telegram_stream")) and not bool(metadata.get("_telegram_stream_final"))
+
     @classmethod
     def _build_inbound_delivery_context(cls, message, user) -> tuple[dict[str, object], str]:
         """Build OpenClaw-style Telegram routing context for inbound messages."""
         chat = getattr(message, "chat", None)
         chat_type = getattr(chat, "type", None)
+        sender_chat = getattr(message, "sender_chat", None)
         is_group = chat_type in {"group", "supergroup"}
+        is_channel_post = chat_type == "channel"
         is_forum = bool(getattr(chat, "is_forum", False))
         raw_thread_id = cls._normalize_message_id(getattr(message, "message_thread_id", None))
         resolved_forum_thread_id = raw_thread_id if raw_thread_id is not None else 1 if is_forum else None
+        actor_id = getattr(user, "id", None)
+        if actor_id is None:
+            actor_id = getattr(sender_chat, "id", None)
+        username = getattr(user, "username", None)
+        if username is None:
+            username = getattr(sender_chat, "username", None)
+        first_name = getattr(user, "first_name", None)
+        if first_name is None:
+            first_name = getattr(sender_chat, "title", None) or getattr(sender_chat, "username", None)
 
         metadata: dict[str, object] = {
             "message_id": getattr(message, "message_id", None),
-            "user_id": getattr(user, "id", None),
-            "username": getattr(user, "username", None),
-            "first_name": getattr(user, "first_name", None),
+            "user_id": actor_id,
+            "username": username,
+            "first_name": first_name,
             "is_group": is_group,
             "is_forum": is_forum,
         }
+        if is_channel_post:
+            metadata["is_channel_post"] = True
         if is_forum and resolved_forum_thread_id is not None:
             metadata["message_thread_id"] = resolved_forum_thread_id
         elif not is_group and raw_thread_id is not None:
             metadata["message_thread_id"] = raw_thread_id
 
         chat_id = str(message.chat_id)
+        if is_channel_post:
+            return metadata, f"telegram:channel:{chat_id}"
         if is_group:
             if resolved_forum_thread_id is not None:
                 return metadata, f"telegram:group:{chat_id}:topic:{resolved_forum_thread_id}"
             return metadata, f"telegram:group:{chat_id}"
 
-        direct_peer_id = str(getattr(user, "id", "") or chat_id)
+        direct_peer_id = str(actor_id or chat_id)
         if raw_thread_id is not None:
             return metadata, f"telegram:direct:{direct_peer_id}:thread:{chat_id}:{raw_thread_id}"
         return metadata, f"telegram:direct:{direct_peer_id}"
+
+    @staticmethod
+    def _build_media_item(
+        *,
+        path: str,
+        mime_type: str | None,
+        filename: str | None,
+        size_bytes: object,
+        media_type: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Build a structured media item that survives the nanobot-to-app gateway hop."""
+        item: dict[str, object] = {
+            "url": path,
+            "content_type": str(mime_type or ""),
+            "filename": str(filename or Path(path).name),
+            "size": size_bytes if isinstance(size_bytes, int) else 0,
+        }
+        if media_type:
+            item["type"] = media_type
+        if metadata:
+            item["metadata"] = metadata
+        return item
+
+    async def _download_inbound_media(self, media_file, *, media_type: str) -> tuple[str, dict[str, object]] | None:
+        """Download one inbound Telegram attachment and describe it for gateway conversion."""
+        if not self._app:
+            return None
+
+        file = await self._app.bot.get_file(media_file.file_id)
+        ext = self._get_extension(media_type, getattr(media_file, "mime_type", None))
+        media_dir = Path.home() / ".nanobot" / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        file_path = media_dir / f"{media_file.file_id[:16]}{ext}"
+        await file.download_to_drive(str(file_path))
+        return str(file_path), self._build_media_item(
+            path=str(file_path),
+            mime_type=getattr(media_file, "mime_type", None),
+            filename=getattr(media_file, "file_name", None),
+            size_bytes=getattr(media_file, "file_size", 0),
+            media_type=media_type,
+        )
+
+    @staticmethod
+    def _reaction_sender_label(user) -> str:
+        """Render the OpenClaw-style label used in Telegram reaction events."""
+        first_name = str(getattr(user, "first_name", "") or "").strip()
+        last_name = str(getattr(user, "last_name", "") or "").strip()
+        username = str(getattr(user, "username", "") or "").strip()
+        display_name = " ".join(part for part in (first_name, last_name) if part).strip()
+        if display_name and username:
+            return f"{display_name} (@{username})"
+        if display_name:
+            return display_name
+        if username:
+            return f"@{username}"
+        user_id = getattr(user, "id", None)
+        return f"id:{user_id}" if user_id is not None else "unknown"
+
+    @classmethod
+    def _build_reaction_delivery_context(cls, reaction, user) -> tuple[dict[str, object], str]:
+        """Build routing metadata for Telegram message_reaction updates."""
+        chat = getattr(reaction, "chat", None)
+        chat_id = str(getattr(chat, "id", ""))
+        chat_type = getattr(chat, "type", None)
+        is_group = chat_type in {"group", "supergroup"}
+        is_forum = bool(getattr(chat, "is_forum", False))
+        actor_id = getattr(user, "id", None)
+        metadata: dict[str, object] = {
+            "message_id": getattr(reaction, "message_id", None),
+            "user_id": actor_id,
+            "username": getattr(user, "username", None),
+            "first_name": getattr(user, "first_name", None),
+            "is_group": is_group,
+            "is_forum": is_forum,
+        }
+        if is_group:
+            return metadata, f"telegram:group:{chat_id}"
+
+        direct_peer_id = str(actor_id or chat_id)
+        return metadata, f"telegram:direct:{direct_peer_id}"
+
+    @staticmethod
+    def _resolve_allowed_updates() -> list[str]:
+        """Match OpenClaw's wider Telegram update subscription set."""
+        return ["message", "callback_query", "channel_post", "message_reaction"]
+
+    @staticmethod
+    def _command_registry():
+        """Resolve the shared app command registry when available."""
+        try:
+            from app.domain.services.command_registry import get_command_registry
+
+            return get_command_registry()
+        except Exception as exc:  # pragma: no cover - defensive import guard
+            logger.debug("Telegram command registry unavailable: {}", exc)
+            return None
+
+    @classmethod
+    def _custom_command_entries(cls) -> list[tuple[str, str]]:
+        """Return Telegram-safe primary custom commands from the shared app registry."""
+        registry = cls._command_registry()
+        if registry is None:
+            return []
+
+        entries: list[tuple[str, str]] = []
+        seen: set[str] = set(cls._KNOWN_SLASH_COMMANDS)
+        for command, _skill_id, description in registry.get_available_commands():
+            normalized_command = str(command or "").strip().lower()
+            normalized_description = str(description or "").strip()
+            if (
+                not normalized_command
+                or normalized_command in seen
+                or not _TELEGRAM_MENU_COMMAND_RE.fullmatch(normalized_command)
+                or not normalized_description
+            ):
+                continue
+            entries.append((normalized_command, normalized_description[:256]))
+            seen.add(normalized_command)
+        return entries
+
+    @classmethod
+    def _all_known_slash_commands(cls) -> set[str]:
+        """Return built-in Telegram commands plus app-registered command aliases."""
+        known = set(cls._KNOWN_SLASH_COMMANDS)
+        registry = cls._command_registry()
+        if registry is None:
+            return known
+        known.update(str(command).strip().lower() for command in registry.get_command_map())
+        return {command for command in known if command}
+
+    @classmethod
+    def _build_registered_bot_commands(cls) -> list[BotCommand]:
+        """Merge built-in Telegram commands with shared app custom commands."""
+        commands = list(cls.BOT_COMMANDS)
+        commands.extend(BotCommand(command, description) for command, description in cls._custom_command_entries())
+        return commands[:_TELEGRAM_MAX_COMMANDS]
+
+    @classmethod
+    def _build_help_text(cls) -> str:
+        """Render Telegram help text with app-registered primary custom commands."""
+        lines = [
+            "🤖 Pythinker commands:",
+            "/new — Start a new conversation",
+            "/stop — Stop the current task",
+            "/status — Show current session status",
+            "/pdf — Get the last response as a PDF",
+            "/link <CODE> — Link your web account",
+            "/bind <CODE> — Alias of /link",
+            "/help — Show available commands",
+        ]
+        custom_commands = cls._custom_command_entries()
+        if custom_commands:
+            lines.append("")
+            lines.append("Custom commands:")
+            lines.extend(f"/{command} — {description}" for command, description in custom_commands)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _normalize_inline_buttons_scope(value: object) -> str:
+        """Normalize Telegram inline button scope config to a supported value."""
+        normalized = str(value or "").strip().lower()
+        if normalized in {"off", "dm", "group", "all", "allowlist"}:
+            return normalized
+        return "allowlist"
+
+    @classmethod
+    def _inline_buttons_allowed_for_scope(cls, *, scope: str, is_group: bool) -> bool:
+        """Return whether Telegram inline buttons are allowed for the given chat surface."""
+        normalized_scope = cls._normalize_inline_buttons_scope(scope)
+        if normalized_scope == "off":
+            return False
+        if normalized_scope == "dm":
+            return not is_group
+        if normalized_scope == "group":
+            return is_group
+        return True
+
+    @staticmethod
+    def _metadata_is_group(metadata: dict[str, object], chat_id: str) -> bool:
+        """Infer whether an outbound Telegram target is group-like."""
+        raw_is_group = metadata.get("is_group")
+        if isinstance(raw_is_group, bool):
+            return raw_is_group
+        try:
+            return int(str(chat_id).strip()) < 0
+        except (TypeError, ValueError):
+            return False
+
+    def _inline_buttons_allowed_for_outbound(self, *, chat_id: str, metadata: dict[str, object]) -> bool:
+        """Return whether reply markup should be attached to an outbound Telegram message."""
+        scope = self._normalize_inline_buttons_scope(getattr(self.config, "inline_buttons_scope", "allowlist"))
+        return self._inline_buttons_allowed_for_scope(
+            scope=scope,
+            is_group=self._metadata_is_group(metadata, chat_id),
+        )
+
+    def _inline_buttons_allowed_for_message(self, message) -> bool:
+        """Return whether inline-button callbacks are allowed for the inbound message surface."""
+        chat = getattr(message, "chat", None)
+        chat_type = getattr(chat, "type", None)
+        is_group = chat_type in {"group", "supergroup", "channel"}
+        scope = self._normalize_inline_buttons_scope(getattr(self.config, "inline_buttons_scope", "allowlist"))
+        return self._inline_buttons_allowed_for_scope(scope=scope, is_group=is_group)
+
+    @staticmethod
+    def _allow_entries_match(sender_id: str, entries: list[str]) -> bool:
+        """Match sender identity against Telegram allowlist entries."""
+        if "*" in entries:
+            return True
+        sender = str(sender_id or "").strip()
+        if not sender:
+            return False
+        candidates = [sender, *[part for part in sender.split("|") if part]]
+        return any(candidate in entries for candidate in candidates)
+
+    @staticmethod
+    def _chat_rule_key(message) -> str:
+        """Normalize the Telegram chat id used for direct/group override lookup."""
+        return str(getattr(message, "chat_id", ""))
+
+    @classmethod
+    def _topic_rule_key(cls, message) -> str | None:
+        """Normalize the Telegram topic/thread id used for override lookup."""
+        chat = getattr(message, "chat", None)
+        is_forum = bool(getattr(chat, "is_forum", False))
+        raw_thread_id = cls._normalize_message_id(getattr(message, "message_thread_id", None))
+        if is_forum:
+            return str(raw_thread_id or 1)
+        if raw_thread_id is not None:
+            return str(raw_thread_id)
+        return None
+
+    def _resolve_group_rule(self, message):
+        """Resolve per-group policy override for this chat."""
+        return (getattr(self.config, "groups", {}) or {}).get(self._chat_rule_key(message))
+
+    def _resolve_direct_rule(self, message):
+        """Resolve per-DM policy override for this direct chat."""
+        return (getattr(self.config, "direct", {}) or {}).get(self._chat_rule_key(message))
+
+    @classmethod
+    def _resolve_topic_rule(cls, *, rule_owner, message):
+        """Resolve per-topic policy override beneath a group/direct rule."""
+        if rule_owner is None:
+            return None
+        topics = getattr(rule_owner, "topics", {}) or {}
+        topic_key = cls._topic_rule_key(message)
+        if topic_key is None:
+            return None
+        return topics.get(topic_key)
+
+    @staticmethod
+    def _rule_allow_from(rule_owner) -> list[str]:
+        """Return the allow_from entries for a rule owner, preserving explicit empties."""
+        if rule_owner is None:
+            return []
+        return [str(value) for value in (getattr(rule_owner, "allow_from", []) or []) if str(value).strip()]
+
+    def _effective_dm_policy(self, *, direct_rule, topic_rule) -> str:
+        """Resolve the DM policy after direct/topic overrides."""
+        if direct_rule is not None:
+            dm_policy = getattr(direct_rule, "dm_policy", None)
+            if isinstance(dm_policy, str) and dm_policy.strip():
+                return dm_policy.strip().lower()
+        return str(getattr(self.config, "dm_policy", "open") or "open").strip().lower()
+
+    def _effective_group_policy(self, *, group_rule, topic_rule) -> str:
+        """Resolve the group policy after topic/group overrides."""
+        for owner in (topic_rule, group_rule):
+            if owner is None:
+                continue
+            group_policy = getattr(owner, "group_policy", None)
+            if isinstance(group_policy, str) and group_policy.strip():
+                return group_policy.strip().lower()
+        return str(getattr(self.config, "group_policy", "open") or "open").strip().lower()
+
+    def _effective_group_require_mention(self, *, group_rule, topic_rule) -> bool:
+        """Resolve mention gating after topic/group overrides."""
+        for owner in (topic_rule, group_rule):
+            if owner is None:
+                continue
+            require_mention = getattr(owner, "require_mention", None)
+            if require_mention is not None:
+                return bool(require_mention)
+        return bool(getattr(self.config, "group_require_mention", False))
+
+    def _effective_dm_allow_from(self, *, direct_rule, topic_rule) -> list[str]:
+        """Resolve DM allowlist after direct/topic overrides."""
+        for owner in (topic_rule, direct_rule):
+            if owner is None:
+                continue
+            entries = self._rule_allow_from(owner)
+            if entries:
+                return entries
+        return [str(value) for value in (getattr(self.config, "allow_from", []) or []) if str(value).strip()]
+
+    def _effective_group_allow_from(self, *, group_rule, topic_rule) -> list[str]:
+        """Resolve group sender allowlist after topic/group overrides."""
+        for owner in (topic_rule, group_rule):
+            if owner is None:
+                continue
+            entries = self._rule_allow_from(owner)
+            if entries:
+                return entries
+        configured = getattr(self.config, "group_allow_from", None) or getattr(self.config, "allow_from", [])
+        return [str(value) for value in configured if str(value).strip()]
+
+    def _group_is_explicitly_allowlisted(self, *, group_rule, topic_rule) -> bool:
+        """Treat explicit group/topic config entries as chat-level allowlist authorization."""
+        return topic_rule is not None or group_rule is not None
+
+    @staticmethod
+    def _is_linking_command(content: str) -> bool:
+        """Return whether a message is an onboarding command that should bypass DM allowlists."""
+        normalized = str(content or "").strip().lower()
+        return (
+            normalized.startswith("/link ") or normalized.startswith("/bind ") or normalized.startswith("/start bind_")
+        )
+
+    def _message_mentions_bot(self, message) -> bool:
+        """Resolve whether a group message explicitly mentions or replies to the bot."""
+        if self._bot_user_id is not None:
+            reply_to_message = getattr(message, "reply_to_message", None)
+            reply_from = getattr(reply_to_message, "from_user", None)
+            if getattr(reply_from, "id", None) == self._bot_user_id:
+                return True
+
+        username = str(self._bot_username or "").strip().lower()
+        if username:
+            text_candidates = [
+                str(getattr(message, "text", "") or ""),
+                str(getattr(message, "caption", "") or ""),
+            ]
+            if any(f"@{username}" in candidate.lower() for candidate in text_candidates):
+                return True
+
+        parse_entities = getattr(message, "parse_entities", None)
+        if callable(parse_entities):
+            try:
+                entities = parse_entities() or {}
+            except Exception:
+                entities = {}
+            for text in entities.values():
+                entity_text = str(text or "").strip().lower()
+                if username and entity_text == f"@{username}":
+                    return True
+        return False
+
+    async def _reply_pairing_required(self, message) -> None:
+        """Explain how to authorize a Telegram DM when pairing/allowlist blocks it."""
+        reply_text = getattr(message, "reply_text", None)
+        if not callable(reply_text):
+            return
+        await reply_text(
+            "This Telegram chat is not authorized yet. "
+            "Ask the owner to add you to the allowlist or use /link CODE from the web app."
+        )
+
+    async def _is_inbound_allowed(
+        self,
+        *,
+        message,
+        user,
+        sender_id: str,
+        content: str,
+        enforce_mention: bool = True,
+    ) -> bool:
+        """Evaluate Telegram DM/group/topic policy before forwarding inbound content."""
+        chat = getattr(message, "chat", None)
+        chat_type = getattr(chat, "type", None)
+        is_group_like = chat_type in {"group", "supergroup", "channel"}
+        direct_rule = self._resolve_direct_rule(message)
+        group_rule = self._resolve_group_rule(message) if is_group_like else None
+        rule_owner = group_rule if is_group_like else direct_rule
+        topic_rule = self._resolve_topic_rule(rule_owner=rule_owner, message=message)
+
+        if rule_owner is not None and getattr(rule_owner, "enabled", True) is False:
+            return False
+        if topic_rule is not None and getattr(topic_rule, "enabled", True) is False:
+            return False
+
+        if not is_group_like:
+            dm_policy = self._effective_dm_policy(direct_rule=direct_rule, topic_rule=topic_rule)
+            if dm_policy == "disabled":
+                return False
+            if dm_policy == "open":
+                return True
+            if self._is_linking_command(content):
+                return True
+            allow_entries = self._effective_dm_allow_from(direct_rule=direct_rule, topic_rule=topic_rule)
+            if self._allow_entries_match(sender_id, allow_entries):
+                return True
+            if dm_policy == "pairing":
+                await self._reply_pairing_required(message)
+            return False
+
+        group_policy = self._effective_group_policy(group_rule=group_rule, topic_rule=topic_rule)
+        if group_policy == "disabled":
+            return False
+        if group_policy == "allowlist":
+            allow_entries = self._effective_group_allow_from(group_rule=group_rule, topic_rule=topic_rule)
+            if not allow_entries and not self._group_is_explicitly_allowlisted(
+                group_rule=group_rule, topic_rule=topic_rule
+            ):
+                return False
+            if allow_entries and not self._allow_entries_match(sender_id, allow_entries):
+                return False
+        if enforce_mention and self._effective_group_require_mention(group_rule=group_rule, topic_rule=topic_rule):
+            return self._message_mentions_bot(message)
+        return True
+
+    async def _run_polling_loop(self, *, allowed_updates: list[str]) -> None:
+        """Poll Telegram directly so transport behavior stays channel-owned."""
+        if not self._app:
+            return
+
+        try:
+            await self._app.bot.delete_webhook(drop_pending_updates=False)
+        except Exception as exc:
+            logger.debug("Telegram delete_webhook before polling failed: {}", exc)
+
+        last_update_id = await read_telegram_update_offset(bot_token=self.config.token)
+        retry_attempt = 0
+
+        while self._running and not self._shutdown_event.is_set():
+            offset = last_update_id + 1 if last_update_id is not None else None
+            try:
+                self._active_polling_request = asyncio.create_task(
+                    self._app.bot.get_updates(
+                        offset=offset,
+                        timeout=30,
+                        allowed_updates=allowed_updates,
+                    )
+                )
+                if bool(getattr(self.config, "polling_stall_restart_enabled", True)):
+                    stall_timeout_seconds = max(
+                        1.0,
+                        float(getattr(self.config, "polling_stall_timeout_seconds", 60.0) or 60.0),
+                    )
+                    updates = await asyncio.wait_for(
+                        asyncio.shield(self._active_polling_request),
+                        timeout=stall_timeout_seconds,
+                    )
+                else:
+                    updates = await self._active_polling_request
+                retry_attempt = 0
+            except TimeoutError:
+                logger.warning("Telegram polling stalled; retrying get_updates")
+                if self._active_polling_request is not None:
+                    self._active_polling_request.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await self._active_polling_request
+                self._active_polling_request = None
+                continue
+            except asyncio.CancelledError:
+                break
+            except (TimedOut, NetworkError, OSError) as exc:
+                retry_attempt += 1
+                delay_seconds = min(30.0, float(max(1, retry_attempt)))
+                logger.warning("Telegram polling error (attempt {}): {}", retry_attempt, exc)
+                await asyncio.sleep(delay_seconds)
+                continue
+            finally:
+                self._active_polling_request = None
+
+            for update in updates or ():
+                if not self._running or self._shutdown_event.is_set():
+                    break
+                await self._app.process_update(update)
+                update_id = getattr(update, "update_id", None)
+                if not isinstance(update_id, int):
+                    continue
+                last_update_id = update_id
+                try:
+                    await write_telegram_update_offset(update_id=update_id, bot_token=self.config.token)
+                except Exception as exc:
+                    logger.debug("Telegram offset persistence failed: {}", exc)
+
+    @classmethod
+    def _sender_id_for_message(cls, message, user) -> str:
+        """Resolve sender identity for regular users, anonymous admins, and channel posts."""
+        if user is not None:
+            return cls._sender_id(user)
+        sender_chat = getattr(message, "sender_chat", None)
+        sender_chat_id = getattr(sender_chat, "id", None)
+        username = getattr(sender_chat, "username", None)
+        if sender_chat_id is None:
+            sender_chat_id = getattr(message, "chat_id", None)
+        if username:
+            return f"chat:{sender_chat_id}|{username}"
+        return f"chat:{sender_chat_id}"
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Telegram."""
@@ -503,7 +1173,9 @@ class TelegramChannel(BaseChannel):
             logger.warning("Telegram bot not running")
             return
 
-        self._stop_typing(msg.chat_id)
+        keep_typing_after_send = self._should_keep_typing_for_outbound(msg)
+        if not keep_typing_after_send:
+            self._stop_typing(msg.chat_id)
 
         try:
             chat_id = int(msg.chat_id)
@@ -518,11 +1190,22 @@ class TelegramChannel(BaseChannel):
         parse_mode = str(metadata.get("parse_mode", "HTML"))
         delivery_mode = str(metadata.get("delivery_mode", "text"))
         reply_markup = self._coerce_reply_markup(metadata.get("reply_markup"))
+        if reply_markup is not None and not self._inline_buttons_allowed_for_outbound(
+            chat_id=msg.chat_id,
+            metadata=metadata,
+        ):
+            reply_markup = None
         cleanup_paths = [str(path) for path in metadata.get("cleanup_media_paths", []) if isinstance(path, str)]
         content_hash = str(metadata.get("content_hash", "")).strip()
         caption_value = str(metadata.get("caption", msg.content or ""))
         caption_sent = False
         media_success = True
+        raw_media_attachments = metadata.get("media_attachments", [])
+        media_attachment_map = {
+            str(item.get("url", "") or ""): item
+            for item in raw_media_attachments
+            if isinstance(item, dict) and str(item.get("url", "") or "").strip()
+        }
         allow_thread_fallback = message_thread_id is not None and not bool(metadata.get("is_forum"))
         preview_state = self._preview_states.get(self._preview_key(msg))
         reply_applied = preview_state.reply_applied if preview_state is not None else False
@@ -543,6 +1226,8 @@ class TelegramChannel(BaseChannel):
                 message_thread_id=message_thread_id,
                 allow_thread_fallback=allow_thread_fallback,
             )
+            if keep_typing_after_send and msg.chat_id not in self._typing_tasks:
+                self._start_typing(msg.chat_id)
             return
 
         if self._has_preview_state(msg):
@@ -560,7 +1245,42 @@ class TelegramChannel(BaseChannel):
         # Send media files first. For document mode, caption is sent on the first document.
         for media_path in msg.media or []:
             try:
+                attachment_metadata = media_attachment_map.get(media_path)
                 media_type = self._get_media_type(media_path)
+                current_reply_params = (
+                    base_reply_params
+                    if self._should_include_reply_for_send(reply_to_mode, reply_applied=reply_applied)
+                    else None
+                )
+                sticker_metadata = (
+                    attachment_metadata.get("metadata", {})
+                    if isinstance(attachment_metadata, dict)
+                    and str(attachment_metadata.get("type", "") or "").strip().lower() == "sticker"
+                    else {}
+                )
+                telegram_sticker_metadata = (
+                    sticker_metadata.get("telegram", {}) if isinstance(sticker_metadata, dict) else {}
+                )
+                sticker_file_id = (
+                    str(telegram_sticker_metadata.get("file_id", "") or "").strip()
+                    if isinstance(telegram_sticker_metadata, dict)
+                    else ""
+                )
+                if sticker_file_id:
+                    sticker_kwargs: dict[str, object] = {"chat_id": chat_id, "sticker": sticker_file_id}
+                    if current_reply_params is not None:
+                        sticker_kwargs["reply_parameters"] = current_reply_params
+                    if message_thread_id is not None:
+                        sticker_kwargs["message_thread_id"] = message_thread_id
+                    if allow_thread_fallback:
+                        response = await self._send_with_thread_fallback(self._app.bot.send_sticker, **sticker_kwargs)
+                    else:
+                        response = await self._send_with_retry(self._app.bot.send_sticker, **sticker_kwargs)
+                    self._remember_sent_message(chat_id=chat_id, message_id=getattr(response, "message_id", None))
+                    if current_reply_params is not None:
+                        reply_applied = True
+                    continue
+
                 sender = {
                     "photo": self._app.bot.send_photo,
                     "voice": self._app.bot.send_voice,
@@ -573,11 +1293,6 @@ class TelegramChannel(BaseChannel):
                 send_kwargs: dict[str, object] = {
                     "chat_id": chat_id,
                 }
-                current_reply_params = (
-                    base_reply_params
-                    if self._should_include_reply_for_send(reply_to_mode, reply_applied=reply_applied)
-                    else None
-                )
                 if current_reply_params is not None:
                     send_kwargs["reply_parameters"] = current_reply_params
                 if message_thread_id is not None:
@@ -632,6 +1347,7 @@ class TelegramChannel(BaseChannel):
                     file_id = getattr(response_document, "file_id", None)
                     if isinstance(file_id, str) and file_id:
                         await self._store_cached_pdf_file_id(content_hash, file_id)
+                self._remember_sent_message(chat_id=chat_id, message_id=getattr(response, "message_id", None))
             except Exception as exc:
                 filename = media_path.rsplit("/", 1)[-1]
                 media_success = False
@@ -664,7 +1380,7 @@ class TelegramChannel(BaseChannel):
                         if self._should_include_reply_for_send(reply_to_mode, reply_applied=reply_applied)
                         else None
                     )
-                    await self._send_text_with_fallback(
+                    response = await self._send_text_with_fallback(
                         sender=self._app.bot.send_message,
                         text=payload_text,
                         plain_text=chunk,
@@ -675,11 +1391,15 @@ class TelegramChannel(BaseChannel):
                         message_thread_id=message_thread_id,
                         allow_thread_fallback=allow_thread_fallback,
                     )
+                    self._remember_sent_message(chat_id=chat_id, message_id=getattr(response, "message_id", None))
                     if current_reply_params is not None:
                         reply_applied = True
                 except Exception as exc:
                     logger.error("Error sending Telegram text chunk: {}", exc)
                     break
+
+        if keep_typing_after_send and msg.chat_id not in self._typing_tasks:
+            self._start_typing(msg.chat_id)
 
         self._cleanup_temp_files(cleanup_paths)
 
@@ -799,6 +1519,7 @@ class TelegramChannel(BaseChannel):
             sent_message_id = getattr(sent_message, "message_id", None)
             if isinstance(sent_message_id, int):
                 state.message_id = sent_message_id
+                self._remember_sent_message(chat_id=chat_id, message_id=sent_message_id)
             if reply_params is not None:
                 state.reply_applied = True
         else:
@@ -974,6 +1695,8 @@ class TelegramChannel(BaseChannel):
         """Handle /start command."""
         if not update.message or not update.effective_user:
             return
+        if self._should_skip_update(update):
+            return
         metadata, session_key = self._build_inbound_delivery_context(update.message, update.effective_user)
 
         # PYTHINKER-PATCH: Telegram deep link `/start bind_<CODE>` must be
@@ -1001,20 +1724,15 @@ class TelegramChannel(BaseChannel):
         """Handle /help command, bypassing ACL so all users can access it."""
         if not update.message:
             return
-        await update.message.reply_text(
-            "🤖 Pythinker commands:\n"
-            "/new — Start a new conversation\n"
-            "/stop — Stop the current task\n"
-            "/status — Show current session status\n"
-            "/pdf — Get the last response as a PDF\n"
-            "/link <CODE> — Link your web account\n"
-            "/bind <CODE> — Alias of /link\n"
-            "/help — Show available commands"
-        )
+        if self._should_skip_update(update):
+            return
+        await update.message.reply_text(self._build_help_text())
 
     async def _unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle unknown slash commands with a help hint."""
         if not update.message:
+            return
+        if self._should_skip_update(update):
             return
         command_name = self._extract_command_name(update.message.text)
         if command_name is None:
@@ -1022,6 +1740,9 @@ class TelegramChannel(BaseChannel):
         # Known commands can still reach this callback because handlers run by group.
         # Ignore them here so users do not see a false "Unknown command" response.
         if command_name in self._KNOWN_SLASH_COMMANDS:
+            return
+        if command_name in self._all_known_slash_commands():
+            await self._forward_command_message(update.message, update.effective_user)
             return
         await update.message.reply_text("Unknown command. Use /help to see available commands.")
 
@@ -1045,11 +1766,26 @@ class TelegramChannel(BaseChannel):
         del context
         if not update.message or not update.effective_user:
             return
-        metadata, session_key = self._build_inbound_delivery_context(update.message, update.effective_user)
+        if self._should_skip_update(update):
+            return
+        await self._forward_command_message(update.message, update.effective_user)
+
+    async def _forward_command_message(self, message, user) -> None:
+        """Forward one already-authorized Telegram slash-command message to the bus."""
+        if message is None or user is None:
+            return
+        if not await self._is_inbound_allowed(
+            message=message,
+            user=user,
+            sender_id=self._sender_id(user),
+            content=str(getattr(message, "text", "") or ""),
+        ):
+            return
+        metadata, session_key = self._build_inbound_delivery_context(message, user)
         await self._handle_message(
-            sender_id=self._sender_id(update.effective_user),
-            chat_id=str(update.message.chat_id),
-            content=update.message.text,
+            sender_id=self._sender_id(user),
+            chat_id=str(message.chat_id),
+            content=message.text,
             metadata=metadata,
             session_key=session_key,
         )
@@ -1059,6 +1795,8 @@ class TelegramChannel(BaseChannel):
         del context
         callback = update.callback_query
         if callback is None:
+            return
+        if self._should_skip_update(update):
             return
 
         data = (callback.data or "").strip()
@@ -1070,8 +1808,17 @@ class TelegramChannel(BaseChannel):
         user = callback.from_user
         if user is None or callback.message is None:
             return
+        if not self._inline_buttons_allowed_for_message(callback.message):
+            return
 
         content = "/pdf" if data == "telegram:get_pdf:last" else data
+        if not await self._is_inbound_allowed(
+            message=callback.message,
+            user=user,
+            sender_id=self._sender_id(user),
+            content=content,
+        ):
+            return
         metadata, session_key = self._build_inbound_delivery_context(callback.message, user)
         await self._handle_message(
             sender_id=self._sender_id(user),
@@ -1081,15 +1828,98 @@ class TelegramChannel(BaseChannel):
             session_key=session_key,
         )
 
-    async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle incoming messages (text, photos, voice, documents)."""
-        if not update.message or not update.effective_user:
+    async def _on_message_reaction(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Forward Telegram emoji reactions as agent-visible system events."""
+        del context
+        if self._should_skip_update(update):
             return
 
-        message = update.message
-        user = update.effective_user
-        chat_id = message.chat_id
+        reaction = getattr(update, "message_reaction", None)
+        if reaction is None:
+            return
+
+        user = getattr(reaction, "user", None)
+        if user is None or bool(getattr(user, "is_bot", False)):
+            return
+
+        mode = self._reaction_notification_mode(getattr(self.config, "reaction_notifications", "own"))
+        if mode == "off":
+            return
+
+        chat = getattr(reaction, "chat", None)
+        chat_id = getattr(chat, "id", None)
+        message_id = getattr(reaction, "message_id", None)
+        if chat_id is None or not isinstance(message_id, int):
+            return
+        if mode == "own" and not self._was_sent_by_bot(chat_id=chat_id, message_id=message_id):
+            return
+
+        pseudo_message = SimpleNamespace(
+            chat=chat,
+            chat_id=chat_id,
+            message_id=message_id,
+            message_thread_id=None,
+            reply_to_message=None,
+            text=None,
+            caption=None,
+        )
         sender_id = self._sender_id(user)
+        if not await self._is_inbound_allowed(
+            message=pseudo_message,
+            user=user,
+            sender_id=sender_id,
+            content="",
+            enforce_mention=False,
+        ):
+            return
+
+        old_emojis = {
+            str(getattr(entry, "emoji", ""))
+            for entry in (getattr(reaction, "old_reaction", None) or [])
+            if getattr(entry, "type", None) == "emoji" and str(getattr(entry, "emoji", "")).strip()
+        }
+        added_emojis = [
+            str(getattr(entry, "emoji", "")).strip()
+            for entry in (getattr(reaction, "new_reaction", None) or [])
+            if getattr(entry, "type", None) == "emoji"
+            and str(getattr(entry, "emoji", "")).strip()
+            and str(getattr(entry, "emoji", "")).strip() not in old_emojis
+        ]
+        if not added_emojis:
+            return
+
+        sender_label = self._reaction_sender_label(user)
+        metadata, session_key = self._build_reaction_delivery_context(reaction, user)
+        for emoji in added_emojis:
+            reaction_metadata = dict(metadata)
+            reaction_metadata.update(
+                {
+                    "telegram_reaction": {
+                        "emoji": emoji,
+                        "message_id": message_id,
+                    },
+                }
+            )
+            await self._handle_message(
+                sender_id=sender_id,
+                chat_id=str(chat_id),
+                content=f"Telegram reaction added: {emoji} by {sender_label} on msg {message_id}",
+                metadata=reaction_metadata,
+                session_key=session_key,
+            )
+
+    async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle incoming messages (text, photos, voice, documents)."""
+        del context
+        message = self._message_like_from_update(update)
+        if message is None:
+            return
+        if self._should_skip_update(update):
+            return
+
+        user = getattr(update, "effective_user", None) or getattr(message, "from_user", None)
+        chat_id = message.chat_id
+        sender_id = self._sender_id_for_message(message, user)
 
         # Store chat_id for replies
         self._chat_ids[sender_id] = chat_id
@@ -1097,6 +1927,8 @@ class TelegramChannel(BaseChannel):
         # Build content from text and/or media
         content_parts = []
         media_paths = []
+        media_items: list[dict[str, object]] = []
+        sticker_metadata: dict[str, object] | None = None
 
         # Text content
         if message.text:
@@ -1120,23 +1952,53 @@ class TelegramChannel(BaseChannel):
         elif message.document:
             media_file = message.document
             media_type = "file"
+        elif getattr(message, "video", None):
+            media_file = message.video
+            media_type = "video"
+        elif getattr(message, "video_note", None):
+            media_file = message.video_note
+            media_type = "video_note"
+        elif getattr(message, "sticker", None):
+            media_file = message.sticker
+            media_type = "sticker"
 
         # Download media if present
         if media_file and self._app:
+            file_path: str | None = None
             try:
-                file = await self._app.bot.get_file(media_file.file_id)
-                ext = self._get_extension(media_type, getattr(media_file, "mime_type", None))
-
-                # Save to workspace/media/
-                from pathlib import Path
-
-                media_dir = Path.home() / ".nanobot" / "media"
-                media_dir.mkdir(parents=True, exist_ok=True)
-
-                file_path = media_dir / f"{media_file.file_id[:16]}{ext}"
-                await file.download_to_drive(str(file_path))
-
-                media_paths.append(str(file_path))
+                if media_type == "sticker":
+                    sticker_metadata = {
+                        "emoji": getattr(media_file, "emoji", None),
+                        "file_id": getattr(media_file, "file_id", None),
+                        "file_unique_id": getattr(media_file, "file_unique_id", None),
+                        "is_animated": bool(getattr(media_file, "is_animated", False)),
+                        "is_video": bool(getattr(media_file, "is_video", False)),
+                        "set_name": getattr(media_file, "set_name", None),
+                    }
+                    if bool(getattr(media_file, "is_animated", False)) or bool(getattr(media_file, "is_video", False)):
+                        logger.debug("Telegram skipping unsupported animated/video sticker payload")
+                    else:
+                        downloaded = await self._download_inbound_media(media_file, media_type=media_type)
+                        if downloaded is not None:
+                            file_path, media_item = downloaded
+                            media_item["metadata"] = {
+                                "telegram": {
+                                    "emoji": sticker_metadata.get("emoji"),
+                                    "file_id": sticker_metadata.get("file_id"),
+                                    "file_unique_id": sticker_metadata.get("file_unique_id"),
+                                    "set_name": sticker_metadata.get("set_name"),
+                                }
+                            }
+                            media_paths.append(file_path)
+                            media_items.append(media_item)
+                            content_parts.append(f"[sticker: {file_path}]")
+                else:
+                    downloaded = await self._download_inbound_media(media_file, media_type=media_type)
+                    if downloaded is None:
+                        raise RuntimeError("media download unavailable")
+                    file_path, media_item = downloaded
+                    media_paths.append(file_path)
+                    media_items.append(media_item)
 
                 # Handle voice transcription
                 if media_type == "voice" or media_type == "audio":
@@ -1149,13 +2011,18 @@ class TelegramChannel(BaseChannel):
                         content_parts.append(f"[transcription: {transcription}]")
                     else:
                         content_parts.append(f"[{media_type}: {file_path}]")
-                else:
+                elif media_type != "sticker":
                     content_parts.append(f"[{media_type}: {file_path}]")
 
-                logger.debug("Downloaded {} to {}", media_type, file_path)
+                if file_path is not None:
+                    logger.debug("Downloaded {} to {}", media_type, file_path)
             except Exception as e:
                 logger.error("Failed to download media: {}", e)
                 content_parts.append(f"[{media_type}: download failed]")
+
+        if getattr(message, "sticker", None) is not None and not media_paths and not content_parts:
+            logger.debug("Telegram skipping unsupported sticker-only message")
+            return
 
         content = "\n".join(content_parts) if content_parts else "[empty message]"
 
@@ -1163,6 +2030,26 @@ class TelegramChannel(BaseChannel):
 
         str_chat_id = str(chat_id)
         metadata, session_key = self._build_inbound_delivery_context(message, user)
+        if media_items:
+            metadata["media_attachments"] = media_items
+            metadata["media_items"] = [
+                {
+                    "url": str(item.get("url", "") or ""),
+                    "mime_type": str(item.get("content_type", "") or ""),
+                    "filename": str(item.get("filename", "") or ""),
+                    "size_bytes": item.get("size", 0) if isinstance(item.get("size", 0), int) else 0,
+                }
+                for item in media_items
+            ]
+        if sticker_metadata is not None:
+            metadata["telegram_sticker"] = sticker_metadata
+        if not await self._is_inbound_allowed(
+            message=message,
+            user=user,
+            sender_id=sender_id,
+            content=content,
+        ):
+            return
 
         # Telegram media groups: buffer briefly, forward as one aggregated turn.
         if media_group_id := getattr(message, "media_group_id", None):
@@ -1173,6 +2060,8 @@ class TelegramChannel(BaseChannel):
                     "chat_id": str_chat_id,
                     "contents": [],
                     "media": [],
+                    "media_items": [],
+                    "media_attachments": [],
                     "metadata": metadata,
                     "session_key": session_key,
                 }
@@ -1181,6 +2070,8 @@ class TelegramChannel(BaseChannel):
             if content and content != "[empty message]":
                 buf["contents"].append(content)
             buf["media"].extend(media_paths)
+            buf["media_items"].extend(media_items)
+            buf["media_attachments"].extend(media_items)
             if key not in self._media_group_tasks:
                 self._media_group_tasks[key] = asyncio.create_task(self._flush_media_group(key))
             return
@@ -1198,6 +2089,27 @@ class TelegramChannel(BaseChannel):
             session_key=session_key,
         )
 
+    async def _handle_message(
+        self,
+        sender_id: str,
+        chat_id: str,
+        content: str,
+        media: list[str] | None = None,
+        metadata: dict[str, object] | None = None,
+        session_key: str | None = None,
+    ) -> None:
+        """Publish Telegram inbound messages after channel-local policy checks."""
+        msg = BusInboundMessage(
+            channel=self.name,
+            sender_id=str(sender_id),
+            chat_id=str(chat_id),
+            content=content,
+            media=media or [],
+            metadata=metadata or {},
+            session_key_override=session_key,
+        )
+        await self.bus.publish_inbound(msg)
+
     async def _flush_media_group(self, key: str) -> None:
         """Wait briefly, then forward buffered media-group as one turn."""
         try:
@@ -1205,12 +2117,32 @@ class TelegramChannel(BaseChannel):
             if not (buf := self._media_group_buffers.pop(key, None)):
                 return
             content = "\n".join(buf["contents"]) or "[empty message]"
+            metadata = dict(buf["metadata"])
+            if buf["media_items"]:
+                seen_urls: set[str] = set()
+                attachments = [
+                    item
+                    for item in buf["media_items"]
+                    if isinstance(item, dict)
+                    and isinstance(item.get("url"), str)
+                    and not (item["url"] in seen_urls or seen_urls.add(item["url"]))
+                ]
+                metadata["media_attachments"] = attachments
+                metadata["media_items"] = [
+                    {
+                        "url": str(item.get("url", "") or ""),
+                        "mime_type": str(item.get("content_type", "") or ""),
+                        "filename": str(item.get("filename", "") or ""),
+                        "size_bytes": item.get("size", 0) if isinstance(item.get("size", 0), int) else 0,
+                    }
+                    for item in attachments
+                ]
             await self._handle_message(
                 sender_id=buf["sender_id"],
                 chat_id=buf["chat_id"],
                 content=content,
                 media=list(dict.fromkeys(buf["media"])),
-                metadata=buf["metadata"],
+                metadata=metadata,
                 session_key=buf["session_key"],
             )
         finally:
@@ -1250,12 +2182,22 @@ class TelegramChannel(BaseChannel):
                 "image/jpeg": ".jpg",
                 "image/png": ".png",
                 "image/gif": ".gif",
+                "image/webp": ".webp",
                 "audio/ogg": ".ogg",
                 "audio/mpeg": ".mp3",
                 "audio/mp4": ".m4a",
+                "video/mp4": ".mp4",
             }
             if mime_type in ext_map:
                 return ext_map[mime_type]
 
-        type_map = {"image": ".jpg", "voice": ".ogg", "audio": ".mp3", "file": ""}
+        type_map = {
+            "image": ".jpg",
+            "voice": ".ogg",
+            "audio": ".mp3",
+            "video": ".mp4",
+            "video_note": ".mp4",
+            "sticker": ".webp",
+            "file": "",
+        }
         return type_map.get(media_type, "")
