@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.domain.models.session import Session
+from app.domain.models.session import SessionStatus
 from app.domain.services.agent_domain_service import AgentDomainService
 
 
@@ -88,6 +89,33 @@ async def test_teardown_without_destroy_keeps_sandbox_reference() -> None:
     assert session.sandbox_owned is True
     # Atomic update_by_id replaces the old save() for task_id+status
     session_repo.update_by_id.assert_awaited_once_with(session.id, {"task_id": None})
+
+
+@pytest.mark.asyncio
+async def test_teardown_completed_session_does_not_cancel_task() -> None:
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        task_id="task-id",
+        sandbox_id=None,
+    )
+    session_repo = AsyncMock()
+    session_repo.find_by_id = AsyncMock(return_value=session)
+    session_repo.update_by_id = AsyncMock()
+
+    task = MagicMock()
+    task_cls = MagicMock()
+    task_cls.get = MagicMock(return_value=task)
+
+    sandbox_cls = MagicMock()
+    sandbox_cls.get = AsyncMock()
+
+    service = _build_service(session_repo, sandbox_cls, task_cls)
+
+    await service._teardown_session_runtime(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
+
+    task.cancel.assert_not_called()
 
 
 @pytest.mark.asyncio
