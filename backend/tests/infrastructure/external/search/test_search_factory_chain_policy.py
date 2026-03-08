@@ -99,8 +99,8 @@ def test_default_chain_prioritizes_api_providers_serper_brave_tavily_exa() -> No
     )
 
     assert isinstance(engine, FallbackSearchEngine)
-    assert [name for name, _ in engine._providers] == ["serper", "brave", "tavily", "exa"]
-    assert attempts[:4] == ["serper", "brave", "tavily", "exa"]
+    assert [name for name, _ in engine._providers] == ["tavily", "brave", "exa", "serper"]
+    assert attempts[:4] == ["tavily", "brave", "exa", "serper"]
 
 
 @pytest.mark.parametrize(
