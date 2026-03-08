@@ -16,9 +16,9 @@ from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
-from app.domain.models.source_citation import SourceCitation
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, Session
+from app.domain.models.source_citation import SourceCitation
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
@@ -546,7 +546,7 @@ class AgentTaskFactory:
                     for raw_source in evt.get("sources") or []:
                         try:
                             source = SourceCitation.model_validate(raw_source)
-                        except Exception:
+                        except Exception:  # noqa: S112 - skip malformed source entries silently
                             continue
                         if source.url and source.url not in seen_urls:
                             seen_urls.add(source.url)
