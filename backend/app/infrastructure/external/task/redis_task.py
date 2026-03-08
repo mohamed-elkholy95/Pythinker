@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import uuid
-from typing import ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar, Optional
 
 from app.domain.external.task import Task, TaskRunner
 from app.infrastructure.external.message_queue.redis_stream_queue import MessageQueue, RedisStreamQueue
+
+if TYPE_CHECKING:
+    from app.domain.models.source_citation import SourceCitation
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +146,12 @@ class RedisStreamTask(Task):
     def runner(self) -> TaskRunner:
         """Expose task runner for internal orchestration."""
         return self._runner
+
+    def hydrate_reactivation_sources(self, sources: list[SourceCitation]) -> None:
+        """Delegate source hydration to the runner if it supports it."""
+        handler = getattr(self._runner, "hydrate_reactivation_sources", None)
+        if callable(handler):
+            handler(sources)
 
     def _on_task_done(self) -> None:
         """Called when the task is done."""
