@@ -281,6 +281,23 @@ class AgentTaskRunner(TaskRunner):
             self._cancel_event.set()
             logger.info("Cancellation requested for Agent %s session %s", self._agent_id, self._session_id)
 
+    def hydrate_reactivation_sources(self, sources: list) -> None:
+        """Restore persisted sources into the executor's SourceTracker.
+
+        Called before run() to hydrate grounding context from prior report
+        events into the new executor so hallucination verification has
+        access to the original sources.
+        """
+        flow = getattr(self, "_plan_act_flow", None)
+        executor = getattr(flow, "executor", None)
+        if executor and hasattr(executor, "restore_collected_sources"):
+            executor.restore_collected_sources(sources)
+            logger.info(
+                "Hydrated %d persisted sources into executor for session %s",
+                len(sources),
+                self._session_id,
+            )
+
     def _init_plan_act_flow(self) -> None:
         """Initialize PlanActFlow for Agent mode"""
         if self._plan_act_flow is None:

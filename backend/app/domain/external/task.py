@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Optional, Protocol
+from typing import TYPE_CHECKING, Optional, Protocol
 
 from app.domain.external.message_queue import MessageQueue
+
+if TYPE_CHECKING:
+    from app.domain.models.source_citation import SourceCitation
 
 
 class TaskRunner(ABC):
@@ -124,6 +129,14 @@ class Task(Protocol):
 
         Returns:
             Task: New task instance
+        """
+        ...
+
+    def hydrate_reactivation_sources(self, sources: list[SourceCitation]) -> None:
+        """Hydrate persisted sources into a newly created task before execution.
+
+        Called during session reactivation to restore grounding context
+        from prior report events into the new executor's SourceTracker.
         """
         ...
 

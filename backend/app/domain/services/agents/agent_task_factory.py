@@ -16,6 +16,7 @@ from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
+from app.domain.models.source_citation import SourceCitation
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, Session
 from app.domain.repositories.agent_repository import AgentRepository
@@ -520,6 +521,40 @@ class AgentTaskFactory:
         except Exception as e:
             logger.warning(f"Failed to build reactivation context: {e}")
             return None
+
+    async def build_reactivation_sources(self, session_id: str) -> list[SourceCitation]:
+        """Load persisted sources from recent report events for reactivation.
+
+        Scans the last 25 events for ReportEvents with sources and
+        deduplicates by URL to produce a list of SourceCitation objects
+        that can be hydrated into the new executor's SourceTracker.
+        """
+        try:
+            event_count = await self._session_repository.get_event_count(session_id)
+            if event_count == 0:
+                return []
+
+            offset = max(0, event_count - 25)
+            events = await self._session_repository.get_events_paginated(
+                session_id, offset=offset, limit=25
+            )
+
+            restored: list[SourceCitation] = []
+            seen_urls: set[str] = set()
+            for evt in events:
+                if isinstance(evt, dict) and evt.get("type") == "report":
+                    for raw_source in evt.get("sources") or []:
+                        try:
+                            source = SourceCitation.model_validate(raw_source)
+                        except Exception:
+                            continue
+                        if source.url and source.url not in seen_urls:
+                            seen_urls.add(source.url)
+                            restored.append(source)
+            return restored
+        except Exception as e:
+            logger.warning("Failed to build reactivation sources for session %s: %s", session_id, e)
+            return []
 
     async def get_task(self, session: Session) -> Task | None:
         """Get a task for the given session."""
