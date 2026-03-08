@@ -277,6 +277,45 @@ async def test_wide_research_records_invocation() -> None:
     assert tool._budget._wide_calls == initial_wide + 1
 
 
+@pytest.mark.asyncio
+async def test_wide_research_skips_pdf_urls_before_spider_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = AsyncMock()
+    engine.provider_name = "test"
+    scraper = AsyncMock()
+    scraper.fetch_batch = AsyncMock(return_value=[])
+
+    tool = SearchTool(search_engine=engine, scraper=scraper)
+    tool._execute_typed_search = AsyncMock(
+        return_value=ToolResult.ok(
+            data=SearchResults(
+                query="test",
+                total_results=2,
+                results=[
+                    SearchResultItem(
+                        title="PDF result",
+                        link="https://example.com/report.pdf",
+                        snippet="pdf snippet",
+                    ),
+                    SearchResultItem(
+                        title="HTML result",
+                        link="https://example.com/post",
+                        snippet="html snippet",
+                    ),
+                ],
+            )
+        )
+    )
+
+    monkeypatch.setattr(
+        "app.core.config.get_settings",
+        lambda: MagicMock(scraping_spider_enabled=True, scraping_spider_top_k=5),
+    )
+
+    await tool.wide_research(topic="test", queries=["test"])
+
+    scraper.fetch_batch.assert_awaited_once_with(["https://example.com/post"])
+
+
 # ---------------------------------------------------------------------------
 # _execute_typed_search budget enforcement
 # ---------------------------------------------------------------------------

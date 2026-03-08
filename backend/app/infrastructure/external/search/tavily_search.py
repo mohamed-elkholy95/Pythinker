@@ -99,13 +99,12 @@ class TavilySearchEngine(SearchEngineBase):
         logger.info(f"Tavily search initialized with {len(key_configs)} API key(s)")
 
     def _get_date_range_mapping(self) -> dict[str, str]:
-        """Tavily date hints (appended to query since API lacks direct filtering)."""
+        """Tavily-native time_range mapping."""
         return {
-            "past_hour": "recent",
-            "past_day": "today",
-            "past_week": "this week",
-            "past_month": "this month",
-            "past_year": "this year",
+            "past_day": "day",
+            "past_week": "week",
+            "past_month": "month",
+            "past_year": "year",
         }
 
     def _build_request_params(self, query: str, date_range: str | None) -> dict[str, Any]:
@@ -114,18 +113,21 @@ class TavilySearchEngine(SearchEngineBase):
         The API key is injected per-request in search() so the connection pool
         survives key rotation without needing to close and recreate the client.
         """
-        actual_query = query
-        if date_hint := self._map_date_range(date_range):
-            actual_query = f"{query} {date_hint}"
-
-        return {
-            "query": actual_query,
+        params = {
+            "query": query,
             "search_depth": self._search_depth,
             "include_answer": True,
             "include_images": False,
             "include_raw_content": False,
             "max_results": self._max_results,
         }
+        if time_range := self._map_date_range(date_range):
+            params["time_range"] = time_range
+        elif date_range == "past_hour":
+            # Tavily does not expose hour-level filtering, so preserve the older
+            # "recent" hint instead of silently dropping the user's time intent.
+            params["query"] = f"{query} recent"
+        return params
 
     async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
         """Execute POST request to Tavily API."""

@@ -491,9 +491,7 @@ class TestLLMNullIndexHandling:
         """LLM returns null for id1 — must not crash."""
         mock_llm = MagicMock()
         mock_llm.ask = AsyncMock(
-            return_value={
-                "content": '{"contradictions": [{"id1": null, "id2": 1, "reason": "test"}]}'
-            }
+            return_value={"content": '{"contradictions": [{"id1": null, "id2": 1, "reason": "test"}]}'}
         )
         evidence_list = [
             self._make_evidence("mem-a", "Fact A"),
@@ -511,9 +509,7 @@ class TestLLMNullIndexHandling:
         """LLM returns null for id2 — must not crash."""
         mock_llm = MagicMock()
         mock_llm.ask = AsyncMock(
-            return_value={
-                "content": '{"contradictions": [{"id1": 0, "id2": null, "reason": "test"}]}'
-            }
+            return_value={"content": '{"contradictions": [{"id1": 0, "id2": null, "reason": "test"}]}'}
         )
         evidence_list = [
             self._make_evidence("mem-a", "Fact A"),
@@ -529,11 +525,7 @@ class TestLLMNullIndexHandling:
     async def test_llm_returns_missing_id_keys(self):
         """LLM omits id1/id2 keys entirely — must not crash."""
         mock_llm = MagicMock()
-        mock_llm.ask = AsyncMock(
-            return_value={
-                "content": '{"contradictions": [{"reason": "they conflict"}]}'
-            }
-        )
+        mock_llm.ask = AsyncMock(return_value={"content": '{"contradictions": [{"reason": "they conflict"}]}'})
         evidence_list = [
             self._make_evidence("mem-a", "Fact A"),
             self._make_evidence("mem-b", "Fact B"),
@@ -549,9 +541,7 @@ class TestLLMNullIndexHandling:
         """LLM returns string numbers — should coerce to int and work."""
         mock_llm = MagicMock()
         mock_llm.ask = AsyncMock(
-            return_value={
-                "content": '{"contradictions": [{"id1": "0", "id2": "1", "reason": "conflict"}]}'
-            }
+            return_value={"content": '{"contradictions": [{"id1": "0", "id2": "1", "reason": "conflict"}]}'}
         )
         evidence_list = [
             self._make_evidence("mem-a", "Fact A"),
@@ -569,9 +559,7 @@ class TestLLMNullIndexHandling:
         """LLM returns indices beyond evidence list — skip silently."""
         mock_llm = MagicMock()
         mock_llm.ask = AsyncMock(
-            return_value={
-                "content": '{"contradictions": [{"id1": 0, "id2": 99, "reason": "conflict"}]}'
-            }
+            return_value={"content": '{"contradictions": [{"id1": 0, "id2": 99, "reason": "conflict"}]}'}
         )
         evidence_list = [
             self._make_evidence("mem-a", "Fact A"),
@@ -588,9 +576,7 @@ class TestLLMNullIndexHandling:
         """LLM returns id1 == id2 — skip self-contradiction."""
         mock_llm = MagicMock()
         mock_llm.ask = AsyncMock(
-            return_value={
-                "content": '{"contradictions": [{"id1": 0, "id2": 0, "reason": "self-conflict"}]}'
-            }
+            return_value={"content": '{"contradictions": [{"id1": 0, "id2": 0, "reason": "self-conflict"}]}'}
         )
         evidence_list = [
             self._make_evidence("mem-a", "Fact A"),
@@ -606,9 +592,7 @@ class TestLLMNullIndexHandling:
         """LLM returns negative index — skip silently."""
         mock_llm = MagicMock()
         mock_llm.ask = AsyncMock(
-            return_value={
-                "content": '{"contradictions": [{"id1": -1, "id2": 0, "reason": "test"}]}'
-            }
+            return_value={"content": '{"contradictions": [{"id1": -1, "id2": 0, "reason": "test"}]}'}
         )
         evidence_list = [
             self._make_evidence("mem-a", "Fact A"),
@@ -624,9 +608,7 @@ class TestLLMNullIndexHandling:
         """LLM returns 'first' instead of 0 — skip silently."""
         mock_llm = MagicMock()
         mock_llm.ask = AsyncMock(
-            return_value={
-                "content": '{"contradictions": [{"id1": "first", "id2": "second", "reason": "test"}]}'
-            }
+            return_value={"content": '{"contradictions": [{"id1": "first", "id2": "second", "reason": "test"}]}'}
         )
         evidence_list = [
             self._make_evidence("mem-a", "Fact A"),

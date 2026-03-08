@@ -2,6 +2,7 @@ import logging
 from functools import lru_cache
 from inspect import isawaitable
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -50,17 +51,35 @@ logger = logging.getLogger(__name__)
 security_bearer = HTTPBearer(auto_error=False)
 
 
+def _normalize_sandbox_base_url(raw_address: str | None) -> str | None:
+    """Normalize SANDBOX_ADDRESS for Mermaid renderers.
+
+    Supports the existing static-sandbox format where multiple addresses may be
+    provided as a comma-separated list.
+    """
+    if not raw_address:
+        return None
+
+    address = next((part.strip() for part in raw_address.split(",") if part.strip()), "")
+    if not address:
+        return None
+
+    candidate = address if "://" in address else f"http://{address}"
+    parsed = urlsplit(candidate)
+    if not parsed.hostname:
+        return None
+
+    scheme = parsed.scheme or "http"
+    port = parsed.port or 8080
+    return urlunsplit((scheme, f"{parsed.hostname}:{port}", "", "", ""))
+
+
 def build_pdf_renderer_from_settings(settings: Any):
     """Return the configured report PDF renderer with safe fallback."""
     from app.domain.services.pdf.reportlab_pdf_renderer import ReportLabPdfRenderer
 
     # Determine sandbox URL for Mermaid diagram rendering
-    sandbox_url = getattr(settings, "sandbox_address", None)
-    if sandbox_url:
-        if not sandbox_url.startswith("http"):
-            sandbox_url = f"http://{sandbox_url}"
-        if ":8080" not in sandbox_url and ":" not in sandbox_url.split("//", 1)[-1]:
-            sandbox_url = f"{sandbox_url}:8080"
+    sandbox_url = _normalize_sandbox_base_url(getattr(settings, "sandbox_address", None))
 
     reportlab_renderer = ReportLabPdfRenderer(sandbox_base_url=sandbox_url)
     renderer_choice = (getattr(settings, "telegram_pdf_renderer", "reportlab") or "reportlab").strip().lower()
@@ -73,6 +92,7 @@ def build_pdf_renderer_from_settings(settings: Any):
             return PlaywrightPdfRenderer(
                 timeout_ms=timeout_ms,
                 fallback_renderer=reportlab_renderer,
+                sandbox_base_url=sandbox_url,
             )
         except Exception as exc:
             logger.warning("Failed to initialize Playwright PDF renderer; using ReportLab fallback: %s", exc)

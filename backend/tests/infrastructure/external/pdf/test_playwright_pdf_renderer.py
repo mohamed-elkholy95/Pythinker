@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -19,6 +20,7 @@ from app.domain.services.pdf.pdf_renderer import PdfReportRenderer
 from app.infrastructure.external.pdf.playwright_pdf_renderer import (
     PlaywrightPdfRenderer,
     _decorate_reference_ids,
+    _replace_mermaid_placeholders_with_markdown_images,
 )
 
 
@@ -36,6 +38,16 @@ def _reset_metrics_between_tests() -> None:
     reset_all_metrics()
     yield
     reset_all_metrics()
+
+
+def test_replace_mermaid_placeholders_with_markdown_images() -> None:
+    rendered = _replace_mermaid_placeholders_with_markdown_images(
+        "Before\n<!--MERMAID:abc123-->\nAfter",
+        {"abc123": b"png-bytes"},
+    )
+
+    assert "<!--MERMAID:abc123-->" not in rendered
+    assert "data:image/png;base64," in rendered
 
 
 @pytest.mark.asyncio
@@ -105,6 +117,35 @@ async def test_playwright_renderer_emits_linked_citations_and_reference_ids(monk
     assert telegram_pdf_renderer_invocations_total.get({"renderer": "playwright"}) == 1
     assert telegram_pdf_renderer_success_total.get({"renderer": "playwright"}) == 1
     assert telegram_pdf_citation_integrity_total.get({"status": "ok"}) == 1
+
+
+@pytest.mark.asyncio
+async def test_playwright_renderer_preprocesses_mermaid_when_sandbox_available(mocker) -> None:
+    renderer = PlaywrightPdfRenderer(timeout_ms=1_000, sandbox_base_url="http://sandbox:8080")
+    captured_html: dict[str, str] = {}
+
+    mocker.patch(
+        "app.infrastructure.external.pdf.playwright_pdf_renderer.MermaidPreprocessor.preprocess_markdown",
+        AsyncMock(return_value=("<!--MERMAID:abc123-->", {"abc123": b"png-bytes"})),
+    )
+
+    async def _capture(html: str) -> bytes:
+        captured_html["value"] = html
+        return b"pdf-bytes"
+
+    mocker.patch.object(renderer, "_render_with_playwright", _capture)
+
+    payload = ReportPdfPayload(
+        title="Mermaid",
+        markdown_content="```mermaid\ngraph TD\n  A-->B\n```",
+        sources=[],
+        generated_at=datetime.now(UTC),
+    )
+
+    pdf = await renderer.render(payload)
+
+    assert pdf == b"pdf-bytes"
+    assert "data:image/png;base64," in captured_html["value"]
 
 
 @pytest.mark.asyncio
