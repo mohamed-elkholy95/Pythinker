@@ -19,7 +19,12 @@ class ChannelSettingsMixin:
     telegram_allowed_users: list[str] = Field(default_factory=list)
     telegram_webhook_mode: bool = False
     telegram_webhook_url: str = ""
+    telegram_webhook_secret: str = ""
+    telegram_webhook_path: str = "/telegram-webhook"
+    telegram_webhook_host: str = "127.0.0.1"
+    telegram_webhook_port: int = 8787
     telegram_proxy_url: str = ""
+    telegram_reply_to_mode: str = "off"
     telegram_require_linked_account: bool = False
     telegram_reuse_completed_sessions: bool = True
     telegram_session_idle_timeout_hours: int = 168
