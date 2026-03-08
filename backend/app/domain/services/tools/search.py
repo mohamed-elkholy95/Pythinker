@@ -445,6 +445,7 @@ class SearchTool(BaseTool):
         max_observe: int | None = None,
         search_prefer_browser: bool | None = None,
         scraper: "Scraper | None" = None,
+        complexity_score: float | None = None,
     ):
         """Initialize search tool class
 
@@ -481,6 +482,12 @@ class SearchTool(BaseTool):
             max_wide_research=settings.max_wide_research_calls_per_task,
         )
         self._max_wide_queries = settings.max_wide_research_queries
+        self._complexity_score = complexity_score
+        self._effective_max_wide_queries = (
+            settings.max_wide_research_queries_complex
+            if complexity_score is not None and complexity_score >= 0.8
+            else settings.max_wide_research_queries
+        )
         self._dedup_skip = settings.search_dedup_skip_existing
 
         # Quota manager integration (feature-flagged, zero behavior change when disabled)
@@ -503,6 +510,18 @@ class SearchTool(BaseTool):
         # context here so that dedup-blocked queries can return cached
         # results instead of failing with 0 results.
         self._pre_planning_context: str | None = None
+
+    def set_complexity_score(self, score: float | None) -> None:
+        """Update complexity score after construction."""
+        self._complexity_score = score
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        self._effective_max_wide_queries = (
+            settings.max_wide_research_queries_complex
+            if score is not None and score >= 0.8
+            else settings.max_wide_research_queries
+        )
 
     async def _schedule_background_preview(self, search_data: Any, count: int = 3) -> None:
         """Schedule at most one fire-and-forget preview task for top search URLs.
@@ -1373,10 +1392,15 @@ wide_research(
                 data=SearchResults(query=topic, date_range=date_range),
             )
 
-        # Clamp queries list to configured maximum
-        if len(queries) > self._max_wide_queries:
-            logger.warning(f"Wide research queries clamped: {len(queries)} → {self._max_wide_queries}")
-            queries = queries[: self._max_wide_queries]
+        # Clamp queries list to configured maximum (complexity-aware)
+        if len(queries) > self._effective_max_wide_queries:
+            logger.warning(
+                "Wide research queries clamped: %d → %d (complexity=%s)",
+                len(queries),
+                self._effective_max_wide_queries,
+                self._complexity_score,
+            )
+            queries = queries[: self._effective_max_wide_queries]
 
         # Parse search types
         if search_types is None:

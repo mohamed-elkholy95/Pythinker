@@ -58,7 +58,8 @@ class SearchSettingsMixin:
 
     # Search API budget limits (per agent task)
     max_search_api_calls_per_task: int = 15  # Hard cap on API calls per task
-    max_wide_research_queries: int = 3  # Max queries in a single wide_research call
+    max_wide_research_queries: int = 3  # Max queries in a single wide_research call (default for simple/medium)
+    max_wide_research_queries_complex: int = 5  # Max queries for very_complex tasks (complexity >= 0.8)
     max_wide_research_calls_per_task: int = 2  # Max wide_research invocations per task
     search_cache_ttl: int = 7200  # Cache TTL in seconds (default 2h)
     search_dedup_skip_existing: bool = True  # Skip API call if TaskStateManager says already searched
