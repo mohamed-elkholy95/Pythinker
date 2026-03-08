@@ -231,6 +231,11 @@ class AgentTaskRunner(TaskRunner):
             self._flow_selection_reason,
         )
 
+    @property
+    def session_id(self) -> str:
+        """Session ID -- exposed for RedisStreamTask liveness signal."""
+        return self._session_id
+
     def _fire_and_forget(self, coro: object) -> None:
         """Create a fire-and-forget task with proper reference tracking."""
         task = asyncio.create_task(coro)  # type: ignore[arg-type]
