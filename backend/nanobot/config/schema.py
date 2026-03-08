@@ -23,17 +23,53 @@ class WhatsAppConfig(Base):
     allow_from: list[str] = Field(default_factory=list)  # Allowed phone numbers
 
 
+class TelegramTopicRule(Base):
+    """Per-topic Telegram access override."""
+
+    enabled: bool = True
+    require_mention: bool | None = None
+    group_policy: Literal["open", "mention", "allowlist", "disabled"] | None = None
+    allow_from: list[str] = Field(default_factory=list)
+
+
+class TelegramGroupRule(Base):
+    """Per-group Telegram access override."""
+
+    enabled: bool = True
+    require_mention: bool | None = None
+    group_policy: Literal["open", "mention", "allowlist", "disabled"] | None = None
+    allow_from: list[str] = Field(default_factory=list)
+    topics: dict[str, TelegramTopicRule] = Field(default_factory=dict)
+
+
+class TelegramDirectRule(Base):
+    """Per-direct-chat Telegram access override."""
+
+    enabled: bool = True
+    dm_policy: Literal["open", "allowlist", "pairing", "disabled"] | None = None
+    allow_from: list[str] = Field(default_factory=list)
+    topics: dict[str, TelegramTopicRule] = Field(default_factory=dict)
+
+
 class TelegramConfig(Base):
     """Telegram channel configuration."""
 
     enabled: bool = False
     token: str = ""  # Bot token from @BotFather
     allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs or usernames
+    reaction_notifications: Literal["off", "own", "all"] = "own"
+    dm_policy: Literal["open", "allowlist", "pairing", "disabled"] = "open"
+    group_policy: Literal["open", "mention", "allowlist", "disabled"] = "open"
+    group_require_mention: bool = False
+    group_allow_from: list[str] = Field(default_factory=list)
+    groups: dict[str, TelegramGroupRule] = Field(default_factory=dict)
+    direct: dict[str, TelegramDirectRule] = Field(default_factory=dict)
     proxy: str | None = None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
     reply_to_message: bool = False  # If true, bot replies quote the original message
     reply_to_mode: Literal["off", "first", "all"] = "off"
     rate_limit_cooldown_seconds: int = 3  # Cooldown used for RetryAfter/transient retries
     max_messages_per_batch: int = 5  # Hard limit for split text chunks per outbound message
+    inline_buttons_scope: Literal["off", "dm", "group", "all", "allowlist"] = "allowlist"
     pdf_file_id_cache_redis_enabled: bool = False  # Toggle Redis file_id cache for repeated PDFs
     final_delivery_only: bool = True  # Send only final answer artifact (no inline step chatter)
     final_delivery_allow_wait_prompts: bool = True  # Allow user-input wait prompts even in final-only mode
@@ -48,7 +84,7 @@ class TelegramConfig(Base):
     webhook_port: int = 8787
     polling_bootstrap_retries: int = 5  # PTB polling bootstrap retries
     polling_stall_restart_enabled: bool = True  # Enable channel restart on stall detection
-    polling_stall_timeout_seconds: int = 60  # Stall timeout before requesting restart
+    polling_stall_timeout_seconds: float = 60.0  # Stall timeout before requesting restart
     send_retry_max_attempts: int = 5  # Max attempts for outbound Telegram API calls
     send_retry_base_delay_seconds: float = 1.0  # Retry backoff base delay
     send_retry_max_delay_seconds: float = 30.0  # Retry backoff max delay cap

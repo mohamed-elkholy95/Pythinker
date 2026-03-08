@@ -4,6 +4,8 @@ All features are **disabled by default** (False) to ensure zero impact on existi
 deployments.  Enable via environment variables when ready to activate.
 """
 
+from typing import Literal
+
 from pydantic import Field
 
 
@@ -24,6 +26,13 @@ class ChannelSettingsMixin:
     telegram_webhook_host: str = "127.0.0.1"
     telegram_webhook_port: int = 8787
     telegram_proxy_url: str = ""
+    telegram_reaction_notifications: str = "own"
+    telegram_dm_policy: str = "open"
+    telegram_group_policy: str = "open"
+    telegram_group_require_mention: bool = False
+    telegram_group_allowed_users: list[str] = Field(default_factory=list)
+    telegram_groups: dict[str, dict[str, object]] = Field(default_factory=dict)
+    telegram_direct: dict[str, dict[str, object]] = Field(default_factory=dict)
     telegram_reply_to_mode: str = "off"
     telegram_require_linked_account: bool = False
     telegram_reuse_completed_sessions: bool = True
@@ -51,6 +60,7 @@ class ChannelSettingsMixin:
     telegram_pdf_max_memory_mb: int = 100
     telegram_rate_limit_cooldown_seconds: int = 3
     telegram_max_messages_per_batch: int = 5
+    telegram_inline_buttons_scope: Literal["off", "dm", "group", "all", "allowlist"] = "allowlist"
     telegram_final_delivery_only: bool = True
     telegram_final_delivery_allow_wait_prompts: bool = True
     telegram_streaming: str = "partial"
@@ -58,7 +68,7 @@ class ChannelSettingsMixin:
     telegram_streaming_min_initial_chars: int = 30
     telegram_polling_bootstrap_retries: int = 5
     telegram_polling_stall_restart_enabled: bool = True
-    telegram_polling_stall_timeout_seconds: int = 60
+    telegram_polling_stall_timeout_seconds: float = 60.0
     telegram_send_retry_max_attempts: int = 5
     telegram_send_retry_base_delay_seconds: float = 1.0
     telegram_send_retry_max_delay_seconds: float = 30.0
