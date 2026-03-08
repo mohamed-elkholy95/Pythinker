@@ -100,9 +100,9 @@ RUN if [ "$TARGETARCH" = "arm64" ] && [ "$USE_CHROMIUM" != "1" ]; then \
 # yarn 1.22.22 matches the reference sandbox environment (report §3.1)
 RUN npm install -g prettier eslint typescript jest @types/node yarn@1.22.22 @mermaid-js/mermaid-cli
 
-# Mermaid CLI puppeteer config for containerized rendering
+# Mermaid CLI puppeteer config for containerized rendering (uses Playwright Chromium)
 COPY <<'EOF' /opt/mermaid-puppeteer.json
-{"args":["--no-sandbox","--disable-setuid-sandbox","--disable-gpu"]}
+{"executablePath":"/usr/bin/chromium-browser","args":["--no-sandbox","--disable-setuid-sandbox","--disable-gpu"]}
 EOF
 
 # Optional pnpm globals (add-ons profile)
@@ -217,6 +217,9 @@ COPY --from=builder /usr/lib/python3.11 /usr/lib/python3.11
 COPY --from=builder /usr/bin/python3.11 /usr/bin/python3.11
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=builder /home/ubuntu/.local/share/pnpm /home/ubuntu/.local/share/pnpm
+
+# Mermaid CLI puppeteer config for containerized rendering (uses Playwright Chromium)
+RUN echo '{"executablePath":"/usr/bin/chromium-browser","args":["--no-sandbox","--disable-setuid-sandbox","--disable-gpu"]}' > /opt/mermaid-puppeteer.json
 
 ENV NVM_DIR=/usr/local/nvm
 ENV NODE_VERSION=22.13.0
