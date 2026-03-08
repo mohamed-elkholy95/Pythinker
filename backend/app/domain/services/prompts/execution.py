@@ -1385,7 +1385,9 @@ CITATION REQUIREMENTS:
 
     # Citation numbering discipline (3B)
     if has_sources and source_list:
-        source_count = len([ln for ln in source_list.strip().splitlines() if ln.strip()])
+        from app.domain.services.agents.citation_integrity import count_numbered_sources
+
+        source_count = count_numbered_sources(source_list)
         if source_count > 0:
             parts.append(
                 f"\n## Citation Discipline\n"
