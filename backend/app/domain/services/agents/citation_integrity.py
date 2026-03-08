@@ -238,6 +238,40 @@ def rebase_continuation_citations(base_text: str, continuation_text: str) -> str
     return rebased
 
 
+def parse_numbered_source_entries(source_list: str) -> dict[int, str]:
+    """Parse a numbered bibliography into a dict mapping entry number to full entry text.
+
+    Handles multiline titles by joining continuation lines with the preceding
+    numbered entry.  For example:
+        [1] Source Title Line 1
+        Continuation of title - https://one.example
+        [2] Source Two - https://two.example
+    yields {1: "[1] Source Title Line 1 Continuation of title - ...", 2: "[2] ..."}
+    """
+    entries: dict[int, str] = {}
+    current_number: int | None = None
+    current_lines: list[str] = []
+
+    for raw_line in source_list.splitlines():
+        match = re.match(r"^\s*\[(\d+)\]\s+(.+)$", raw_line)
+        if match:
+            if current_number is not None and current_lines:
+                entries[current_number] = " ".join(current_lines).strip()
+            current_number = int(match.group(1))
+            current_lines = [match.group(0).strip()]
+        elif current_number is not None and raw_line.strip():
+            current_lines.append(raw_line.strip())
+
+    if current_number is not None and current_lines:
+        entries[current_number] = " ".join(current_lines).strip()
+    return entries
+
+
+def count_numbered_sources(source_list: str) -> int:
+    """Count the number of distinct [N] entries in a bibliography string."""
+    return len(parse_numbered_source_entries(source_list))
+
+
 def repair_citations(report_content: str, source_list: str) -> str:
     """Attempt to repair citation integrity issues by appending missing reference entries.
 
@@ -254,19 +288,67 @@ def repair_citations(report_content: str, source_list: str) -> str:
     if not report_content:
         return report_content
 
-    result = validate_citations(report_content)
-    if result.is_valid:
-        return report_content
-
     repaired = report_content
 
-    # Repair orphan citations from provided source list when possible.
-    if result.orphan_citations and source_list:
-        source_entries: dict[int, str] = {}
-        for m in _REF_ENTRY_RE.finditer(source_list):
-            source_entries[int(m.group(1))] = m.group(0).strip()
+    # Parse authoritative source entries when available.
+    authoritative_entries = parse_numbered_source_entries(source_list) if source_list else {}
 
-        repairs = [source_entries[num] for num in result.orphan_citations if num in source_entries]
+    result = validate_citations(report_content)
+    # If structurally valid AND no authoritative list to check against, return early.
+    if result.is_valid and not authoritative_entries:
+        return report_content
+
+    # --- Phase 1: Rebuild fabricated references from authoritative list ---
+    # If the authoritative list is available, validate each existing reference
+    # entry and replace fabricated ones with the authoritative text.
+    if authoritative_entries:
+        ref_match = _REF_SECTION_RE.search(repaired)
+        if ref_match:
+            body = repaired[: ref_match.start()]
+            ref_section = repaired[ref_match.end() :]
+
+            # Collect inline citation numbers from the body
+            inline_nums = sorted({int(m.group(1)) for m in _INLINE_CITATION_RE.finditer(body)})
+            valid_inline_nums = [n for n in inline_nums if n in authoritative_entries]
+
+            # Check each existing reference entry against authoritative list.
+            # A reference is "fabricated" if its number is absent from the
+            # authoritative list OR its URL doesn't match the authoritative URL.
+            existing_ref_nums: set[int] = set()
+            fabricated_count = 0
+            for m in _REF_ENTRY_RE.finditer(ref_section):
+                num = int(m.group(1))
+                existing_ref_nums.add(num)
+                if num not in authoritative_entries:
+                    fabricated_count += 1
+                else:
+                    # Compare URLs: extract URL from both entries
+                    existing_url = _URL_RE.search(m.group(2))
+                    auth_url = _URL_RE.search(authoritative_entries[num])
+                    if existing_url and auth_url:
+                        if existing_url.group(0).rstrip("/") != auth_url.group(0).rstrip("/"):
+                            fabricated_count += 1
+
+            # If any reference entries are fabricated, rebuild the entire section
+            # from the authoritative list
+            if fabricated_count > 0:
+                rebuilt_lines = [
+                    authoritative_entries[n] for n in valid_inline_nums if n in authoritative_entries
+                ]
+                if rebuilt_lines:
+                    repaired = body.rstrip() + "\n\n## References\n" + "\n".join(rebuilt_lines) + "\n"
+                    logger.info(
+                        "Rebuilt %d reference(s) from authoritative source list (removed %d fabricated)",
+                        len(rebuilt_lines),
+                        fabricated_count,
+                    )
+
+    # --- Phase 2: Repair orphan citations from authoritative source list ---
+    result = validate_citations(repaired)
+    if result.orphan_citations and authoritative_entries:
+        repairs = [
+            authoritative_entries[num] for num in result.orphan_citations if num in authoritative_entries
+        ]
         if repairs:
             ref_match = _REF_SECTION_RE.search(repaired)
             if ref_match:
