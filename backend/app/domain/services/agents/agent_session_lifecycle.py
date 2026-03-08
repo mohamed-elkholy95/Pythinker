@@ -141,7 +141,8 @@ class AgentSessionLifecycle:
             return
 
         task = await self._get_task(target_session)
-        if task:
+        effective_status = status or target_session.status
+        if task and effective_status != SessionStatus.COMPLETED:
             task.cancel()
 
         # Atomically update task_id + status in a single MongoDB $set so no

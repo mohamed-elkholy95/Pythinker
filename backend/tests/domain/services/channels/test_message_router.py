@@ -255,6 +255,49 @@ class TestRouteInbound:
         agent_svc.create_session.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_route_persists_generated_telegram_pdf_artifact(self, tmp_path: Path) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        report_event = _DynamicReportEvent("Research Report", "A" * 500)
+        agent_svc = _make_agent_service(events=[report_event])
+        agent_svc.persist_generated_artifact = AsyncMock()
+        telegram_policy = MagicMock()
+        telegram_policy.build_for_event = AsyncMock(
+            return_value=[
+                MagicMock(
+                    content="",
+                    channel=ChannelType.TELEGRAM,
+                    chat_id="tg-chat-99",
+                    reply_to="reply-1",
+                    metadata={
+                        "delivery_mode": "pdf_only",
+                        "content_hash": "abc123",
+                        "event_type": "report",
+                        "report_title": "Research Report",
+                    },
+                    media=[
+                        MagicMock(
+                            url=str(tmp_path / "report.pdf"),
+                            mime_type="application/pdf",
+                            filename="report.pdf",
+                            size_bytes=12,
+                        )
+                    ],
+                )
+            ]
+        )
+        (tmp_path / "report.pdf").write_bytes(b"%PDF-1.4 test")
+        router = MessageRouter(agent_svc, repo, telegram_delivery_policy=telegram_policy)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("Create report"))]
+
+        assert len(replies) == 1
+        agent_svc.persist_generated_artifact.assert_awaited_once()
+        call = agent_svc.persist_generated_artifact.await_args.kwargs
+        assert call["session_id"] == "sess-123"
+        assert call["content_type"] == "application/pdf"
+        assert call["virtual_path"].endswith("/telegram_pdf_abc123.pdf")
+
+    @pytest.mark.asyncio
     async def test_route_completed_session_not_reused_for_non_telegram(self) -> None:
         """Non-Telegram channels keep existing terminal-session rotation behavior."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
