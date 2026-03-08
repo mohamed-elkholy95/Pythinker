@@ -14,7 +14,7 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from nanobot.bus.events import InboundMessage as NbInbound
 from nanobot.bus.events import OutboundMessage as NbOutbound
@@ -30,7 +30,7 @@ from nanobot.config.schema import (
     WhatsAppConfig,
 )
 
-from app.domain.models.channel import ChannelType, InboundMessage, OutboundMessage
+from app.domain.models.channel import ChannelType, InboundMessage, MediaAttachment, OutboundMessage
 
 if TYPE_CHECKING:
     from app.domain.services.channels.message_router import MessageRouter
@@ -86,9 +86,18 @@ class NanobotGateway:
         telegram_webhook_path: str = "/telegram-webhook",
         telegram_webhook_host: str = "127.0.0.1",
         telegram_webhook_port: int = 8787,
+        telegram_proxy_url: str = "",
+        telegram_reaction_notifications: str = "own",
+        telegram_dm_policy: str = "open",
+        telegram_group_policy: str = "open",
+        telegram_group_require_mention: bool = False,
+        telegram_group_allowed: list[str] | None = None,
+        telegram_groups: dict[str, dict[str, object]] | None = None,
+        telegram_direct: dict[str, dict[str, object]] | None = None,
         telegram_reply_to_mode: str = "off",
         telegram_rate_limit_cooldown_seconds: int = 3,
         telegram_max_messages_per_batch: int = 5,
+        telegram_inline_buttons_scope: Literal["off", "dm", "group", "all", "allowlist"] = "allowlist",
         telegram_pdf_file_id_cache_redis_enabled: bool = False,
         telegram_final_delivery_only: bool = True,
         telegram_final_delivery_allow_wait_prompts: bool = True,
@@ -97,7 +106,7 @@ class NanobotGateway:
         telegram_streaming_min_initial_chars: int = 30,
         telegram_polling_bootstrap_retries: int = 5,
         telegram_polling_stall_restart_enabled: bool = True,
-        telegram_polling_stall_timeout_seconds: int = 60,
+        telegram_polling_stall_timeout_seconds: float = 60.0,
         telegram_send_retry_max_attempts: int = 5,
         telegram_send_retry_base_delay_seconds: float = 1.0,
         telegram_send_retry_max_delay_seconds: float = 30.0,
@@ -156,9 +165,18 @@ class NanobotGateway:
                 webhook_path=telegram_webhook_path,
                 webhook_host=telegram_webhook_host,
                 webhook_port=telegram_webhook_port,
+                proxy=telegram_proxy_url or None,
+                reaction_notifications=telegram_reaction_notifications,
+                dm_policy=telegram_dm_policy,
+                group_policy=telegram_group_policy,
+                group_require_mention=telegram_group_require_mention,
+                group_allow_from=telegram_group_allowed or [],
+                groups=telegram_groups or {},
+                direct=telegram_direct or {},
                 reply_to_mode=telegram_reply_to_mode,
                 rate_limit_cooldown_seconds=telegram_rate_limit_cooldown_seconds,
                 max_messages_per_batch=telegram_max_messages_per_batch,
+                inline_buttons_scope=telegram_inline_buttons_scope,
                 pdf_file_id_cache_redis_enabled=telegram_pdf_file_id_cache_redis_enabled,
                 final_delivery_only=telegram_final_delivery_only,
                 final_delivery_allow_wait_prompts=telegram_final_delivery_allow_wait_prompts,
@@ -269,13 +287,26 @@ class NanobotGateway:
             )
             return
 
+        metadata = dict(message.metadata)
+        if message.media:
+            metadata["media_attachments"] = [
+                {
+                    "url": media.url,
+                    "content_type": media.mime_type,
+                    "filename": media.filename,
+                    "size": media.size_bytes,
+                    "metadata": media.metadata,
+                }
+                for media in message.media
+            ]
+
         nb_outbound = NbOutbound(
             channel=nb_channel,
             chat_id=message.chat_id,
             content=message.content,
             reply_to=message.reply_to,
             media=[m.url for m in message.media],
-            metadata=message.metadata,
+            metadata=metadata,
         )
         await self._bus.publish_outbound(nb_outbound)
 
@@ -555,12 +586,58 @@ class NanobotGateway:
     def _convert_inbound(nb_msg: NbInbound) -> InboundMessage:
         """Convert a nanobot ``InboundMessage`` to a Pythinker ``InboundMessage``."""
         channel_type = _CHANNEL_MAP.get(nb_msg.channel, ChannelType.WEB)
+        attachments: list[MediaAttachment] = []
+        raw_media_attachments = nb_msg.metadata.get("media_attachments", [])
+        if isinstance(raw_media_attachments, list):
+            for item in raw_media_attachments:
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("url", "") or "").strip()
+                if not url:
+                    continue
+                size_bytes = item.get("size", 0)
+                attachments.append(
+                    MediaAttachment(
+                        url=url,
+                        mime_type=str(item.get("content_type", "") or ""),
+                        filename=str(item.get("filename", "") or ""),
+                        size_bytes=size_bytes if isinstance(size_bytes, int) else 0,
+                        metadata={
+                            **({"type": item["type"]} if "type" in item else {}),
+                            **(item.get("metadata", {}) if isinstance(item.get("metadata"), dict) else {}),
+                        },
+                    )
+                )
+
+        if not attachments:
+            raw_media_items = nb_msg.metadata.get("media_items", [])
+            if isinstance(raw_media_items, list):
+                for item in raw_media_items:
+                    if not isinstance(item, dict):
+                        continue
+                    url = str(item.get("url", "") or "").strip()
+                    if not url:
+                        continue
+                    size_bytes = item.get("size_bytes", 0)
+                    attachments.append(
+                        MediaAttachment(
+                            url=url,
+                            mime_type=str(item.get("mime_type", "") or ""),
+                            filename=str(item.get("filename", "") or ""),
+                            size_bytes=size_bytes if isinstance(size_bytes, int) else 0,
+                        )
+                    )
+
+        if not attachments:
+            attachments = [MediaAttachment(url=str(url)) for url in nb_msg.media if str(url).strip()]
+
         return InboundMessage(
             channel=channel_type,
             sender_id=nb_msg.sender_id,
             chat_id=nb_msg.chat_id,
             content=nb_msg.content,
             timestamp=nb_msg.timestamp,
+            media=attachments,
             metadata=nb_msg.metadata,
             session_key_override=nb_msg.session_key_override,
         )

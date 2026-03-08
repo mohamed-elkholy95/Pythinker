@@ -141,8 +141,17 @@ class TestSendToChannel:
             chat_id="chat_123",
             content="Here is a file",
             media=[
-                MediaAttachment(url="https://example.com/file.pdf", mime_type="application/pdf"),
-                MediaAttachment(url="https://example.com/img.png", mime_type="image/png"),
+                MediaAttachment(
+                    url="https://example.com/file.pdf",
+                    mime_type="application/pdf",
+                    filename="file.pdf",
+                ),
+                MediaAttachment(
+                    url="https://example.com/img.png",
+                    mime_type="image/png",
+                    filename="img.png",
+                    metadata={"telegram": {"file_id": "img-file-id"}},
+                ),
             ],
         )
 
@@ -153,6 +162,22 @@ class TestSendToChannel:
         assert nb_msg.media == [
             "https://example.com/file.pdf",
             "https://example.com/img.png",
+        ]
+        assert nb_msg.metadata["media_attachments"] == [
+            {
+                "url": "https://example.com/file.pdf",
+                "content_type": "application/pdf",
+                "filename": "file.pdf",
+                "size": 0,
+                "metadata": {},
+            },
+            {
+                "url": "https://example.com/img.png",
+                "content_type": "image/png",
+                "filename": "img.png",
+                "size": 0,
+                "metadata": {"telegram": {"file_id": "img-file-id"}},
+            },
         ]
 
     @pytest.mark.asyncio()
@@ -279,6 +304,7 @@ class TestTelegramConfigWiring:
                 telegram_webhook_path="/telegram-webhook",
                 telegram_webhook_host="127.0.0.1",
                 telegram_webhook_port=8787,
+                telegram_proxy_url="socks5://127.0.0.1:1080",
             )
 
         assert gw is not None
@@ -296,6 +322,57 @@ class TestTelegramConfigWiring:
         assert telegram_cfg.webhook_path == "/telegram-webhook"
         assert telegram_cfg.webhook_host == "127.0.0.1"
         assert telegram_cfg.webhook_port == 8787
+        assert telegram_cfg.proxy == "socks5://127.0.0.1:1080"
+
+    def test_gateway_passes_telegram_policy_settings(self, mock_router: MagicMock) -> None:
+        with patch(_PATCH_CM) as mock_cls:
+            mock_cls.return_value = _make_mock_cm(["telegram"])
+            gw = NanobotGateway(
+                message_router=mock_router,
+                telegram_token="123:FAKE_TOKEN",
+                telegram_allowed=["111"],
+                telegram_inline_buttons_scope="group",
+                telegram_reaction_notifications="all",
+                telegram_dm_policy="pairing",
+                telegram_group_policy="allowlist",
+                telegram_group_require_mention=True,
+                telegram_group_allowed=["222", "333"],
+                telegram_groups={
+                    "-100123": {
+                        "enabled": True,
+                        "allow_from": ["444"],
+                        "topics": {
+                            "42": {
+                                "require_mention": True,
+                                "allow_from": ["555"],
+                            }
+                        },
+                    }
+                },
+                telegram_direct={
+                    "123456789": {
+                        "dm_policy": "allowlist",
+                        "allow_from": ["666"],
+                    }
+                },
+            )
+
+        assert gw is not None
+        call_args = mock_cls.call_args
+        assert call_args is not None
+        config_arg = call_args.args[0]
+        telegram_cfg = config_arg.channels.telegram
+        assert telegram_cfg.inline_buttons_scope == "group"
+        assert telegram_cfg.reaction_notifications == "all"
+        assert telegram_cfg.dm_policy == "pairing"
+        assert telegram_cfg.group_policy == "allowlist"
+        assert telegram_cfg.group_require_mention is True
+        assert telegram_cfg.group_allow_from == ["222", "333"]
+        assert telegram_cfg.groups["-100123"].allow_from == ["444"]
+        assert telegram_cfg.groups["-100123"].topics["42"].require_mention is True
+        assert telegram_cfg.groups["-100123"].topics["42"].allow_from == ["555"]
+        assert telegram_cfg.direct["123456789"].dm_policy == "allowlist"
+        assert telegram_cfg.direct["123456789"].allow_from == ["666"]
 
     def test_convert_inbound_preserves_session_key_override(self) -> None:
         nb_msg = NbInbound(
@@ -312,6 +389,95 @@ class TestTelegramConfigWiring:
         assert converted.channel == ChannelType.TELEGRAM
         assert converted.session_key_override == "telegram:group:chat-1:topic:42"
         assert converted.metadata == {"message_id": 99}
+
+    def test_convert_inbound_preserves_media_attachments(self) -> None:
+        nb_msg = NbInbound(
+            channel="telegram",
+            sender_id="123|john",
+            chat_id="chat-1",
+            content="[sticker]",
+            media=["/tmp/sticker.webp"],
+            metadata={
+                "message_id": 99,
+                "media_attachments": [
+                    {
+                        "url": "/tmp/sticker.webp",
+                        "content_type": "image/webp",
+                        "filename": "sticker.webp",
+                        "size": 321,
+                        "type": "sticker",
+                        "metadata": {
+                            "telegram": {
+                                "file_id": "sticker-file-id",
+                                "file_unique_id": "unique-sticker",
+                                "emoji": "🔥",
+                                "set_name": "reactions",
+                            }
+                        },
+                    }
+                ],
+            },
+            session_key_override="telegram:direct:123",
+        )
+
+        converted = NanobotGateway._convert_inbound(nb_msg)
+
+        assert converted.media == [
+            MediaAttachment(
+                url="/tmp/sticker.webp",
+                mime_type="image/webp",
+                filename="sticker.webp",
+                size_bytes=321,
+                metadata={
+                    "type": "sticker",
+                    "telegram": {
+                        "file_id": "sticker-file-id",
+                        "file_unique_id": "unique-sticker",
+                        "emoji": "🔥",
+                        "set_name": "reactions",
+                    },
+                },
+            )
+        ]
+
+    def test_convert_inbound_preserves_structured_media_items(self) -> None:
+        nb_msg = NbInbound(
+            channel="telegram",
+            sender_id="123|john",
+            chat_id="chat-1",
+            content="[image: /tmp/photo.jpg]",
+            media=["/tmp/photo.jpg"],
+            metadata={
+                "message_id": 99,
+                "media_items": [
+                    {
+                        "url": "/tmp/photo.jpg",
+                        "mime_type": "image/jpeg",
+                        "filename": "photo.jpg",
+                        "size_bytes": 321,
+                    }
+                ],
+            },
+        )
+
+        converted = NanobotGateway._convert_inbound(nb_msg)
+
+        assert converted.media == [
+            MediaAttachment(
+                url="/tmp/photo.jpg",
+                mime_type="image/jpeg",
+                filename="photo.jpg",
+                size_bytes=321,
+            )
+        ]
+        assert converted.metadata["media_items"] == [
+            {
+                "url": "/tmp/photo.jpg",
+                "mime_type": "image/jpeg",
+                "filename": "photo.jpg",
+                "size_bytes": 321,
+            }
+        ]
 
 
 class TestChannelMapping:
