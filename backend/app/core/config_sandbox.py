@@ -145,6 +145,10 @@ class BrowserSettingsMixin:
     browser_quick_health_check_enabled: bool = True  # Enable fast health check before operations
     browser_quick_health_check_timeout: float = 3.0  # Fast health check timeout (3s)
 
+    # CDP keepalive (prevents idle WebSocket disconnects)
+    browser_cdp_keepalive_enabled: bool = True  # Enable periodic JS eval to keep CDP alive
+    browser_cdp_keepalive_interval: float = 45.0  # Seconds between keepalive probes
+
     # Browser element extraction configuration (Phase 6: fix timeouts)
     browser_element_extraction_timeout: float = 5.0  # Timeout for interactive element extraction (seconds)
     browser_element_extraction_retries: int = 2  # Number of retries for element extraction
