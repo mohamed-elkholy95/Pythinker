@@ -97,6 +97,7 @@ mcp.json
 .claude/
 app_ui_design.mov
 nanobot-main
+openclaw-main
 # Git worktrees
 .worktrees/
 design1.html
