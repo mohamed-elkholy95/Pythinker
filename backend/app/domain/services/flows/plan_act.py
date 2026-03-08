@@ -2309,6 +2309,10 @@ class PlanActFlow(BaseFlow):
             # Cache complexity for skip-update optimization
             self._cached_complexity = assessment.score
 
+            # Propagate complexity to SearchTool for query limit scaling
+            if self._search_tool is not None:
+                self._search_tool.set_complexity_score(assessment.score)
+
             # Apply iteration limit to executor
             self.executor.max_iterations = assessment.recommended_iterations
 
@@ -2328,6 +2332,9 @@ class PlanActFlow(BaseFlow):
             # Cache existing complexity score
             if session.complexity_score is not None:
                 self._cached_complexity = session.complexity_score
+                # Propagate complexity to SearchTool for query limit scaling
+                if self._search_tool is not None:
+                    self._search_tool.set_complexity_score(session.complexity_score)
             logger.debug(f"Applying existing iteration limit: {session.iteration_limit_override}")
 
         # Load user settings for adaptive verbosity and clarification policy
