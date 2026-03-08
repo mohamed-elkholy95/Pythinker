@@ -286,9 +286,8 @@ class LettuceVerifier:
                 #    context starvation, not genuine hallucination
                 # 2. Moderate: ratio > 25% AND coverage < 35% — likely
                 #    insufficient context for synthesis-heavy research reports
-                _suppress = (
-                    (result.hallucination_ratio > 0.40 and context_coverage < 0.50)
-                    or (result.hallucination_ratio > 0.25 and context_coverage < 0.35)
+                _suppress = (result.hallucination_ratio > 0.40 and context_coverage < 0.50) or (
+                    result.hallucination_ratio > 0.25 and context_coverage < 0.35
                 )
                 if _suppress:
                     logger.warning(

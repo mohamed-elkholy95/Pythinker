@@ -89,3 +89,31 @@ async def test_tavily_works_without_redis():
 
     # Verify pool is in in-memory mode
     assert engine._key_pool._redis is None
+
+
+def test_build_request_params_uses_tavily_time_range() -> None:
+    engine = TavilySearchEngine(api_key="test-key")
+
+    params = engine._build_request_params("latest AI news", "past_week")
+
+    assert params["query"] == "latest AI news"
+    assert params["time_range"] == "week"
+    assert params["search_depth"] == "basic"
+
+
+def test_build_request_params_uses_recent_hint_for_past_hour() -> None:
+    engine = TavilySearchEngine(api_key="test-key")
+
+    params = engine._build_request_params("latest AI news", "past_hour")
+
+    assert "time_range" not in params
+    assert params["query"] == "latest AI news recent"
+
+
+def test_build_request_params_omits_time_range_for_unknown_ranges() -> None:
+    engine = TavilySearchEngine(api_key="test-key")
+
+    params = engine._build_request_params("latest AI news", "future_century")
+
+    assert "time_range" not in params
+    assert params["query"] == "latest AI news"
