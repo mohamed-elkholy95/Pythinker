@@ -1492,8 +1492,16 @@ wide_research(
 
             _s = _get_settings()
             if _s.scraping_spider_enabled:
+                from app.infrastructure.external.scraper.research_spider import should_skip_spider
+
                 top_k = _s.scraping_spider_top_k
-                top_urls = [item.link for item in all_items[:top_k] if item.link and not _is_pdf_url(item.link)]
+                spider_candidates = [
+                    item.link for item in all_items[:top_k] if item.link and not _is_pdf_url(item.link)
+                ]
+                denied_count = sum(1 for u in spider_candidates if should_skip_spider(u))
+                top_urls = [u for u in spider_candidates if not should_skip_spider(u)]
+                if denied_count:
+                    logger.info("Skipped %d denied-domain URL(s) from spider enrichment", denied_count)
                 if top_urls:
                     logger.info(
                         "Spider-enriching %d URLs for wide_research on '%s'",
