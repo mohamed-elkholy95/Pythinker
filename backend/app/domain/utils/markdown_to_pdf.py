@@ -18,6 +18,7 @@ from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
     HRFlowable,
+    Image,
     ListFlowable,
     ListItem,
     PageBreak,
@@ -136,7 +137,12 @@ def register_unicode_font(preferred_font: str = "DejaVuSans") -> str:
     return "Helvetica"
 
 
-def markdown_to_flowables(content: str, *, styles: StyleSheet1 | None = None) -> list[Flowable]:
+def markdown_to_flowables(
+    content: str,
+    *,
+    styles: StyleSheet1 | None = None,
+    mermaid_images: dict[str, bytes] | None = None,
+) -> list[Flowable]:
     """Convert Markdown content into ReportLab flowables."""
     safe_content = content or ""
     sheet = styles or _build_styles()
@@ -161,6 +167,30 @@ def markdown_to_flowables(content: str, *, styles: StyleSheet1 | None = None) ->
 
         if not stripped:
             flush_paragraph()
+            idx += 1
+            continue
+
+        # Mermaid image placeholder: <!--MERMAID:key-->
+        mermaid_ph = re.match(r"^<!--MERMAID:(\w+)-->$", stripped)
+        if mermaid_ph and mermaid_images:
+            flush_paragraph()
+            key = mermaid_ph.group(1)
+            png_data = mermaid_images.get(key)
+            if png_data:
+                img = Image(BytesIO(png_data))
+                # Scale to fit page width (max 450pt) preserving aspect ratio
+                iw, ih = img.imageWidth, img.imageHeight
+                if iw > 0 and ih > 0:
+                    max_w = 450
+                    if iw > max_w:
+                        scale = max_w / iw
+                        img.drawWidth = max_w
+                        img.drawHeight = ih * scale
+                    else:
+                        img.drawWidth = iw
+                        img.drawHeight = ih
+                flowables.append(img)
+                flowables.append(Spacer(1, 6))
             idx += 1
             continue
 
@@ -243,6 +273,7 @@ def build_pdf_bytes(
     subject: str | None = None,
     creator: str = "Pythinker / ReportLab",
     preferred_font: str = "DejaVuSans",
+    mermaid_images: dict[str, bytes] | None = None,
 ) -> bytes:
     """Render Markdown content into PDF bytes with metadata and optional TOC."""
     font_name = register_unicode_font(preferred_font)
@@ -280,7 +311,7 @@ def build_pdf_bytes(
         story.append(toc)
         story.append(PageBreak())
 
-    story.extend(markdown_to_flowables(content, styles=styles))
+    story.extend(markdown_to_flowables(content, styles=styles, mermaid_images=mermaid_images))
     include_sources = not _has_references_heading(content)
     story.extend(_sources_to_flowables(sources or [], styles, include_heading=include_sources))
 
