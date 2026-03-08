@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from scrapling.spiders.session import FetcherSession, SessionManager
 from scrapling.spiders.spider import Spider
@@ -25,6 +26,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_TEXT_LENGTH = 100_000  # Default cap matching scraping_max_content_length
+
+# Domains that block anonymous scraping or require OAuth/API access.
+# Search snippets are preserved for these URLs — no spider enrichment.
+SPIDER_DENYLIST_DOMAINS: frozenset[str] = frozenset(
+    {
+        "reddit.com",  # Responsible Builder Policy — requires OAuth
+        "x.com",  # Aggressive bot blocking
+        "twitter.com",  # Legacy domain for x.com
+    }
+)
+
+
+def should_skip_spider(url: str) -> bool:
+    """Check if URL should be skipped by the spider (domain denylist)."""
+    try:
+        hostname = urlparse(url).hostname or ""
+        hostname = hostname.removeprefix("www.")
+        return any(hostname == domain or hostname.endswith(f".{domain}") for domain in SPIDER_DENYLIST_DOMAINS)
+    except Exception:
+        return False
 
 
 class ResearchSpider(Spider):
