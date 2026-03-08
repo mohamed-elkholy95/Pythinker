@@ -684,6 +684,47 @@ class AgentTaskRunner(TaskRunner):
                 except Exception as e:
                     logger.warning("Agent %s: Failed to write full report file: %s", self._agent_id, e)
 
+        # --- Chart generation (before report write so references land in the file) ---
+        chart_mode = self._resolve_chart_generation_mode()
+        if chart_mode in {"skip", "regenerate"}:
+            existing, removed = self._strip_comparison_chart_attachments(existing, event.id)
+            if removed:
+                logger.info(
+                    "Removed %s existing comparison chart attachment(s) for report_id=%s mode=%s session=%s",
+                    removed,
+                    event.id,
+                    chart_mode,
+                    self._session_id,
+                )
+
+        chart_attachments: list[FileInfo] = []
+        if chart_mode == "skip":
+            logger.info(
+                "Skipping comparison chart generation for report_id=%s session=%s due to user override",
+                event.id,
+                self._session_id,
+            )
+        else:
+            pre_chart_count = len(existing)
+            existing = await self._ensure_comparison_chart_file(
+                event,
+                existing,
+                force_generation=chart_mode in {"force", "regenerate"},
+                generation_mode=chart_mode,
+            )
+            chart_attachments = existing[pre_chart_count:]
+
+        # Inject chart references into event.content before writing report file
+        if chart_attachments:
+            chart_lines = ["\n\n---\n\n## Charts\n"]
+            for ci in chart_attachments:
+                if ci.content_type == "image/png":
+                    chart_lines.append(f"![Comparison Chart]({ci.filename})")
+                elif ci.content_type == "text/html":
+                    chart_lines.append(f"*Interactive version:* `{ci.filename}`")
+            event.content += "\n".join(chart_lines) + "\n"
+
+        # --- Write summarized report file (now includes chart references) ---
         expected_name = f"report-{event.id}.md"
         if not self._has_attachment(existing, expected_name):
             file_path = f"{workspace_root}/{expected_name}"
@@ -691,9 +732,11 @@ class AgentTaskRunner(TaskRunner):
                 result = await self._sandbox.file_write(file=file_path, content=event.content)
                 if result is not None and hasattr(result, "success") and not result.success:
                     logger.warning(f"Agent {self._agent_id}: Failed to write report file '{file_path}' (success=False)")
+                    event.attachments = existing
                     return
             except Exception as e:
                 logger.warning(f"Agent {self._agent_id}: Failed to write report file '{file_path}': {e}")
+                event.attachments = existing
                 return
 
             report_size = len(event.content.encode("utf-8"))
@@ -707,33 +750,6 @@ class AgentTaskRunner(TaskRunner):
             )
             existing = [*existing, report_info]
 
-        chart_mode = self._resolve_chart_generation_mode()
-        if chart_mode in {"skip", "regenerate"}:
-            existing, removed = self._strip_comparison_chart_attachments(existing, event.id)
-            if removed:
-                logger.info(
-                    "Removed %s existing comparison chart attachment(s) for report_id=%s mode=%s session=%s",
-                    removed,
-                    event.id,
-                    chart_mode,
-                    self._session_id,
-                )
-
-        if chart_mode == "skip":
-            logger.info(
-                "Skipping comparison chart generation for report_id=%s session=%s due to user override",
-                event.id,
-                self._session_id,
-            )
-            event.attachments = existing
-            return
-
-        existing = await self._ensure_comparison_chart_file(
-            event,
-            existing,
-            force_generation=chart_mode in {"force", "regenerate"},
-            generation_mode=chart_mode,
-        )
         event.attachments = existing
 
     async def _ensure_comparison_chart_file(
