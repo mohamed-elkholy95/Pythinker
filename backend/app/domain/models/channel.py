@@ -34,6 +34,7 @@ class MediaAttachment(BaseModel):
     mime_type: str = ""
     filename: str = ""
     size_bytes: int = 0
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class InboundMessage(BaseModel):
