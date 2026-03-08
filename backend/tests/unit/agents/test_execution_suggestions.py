@@ -559,9 +559,9 @@ class TestExecutionAgentDeliveryIntegrityGate:
         kwargs = executor._run_delivery_integrity_gate.call_args.kwargs
         assert "hallucination_ratio_critical" in (kwargs.get("additional_issues") or [])
 
-    def test_hallucination_ratio_critical_is_downgradable(self, executor):
-        """Hallucination ratio is downgradable — completed research must reach users with disclaimer."""
-        assert executor._can_downgrade_delivery_integrity_issues(["hallucination_ratio_critical"]) is True
+    def test_hallucination_ratio_critical_is_not_downgradable(self, executor):
+        """Critical hallucination findings must always block final delivery."""
+        assert executor._can_downgrade_delivery_integrity_issues(["hallucination_ratio_critical"]) is False
 
     def test_stream_truncation_unresolved_is_not_downgradable(self, executor):
         """Structural corruption (truncated output) must always block."""
