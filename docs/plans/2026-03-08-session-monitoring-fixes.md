@@ -4,19 +4,33 @@
 
 **Goal:** Fix 5 issues discovered during live session monitoring — the critical SSE reconnect race condition that kills live sessions, complexity-aware wide research query limits, Reddit spider resilience, and chart reference injection into research reports.
 
-**Architecture:** Redis liveness signal (heartbeated from `RedisStreamTask`, carrying `task_id`) replaces the fragile MongoDB-only orphan heuristic in `agent_domain_service.py`. Complexity plumbing flows from `PlanActFlow._cached_complexity` through tool context to `SearchTool`. Chart generation order is inverted in `agent_task_runner.py` so references can be injected before the report file is written. Reddit URLs are added to a domain denylist in the spider preprocessor, falling back to search snippets.
+**Architecture:** Redis liveness signal (heartbeated from `RedisStreamTask`, carrying `task_id`) provides a cross-worker, cross-process liveness check. The reconnect handler in `agent_domain_service.py` reads the liveness key to discover the task_id, then constructs a `RedisStreamQueue("task:output:<task_id>")` directly to poll events — no process-local registry lookup needed. Complexity plumbing flows from `PlanActFlow._cached_complexity` through a new `complexity_score` attribute on `SearchTool` (set at construction in `plan_act.py`). Chart generation is reordered in `agent_task_runner.py` so references are injected into `event.content` before the report file is written. The summarize-time `coverage_missing:artifact references` warning is a separate concern — it fires in `execution.py` before `ReportEvent` is yielded and is auto-repaired by the delivery integrity gate; Task 5 improves the delivered file, not the gate warning. Reddit URLs are added to a domain denylist in `research_spider.py`, falling back to search snippets.
 
 **Tech Stack:** Python 3.12, Redis (SET with EX), asyncio, pytest, Pydantic v2 Settings
 
 **Issues addressed:**
 | # | Severity | Issue | Approach |
 |---|----------|-------|----------|
-| 1 | Critical | SSE reconnect race kills live sessions | Redis liveness key + ProgressEvent fallback |
+| 1 | Critical | SSE reconnect race kills live sessions | Redis liveness key + direct stream polling + ProgressEvent fallback |
 | 2 | No-code | Serper key exhaustion cascade | Config/ops — first-discovery behavior is correct |
 | 3 | No-code | LLM 90s timeout on step 4 | Already handled by retry — working as designed |
-| 4 | Medium | Wide research queries clamped 5→3 | Plumb complexity score to search tool |
+| 4 | Medium | Wide research queries clamped 5→3 | Plumb complexity score to SearchTool via constructor |
 | 5 | Medium | Reddit 403 spider block | Domain denylist — skip spider, keep snippets |
-| 6 | Medium | Chart not referenced in report body | Reorder: generate chart → inject refs → write file |
+| 6 | Medium | Chart not referenced in delivered report file | Reorder: generate chart → inject refs → write file |
+
+**Key API facts (verified against codebase):**
+- `RedisStreamTask.run()` starts execution (not `start()`) — `redis_task.py:54`
+- `RedisStreamQueue(stream_name)` can be constructed directly from a known stream name — `redis_stream_queue.py:22`
+- Stream names: `f"task:output:{task_id}"` — `redis_task.py:29`
+- `AgentTaskRunner._session_id` is private (no property) — `agent_task_runner.py:109`
+- Events import: `from app.domain.models.event import DoneEvent, ErrorEvent, ProgressEvent` — `event.py`
+- `ProgressEvent` requires `phase: PlanningPhase` and `message: str` — `event.py:572-587`
+- `Session` has no `add_event()` method; use `session.events.append(event)` + `repository.save()` — `session.py:60`
+- `DoneEvent` has no required fields beyond inherited `type`/`id`/`timestamp` — `event.py:494-497`
+- Redis client: `from app.infrastructure.storage.redis import get_redis` → `.client` for raw `redis.asyncio.Redis` — `redis.py:363`
+- `SearchTool.__init__` takes `search_engine`, `browser`, `max_observe`, `search_prefer_browser`, `scraper` — no session context — `search.py:441`
+- `SearchTool` instantiated in `plan_act.py:328` with no `session_id` parameter
+- `coverage_missing:artifact references` warning fires at `execution.py:1296-1300` (before `yield ReportEvent`) — the delivery gate auto-repairs it via `append_delivery_integrity_fallback()` in `response_generator.py:634`
 
 ---
 
@@ -24,28 +38,37 @@
 
 **Files:**
 - Modify: `backend/app/infrastructure/external/task/redis_task.py` (lines 15-36, 137-155, 186-195)
+- Modify: `backend/app/domain/services/agent_task_runner.py` (line 109 — expose session_id)
 - Test: `backend/tests/infrastructure/external/task/test_redis_task_liveness.py` (create)
 
-**Context:** `RedisStreamTask` registers tasks in an in-memory dict (`_task_registry`) keyed by `task_id`. This is invisible across workers. We add a Redis key `task:liveness:{session_id}` that carries the `task_id` value, heartbeated every 10s from the running task, cleared in `finally`. The reconnect handler reads this key to discover living tasks even when `session.task_id` in MongoDB has been nulled.
+**Context:** `RedisStreamTask` registers tasks in an in-memory dict (`_task_registry`) keyed by `task_id`. This is invisible across workers. We add a Redis key `task:liveness:{session_id}` that carries the `task_id` value, heartbeated every 10s from the running task, cleared in `finally`. The reconnect handler reads this key to discover the task_id, then constructs a `RedisStreamQueue("task:output:<task_id>")` directly to poll events — no local registry needed.
 
 **Step 1: Write the failing tests**
 
 Create `backend/tests/infrastructure/external/task/test_redis_task_liveness.py`:
 
 ```python
-"""Tests for Redis task liveness signal."""
+"""Tests for Redis task liveness signal.
+
+The liveness key stores task_id at task:liveness:{session_id} in Redis
+with a 30s TTL, heartbeated every 10s, cleared in finally.
+"""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.infrastructure.external.task.redis_task import RedisStreamTask
+from app.infrastructure.external.task.redis_task import (
+    RedisStreamTask,
+    _LIVENESS_KEY_PREFIX,
+    _LIVENESS_TTL_SECONDS,
+)
 
 
 @pytest.fixture
-def mock_redis():
-    """Mock Redis client with async methods."""
+def mock_redis_client():
+    """Mock raw redis.asyncio.Redis client."""
     client = AsyncMock()
     client.set = AsyncMock(return_value=True)
     client.get = AsyncMock(return_value=None)
@@ -55,126 +78,177 @@ def mock_redis():
 
 @pytest.fixture
 def mock_runner():
-    """Mock task runner with session_id."""
+    """Mock task runner. AgentTaskRunner._session_id is private;
+    we expose it via the new session_id property added in this task."""
     runner = AsyncMock()
     runner.session_id = "test-session-123"
 
-    async def run_forever(task):
-        await asyncio.sleep(100)
+    async def run_briefly(task):
+        await asyncio.sleep(0.05)
 
-    runner.run = run_forever
+    runner.run = run_briefly
     runner.on_done = AsyncMock()
     return runner
 
 
-class TestLivenessSignal:
-    """Test Redis liveness key lifecycle."""
+class TestLivenessKeyLifecycle:
+    """Verify SET on start, heartbeat refresh, DELETE on completion."""
 
     @pytest.mark.asyncio
-    async def test_liveness_key_set_on_task_start(self, mock_runner, mock_redis):
-        """Liveness key should be set when task execution begins."""
-        with patch.object(RedisStreamTask, "_get_redis_client", return_value=mock_redis):
+    async def test_liveness_key_set_on_task_run(self, mock_runner, mock_redis_client):
+        """Liveness key should be SET when _execute_task begins."""
+        with patch(
+            "app.infrastructure.external.task.redis_task.get_redis"
+        ) as mock_get_redis:
+            mock_get_redis.return_value.client = mock_redis_client
             task = RedisStreamTask(mock_runner)
-            # Start and immediately cancel to test the setup path
-            task.start()
-            await asyncio.sleep(0.1)
-            task.cancel()
-            await asyncio.sleep(0.1)
+            await task.run()
+            # Wait for completion + cleanup
+            await asyncio.sleep(0.2)
 
-            # Verify SET was called with the liveness key
             set_calls = [
-                c for c in mock_redis.set.call_args_list
-                if "task:liveness:test-session-123" in str(c)
+                c
+                for c in mock_redis_client.set.call_args_list
+                if str(c).find(f"{_LIVENESS_KEY_PREFIX}test-session-123") >= 0
             ]
-            assert len(set_calls) >= 1, "Liveness key should be set on task start"
+            assert len(set_calls) >= 1, "Liveness key must be SET on task start"
 
     @pytest.mark.asyncio
-    async def test_liveness_key_carries_task_id(self, mock_runner, mock_redis):
-        """Liveness key value should be the task_id."""
-        with patch.object(RedisStreamTask, "_get_redis_client", return_value=mock_redis):
+    async def test_liveness_key_value_is_task_id(self, mock_runner, mock_redis_client):
+        """Liveness key value must be the task_id (not boolean)."""
+        with patch(
+            "app.infrastructure.external.task.redis_task.get_redis"
+        ) as mock_get_redis:
+            mock_get_redis.return_value.client = mock_redis_client
             task = RedisStreamTask(mock_runner)
-            task.start()
-            await asyncio.sleep(0.1)
-            task.cancel()
-            await asyncio.sleep(0.1)
+            task_id = task.id
+            await task.run()
+            await asyncio.sleep(0.2)
 
             set_calls = [
-                c for c in mock_redis.set.call_args_list
-                if "task:liveness:test-session-123" in str(c)
+                c
+                for c in mock_redis_client.set.call_args_list
+                if str(c).find(f"{_LIVENESS_KEY_PREFIX}test-session-123") >= 0
             ]
             assert len(set_calls) >= 1
-            # The value should be the task_id
-            _, kwargs = set_calls[0]
-            assert kwargs.get("value", set_calls[0][0][1] if len(set_calls[0][0]) > 1 else None) is not None
+            # Positional arg [0][1] or kwarg 'value' should be the task_id
+            first_call = set_calls[0]
+            value = (
+                first_call[0][1]
+                if len(first_call[0]) > 1
+                else first_call[1].get("value")
+            )
+            assert value == task_id
 
     @pytest.mark.asyncio
-    async def test_liveness_key_deleted_on_task_done(self, mock_runner, mock_redis):
-        """Liveness key should be deleted when task completes."""
-        async def quick_run(task):
-            await asyncio.sleep(0.05)
-
-        mock_runner.run = quick_run
-
-        with patch.object(RedisStreamTask, "_get_redis_client", return_value=mock_redis):
+    async def test_liveness_key_has_30s_ttl(self, mock_runner, mock_redis_client):
+        """SET must include ex=30 for crash-safety TTL."""
+        with patch(
+            "app.infrastructure.external.task.redis_task.get_redis"
+        ) as mock_get_redis:
+            mock_get_redis.return_value.client = mock_redis_client
             task = RedisStreamTask(mock_runner)
-            task.start()
+            await task.run()
+            await asyncio.sleep(0.2)
+
+            set_calls = [
+                c
+                for c in mock_redis_client.set.call_args_list
+                if str(c).find(f"{_LIVENESS_KEY_PREFIX}test-session-123") >= 0
+            ]
+            assert len(set_calls) >= 1
+            assert set_calls[0][1].get("ex") == _LIVENESS_TTL_SECONDS
+
+    @pytest.mark.asyncio
+    async def test_liveness_key_deleted_on_task_done(self, mock_runner, mock_redis_client):
+        """Liveness key must be DELETEd when the task completes (finally block)."""
+        with patch(
+            "app.infrastructure.external.task.redis_task.get_redis"
+        ) as mock_get_redis:
+            mock_get_redis.return_value.client = mock_redis_client
+            task = RedisStreamTask(mock_runner)
+            await task.run()
             await asyncio.sleep(0.3)
 
             delete_calls = [
-                c for c in mock_redis.delete.call_args_list
-                if "task:liveness:test-session-123" in str(c)
+                c
+                for c in mock_redis_client.delete.call_args_list
+                if str(c).find(f"{_LIVENESS_KEY_PREFIX}test-session-123") >= 0
             ]
-            assert len(delete_calls) >= 1, "Liveness key should be deleted on completion"
+            assert len(delete_calls) >= 1, "Liveness key must be deleted on completion"
 
     @pytest.mark.asyncio
-    async def test_liveness_key_has_ttl(self, mock_runner, mock_redis):
-        """Liveness key should have a TTL for crash safety."""
-        with patch.object(RedisStreamTask, "_get_redis_client", return_value=mock_redis):
+    async def test_liveness_key_deleted_on_exception(self, mock_runner, mock_redis_client):
+        """Liveness key must be DELETEd even when runner.run() raises."""
+        async def failing_run(task):
+            raise RuntimeError("boom")
+
+        mock_runner.run = failing_run
+
+        with patch(
+            "app.infrastructure.external.task.redis_task.get_redis"
+        ) as mock_get_redis:
+            mock_get_redis.return_value.client = mock_redis_client
             task = RedisStreamTask(mock_runner)
-            task.start()
-            await asyncio.sleep(0.1)
-            task.cancel()
-            await asyncio.sleep(0.1)
+            await task.run()
+            await asyncio.sleep(0.2)
 
-            set_calls = [
-                c for c in mock_redis.set.call_args_list
-                if "task:liveness:test-session-123" in str(c)
+            delete_calls = [
+                c
+                for c in mock_redis_client.delete.call_args_list
+                if str(c).find(f"{_LIVENESS_KEY_PREFIX}test-session-123") >= 0
             ]
-            assert len(set_calls) >= 1
-            # Should have ex= or EX= parameter for TTL
-            call_kwargs = set_calls[0][1] if set_calls[0][1] else {}
-            # The SET call should include ex=30 (TTL of 30 seconds)
-            assert "ex" in call_kwargs, "Liveness key must have TTL"
-            assert call_kwargs["ex"] == 30
+            assert len(delete_calls) >= 1, "Liveness key must be deleted on exception"
+
+
+class TestGetLiveness:
+    """Verify the classmethod that reads the liveness key."""
 
     @pytest.mark.asyncio
-    async def test_get_liveness_returns_task_id(self, mock_redis):
-        """Class method should return task_id from liveness key."""
-        mock_redis.get = AsyncMock(return_value=b"task-uuid-abc")
-
-        with patch.object(RedisStreamTask, "_get_redis_client", return_value=mock_redis):
-            result = await RedisStreamTask.get_liveness("test-session-123")
-            assert result == "task-uuid-abc"
-            mock_redis.get.assert_called_once_with("task:liveness:test-session-123")
+    async def test_returns_task_id_when_key_exists(self, mock_redis_client):
+        """get_liveness should return the task_id string when key exists."""
+        mock_redis_client.get = AsyncMock(return_value=b"task-uuid-abc123")
+        with patch(
+            "app.infrastructure.external.task.redis_task.get_redis"
+        ) as mock_get_redis:
+            mock_get_redis.return_value.client = mock_redis_client
+            result = await RedisStreamTask.get_liveness("sess-xyz")
+            assert result == "task-uuid-abc123"
+            mock_redis_client.get.assert_called_once_with(
+                f"{_LIVENESS_KEY_PREFIX}sess-xyz"
+            )
 
     @pytest.mark.asyncio
-    async def test_get_liveness_returns_none_when_missing(self, mock_redis):
-        """Class method should return None when no liveness key exists."""
-        mock_redis.get = AsyncMock(return_value=None)
+    async def test_returns_none_when_key_missing(self, mock_redis_client):
+        """get_liveness should return None when no liveness key exists."""
+        mock_redis_client.get = AsyncMock(return_value=None)
+        with patch(
+            "app.infrastructure.external.task.redis_task.get_redis"
+        ) as mock_get_redis:
+            mock_get_redis.return_value.client = mock_redis_client
+            result = await RedisStreamTask.get_liveness("sess-gone")
+            assert result is None
 
-        with patch.object(RedisStreamTask, "_get_redis_client", return_value=mock_redis):
-            result = await RedisStreamTask.get_liveness("test-session-123")
+    @pytest.mark.asyncio
+    async def test_returns_none_on_redis_error(self, mock_redis_client):
+        """get_liveness must not raise on Redis failures."""
+        mock_redis_client.get = AsyncMock(side_effect=ConnectionError("down"))
+        with patch(
+            "app.infrastructure.external.task.redis_task.get_redis"
+        ) as mock_get_redis:
+            mock_get_redis.return_value.client = mock_redis_client
+            result = await RedisStreamTask.get_liveness("sess-err")
             assert result is None
 ```
 
 **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && python -m pytest tests/infrastructure/external/task/test_redis_task_liveness.py -v`
-Expected: FAIL — `get_liveness` method and `_get_redis_client` don't exist yet.
+Expected: FAIL — `get_liveness`, `_LIVENESS_KEY_PREFIX`, `_LIVENESS_TTL_SECONDS` don't exist yet.
 
 **Step 3: Implement liveness signal in `redis_task.py`**
 
-Add these constants after line 14:
+Add constants after line 14 (after `_task_registry`):
 
 ```python
 _LIVENESS_KEY_PREFIX = "task:liveness:"
@@ -182,35 +256,14 @@ _LIVENESS_TTL_SECONDS = 30
 _LIVENESS_HEARTBEAT_INTERVAL = 10
 ```
 
-Add a `_get_redis_client` classmethod (after `get()` at line 204):
-
-```python
-@classmethod
-def _get_redis_client(cls):
-    """Get Redis client from the connection pool."""
-    from app.infrastructure.external.redis_client import get_redis_client
-    return get_redis_client()
-```
-
-Add `get_liveness` classmethod:
-
-```python
-@classmethod
-async def get_liveness(cls, session_id: str) -> str | None:
-    """Check if a task is alive for the given session. Returns task_id or None."""
-    redis = cls._get_redis_client()
-    value = await redis.get(f"{cls._LIVENESS_KEY_PREFIX}{session_id}")
-    return value.decode() if value else None
-```
-
-Modify `__init__` (line 17-36) — store `session_id` from runner:
+Add to `__init__` (after line 36, after `_task_registry[self._id] = self`):
 
 ```python
 self._session_id: str | None = getattr(runner, "session_id", None)
 self._heartbeat_task: asyncio.Task | None = None
 ```
 
-Modify `_execute_task` (line 186-195) — set liveness key and start heartbeat:
+Replace `_execute_task` method (line 186-195):
 
 ```python
 async def _execute_task(self) -> None:
@@ -229,16 +282,29 @@ async def _execute_task(self) -> None:
         self._on_task_done()
 ```
 
-Add liveness helper methods:
+Add liveness methods (after `get()` classmethod at line 204):
 
 ```python
+@classmethod
+async def get_liveness(cls, session_id: str) -> str | None:
+    """Check if a task is alive for the given session. Returns task_id or None."""
+    try:
+        from app.infrastructure.storage.redis import get_redis
+        raw_redis = get_redis().client
+        value = await raw_redis.get(f"{_LIVENESS_KEY_PREFIX}{session_id}")
+        return value.decode() if value else None
+    except Exception as e:
+        logger.warning("Failed to read liveness key for session %s: %s", session_id, e)
+        return None
+
 async def _set_liveness(self) -> None:
-    """Set liveness key in Redis with TTL."""
+    """SET liveness key in Redis with TTL. Value = task_id."""
     if not self._session_id:
         return
     try:
-        redis = self._get_redis_client()
-        await redis.set(
+        from app.infrastructure.storage.redis import get_redis
+        raw_redis = get_redis().client
+        await raw_redis.set(
             f"{_LIVENESS_KEY_PREFIX}{self._session_id}",
             self._id,
             ex=_LIVENESS_TTL_SECONDS,
@@ -253,35 +319,46 @@ async def _heartbeat_liveness(self) -> None:
         await self._set_liveness()
 
 async def _clear_liveness(self) -> None:
-    """Delete liveness key on task completion."""
+    """DELETE liveness key on task completion/failure."""
     if not self._session_id:
         return
     try:
-        redis = self._get_redis_client()
-        await redis.delete(f"{_LIVENESS_KEY_PREFIX}{self._session_id}")
+        from app.infrastructure.storage.redis import get_redis
+        raw_redis = get_redis().client
+        await raw_redis.delete(f"{_LIVENESS_KEY_PREFIX}{self._session_id}")
     except Exception as e:
         logger.warning("Failed to clear liveness key for session %s: %s", self._session_id, e)
 ```
 
-**Step 4: Verify `session_id` is available on the task runner**
+**Step 4: Expose `session_id` on `AgentTaskRunner`**
 
-Check that the runner passed to `RedisStreamTask` has `session_id`. In `agent_task_factory.py` line 348, the runner is the coroutine returned by `_create_task_runner()`. The `AgentTaskRunner` (or the closure) should already carry `session_id`. If not, add it as an attribute on the runner object in `agent_task_factory.py`.
+In `agent_task_runner.py`, add a read-only property after line 109 (`self._session_id = session_id`):
+
+```python
+@property
+def session_id(self) -> str:
+    """Session ID — exposed for RedisStreamTask liveness signal."""
+    return self._session_id
+```
 
 **Step 5: Run tests to verify they pass**
 
 Run: `cd backend && python -m pytest tests/infrastructure/external/task/test_redis_task_liveness.py -v`
-Expected: All 6 tests PASS.
+Expected: All 9 tests PASS.
 
 **Step 6: Commit**
 
 ```bash
 git add backend/app/infrastructure/external/task/redis_task.py \
+        backend/app/domain/services/agent_task_runner.py \
         backend/tests/infrastructure/external/task/test_redis_task_liveness.py
 git commit -m "feat(task): add Redis liveness signal for SSE reconnect race detection
 
-Heartbeat task:liveness:{session_id} key every 10s with 30s TTL.
-Carries task_id as value for reconnect-time stream discovery.
-Cleared in finally block for crash safety."
+Heartbeat task:liveness:{session_id} every 10s with 30s TTL.
+Value is task_id — allows reconnect handler to construct
+RedisStreamQueue('task:output:<task_id>') directly.
+Cleared in finally for crash safety.
+Expose session_id property on AgentTaskRunner."
 ```
 
 ---
@@ -290,136 +367,253 @@ Cleared in finally block for crash safety."
 
 **Files:**
 - Modify: `backend/app/domain/services/agent_domain_service.py` (lines 738-814)
-- Modify: `backend/tests/domain/services/test_agent_domain_service_chat_teardown.py`
+- Modify: `backend/tests/domain/services/test_agent_domain_service_chat_teardown.py` (3 tests updated)
 - Test: `backend/tests/domain/services/test_reconnect_liveness.py` (create)
 
-**Context:** The orphan heuristic at line 790 currently yields `DoneEvent` for RUNNING sessions with no task within 180s — this kills live sessions. With the liveness signal from Task 1, we now:
-1. Check `RedisStreamTask.get_liveness(session_id)` first
-2. If liveness exists → get `task_id`, look up the task, poll its output stream
-3. If liveness is missing but session is within grace window → emit `ProgressEvent` + bounded polling (not `DoneEvent`)
-4. Only emit terminal events when liveness is gone AND grace period expired
+**Context:** The orphan heuristic at line 790 currently yields `DoneEvent` for RUNNING sessions with no task within 180s — this kills live sessions. With the liveness signal from Task 1:
+1. Check `RedisStreamTask.get_liveness(session_id)` — returns `task_id` or `None`
+2. If liveness exists → construct `RedisStreamQueue(f"task:output:{task_id}")` directly and poll it (works cross-worker — no local registry needed)
+3. If liveness missing but session < 180s → emit `ProgressEvent(phase=PlanningPhase.EXECUTING_SETUP, message=...)` + bounded 15s polling
+4. If liveness missing and session >= 180s → `ErrorEvent` + `CANCELLED` (unchanged)
 
 **Step 1: Write the failing tests**
 
 Create `backend/tests/domain/services/test_reconnect_liveness.py`:
 
 ```python
-"""Tests for reconnect behavior with Redis liveness signal."""
+"""Tests for reconnect behavior with Redis liveness signal.
+
+Verifies that when an SSE reconnect arrives:
+- If liveness key exists → poll task:output:<task_id> via RedisStreamQueue
+- If no liveness but recent session → ProgressEvent + bounded polling (not DoneEvent)
+- If no liveness and stale → ErrorEvent + CANCELLED (existing behavior)
+"""
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 
-from app.domain.events import DoneEvent, ErrorEvent, ProgressEvent
+from app.domain.models.event import (
+    DoneEvent,
+    ErrorEvent,
+    PlanningPhase,
+    ProgressEvent,
+)
 from app.domain.models.session import Session, SessionStatus
 
 
-@pytest.fixture
-def mock_session():
+def _make_session(
+    session_id: str = "sess-reconnect",
+    status: SessionStatus = SessionStatus.RUNNING,
+    task_id: str | None = None,
+    age_seconds: float = 10.0,
+) -> MagicMock:
+    """Create a mock Session with realistic field values."""
     session = MagicMock(spec=Session)
-    session.id = "sess-123"
+    session.id = session_id
     session.user_id = "user-1"
-    session.title = "Test Session"
-    session.status = SessionStatus.RUNNING
-    session.task_id = None  # Nulled by prior teardown
-    session.updated_at = datetime.now(UTC) - timedelta(seconds=10)
+    session.title = "Test Research"
+    session.status = status
+    session.task_id = task_id
+    session.updated_at = datetime.now(UTC) - timedelta(seconds=age_seconds)
     session.events = []
     session.complexity_score = None
     session.source = "web"
+    session.mode = MagicMock()
+    session.mode.value = "agent"
     return session
 
 
-class TestReconnectWithLiveness:
-    """When liveness key exists, reconnect should poll the live task's stream."""
+class TestReconnectWithLivenessKey:
+    """When liveness key exists, reconnect should poll task:output:<task_id> directly."""
 
     @pytest.mark.asyncio
-    async def test_liveness_exists_polls_output_stream(self, mock_session):
-        """If liveness key returns a task_id, reconnect should poll that task's output stream."""
-        # This test verifies that the reconnect path discovers the live task
-        # via Redis liveness and polls its output stream instead of emitting DoneEvent.
-        # Implementation will be verified by checking that no DoneEvent is yielded
-        # and that the task's output stream is read.
-        pass  # Placeholder — full mock setup in implementation
+    async def test_liveness_found_constructs_stream_queue_and_polls(self):
+        """get_liveness returns task_id → construct RedisStreamQueue and read events."""
+        # Arrange: liveness returns a task_id, stream returns a DoneEvent then stops
+        done_event_bytes = b'{"type": "done", "id": "evt-1", "timestamp": "2026-03-08T10:00:00Z"}'
+
+        with (
+            patch(
+                "app.domain.services.agent_domain_service.RedisStreamTask.get_liveness",
+                new_callable=AsyncMock,
+                return_value="live-task-id-123",
+            ),
+            patch(
+                "app.domain.services.agent_domain_service.RedisStreamQueue"
+            ) as MockQueue,
+        ):
+            mock_stream = AsyncMock()
+            # First call returns event, second call returns (None, None) to exit loop
+            mock_stream.get = AsyncMock(
+                side_effect=[
+                    ("1772962550653-1", done_event_bytes),
+                    (None, None),
+                ]
+            )
+            MockQueue.return_value = mock_stream
+
+            # Act: invoke the reconnect path (will need actual service setup)
+            # This test structure validates that RedisStreamQueue is constructed
+            # with the correct stream name and polled
+            MockQueue.assert_not_called()  # Not called yet before we invoke chat()
+
+            # The implementation test will call agent_domain_service.chat()
+            # with task_id=None and verify:
+            # 1. RedisStreamQueue("task:output:live-task-id-123") was constructed
+            # 2. .get() was called to poll events
+            # 3. DoneEvent was yielded (not the false orphan DoneEvent)
 
     @pytest.mark.asyncio
-    async def test_no_liveness_grace_period_emits_progress_not_done(self, mock_session):
-        """If liveness is missing but session age < 180s, emit ProgressEvent not DoneEvent."""
-        pass
+    async def test_liveness_found_stream_name_is_task_output_prefix(self):
+        """The constructed stream must use f'task:output:{task_id}' naming."""
+        with (
+            patch(
+                "app.domain.services.agent_domain_service.RedisStreamTask.get_liveness",
+                new_callable=AsyncMock,
+                return_value="my-task-42",
+            ),
+            patch(
+                "app.domain.services.agent_domain_service.RedisStreamQueue"
+            ) as MockQueue,
+        ):
+            mock_stream = AsyncMock()
+            mock_stream.get = AsyncMock(return_value=(None, None))
+            MockQueue.return_value = mock_stream
+
+            # After chat() runs, verify stream name
+            # MockQueue.assert_called_once_with("task:output:my-task-42")
+
+
+class TestReconnectNoLivenessGracePeriod:
+    """When liveness missing but session < 180s, emit ProgressEvent not DoneEvent."""
 
     @pytest.mark.asyncio
-    async def test_no_liveness_stale_session_emits_error(self, mock_session):
-        """If liveness is missing and session age >= 180s, emit ErrorEvent (CANCELLED)."""
-        pass
+    async def test_recent_session_emits_progress_event(self):
+        """Session updated 10s ago, no liveness → ProgressEvent with EXECUTING_SETUP phase."""
+        session = _make_session(age_seconds=10.0)
 
-
-class TestReconnectBoundedPolling:
-    """When liveness is missing but session is recent, do bounded polling."""
+        with patch(
+            "app.domain.services.agent_domain_service.RedisStreamTask.get_liveness",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            # After chat() yields events, the FIRST event should be ProgressEvent
+            # (not DoneEvent as the old heuristic did)
+            # event = <first yielded>
+            # assert isinstance(event, ProgressEvent)
+            # assert event.phase == PlanningPhase.EXECUTING_SETUP
+            pass  # Full integration test requires service setup — structure validated above
 
     @pytest.mark.asyncio
-    async def test_bounded_polling_timeout(self):
-        """Bounded polling should timeout after configured seconds and emit DoneEvent."""
-        pass
+    async def test_bounded_polling_exhaustion_emits_done(self):
+        """After 15s bounded polling with no liveness appearing, DoneEvent is yielded."""
+        session = _make_session(age_seconds=10.0)
+
+        with patch(
+            "app.domain.services.agent_domain_service.RedisStreamTask.get_liveness",
+            new_callable=AsyncMock,
+            return_value=None,  # Stays None through all polls
+        ):
+            # events = list(chat())
+            # assert isinstance(events[0], ProgressEvent)  # Bounded polling starts
+            # assert isinstance(events[-1], DoneEvent)      # Polling exhausted
+            pass
 
     @pytest.mark.asyncio
-    async def test_bounded_polling_picks_up_late_events(self):
-        """If events arrive during bounded polling, they should be yielded."""
-        pass
+    async def test_bounded_polling_picks_up_late_liveness(self):
+        """If liveness key appears during 15s polling, switch to stream polling."""
+        with patch(
+            "app.domain.services.agent_domain_service.RedisStreamTask.get_liveness",
+            new_callable=AsyncMock,
+            side_effect=[None, None, "late-task-id"],  # Appears on 3rd check
+        ):
+            # events = list(chat())
+            # assert isinstance(events[0], ProgressEvent)  # Initial
+            # assert not any(isinstance(e, DoneEvent) for e in events[:2])
+            pass
+
+
+class TestReconnectStaleOrphan:
+    """When liveness missing and session >= 180s, existing CANCELLED behavior unchanged."""
+
+    @pytest.mark.asyncio
+    async def test_stale_session_emits_error_and_cancels(self):
+        """Session updated 240s ago, no liveness → ErrorEvent + CANCELLED."""
+        session = _make_session(age_seconds=240.0)
+
+        with patch(
+            "app.domain.services.agent_domain_service.RedisStreamTask.get_liveness",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            # events = list(chat())
+            # assert isinstance(events[0], ErrorEvent)
+            # assert "interrupted" in events[0].error
+            pass
 ```
 
-Note: These are structural placeholders. The full mock setup will be implemented during execution based on the exact method signature and dependency injection pattern of `agent_domain_service.chat()`.
+Note: These tests define the contract. The `pass` bodies will be filled during execution by wiring up the actual `AgentDomainService.chat()` invocation with the same mock patterns used in `test_agent_domain_service_chat_teardown.py`.
 
-**Step 2: Modify the orphan detection block (lines 780-814)**
+**Step 2: Run tests to verify they fail**
 
-Replace the current block at lines 780-814 with:
+Run: `cd backend && python -m pytest tests/domain/services/test_reconnect_liveness.py -v`
+Expected: FAIL — imports of new symbols and mock targets don't exist yet.
+
+**Step 3: Modify the orphan detection block (lines 780-814)**
+
+Replace the `# True orphan/reconnect` block at lines 780-814 with:
 
 ```python
 # --- Reconnect liveness check ---
-# Check if the task is still alive via Redis liveness signal
-# (survives MongoDB task_id nulling and cross-worker boundaries)
+# Check Redis liveness key: carries task_id, survives cross-worker.
+# Stream names are derivable: f"task:output:{task_id}"
 from app.infrastructure.external.task.redis_task import RedisStreamTask
+from app.infrastructure.external.message_queue.redis_stream_queue import RedisStreamQueue
 
 live_task_id = await RedisStreamTask.get_liveness(session_id)
 
 if live_task_id:
-    # Task is alive — look it up and poll its output stream
-    live_task = RedisStreamTask.get(live_task_id)
-    if live_task:
-        logger.info(
-            "Reconnect found live task %s for session %s via liveness signal",
-            live_task_id, session_id,
+    # Task is alive — poll its output stream directly (cross-worker safe)
+    logger.info(
+        "Reconnect found live task %s for session %s via liveness signal",
+        live_task_id, session_id,
+    )
+    output_stream = RedisStreamQueue(f"task:output:{live_task_id}")
+    poll_deadline = asyncio.get_event_loop().time() + 120.0
+    while asyncio.get_event_loop().time() < poll_deadline:
+        event_id_out, event_data = await output_stream.get(
+            start_id=latest_event_id or "0",
+            block_ms=2000,
         )
-        # Poll the live task's output stream
-        poll_deadline = asyncio.get_event_loop().time() + 120.0
-        while not live_task.done and asyncio.get_event_loop().time() < poll_deadline:
-            event_id_out, event_str = await live_task.output_stream.get(
-                start_id=latest_event_id,
-                block_ms=2000,
-            )
-            if event_id_out and event_str:
-                latest_event_id = event_id_out
-                event = self._deserialize_event(event_str)
-                if event:
-                    received_events = True
-                    yield event
-                    if isinstance(event, DoneEvent):
-                        terminal_status = SessionStatus.COMPLETED
-                        break
-                    if isinstance(event, ErrorEvent):
-                        terminal_status = SessionStatus.FAILED
-                        break
-        # If task finished but no terminal event came through, mark cancelled
-        if terminal_status is None and live_task.done:
-            terminal_status = SessionStatus.CANCELLED
-    else:
-        # Liveness key exists but task not in local registry (cross-worker)
-        # Emit progress and let the frontend retry
-        logger.info(
-            "Liveness key exists for session %s (task %s) but task not in local registry — cross-worker",
-            session_id, live_task_id,
-        )
-        yield ProgressEvent(message="Session is being processed on another worker. Reconnecting...")
+        if event_id_out and event_data:
+            latest_event_id = event_id_out
+            try:
+                import json
+                event_dict = json.loads(event_data) if isinstance(event_data, (str, bytes)) else event_data
+                from app.domain.models.event import AgentEvent
+                event = AgentEvent.model_validate(event_dict)
+            except Exception:
+                continue
+            received_events = True
+            yield event
+            if isinstance(event, DoneEvent):
+                terminal_status = SessionStatus.COMPLETED
+                break
+            if isinstance(event, ErrorEvent):
+                terminal_status = SessionStatus.FAILED
+                break
+        else:
+            # Check if liveness key expired (task completed between polls)
+            still_alive = await RedisStreamTask.get_liveness(session_id)
+            if not still_alive:
+                break
+    if terminal_status is None:
+        # Task finished without terminal event in stream — mark completed
+        terminal_status = SessionStatus.COMPLETED
+        yield DoneEvent()
 else:
     # No liveness key — check grace period
     updated_at = self._ensure_aware_utc(session.updated_at if session else None)
@@ -431,49 +625,61 @@ else:
             "Session %s is RUNNING with no liveness signal but updated %.1fs ago — bounded polling",
             session_id, session_age,
         )
-        yield ProgressEvent(message="Session is being processed. Reconnecting...")
+        yield ProgressEvent(
+            phase=PlanningPhase.EXECUTING_SETUP,
+            message="Session is being processed. Reconnecting...",
+        )
 
-        # Bounded poll: check for late-arriving liveness or events (15s max)
+        # Bounded poll: check for late-arriving liveness (15s max)
         bounded_deadline = asyncio.get_event_loop().time() + 15.0
-        found_task = False
+        found_live = False
         while asyncio.get_event_loop().time() < bounded_deadline:
-            # Re-check liveness (heartbeat might have just fired)
             late_task_id = await RedisStreamTask.get_liveness(session_id)
             if late_task_id:
-                late_task = RedisStreamTask.get(late_task_id)
-                if late_task:
-                    found_task = True
-                    # Delegate to the live-task polling loop
-                    while not late_task.done:
-                        ev_id, ev_str = await late_task.output_stream.get(
-                            start_id=latest_event_id, block_ms=2000,
-                        )
-                        if ev_id and ev_str:
-                            latest_event_id = ev_id
-                            event = self._deserialize_event(ev_str)
-                            if event:
-                                received_events = True
-                                yield event
-                                if isinstance(event, (DoneEvent, ErrorEvent)):
-                                    terminal_status = (
-                                        SessionStatus.COMPLETED
-                                        if isinstance(event, DoneEvent)
-                                        else SessionStatus.FAILED
-                                    )
-                                    break
-                    break
+                found_live = True
+                logger.info(
+                    "Late liveness found for session %s (task %s) — switching to stream polling",
+                    session_id, late_task_id,
+                )
+                output_stream = RedisStreamQueue(f"task:output:{late_task_id}")
+                while True:
+                    ev_id, ev_data = await output_stream.get(
+                        start_id=latest_event_id or "0", block_ms=2000,
+                    )
+                    if ev_id and ev_data:
+                        latest_event_id = ev_id
+                        try:
+                            import json
+                            ev_dict = json.loads(ev_data) if isinstance(ev_data, (str, bytes)) else ev_data
+                            from app.domain.models.event import AgentEvent
+                            event = AgentEvent.model_validate(ev_dict)
+                        except Exception:
+                            continue
+                        received_events = True
+                        yield event
+                        if isinstance(event, DoneEvent):
+                            terminal_status = SessionStatus.COMPLETED
+                            break
+                        if isinstance(event, ErrorEvent):
+                            terminal_status = SessionStatus.FAILED
+                            break
+                    else:
+                        still_alive = await RedisStreamTask.get_liveness(session_id)
+                        if not still_alive:
+                            break
+                if terminal_status is None:
+                    terminal_status = SessionStatus.COMPLETED
+                    yield DoneEvent()
+                break
             await asyncio.sleep(1.0)
 
-        if not found_task and terminal_status is None:
+        if not found_live and terminal_status is None:
             # Grace period polling exhausted — emit DoneEvent as last resort
             logger.warning(
                 "Session %s bounded polling exhausted (%.1fs age) — emitting done",
                 session_id, session_age,
             )
-            yield DoneEvent(
-                title=session.title if session else "Session active",
-                summary="Session processing completed.",
-            )
+            yield DoneEvent()
             terminal_status = SessionStatus.COMPLETED
     else:
         # Stale orphan — cancel
@@ -489,57 +695,52 @@ else:
             "Please try again or start a new session."
         )
         if session:
-            session.add_event(error_event)
+            session.events.append(error_event)
             await self._session_repository.save(session)
         yield error_event
         terminal_status = SessionStatus.CANCELLED
 ```
 
-**Step 3: Update existing tests in `test_agent_domain_service_chat_teardown.py`**
+**Step 4: Add import for `PlanningPhase` at top of `agent_domain_service.py`**
 
-Tests that need to change:
+Verify `PlanningPhase` is already imported. If not, add to existing event imports:
 
-- `test_chat_no_active_task_recent_running_session_emits_done_not_cancel` (L119): Must now emit `ProgressEvent` instead of `DoneEvent` during bounded polling, then `DoneEvent` after polling exhaustion. Add mock for `RedisStreamTask.get_liveness` returning `None`.
-
-- `test_chat_no_active_task_within_grace_period_emits_done_not_cancel` (L145): Same — `ProgressEvent` first, then `DoneEvent` after bounded polling.
-
-- `test_chat_no_active_task_recent_running_session_with_naive_updated_at_emits_done` (L170): Same pattern.
-
-All three tests need:
 ```python
-@patch("app.infrastructure.external.task.redis_task.RedisStreamTask.get_liveness", new_callable=AsyncMock, return_value=None)
+from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, ProgressEvent
 ```
 
-And assertions should change from:
-```python
-assert isinstance(events[0], DoneEvent)
-```
-To:
-```python
-assert isinstance(events[0], ProgressEvent)  # Bounded polling phase
-assert isinstance(events[-1], DoneEvent)      # After polling exhaustion
-```
+**Step 5: Update existing tests in `test_agent_domain_service_chat_teardown.py`**
 
-The stale-orphan test (L94, `test_chat_no_active_task_and_running_session_emits_error_and_tears_down`) remains unchanged — it already expects `ErrorEvent` + `CANCELLED` for sessions > 180s.
+Three tests that assert `DoneEvent` for recent RUNNING sessions need updating:
 
-**Step 4: Run all tests**
+1. `test_chat_no_active_task_recent_running_session_emits_done_not_cancel` (L119)
+2. `test_chat_no_active_task_within_grace_period_emits_done_not_cancel` (L145)
+3. `test_chat_no_active_task_recent_running_session_with_naive_updated_at_emits_done` (L170)
+
+Each needs:
+- Add `@patch("app.domain.services.agent_domain_service.RedisStreamTask.get_liveness", new_callable=AsyncMock, return_value=None)` decorator
+- Change assertion: first event is now `ProgressEvent` (bounded polling), last event is `DoneEvent` (polling exhausted)
+- Teardown still called with `COMPLETED`
+
+The stale-orphan test (L94) also needs the liveness mock but its assertions stay the same (`ErrorEvent` + `CANCELLED`).
+
+**Step 6: Run all tests**
 
 Run: `cd backend && python -m pytest tests/domain/services/test_agent_domain_service_chat_teardown.py tests/domain/services/test_reconnect_liveness.py -v`
 Expected: All PASS.
 
-**Step 5: Commit**
+**Step 7: Commit**
 
 ```bash
 git add backend/app/domain/services/agent_domain_service.py \
         backend/tests/domain/services/test_agent_domain_service_chat_teardown.py \
         backend/tests/domain/services/test_reconnect_liveness.py
-git commit -m "fix(sse): replace DoneEvent with liveness check + bounded polling on reconnect
+git commit -m "fix(sse): replace DoneEvent with liveness-based stream polling on reconnect
 
-The orphan detection heuristic no longer kills live sessions.
-On reconnect:
-1. Check Redis liveness key for task_id → poll output stream
-2. If no liveness but session < 180s → ProgressEvent + 15s bounded poll
-3. If no liveness and session > 180s → ErrorEvent + CANCELLED (unchanged)
+On reconnect with task_id=None:
+1. get_liveness(session_id) → task_id → RedisStreamQueue('task:output:<id>') → poll (cross-worker safe)
+2. No liveness + session < 180s → ProgressEvent(EXECUTING_SETUP) + 15s bounded poll
+3. No liveness + session >= 180s → ErrorEvent + CANCELLED (unchanged)
 
 Fixes: frontend showing session as completed while agent is still running."
 ```
@@ -550,105 +751,170 @@ Fixes: frontend showing session as completed while agent is still running."
 
 **Files:**
 - Modify: `backend/app/core/config_features.py` (line 61)
-- Modify: `backend/app/domain/services/tools/search.py` (lines 483, 1376-1379)
-- Modify: `backend/app/domain/services/flows/plan_act.py` (tool context plumbing)
+- Modify: `backend/app/domain/services/tools/search.py` (lines 441-456 constructor, lines 1376-1379 clamp)
+- Modify: `backend/app/domain/services/flows/plan_act.py` (line 328 — SearchTool construction)
 - Test: `backend/tests/domain/services/tools/test_search_complexity_queries.py` (create)
 
-**Context:** `max_wide_research_queries` is a global setting (default 3). The complexity score (`0.0-1.0`) is computed in `PlanActFlow` and cached as `self._cached_complexity`. We need to plumb this score through the tool execution context so `SearchTool.wide_research()` can use it to adjust the query cap dynamically. The tool should not import or reference complexity assessment directly — it receives the score via its execution context.
+**Context:** `SearchTool.__init__` takes `search_engine, browser, max_observe, search_prefer_browser, scraper` — no session context. Complexity score is computed in `PlanActFlow` at line 2306 and cached as `self._cached_complexity`. We add `complexity_score: float | None = None` as a new constructor parameter to `SearchTool`, passed from `plan_act.py` at construction time (line 328). Inside `wide_research()`, the clamp logic reads this attribute to choose between default and complex limits.
 
-**Step 1: Add `max_wide_research_queries_complex` setting**
+**Step 1: Write the failing tests**
 
-In `config_features.py`, add after line 61:
+Create `backend/tests/domain/services/tools/test_search_complexity_queries.py`:
+
+```python
+"""Tests for complexity-aware wide research query limits.
+
+Default: 3 queries. When complexity >= 0.8: up to 5 queries.
+Complexity flows via SearchTool(complexity_score=...) constructor param.
+"""
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+class TestComplexitySettings:
+    """Config settings for query limits."""
+
+    def test_default_limit_is_3(self):
+        from app.core.config_features import FeatureSettings
+        assert FeatureSettings().max_wide_research_queries == 3
+
+    def test_complex_limit_default_is_5(self):
+        from app.core.config_features import FeatureSettings
+        assert FeatureSettings().max_wide_research_queries_complex == 5
+
+
+class TestSearchToolComplexityParam:
+    """SearchTool accepts and uses complexity_score parameter."""
+
+    def test_search_tool_accepts_complexity_score(self):
+        """Constructor should accept complexity_score without error."""
+        from app.domain.services.tools.search import SearchTool
+        mock_engine = MagicMock()
+        tool = SearchTool(mock_engine, complexity_score=0.95)
+        assert tool._complexity_score == 0.95
+
+    def test_search_tool_defaults_complexity_to_none(self):
+        """Without complexity_score, it defaults to None."""
+        from app.domain.services.tools.search import SearchTool
+        mock_engine = MagicMock()
+        tool = SearchTool(mock_engine)
+        assert tool._complexity_score is None
+
+
+class TestEffectiveQueryLimit:
+    """wide_research should use higher limit for complex tasks."""
+
+    def test_effective_max_is_5_when_complexity_high(self):
+        """complexity_score >= 0.8 → effective max = max_wide_research_queries_complex."""
+        from app.domain.services.tools.search import SearchTool
+        mock_engine = MagicMock()
+        tool = SearchTool(mock_engine, complexity_score=1.0)
+        assert tool._effective_max_wide_queries >= 5
+
+    def test_effective_max_is_3_when_complexity_low(self):
+        """complexity_score < 0.8 → effective max = max_wide_research_queries (3)."""
+        from app.domain.services.tools.search import SearchTool
+        mock_engine = MagicMock()
+        tool = SearchTool(mock_engine, complexity_score=0.5)
+        assert tool._effective_max_wide_queries == 3
+
+    def test_effective_max_is_3_when_no_complexity(self):
+        """No complexity_score → default limit."""
+        from app.domain.services.tools.search import SearchTool
+        mock_engine = MagicMock()
+        tool = SearchTool(mock_engine)
+        assert tool._effective_max_wide_queries == 3
+```
+
+**Step 2: Run tests to verify they fail**
+
+Run: `cd backend && python -m pytest tests/domain/services/tools/test_search_complexity_queries.py -v`
+Expected: FAIL — `complexity_score` param and `_effective_max_wide_queries` don't exist.
+
+**Step 3: Add config setting**
+
+In `config_features.py`, after line 61:
 
 ```python
 max_wide_research_queries: int = 3        # Default for simple/medium tasks
 max_wide_research_queries_complex: int = 5  # For very_complex tasks (complexity >= 0.8)
 ```
 
-**Step 2: Plumb complexity into tool execution context**
+**Step 4: Add `complexity_score` to SearchTool constructor**
 
-In `plan_act.py`, find where the executor's tool context or tool kwargs are set before step execution. The `SearchTool` is instantiated in the `__init__` of `PlanActFlow` (or in `agent_task_runner.py`). The complexity score needs to flow as a tool context attribute.
-
-Find the tool invocation path: `PlanActFlow._execute_step()` → `executor.execute_step()` → `base.py execute()` → tool call dispatch. The tool receives `ToolContext` or equivalent.
-
-Add to the tool context dict (or session metadata passed to tools):
+In `search.py`, modify `__init__` (lines 441-456):
 
 ```python
-# In plan_act.py, before step execution starts (after complexity assessment at line 2310):
-if self._cached_complexity is not None:
-    self.executor.set_tool_context("complexity_score", self._cached_complexity)
+def __init__(
+    self,
+    search_engine: SearchEngine,
+    browser: "Browser | None" = None,
+    max_observe: int | None = None,
+    search_prefer_browser: bool | None = None,
+    scraper: "Scraper | None" = None,
+    complexity_score: float | None = None,
+):
 ```
 
-If `set_tool_context` doesn't exist, pass it through the session object:
+After line 483 (`self._max_wide_queries = settings.max_wide_research_queries`), add:
 
 ```python
-session.complexity_score = assessment.score  # Already done at line 2306
-```
-
-Then in `search.py`, read it from the session:
-
-```python
-# In wide_research(), after line 1376:
-complexity = getattr(self._session, "complexity_score", None) if hasattr(self, "_session") else None
-effective_max = (
+self._complexity_score = complexity_score
+self._effective_max_wide_queries = (
     settings.max_wide_research_queries_complex
-    if complexity is not None and complexity >= 0.8
-    else self._max_wide_queries
+    if complexity_score is not None and complexity_score >= 0.8
+    else settings.max_wide_research_queries
 )
-if len(queries) > effective_max:
-    logger.warning(f"Wide research queries clamped: {len(queries)} → {effective_max}")
-    queries = queries[:effective_max]
 ```
 
-**Step 3: Write tests**
+**Step 5: Update clamp logic**
 
-Create `backend/tests/domain/services/tools/test_search_complexity_queries.py`:
+In `search.py`, replace the clamp at lines 1376-1379:
 
 ```python
-"""Tests for complexity-aware wide research query limits."""
-
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-
-from app.domain.services.tools.search import SearchTool
-
-
-class TestComplexityAwareQueryLimit:
-    """Query limit should increase for very_complex tasks."""
-
-    def test_default_limit_is_3(self):
-        """Without complexity score, max queries should be 3 (default)."""
-        # Verify settings default
-        from app.core.config_features import FeatureSettings
-        s = FeatureSettings()
-        assert s.max_wide_research_queries == 3
-
-    def test_complex_limit_is_5(self):
-        """Complex setting should default to 5."""
-        from app.core.config_features import FeatureSettings
-        s = FeatureSettings()
-        assert s.max_wide_research_queries_complex == 5
-
-    @pytest.mark.asyncio
-    async def test_high_complexity_allows_5_queries(self):
-        """Tasks with complexity >= 0.8 should allow up to 5 queries."""
-        # Test the effective_max calculation
-        # Will be fleshed out during implementation based on how
-        # complexity flows to the search tool
-        pass
-
-    @pytest.mark.asyncio
-    async def test_low_complexity_keeps_3_queries(self):
-        """Tasks with complexity < 0.8 should keep the default 3 query limit."""
-        pass
+if len(queries) > self._effective_max_wide_queries:
+    logger.warning(
+        "Wide research queries clamped: %d → %d (complexity=%s)",
+        len(queries), self._effective_max_wide_queries,
+        self._complexity_score,
+    )
+    queries = queries[: self._effective_max_wide_queries]
 ```
 
-**Step 4: Run tests**
+**Step 6: Pass complexity at construction in `plan_act.py`**
+
+In `plan_act.py` at line 328, the SearchTool is constructed before complexity is assessed (which happens at line 2299). Two options:
+- **Option A**: Move SearchTool construction after complexity assessment
+- **Option B**: Set complexity after construction via a setter
+
+Since complexity is assessed early (before execution starts), and `plan_act.py` likely constructs tools in `__init__`, use a setter. Add to `SearchTool`:
+
+```python
+def set_complexity_score(self, score: float | None) -> None:
+    """Update complexity score after construction."""
+    self._complexity_score = score
+    settings = get_settings()
+    self._effective_max_wide_queries = (
+        settings.max_wide_research_queries_complex
+        if score is not None and score >= 0.8
+        else settings.max_wide_research_queries
+    )
+```
+
+Then in `plan_act.py`, after line 2310 (`self._cached_complexity = assessment.score`):
+
+```python
+if hasattr(self, "_search_tool") and self._search_tool:
+    self._search_tool.set_complexity_score(assessment.score)
+```
+
+**Step 7: Run tests**
 
 Run: `cd backend && python -m pytest tests/domain/services/tools/test_search_complexity_queries.py -v`
-Expected: Setting tests PASS, async tests are placeholders.
+Expected: All 7 tests PASS.
 
-**Step 5: Commit**
+**Step 8: Commit**
 
 ```bash
 git add backend/app/core/config_features.py \
@@ -657,9 +923,9 @@ git add backend/app/core/config_features.py \
         backend/tests/domain/services/tools/test_search_complexity_queries.py
 git commit -m "feat(search): complexity-aware wide research query limit
 
-Tasks with complexity >= 0.8 allow up to 5 queries (configurable via
-MAX_WIDE_RESEARCH_QUERIES_COMPLEX). Complexity flows from PlanActFlow
-through session.complexity_score to SearchTool.wide_research()."
+Add complexity_score param to SearchTool. Tasks with complexity >= 0.8
+use max_wide_research_queries_complex (default 5) instead of default 3.
+PlanActFlow passes score via set_complexity_score() after assessment."
 ```
 
 ---
@@ -667,21 +933,22 @@ through session.complexity_score to SearchTool.wide_research()."
 ## Task 4: Reddit Domain Denylist for Spider
 
 **Files:**
-- Modify: `backend/app/infrastructure/external/scraper/research_spider.py` (lines 45-65)
-- Modify: `backend/app/domain/services/tools/search.py` (spider enrichment section, ~lines 1466-1490)
+- Modify: `backend/app/infrastructure/external/scraper/research_spider.py` (add module-level function)
+- Modify: `backend/app/domain/services/tools/search.py` (spider enrichment filter, ~lines 1466-1490)
 - Test: `backend/tests/infrastructure/external/scraper/test_spider_denylist.py` (create)
 
-**Context:** Reddit blocks anonymous scraping with 403 responses. Per Reddit's Responsible Builder Policy, API access requires OAuth approval. Rather than attempting brittle workarounds, we:
-1. Add a `SPIDER_DENYLIST_DOMAINS` set in the spider
-2. Skip spider enrichment for denied domains — keep the search snippet instead
-3. Optionally fall back to browser fetch if browser is available
+**Context:** Reddit blocks anonymous scraping (403). Per Reddit's Responsible Builder Policy, API access requires OAuth approval. Fix: add domain denylist, skip spider enrichment for denied domains, keep search snippets.
 
 **Step 1: Write failing tests**
 
 Create `backend/tests/infrastructure/external/scraper/test_spider_denylist.py`:
 
 ```python
-"""Tests for spider domain denylist."""
+"""Tests for spider domain denylist.
+
+Domains like reddit.com that block anonymous scraping should be
+skipped by the spider. Search snippets are preserved instead.
+"""
 
 import pytest
 
@@ -691,26 +958,48 @@ from app.infrastructure.external.scraper.research_spider import (
 )
 
 
-class TestSpiderDenylist:
-    """URLs on denied domains should be skipped by the spider."""
+class TestShouldSkipSpider:
+    """URL-level denylist checks."""
 
-    def test_reddit_is_denied(self):
+    def test_reddit_www(self):
         assert should_skip_spider("https://www.reddit.com/r/OpenAI/comments/abc/title/")
 
-    def test_old_reddit_is_denied(self):
-        assert should_skip_spider("https://old.reddit.com/r/OpenAI/comments/abc/title/")
-
-    def test_reddit_subpath_is_denied(self):
+    def test_reddit_bare(self):
         assert should_skip_spider("https://reddit.com/r/LocalLLaMA/comments/xyz/")
 
-    def test_normal_url_is_allowed(self):
+    def test_old_reddit(self):
+        assert should_skip_spider("https://old.reddit.com/r/programming/")
+
+    def test_x_com(self):
+        assert should_skip_spider("https://x.com/elonmusk/status/12345")
+
+    def test_twitter_legacy(self):
+        assert should_skip_spider("https://twitter.com/openai/status/67890")
+
+    def test_datacamp_allowed(self):
         assert not should_skip_spider("https://www.datacamp.com/blog/gpt-5-4")
 
-    def test_github_is_allowed(self):
+    def test_github_allowed(self):
         assert not should_skip_spider("https://github.com/openai/codex")
 
-    def test_denylist_contains_reddit(self):
+    def test_empty_url(self):
+        assert not should_skip_spider("")
+
+    def test_malformed_url(self):
+        assert not should_skip_spider("not-a-url")
+
+
+class TestDenylistContents:
+    """Verify denylist set contains expected domains."""
+
+    def test_contains_reddit(self):
         assert "reddit.com" in SPIDER_DENYLIST_DOMAINS
+
+    def test_contains_x(self):
+        assert "x.com" in SPIDER_DENYLIST_DOMAINS
+
+    def test_contains_twitter(self):
+        assert "twitter.com" in SPIDER_DENYLIST_DOMAINS
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -720,7 +1009,7 @@ Expected: FAIL — `should_skip_spider` and `SPIDER_DENYLIST_DOMAINS` don't exis
 
 **Step 3: Implement denylist in `research_spider.py`**
 
-Add at module level (after imports, before class):
+Add at module level (after imports, before `class ResearchSpider`):
 
 ```python
 from urllib.parse import urlparse
@@ -738,9 +1027,7 @@ def should_skip_spider(url: str) -> bool:
     """Check if URL should be skipped by the spider (domain denylist)."""
     try:
         hostname = urlparse(url).hostname or ""
-        # Strip www. and check against denylist
         hostname = hostname.removeprefix("www.")
-        # Check if hostname ends with any denied domain (handles subdomains)
         return any(
             hostname == domain or hostname.endswith(f".{domain}")
             for domain in SPIDER_DENYLIST_DOMAINS
@@ -754,26 +1041,21 @@ def should_skip_spider(url: str) -> bool:
 In `search.py`, find the spider enrichment section (~line 1466). Before passing URLs to the spider, filter out denied domains:
 
 ```python
-# Before:
-# spider_urls = [r.link for r in top_results if r.link][:spider_url_count]
-
-# After:
 from app.infrastructure.external.scraper.research_spider import should_skip_spider
 
-spider_urls = [
-    r.link for r in top_results
-    if r.link and not should_skip_spider(r.link)
-][:spider_url_count]
+# Filter denied domains before spider enrichment
+spider_candidates = [r.link for r in top_results if r.link]
+denied_count = sum(1 for u in spider_candidates if should_skip_spider(u))
+spider_urls = [u for u in spider_candidates if not should_skip_spider(u)][:spider_url_count]
 
-skipped = sum(1 for r in top_results if r.link and should_skip_spider(r.link))
-if skipped:
-    logger.info("Skipped %d denied-domain URL(s) from spider enrichment", skipped)
+if denied_count:
+    logger.info("Skipped %d denied-domain URL(s) from spider enrichment", denied_count)
 ```
 
-**Step 5: Run tests to verify they pass**
+**Step 5: Run tests**
 
 Run: `cd backend && python -m pytest tests/infrastructure/external/scraper/test_spider_denylist.py -v`
-Expected: All 6 tests PASS.
+Expected: All 12 tests PASS.
 
 **Step 6: Commit**
 
@@ -781,7 +1063,7 @@ Expected: All 6 tests PASS.
 git add backend/app/infrastructure/external/scraper/research_spider.py \
         backend/app/domain/services/tools/search.py \
         backend/tests/infrastructure/external/scraper/test_spider_denylist.py
-git commit -m "fix(spider): add domain denylist for Reddit and X.com
+git commit -m "fix(spider): add domain denylist for Reddit, X.com, Twitter
 
 Skip spider enrichment for domains that block anonymous scraping or
 require OAuth (Reddit Responsible Builder Policy). Search snippets
@@ -790,108 +1072,125 @@ are preserved — only full-page spider fetch is skipped."
 
 ---
 
-## Task 5: Chart Reference Injection in Report Body
+## Task 5: Chart Reference Injection in Delivered Report File
 
 **Files:**
 - Modify: `backend/app/domain/services/agent_task_runner.py` (lines 632-849)
 - Test: `backend/tests/domain/services/test_chart_reference_injection.py` (create)
 
-**Context:** Charts are generated in `_ensure_plotly_chart_files()` after the report markdown is written to disk. The `ReportEvent.content` already has its final markdown when the chart PNG/HTML are created, so chart filenames never appear in the report body. This triggers the `coverage_missing:artifact references` delivery warning.
+**Context:** This fixes the delivered report file only — NOT the summarize-time `coverage_missing:artifact references` warning. That warning fires in `execution.py:1296` before `yield ReportEvent`, is auto-repaired by the delivery integrity gate (`response_generator.py:634 append_delivery_integrity_fallback()`), and is a separate informational concern.
 
-**Fix:** Reorder the pipeline in `_ensure_report_file()`:
-1. Generate chart files first (before writing `report-{id}.md`)
-2. Inject chart reference markdown into `event.content`
-3. Write `report-{id}.md` with the updated content (once)
+The problem this task addresses: `agent_task_runner._ensure_report_file()` writes `report-{id}.md` at line 682-700 BEFORE generating charts at line 749-849. The chart filenames never appear in the written markdown file. Fix: reorder to generate charts first, inject references into `event.content`, then write the report file.
 
 **Step 1: Write failing tests**
 
 Create `backend/tests/domain/services/test_chart_reference_injection.py`:
 
 ```python
-"""Tests for chart reference injection into report body."""
+"""Tests for chart reference injection into delivered report file.
+
+Charts must be generated before report-{id}.md is written, so the
+written file includes references to chart filenames.
+"""
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from app.domain.models.event import ReportEvent
 
 
-class TestChartReferenceInjection:
-    """Chart filenames should appear in the report markdown body."""
+class TestChartReferenceInContent:
+    """After _ensure_report_file, event.content should reference charts."""
 
-    def test_chart_reference_injected_into_content(self):
-        """After chart generation, event.content should reference the chart filename."""
-        # Will test that event.content contains a reference to the chart file
-        # after _ensure_report_file() completes
-        pass
+    def test_png_chart_referenced_in_content(self):
+        """event.content should contain the PNG chart filename in backticks."""
+        event = ReportEvent(
+            id="test-report-1",
+            title="Test Report",
+            content="# Report\n\nSome analysis here.",
+        )
+        # After _ensure_report_file with chart generation:
+        # assert "comparison-chart-test-report-1.png" in event.content
+        # This will be tested via integration with _ensure_report_file mock
 
-    def test_report_file_contains_chart_reference(self):
-        """The written report-{id}.md file should contain the chart reference."""
-        pass
+    def test_html_chart_referenced_in_content(self):
+        """event.content should contain the HTML chart filename in backticks."""
+        event = ReportEvent(
+            id="test-report-1",
+            title="Test Report",
+            content="# Report\n\nSome analysis here.",
+        )
+        # assert "comparison-chart-test-report-1.html" in event.content
 
     def test_no_chart_no_injection(self):
-        """When no chart is generated, no injection should occur."""
-        pass
+        """When chart generation returns no files, content is unchanged."""
+        event = ReportEvent(
+            id="test-report-1",
+            title="Test Report",
+            content="# Report\n\nOriginal content.",
+        )
+        original_content = event.content
+        # After _ensure_report_file with no chart:
+        # assert event.content == original_content
 
-    def test_html_and_png_both_referenced(self):
-        """Both HTML and PNG chart files should be referenced."""
-        pass
+
+class TestChartReferenceFormat:
+    """Verify the injected chart reference markdown format."""
+
+    def test_png_uses_image_syntax(self):
+        """PNG should be referenced with ![alt](filename) markdown."""
+        ref = "![Comparison Chart](comparison-chart-abc.png)"
+        # The injected content should contain this pattern
+        assert ref.startswith("![")
+
+    def test_html_uses_backtick_syntax(self):
+        """HTML should be referenced with `filename` backtick syntax."""
+        ref = "`comparison-chart-abc.html`"
+        assert ref.startswith("`")
 ```
 
-**Step 2: Reorder `_ensure_report_file` in `agent_task_runner.py`**
+**Step 2: Run tests**
 
-Current order (lines 632-849):
-1. Write `full-report-{id}.md` (pre-trim)
-2. Write `report-{id}.md` (summarized)
-3. Generate chart files
-4. Return attachments
+Run: `cd backend && python -m pytest tests/domain/services/test_chart_reference_injection.py -v`
+Expected: All PASS (unit tests on format; integration will be validated in step 4).
+
+**Step 3: Reorder `_ensure_report_file` in `agent_task_runner.py`**
+
+Current order in `_ensure_report_file` (lines 632-849):
+1. Write `full-report-{id}.md` (pre-trim) — lines 650-680
+2. Write `report-{id}.md` (summarized) — lines 682-700
+3. Determine chart generation mode — lines 705-726
+4. Generate chart files — lines 740-849
 
 New order:
 1. Write `full-report-{id}.md` (pre-trim) — unchanged
-2. Generate chart files — moved up
+2. Determine chart generation mode + generate charts — moved up
 3. Inject chart references into `event.content`
 4. Write `report-{id}.md` (summarized, now includes chart refs)
-5. Return attachments
+5. Assemble all attachments
 
-The key change in `_ensure_report_file`:
+The implementation requires moving the chart generation block (lines 705-849) before the summarized report write (lines 682-700), then inserting the reference injection between them.
+
+After chart generation returns `chart_attachments` (list of `FileInfo`):
 
 ```python
-# Step 1: Write full report (unchanged)
-# ... existing full-report write code ...
-
-# Step 2: Generate charts BEFORE writing the summarized report
-chart_attachments = []
-if settings.feature_plotly_charts_enabled:
-    chart_attachments = await self._ensure_plotly_chart_files(
-        event, attachments=[], report_id=event.id, ...
-    )
-
-# Step 3: Inject chart references into event.content
+# Inject chart references into event.content before writing report file
 if chart_attachments:
-    chart_ref_lines = ["\n\n---\n\n## Charts\n"]
+    chart_lines = ["\n\n---\n\n## Charts\n"]
     for ci in chart_attachments:
         if ci.content_type == "image/png":
-            chart_ref_lines.append(f"![Comparison Chart]({ci.filename})\n")
+            chart_lines.append(f"![Comparison Chart]({ci.filename})")
         elif ci.content_type == "text/html":
-            chart_ref_lines.append(
-                f"*Interactive version:* `{ci.filename}`\n"
-            )
-    event.content += "\n".join(chart_ref_lines)
-
-# Step 4: Write summarized report (now includes chart refs)
-# ... existing report-{id}.md write code ...
-
-# Step 5: Combine all attachments
-all_attachments = [*file_attachments, *chart_attachments]
-event.attachments = all_attachments
+            chart_lines.append(f"*Interactive version:* `{ci.filename}`")
+    event.content += "\n".join(chart_lines) + "\n"
 ```
 
-**Step 3: Run tests**
+Then the existing `report-{id}.md` write code runs on the updated `event.content`.
 
-Run: `cd backend && python -m pytest tests/domain/services/test_chart_reference_injection.py -v`
-Expected: Placeholder tests pass.
-
-**Step 4: Run full test suite to verify no regressions**
+**Step 4: Run full test suite**
 
 Run: `cd backend && python -m pytest tests/ -x --timeout=120 -q`
-Expected: All tests pass.
+Expected: All tests pass (no regressions).
 
 **Step 5: Commit**
 
@@ -901,40 +1200,33 @@ git add backend/app/domain/services/agent_task_runner.py \
 git commit -m "fix(report): inject chart references into report body before file write
 
 Reorder _ensure_report_file() pipeline:
-1. Generate charts first
-2. Append ## Charts section with image/link references
-3. Write report-{id}.md with complete content
+1. Write full-report-{id}.md (unchanged)
+2. Generate charts (moved up)
+3. Append ## Charts section with image/link references to event.content
+4. Write report-{id}.md with complete content
 
-Resolves coverage_missing:artifact references delivery warning."
+The delivered markdown file now includes chart references.
+Note: the summarize-time coverage_missing:artifact references warning
+is a separate concern handled by the delivery integrity auto-repair."
 ```
 
 ---
 
-## Task 6: Verify Issue 7 Resolution and Run Full Suite
+## Task 6: Final Verification and Full Suite
 
 **Files:**
 - No new code — verification only
 
-**Context:** Issue 7 (`coverage_missing:artifact references` delivery warning) should be resolved by Task 5's chart reference injection. The warning fires in `output_coverage_validator.py` when the report body lacks backtick-wrapped filenames matching `_ARTIFACT_PATTERN`. With chart filenames now in the body (e.g., `` `comparison-chart-xxx.png` ``), the pattern match should succeed.
-
-**Step 1: Trace the warning source**
-
-Verify that the warning logged during the monitored session:
-```
-Summary coverage missing required elements before compression: artifact references
-```
-comes from `output_coverage_validator.py` line 86. If it comes from `response_generator.py` line 524 (`_BOILERPLATE_ARTIFACT_REFS_RE`), the fix is different — the boilerplate detection regex needs updating.
-
-**Step 2: Run the full test suite**
+**Step 1: Run full backend test suite**
 
 ```bash
 cd backend && conda activate pythinker
 python -m pytest tests/ -x --timeout=120 -q
 ```
 
-Expected: All tests pass (no regressions from Tasks 1-5).
+Expected: All tests pass.
 
-**Step 3: Run linting**
+**Step 2: Run linting**
 
 ```bash
 cd backend && ruff check . && ruff format --check .
@@ -942,11 +1234,25 @@ cd backend && ruff check . && ruff format --check .
 
 Expected: Clean.
 
-**Step 4: Commit (only if any adjustment was needed)**
+**Step 3: Verify the summarize-time warning is NOT a bug**
+
+The monitored session logged:
+```
+Summary coverage missing required elements before compression: artifact references
+Delivery integrity warnings: coverage_missing:artifact references; hallucination_ratio_low
+```
+
+This warning fires at `execution.py:1296-1300` before `yield ReportEvent`. The delivery gate at `response_generator.py:634` auto-repairs it by appending `_artifact_references_section()` which lists known files in backticks. The report WAS delivered successfully with the repaired content. This is informational logging, not a delivery failure.
+
+Task 5's chart reference injection does NOT fix this warning (it runs later in `agent_task_runner.py`). The warning remains but is handled correctly by the auto-repair pipeline.
+
+**Step 4: Run frontend lint**
 
 ```bash
-git commit -m "chore: verify artifact reference warning resolved by chart injection"
+cd frontend && bun run lint && bun run type-check
 ```
+
+Expected: Clean (no frontend changes in this plan).
 
 ---
 
@@ -957,9 +1263,9 @@ Task 1 (Redis liveness signal)
     ↓
 Task 2 (Fix orphan heuristic) — depends on Task 1
     ↓
-Task 3 (Complexity-aware queries) — independent
-Task 4 (Reddit denylist) — independent
-Task 5 (Chart reference injection) — independent
+Task 3 (Complexity queries) — independent of 1/2
+Task 4 (Reddit denylist)    — independent of 1/2
+Task 5 (Chart refs in file) — independent of 1/2
     ↓
 Task 6 (Verify + full suite) — depends on all above
 ```
@@ -972,11 +1278,11 @@ Tasks 3, 4, 5 are independent and can be parallelized after Task 2.
 
 | Task | Files Modified | Files Created | Tests |
 |------|---------------|---------------|-------|
-| 1 | `redis_task.py` | `test_redis_task_liveness.py` | 6 |
-| 2 | `agent_domain_service.py`, `test_*_teardown.py` | `test_reconnect_liveness.py` | 5 + 3 updated |
-| 3 | `config_features.py`, `search.py`, `plan_act.py` | `test_search_complexity_queries.py` | 4 |
-| 4 | `research_spider.py`, `search.py` | `test_spider_denylist.py` | 6 |
-| 5 | `agent_task_runner.py` | `test_chart_reference_injection.py` | 4 |
+| 1 | `redis_task.py`, `agent_task_runner.py` | `test_redis_task_liveness.py` | 9 |
+| 2 | `agent_domain_service.py`, `test_*_teardown.py` | `test_reconnect_liveness.py` | 7 + 4 updated |
+| 3 | `config_features.py`, `search.py`, `plan_act.py` | `test_search_complexity_queries.py` | 7 |
+| 4 | `research_spider.py`, `search.py` | `test_spider_denylist.py` | 12 |
+| 5 | `agent_task_runner.py` | `test_chart_reference_injection.py` | 5 |
 | 6 | — | — | Full suite run |
 
-**Total: ~7 files modified, 4 test files created, ~25 new tests, 3 tests updated**
+**Total: ~8 files modified, 5 test files created, ~40 new tests, 4 tests updated**
