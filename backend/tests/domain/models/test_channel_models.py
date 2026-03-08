@@ -51,6 +51,7 @@ class TestMediaAttachment:
         assert att.mime_type == ""
         assert att.filename == ""
         assert att.size_bytes == 0
+        assert att.metadata == {}
 
     def test_creation_full(self) -> None:
         att = MediaAttachment(
@@ -58,10 +59,12 @@ class TestMediaAttachment:
             mime_type="application/pdf",
             filename="report.pdf",
             size_bytes=1024,
+            metadata={"telegram": {"file_id": "doc-1"}},
         )
         assert att.mime_type == "application/pdf"
         assert att.filename == "report.pdf"
         assert att.size_bytes == 1024
+        assert att.metadata == {"telegram": {"file_id": "doc-1"}}
 
 
 # ---------------------------------------------------------------------------
