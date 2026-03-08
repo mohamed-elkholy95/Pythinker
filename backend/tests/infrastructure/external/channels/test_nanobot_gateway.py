@@ -272,6 +272,13 @@ class TestTelegramConfigWiring:
                 telegram_streaming="partial",
                 telegram_streaming_throttle_seconds=1.25,
                 telegram_streaming_min_initial_chars=45,
+                telegram_reply_to_mode="all",
+                telegram_webhook_mode=True,
+                telegram_webhook_url="https://example.test/telegram-webhook",
+                telegram_webhook_secret="secret-token",
+                telegram_webhook_path="/telegram-webhook",
+                telegram_webhook_host="127.0.0.1",
+                telegram_webhook_port=8787,
             )
 
         assert gw is not None
@@ -282,6 +289,29 @@ class TestTelegramConfigWiring:
         assert telegram_cfg.streaming == "partial"
         assert telegram_cfg.streaming_throttle_seconds == 1.25
         assert telegram_cfg.streaming_min_initial_chars == 45
+        assert telegram_cfg.reply_to_mode == "all"
+        assert telegram_cfg.webhook_mode is True
+        assert telegram_cfg.webhook_url == "https://example.test/telegram-webhook"
+        assert telegram_cfg.webhook_secret == "secret-token"
+        assert telegram_cfg.webhook_path == "/telegram-webhook"
+        assert telegram_cfg.webhook_host == "127.0.0.1"
+        assert telegram_cfg.webhook_port == 8787
+
+    def test_convert_inbound_preserves_session_key_override(self) -> None:
+        nb_msg = NbInbound(
+            channel="telegram",
+            sender_id="123|john",
+            chat_id="chat-1",
+            content="hello",
+            metadata={"message_id": 99},
+            session_key_override="telegram:group:chat-1:topic:42",
+        )
+
+        converted = NanobotGateway._convert_inbound(nb_msg)
+
+        assert converted.channel == ChannelType.TELEGRAM
+        assert converted.session_key_override == "telegram:group:chat-1:topic:42"
+        assert converted.metadata == {"message_id": 99}
 
 
 class TestChannelMapping:
