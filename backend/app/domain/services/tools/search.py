@@ -19,6 +19,27 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Domains that block anonymous scraping or require OAuth/API access.
+# Search snippets are preserved for these URLs — no spider enrichment.
+_SPIDER_DENYLIST_DOMAINS: frozenset[str] = frozenset(
+    {
+        "reddit.com",  # Responsible Builder Policy — requires OAuth
+        "x.com",  # Aggressive bot blocking
+        "twitter.com",  # Legacy domain for x.com
+    }
+)
+
+
+def _should_skip_spider(url: str) -> bool:
+    """Check if URL should be skipped by the spider (domain denylist)."""
+    try:
+        hostname = urlparse(url).hostname or ""
+        hostname = hostname.removeprefix("www.")
+        return any(hostname == domain or hostname.endswith(f".{domain}") for domain in _SPIDER_DENYLIST_DOMAINS)
+    except Exception:
+        return False
+
+
 _BLOCKED_IP_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
@@ -1492,14 +1513,12 @@ wide_research(
 
             _s = _get_settings()
             if _s.scraping_spider_enabled:
-                from app.infrastructure.external.scraper.research_spider import should_skip_spider
-
                 top_k = _s.scraping_spider_top_k
                 spider_candidates = [
                     item.link for item in all_items[:top_k] if item.link and not _is_pdf_url(item.link)
                 ]
-                denied_count = sum(1 for u in spider_candidates if should_skip_spider(u))
-                top_urls = [u for u in spider_candidates if not should_skip_spider(u)]
+                denied_count = sum(1 for u in spider_candidates if _should_skip_spider(u))
+                top_urls = [u for u in spider_candidates if not _should_skip_spider(u)]
                 if denied_count:
                     logger.info("Skipped %d denied-domain URL(s) from spider enrichment", denied_count)
                 if top_urls:
