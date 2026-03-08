@@ -235,6 +235,7 @@ class ExecutionAgent(BaseAgent):
         # after aggressive context pruning.
         self._pre_trim_report_cache: str | None = None
         self._delivery_channel: str | None = None
+        self._artifact_references: list[dict[str, str]] = []
 
     def set_request_contract(self, contract) -> None:
         """Set request contract for search fidelity and entity context (Phase 4)."""
@@ -247,6 +248,20 @@ class ExecutionAgent(BaseAgent):
     def set_response_policy(self, policy: ResponsePolicy | None) -> None:
         """Set per-run response policy for summarize stage."""
         self._response_policy = policy
+
+    def set_artifact_references(self, references: list[dict[str, Any]] | None) -> None:
+        """Set summarize-time artifact references from session deliverables."""
+        self._artifact_references = [dict(reference) for reference in references or [] if isinstance(reference, dict)]
+        self._set_response_generator_artifact_references()
+
+    def _set_response_generator_artifact_references(self, report_event_id: str | None = None) -> None:
+        """Sync known artifacts into the response generator, optionally including the report markdown."""
+        references = [dict(reference) for reference in self._artifact_references]
+        if report_event_id:
+            report_filename = f"report-{report_event_id}.md"
+            if not any((reference.get("filename") or "").strip() == report_filename for reference in references):
+                references.insert(0, {"filename": report_filename, "content_type": "text/markdown"})
+        self._response_generator.set_artifact_references(references)
 
     def _select_model_for_step(self, step_description: str) -> str | None:
         """Select model for the step (delegated to StepExecutor)."""
@@ -580,9 +595,9 @@ class ExecutionAgent(BaseAgent):
         Args:
             response_policy: Override default response policy for summarization.
             all_steps_completed: When True, "next step" is dropped from required
-                coverage sections and delivery-gate failures are downgraded to
-                warnings (the task is done — blocking the report is worse than
-                delivering it with minor coverage gaps).
+                coverage sections and only eligible non-critical delivery-gate
+                failures can be downgraded to warnings. Critical integrity
+                failures still block final delivery.
         """
         active_policy = (
             response_policy
@@ -1268,6 +1283,16 @@ class ExecutionAgent(BaseAgent):
             if all_steps_completed:
                 _required_sections = [s for s in _required_sections if s.lower() != "next step"]
 
+            report_event_id: str | None = None
+            if (
+                "artifact references" in {section.lower() for section in _required_sections}
+                or self._is_report_structure(message_content)
+                or len(message_content) > 500
+                or bool(self._pre_trim_report_cache)
+            ):
+                report_event_id = str(uuid.uuid4())
+            self._set_response_generator_artifact_references(report_event_id)
+
             coverage_result = self._output_coverage_validator.validate(
                 output=message_content,
                 user_request=self._user_request or "",
@@ -1457,13 +1482,12 @@ class ExecutionAgent(BaseAgent):
             is_report_structure = self._is_report_structure(message_content)
 
             # Track report event ID for suggestion anchoring
-            report_event_id = None
             message_event_id = None
             if is_substantial or has_title or is_report_structure:
                 title = message_title or "Summary"
                 sources = self.get_collected_sources() if self._collected_sources else None
 
-                report_event_id = str(uuid.uuid4())
+                report_event_id = report_event_id or str(uuid.uuid4())
                 yield ReportEvent(
                     id=report_event_id,
                     title=title,
@@ -1709,18 +1733,14 @@ class ExecutionAgent(BaseAgent):
     def _can_downgrade_delivery_integrity_issues(self, issues: list[str]) -> bool:
         """Allow downgrade only for non-critical integrity failures.
 
-        When all plan steps completed, the user's research is done — blocking
-        the report entirely is worse than delivering it with a quality notice.
-        Only truly structural failures (truncated/corrupt output) remain
-        non-downgradable.  Hallucination-ratio issues are downgradable because:
-        - The output_verifier already appends a disclaimer to the content
-        - Research reports inherently synthesize beyond source snippets
-        - LLM Guard industry standard tolerates up to 30% unfactual content
-        - Blocking completed work with zero delivery is the worst UX outcome
+        When all plan steps completed, minor structural gaps can still be
+        downgraded so users receive their completed work. Critical integrity
+        failures must remain blocking even on completed plans.
         """
         non_downgradable_tokens = {
             "stream_truncation_unresolved",
             "citation_integrity_unresolved",
+            "hallucination_ratio_critical",
         }
         for issue in issues:
             token = (issue or "").split(":", 1)[0].strip().lower()

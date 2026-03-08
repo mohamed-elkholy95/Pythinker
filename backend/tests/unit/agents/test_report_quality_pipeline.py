@@ -258,12 +258,8 @@ class TestHallucinationDisclaimerNotRedaction:
         mock_verifier.redact_hallucinations.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_moderate_ratio_18_pct_uses_disclaimer_path(self):
-        """Ratio 18% is in the moderate band (10-30%) — gets disclaimer, not block.
-
-        Industry standard (LLM Guard) tolerates up to 30%. Research reports
-        normally produce 15-25% ungrounded text from synthesis beyond snippets.
-        """
+    async def test_ratio_above_block_threshold_uses_critical_path(self):
+        """Ratios above the 15% critical threshold must block delivery."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
         lettuce_result = _make_lettuce_result(ratio=0.18, span_count=1)
@@ -276,9 +272,8 @@ class TestHallucinationDisclaimerNotRedaction:
         ):
             result = await ov.verify_hallucination(content, "query")
 
-        assert not result.blocking_issues
-        assert "hallucination_ratio_moderate" in result.warnings
-        assert "Reliability Notice" in result.content
+        assert "hallucination_ratio_critical" in result.blocking_issues
+        assert "could not be fully verified" in result.content
 
     @pytest.mark.asyncio
     async def test_high_ratio_above_30_uses_critical_path(self):
@@ -374,6 +369,7 @@ def _make_execution_agent_for_summarize():
     agent._collected_sources = False
     agent._response_policy = None
     agent._delivery_channel = None
+    agent._artifact_references = []
 
     llm = MagicMock()
     rg = ResponseGenerator(
@@ -582,6 +578,9 @@ class TestDirectDeliveryShortCircuit:
         agent._append_delivery_integrity_fallback = ExecutionAgent._append_delivery_integrity_fallback.__get__(
             agent, ExecutionAgent
         )
+        agent._set_response_generator_artifact_references = (
+            ExecutionAgent._set_response_generator_artifact_references.__get__(agent, ExecutionAgent)
+        )
 
         async def summary_stream(*_args, **_kwargs):
             agent.llm.last_stream_metadata = {
@@ -594,11 +593,47 @@ class TestDirectDeliveryShortCircuit:
         agent.llm.ask_stream = summary_stream
         agent.llm.ask = AsyncMock(return_value={"content": '["Follow-up question?"]'})
 
-        events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
+        with patch("app.domain.services.agents.execution.uuid.uuid4", return_value="report-fixed-id"):
+            events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
 
         assert not any(isinstance(event, ErrorEvent) for event in events)
         report = next(event for event in events if isinstance(event, ReportEvent))
         assert "## Artifact References" in report.content
+        assert "`report-report-fixed-id.md`" in report.content
+        assert "No file artifacts were created" not in report.content
+
+    def test_delivery_gate_blocks_false_no_artifacts_when_artifacts_exist(self):
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        rg = _make_rg()
+        rg.set_artifact_references(
+            [
+                {"filename": "report-abc.md", "content_type": "text/markdown"},
+            ]
+        )
+        coverage_result = SimpleNamespace(is_valid=True, missing_requirements=[])
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        passed, issues = rg.run_delivery_integrity_gate(
+            content=(
+                "# Final Report\n\n"
+                "## Final Result\nDone.\n\n"
+                "## Artifact References\n"
+                "- No file artifacts were created or referenced in this response.\n"
+            ),
+            response_policy=policy,
+            coverage_result=coverage_result,
+            stream_metadata={"provider": "test"},
+            truncation_exhausted=False,
+            delivery_channel="telegram",
+        )
+
+        assert passed is False
+        assert "coverage_missing:artifact references" in issues
 
     @pytest.mark.asyncio
     async def test_summarize_telegram_gate_failure_downgrades_when_all_steps_completed(self):
@@ -642,14 +677,8 @@ class TestDirectDeliveryShortCircuit:
         assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_summarize_telegram_hallucination_ratio_critical_downgrades_when_completed(self):
-        """Hallucination ratio critical downgrades to warning when all steps completed.
-
-        The output_verifier already appends a disclaimer to the content.
-        Completed research must reach the user with a quality notice rather
-        than being blocked entirely — zero delivery is worse UX than a
-        disclaimer-annotated report.
-        """
+    async def test_summarize_telegram_hallucination_ratio_critical_blocks_when_completed(self):
+        """Critical hallucination findings must still block completed Telegram delivery."""
         from app.domain.models.event import ErrorEvent, ReportEvent
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
 
@@ -686,9 +715,8 @@ class TestDirectDeliveryShortCircuit:
 
         events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
 
-        # Downgraded: report delivered with disclaimer
-        assert any(isinstance(event, ReportEvent) for event in events)
-        assert not any(isinstance(event, ErrorEvent) for event in events)
+        assert any(isinstance(event, ErrorEvent) for event in events)
+        assert not any(isinstance(event, ReportEvent) for event in events)
 
     @pytest.mark.asyncio
     async def test_summarize_telegram_gate_failure_blocks_when_steps_incomplete(self):
