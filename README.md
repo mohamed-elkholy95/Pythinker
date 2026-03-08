@@ -1,245 +1,316 @@
-# Pythinker
+<div align="center">
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+# 🧠 Pythinker
 
-Pythinker is a general-purpose AI Agent system that supports running various tools and operations in a sandbox environment.
+### AI Agent Platform for Research, Code, and Automation
 
-**Author:** Mohamed Elkholy
+[![CI](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml/badge.svg)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/test-and-lint.yml)
+[![Docker](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/docker-build-and-push.yml/badge.svg)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/docker-build-and-push.yml)
+[![Security](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/security-scan.yml/badge.svg)](https://github.com/mohamed-elkholy95/Pythinker/actions/workflows/security-scan.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://python.org)
+[![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D.svg)](https://vuejs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg)](https://fastapi.tiangolo.com)
+[![Docker](https://img.shields.io/badge/Docker-2496ED.svg)](https://docker.com)
 
-## Key Features
+*An open-source, self-hosted AI agent that can browse the web, write & execute code, search the internet, manage files, and deliver polished research reports — all from a beautiful real-time interface.*
 
-* **Deployment:** Minimal deployment requires only an LLM service, with no dependency on other external services.
-* **Tools:** Supports Terminal, Browser, File, Web Search, and messaging tools with real-time viewing and takeover capabilities, supports external MCP tool integration.
-* **Sandbox:** Each task is allocated a separate sandbox that runs in a local Docker environment.
-* **Task Sessions:** Session history is managed through MongoDB/Redis, supporting background tasks.
-* **Conversations:** Supports stopping and interrupting, file upload and download.
-* **Authentication:** User login and authentication.
+**Author:** [Mohamed Elkholy](https://github.com/mohamed-elkholy95)
 
-## DeepCode Integration ✨ NEW
+</div>
 
-Pythinker now includes **8 powerful enhancements** from DeepCode for improved performance, cost efficiency, and reliability:
+---
 
-### Performance & Cost Optimization
-* **🧠 Adaptive Model Routing** - Auto-select optimal model tier (fast/balanced/powerful) based on task complexity
-  * 💰 **20-40% cost reduction** via intelligent tier selection
-  * ⚡ **60-70% latency reduction** on simple tasks using fast tier
+## ✨ What Makes Pythinker Different
 
-### Agent Reliability
-* **⚡ Tool Efficiency Monitor** - Detect and prevent analysis paralysis (endless research loops)
-  * 🎯 **50% fewer stuck sessions** with automatic nudge interventions
-* **✂️ Truncation Detector** - Catch incomplete outputs using pattern matching
-  * 📝 **60% fewer incomplete responses** with automatic continuation requests
+| Feature | Description |
+|---------|-------------|
+| 🔧 **43+ Built-in Tools** | File, browser, shell, search, code, messaging, automation — the agent picks the right tool for every step |
+| 🖥️ **Live Browser Streaming** | Watch the agent browse in real-time via CDP screencast — take over control at any moment |
+| 📊 **Beautiful Report Generation** | Automatically produces structured, citation-rich research reports with charts and references |
+| 🧪 **Sandboxed Execution** | Every task runs in an isolated Docker container with Chrome, Python, Node.js, and shell access |
+| 🤖 **Multi-Model Support** | Works with any OpenAI-compatible API — GPT-4o, Claude, DeepSeek, Kimi, GLM, local models, and more |
+| 📱 **Telegram Integration** | Full-featured Telegram bot gateway with inline buttons, file sharing, and streaming responses |
+| 🔌 **MCP Tool Integration** | Extend capabilities with external Model Context Protocol servers |
+| 🎯 **PlanAct Agent Architecture** | Intelligent planning → execution → summarization pipeline with adaptive model routing |
 
-### Code Quality Tools
-* **📄 Document Segmenter** - Context-aware chunking for large files (respects function/class boundaries)
-  * 📊 **70% reduction** in context truncation for long documents
-* **✅ Implementation Tracker** - Multi-file code completeness validation
-  * 🔍 **80% fewer incomplete** multi-file implementations
+---
 
-**Quick Start:** See [`DEEPCODE_QUICKSTART.md`](DEEPCODE_QUICKSTART.md) for 5-minute setup.
+## 🏗️ Architecture
 
-**Full Documentation:**
-- 📖 [Complete Integration Guide](DEEPCODE_INTEGRATION_COMPLETE.md)
-- 🛠️ [Tool Usage Guide](CODE_ANALYSIS_TOOLS_GUIDE.md)
-- 📋 [Changelog](CHANGELOG_DEEPCODE_2026_02_15.md)
-- 🎯 [Demo Script](examples/deepcode_integration_demo.py)
-
-## Environment Requirements
-
-This project primarily relies on Docker for development and deployment:
-- Docker 20.10+
-- Docker Compose
-
-Model capability requirements:
-- Compatible with OpenAI interface
-- Support for FunctionCall
-- Support for Json Format output
-
-## Quick Start
-
-Docker Compose is recommended for deployment:
-
-```yaml
-services:
-  frontend:
-    image: pythinker/pythinker-frontend
-    ports:
-      - "5173:80"
-    depends_on:
-      - backend
-    restart: unless-stopped
-    networks:
-      - pythinker-network
-    environment:
-      - BACKEND_URL=http://backend:8000
-
-  backend:
-    image: pythinker/pythinker-backend
-    depends_on:
-      - sandbox
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - pythinker-network
-    environment:
-      - API_BASE=https://api.openai.com/v1
-      - API_KEY=sk-xxxx
-      - MODEL_NAME=gpt-4o
-      - TEMPERATURE=0.7
-      - MAX_TOKENS=2000
-      - SANDBOX_IMAGE=pythinker/pythinker-sandbox
-      - SANDBOX_NAME_PREFIX=sandbox
-      - SANDBOX_TTL_MINUTES=30
-      - SANDBOX_NETWORK=pythinker-network
-      - SEARCH_PROVIDER=bing
-      - AUTH_PROVIDER=local
-      - LOCAL_AUTH_EMAIL=admin@example.com
-      - LOCAL_AUTH_PASSWORD=admin
-      - JWT_SECRET_KEY=your-secret-key-here
-      - LOG_LEVEL=INFO
-
-  sandbox:
-    image: pythinker/pythinker-sandbox
-    command: /bin/sh -c "exit 0"
-    restart: "no"
-    networks:
-      - pythinker-network
-
-  mongodb:
-    image: mongo:7.0
-    volumes:
-      - mongodb_data:/data/db
-    restart: unless-stopped
-    networks:
-      - pythinker-network
-
-  redis:
-    image: redis:7.0
-    restart: unless-stopped
-    networks:
-      - pythinker-network
-
-volumes:
-  mongodb_data:
-    name: pythinker-mongodb-data
-
-networks:
-  pythinker-network:
-    name: pythinker-network
-    driver: bridge
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         PYTHINKER PLATFORM                              │
+│                                                                         │
+│  ┌──────────┐   ┌───────────────────────────────────────────────────┐   │
+│  │ Frontend │   │                   Backend (FastAPI)                │   │
+│  │  Vue 3   │◄─►│  PlanAct Agent  ·  43+ Tools  ·  SSE Streaming   │   │
+│  │  TypeScript│   │  Model Router   ·  DDD Services · Report Gen    │   │
+│  └──────────┘   └──────────────┬───────────────────┬────────────────┘   │
+│                                │                   │                    │
+│  ┌──────────┐   ┌──────────────▼──┐   ┌───────────▼────────────────┐   │
+│  │ Telegram │   │    Sandbox(es)   │   │      Data Layer            │   │
+│  │ Gateway  │   │  Ubuntu Docker   │   │  MongoDB · Redis · Qdrant  │   │
+│  │          │   │  Chrome · Python │   │  MinIO (Object Storage)    │   │
+│  │          │   │  Node.js · Shell │   │                            │   │
+│  └──────────┘   └─────────────────┘   └────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Save as `docker-compose.yml` and run:
+### Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | Vue 3, TypeScript, Vite, TipTap, Monaco Editor, xterm.js, Plotly |
+| **Backend** | FastAPI, Python 3.11+, Pydantic v2, Beanie ODM, SSE, WebSockets |
+| **Sandbox** | Ubuntu Docker, Chromium/Chrome, Playwright, Supervisord |
+| **Database** | MongoDB 7.0 (sessions & state), Redis 8 (cache & coordination) |
+| **Vector Search** | Qdrant (RAG, semantic memory, knowledge bases) |
+| **Object Storage** | MinIO (file uploads, artifacts, report assets) |
+| **Messaging** | Telegram Bot API (polling + webhook modes) |
+| **CI/CD** | GitHub Actions (lint, test, security scan, Docker build) |
+| **Monitoring** | Prometheus, Grafana, Loki, Promtail |
+
+---
+
+## 🛠️ Tool Categories
+
+The agent has access to **43+ tools** organized into 10 categories:
+
+| Category | Tools | What They Do |
+|----------|-------|-------------|
+| 📁 **File** | read, write, list, search, upload, download | Full filesystem access within the sandbox |
+| 🌐 **Browser** | navigate, click, type, screenshot, scroll, evaluate JS | Headless Chrome with live CDP streaming |
+| 🔍 **Search** | web search, scrape, extract | Internet research with multiple providers |
+| 💻 **Shell** | execute, background, interactive | Full terminal access with real-time output |
+| 💬 **Message** | ask user, notify, report | Communication and deliverable generation |
+| 🔌 **MCP** | external tool servers | Extensible via Model Context Protocol |
+| 📝 **Code** | analyze, refactor, test | Code intelligence and manipulation |
+| 📋 **Plan** | create plan, update step, checkpoint | Structured task planning and tracking |
+| ⚡ **Automation** | batch operations, workflows | Multi-step automated sequences |
+| ⚙️ **System** | health, config, diagnostics | Platform management and monitoring |
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Docker 20.10+ and Docker Compose
+- An LLM API key (any OpenAI-compatible provider)
+
+### 1. Clone & Configure
+
+```bash
+git clone https://github.com/mohamed-elkholy95/Pythinker.git
+cd Pythinker
+cp .env.example .env
+```
+
+Edit `.env` with your API credentials:
+
+```env
+# LLM Configuration (any OpenAI-compatible API)
+LLM_PROVIDER=openai
+API_KEY=sk-your-api-key
+API_BASE=https://api.openai.com/v1
+MODEL_NAME=gpt-4o
+TEMPERATURE=0.7
+MAX_TOKENS=8192
+
+# Security (required)
+SANDBOX_API_SECRET=your-secret-here
+JWT_SECRET_KEY=your-jwt-secret
+```
+
+### 2. Start
 
 ```bash
 docker compose up -d
 ```
 
-Open your browser and visit http://localhost:5173 to access Pythinker.
+### 3. Open
 
-## Development
+Visit **http://localhost:5174** — log in and start your first research task.
+
+---
+
+## 🧠 How It Works
+
+### The PlanAct Pipeline
+
+When you send a message, Pythinker's agent follows an intelligent pipeline:
+
+```
+User Message
+    │
+    ▼
+┌──────────────┐    ┌──────────────────┐    ┌────────────────┐
+│   Planning   │───►│    Execution     │───►│ Summarization  │
+│              │    │                  │    │                │
+│ • Analyze    │    │ • Run tools      │    │ • Synthesize   │
+│ • Break down │    │ • Browse web     │    │ • Cite sources │
+│ • Prioritize │    │ • Execute code   │    │ • Format report│
+│ • Checkpoint │    │ • Search & scrape│    │ • Verify facts │
+└──────────────┘    └──────────────────┘    └────────────────┘
+```
+
+### Real-Time Features
+
+- **SSE Event Streaming** — Every agent action streams to the UI in real-time
+- **Live Browser View** — Watch the agent browse via CDP screencast; click to take over
+- **Live Terminal** — See shell commands execute with real-time output via xterm.js
+- **Progress Tracking** — Visual planning bar, step indicators, and tool timeline
+- **File Preview** — In-app code viewer with Monaco Editor and syntax highlighting
+
+### Adaptive Model Routing
+
+Pythinker can intelligently route requests to different model tiers:
+
+- **Fast tier** — Simple queries, quick responses (60-70% latency reduction)
+- **Balanced tier** — Standard research and coding tasks
+- **Powerful tier** — Complex multi-step reasoning and report generation
+
+---
+
+## 📱 Telegram Bot
+
+Pythinker includes a full-featured Telegram gateway:
+
+- Start research tasks from Telegram with `/research`
+- Receive streaming responses with inline action buttons
+- Upload and download files directly
+- Share reports and artifacts
+- Full agent capabilities available via chat
+
+Configure in `.env`:
+
+```env
+CHANNEL_GATEWAY_ENABLED=true
+TELEGRAM_BOT_TOKEN=your-bot-token
+TELEGRAM_CHANNEL_ENABLED=true
+```
+
+---
+
+## 🔒 Security
+
+- **Sandboxed execution** — Each task runs in an isolated Docker container with resource limits (2GB RAM, 1 CPU)
+- **Security-hardened containers** — `no-new-privileges`, `cap_drop: ALL`, minimal capabilities
+- **No direct sandbox access** — All browser/terminal access is proxied through authenticated backend endpoints
+- **JWT authentication** — Secure user sessions with configurable auth providers
+- **Secret scanning** — TruffleHog + GitHub secret scanning in CI
+- **Dependency auditing** — pip-audit and npm audit run automatically
+- **Network isolation** — Internal services run on private Docker networks
+
+---
+
+## 🧪 Development
 
 ### Project Structure
 
-* `frontend`: Pythinker frontend (Vue.js)
-* `backend`: Pythinker backend (FastAPI)
-* `sandbox`: Pythinker sandbox (Ubuntu Docker)
-
-### Development Setup
-
-1. Clone the project and copy configuration:
-```bash
-cp .env.example .env
+```
+Pythinker/
+├── frontend/          # Vue 3 + TypeScript + Vite
+├── backend/           # FastAPI + Python 3.11 + DDD architecture
+│   ├── app/
+│   │   ├── core/          # Configuration, settings
+│   │   ├── domain/        # Models, services, agents, tools
+│   │   ├── infrastructure/# External integrations, middleware
+│   │   └── interfaces/    # API routes, WebSocket handlers
+│   └── tests/             # 3,800+ tests
+├── sandbox/           # Ubuntu Docker sandbox with Chrome
+├── grafana/           # Dashboards & monitoring
+├── scripts/           # Utility scripts
+└── docs/              # Architecture docs & plans
 ```
 
-2. Update `.env` with your API key and settings.
-
-**Pre-deployment environment**
-
-Before running `docker compose up` for deployment, create a `.env` from `.env.example` and ensure required secrets are set. This project expects MinIO credentials to be provided via environment variables used by `docker-compose.yml`:
-
-- `MINIO_ROOT_USER` - MinIO admin username (example placeholder in `.env.example`)
-- `MINIO_ROOT_PASSWORD` - MinIO admin password (example placeholder in `.env.example`)
-
-Example workflow:
+### Running Locally
 
 ```bash
-cp .env.example .env
-# Edit .env and set secure values for MINIO_ROOT_USER and MINIO_ROOT_PASSWORD
-# Generate a secure password, e.g. on macOS: openssl rand -base64 32
-```
-
-Verify the variables are present before running `docker compose`:
-
-```bash
-grep -E "MINIO_ROOT_USER|MINIO_ROOT_PASSWORD" .env
-```
-
-If a variable is missing, `docker-compose.yml` may fail the substitution checks. Use strong, unique values for MinIO credentials in production.
-
-3. Run in development mode:
-```bash
+# Development mode with hot reload
 docker compose -f docker-compose-development.yml up
+
+# Ports:
+#   5173 → Frontend (Vite dev server)
+#   8000 → Backend API
+#   8080 → Sandbox API (localhost only)
 ```
 
-Development ports:
-- 5173: Web frontend
-- 8000: Backend API
-- 8080: Sandbox API
-
-Browser live preview is streamed through authenticated backend CDP WebSocket proxies
-(`screencast` + `input`); no direct sandbox desktop port is required.
-
-### Run GitHub Tests Locally (Exact Workflow Replica)
-
-Use the local CI harness to run the same `.github/workflows/test-and-lint.yml` jobs via `act`.
-
-Prerequisites:
-- Docker Desktop running
-- `act` installed (example: `brew install act`)
-
-Commands:
+### Testing
 
 ```bash
-# Dry-run: list jobs that will run
-scripts/run_github_tests_local.sh --list-jobs --dry-run
+# Backend
+cd backend
+ruff check . && ruff format --check .   # Lint
+pytest tests/ -v --tb=short             # 3,800+ tests
 
-# Full push-equivalent workflow
+# Frontend
+cd frontend
+bun install
+bun run lint:check                       # ESLint
+bun run type-check                       # TypeScript
+bun run test:run                         # Vitest
+```
+
+### Run CI Locally
+
+```bash
+# Full push-equivalent workflow via act
 scripts/run_github_tests_local.sh --event push
 
-# Full pull_request-equivalent workflow
-scripts/run_github_tests_local.sh --event pull_request
-
-# Cached local run (no forced image pull)
-scripts/run_github_tests_local.sh --event push --no-pull --reuse
-
-# Single job only
-scripts/run_github_tests_local.sh --job frontend-test
-
-# Override Python tool-cache path for local runners if needed
-scripts/run_github_tests_local.sh --job backend-lint --runner-tool-cache /tmp/act-toolcache
+# Single job
+scripts/run_github_tests_local.sh --job backend-test
 ```
 
-Notes:
-- Default image is `ghcr.io/catthehacker/ubuntu:full-latest` for high-fidelity CI parity.
-- Default architecture is `linux/amd64` to match GitHub-hosted runners.
-- Use `--no-pull` when you want to reuse local cached images and avoid long pull phases.
-- Local runs export `RUNNER_TOOL_CACHE` and `AGENT_TOOLSDIRECTORY` to a writable path for `actions/setup-python` compatibility.
-- First run can take longer due image pulls.
+---
 
-## Architecture
+## 📊 Monitoring
 
-**When a user initiates a conversation:**
+Pythinker ships with a full observability stack:
 
-1. Web sends a request to create an Agent to the Server, which creates a Sandbox through `/var/run/docker.sock` and returns a session ID.
-2. The Sandbox is an Ubuntu Docker environment that starts Chrome browser and API services for tools like File/Shell.
-3. Web sends user messages to the session ID, and when the Server receives user messages, it forwards them to the PlanAct Agent for processing.
-4. During processing, the PlanAct Agent calls relevant tools to complete tasks.
-5. All events generated during Agent processing are sent back to Web via SSE.
+- **Prometheus** — Metrics collection (SSE connections, sandbox health, API latency)
+- **Grafana** — Pre-configured dashboards
+- **Loki + Promtail** — Log aggregation and search
 
-## License
+```bash
+# Start with monitoring
+docker compose -f docker-compose-monitoring.yml up -d
+# Grafana: http://localhost:3000
+```
 
-MIT License
+---
 
-Copyright (c) 2024 Mohamed Elkholy
+## 🔧 Configuration
+
+All configuration is via `.env`. Key sections:
+
+| Category | Variables | Description |
+|----------|----------|-------------|
+| **LLM** | `API_KEY`, `API_BASE`, `MODEL_NAME` | Primary model configuration |
+| **Fast Model** | `FAST_MODEL` | Optional fast-tier model for simple tasks |
+| **Search** | `SEARCH_PROVIDER`, `BING_API_KEY` | Web search provider |
+| **Auth** | `AUTH_PROVIDER`, `JWT_SECRET_KEY` | Authentication settings |
+| **Sandbox** | `SANDBOX_IMAGE`, `SANDBOX_TTL_MINUTES` | Container lifecycle |
+| **Telegram** | `TELEGRAM_BOT_TOKEN` | Bot gateway |
+| **Storage** | `MINIO_ROOT_USER/PASSWORD` | Object storage |
+
+See [`.env.example`](.env.example) for the complete reference with documentation.
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Run the test suite (`scripts/run_github_tests_local.sh --event push`)
+4. Commit your changes with [conventional commits](https://www.conventionalcommits.org/)
+5. Open a Pull Request
+
+CI will automatically run lint, type-check, tests, and security scans.
+
+---
+
+## 📄 License
+
+MIT License — Copyright (c) 2024 [Mohamed Elkholy](https://github.com/mohamed-elkholy95)
