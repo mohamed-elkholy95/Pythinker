@@ -142,17 +142,38 @@ class FastAcknowledgmentRefiner:
         )
 
         # Strip specific source/site mentions the LLM may hallucinate.
-        # Handles: "including searching Reddit and other sources",
-        # "by checking Stack Overflow and GitHub", "from Google", etc.
         _sites = (
             r"Reddit|Google|Stack\s*Overflow|GitHub|Wikipedia|Hacker\s*News|"
             r"Quora|Medium|Twitter|X\.com|YouTube|forums?|blogs?"
         )
-        # Full phrase: ", including searching Reddit and other sources"
+        # Pattern 1: "including searching Reddit and other sources"
         normalized = re.sub(
             rf",?\s*(?:including\s+)?(?:by\s+)?(?:searching|checking|browsing|looking\s+at|from)\s+"
             rf"(?:{_sites})(?:\s*,?\s*(?:and\s+)?(?:{_sites}))*"
             rf"(?:\s+and\s+other\s+sources?)?(?:\s+for\s+[\w\s]{{1,40}})?",
+            "",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        # Pattern 2: "on Reddit", "via Reddit", "through Reddit", "using Reddit"
+        normalized = re.sub(
+            rf"\s+(?:on|via|through|using|across)\s+(?:{_sites})(?:\s*,?\s*(?:and\s+)?(?:{_sites}))*"
+            rf"(?:\s+and\s+other\s+(?:sources?|platforms?|sites?|communities?))?",
+            "",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        # Pattern 3: standalone "Reddit research", "Reddit discussions", etc.
+        normalized = re.sub(
+            rf"\b(?:{_sites})\s+(?:research|discussions?|threads?|posts?|results?|sources?|data)\b",
+            "online research",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        # Pattern 4: bare site names remaining (last resort — catches "including Reddit")
+        normalized = re.sub(
+            rf",?\s*(?:including\s+)?(?:{_sites})(?:\s*,?\s*(?:and\s+)?(?:{_sites}))*"
+            rf"(?:\s+and\s+other\s+(?:sources?|platforms?|sites?|communities?))?",
             "",
             normalized,
             flags=re.IGNORECASE,

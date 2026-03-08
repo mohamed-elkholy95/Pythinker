@@ -100,6 +100,14 @@ class LLMTimeoutSettingsMixin:
     # stream at 35 tok/s is healthy).
     llm_slow_stream_threshold: float = 180.0
 
+    # HTTPX read timeout (seconds) applied to streaming requests.
+    # This is the maximum silence between consecutive chunks from the LLM.
+    # Free-tier providers (Kimi, GLM) can pause 30-60s between sections when
+    # generating complex content (charts, tables, references).
+    # Too low → httpx.ReadTimeout kills valid streams mid-report.
+    # Too high → genuinely stalled streams hang for minutes.
+    llm_stream_read_timeout: float = 90.0
+
     # Optional hard timeout (seconds) applied to every LLM call via asyncio.wait_for.
     # Set to 0 to disable.
     llm_hard_call_timeout: float = 0.0
