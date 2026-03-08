@@ -228,7 +228,7 @@ def _make_fake_application(channel: TelegramChannel):
     app.process_update = AsyncMock()
     app.update_queue = asyncio.Queue()
     app.bot = SimpleNamespace(
-        get_me=AsyncMock(return_value=SimpleNamespace(username="nanobot_test")),
+        get_me=AsyncMock(return_value=SimpleNamespace(username="pythinker_test")),
         set_my_commands=AsyncMock(),
         delete_webhook=AsyncMock(),
         get_updates=AsyncMock(),
