@@ -206,3 +206,35 @@ class TestPlanPhaseHelpers:
         assert plan.phases == []
         assert plan.get_current_phase() is None
         assert plan.get_phase_by_type(PhaseType.ALIGNMENT) is None
+
+    def test_sync_phase_statuses_marks_started_phase_running(self):
+        phases = build_phases([PhaseType.RESEARCH_FOUNDATION, PhaseType.REPORT_GENERATION])
+        plan = Plan(
+            steps=[
+                Step(id="1", description="Research", status=ExecutionStatus.COMPLETED, success=True),
+                Step(id="2", description="Write report", status=ExecutionStatus.PENDING),
+            ],
+            phases=phases,
+        )
+        phases[0].step_ids = ["1"]
+        phases[1].step_ids = ["2"]
+
+        plan.sync_phase_statuses()
+
+        assert phases[0].status == ExecutionStatus.COMPLETED
+        assert phases[1].status == ExecutionStatus.PENDING
+
+    def test_sync_phase_statuses_marks_mixed_phase_running(self):
+        phases = build_phases([PhaseType.RESEARCH_FOUNDATION])
+        plan = Plan(
+            steps=[
+                Step(id="1", description="Research one", status=ExecutionStatus.COMPLETED, success=True),
+                Step(id="2", description="Research two", status=ExecutionStatus.PENDING),
+            ],
+            phases=phases,
+        )
+        phases[0].step_ids = ["1", "2"]
+
+        plan.sync_phase_statuses()
+
+        assert phases[0].status == ExecutionStatus.RUNNING

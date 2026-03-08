@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import hashlib
 import logging
 import posixpath
 import re
@@ -8,7 +9,8 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from pathlib import PurePosixPath
+from io import BytesIO
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Optional
 
 from app.application.errors.exceptions import NotFoundError
@@ -1578,6 +1580,89 @@ class AgentService:
             logger.error(f"Shared session {session_id} not found or not shared")
             raise NotFoundError("Session not found")
         return session.files
+
+    async def persist_generated_artifact(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        local_path: str,
+        filename: str | None = None,
+        content_type: str | None = None,
+        virtual_path: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> FileInfo | None:
+        """Upload a locally generated artifact and attach it to the session."""
+        logger.info("Persisting generated artifact for session %s from %s", session_id, local_path)
+
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error("Session %s not found for user %s", session_id, user_id)
+            raise NotFoundError("Session not found")
+
+        artifact_path = Path(local_path)
+        if not artifact_path.is_file():
+            logger.warning("Generated artifact path does not exist: %s", local_path)
+            return None
+
+        file_bytes = artifact_path.read_bytes()
+        if not file_bytes:
+            logger.warning("Skipping empty generated artifact at %s", local_path)
+            return None
+
+        effective_filename = filename or artifact_path.name or "artifact"
+        content_md5 = hashlib.md5(file_bytes).hexdigest()  # noqa: S324
+        existing_file = await self._session_repository.get_file_by_path(session_id, virtual_path)
+        existing_md5 = (existing_file.metadata or {}).get("content_md5") if existing_file else None
+        if (
+            existing_file
+            and existing_file.file_id
+            and existing_file.size == len(file_bytes)
+            and (
+                existing_md5 == content_md5
+                or (
+                    existing_file.file_path == virtual_path
+                    and (existing_file.filename or effective_filename) == effective_filename
+                )
+            )
+        ):
+            return existing_file
+
+        if existing_file and existing_file.file_id:
+            with contextlib.suppress(Exception):
+                await self._session_repository.remove_file(session_id, existing_file.file_id)
+            with contextlib.suppress(Exception):
+                await self._file_storage.delete_file(existing_file.file_id, user_id)
+
+        uploaded = await self._file_storage.upload_file(
+            BytesIO(file_bytes),
+            effective_filename,
+            user_id,
+            content_type=content_type,
+            metadata=metadata,
+        )
+        if not uploaded or not uploaded.file_id:
+            logger.error("Generated artifact upload returned no file info for session %s", session_id)
+            return None
+
+        uploaded.filename = effective_filename
+        uploaded.file_path = virtual_path
+        uploaded.content_type = content_type or uploaded.content_type
+        uploaded.size = len(file_bytes)
+        uploaded.metadata = {
+            **(uploaded.metadata or {}),
+            **(metadata or {}),
+            "content_md5": content_md5,
+        }
+
+        try:
+            await self._session_repository.add_file(session_id, uploaded)
+        except Exception:
+            with contextlib.suppress(Exception):
+                await self._file_storage.delete_file(uploaded.file_id, user_id)
+            raise
+
+        return uploaded
 
     async def share_session(self, session_id: str, user_id: str) -> None:
         """Share a session, ensuring it belongs to the user"""

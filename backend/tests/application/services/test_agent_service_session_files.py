@@ -99,3 +99,103 @@ async def test_get_shared_session_files_returns_persisted_files() -> None:
     files = await service.get_shared_session_files("s1")
 
     assert [f.file_id for f in files] == ["local_admin/report.md"]
+
+
+@pytest.mark.asyncio
+async def test_persist_generated_artifact_uploads_and_tracks_file(tmp_path) -> None:
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 test")
+
+    uploaded = FileInfo(
+        file_id="local_admin/report.pdf",
+        filename="report.pdf",
+        file_path="",
+        content_type="application/pdf",
+        size=0,
+        user_id="user-1",
+    )
+    session_repository = SimpleNamespace(
+        find_by_id_and_user_id=AsyncMock(return_value=_make_session(session_id="s1", user_id="user-1", is_shared=False, files=[])),
+        get_file_by_path=AsyncMock(return_value=None),
+        add_file=AsyncMock(),
+        remove_file=AsyncMock(),
+    )
+    file_storage = MagicMock(upload_file=AsyncMock(return_value=uploaded), delete_file=AsyncMock(return_value=True))
+    service = AgentService(
+        llm=DummyLLM(),
+        agent_repository=DummyAgentRepository(),
+        session_repository=session_repository,
+        sandbox_cls=MagicMock(),
+        task_cls=DummyTask,
+        json_parser=MagicMock(),
+        file_storage=file_storage,
+        mcp_repository=MagicMock(),
+        search_engine=None,
+        memory_service=None,
+        mongodb_db=None,
+    )
+
+    result = await service.persist_generated_artifact(
+        session_id="s1",
+        user_id="user-1",
+        local_path=str(pdf_path),
+        filename="report.pdf",
+        content_type="application/pdf",
+        virtual_path="/channel-deliveries/s1/report.pdf",
+        metadata={"delivery_channel": "telegram"},
+    )
+
+    assert result is not None
+    assert result.file_path == "/channel-deliveries/s1/report.pdf"
+    file_storage.upload_file.assert_awaited_once()
+    session_repository.add_file.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_persist_generated_artifact_skips_unchanged_duplicate(tmp_path) -> None:
+    pdf_path = tmp_path / "report.pdf"
+    pdf_bytes = b"%PDF-1.4 test"
+    pdf_path.write_bytes(pdf_bytes)
+    existing = FileInfo(
+        file_id="local_admin/report.pdf",
+        filename="report.pdf",
+        file_path="/channel-deliveries/s1/report.pdf",
+        content_type="application/pdf",
+        size=len(pdf_bytes),
+        user_id="user-1",
+        metadata={"content_md5": "30fc778fbe570b29a54647c6c18d9f55"},
+    )
+
+    session_repository = SimpleNamespace(
+        find_by_id_and_user_id=AsyncMock(return_value=_make_session(session_id="s1", user_id="user-1", is_shared=False, files=[existing])),
+        get_file_by_path=AsyncMock(return_value=existing),
+        add_file=AsyncMock(),
+        remove_file=AsyncMock(),
+    )
+    file_storage = MagicMock(upload_file=AsyncMock(), delete_file=AsyncMock())
+    service = AgentService(
+        llm=DummyLLM(),
+        agent_repository=DummyAgentRepository(),
+        session_repository=session_repository,
+        sandbox_cls=MagicMock(),
+        task_cls=DummyTask,
+        json_parser=MagicMock(),
+        file_storage=file_storage,
+        mcp_repository=MagicMock(),
+        search_engine=None,
+        memory_service=None,
+        mongodb_db=None,
+    )
+
+    result = await service.persist_generated_artifact(
+        session_id="s1",
+        user_id="user-1",
+        local_path=str(pdf_path),
+        filename="report.pdf",
+        content_type="application/pdf",
+        virtual_path="/channel-deliveries/s1/report.pdf",
+    )
+
+    assert result == existing
+    file_storage.upload_file.assert_not_awaited()
+    session_repository.add_file.assert_not_awaited()
