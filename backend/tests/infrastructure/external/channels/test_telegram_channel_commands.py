@@ -1,29 +1,47 @@
-"""Tests for Telegram channel command and deep-link forwarding behavior."""
+"""Tests for Telegram channel command, transport, and streaming behavior."""
 
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
+import aiohttp
 import pytest
 from nanobot.bus.events import OutboundMessage
 from nanobot.channels.telegram import TelegramChannel
+from nanobot.channels.telegram_webhook import TelegramWebhookListener
 from nanobot.config.schema import TelegramConfig
 from telegram.error import BadRequest, RetryAfter, TimedOut
-from telegram.ext import CallbackQueryHandler
+from telegram.ext import CallbackQueryHandler, MessageReactionHandler
+
+from app.domain.services.command_registry import CommandRegistry
 
 
 def _make_channel(**config_overrides: object) -> TelegramChannel:
+    allow_from = config_overrides.pop("allow_from", ["*"])
     config = TelegramConfig(
         enabled=True,
         token="123:fake",
-        allow_from=["*"],
+        allow_from=allow_from,
         **config_overrides,
     )
     bus = MagicMock()
     bus.publish_inbound = AsyncMock()
     return TelegramChannel(config=config, bus=bus)
+
+
+def _make_command_registry(*, aliases: bool = True) -> CommandRegistry:
+    registry = CommandRegistry()
+    registry.register_command(
+        "brainstorm",
+        "brainstorming",
+        "Brainstorm a design with the user",
+        aliases=["idea"] if aliases else None,
+    )
+    return registry
 
 
 def _make_update(text: str) -> SimpleNamespace:
@@ -39,7 +57,7 @@ def _make_update(text: str) -> SimpleNamespace:
         username="john",
         first_name="John",
     )
-    return SimpleNamespace(message=message, effective_user=user)
+    return SimpleNamespace(message=message, effective_user=user, update_id=101)
 
 
 def _make_text_message_update(
@@ -73,21 +91,129 @@ def _make_text_message_update(
         media_group_id=None,
         chat=SimpleNamespace(type=chat_type, is_forum=is_forum),
     )
-    return SimpleNamespace(message=message, effective_user=user)
+    return SimpleNamespace(message=message, effective_user=user, update_id=101)
 
 
-def _make_callback_update(data: str) -> SimpleNamespace:
+def _make_sticker_message_update(
+    *,
+    chat_id: int = 5829880422,
+    user_id: int = 5829880422,
+    username: str = "john",
+    first_name: str = "John",
+    chat_type: str = "private",
+    message_id: int = 99,
+    emoji: str = "🔥",
+    set_name: str = "funny_pack",
+    is_animated: bool = False,
+    is_video: bool = False,
+) -> SimpleNamespace:
+    user = SimpleNamespace(
+        id=user_id,
+        username=username,
+        first_name=first_name,
+    )
+    message = SimpleNamespace(
+        chat_id=chat_id,
+        text=None,
+        caption=None,
+        reply_text=AsyncMock(),
+        photo=[],
+        voice=None,
+        audio=None,
+        document=None,
+        sticker=SimpleNamespace(
+            file_id="sticker-file-id",
+            file_unique_id="sticker-unique-id",
+            emoji=emoji,
+            set_name=set_name,
+            is_animated=is_animated,
+            is_video=is_video,
+            mime_type="image/webp",
+            file_size=2048,
+        ),
+        message_id=message_id,
+        message_thread_id=None,
+        media_group_id=None,
+        chat=SimpleNamespace(type=chat_type, is_forum=False),
+    )
+    return SimpleNamespace(message=message, effective_user=user, update_id=101)
+
+
+def _make_message_reaction_update(
+    *,
+    chat_id: int = 5829880422,
+    message_id: int = 42,
+    user_id: int = 5829880422,
+    username: str = "ada",
+    first_name: str = "Ada",
+    chat_type: str = "private",
+    emojis: tuple[str, ...] = ("👍",),
+) -> SimpleNamespace:
+    user = SimpleNamespace(
+        id=user_id,
+        username=username,
+        first_name=first_name,
+        last_name=None,
+        is_bot=False,
+    )
+    reaction = SimpleNamespace(
+        chat=SimpleNamespace(id=chat_id, type=chat_type, title="General", is_forum=False),
+        message_id=message_id,
+        user=user,
+        old_reaction=[],
+        new_reaction=[SimpleNamespace(type="emoji", emoji=emoji) for emoji in emojis],
+    )
+    return SimpleNamespace(
+        message_reaction=reaction,
+        effective_user=user,
+        update_id=303,
+    )
+
+
+def _make_callback_update(
+    data: str,
+    *,
+    chat_id: int = 5829880422,
+    chat_type: str = "private",
+    is_forum: bool = False,
+) -> SimpleNamespace:
     callback_query = SimpleNamespace(
         data=data,
+        id="callback-1",
         answer=AsyncMock(),
         message=SimpleNamespace(
-            chat_id=5829880422,
+            chat_id=chat_id,
             message_id=99,
-            chat=SimpleNamespace(type="private", is_forum=False),
+            chat=SimpleNamespace(type=chat_type, is_forum=is_forum),
         ),
         from_user=SimpleNamespace(id=5829880422, username="john", first_name="John"),
     )
-    return SimpleNamespace(callback_query=callback_query, effective_user=callback_query.from_user)
+    return SimpleNamespace(callback_query=callback_query, effective_user=callback_query.from_user, update_id=101)
+
+
+def _make_channel_post_update(text: str) -> SimpleNamespace:
+    message = SimpleNamespace(
+        chat_id=-1001234567890,
+        text=text,
+        caption=None,
+        reply_text=AsyncMock(),
+        photo=[],
+        voice=None,
+        audio=None,
+        document=None,
+        message_id=77,
+        message_thread_id=None,
+        media_group_id=None,
+        chat=SimpleNamespace(type="channel", is_forum=False, id=-1001234567890),
+        from_user=None,
+        sender_chat=SimpleNamespace(id=-1001234567890, username="announcements", title="Announcements"),
+    )
+    return SimpleNamespace(
+        message=None,
+        channel_post=message,
+        effective_user=None,
+        update_id=202,
+    )
 
 
 def _make_fake_application(channel: TelegramChannel):
@@ -97,10 +223,15 @@ def _make_fake_application(channel: TelegramChannel):
     app.add_handler = MagicMock(side_effect=lambda handler, **kwargs: add_handler_calls.append(handler))
     app.initialize = AsyncMock()
     app.start = AsyncMock()
+    app.stop = AsyncMock()
+    app.shutdown = AsyncMock()
+    app.process_update = AsyncMock()
+    app.update_queue = asyncio.Queue()
     app.bot = SimpleNamespace(
         get_me=AsyncMock(return_value=SimpleNamespace(username="nanobot_test")),
         set_my_commands=AsyncMock(),
         delete_webhook=AsyncMock(),
+        get_updates=AsyncMock(),
     )
 
     async def _start_polling(**kwargs):
@@ -114,6 +245,7 @@ def _make_fake_application(channel: TelegramChannel):
     app.updater = SimpleNamespace(
         start_polling=AsyncMock(side_effect=_start_polling),
         start_webhook=AsyncMock(side_effect=_start_webhook),
+        stop=AsyncMock(),
     )
     return app, add_handler_calls
 
@@ -129,6 +261,9 @@ class _FakeBuilder:
         return self
 
     def get_updates_request(self, _value):
+        return self
+
+    def updater(self, _value):
         return self
 
     def proxy(self, _value):
@@ -224,6 +359,22 @@ async def test_help_command_mentions_robot_icon_and_bind_alias() -> None:
 
 
 @pytest.mark.asyncio
+async def test_help_command_includes_registered_custom_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    channel = _make_channel()
+    update = _make_update("/help")
+    context = SimpleNamespace(args=[])
+    registry = _make_command_registry()
+    monkeypatch.setattr("app.domain.services.command_registry.get_command_registry", lambda: registry)
+
+    await channel._on_help(update, context)
+
+    update.message.reply_text.assert_awaited_once()
+    help_text = update.message.reply_text.await_args.args[0]
+    assert "/brainstorm" in help_text
+    assert "Brainstorm a design with the user" in help_text
+
+
+@pytest.mark.asyncio
 async def test_unknown_command_sends_help_hint() -> None:
     channel = _make_channel()
     update = _make_update("/foo")
@@ -232,6 +383,49 @@ async def test_unknown_command_sends_help_hint() -> None:
     await channel._unknown_command(update, context)
 
     update.message.reply_text.assert_awaited_once_with("Unknown command. Use /help to see available commands.")
+
+
+@pytest.mark.asyncio
+async def test_unknown_command_forwards_registered_custom_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+    update = _make_update("/brainstorm compare approaches")
+    context = SimpleNamespace(args=["compare", "approaches"])
+    registry = _make_command_registry()
+    monkeypatch.setattr("app.domain.services.command_registry.get_command_registry", lambda: registry)
+
+    await channel._unknown_command(update, context)
+
+    update.message.reply_text.assert_not_awaited()
+    channel._handle_message.assert_awaited_once_with(
+        sender_id="5829880422|john",
+        chat_id="5829880422",
+        content="/brainstorm compare approaches",
+        metadata={
+            "message_id": 99,
+            "user_id": 5829880422,
+            "username": "john",
+            "first_name": "John",
+            "is_group": False,
+            "is_forum": False,
+        },
+        session_key="telegram:direct:5829880422",
+    )
+
+
+@pytest.mark.asyncio
+async def test_unknown_command_forwards_registered_alias_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+    update = _make_update("/idea sketch options")
+    context = SimpleNamespace(args=["sketch", "options"])
+    registry = _make_command_registry()
+    monkeypatch.setattr("app.domain.services.command_registry.get_command_registry", lambda: registry)
+
+    await channel._unknown_command(update, context)
+
+    update.message.reply_text.assert_not_awaited()
+    channel._handle_message.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -275,17 +469,122 @@ async def test_unknown_command_ignores_unparseable_command_text() -> None:
 async def test_start_registers_callback_handler_and_polls_callback_updates(monkeypatch: pytest.MonkeyPatch) -> None:
     channel = _make_channel()
     fake_app, add_handler_calls = _make_fake_application(channel)
+    fake_app.bot.get_updates.side_effect = [
+        (SimpleNamespace(update_id=101),),
+        asyncio.CancelledError(),
+    ]
     monkeypatch.setattr("nanobot.channels.telegram.Application.builder", lambda: _FakeBuilder(fake_app))
+    monkeypatch.setattr("nanobot.channels.telegram.read_telegram_update_offset", AsyncMock(return_value=None))
+    monkeypatch.setattr("nanobot.channels.telegram.write_telegram_update_offset", AsyncMock())
 
     await channel.start()
 
-    handler_types = {type(handler) for handler in add_handler_calls}
-    assert CallbackQueryHandler in handler_types
+    callback_handlers = [handler for handler in add_handler_calls if isinstance(handler, CallbackQueryHandler)]
+    assert callback_handlers
+    assert callback_handlers[0].pattern is None
+    reaction_handlers = [handler for handler in add_handler_calls if isinstance(handler, MessageReactionHandler)]
+    assert reaction_handlers
 
-    fake_app.updater.start_polling.assert_awaited_once()
-    allowed_updates = fake_app.updater.start_polling.await_args.kwargs["allowed_updates"]
+    fake_app.updater.start_polling.assert_not_awaited()
+    fake_app.bot.get_updates.assert_awaited()
+    allowed_updates = fake_app.bot.get_updates.await_args.kwargs["allowed_updates"]
     assert "message" in allowed_updates
     assert "callback_query" in allowed_updates
+    assert "channel_post" in allowed_updates
+    assert "message_reaction" in allowed_updates
+
+
+@pytest.mark.asyncio
+async def test_start_registers_custom_primary_commands_in_telegram_menu(monkeypatch: pytest.MonkeyPatch) -> None:
+    channel = _make_channel()
+    fake_app, _add_handler_calls = _make_fake_application(channel)
+    fake_app.bot.get_updates.side_effect = [
+        (),
+        asyncio.CancelledError(),
+    ]
+    registry = _make_command_registry()
+    monkeypatch.setattr("nanobot.channels.telegram.Application.builder", lambda: _FakeBuilder(fake_app))
+    monkeypatch.setattr("nanobot.channels.telegram.read_telegram_update_offset", AsyncMock(return_value=None))
+    monkeypatch.setattr("nanobot.channels.telegram.write_telegram_update_offset", AsyncMock())
+    monkeypatch.setattr("app.domain.services.command_registry.get_command_registry", lambda: registry)
+
+    await channel.start()
+
+    fake_app.bot.set_my_commands.assert_awaited_once()
+    registered = fake_app.bot.set_my_commands.await_args.args[0]
+    command_names = {entry.command for entry in registered}
+    assert "brainstorm" in command_names
+    assert "idea" not in command_names
+
+
+@pytest.mark.asyncio
+async def test_start_polling_resumes_from_persisted_offset_and_persists_processed_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    channel = _make_channel()
+    fake_app, _add_handler_calls = _make_fake_application(channel)
+    first_update = SimpleNamespace(update_id=101)
+    second_update = SimpleNamespace(update_id=102)
+    fake_app.bot.get_updates.side_effect = [
+        (first_update, second_update),
+        asyncio.CancelledError(),
+    ]
+    read_offset = AsyncMock(return_value=100)
+    write_offset = AsyncMock()
+    monkeypatch.setattr("nanobot.channels.telegram.Application.builder", lambda: _FakeBuilder(fake_app))
+    monkeypatch.setattr("nanobot.channels.telegram.read_telegram_update_offset", read_offset)
+    monkeypatch.setattr("nanobot.channels.telegram.write_telegram_update_offset", write_offset)
+
+    await channel.start()
+
+    first_poll_kwargs = fake_app.bot.get_updates.await_args_list[0].kwargs
+    assert first_poll_kwargs["offset"] == 101
+    fake_app.process_update.assert_has_awaits(
+        [
+            call(first_update),
+            call(second_update),
+        ]
+    )
+    write_offset.assert_has_awaits(
+        [
+            call(update_id=101, bot_token="123:fake"),
+            call(update_id=102, bot_token="123:fake"),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_polling_stall_timeout_cancels_hung_get_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+    channel = _make_channel(
+        polling_stall_restart_enabled=True,
+        polling_stall_timeout_seconds=1,
+    )
+    fake_app, _add_handler_calls = _make_fake_application(channel)
+    cancelled = asyncio.Event()
+    call_count = 0
+
+    async def _hung_then_exit(**kwargs):
+        del kwargs
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+        channel._running = False
+        return ()
+
+    fake_app.bot.get_updates.side_effect = _hung_then_exit
+    monkeypatch.setattr("nanobot.channels.telegram.Application.builder", lambda: _FakeBuilder(fake_app))
+    monkeypatch.setattr("nanobot.channels.telegram.read_telegram_update_offset", AsyncMock(return_value=None))
+    monkeypatch.setattr("nanobot.channels.telegram.write_telegram_update_offset", AsyncMock())
+
+    await channel.start()
+
+    assert cancelled.is_set()
+    assert fake_app.bot.get_updates.await_count >= 2
 
 
 @pytest.mark.asyncio
@@ -343,7 +642,158 @@ async def test_callback_query_forwards_generic_callback_data_as_message() -> Non
 
 
 @pytest.mark.asyncio
-async def test_start_with_webhook_mode_uses_start_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_callback_query_respects_inbound_authorization() -> None:
+    channel = _make_channel(dm_policy="disabled")
+    channel._handle_message = AsyncMock()
+    update = _make_callback_update("/status")
+
+    await channel._on_callback_query(update, SimpleNamespace())
+
+    update.callback_query.answer.assert_awaited_once()
+    channel._handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_callback_query_skips_when_inline_buttons_scope_is_off() -> None:
+    channel = _make_channel(inline_buttons_scope="off")
+    channel._handle_message = AsyncMock()
+
+    update = _make_callback_update("/status")
+
+    await channel._on_callback_query(update, SimpleNamespace())
+
+    update.callback_query.answer.assert_awaited_once()
+    channel._handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_callback_query_skips_private_chat_when_inline_buttons_scope_is_group() -> None:
+    channel = _make_channel(inline_buttons_scope="group")
+    channel._handle_message = AsyncMock()
+
+    update = _make_callback_update("/status", chat_type="private")
+
+    await channel._on_callback_query(update, SimpleNamespace())
+
+    update.callback_query.answer.assert_awaited_once()
+    channel._handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_callback_query_skips_group_chat_when_inline_buttons_scope_is_dm() -> None:
+    channel = _make_channel(inline_buttons_scope="dm")
+    channel._handle_message = AsyncMock()
+
+    update = _make_callback_update("/status", chat_id=-1001234567890, chat_type="supergroup")
+
+    await channel._on_callback_query(update, SimpleNamespace())
+
+    update.callback_query.answer.assert_awaited_once()
+    channel._handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sticker_message_preserves_rich_media_metadata(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+    update = _make_sticker_message_update()
+
+    async def _download_to_drive(path: str) -> None:
+        Path(path).write_bytes(b"sticker")
+
+    channel._app = SimpleNamespace(
+        bot=SimpleNamespace(
+            get_file=AsyncMock(
+                return_value=SimpleNamespace(
+                    download_to_drive=AsyncMock(side_effect=_download_to_drive),
+                )
+            )
+        )
+    )
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_awaited_once()
+    kwargs = channel._handle_message.await_args.kwargs
+    assert "sticker" in kwargs["content"].lower()
+    assert len(kwargs["media"]) == 1
+    assert kwargs["metadata"]["media_attachments"] == [
+        {
+            "url": kwargs["media"][0],
+            "content_type": "image/webp",
+            "filename": "sticker-file-id.webp",
+            "size": 2048,
+            "type": "sticker",
+            "metadata": {
+                "telegram": {
+                    "file_id": "sticker-file-id",
+                    "file_unique_id": "sticker-unique-id",
+                    "emoji": "🔥",
+                    "set_name": "funny_pack",
+                }
+            },
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_message_reaction_update_forwards_system_event() -> None:
+    channel = _make_channel(reaction_notifications="all")
+    channel._handle_message = AsyncMock()
+    update = _make_message_reaction_update(username="john", first_name="John", emojis=("🔥",))
+
+    await channel._on_message_reaction(update, SimpleNamespace())
+
+    channel._handle_message.assert_awaited_once_with(
+        sender_id="5829880422|john",
+        chat_id="5829880422",
+        content="Telegram reaction added: 🔥 by John (@john) on msg 42",
+        metadata={
+            "message_id": 42,
+            "user_id": 5829880422,
+            "username": "john",
+            "first_name": "John",
+            "is_group": False,
+            "is_forum": False,
+            "telegram_reaction": {
+                "emoji": "🔥",
+                "message_id": 42,
+            },
+        },
+        session_key="telegram:direct:5829880422",
+    )
+
+
+@pytest.mark.asyncio
+async def test_on_message_dedupes_duplicate_update_before_forwarding() -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    update = _make_text_message_update("hello")
+
+    await channel._on_message(update, SimpleNamespace())
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_awaited_once()
+    channel._start_typing.assert_called_once_with("5829880422")
+
+
+@pytest.mark.asyncio
+async def test_callback_query_dedupes_duplicate_update_before_forwarding() -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+    update = _make_callback_update("/status")
+
+    await channel._on_callback_query(update, SimpleNamespace())
+    await channel._on_callback_query(update, SimpleNamespace())
+
+    update.callback_query.answer.assert_awaited_once()
+    channel._handle_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_start_with_webhook_mode_uses_custom_webhook_listener(monkeypatch: pytest.MonkeyPatch) -> None:
     channel = _make_channel(
         webhook_mode=True,
         webhook_url="https://example.test/telegram-webhook",
@@ -354,19 +804,192 @@ async def test_start_with_webhook_mode_uses_start_webhook(monkeypatch: pytest.Mo
     )
     fake_app, _add_handler_calls = _make_fake_application(channel)
     monkeypatch.setattr("nanobot.channels.telegram.Application.builder", lambda: _FakeBuilder(fake_app))
+    fake_listener = SimpleNamespace(stop=AsyncMock())
+
+    async def _start_listener(**kwargs):
+        channel._running = False
+        channel._shutdown_event.set()
+        return fake_listener
+
+    start_listener = AsyncMock(side_effect=_start_listener)
+    monkeypatch.setattr("nanobot.channels.telegram.start_telegram_webhook_listener", start_listener)
 
     await channel.start()
 
     fake_app.updater.start_polling.assert_not_awaited()
-    fake_app.updater.start_webhook.assert_awaited_once()
-    kwargs = fake_app.updater.start_webhook.await_args.kwargs
-    assert kwargs["webhook_url"] == "https://example.test/telegram-webhook"
+    fake_app.updater.start_webhook.assert_not_awaited()
+    start_listener.assert_awaited_once()
+    kwargs = start_listener.await_args.kwargs
+    assert kwargs["application"] is fake_app
+    assert kwargs["public_url"] == "https://example.test/telegram-webhook"
     assert kwargs["secret_token"] == "secret-token"
-    assert kwargs["url_path"] == "telegram-webhook"
-    assert kwargs["listen"] == "127.0.0.1"
+    assert kwargs["path"] == "/telegram-webhook"
+    assert kwargs["host"] == "127.0.0.1"
     assert kwargs["port"] == 8787
     assert "message" in kwargs["allowed_updates"]
     assert "callback_query" in kwargs["allowed_updates"]
+    assert "channel_post" in kwargs["allowed_updates"]
+    assert "message_reaction" in kwargs["allowed_updates"]
+
+
+@pytest.mark.asyncio
+async def test_start_with_webhook_mode_rejects_empty_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    channel = _make_channel(webhook_mode=True, webhook_secret="")
+    fake_app, _add_handler_calls = _make_fake_application(channel)
+    monkeypatch.setattr("nanobot.channels.telegram.Application.builder", lambda: _FakeBuilder(fake_app))
+
+    with pytest.raises(ValueError, match="webhook_secret"):
+        await channel.start()
+
+
+@pytest.mark.asyncio
+async def test_dm_policy_disabled_blocks_direct_message() -> None:
+    channel = _make_channel(dm_policy="disabled")
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    update = _make_text_message_update("hello from dm")
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_not_awaited()
+    channel._start_typing.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_dm_policy_pairing_replies_with_link_hint_for_unknown_sender() -> None:
+    channel = _make_channel(dm_policy="pairing", allow_from=["999999"])
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    update = _make_text_message_update("hello from dm")
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_not_awaited()
+    update.message.reply_text.assert_awaited_once()
+    reply_text = update.message.reply_text.await_args.args[0]
+    assert "/link" in reply_text
+    assert "authorized" in reply_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_dm_policy_pairing_allows_link_command_without_allowlist() -> None:
+    channel = _make_channel(dm_policy="pairing", allow_from=["999999"])
+    channel._handle_message = AsyncMock()
+    update = _make_update("/link ABC123")
+    context = SimpleNamespace(args=["ABC123"])
+
+    await channel._forward_command(update, context)
+
+    channel._handle_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_group_require_mention_blocks_unmentioned_messages() -> None:
+    channel = _make_channel(group_require_mention=True)
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    channel._bot_username = "pythinker_bot"
+    update = _make_text_message_update(
+        "hello everyone",
+        chat_id=-1001234567890,
+        chat_type="supergroup",
+        user_id=123456789,
+    )
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_not_awaited()
+    channel._start_typing.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_group_require_mention_allows_explicit_bot_mentions() -> None:
+    channel = _make_channel(group_require_mention=True)
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    channel._bot_username = "pythinker_bot"
+    update = _make_text_message_update(
+        "hello @pythinker_bot",
+        chat_id=-1001234567890,
+        chat_type="supergroup",
+        user_id=123456789,
+    )
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_awaited_once()
+    channel._start_typing.assert_called_once_with("-1001234567890")
+
+
+@pytest.mark.asyncio
+async def test_group_policy_allowlist_blocks_unknown_group_sender() -> None:
+    channel = _make_channel(group_policy="allowlist", group_allow_from=["999999"])
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    update = _make_text_message_update(
+        "hello group",
+        chat_id=-1001234567890,
+        chat_type="supergroup",
+        user_id=123456789,
+    )
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_not_awaited()
+    channel._start_typing.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_group_policy_allowlist_allows_explicit_group_config_without_sender_allowlist() -> None:
+    channel = _make_channel(
+        group_policy="allowlist",
+        groups={"-1001234567890": {"enabled": True}},
+    )
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    update = _make_text_message_update(
+        "hello allowlisted group",
+        chat_id=-1001234567890,
+        chat_type="supergroup",
+        user_id=123456789,
+    )
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_awaited_once()
+    channel._start_typing.assert_called_once_with("-1001234567890")
+
+
+@pytest.mark.asyncio
+async def test_topic_override_require_mention_blocks_for_specific_forum_topic() -> None:
+    channel = _make_channel(
+        group_require_mention=False,
+        groups={
+            "-1001234567890": {
+                "topics": {
+                    "42": {
+                        "require_mention": True,
+                    }
+                }
+            }
+        },
+    )
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    channel._bot_username = "pythinker_bot"
+    update = _make_text_message_update(
+        "hello topic",
+        chat_id=-1001234567890,
+        chat_type="supergroup",
+        user_id=123456789,
+        message_thread_id=42,
+        is_forum=True,
+    )
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_not_awaited()
+    channel._start_typing.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -431,6 +1054,308 @@ async def test_on_message_dm_topic_uses_sender_scoped_session_key() -> None:
         },
         session_key="telegram:direct:123456789:thread:5829880422:9",
     )
+
+
+@pytest.mark.asyncio
+async def test_on_channel_post_forwards_sender_chat_metadata() -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    update = _make_channel_post_update("channel announcement")
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_awaited_once_with(
+        sender_id="chat:-1001234567890|announcements",
+        chat_id="-1001234567890",
+        content="channel announcement",
+        media=[],
+        metadata={
+            "message_id": 77,
+            "user_id": -1001234567890,
+            "username": "announcements",
+            "first_name": "Announcements",
+            "is_group": False,
+            "is_forum": False,
+            "is_channel_post": True,
+        },
+        session_key="telegram:channel:-1001234567890",
+    )
+    channel._start_typing.assert_called_once_with("-1001234567890")
+
+
+@pytest.mark.asyncio
+async def test_on_message_sticker_downloads_and_preserves_sticker_metadata() -> None:
+    channel = _make_channel()
+    update = _make_sticker_message_update()
+    channel._start_typing = MagicMock()
+
+    async def _download_to_drive(destination: str) -> None:
+        Path(destination).write_bytes(b"sticker")
+
+    channel._app = SimpleNamespace(
+        bot=SimpleNamespace(
+            get_file=AsyncMock(
+                return_value=SimpleNamespace(download_to_drive=AsyncMock(side_effect=_download_to_drive))
+            )
+        )
+    )
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel.bus.publish_inbound.assert_awaited_once()
+    inbound = channel.bus.publish_inbound.await_args.args[0]
+    assert inbound.content.startswith("[sticker:")
+    assert len(inbound.media) == 1
+    assert inbound.media[0].endswith(".webp")
+    assert inbound.metadata["telegram_sticker"] == {
+        "emoji": "🔥",
+        "file_id": "sticker-file-id",
+        "file_unique_id": "sticker-unique-id",
+        "is_animated": False,
+        "is_video": False,
+        "set_name": "funny_pack",
+    }
+    assert inbound.metadata["media_items"] == [
+        {
+            "url": inbound.media[0],
+            "mime_type": "image/webp",
+            "filename": Path(inbound.media[0]).name,
+            "size_bytes": 2048,
+        }
+    ]
+    assert inbound.session_key_override == "telegram:direct:5829880422"
+    channel._start_typing.assert_called_once_with("5829880422")
+
+
+@pytest.mark.asyncio
+async def test_message_reaction_enqueues_added_reaction_event() -> None:
+    channel = _make_channel(reaction_notifications="all")
+    update = _make_message_reaction_update(emojis=("👍", "🎉"))
+
+    await channel._on_message_reaction(update, SimpleNamespace())
+
+    assert channel.bus.publish_inbound.await_count == 2
+    first = channel.bus.publish_inbound.await_args_list[0].args[0]
+    second = channel.bus.publish_inbound.await_args_list[1].args[0]
+    assert first.content == "Telegram reaction added: 👍 by Ada (@ada) on msg 42"
+    assert second.content == "Telegram reaction added: 🎉 by Ada (@ada) on msg 42"
+    assert first.metadata["message_id"] == 42
+    assert first.metadata["telegram_reaction"] == {"emoji": "👍", "message_id": 42}
+    assert second.metadata["telegram_reaction"] == {"emoji": "🎉", "message_id": 42}
+    assert first.session_key_override == "telegram:direct:5829880422"
+
+
+@pytest.mark.asyncio
+async def test_send_sticker_attachment_uses_send_sticker() -> None:
+    channel = _make_channel()
+    channel._app = SimpleNamespace(
+        bot=SimpleNamespace(
+            send_message=AsyncMock(),
+            send_photo=AsyncMock(),
+            send_voice=AsyncMock(),
+            send_audio=AsyncMock(),
+            send_document=AsyncMock(),
+            send_sticker=AsyncMock(return_value=SimpleNamespace(message_id=77)),
+        )
+    )
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="",
+            media=["/tmp/sticker.webp"],
+            metadata={
+                "media_attachments": [
+                    {
+                        "url": "/tmp/sticker.webp",
+                        "content_type": "image/webp",
+                        "filename": "sticker.webp",
+                        "size": 321,
+                        "type": "sticker",
+                        "metadata": {
+                            "telegram": {
+                                "file_id": "sticker-file-id",
+                            }
+                        },
+                    }
+                ]
+            },
+        )
+    )
+
+    channel._app.bot.send_sticker.assert_awaited_once_with(
+        chat_id=5829880422,
+        sticker="sticker-file-id",
+    )
+    channel._app.bot.send_document.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_telegram_webhook_listener_serves_healthz_registers_webhook_and_enqueues_update() -> None:
+    queue: asyncio.Queue[object] = asyncio.Queue()
+    bot = SimpleNamespace(
+        set_webhook=AsyncMock(),
+        delete_webhook=AsyncMock(),
+    )
+    application = SimpleNamespace(bot=bot, update_queue=queue)
+    listener = TelegramWebhookListener(
+        application=application,
+        secret_token="secret-token",
+        path="/telegram-webhook",
+        host="127.0.0.1",
+        port=0,
+        allowed_updates=["message", "callback_query", "channel_post", "message_reaction"],
+    )
+
+    await listener.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            health = await session.get(listener.health_url)
+            assert health.status == 200
+            assert await health.text() == "ok"
+
+            response = await session.post(
+                listener.webhook_url,
+                json={
+                    "update_id": 500,
+                    "message": {"message_id": 99, "date": 0, "chat": {"id": 42, "type": "private"}, "text": "hello"},
+                },
+                headers={"X-Telegram-Bot-Api-Secret-Token": "secret-token"},
+            )
+            assert response.status == 200
+
+        update = await asyncio.wait_for(queue.get(), timeout=1.0)
+        assert update.update_id == 500
+        assert update.message.text == "hello"
+        bot.set_webhook.assert_awaited_once()
+        assert bot.set_webhook.await_args.kwargs["url"] == listener.webhook_url
+        assert bot.set_webhook.await_args.kwargs["secret_token"] == "secret-token"
+        assert bot.set_webhook.await_args.kwargs["allowed_updates"] == [
+            "message",
+            "callback_query",
+            "channel_post",
+            "message_reaction",
+        ]
+    finally:
+        await listener.stop()
+
+    bot.delete_webhook.assert_awaited_once_with(drop_pending_updates=False)
+
+
+@pytest.mark.asyncio
+async def test_telegram_webhook_listener_rejects_wrong_secret_without_queueing_update() -> None:
+    queue: asyncio.Queue[object] = asyncio.Queue()
+    bot = SimpleNamespace(
+        set_webhook=AsyncMock(),
+        delete_webhook=AsyncMock(),
+    )
+    application = SimpleNamespace(bot=bot, update_queue=queue)
+    listener = TelegramWebhookListener(
+        application=application,
+        secret_token="secret-token",
+        path="/telegram-webhook",
+        host="127.0.0.1",
+        port=0,
+        allowed_updates=["message"],
+    )
+
+    await listener.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            response = await session.post(
+                listener.webhook_url,
+                json={
+                    "update_id": 501,
+                    "message": {"message_id": 100, "date": 0, "chat": {"id": 42, "type": "private"}, "text": "ignored"},
+                },
+                headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
+            )
+            assert response.status == 401
+            assert await response.text() == "unauthorized"
+        assert queue.empty()
+    finally:
+        await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_telegram_webhook_listener_rejects_oversize_body_before_processing() -> None:
+    queue: asyncio.Queue[object] = asyncio.Queue()
+    bot = SimpleNamespace(
+        set_webhook=AsyncMock(),
+        delete_webhook=AsyncMock(),
+    )
+    application = SimpleNamespace(bot=bot, update_queue=queue)
+    listener = TelegramWebhookListener(
+        application=application,
+        secret_token="secret-token",
+        path="/telegram-webhook",
+        host="127.0.0.1",
+        port=0,
+        allowed_updates=["message"],
+        max_body_bytes=64,
+    )
+
+    await listener.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            response = await session.post(
+                listener.webhook_url,
+                data=json.dumps({"update_id": 502, "message": {"text": "x" * 256}}),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Telegram-Bot-Api-Secret-Token": "secret-token",
+                },
+            )
+            assert response.status == 413
+            assert await response.text() == "Payload too large"
+        assert queue.empty()
+    finally:
+        await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_telegram_webhook_listener_times_out_slow_request_body() -> None:
+    queue: asyncio.Queue[object] = asyncio.Queue()
+    bot = SimpleNamespace(
+        set_webhook=AsyncMock(),
+        delete_webhook=AsyncMock(),
+    )
+    application = SimpleNamespace(bot=bot, update_queue=queue)
+    listener = TelegramWebhookListener(
+        application=application,
+        secret_token="secret-token",
+        path="/telegram-webhook",
+        host="127.0.0.1",
+        port=0,
+        allowed_updates=["message"],
+        body_timeout_seconds=0.05,
+    )
+
+    await listener.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", listener.bound_port)
+        payload = (
+            b'{"update_id":503,"message":{"message_id":99,"date":0,"chat":{"id":42,"type":"private"},"text":"slow"}}'
+        )
+        headers = (
+            b"POST /telegram-webhook HTTP/1.1\r\n"
+            + f"Host: 127.0.0.1:{listener.bound_port}\r\n".encode()
+            + b"Content-Type: application/json\r\n"
+            + f"Content-Length: {len(payload)}\r\n".encode()
+            + b"X-Telegram-Bot-Api-Secret-Token: secret-token\r\n\r\n"
+        )
+        writer.write(headers)
+        await writer.drain()
+        await asyncio.sleep(0.1)
+        response_head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=1.0)
+        assert b"408 Request Timeout" in response_head
+        writer.close()
+        await writer.wait_closed()
+        assert queue.empty()
+    finally:
+        await listener.stop()
 
 
 @pytest.mark.asyncio
@@ -537,6 +1462,126 @@ async def test_send_document_retries_on_retry_after(monkeypatch: pytest.MonkeyPa
 
     assert bot.send_document.await_count == 2
     sleep_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_send_text_strips_reply_markup_when_inline_buttons_scope_is_off() -> None:
+    channel = _make_channel(inline_buttons_scope="off")
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Hello",
+            metadata={
+                "is_group": False,
+                "reply_markup": {
+                    "inline_keyboard": [[{"text": "Status", "callback_data": "/status"}]],
+                },
+            },
+        )
+    )
+
+    kwargs = bot.send_message.await_args.kwargs
+    assert "reply_markup" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_send_text_keeps_reply_markup_for_dm_when_inline_buttons_scope_is_dm() -> None:
+    channel = _make_channel(inline_buttons_scope="dm")
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Hello",
+            metadata={
+                "is_group": False,
+                "reply_markup": {
+                    "inline_keyboard": [[{"text": "Status", "callback_data": "/status"}]],
+                },
+            },
+        )
+    )
+
+    kwargs = bot.send_message.await_args.kwargs
+    assert kwargs["reply_markup"] is not None
+
+
+@pytest.mark.asyncio
+async def test_send_text_strips_reply_markup_for_group_when_inline_buttons_scope_is_dm() -> None:
+    channel = _make_channel(inline_buttons_scope="dm")
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="-1001234567890",
+            content="Hello group",
+            metadata={
+                "is_group": True,
+                "reply_markup": {
+                    "inline_keyboard": [[{"text": "Status", "callback_data": "/status"}]],
+                },
+            },
+        )
+    )
+
+    kwargs = bot.send_message.await_args.kwargs
+    assert "reply_markup" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_send_text_keeps_reply_markup_for_group_when_inline_buttons_scope_is_group() -> None:
+    channel = _make_channel(inline_buttons_scope="group")
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="-1001234567890",
+            content="Hello group",
+            metadata={
+                "is_group": True,
+                "reply_markup": {
+                    "inline_keyboard": [[{"text": "Status", "callback_data": "/status"}]],
+                },
+            },
+        )
+    )
+
+    kwargs = bot.send_message.await_args.kwargs
+    assert kwargs["reply_markup"] is not None
 
 
 @pytest.mark.asyncio
@@ -660,6 +1705,78 @@ async def test_progress_preview_creates_then_edits_single_message(streaming_mode
     assert bot.edit_message_text.await_args.kwargs["chat_id"] == 5829880422
     assert bot.edit_message_text.await_args.kwargs["message_id"] == 321
     assert bot.edit_message_text.await_args.kwargs["text"] == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_progress_preview_keeps_typing_active() -> None:
+    channel = _make_channel(
+        streaming="partial",
+        streaming_throttle_seconds=0.0,
+        streaming_min_initial_chars=1,
+    )
+    channel._stop_typing = MagicMock()
+    channel._start_typing = MagicMock()
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+        edit_message_text=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Working",
+            metadata={
+                "_progress": True,
+                "_telegram_stream": True,
+                "_telegram_stream_final": False,
+                "message_id": 99,
+            },
+        )
+    )
+
+    channel._stop_typing.assert_not_called()
+    channel._start_typing.assert_called_once_with("5829880422")
+
+
+@pytest.mark.asyncio
+async def test_research_ack_keeps_typing_active_until_final_reply() -> None:
+    channel = _make_channel()
+    channel._stop_typing = MagicMock()
+    channel._start_typing = MagicMock()
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Researching your request...",
+            metadata={"_telegram_keep_typing": True},
+        )
+    )
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Final answer",
+        )
+    )
+
+    channel._start_typing.assert_called_once_with("5829880422")
+    channel._stop_typing.assert_called_once_with("5829880422")
 
 
 @pytest.mark.asyncio
