@@ -248,8 +248,11 @@ class CanvasToolContent(BaseModel):
 
     operation: str  # create_project, add_element, modify_element, etc.
     project_id: str | None = None
+    session_id: str | None = None
     project_name: str | None = None
     element_count: int = 0
+    version: int | None = None
+    changed_element_ids: list[str] | None = None
     image_urls: list[str] | None = None
 
 
@@ -907,9 +910,13 @@ class CanvasUpdateEvent(BaseEvent):
 
     type: Literal["canvas_update"] = "canvas_update"
     project_id: str
+    session_id: str | None = None
     operation: str  # create_project, add_element, modify_element, etc.
     element_count: int = 0
     project_name: str | None = None
+    version: int
+    changed_element_ids: list[str] | None = None
+    source: Literal["agent", "manual", "system"] | None = None
 
 
 class FlowTransitionEvent(BaseEvent):

@@ -101,6 +101,15 @@ const containerStyle = computed(() => ({
 
 // Resize observer
 let resizeObserver: ResizeObserver | null = null
+let resizeFrame: number | null = null
+
+const scheduleUpdateSize = () => {
+  if (resizeFrame !== null) return
+  resizeFrame = window.requestAnimationFrame(() => {
+    resizeFrame = null
+    updateSize()
+  })
+}
 
 const updateSize = () => {
   if (!containerRef.value) return
@@ -161,7 +170,7 @@ onMounted(() => {
   // Set up resize observer for responsive sizing
   if (containerRef.value) {
     resizeObserver = new ResizeObserver(() => {
-      updateSize()
+      scheduleUpdateSize()
     })
     resizeObserver.observe(containerRef.value)
     updateSize()
@@ -170,6 +179,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   resizeObserver?.disconnect()
+  if (resizeFrame !== null) {
+    window.cancelAnimationFrame(resizeFrame)
+    resizeFrame = null
+  }
   // Note: vue-konva automatically destroys Konva nodes when v-stage unmounts.
   // Do NOT call stage.destroy() manually — it causes double-destroy errors.
 })

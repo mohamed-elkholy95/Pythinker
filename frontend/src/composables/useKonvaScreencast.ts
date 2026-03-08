@@ -78,6 +78,11 @@ export function useKonvaScreencast() {
   function unbindImageNode(): void {
     _imageNode = null
     _layer = null
+    _decoding = false
+    if (_pendingUrl) {
+      URL.revokeObjectURL(_pendingUrl)
+      _pendingUrl = null
+    }
   }
 
   /**

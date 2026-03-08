@@ -505,7 +505,7 @@
         :replayScreenshotUrl="replay.currentScreenshotUrl.value"
         :replayMetadata="replay.currentScreenshot.value"
         :replayScreenshots="replay.screenshots.value"
-        :activeCanvasProjectId="activeCanvasProjectId"
+        :activeCanvasUpdate="activeCanvasUpdate"
         @timelineStepForward="handleTimelineStepForward"
         @timelineStepBackward="handleTimelineStepBackward"
         @timelineSeek="handleTimelineSeek"
@@ -1421,8 +1421,8 @@ const warmupState = computed<'initializing' | 'thinking' | 'timed_out'>(() => {
   return 'thinking';
 });
 
-// Track active canvas project from canvas_update SSE events
-const activeCanvasProjectId = ref<string | null>(null);
+// Track the latest canvas update event so same-project updates still propagate.
+const activeCanvasUpdate = ref<CanvasUpdateEventData | null>(null);
 
 // Track the session's research mode (set from SSE event or session creation)
 const sessionResearchMode = ref<agentApi.ResearchMode | null>(null);
@@ -3291,19 +3291,34 @@ const handleSkillActivationEvent = (data: SkillActivationEventData) => {
 
 // Handle canvas update events — auto-open panel with canvas view
 const handleCanvasUpdateEvent = (data: CanvasUpdateEventData) => {
-  activeCanvasProjectId.value = data.project_id;
+  activeCanvasUpdate.value = data;
 
-  // Auto-open side panel with canvas view on first canvas event
+  const syntheticStatus = sessionStatus.value === SessionStatus.RUNNING ? 'running' : 'called';
   const syntheticTool: ToolContent = {
     timestamp: Date.now(),
-    tool_call_id: `canvas-live-${data.project_id}`,
+    event_id: data.event_id,
+    tool_call_id: `canvas-live-${data.project_id}-${data.version}-${data.event_id || data.timestamp}`,
     name: 'canvas',
     function: data.operation || 'canvas_create_project',
     args: { project_id: data.project_id },
-    content: { project_id: data.project_id, element_count: data.element_count },
-    status: 'calling',
+    content: {
+      project_id: data.project_id,
+      session_id: data.session_id,
+      project_name: data.project_name,
+      operation: data.operation,
+      element_count: data.element_count,
+      version: data.version,
+      changed_element_ids: data.changed_element_ids,
+    },
+    status: syntheticStatus,
   };
-  showToolPanelIfAllowed(syntheticTool, true);
+
+  if (realTime.value && canOpenLiveViewPanel.value) {
+    panelToolId.value = syntheticTool.tool_call_id;
+    if (isToolPanelOpen.value || !userDismissedPanel.value) {
+      showToolPanelIfAllowed(syntheticTool, true);
+    }
+  }
 };
 
 // Handle suggestion selection (user clicks a suggestion)

@@ -6,7 +6,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from app.domain.models.canvas import CanvasElement, ElementType
+from app.domain.models.canvas import CanvasElement, CanvasProject, ElementType
 
 if TYPE_CHECKING:
     from app.application.services.canvas_service import CanvasService
@@ -36,6 +36,31 @@ class CanvasTool(BaseTool):
         self._user_id = user_id
         self._session_id = session_id
         self._active_project_id: str | None = None
+
+    @staticmethod
+    def _count_elements(project: CanvasProject) -> int:
+        return sum(len(page.elements) for page in project.pages)
+
+    def _project_payload(
+        self,
+        project: CanvasProject,
+        *,
+        changed_element_ids: list[str] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "project_id": project.id,
+            "project_name": project.name,
+            "name": project.name,
+            "session_id": project.session_id,
+            "version": project.version,
+            "element_count": self._count_elements(project),
+        }
+        if changed_element_ids is not None:
+            payload["changed_element_ids"] = changed_element_ids
+        if extra:
+            payload.update(extra)
+        return payload
 
     @tool(
         name="canvas_create_project",
@@ -78,7 +103,7 @@ class CanvasTool(BaseTool):
         self._active_project_id = project.id
         return ToolResult(
             success=True,
-            data={"project_id": project.id, "name": project.name},
+            data=self._project_payload(project),
             message=f"Created canvas project '{name}' ({int(width)}x{int(height)}). Project ID: {project.id}",
         )
 
@@ -122,14 +147,15 @@ class CanvasTool(BaseTool):
 
         return ToolResult(
             success=True,
-            data={
-                "project_id": project.id,
-                "name": project.name,
-                "width": project.width,
-                "height": project.height,
-                "pages": len(project.pages),
-                "elements": elements,
-            },
+            data=self._project_payload(
+                project,
+                extra={
+                    "width": project.width,
+                    "height": project.height,
+                    "pages": len(project.pages),
+                    "elements": elements,
+                },
+            ),
             message=f"Canvas '{project.name}': {len(elements)} elements across {len(project.pages)} page(s).",
         )
 
@@ -230,13 +256,17 @@ class CanvasTool(BaseTool):
             src=src,
         )
 
-        result = await self._canvas_service.add_element(pid, element)
-        if not result:
+        updated_project = await self._canvas_service.add_element(pid, element)
+        if not updated_project:
             return ToolResult(success=False, message="Failed to add element.", data=None)
 
         return ToolResult(
             success=True,
-            data={"project_id": pid, "element_id": element.id, "type": element_type},
+            data=self._project_payload(
+                updated_project,
+                changed_element_ids=[element.id],
+                extra={"element_id": element.id, "type": element_type},
+            ),
             message=f"Added {element_type} element '{element.name}' at ({int(x)}, {int(y)}), size {int(width)}x{int(height)}.",
         )
 
@@ -307,13 +337,17 @@ class CanvasTool(BaseTool):
         if not updates:
             return ToolResult(success=False, message="No updates specified.", data=None)
 
-        result = await self._canvas_service.modify_element(pid, element_id, updates)
-        if not result:
+        updated_project = await self._canvas_service.modify_element(pid, element_id, updates)
+        if not updated_project:
             return ToolResult(success=False, message=f"Element {element_id} not found.", data=None)
 
         return ToolResult(
             success=True,
-            data={"project_id": pid, "element_id": element_id, "updated_fields": list(updates.keys())},
+            data=self._project_payload(
+                updated_project,
+                changed_element_ids=[element_id],
+                extra={"element_id": element_id, "updated_fields": list(updates.keys())},
+            ),
             message=f"Modified element {element_id}: updated {', '.join(updates.keys())}.",
         )
 
@@ -337,13 +371,17 @@ class CanvasTool(BaseTool):
         if not pid:
             return ToolResult(success=False, message="No active canvas project.", data=None)
 
-        result = await self._canvas_service.delete_elements(pid, element_ids)
-        if not result:
+        updated_project = await self._canvas_service.delete_elements(pid, element_ids)
+        if not updated_project:
             return ToolResult(success=False, message="Failed to delete elements.", data=None)
 
         return ToolResult(
             success=True,
-            data={"project_id": pid, "deleted": len(element_ids)},
+            data=self._project_payload(
+                updated_project,
+                changed_element_ids=element_ids,
+                extra={"element_ids": element_ids, "deleted": len(element_ids)},
+            ),
             message=f"Deleted {len(element_ids)} element(s).",
         )
 
@@ -394,11 +432,17 @@ class CanvasTool(BaseTool):
             height=height,
             src=image_url,
         )
-        await self._canvas_service.add_element(pid, element)
+        updated_project = await self._canvas_service.add_element(pid, element)
+        if not updated_project:
+            return ToolResult(success=False, message="Failed to add generated image to canvas.", data=None)
 
         return ToolResult(
             success=True,
-            data={"project_id": pid, "element_id": element.id, "image_url": image_url},
+            data=self._project_payload(
+                updated_project,
+                changed_element_ids=[element.id],
+                extra={"element_id": element.id, "image_url": image_url},
+            ),
             message=f"Generated image from prompt '{prompt[:50]}...' and added to canvas at ({int(x)}, {int(y)}).",
         )
 
@@ -435,13 +479,17 @@ class CanvasTool(BaseTool):
 
         new_z = max(all_z) + 1 if action == "bring_to_front" else min(all_z) - 1
 
-        result = await self._canvas_service.modify_element(pid, element_id, {"z_index": new_z})
-        if not result:
+        updated_project = await self._canvas_service.modify_element(pid, element_id, {"z_index": new_z})
+        if not updated_project:
             return ToolResult(success=False, message=f"Element {element_id} not found.", data=None)
 
         return ToolResult(
             success=True,
-            data={"project_id": pid, "element_id": element_id, "z_index": new_z},
+            data=self._project_payload(
+                updated_project,
+                changed_element_ids=[element_id],
+                extra={"element_id": element_id, "z_index": new_z},
+            ),
             message=f"Element {element_id} moved to {'front' if action == 'bring_to_front' else 'back'}.",
         )
 

@@ -21,6 +21,15 @@ class MongoCanvasRepository:
         document = await CanvasProjectDocument.find_one(CanvasProjectDocument.project_id == project_id)
         return document.to_domain() if document else None
 
+    async def find_by_session_id(self, session_id: str) -> CanvasProject | None:
+        documents = (
+            await CanvasProjectDocument.find(CanvasProjectDocument.session_id == session_id)
+            .sort("-updated_at")
+            .limit(1)
+            .to_list()
+        )
+        return documents[0].to_domain() if documents else None
+
     async def find_by_user_id(self, user_id: str, skip: int = 0, limit: int = 50) -> list[CanvasProject]:
         documents = (
             await CanvasProjectDocument.find(CanvasProjectDocument.user_id == user_id)

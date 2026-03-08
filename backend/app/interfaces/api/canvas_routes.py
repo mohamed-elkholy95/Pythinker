@@ -106,6 +106,7 @@ async def create_project(
         width=request.width,
         height=request.height,
         background=request.background,
+        session_id=request.session_id,
     )
     return APIResponse(data=_project_to_response(project))
 
@@ -135,6 +136,19 @@ async def get_project(
     """Get a specific canvas project."""
     service = get_canvas_service()
     project = await service.get_project(project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return APIResponse(data=_project_to_response(project))
+
+
+@router.get("/sessions/{session_id}/project", response_model=APIResponse[ProjectResponse])
+async def get_session_project(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[ProjectResponse]:
+    """Get the most recently updated canvas project attached to a session."""
+    service = get_canvas_service()
+    project = await service.get_project_by_session_id(session_id)
     if not project or project.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
     return APIResponse(data=_project_to_response(project))

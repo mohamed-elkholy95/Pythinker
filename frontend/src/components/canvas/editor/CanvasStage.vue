@@ -54,6 +54,13 @@
         </template>
       </v-layer>
 
+      <!-- Highlight layer (non-interactive) -->
+      <v-layer ref="highlightLayerRef" :config="{ listening: false }">
+        <template v-for="element in highlightedElements" :key="`highlight-${element.id}`">
+          <v-rect :config="getHighlightConfig(element)" />
+        </template>
+      </v-layer>
+
       <!-- Selection / transformer layer -->
       <v-layer>
         <v-transformer
@@ -73,6 +80,7 @@ import type { CanvasElement, EditorState, Fill, Stroke } from '@/types/canvas'
 interface Props {
   elements: CanvasElement[]
   selectedElementIds: string[]
+  highlightedElementIds?: string[]
   editorState: EditorState
   pageWidth: number
   pageHeight: number
@@ -102,6 +110,7 @@ const emit = defineEmits<{
 const containerRef = ref<HTMLElement | null>(null)
 const stageRef = ref<{ getNode: () => Konva.Stage } | null>(null)
 const objectLayerRef = ref<{ getNode: () => Konva.Layer } | null>(null)
+const highlightLayerRef = ref<{ getNode: () => Konva.Layer } | null>(null)
 const transformerRef = ref<{ getNode: () => Konva.Transformer } | null>(null)
 
 const containerWidth = ref(800)
@@ -128,6 +137,7 @@ function loadImage(src: string): HTMLImageElement | undefined {
       imageCache.value = { ...imageCache.value, [src]: img }
     }
     imageCacheOrder.push(src)
+    objectLayerRef.value?.getNode()?.batchDraw()
   }
   img.onerror = () => {
     // Silently handle broken image URLs — don't pollute cache
@@ -145,6 +155,11 @@ const sortedElements = computed(() =>
   [...props.elements]
     .filter((el) => el.visible)
     .sort((a, b) => a.z_index - b.z_index)
+)
+
+const highlightedIdSet = computed(() => new Set(props.highlightedElementIds ?? []))
+const highlightedElements = computed(() =>
+  sortedElements.value.filter((element) => highlightedIdSet.value.has(element.id))
 )
 
 const stageConfig = computed(() => ({
@@ -275,6 +290,64 @@ function getLineConfig(element: CanvasElement): Record<string, unknown> {
   }
 }
 
+function getHighlightBounds(element: CanvasElement): {
+  x: number
+  y: number
+  width: number
+  height: number
+} {
+  if ((element.type === 'line' || element.type === 'path') && Array.isArray(element.points) && element.points.length >= 2) {
+    let minX = Number.POSITIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+
+    for (let index = 0; index < element.points.length - 1; index += 2) {
+      const px = element.points[index]
+      const py = element.points[index + 1]
+      if (!Number.isFinite(px) || !Number.isFinite(py)) continue
+      minX = Math.min(minX, px)
+      minY = Math.min(minY, py)
+      maxX = Math.max(maxX, px)
+      maxY = Math.max(maxY, py)
+    }
+
+    if (Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY)) {
+      return {
+        x: element.x + minX,
+        y: element.y + minY,
+        width: Math.max(12, maxX - minX),
+        height: Math.max(12, maxY - minY),
+      }
+    }
+  }
+
+  return {
+    x: element.x,
+    y: element.y,
+    width: Math.max(12, Math.abs(element.width * element.scale_x)),
+    height: Math.max(12, Math.abs(element.height * element.scale_y)),
+  }
+}
+
+function getHighlightConfig(element: CanvasElement): Record<string, unknown> {
+  const bounds = getHighlightBounds(element)
+  return {
+    x: bounds.x - 6,
+    y: bounds.y - 6,
+    width: bounds.width + 12,
+    height: bounds.height + 12,
+    stroke: 'rgba(59, 130, 246, 0.72)',
+    strokeWidth: 2,
+    dash: [8, 6],
+    cornerRadius: Math.min(18, element.corner_radius + 8),
+    shadowColor: 'rgba(59, 130, 246, 0.25)',
+    shadowBlur: 16,
+    listening: false,
+    perfectDrawEnabled: false,
+  }
+}
+
 function handleStageMouseDown(e: Konva.KonvaEventObject<MouseEvent>) {
   // If the click is on the stage background (not on any shape), deselect
   const clickedOnEmpty = e.target === e.target.getStage()
@@ -350,6 +423,7 @@ function updateTransformer() {
 
   transformer.nodes(selectedNodes)
   transformer.getLayer()?.batchDraw()
+  highlightLayerRef.value?.getNode()?.batchDraw()
 }
 
 watch(
@@ -361,6 +435,14 @@ watch(
 watch(
   () => props.elements,
   () => nextTick(updateTransformer),
+  { deep: true }
+)
+
+watch(
+  () => props.highlightedElementIds,
+  () => nextTick(() => {
+    highlightLayerRef.value?.getNode()?.batchDraw()
+  }),
   { deep: true }
 )
 

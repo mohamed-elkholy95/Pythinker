@@ -106,3 +106,22 @@ async def test_add_element_avoids_lost_updates_under_concurrency() -> None:
     stored_ids = {element.id for element in updated_project.pages[0].elements}
     assert len(stored_ids) == total_elements
     assert all(f"el-{index}" in stored_ids for index in range(total_elements))
+
+
+@pytest.mark.asyncio
+async def test_canvas_mutations_increment_project_version() -> None:
+    project = _build_project("project-versioning")
+    repo = InMemoryCanvasRepo(project)
+    service = CanvasService(canvas_repo=repo)
+
+    added = await service.add_element(project.id, _build_rect("el-1", 1))
+    assert added is not None
+    assert added.version == 2
+
+    modified = await service.modify_element(project.id, "el-1", {"x": 42.0})
+    assert modified is not None
+    assert modified.version == 3
+
+    deleted = await service.delete_elements(project.id, ["el-1"])
+    assert deleted is not None
+    assert deleted.version == 4
