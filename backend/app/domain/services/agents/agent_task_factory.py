@@ -437,15 +437,24 @@ class AgentTaskFactory:
 
         async def resolve_attachment(attachment: dict) -> FileInfo | None:
             file_id = attachment.get("file_id")
+            file_path = attachment.get("file_path")
             filename = attachment.get("filename")
             content_type = attachment.get("content_type")
             size = attachment.get("size")
             upload_date = attachment.get("upload_date")
+            attachment_type = attachment.get("type")
+            metadata = attachment.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if attachment_type:
+                metadata = {"type": attachment_type, **metadata}
 
             if file_id:
                 try:
                     file_info = await self._file_storage.get_file_info(file_id, user_id)
                     if file_info:
+                        if not file_info.file_path and file_path:
+                            file_info.file_path = file_path
                         if not file_info.filename and filename:
                             file_info.filename = filename
                         if (file_info.size is None or file_info.size == 0) and size:
@@ -454,19 +463,23 @@ class AgentTaskFactory:
                             file_info.content_type = content_type
                         if not file_info.upload_date and upload_date:
                             file_info.upload_date = upload_date
+                        if not file_info.metadata and metadata:
+                            file_info.metadata = metadata
                         return file_info
                 except Exception as exc:
                     logger.warning(f"Failed to fetch file info for attachment {file_id}: {exc}")
 
-            if not file_id and not filename:
+            if not file_id and not filename and not file_path:
                 return None
 
             return FileInfo(
                 file_id=file_id,
                 filename=filename,
+                file_path=file_path,
                 content_type=content_type,
                 size=size,
                 upload_date=upload_date,
+                metadata=metadata or None,
                 user_id=user_id,
             )
 
@@ -479,7 +492,7 @@ class AgentTaskFactory:
             if isinstance(result, Exception):
                 logger.warning(f"Failed to resolve attachment: {result}")
                 continue
-            if result and (result.file_id or result.filename):
+            if result and (result.file_id or result.filename or result.file_path):
                 resolved.append(result)
 
         return resolved or None
