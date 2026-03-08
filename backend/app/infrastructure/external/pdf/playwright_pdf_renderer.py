@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import logging
 import re
@@ -15,6 +16,7 @@ from playwright.async_api import async_playwright
 
 from app.core import prometheus_metrics as pm
 from app.domain.services.pdf.markdown_normalizer import normalize_markdown_for_pdf
+from app.domain.services.pdf.mermaid_preprocessor import MermaidPreprocessor
 from app.domain.services.pdf.models import ReportPdfPayload
 from app.domain.services.pdf.pdf_renderer import PdfReportRenderer
 
@@ -41,9 +43,11 @@ class PlaywrightPdfRenderer(PdfReportRenderer):
         *,
         timeout_ms: int = 20_000,
         fallback_renderer: PdfReportRenderer | None = None,
+        sandbox_base_url: str | None = None,
     ) -> None:
         self._timeout_ms = max(1_000, int(timeout_ms))
         self._fallback_renderer = fallback_renderer
+        self._mermaid = MermaidPreprocessor(sandbox_base_url=sandbox_base_url) if sandbox_base_url else None
 
         assets_root = Path(__file__).resolve().parent
         template_root = assets_root / "templates"
@@ -59,7 +63,12 @@ class PlaywrightPdfRenderer(PdfReportRenderer):
 
     async def render(self, payload: ReportPdfPayload) -> bytes:
         pm.telegram_pdf_renderer_invocations_total.inc({"renderer": "playwright"})
-        normalized = normalize_markdown_for_pdf(payload.markdown_content, payload.sources)
+        markdown_content = payload.markdown_content
+        if self._mermaid is not None:
+            markdown_content, mermaid_images = await self._mermaid.preprocess_markdown(markdown_content)
+            markdown_content = _replace_mermaid_placeholders_with_markdown_images(markdown_content, mermaid_images)
+
+        normalized = normalize_markdown_for_pdf(markdown_content, payload.sources)
         if normalized.unresolved_citations:
             pm.telegram_pdf_citation_integrity_total.inc({"status": "unresolved"})
             logger.warning(
@@ -134,6 +143,15 @@ class PlaywrightPdfRenderer(PdfReportRenderer):
                 await browser.close()
 
         return pdf_bytes
+
+
+def _replace_mermaid_placeholders_with_markdown_images(content: str, mermaid_images: dict[str, bytes]) -> str:
+    """Replace Mermaid placeholders with inline PNG markdown images."""
+    rendered = content
+    for key, png_bytes in mermaid_images.items():
+        encoded = base64.b64encode(png_bytes).decode("ascii")
+        rendered = rendered.replace(f"<!--MERMAID:{key}-->", f"![Mermaid diagram](data:image/png;base64,{encoded})")
+    return rendered
 
 
 def _decorate_reference_ids(html: str) -> str:

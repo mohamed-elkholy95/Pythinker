@@ -98,12 +98,7 @@ RUN if [ "$TARGETARCH" = "arm64" ] && [ "$USE_CHROMIUM" != "1" ]; then \
 
 # Node CLI tools used by sandbox code-dev/test endpoints
 # yarn 1.22.22 matches the reference sandbox environment (report §3.1)
-RUN npm install -g prettier eslint typescript jest @types/node yarn@1.22.22 @mermaid-js/mermaid-cli
-
-# Mermaid CLI puppeteer config for containerized rendering (uses Playwright Chromium)
-COPY <<'EOF' /opt/mermaid-puppeteer.json
-{"executablePath":"/usr/bin/chromium-browser","args":["--no-sandbox","--disable-setuid-sandbox","--disable-gpu"]}
-EOF
+RUN npm install -g prettier eslint typescript jest @types/node yarn@1.22.22 @mermaid-js/mermaid-cli@11.12.0
 
 # Optional pnpm globals (add-ons profile)
 RUN mkdir -p ${PNPM_HOME} /home/ubuntu/.config/pnpm /home/ubuntu/.local/share/pnpm/global/5 /home/ubuntu/.pnpm-store/v10/projects && \
@@ -112,7 +107,7 @@ RUN mkdir -p ${PNPM_HOME} /home/ubuntu/.config/pnpm /home/ubuntu/.local/share/pn
         su - ubuntu -c "export NVM_DIR=/usr/local/nvm; export PNPM_HOME=/home/ubuntu/.local/share/pnpm; export PNPM_STORE_PATH=/home/ubuntu/.pnpm-store; \
         . /usr/local/nvm/nvm.sh; export PATH=$PNPM_HOME:$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH; \
         pnpm config set store-dir /home/ubuntu/.pnpm-store; pnpm config set global-bin-dir $PNPM_HOME; pnpm config set ignore-scripts false; \
-        pnpm add -g @anthropic-ai/mcpb@2.1.2 @mermaid-js/mermaid-cli@11.12.0"; \
+        pnpm add -g @anthropic-ai/mcpb@2.1.2"; \
     fi
 
 COPY . .
@@ -219,7 +214,7 @@ COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=builder /home/ubuntu/.local/share/pnpm /home/ubuntu/.local/share/pnpm
 
 # Mermaid CLI puppeteer config for containerized rendering (uses Playwright Chromium)
-RUN echo '{"executablePath":"/usr/bin/chromium-browser","args":["--no-sandbox","--disable-setuid-sandbox","--disable-gpu"]}' > /opt/mermaid-puppeteer.json
+RUN echo '{"executablePath":"/usr/bin/chromium-browser","args":["--no-sandbox","--disable-setuid-sandbox","--disable-gpu"],"timeout":60000}' > /opt/mermaid-puppeteer.json
 
 ENV NVM_DIR=/usr/local/nvm
 ENV NODE_VERSION=22.13.0

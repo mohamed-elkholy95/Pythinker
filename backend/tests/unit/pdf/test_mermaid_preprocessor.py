@@ -46,9 +46,7 @@ class TestExtractMermaidBlocks:
         blocks = extract_mermaid_blocks(md)
         replaced = md
         for b in blocks:
-            replaced = replaced.replace(
-                f"```mermaid\n{b.source}\n```", b.placeholder
-            )
+            replaced = replaced.replace(f"```mermaid\n{b.source}\n```", b.placeholder)
         assert "<!--MERMAID:" in replaced
         assert "```mermaid" not in replaced
 
