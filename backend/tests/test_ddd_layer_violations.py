@@ -20,6 +20,7 @@ KNOWN_DOMAIN_EXCEPTIONS = {
     "skill_creator.py",
     "skill_invoke.py",
     "agent_task_runner.py",  # Orchestrator that bridges domain/application for screenshot capture
+    "agent_domain_service.py",  # Orchestrator: uses RedisStreamTask liveness + RedisStreamQueue for cross-worker reconnect
     "memory_service.py",  # Uses infra outbox repository for Phase 2 Mongo->Qdrant sync
     "sync_worker.py",  # Domain sync orchestration still constructs infra repositories directly
     "reconciliation_job.py",  # Reconciliation job currently depends on infra db/repo implementations

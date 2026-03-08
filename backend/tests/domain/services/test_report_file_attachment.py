@@ -159,7 +159,8 @@ class TestReportFileAttachment:
         assert png_attachment.metadata.get("chart_engine") == "plotly"
         assert png_attachment.metadata.get("source_report_id") == "report-chart-1"
 
-        chart_input_write_call = mock_sandbox.file_write.call_args_list[1]
+        # After reorder, chart input is written before the report file
+        chart_input_write_call = mock_sandbox.file_write.call_args_list[0]
         assert "plotly_input_" in chart_input_write_call.kwargs["file"]
         assert '"output_html": "/workspace/model_comparison.html"' in chart_input_write_call.kwargs["content"]
 
