@@ -148,7 +148,7 @@ class SourceTracker:
                     SourceCitation(
                         url=url,
                         title=title or url,
-                        snippet=snippet[:300] if snippet else None,
+                        snippet=snippet[:2000] if snippet else None,
                         access_time=access_time,
                         source_type="search",
                     )
@@ -168,17 +168,19 @@ class SourceTracker:
             return
 
         title = url
+        snippet: str | None = None
         if event.tool_content and hasattr(event.tool_content, "content"):
             content = event.tool_content.content
             if content:
                 title = self._extract_title_from_content(content) or url
+                snippet = self._extract_snippet_from_content(content)
 
         self._seen_urls.add(url)
         self._collected_sources.append(
             SourceCitation(
                 url=url,
                 title=title,
-                snippet=None,
+                snippet=snippet,
                 access_time=access_time,
                 source_type="browser",
             )
@@ -201,3 +203,13 @@ class SourceTracker:
             return md_h1_match.group(1).strip()[:200]
 
         return None
+
+    @staticmethod
+    def _extract_snippet_from_content(content: str) -> str | None:
+        """Extract a compact text snippet from browser-fetched content."""
+        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", content, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            return None
+        return text[:8000]

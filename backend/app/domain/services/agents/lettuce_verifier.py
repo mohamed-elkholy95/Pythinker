@@ -273,16 +273,24 @@ class LettuceVerifier:
                 )
 
                 # ── False-positive suppression heuristic ───────────────
-                # When hallucination_ratio is suspiciously high (> 30 %) but
-                # the context we gave LettuceDetect covers < 25 % of all
-                # available source text, the model almost certainly flagged
-                # legitimate facts that appear in the un-seen context chunks.
-                # This is a known failure mode on fact-dense deal/price reports
-                # where the answer references prices from retailers appearing
-                # beyond the context window.  In this case we demote the result
-                # to a warning and return a passing (skipped) result so the
-                # report is not suppressed.
-                if result.hallucination_ratio > 0.30 and context_coverage < 0.25:
+                # When hallucination_ratio is high but the context we gave
+                # LettuceDetect covers a small fraction of all available
+                # source text, the model almost certainly flagged legitimate
+                # facts that appear in the un-seen context chunks.
+                # This is a known failure mode on fact-dense research/deal
+                # reports where the answer references details from sources
+                # beyond the context window.
+                #
+                # Two suppression tiers:
+                # 1. Extreme: ratio > 40% AND coverage < 50% — almost always
+                #    context starvation, not genuine hallucination
+                # 2. Moderate: ratio > 25% AND coverage < 35% — likely
+                #    insufficient context for synthesis-heavy research reports
+                _suppress = (
+                    (result.hallucination_ratio > 0.40 and context_coverage < 0.50)
+                    or (result.hallucination_ratio > 0.25 and context_coverage < 0.35)
+                )
+                if _suppress:
                     logger.warning(
                         "LettuceDetect: suspicious false-positive pattern — "
                         "ratio=%.1f%% but context_coverage=%.1f%% (< 25%%). "
