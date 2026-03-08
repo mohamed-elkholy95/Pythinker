@@ -85,6 +85,14 @@ class TestTelegramDefaults:
     def test_telegram_adapter_resilience_defaults(self, settings):
         assert settings.telegram_rate_limit_cooldown_seconds == 3
         assert settings.telegram_max_messages_per_batch == 5
+        assert settings.telegram_inline_buttons_scope == "allowlist"
+        assert settings.telegram_dm_policy == "open"
+        assert settings.telegram_group_policy == "open"
+        assert settings.telegram_group_require_mention is False
+        assert settings.telegram_group_allowed_users == []
+        assert settings.telegram_groups == {}
+        assert settings.telegram_direct == {}
+        assert settings.telegram_reaction_notifications == "own"
         assert settings.telegram_final_delivery_only is True
         assert settings.telegram_final_delivery_allow_wait_prompts is True
         assert settings.telegram_streaming == "partial"
@@ -188,6 +196,13 @@ class TestChannelEnvOverride:
 
         s = Settings()
         assert s.telegram_require_linked_account is True
+
+    def test_telegram_inline_buttons_scope_from_env(self, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_INLINE_BUTTONS_SCOPE", "group")
+        from app.core.config import Settings
+
+        s = Settings()
+        assert s.telegram_inline_buttons_scope == "group"
 
     def test_telegram_pdf_force_long_text_from_env(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_PDF_FORCE_LONG_TEXT", "true")
