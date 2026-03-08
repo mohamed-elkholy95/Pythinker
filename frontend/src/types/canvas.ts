@@ -101,17 +101,37 @@ export interface CanvasPage {
 export interface CanvasProject {
   id: string
   user_id: string
-  session_id?: string
+  session_id: string | null
   name: string
   description: string
   pages: CanvasPage[]
   width: number
   height: number
   background: string
-  thumbnail?: string
+  thumbnail: string | null
   version: number
   created_at: string
   updated_at: string
+}
+
+export interface CanvasProjectSyncState {
+  session_id: string | null
+  version: number
+  updated_at: string
+}
+
+export type CanvasSyncStatus = 'live' | 'saved' | 'syncing' | 'stale' | 'conflict'
+
+export interface CanvasRemoteSyncState {
+  sessionId: string | null
+  serverVersion: number
+  pendingRemoteVersion: number | null
+  hasRemoteConflict: boolean
+  isStale: boolean
+  lastRemoteOperation: string | null
+  lastRemoteSource: 'agent' | 'manual' | 'system' | null
+  lastChangedElementIds: string[]
+  highlightedElementIds: string[]
 }
 
 export interface CanvasVersion {

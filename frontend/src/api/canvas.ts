@@ -12,6 +12,7 @@ export interface CreateProjectRequest {
   width?: number
   height?: number
   background?: string
+  session_id?: string
 }
 
 export interface UpdateProjectRequest {
@@ -74,6 +75,13 @@ export async function listProjects(skip = 0, limit = 50): Promise<ProjectListRes
 
 export async function getProject(projectId: string): Promise<CanvasProject> {
   const response = await apiClient.get<ApiResponse<CanvasProject>>(`/canvas/projects/${projectId}`)
+  return response.data.data
+}
+
+export async function getSessionProject(sessionId: string): Promise<CanvasProject> {
+  const response = await apiClient.get<ApiResponse<CanvasProject>>(
+    `/canvas/sessions/${sessionId}/project`,
+  )
   return response.data.data
 }
 
