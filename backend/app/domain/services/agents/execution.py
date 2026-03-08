@@ -623,6 +623,22 @@ class ExecutionAgent(BaseAgent):
         from app.domain.services.prompts.execution import build_summarize_prompt, detect_comparison_intent
 
         _is_comparison = detect_comparison_intent(self._user_request or "")
+
+        # Preallocate report_event_id so the artifact references block in
+        # the prompt can reference the exact filename (report-<uuid>.md)
+        # before generation starts.
+        report_event_id: str | None = None
+        if self._artifact_references or self._collected_sources:
+            report_event_id = str(uuid.uuid4())
+
+        # Build artifact references list for the prompt
+        prompt_artifact_refs = [dict(ref) for ref in self._artifact_references]
+        if report_event_id:
+            prompt_artifact_refs.insert(
+                0, {"filename": f"report-{report_event_id}.md", "content_type": "text/markdown"}
+            )
+        self._set_response_generator_artifact_references(report_event_id)
+
         if self._collected_sources:
             source_list = self._build_numbered_source_list()
             summarize_prompt = (
@@ -631,6 +647,7 @@ class ExecutionAgent(BaseAgent):
                     source_list=source_list,
                     research_depth=self._research_depth,
                     is_comparison=_is_comparison,
+                    artifact_references=prompt_artifact_refs or None,
                 )
                 + f"\n\n## Available Sources\n{source_list}"
                 # Pre-baked references anchor: injecting the complete numbered list
@@ -647,6 +664,7 @@ class ExecutionAgent(BaseAgent):
                 has_sources=False,
                 research_depth=self._research_depth,
                 is_comparison=_is_comparison,
+                artifact_references=prompt_artifact_refs or None,
             )
 
         # Topic anchor: prevent hallucination by pinning the user's original question
@@ -1283,15 +1301,16 @@ class ExecutionAgent(BaseAgent):
             if all_steps_completed:
                 _required_sections = [s for s in _required_sections if s.lower() != "next step"]
 
-            report_event_id: str | None = None
-            if (
+            # Reuse preallocated report_event_id from prompt build phase,
+            # or allocate a new one if none was preallocated.
+            if not report_event_id and (
                 "artifact references" in {section.lower() for section in _required_sections}
                 or self._is_report_structure(message_content)
                 or len(message_content) > 500
                 or bool(self._pre_trim_report_cache)
             ):
                 report_event_id = str(uuid.uuid4())
-            self._set_response_generator_artifact_references(report_event_id)
+                self._set_response_generator_artifact_references(report_event_id)
 
             coverage_result = self._output_coverage_validator.validate(
                 output=message_content,
