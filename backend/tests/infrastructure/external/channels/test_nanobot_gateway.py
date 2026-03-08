@@ -1,9 +1,9 @@
-"""Tests for NanobotGateway infrastructure adapter.
+"""Tests for ChannelTransportGateway infrastructure adapter.
 
 Verifies that the gateway correctly:
-- Reports active channels based on nanobot configuration
-- Converts and publishes outbound messages to the nanobot bus
-- Does not start real channels (all nanobot internals are mocked)
+- Reports active channels based on transport configuration
+- Converts and publishes outbound messages to the transport bus
+- Does not start real channels (all transport internals are mocked)
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from app.domain.models.channel import ChannelType, MediaAttachment, OutboundMess
 from app.infrastructure.external.channels.nanobot_gateway import (
     _CHANNEL_MAP,
     _CHANNEL_REVERSE,
-    NanobotGateway,
+    ChannelTransportGateway,
 )
 
 _PATCH_CM = "app.infrastructure.external.channels.nanobot_gateway.ChannelManager"
@@ -42,11 +42,11 @@ def _make_mock_cm(enabled: list[str]) -> MagicMock:
 
 
 @pytest.fixture()
-def gateway_telegram(mock_router: MagicMock) -> NanobotGateway:
+def gateway_telegram(mock_router: MagicMock) -> ChannelTransportGateway:
     """Gateway with only Telegram configured (ChannelManager is mocked)."""
     with patch(_PATCH_CM) as mock_cls:
         mock_cls.return_value = _make_mock_cm(["telegram"])
-        return NanobotGateway(
+        return ChannelTransportGateway(
             message_router=mock_router,
             telegram_token="123:FAKE_TOKEN",
             telegram_allowed=["user1", "user2"],
@@ -54,19 +54,19 @@ def gateway_telegram(mock_router: MagicMock) -> NanobotGateway:
 
 
 @pytest.fixture()
-def gateway_empty(mock_router: MagicMock) -> NanobotGateway:
+def gateway_empty(mock_router: MagicMock) -> ChannelTransportGateway:
     """Gateway with no channels configured."""
     with patch(_PATCH_CM) as mock_cls:
         mock_cls.return_value = _make_mock_cm([])
-        return NanobotGateway(message_router=mock_router)
+        return ChannelTransportGateway(message_router=mock_router)
 
 
 @pytest.fixture()
-def gateway_multi(mock_router: MagicMock) -> NanobotGateway:
+def gateway_multi(mock_router: MagicMock) -> ChannelTransportGateway:
     """Gateway with Telegram + Discord + Slack configured."""
     with patch(_PATCH_CM) as mock_cls:
         mock_cls.return_value = _make_mock_cm(["telegram", "discord", "slack"])
-        return NanobotGateway(
+        return ChannelTransportGateway(
             message_router=mock_router,
             telegram_token="123:FAKE",
             discord_token="DISCORD_FAKE",
@@ -78,17 +78,17 @@ def gateway_multi(mock_router: MagicMock) -> NanobotGateway:
 class TestGetActiveChannels:
     """Tests for get_active_channels()."""
 
-    def test_telegram_only(self, gateway_telegram: NanobotGateway) -> None:
+    def test_telegram_only(self, gateway_telegram: ChannelTransportGateway) -> None:
         """Telegram configured returns [ChannelType.TELEGRAM]."""
         active = gateway_telegram.get_active_channels()
         assert active == [ChannelType.TELEGRAM]
 
-    def test_no_channels(self, gateway_empty: NanobotGateway) -> None:
+    def test_no_channels(self, gateway_empty: ChannelTransportGateway) -> None:
         """No channels configured returns empty list."""
         active = gateway_empty.get_active_channels()
         assert active == []
 
-    def test_multi_channels(self, gateway_multi: NanobotGateway) -> None:
+    def test_multi_channels(self, gateway_multi: ChannelTransportGateway) -> None:
         """Multiple channels returns all mapped types."""
         active = gateway_multi.get_active_channels()
         assert set(active) == {
@@ -98,10 +98,10 @@ class TestGetActiveChannels:
         }
 
     def test_unmapped_channels_excluded(self, mock_router: MagicMock) -> None:
-        """Nanobot channels without a Pythinker mapping are excluded."""
+        """Transport channels without a Pythinker mapping are excluded."""
         with patch(_PATCH_CM) as mock_cls:
             mock_cls.return_value = _make_mock_cm(["telegram", "feishu"])
-            gw = NanobotGateway(
+            gw = ChannelTransportGateway(
                 message_router=mock_router,
                 telegram_token="123:FAKE",
             )
@@ -114,8 +114,8 @@ class TestSendToChannel:
     """Tests for send_to_channel()."""
 
     @pytest.mark.asyncio()
-    async def test_converts_and_publishes(self, gateway_telegram: NanobotGateway) -> None:
-        """Outbound message is converted to nanobot format and published to the bus."""
+    async def test_converts_and_publishes(self, gateway_telegram: ChannelTransportGateway) -> None:
+        """Outbound message is converted to transport format and published to the bus."""
         message = OutboundMessage(
             channel=ChannelType.TELEGRAM,
             chat_id="chat_123",
@@ -134,8 +134,8 @@ class TestSendToChannel:
         assert nb_msg.reply_to == "msg_456"
 
     @pytest.mark.asyncio()
-    async def test_media_urls_converted(self, gateway_telegram: NanobotGateway) -> None:
-        """Media attachments are converted to URL strings for nanobot."""
+    async def test_media_urls_converted(self, gateway_telegram: ChannelTransportGateway) -> None:
+        """Media attachments are converted to URL strings for transport."""
         message = OutboundMessage(
             channel=ChannelType.TELEGRAM,
             chat_id="chat_123",
@@ -181,8 +181,8 @@ class TestSendToChannel:
         ]
 
     @pytest.mark.asyncio()
-    async def test_unmapped_channel_skipped(self, gateway_telegram: NanobotGateway) -> None:
-        """Messages for channels without a nanobot mapping are silently skipped."""
+    async def test_unmapped_channel_skipped(self, gateway_telegram: ChannelTransportGateway) -> None:
+        """Messages for channels without a transport mapping are silently skipped."""
         message = OutboundMessage(
             channel=ChannelType.WEB,
             chat_id="chat_123",
@@ -194,8 +194,8 @@ class TestSendToChannel:
         gateway_telegram._bus.publish_outbound.assert_not_awaited()
 
     @pytest.mark.asyncio()
-    async def test_metadata_preserved(self, gateway_telegram: NanobotGateway) -> None:
-        """Metadata dict is passed through to the nanobot message."""
+    async def test_metadata_preserved(self, gateway_telegram: ChannelTransportGateway) -> None:
+        """Metadata dict is passed through to the transport message."""
         message = OutboundMessage(
             channel=ChannelType.TELEGRAM,
             chat_id="chat_123",
@@ -212,9 +212,9 @@ class TestSendToChannel:
     @pytest.mark.asyncio()
     async def test_gateway_preserves_message_id_metadata_for_preview_keying(
         self,
-        gateway_telegram: NanobotGateway,
+        gateway_telegram: ChannelTransportGateway,
     ) -> None:
-        """Preview/final delivery metadata should survive unchanged into nanobot."""
+        """Preview/final delivery metadata should survive unchanged into transport."""
         message = OutboundMessage(
             channel=ChannelType.TELEGRAM,
             chat_id="chat_123",
@@ -242,12 +242,12 @@ class TestSendToChannel:
 
 
 class TestTelegramConfigWiring:
-    """Verify Telegram reliability settings are wired into nanobot config."""
+    """Verify Telegram reliability settings are wired into transport config."""
 
     def test_gateway_passes_telegram_reliability_settings(self, mock_router: MagicMock) -> None:
         with patch(_PATCH_CM) as mock_cls:
             mock_cls.return_value = _make_mock_cm(["telegram"])
-            gw = NanobotGateway(
+            gw = ChannelTransportGateway(
                 message_router=mock_router,
                 telegram_token="123:FAKE_TOKEN",
                 telegram_allowed=["*"],
@@ -290,7 +290,7 @@ class TestTelegramConfigWiring:
     def test_gateway_passes_telegram_streaming_settings(self, mock_router: MagicMock) -> None:
         with patch(_PATCH_CM) as mock_cls:
             mock_cls.return_value = _make_mock_cm(["telegram"])
-            gw = NanobotGateway(
+            gw = ChannelTransportGateway(
                 message_router=mock_router,
                 telegram_token="123:FAKE_TOKEN",
                 telegram_allowed=["*"],
@@ -327,7 +327,7 @@ class TestTelegramConfigWiring:
     def test_gateway_passes_telegram_policy_settings(self, mock_router: MagicMock) -> None:
         with patch(_PATCH_CM) as mock_cls:
             mock_cls.return_value = _make_mock_cm(["telegram"])
-            gw = NanobotGateway(
+            gw = ChannelTransportGateway(
                 message_router=mock_router,
                 telegram_token="123:FAKE_TOKEN",
                 telegram_allowed=["111"],
@@ -384,7 +384,7 @@ class TestTelegramConfigWiring:
             session_key_override="telegram:group:chat-1:topic:42",
         )
 
-        converted = NanobotGateway._convert_inbound(nb_msg)
+        converted = ChannelTransportGateway._convert_inbound(nb_msg)
 
         assert converted.channel == ChannelType.TELEGRAM
         assert converted.session_key_override == "telegram:group:chat-1:topic:42"
@@ -420,7 +420,7 @@ class TestTelegramConfigWiring:
             session_key_override="telegram:direct:123",
         )
 
-        converted = NanobotGateway._convert_inbound(nb_msg)
+        converted = ChannelTransportGateway._convert_inbound(nb_msg)
 
         assert converted.media == [
             MediaAttachment(
@@ -460,7 +460,7 @@ class TestTelegramConfigWiring:
             },
         )
 
-        converted = NanobotGateway._convert_inbound(nb_msg)
+        converted = ChannelTransportGateway._convert_inbound(nb_msg)
 
         assert converted.media == [
             MediaAttachment(
@@ -498,7 +498,7 @@ class TestLifecycle:
     """Tests for start/stop lifecycle."""
 
     @pytest.mark.asyncio()
-    async def test_start_creates_consumer_task(self, gateway_telegram: NanobotGateway) -> None:
+    async def test_start_creates_consumer_task(self, gateway_telegram: ChannelTransportGateway) -> None:
         """start() creates a consumer task."""
         gateway_telegram._consume_inbound = AsyncMock()
         await gateway_telegram.start()
@@ -508,7 +508,7 @@ class TestLifecycle:
         await gateway_telegram.stop()
 
     @pytest.mark.asyncio()
-    async def test_stop_cancels_consumer(self, gateway_telegram: NanobotGateway) -> None:
+    async def test_stop_cancels_consumer(self, gateway_telegram: ChannelTransportGateway) -> None:
         """stop() cancels the consumer task and calls stop_all."""
         gateway_telegram._consume_inbound = AsyncMock()
         await gateway_telegram.start()
@@ -519,7 +519,7 @@ class TestLifecycle:
         gateway_telegram._channel_manager.stop_all.assert_awaited_once()
 
     @pytest.mark.asyncio()
-    async def test_stop_without_start(self, gateway_telegram: NanobotGateway) -> None:
+    async def test_stop_without_start(self, gateway_telegram: ChannelTransportGateway) -> None:
         """stop() is safe to call even if start() was never called."""
         await gateway_telegram.stop()
         gateway_telegram._channel_manager.stop_all.assert_awaited_once()
@@ -529,7 +529,7 @@ class TestPollWatchdog:
     @pytest.mark.asyncio()
     async def test_watchdog_does_not_warn_when_recent_processing_progress_observed(
         self,
-        gateway_telegram: NanobotGateway,
+        gateway_telegram: ChannelTransportGateway,
     ) -> None:
         """Long-running processing with recent progress should not be treated as stalled."""
         gateway_telegram.POLL_WATCHDOG_TIMEOUT = 0.05
@@ -549,7 +549,7 @@ class TestPollWatchdog:
     @pytest.mark.asyncio()
     async def test_watchdog_does_not_warn_during_recent_inflight_processing(
         self,
-        gateway_telegram: NanobotGateway,
+        gateway_telegram: ChannelTransportGateway,
     ) -> None:
         """Recent in-flight message routing should not emit poll-stall warnings."""
         gateway_telegram.POLL_WATCHDOG_TIMEOUT = 0.05
@@ -567,7 +567,7 @@ class TestPollWatchdog:
     @pytest.mark.asyncio()
     async def test_watchdog_warns_when_inflight_processing_exceeds_threshold(
         self,
-        gateway_telegram: NanobotGateway,
+        gateway_telegram: ChannelTransportGateway,
     ) -> None:
         """Very long in-flight processing should still emit stall warnings."""
         gateway_telegram.POLL_WATCHDOG_TIMEOUT = 0.05
@@ -587,7 +587,7 @@ class TestInboundRoutingConcurrency:
     @pytest.mark.asyncio()
     async def test_consumer_keeps_polling_when_one_route_is_inflight(
         self,
-        gateway_telegram: NanobotGateway,
+        gateway_telegram: ChannelTransportGateway,
     ) -> None:
         """Second inbound message should be consumed even if first route is still running."""
         first_route_started = asyncio.Event()
@@ -643,7 +643,7 @@ class TestInboundRoutingConcurrency:
     @pytest.mark.asyncio()
     async def test_consumer_emits_route_latency_telemetry_log(
         self,
-        gateway_telegram: NanobotGateway,
+        gateway_telegram: ChannelTransportGateway,
     ) -> None:
         """Inbound processing should emit a structured latency telemetry log."""
         outbound_sent = asyncio.Event()

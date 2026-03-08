@@ -2,8 +2,8 @@
 SpawnTool — allows the agent to spawn background subtasks with concurrency limits.
 
 The tool delegates to a SubagentManagerProtocol, keeping the domain layer
-free of infrastructure concerns (the concrete nanobot SubagentManager is
-injected at composition-root time).
+free of infrastructure concerns (the concrete SubagentManager is injected
+at composition-root time).
 """
 
 import logging
