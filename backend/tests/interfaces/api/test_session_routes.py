@@ -932,6 +932,52 @@ async def test_chat_failed_session_no_input_returns_done_event():
 
 
 @pytest.mark.asyncio
+async def test_chat_client_disconnect_defers_cancellation_for_reconnect_window():
+    """Refresh-like disconnects should schedule deferred teardown instead of cancelling immediately."""
+    session_id = "sess-refresh"
+    session = SimpleNamespace(id=session_id, status="running", title="Active task")
+
+    async def hanging_chat(**_kwargs):
+        await asyncio.sleep(60)
+        yield DoneEvent(title="never reached")
+
+    agent_service = SimpleNamespace(
+        get_session_full=AsyncMock(return_value=session),
+        chat=hanging_chat,
+        request_cancellation=MagicMock(),
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest(message="continue")
+    http_request = _make_http_request()
+    http_request.is_disconnected = AsyncMock(side_effect=[True])
+
+    with patch("app.interfaces.api.session_routes.get_settings") as mock_settings:
+        mock_settings.return_value = SimpleNamespace(
+            feature_sse_v2=True,
+            debug=False,
+            sse_disconnect_cancellation_grace_seconds=7.5,
+        )
+        with patch("app.interfaces.api.session_routes._schedule_disconnect_cancellation") as schedule_disconnect:
+            response = await chat(
+                session_id=session_id,
+                request=request,
+                http_request=http_request,
+                current_user=current_user,
+                agent_service=agent_service,
+            )
+
+            events = await _collect_sse_events(response)
+
+    assert any(event["event"] == "progress" for event in events)
+    agent_service.request_cancellation.assert_not_called()
+    schedule_disconnect.assert_called_once_with(
+        session_id=session_id,
+        agent_service=agent_service,
+        grace_seconds=7.5,
+    )
+
+
+@pytest.mark.asyncio
 async def test_deferred_disconnect_cancellation_triggers_after_grace(monkeypatch: pytest.MonkeyPatch):
     """Disconnect cancellation should be delayed and then executed."""
     service = SimpleNamespace(request_cancellation=MagicMock())
