@@ -1315,12 +1315,42 @@ _COMPARISON_KEYWORDS = frozenset(
 )
 
 
+def _build_artifact_references_block(artifact_references: list[dict[str, str]] | None) -> str:
+    """Build a markdown artifact references section for the summarize prompt.
+
+    Args:
+        artifact_references: List of dicts with 'filename' and optional 'content_type'.
+
+    Returns:
+        Markdown block like '## Artifact References\\n- `file.md` (text/markdown)' or ''.
+    """
+    if not artifact_references:
+        return ""
+
+    lines: list[str] = []
+    for reference in artifact_references:
+        filename = (reference.get("filename") or "").strip()
+        if not filename:
+            continue
+        line = f"- `{filename}`"
+        content_type = (reference.get("content_type") or "").strip()
+        if content_type:
+            line += f" ({content_type})"
+        lines.append(line)
+
+    if not lines:
+        return ""
+
+    return "## Artifact References\n" + "\n".join(lines)
+
+
 def build_summarize_prompt(
     *,
     has_sources: bool = False,
     source_list: str = "",
     research_depth: str = "STANDARD",
     is_comparison: bool = False,
+    artifact_references: list[dict[str, str]] | None = None,
 ) -> str:
     """Build the summarization prompt with depth-aware length guidance and optional citations.
 
@@ -1329,6 +1359,7 @@ def build_summarize_prompt(
         source_list: Numbered bibliography string (e.g. "[1] Title - URL\\n[2] ...").
         research_depth: One of QUICK, STANDARD, DEEP, DEAL.
         is_comparison: Whether the task is a comparison/versus query.
+        artifact_references: List of artifact dicts with 'filename' and 'content_type'.
 
     Returns:
         Complete summarization prompt string.
@@ -1398,7 +1429,7 @@ Continue with clear, factual content{citation_inline}.
 
 ## Conclusion
 Key takeaways and recommendations.
-
+{_build_artifact_references_block(artifact_references)}
 ## References (MANDATORY — NON-NEGOTIABLE)
 {"List ALL cited sources with their numbers matching the inline citations. Every [N] citation" + chr(10) + "in the report MUST have a corresponding entry here." if has_sources else "[1] Source Name - URL" + chr(10) + "[2] Source Name - URL" + chr(10) + "(List ALL sources cited in the report.)"}
 This section MUST be present and complete.""")
