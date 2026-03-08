@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.domain.models.channel import ChannelType, InboundMessage
+from app.domain.models.channel import ChannelType, InboundMessage, MediaAttachment
 from app.domain.models.event import StreamEvent
 from app.domain.services.channels.message_router import (
     HELP_TEXT,
@@ -220,6 +220,76 @@ class TestRouteInbound:
         agent_svc.create_session.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_route_passes_inbound_media_as_agent_attachments(self) -> None:
+        """Telegram media attachments must survive into AgentService.chat()."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        recorded_chat_kwargs: dict[str, Any] = {}
+
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+
+        async def _recording_chat(**kwargs: Any):
+            recorded_chat_kwargs.update(kwargs)
+            yield _FakeMessageEvent()
+
+        agent_svc.chat = _recording_chat
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("Describe this sticker")
+        msg.media = [
+            MediaAttachment(
+                url="/tmp/sticker.webp",
+                mime_type="image/webp",
+                filename="sticker.webp",
+                size_bytes=321,
+                metadata={
+                    "type": "sticker",
+                    "telegram": {
+                        "file_id": "sticker-file-id",
+                        "file_unique_id": "unique-sticker",
+                        "emoji": "🔥",
+                        "set_name": "reactions",
+                    },
+                },
+            ),
+            MediaAttachment(
+                url="/tmp/voice.ogg",
+                mime_type="audio/ogg",
+                filename="voice.ogg",
+                size_bytes=654,
+                metadata={"type": "voice"},
+            ),
+        ]
+
+        replies = [reply async for reply in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        assert recorded_chat_kwargs["attachments"] == [
+            {
+                "file_path": "/tmp/sticker.webp",
+                "filename": "sticker.webp",
+                "content_type": "image/webp",
+                "size": 321,
+                "type": "sticker",
+                "metadata": {
+                    "telegram": {
+                        "file_id": "sticker-file-id",
+                        "file_unique_id": "unique-sticker",
+                        "emoji": "🔥",
+                        "set_name": "reactions",
+                    }
+                },
+            },
+            {
+                "file_path": "/tmp/voice.ogg",
+                "filename": "voice.ogg",
+                "content_type": "audio/ogg",
+                "size": 654,
+                "type": "voice",
+                "metadata": {},
+            },
+        ]
+
+    @pytest.mark.asyncio
     async def test_route_reuses_completed_session_for_telegram(self) -> None:
         """Telegram keeps continuity by reusing completed sessions."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
@@ -415,6 +485,7 @@ class TestRouteInbound:
             "I'm working on the research report and will send it here when it's ready. "
             "This should take about 10-15 minutes."
         )
+        assert replies[0].metadata["_telegram_keep_typing"] is True
         assert "This should take about" in replies[0].content
         assert "10-15 minutes" in replies[0].content
         assert replies[1].content == "Hello from the agent!"
@@ -968,6 +1039,7 @@ class TestEventToOutbound:
             metadata={
                 "message_id": 888,
                 "message_thread_id": 99,
+                "is_group": True,
                 "is_forum": True,
             }
         )
@@ -977,6 +1049,7 @@ class TestEventToOutbound:
         assert result is not None
         assert result.metadata["message_id"] == 888
         assert result.metadata["message_thread_id"] == 99
+        assert result.metadata["is_group"] is True
         assert result.metadata["is_forum"] is True
 
 

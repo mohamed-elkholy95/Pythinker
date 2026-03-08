@@ -277,6 +277,8 @@ class MessageRouter:
         suppress_first_generic_agent_ack = False
         if self._should_send_research_report_ack(message):
             ack = self._make_reply(message, self._build_research_report_ack(message.content))
+            if message.channel == ChannelType.TELEGRAM:
+                ack.metadata["_telegram_keep_typing"] = True
             await self._record_outbound_activity(user_id, message, ack.content)
             yield ack
             suppress_first_generic_agent_ack = True
@@ -302,10 +304,12 @@ class MessageRouter:
         last_telegram_report_event: object | None = None
         last_telegram_wait_delivery_event: object | None = None
         try:
+            attachments = self._build_agent_attachments(message)
             async for event in self._agent_service.chat(
                 session_id=session_id,
                 user_id=user_id,
                 message=message.content,
+                attachments=attachments,
             ):
                 if self._should_suppress_generic_agent_ack_event(
                     event,
@@ -1113,6 +1117,34 @@ class MessageRouter:
             return "Preparing the final response..."
         return "Working on it..."
 
+    @staticmethod
+    def _build_agent_attachments(message: InboundMessage) -> list[dict[str, Any]] | None:
+        """Convert inbound channel media into the AgentService attachment contract."""
+        attachments: list[dict[str, Any]] = []
+        for media in message.media:
+            file_path = str(getattr(media, "url", "") or "").strip()
+            filename = str(getattr(media, "filename", "") or "").strip()
+            content_type = str(getattr(media, "mime_type", "") or "").strip()
+            size = getattr(media, "size_bytes", 0)
+            metadata = getattr(media, "metadata", {}) or {}
+            if not file_path and not filename:
+                continue
+            if not isinstance(metadata, dict):
+                metadata = {}
+            attachment_type = str(metadata.get("type", "") or "").strip()
+            extra_metadata = {key: value for key, value in metadata.items() if key != "type"}
+            attachments.append(
+                {
+                    "file_path": file_path or None,
+                    "filename": filename or None,
+                    "content_type": content_type or None,
+                    "size": size if isinstance(size, int) else None,
+                    "type": attachment_type or None,
+                    "metadata": extra_metadata,
+                }
+            )
+        return attachments or None
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -1141,6 +1173,8 @@ class MessageRouter:
             preserved["message_id"] = metadata["message_id"]
         if metadata.get("message_thread_id") is not None:
             preserved["message_thread_id"] = metadata["message_thread_id"]
+        if "is_group" in metadata:
+            preserved["is_group"] = bool(metadata["is_group"])
         if "is_forum" in metadata:
             preserved["is_forum"] = bool(metadata["is_forum"])
         return preserved
