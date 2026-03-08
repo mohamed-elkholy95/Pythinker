@@ -2772,8 +2772,7 @@ To extract data from a webpage:
                 streamed_chars = sum(len(p) for p in completion_parts)
                 if completion_parts:
                     logger.warning(
-                        "LLM ask_stream() read timeout after %.1fs — treating %d chars as truncated "
-                        "(model=%s)",
+                        "LLM ask_stream() read timeout after %.1fs — treating %d chars as truncated (model=%s)",
                         stream_elapsed,
                         streamed_chars,
                         effective_model,
@@ -2800,8 +2799,7 @@ To extract data from a webpage:
                         "error": "read_timeout_no_content",
                     }
                     raise RuntimeError(
-                        f"LLM stream read timeout after {stream_elapsed:.0f}s with no content "
-                        f"(model={effective_model})"
+                        f"LLM stream read timeout after {stream_elapsed:.0f}s with no content (model={effective_model})"
                     ) from None
 
             except RateLimitError as e:

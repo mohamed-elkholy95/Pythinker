@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 
 from pypdf import PdfReader
-from reportlab.platypus import HRFlowable, ListFlowable, Paragraph, Preformatted, Table
+from reportlab.platypus import HRFlowable, Image, ListFlowable, Paragraph, Preformatted, Table
 
 import app.domain.utils.markdown_to_pdf as markdown_to_pdf
 from app.domain.models.source_citation import SourceCitation
@@ -63,6 +63,21 @@ def test_markdown_to_flowables_preserves_brackets_for_numeric_citation_links() -
     paragraph = next(item for item in flowables if isinstance(item, Paragraph))
     paragraph = cast(Paragraph, paragraph)
     assert '[<a href="https://example.com/source">1</a>]' in paragraph.text
+
+
+def test_markdown_to_flowables_renders_mermaid_placeholder_as_image() -> None:
+    png_bytes = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc`\x00\x00"
+        b"\x00\x02\x00\x01\xe2!\xbc3\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    flowables = markdown_to_flowables(
+        "<!--MERMAID:abc123-->",
+        mermaid_images={"abc123": png_bytes},
+    )
+
+    assert any(isinstance(item, Image) for item in flowables)
 
 
 def test_build_pdf_bytes_sets_metadata_and_bibliography() -> None:
