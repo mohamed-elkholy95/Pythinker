@@ -1,8 +1,8 @@
-"""NanobotGateway — wraps nanobot's ChannelManager + MessageBus to implement
-Pythinker's ChannelGateway protocol.
+"""ChannelTransportGateway — wraps the vendored channel library's ChannelManager
++ MessageBus to implement Pythinker's ChannelGateway protocol.
 
-Nanobot code runs unmodified.  This adapter:
-1. Builds a nanobot ``Config`` from Pythinker settings.
+This adapter:
+1. Builds a channel transport ``Config`` from Pythinker settings.
 2. Creates a ``MessageBus`` and ``ChannelManager``.
 3. Consumes inbound messages from the bus and forwards them to ``MessageRouter``.
 4. Publishes outbound ``OutboundMessage`` objects to the bus for delivery.
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Nanobot channel name → Pythinker ChannelType mapping
+# Transport channel name → Pythinker ChannelType mapping
 # ---------------------------------------------------------------------------
 _CHANNEL_MAP: dict[str, ChannelType] = {
     "telegram": ChannelType.TELEGRAM,
@@ -60,8 +60,8 @@ class _QueuedInboundMessage:
     received_monotonic: float
 
 
-class NanobotGateway:
-    """Infrastructure adapter that bridges nanobot channels into Pythinker.
+class ChannelTransportGateway:
+    """Infrastructure adapter that bridges channel transports into Pythinker.
 
     Implements the ``ChannelGateway`` protocol defined in
     ``app.domain.external.channel_gateway``.
@@ -151,7 +151,7 @@ class NanobotGateway:
         self._inbound_processing_started_by_key: dict[str, float] = {}
         self._inbound_processing_last_progress_by_key: dict[str, float] = {}
 
-        # Build nanobot Config from Pythinker settings
+        # Build transport Config from Pythinker settings
         channels_cfg = ChannelsConfig(
             send_progress=send_progress,
             send_tool_hints=send_tool_hints,
@@ -235,9 +235,9 @@ class NanobotGateway:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start the nanobot ChannelManager and the inbound consumer loop."""
+        """Start the channel transport manager and the inbound consumer loop."""
         logger.info(
-            "NanobotGateway starting — enabled channels: %s",
+            "ChannelTransportGateway starting — enabled channels: %s",
             self._channel_manager.enabled_channels,
         )
         # Start channels in background (start_all blocks until channels stop)
@@ -249,8 +249,8 @@ class NanobotGateway:
         self._watchdog_task = asyncio.create_task(self._run_poll_watchdog())
 
     async def stop(self) -> None:
-        """Stop the consumer loop and all nanobot channels."""
-        logger.info("NanobotGateway stopping...")
+        """Stop the consumer loop and all transport channels."""
+        logger.info("ChannelTransportGateway stopping...")
 
         # Cancel watchdog first (prevents spurious warnings during shutdown)
         if self._watchdog_task is not None:
@@ -271,18 +271,18 @@ class NanobotGateway:
 
         # Stop all channels
         await self._channel_manager.stop_all()
-        logger.info("NanobotGateway stopped")
+        logger.info("ChannelTransportGateway stopped")
 
     # ------------------------------------------------------------------
-    # Outbound (Pythinker → nanobot bus → channel)
+    # Outbound (Pythinker → transport bus → channel)
     # ------------------------------------------------------------------
 
     async def send_to_channel(self, message: OutboundMessage) -> None:
-        """Convert a Pythinker OutboundMessage to a nanobot OutboundMessage and publish."""
+        """Convert a Pythinker OutboundMessage to a transport OutboundMessage and publish."""
         nb_channel = _CHANNEL_REVERSE.get(message.channel)
         if nb_channel is None:
             logger.warning(
-                "Cannot send to channel %s — not mapped to nanobot",
+                "Cannot send to channel %s — not mapped to a known transport channel",
                 message.channel,
             )
             return
@@ -315,7 +315,7 @@ class NanobotGateway:
     # ------------------------------------------------------------------
 
     def get_active_channels(self) -> list[ChannelType]:
-        """Return Pythinker ChannelType list for all enabled nanobot channels."""
+        """Return Pythinker ChannelType list for all enabled transport channels."""
         result: list[ChannelType] = []
         for nb_name in self._channel_manager.enabled_channels:
             pt_type = _CHANNEL_MAP.get(nb_name)
@@ -324,13 +324,13 @@ class NanobotGateway:
         return result
 
     # ------------------------------------------------------------------
-    # Inbound consumer (nanobot bus → MessageRouter)
+    # Inbound consumer (transport bus → MessageRouter)
     # ------------------------------------------------------------------
 
     async def _run_poll_watchdog(self) -> None:
         """Watchdog: log a WARNING when the inbound consumer stalls for > POLL_WATCHDOG_TIMEOUT s.
 
-        Detects event-loop blocks, nanobot channel hangs, or network stalls that
+        Detects event-loop blocks, channel transport hangs, or network stalls that
         prevent the consumer from completing a poll cycle.  The _activity_event is
         set by _consume_inbound on every successful bus.consume_inbound() attempt.
         """
@@ -348,7 +348,7 @@ class NanobotGateway:
                     if processing_started is not None:
                         if progress_idle_age < self.INBOUND_PROCESSING_WARN_TIMEOUT:
                             logger.debug(
-                                "NanobotGateway: no poll activity while processing inbound message "
+                                "ChannelTransportGateway: no poll activity while processing inbound message "
                                 "(idle %.1fs, total %.1fs, grace %.0fs)",
                                 progress_idle_age,
                                 processing_age,
@@ -356,7 +356,7 @@ class NanobotGateway:
                             )
                             continue
                         logger.warning(
-                            "NanobotGateway: inbound processing appears stalled for %.1fs since last progress "
+                            "ChannelTransportGateway: inbound processing appears stalled for %.1fs since last progress "
                             "(total %.1fs, poll timeout %.0fs)",
                             progress_idle_age,
                             processing_age,
@@ -365,7 +365,7 @@ class NanobotGateway:
                         continue
 
                     logger.warning(
-                        "NanobotGateway: no channel poll activity for %.0fs — "
+                        "ChannelTransportGateway: no channel poll activity for %.0fs — "
                         "possible event-loop block or Telegram/Discord connection stall",
                         self.POLL_WATCHDOG_TIMEOUT,
                     )
@@ -373,7 +373,7 @@ class NanobotGateway:
             pass
 
     async def _consume_inbound(self) -> None:
-        """Loop: consume inbound messages from the nanobot bus, convert
+        """Loop: consume inbound messages from the transport bus, convert
         to Pythinker ``InboundMessage``, route through ``MessageRouter``,
         and publish any outbound replies back to the bus.
         """
@@ -413,7 +413,7 @@ class NanobotGateway:
         if worker_task is None or worker_task.done():
             self._inbound_worker_tasks[route_key] = asyncio.create_task(
                 self._run_inbound_worker(route_key),
-                name=f"nanobot-inbound-worker:{route_key}",
+                name=f"channel-inbound-worker:{route_key}",
             )
 
     async def _run_inbound_worker(self, route_key: str) -> None:
@@ -584,7 +584,7 @@ class NanobotGateway:
 
     @staticmethod
     def _convert_inbound(nb_msg: NbInbound) -> InboundMessage:
-        """Convert a nanobot ``InboundMessage`` to a Pythinker ``InboundMessage``."""
+        """Convert a transport ``InboundMessage`` to a Pythinker ``InboundMessage``."""
         channel_type = _CHANNEL_MAP.get(nb_msg.channel, ChannelType.WEB)
         attachments: list[MediaAttachment] = []
         raw_media_attachments = nb_msg.metadata.get("media_attachments", [])

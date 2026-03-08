@@ -1,11 +1,11 @@
-"""Skill discovery and loading tools bridging to nanobot's SkillsLoader.
+"""Skill discovery and loading tools bridging to the vendored SkillsLoader.
 
 Provides two tools:
 - ListSkillsTool: Lists all available skills with names, descriptions, and sources.
 - ReadSkillTool: Reads the full markdown instructions of a specific skill by name.
 
 Both tools depend on a SkillLoaderProtocol abstraction so the domain layer
-never imports nanobot infrastructure directly.
+never imports vendored infrastructure directly.
 """
 
 import logging
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class SkillLoaderProtocol(Protocol):
     """Protocol for skill discovery and loading.
 
-    Matches the subset of nanobot's SkillsLoader API used by these tools.
+    Matches the subset of the vendored SkillsLoader API used by these tools.
     """
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, Any]]:

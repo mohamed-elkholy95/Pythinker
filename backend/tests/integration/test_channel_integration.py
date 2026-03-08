@@ -2,10 +2,10 @@
 
 Verifies end-to-end behaviour across:
 - InboundMessage → MessageRouter → AgentService → OutboundMessage flow
-- nanobot package import availability
+- Channel transport package import availability
 - Slash-command session reset via MessageRouter
 - Auto-registration of unknown senders via UserChannelRepository
-- NanobotGateway conformance to the ChannelGateway protocol
+- ChannelTransportGateway conformance to the ChannelGateway protocol
 """
 
 from __future__ import annotations
@@ -175,15 +175,15 @@ class TestFullChannelPipelineGreeting:
 
 
 # ---------------------------------------------------------------------------
-# Test 2: Nanobot imports available
+# Test 2: Channel transport imports available
 # ---------------------------------------------------------------------------
 
 
-class TestNanobotImportsAvailable:
-    """Verify that all key nanobot modules are importable from the vendored package."""
+class TestChannelTransportImportsAvailable:
+    """Verify that all key channel transport modules are importable from the vendored package."""
 
-    def test_nanobot_imports_available(self) -> None:
-        """All critical nanobot symbols must be importable without errors."""
+    def test_channel_transport_imports_available(self) -> None:
+        """All critical channel transport symbols must be importable without errors."""
         # AgentLoop
         from nanobot.agent.loop import AgentLoop
 
@@ -309,17 +309,17 @@ class TestUnknownSenderCreatesUser:
 
 
 class TestGatewayProtocolCompliance:
-    """NanobotGateway must satisfy the ChannelGateway runtime-checkable Protocol."""
+    """ChannelTransportGateway must satisfy the ChannelGateway runtime-checkable Protocol."""
 
     def test_gateway_protocol_compliance(self) -> None:
         """isinstance(gateway, ChannelGateway) is True after construction.
 
-        ChannelGateway is a @runtime_checkable Protocol.  A NanobotGateway
+        ChannelGateway is a @runtime_checkable Protocol.  A ChannelTransportGateway
         instance must pass the isinstance check, confirming it implements
         all required methods (start, stop, send_to_channel, get_active_channels).
         """
         from app.domain.external.channel_gateway import ChannelGateway
-        from app.infrastructure.external.channels.nanobot_gateway import NanobotGateway
+        from app.infrastructure.external.channels.nanobot_gateway import ChannelTransportGateway
 
         patch_cm = "app.infrastructure.external.channels.nanobot_gateway.ChannelManager"
 
@@ -333,7 +333,7 @@ class TestGatewayProtocolCompliance:
 
         with patch(patch_cm) as mock_cls:
             mock_cls.return_value = mock_cm
-            gateway = NanobotGateway(
+            gateway = ChannelTransportGateway(
                 message_router=mock_router,
                 telegram_token="123:FAKE_TOKEN_FOR_TEST",
                 telegram_allowed=["*"],
@@ -341,7 +341,7 @@ class TestGatewayProtocolCompliance:
 
         # Protocol conformance check
         assert isinstance(gateway, ChannelGateway), (
-            "NanobotGateway does not satisfy the ChannelGateway protocol. "
+            "ChannelTransportGateway does not satisfy the ChannelGateway protocol. "
             "Ensure start(), stop(), send_to_channel(), and get_active_channels() are implemented."
         )
 

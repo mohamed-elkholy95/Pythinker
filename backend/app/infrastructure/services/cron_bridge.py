@@ -1,12 +1,12 @@
-"""CronBridge — infrastructure adapter that wraps nanobot's CronService.
+"""CronBridge — infrastructure adapter that wraps the vendored CronService.
 
 Satisfies ``CronServiceProtocol`` from the domain layer so the ``CronTool``
-can schedule/list/cancel recurring jobs without depending on nanobot directly.
+can schedule/list/cancel recurring jobs without depending on channel transport directly.
 
 The bridge:
   1. Creates a dedicated ``CronService`` backed by a Pythinker-specific workspace.
-  2. Translates the synchronous nanobot API into the async protocol the domain expects.
-  3. Filters jobs by ``user_id`` (stored as a prefix in the job name) since nanobot's
+  2. Translates the synchronous CronService API into the async protocol the domain expects.
+  3. Filters jobs by ``user_id`` (stored as a prefix in the job name) since the
      CronService has no built-in per-user isolation.
 """
 
@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from nanobot.cron.service import CronService as NanobotCronService
+from nanobot.cron.service import CronService as VendoredCronService
 from nanobot.cron.types import CronJob, CronSchedule
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def _strip_user_prefix(name: str) -> str:
 
 
 def _job_to_dict(job: CronJob) -> dict[str, Any]:
-    """Serialize a nanobot CronJob into the dict format expected by the domain."""
+    """Serialize a CronJob into the dict format expected by the domain."""
     next_run: str | datetime | None = None
     if job.state.next_run_at_ms:
         next_run = datetime.fromtimestamp(
@@ -61,7 +61,7 @@ def _job_to_dict(job: CronJob) -> dict[str, Any]:
 
 
 class CronBridge:
-    """Infrastructure adapter wrapping nanobot's ``CronService``.
+    """Infrastructure adapter wrapping the vendored ``CronService``.
 
     Usage::
 
@@ -75,19 +75,19 @@ class CronBridge:
 
     def __init__(self, workspace_dir: str = "~/.pythinker/cron") -> None:
         store_path = Path(workspace_dir).expanduser() / "jobs.json"
-        self._service = NanobotCronService(store_path=store_path)
+        self._service = VendoredCronService(store_path=store_path)
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start the underlying nanobot CronService (arms the timer loop)."""
+        """Start the underlying CronService (arms the timer loop)."""
         await self._service.start()
         logger.info("CronBridge: started (store=%s)", self._service.store_path)
 
     def stop(self) -> None:
-        """Stop the underlying nanobot CronService."""
+        """Stop the underlying CronService."""
         self._service.stop()
         logger.info("CronBridge: stopped")
 
@@ -104,7 +104,7 @@ class CronBridge:
     ) -> str:
         """Schedule a recurring job.
 
-        Wraps nanobot ``CronService.add_job`` (sync) in ``asyncio.to_thread``
+        Wraps ``CronService.add_job`` (sync) in ``asyncio.to_thread``
         to avoid blocking the event loop on file I/O.
         """
         schedule = CronSchedule(kind="cron", expr=cron_expr, tz=timezone)
