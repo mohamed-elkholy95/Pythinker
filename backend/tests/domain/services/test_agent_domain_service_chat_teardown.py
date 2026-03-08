@@ -1,13 +1,30 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, ProgressEvent, WaitEvent
 from app.domain.models.session import Session, SessionStatus
 from app.domain.services.agent_domain_service import AgentDomainService
+
+_LIVENESS_PATCH = "app.domain.services.agent_domain_service.RedisStreamTask.get_liveness"
+_LOOP_TIME_PATCH = "app.domain.services.agent_domain_service.asyncio.get_event_loop"
+_SLEEP_PATCH = "asyncio.sleep"
+
+
+def _fast_loop_time():
+    """Return a mock event loop whose .time() advances 20s per call,
+    causing time-based polling loops to exit after one iteration."""
+    _counter = {"t": 0.0}
+
+    def _get_loop():
+        loop = MagicMock()
+        loop.time.side_effect = lambda: _counter.__setitem__("t", _counter["t"] + 2.0) or _counter["t"]
+        return loop
+
+    return _get_loop
 
 
 def _build_service(session: Session, task: SimpleNamespace) -> tuple[AgentDomainService, AsyncMock]:
@@ -18,6 +35,7 @@ def _build_service(session: Session, task: SimpleNamespace) -> tuple[AgentDomain
     session_repo.add_event = AsyncMock()
     session_repo.update_mode = AsyncMock()
     session_repo.update_unread_message_count = AsyncMock()
+    session_repo.update_status = AsyncMock()
 
     task_cls = MagicMock()
     task_cls.get = MagicMock(return_value=task)
@@ -91,7 +109,8 @@ async def test_chat_wait_event_does_not_trigger_runtime_teardown() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_no_active_task_and_running_session_emits_error_and_tears_down() -> None:
+@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
+async def test_chat_no_active_task_and_running_session_emits_error_and_tears_down(mock_liveness: AsyncMock) -> None:
     """An orphaned RUNNING session (stale > 180s) with no active task should emit
     an ErrorEvent and be torn down as CANCELLED."""
     task = None
@@ -117,9 +136,14 @@ async def test_chat_no_active_task_and_running_session_emits_error_and_tears_dow
 
 
 @pytest.mark.asyncio
-async def test_chat_no_active_task_recent_running_session_emits_done_not_cancel() -> None:
+@patch(_SLEEP_PATCH, new_callable=AsyncMock)
+@patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
+@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
+async def test_chat_no_active_task_recent_running_session_emits_done_not_cancel(
+    mock_liveness: AsyncMock, mock_loop: MagicMock, mock_sleep: AsyncMock
+) -> None:
     """A RUNNING session with no task but updated < 180s ago is likely a reconnect
-    race — should emit DoneEvent instead of cancelling the session."""
+    race — should emit ProgressEvent then DoneEvent instead of cancelling the session."""
     task = None
     session = Session(
         id="session-id",
@@ -136,16 +160,22 @@ async def test_chat_no_active_task_recent_running_session_emits_done_not_cancel(
     service, teardown = _build_service(session, task)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
-    assert len(events) == 1
-    assert isinstance(events[0], DoneEvent)
+    assert len(events) == 2
+    assert isinstance(events[0], ProgressEvent)
+    assert isinstance(events[1], DoneEvent)
     # Should tear down as COMPLETED (graceful), not CANCELLED
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
 
 
 @pytest.mark.asyncio
-async def test_chat_no_active_task_within_grace_period_emits_done_not_cancel() -> None:
+@patch(_SLEEP_PATCH, new_callable=AsyncMock)
+@patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
+@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
+async def test_chat_no_active_task_within_grace_period_emits_done_not_cancel(
+    mock_liveness: AsyncMock, mock_loop: MagicMock, mock_sleep: AsyncMock
+) -> None:
     """A RUNNING session at 150s (within 180s grace window, past old 30s threshold)
-    should emit DoneEvent — the SSE reconnection grace period protects it."""
+    should emit ProgressEvent then DoneEvent — the SSE reconnection grace period protects it."""
     task = None
     session = Session(
         id="session-id",
@@ -162,13 +192,19 @@ async def test_chat_no_active_task_within_grace_period_emits_done_not_cancel() -
     service, teardown = _build_service(session, task)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
-    assert len(events) == 1
-    assert isinstance(events[0], DoneEvent)
+    assert len(events) == 2
+    assert isinstance(events[0], ProgressEvent)
+    assert isinstance(events[1], DoneEvent)
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
 
 
 @pytest.mark.asyncio
-async def test_chat_no_active_task_recent_running_session_with_naive_updated_at_emits_done() -> None:
+@patch(_SLEEP_PATCH, new_callable=AsyncMock)
+@patch(_LOOP_TIME_PATCH, side_effect=_fast_loop_time())
+@patch(_LIVENESS_PATCH, new_callable=AsyncMock, return_value=None)
+async def test_chat_no_active_task_recent_running_session_with_naive_updated_at_emits_done(
+    mock_liveness: AsyncMock, mock_loop: MagicMock, mock_sleep: AsyncMock
+) -> None:
     """Naive updated_at timestamps must not crash age arithmetic in reconnect races."""
     task = None
     session = Session(
@@ -186,8 +222,9 @@ async def test_chat_no_active_task_recent_running_session_with_naive_updated_at_
     service, teardown = _build_service(session, task)
     events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
 
-    assert len(events) == 1
-    assert isinstance(events[0], DoneEvent)
+    assert len(events) == 2
+    assert isinstance(events[0], ProgressEvent)
+    assert isinstance(events[1], DoneEvent)
     teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)
 
 
