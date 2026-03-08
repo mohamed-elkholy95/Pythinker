@@ -88,7 +88,8 @@ class SourceTracker:
         """
         lines: list[str] = []
         for i, source in enumerate(self._collected_sources, start=1):
-            title = source.title or source.url
+            # Sanitize multiline titles to prevent citation parser confusion
+            title = re.sub(r"\s+", " ", source.title or source.url).strip()
             lines.append(f"[{i}] {title} - {source.url}")
             if source.url not in self._url_to_citation:
                 self._url_to_citation[source.url] = i

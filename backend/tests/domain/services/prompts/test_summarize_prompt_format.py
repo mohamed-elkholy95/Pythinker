@@ -59,6 +59,23 @@ def test_summarize_prompt_includes_artifact_section_in_canonical_structure() -> 
     assert "`chart.png`" in prompt
 
 
+def test_summarize_prompt_counts_numbered_sources_not_raw_lines() -> None:
+    """Multiline titles should not inflate the source count."""
+    source_list = (
+        "[1] Source Title Line 1\n"
+        "Continuation of title - https://one.example\n"
+        "[2] Source Two - https://two.example\n"
+    )
+
+    prompt = build_summarize_prompt(
+        has_sources=True,
+        source_list=source_list,
+        research_depth="STANDARD",
+    )
+
+    assert "exactly 2 sources available" in prompt
+
+
 def test_summarize_prompt_omits_artifact_section_when_no_artifacts() -> None:
     """Without artifact_references, no artifact section appears in the prompt."""
     prompt = build_summarize_prompt(
