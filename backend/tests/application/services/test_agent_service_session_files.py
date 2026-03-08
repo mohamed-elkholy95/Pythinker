@@ -115,7 +115,9 @@ async def test_persist_generated_artifact_uploads_and_tracks_file(tmp_path) -> N
         user_id="user-1",
     )
     session_repository = SimpleNamespace(
-        find_by_id_and_user_id=AsyncMock(return_value=_make_session(session_id="s1", user_id="user-1", is_shared=False, files=[])),
+        find_by_id_and_user_id=AsyncMock(
+            return_value=_make_session(session_id="s1", user_id="user-1", is_shared=False, files=[])
+        ),
         get_file_by_path=AsyncMock(return_value=None),
         add_file=AsyncMock(),
         remove_file=AsyncMock(),
@@ -167,7 +169,9 @@ async def test_persist_generated_artifact_skips_unchanged_duplicate(tmp_path) ->
     )
 
     session_repository = SimpleNamespace(
-        find_by_id_and_user_id=AsyncMock(return_value=_make_session(session_id="s1", user_id="user-1", is_shared=False, files=[existing])),
+        find_by_id_and_user_id=AsyncMock(
+            return_value=_make_session(session_id="s1", user_id="user-1", is_shared=False, files=[existing])
+        ),
         get_file_by_path=AsyncMock(return_value=existing),
         add_file=AsyncMock(),
         remove_file=AsyncMock(),
