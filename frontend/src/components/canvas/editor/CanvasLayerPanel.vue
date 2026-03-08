@@ -129,16 +129,18 @@ function handleSendToBack() {
 .layer-panel {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  background: var(--background-white-main, #ffffff);
-  border-top: 1px solid var(--border-light, #e5e5e5);
+  min-height: 220px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--border-light, #e5e5e5);
+  border-radius: 20px;
+  overflow: hidden;
 }
 
 .layer-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border-light, #e5e5e5);
   flex-shrink: 0;
 }
@@ -182,17 +184,19 @@ function handleSendToBack() {
 .layer-list {
   flex: 1;
   overflow-y: auto;
+  padding: 8px;
 }
 
 .layer-row {
   display: flex;
   align-items: center;
-  height: 32px;
-  padding: 0 8px;
-  gap: 4px;
+  min-height: 38px;
+  padding: 0 10px;
+  gap: 6px;
   cursor: pointer;
   transition: background 0.1s;
-  border-bottom: 1px solid transparent;
+  border: 1px solid transparent;
+  border-radius: 12px;
 }
 
 .layer-row:hover {
@@ -200,8 +204,8 @@ function handleSendToBack() {
 }
 
 .layer-row.selected {
-  background: var(--fill-tsp-gray-main, #f0f0f0);
-  border-bottom-color: var(--border-light, #e5e5e5);
+  background: rgba(17, 24, 39, 0.06);
+  border-color: rgba(17, 24, 39, 0.08);
 }
 
 .layer-icon-btn {

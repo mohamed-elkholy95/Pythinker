@@ -95,10 +95,13 @@ async function handleEdit() {
 
 <style scoped>
 .ai-panel {
-  padding: 12px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 0;
+  border: 1px solid var(--border-light, #e5e5e5);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .ai-section {
@@ -118,8 +121,8 @@ async function handleEdit() {
 .ai-textarea {
   width: 100%;
   border: 1px solid var(--border-light, #e5e5e5);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 12px;
+  padding: 10px 12px;
   font-size: 13px;
   color: var(--text-primary, #1a1a1a);
   background: var(--background-white-main, #ffffff);
@@ -144,9 +147,9 @@ async function handleEdit() {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 32px;
+  height: 36px;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;

@@ -18,6 +18,8 @@ from app.domain.external.task import Task, TaskRunner
 from app.domain.models.event import (
     AgentEvent,
     BaseEvent,
+    CanvasToolContent,
+    CanvasUpdateEvent,
     DoneEvent,
     ErrorEvent,
     FileToolContent,
@@ -70,6 +72,17 @@ if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
+
+_CANVAS_MUTATION_OPERATIONS = frozenset(
+    {
+        "create_project",
+        "add_element",
+        "modify_element",
+        "delete_elements",
+        "generate_image",
+        "arrange_layer",
+    }
+)
 
 
 class AgentTaskRunner(TaskRunner):
@@ -1094,8 +1107,10 @@ class AgentTaskRunner(TaskRunner):
             security_suggestions=pending.get("security_suggestions"),
             confirmation_state="confirmed",
         )
-        await self._handle_tool_event(calling_event)
+        emitted_events = await self._handle_tool_event(calling_event)
         await self._put_and_add_event(task, calling_event)
+        for emitted_event in emitted_events:
+            await self._put_and_add_event(task, emitted_event)
 
         try:
             tool = agent.get_tool(function_name)
@@ -1120,8 +1135,10 @@ class AgentTaskRunner(TaskRunner):
             security_suggestions=pending.get("security_suggestions"),
             confirmation_state="confirmed",
         )
-        await self._handle_tool_event(called_event)
+        emitted_events = await self._handle_tool_event(called_event)
         await self._put_and_add_event(task, called_event)
+        for emitted_event in emitted_events:
+            await self._put_and_add_event(task, emitted_event)
 
         await self._session_repository.update_pending_action(
             self._session_id,
@@ -1157,12 +1174,43 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.debug(f"Failed to record tool usage for Agent {self._agent_id}: {e}")
 
-    async def _handle_tool_event(self, event: ToolEvent) -> None:
+    def _build_canvas_update_event(self, event: ToolEvent) -> CanvasUpdateEvent | None:
+        """Build a versioned canvas update event from a successful canvas mutation."""
+        if event.status != ToolStatus.CALLED or event.tool_name != "canvas":
+            return None
+
+        function_result = event.function_result
+        if not isinstance(function_result, ToolResult) or not function_result.success:
+            return None
+
+        tool_content = event.tool_content
+        if not isinstance(tool_content, CanvasToolContent):
+            return None
+
+        if tool_content.operation not in _CANVAS_MUTATION_OPERATIONS:
+            return None
+
+        if not tool_content.project_id or tool_content.version is None:
+            return None
+
+        return CanvasUpdateEvent(
+            project_id=tool_content.project_id,
+            session_id=tool_content.session_id or self._session_id,
+            operation=tool_content.operation,
+            element_count=tool_content.element_count,
+            project_name=tool_content.project_name,
+            version=tool_content.version,
+            changed_element_ids=tool_content.changed_element_ids,
+            source="agent",
+        )
+
+    async def _handle_tool_event(self, event: ToolEvent) -> list[BaseEvent]:
         """Enrich tool event with metadata and generate tool content.
 
         Uses ToolEventHandler for action/observation metadata enrichment,
         then handles async tool-specific content generation.
         """
+        emitted_events: list[BaseEvent] = []
         try:
             # Enrich action metadata using ToolEventHandler (action_type, command, cwd, file_path)
             self._tool_event_handler.enrich_action_metadata(event)
@@ -1281,8 +1329,13 @@ class AgentTaskRunner(TaskRunner):
                     logger.debug("Agent %s: deal_scraper tool content from base.py", self._agent_id)
                 else:
                     logger.warning("Agent %s received unknown tool event: %s", self._agent_id, event.tool_name)
+
+                canvas_update_event = self._build_canvas_update_event(event)
+                if canvas_update_event is not None:
+                    emitted_events.append(canvas_update_event)
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} failed to generate tool content: {e}")
+        return emitted_events
 
     async def run(self, task: Task) -> None:
         """Process agent's message queue and run the agent's flow"""
@@ -1508,7 +1561,7 @@ class AgentTaskRunner(TaskRunner):
 
                 if isinstance(event, ToolEvent):
                     # TODO: move to tool function
-                    await self._handle_tool_event(event)
+                    emitted_events = await self._handle_tool_event(event)
                     # Auto-switch badge on first deal_scraper tool completion
                     if (
                         not self._deal_mode_emitted
@@ -1517,7 +1570,10 @@ class AgentTaskRunner(TaskRunner):
                     ):
                         self._deal_mode_emitted = True
                         yield ResearchModeEvent(research_mode="deal_finding")
-                elif isinstance(event, ReportEvent):
+                else:
+                    emitted_events = []
+
+                if isinstance(event, ReportEvent):
                     await self._ensure_report_file(event)
                     # Sync attachments to storage for events that contain file references
                     # This resolves file_path to file_id for proper frontend access
@@ -1537,6 +1593,8 @@ class AgentTaskRunner(TaskRunner):
                     yield event
                     continue
                 yield event
+                for emitted_event in emitted_events:
+                    yield emitted_event
 
         # If mode switch was requested, switch to Agent mode and re-run with the task
         if mode_switch_task and self._mode == AgentMode.DISCUSS:
@@ -1560,8 +1618,11 @@ class AgentTaskRunner(TaskRunner):
                             await asyncio.sleep(0.5)
 
                     if isinstance(event, ToolEvent):
-                        await self._handle_tool_event(event)
-                    elif isinstance(event, ReportEvent):
+                        emitted_events = await self._handle_tool_event(event)
+                    else:
+                        emitted_events = []
+
+                    if isinstance(event, ReportEvent):
                         await self._ensure_report_file(event)
                         # Sync attachments to storage for events that contain file references
                         await self._sync_event_attachments_to_storage(event)
@@ -1569,6 +1630,8 @@ class AgentTaskRunner(TaskRunner):
                         # Sync attachments to storage for events that contain file references
                         await self._sync_event_attachments_to_storage(event)
                     yield event
+                    for emitted_event in emitted_events:
+                        yield emitted_event
 
         logger.info(f"Agent {self._agent_id} completed processing one message")
 

@@ -403,10 +403,12 @@
           <!-- Canvas View -->
           <div v-else-if="currentViewType === 'canvas' && resolvedCanvasProjectId" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <CanvasLiveView
-              ref="canvasLiveViewRef"
               :session-id="sessionId || ''"
               :project-id="resolvedCanvasProjectId"
               :live="isActiveOperation"
+              :refresh-token="canvasRefreshToken"
+              :latest-update="latestCanvasUpdate"
+              :sync-status="isActiveOperation ? 'live' : 'saved'"
             />
           </div>
 
@@ -516,8 +518,9 @@
 import { defineAsyncComponent, toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
 import { Minimize2, MonitorUp, X, Loader2, BarChart3, Palette } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
-import type { PlanEventData, ToolEventData } from '@/types/event';
+import type { CanvasUpdateEventData, PlanEventData, ToolEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
+import { useCanvasLiveSync } from '@/composables/useCanvasLiveSync';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { getToolDisplay, extractToolUrl } from '@/utils/toolDisplay';
 import { viewFile, viewShellSession, browseUrl, startTakeover } from '@/api/agent';
@@ -582,8 +585,8 @@ const props = defineProps<{
   embedded?: boolean;
   /** Override the auto-detected content view type (used for workspace tab switching) */
   forceViewType?: ContentViewType;
-  /** Active canvas project ID from SSE canvas_update events */
-  activeCanvasProjectId?: string | null;
+  /** Latest canvas update event from SSE so same-project updates still propagate. */
+  activeCanvasUpdate?: CanvasUpdateEventData | null;
 }>();
 
 // ── Elapsed timer + connection status for header ──────────────────
@@ -673,7 +676,6 @@ const toolStatus = computed(() => props.toolContent?.status || '');
 const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
 
 // Canvas live view
-const canvasLiveViewRef = ref<{ scheduleRefresh: () => void; refresh: () => void } | null>(null);
 const liveViewerRef = ref<{ processToolEvent?: (event: ToolEventData) => void } | null>(null);
 const livePreviewDevice = ref<'desktop' | 'mobile'>('desktop');
 
@@ -689,27 +691,14 @@ interface BrowserAgentCheckpointData {
   url?: unknown;
 }
 
-/** Resolve canvas project ID from SSE prop or tool content args/result */
-const resolvedCanvasProjectId = computed(() => {
-  // Prefer activeCanvasProjectId from SSE events
-  if (props.activeCanvasProjectId) return props.activeCanvasProjectId;
-  // Fallback: extract from tool content
-  const content = props.toolContent?.content as Record<string, unknown> | undefined;
-  if (content?.project_id && typeof content.project_id === 'string') return content.project_id;
-  const args = props.toolContent?.args;
-  if (args?.project_id && typeof args.project_id === 'string') return args.project_id;
-  return '';
+const {
+  latestCanvasUpdate,
+  resolvedProjectId: resolvedCanvasProjectId,
+  refreshToken: canvasRefreshToken,
+} = useCanvasLiveSync({
+  toolContent: toRef(props, 'toolContent'),
+  activeCanvasUpdate: toRef(props, 'activeCanvasUpdate'),
 });
-
-// Watch activeCanvasProjectId for SSE-driven refreshes
-watch(
-  () => props.activeCanvasProjectId,
-  (newId) => {
-    if (newId && currentViewType.value === 'canvas' && canvasLiveViewRef.value) {
-      canvasLiveViewRef.value.scheduleRefresh();
-    }
-  },
-);
 
 /** Show floating browser controls only in Canvas mode or standalone (non-embedded) */
 const showBrowserControls = computed(() => {

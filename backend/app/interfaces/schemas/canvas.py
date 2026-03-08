@@ -11,6 +11,7 @@ class CreateProjectRequest(BaseModel):
     width: float = 1920.0
     height: float = 1080.0
     background: str = "#FFFFFF"
+    session_id: str | None = None
 
     @field_validator("width", "height")
     @classmethod

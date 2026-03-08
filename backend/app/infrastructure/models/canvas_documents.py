@@ -37,6 +37,7 @@ class CanvasProjectDocument(
             IndexModel([("project_id", ASCENDING)], unique=True),
             # "user_id" standalone index removed — covered by compound prefix below
             IndexModel([("user_id", ASCENDING), ("updated_at", DESCENDING)]),
+            IndexModel([("session_id", ASCENDING), ("updated_at", DESCENDING)]),
         ]
 
     def to_domain(self) -> CanvasProject:

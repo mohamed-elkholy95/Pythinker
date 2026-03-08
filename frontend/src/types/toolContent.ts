@@ -135,8 +135,11 @@ export interface CodeDevToolContent extends ToolContentBase {
 export interface CanvasToolContent extends ToolContentBase {
   operation: string;
   project_id?: string | null;
+  session_id?: string | null;
   project_name?: string | null;
   element_count?: number;
+  version?: number | null;
+  changed_element_ids?: string[] | null;
   image_urls?: string[] | null;
 }
 

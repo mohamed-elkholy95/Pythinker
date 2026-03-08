@@ -11,7 +11,9 @@ import type {
   CanvasElement,
   EditorState,
   EditorTool,
+  CanvasRemoteSyncState,
 } from '@/types/canvas'
+import type { CanvasUpdateEventData } from '@/types/event'
 import * as canvasApi from '@/api/canvas'
 
 export function useCanvasEditor() {
@@ -33,8 +35,20 @@ export function useCanvasEditor() {
   })
   const loading = ref(false)
   const saving = ref(false)
+  const syncState = ref<CanvasRemoteSyncState>({
+    sessionId: null,
+    serverVersion: 0,
+    pendingRemoteVersion: null,
+    hasRemoteConflict: false,
+    isStale: false,
+    lastRemoteOperation: null,
+    lastRemoteSource: null,
+    lastChangedElementIds: [],
+    highlightedElementIds: [],
+  })
 
   let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+  let remoteHighlightTimer: ReturnType<typeof setTimeout> | null = null
 
   // ---------------------------------------------------------------------------
   // Computed
@@ -52,6 +66,76 @@ export function useCanvasEditor() {
     return elements.value.filter((el) => ids.has(el.id))
   })
 
+  function clearRemoteHighlight() {
+    if (remoteHighlightTimer) {
+      clearTimeout(remoteHighlightTimer)
+      remoteHighlightTimer = null
+    }
+    syncState.value.highlightedElementIds = []
+  }
+
+  function setHighlightedElements(elementIds?: string[] | null) {
+    clearRemoteHighlight()
+    const nextIds = (elementIds ?? []).filter((elementId): elementId is string => Boolean(elementId))
+    syncState.value.highlightedElementIds = nextIds
+    if (nextIds.length === 0) {
+      return
+    }
+    remoteHighlightTimer = setTimeout(() => {
+      syncState.value.highlightedElementIds = []
+      remoteHighlightTimer = null
+    }, 1800)
+  }
+
+  function resetRemoteSyncState() {
+    syncState.value.pendingRemoteVersion = null
+    syncState.value.hasRemoteConflict = false
+    syncState.value.isStale = false
+  }
+
+  function syncProjectMetadata(nextProject: CanvasProject) {
+    syncState.value.sessionId = nextProject.session_id
+    syncState.value.serverVersion = nextProject.version
+  }
+
+  function applyProjectSnapshot(
+    nextProject: CanvasProject,
+    update?: Partial<CanvasUpdateEventData>,
+  ) {
+    project.value = nextProject
+    editorState.value.activePageIndex = Math.min(
+      editorState.value.activePageIndex,
+      Math.max(nextProject.pages.length - 1, 0),
+    )
+    editorState.value.selectedElementIds = []
+    editorState.value.isDirty = false
+    syncProjectMetadata(nextProject)
+    syncState.value.lastRemoteOperation = update?.operation ?? syncState.value.lastRemoteOperation
+    syncState.value.lastRemoteSource = update?.source ?? syncState.value.lastRemoteSource
+    syncState.value.lastChangedElementIds = [...(update?.changed_element_ids ?? [])]
+    resetRemoteSyncState()
+    setHighlightedElements(update?.changed_element_ids ?? [])
+  }
+
+  function buildRemoteUpdateFromProject(
+    nextProject: CanvasProject,
+    update?: Partial<CanvasUpdateEventData>,
+  ): CanvasUpdateEventData {
+    const firstPage = nextProject.pages[0]
+    return {
+      event_id: update?.event_id ?? `canvas-project-${nextProject.id}-${nextProject.version}`,
+      timestamp: update?.timestamp ?? Date.now(),
+      project_id: nextProject.id,
+      session_id: update?.session_id ?? nextProject.session_id ?? undefined,
+      operation: update?.operation ?? 'sync_project',
+      element_count: update?.element_count ?? firstPage?.elements.length ?? 0,
+      project_name: update?.project_name ?? nextProject.name,
+      version: update?.version ?? nextProject.version,
+      changed_element_ids: update?.changed_element_ids,
+      source: update?.source,
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Project CRUD
   // ---------------------------------------------------------------------------
@@ -59,21 +143,42 @@ export function useCanvasEditor() {
   async function loadProject(projectId: string) {
     loading.value = true
     try {
-      project.value = await canvasApi.getProject(projectId)
+      const loadedProject = await canvasApi.getProject(projectId)
+      project.value = loadedProject
       editorState.value.activePageIndex = 0
       editorState.value.selectedElementIds = []
       editorState.value.isDirty = false
+      syncProjectMetadata(loadedProject)
+      resetRemoteSyncState()
+      syncState.value.lastChangedElementIds = []
+      clearRemoteHighlight()
     } finally {
       loading.value = false
     }
   }
 
-  async function createProject(name?: string, width?: number, height?: number) {
+  async function createProject(
+    name?: string,
+    width?: number,
+    height?: number,
+    options?: { sessionId?: string },
+  ) {
     loading.value = true
     try {
-      project.value = await canvasApi.createProject({ name, width, height })
+      project.value = await canvasApi.createProject({
+        name,
+        width,
+        height,
+        session_id: options?.sessionId,
+      })
       editorState.value.activePageIndex = 0
       editorState.value.isDirty = false
+      if (project.value) {
+        syncProjectMetadata(project.value)
+      }
+      resetRemoteSyncState()
+      syncState.value.lastChangedElementIds = []
+      clearRemoteHighlight()
       return project.value
     } finally {
       loading.value = false
@@ -93,6 +198,9 @@ export function useCanvasEditor() {
       })
       project.value = updated
       editorState.value.isDirty = false
+      syncProjectMetadata(updated)
+      resetRemoteSyncState()
+      syncState.value.lastChangedElementIds = []
     } finally {
       saving.value = false
     }
@@ -108,6 +216,83 @@ export function useCanvasEditor() {
   function markDirty() {
     editorState.value.isDirty = true
     scheduleAutoSave()
+  }
+
+  async function syncFromRemoteUpdate(
+    update: CanvasUpdateEventData,
+    resolver?: () => Promise<CanvasProject>,
+  ): Promise<'ignored' | 'queued' | 'applied'> {
+    if (!project.value) return 'ignored'
+    if (update.project_id !== project.value.id) return 'ignored'
+
+    const knownVersion = Math.max(
+      syncState.value.serverVersion,
+      syncState.value.pendingRemoteVersion ?? 0,
+    )
+    if (update.version <= knownVersion) {
+      return 'ignored'
+    }
+
+    syncState.value.sessionId = update.session_id ?? syncState.value.sessionId
+    syncState.value.lastRemoteOperation = update.operation
+    syncState.value.lastRemoteSource = update.source ?? null
+    syncState.value.lastChangedElementIds = [...(update.changed_element_ids ?? [])]
+
+    if (editorState.value.isDirty) {
+      syncState.value.pendingRemoteVersion = update.version
+      syncState.value.hasRemoteConflict = true
+      syncState.value.isStale = false
+      return 'queued'
+    }
+
+    const remoteProject = resolver
+      ? await resolver()
+      : await canvasApi.getProject(update.project_id)
+    applyProjectSnapshot(remoteProject, update)
+    return 'applied'
+  }
+
+  async function syncFromRemoteProject(
+    remoteProject: CanvasProject,
+    update?: Partial<CanvasUpdateEventData>,
+  ): Promise<'ignored' | 'queued' | 'applied'> {
+    const remoteUpdate = buildRemoteUpdateFromProject(remoteProject, update)
+    if (!project.value) {
+      applyProjectSnapshot(remoteProject, remoteUpdate)
+      return 'applied'
+    }
+    return syncFromRemoteUpdate(remoteUpdate, async () => remoteProject)
+  }
+
+  async function applyPendingRemoteUpdate(
+    resolver?: () => Promise<CanvasProject>,
+  ): Promise<boolean> {
+    if (!project.value || syncState.value.pendingRemoteVersion === null) {
+      return false
+    }
+
+    const remoteProject = resolver
+      ? await resolver()
+      : await canvasApi.getProject(project.value.id)
+    applyProjectSnapshot(remoteProject, {
+      project_id: remoteProject.id,
+      session_id: syncState.value.sessionId ?? remoteProject.session_id ?? undefined,
+      operation: syncState.value.lastRemoteOperation ?? 'sync_project',
+      element_count: remoteProject.pages[0]?.elements.length ?? 0,
+      project_name: remoteProject.name,
+      version: remoteProject.version,
+      changed_element_ids: syncState.value.lastChangedElementIds,
+      source: syncState.value.lastRemoteSource ?? undefined,
+    })
+    return true
+  }
+
+  function dismissPendingRemoteUpdate() {
+    if (syncState.value.pendingRemoteVersion === null) {
+      return
+    }
+    syncState.value.hasRemoteConflict = false
+    syncState.value.isStale = true
   }
 
   // ---------------------------------------------------------------------------
@@ -226,6 +411,7 @@ export function useCanvasEditor() {
       clearTimeout(autoSaveTimer)
       autoSaveTimer = null
     }
+    clearRemoteHighlight()
   }
 
   // Auto-cleanup when the effect scope is disposed (component unmount)
@@ -238,6 +424,7 @@ export function useCanvasEditor() {
   return {
     project,
     editorState,
+    syncState,
     loading,
     saving,
     activePage,
@@ -246,6 +433,11 @@ export function useCanvasEditor() {
     loadProject,
     createProject,
     saveProject,
+    syncFromRemoteUpdate,
+    syncFromRemoteProject,
+    applyPendingRemoteUpdate,
+    dismissPendingRemoteUpdate,
+    clearRemoteHighlight,
     markDirty,
     addElement,
     updateElement,

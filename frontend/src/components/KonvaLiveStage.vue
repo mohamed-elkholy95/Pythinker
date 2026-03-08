@@ -270,6 +270,7 @@ const annotationLayerRef = ref<{ getNode: () => Konva.Layer } | null>(null)
 const containerWidth = ref(800)
 const containerHeight = ref(600)
 let resizeObserver: ResizeObserver | null = null
+let resizeFrame: number | null = null
 
 // ---------------------------------------------------------------------------
 // Composables
@@ -502,6 +503,14 @@ function updateContainerSize(): void {
   }
 }
 
+function scheduleContainerSizeUpdate(): void {
+  if (resizeFrame !== null) return
+  resizeFrame = window.requestAnimationFrame(() => {
+    resizeFrame = null
+    updateContainerSize()
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -509,7 +518,7 @@ function updateContainerSize(): void {
 onMounted(() => {
   // Setup resize observer
   if (containerRef.value) {
-    resizeObserver = new ResizeObserver(() => updateContainerSize())
+    resizeObserver = new ResizeObserver(() => scheduleContainerSizeUpdate())
     resizeObserver.observe(containerRef.value)
     updateContainerSize()
   }
@@ -547,6 +556,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
+  if (resizeFrame !== null) {
+    window.cancelAnimationFrame(resizeFrame)
+    resizeFrame = null
+  }
   screencast.unbindImageNode()
   agentOverlay.unbindLayer()
   agentCursor.unbindLayer()

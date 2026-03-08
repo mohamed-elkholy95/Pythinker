@@ -102,6 +102,12 @@ class CanvasService:
                 self._project_locks[project_id] = lock
             return lock
 
+    @staticmethod
+    def _mark_project_mutated(project: CanvasProject) -> None:
+        """Advance version/timestamp for an in-place project mutation."""
+        project.version += 1
+        project.updated_at = datetime.now(UTC)
+
     # --- Project CRUD ---
 
     async def create_project(
@@ -135,6 +141,9 @@ class CanvasService:
 
     async def get_project(self, project_id: str) -> CanvasProject | None:
         return await self._repo.find_by_id(project_id)
+
+    async def get_project_by_session_id(self, session_id: str) -> CanvasProject | None:
+        return await self._repo.find_by_session_id(session_id)
 
     async def list_projects(self, user_id: str, skip: int = 0, limit: int = 50) -> list[CanvasProject]:
         return await self._repo.find_by_user_id(user_id, skip=skip, limit=limit)
@@ -229,7 +238,7 @@ class CanvasService:
                 raise ResourceLimitExceeded(f"Maximum {settings.canvas_max_elements} elements per page")
 
             project.pages[page_index].elements.append(element)
-            project.updated_at = datetime.now(UTC)
+            self._mark_project_mutated(project)
             return await self._repo.update(project_id, project)
 
     async def modify_element(
@@ -251,7 +260,7 @@ class CanvasService:
                         el_dict = el.model_dump()
                         el_dict.update(updates)
                         page.elements[i] = CanvasElement.model_validate(el_dict)
-                        project.updated_at = datetime.now(UTC)
+                        self._mark_project_mutated(project)
                         return await self._repo.update(project_id, project)
 
             return None
@@ -268,7 +277,7 @@ class CanvasService:
             for page in project.pages:
                 page.elements = [el for el in page.elements if el.id not in ids_set]
 
-            project.updated_at = datetime.now(UTC)
+            self._mark_project_mutated(project)
             return await self._repo.update(project_id, project)
 
     # --- AI operations ---
@@ -402,7 +411,7 @@ class CanvasService:
             if not applied:
                 return latest_project
 
-            latest_project.updated_at = datetime.now(UTC)
+            self._mark_project_mutated(latest_project)
             return await self._repo.update(project_id, latest_project)
 
     def _apply_edit_operations(

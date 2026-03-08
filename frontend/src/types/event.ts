@@ -316,9 +316,13 @@ export interface ThoughtEventData extends BaseEventData {
 
 export interface CanvasUpdateEventData extends BaseEventData {
   project_id: string;
+  session_id?: string;
   operation: string;
   element_count: number;
   project_name?: string;
+  version: number;
+  changed_element_ids?: string[];
+  source?: 'agent' | 'manual' | 'system';
 }
 
 export interface WorkspaceEventData extends BaseEventData {
