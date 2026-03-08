@@ -1,13 +1,44 @@
 <template>
   <div class="canvas-live-view">
+    <CanvasWorkspaceHeader
+      :project-name="projectTitle"
+      :sync-status="effectiveSyncStatus"
+      :mode="live ? 'agent' : 'manual'"
+      :session-id="sessionId"
+      :version="projectVersion"
+      :element-count="headerElementCount"
+      primary-action-label="Open Studio"
+      @primary-action="openFullEditor"
+    />
+
+    <CanvasSyncBanner
+      v-if="bannerState"
+      :status="bannerState.status"
+      :title="bannerState.title"
+      :description="bannerState.description"
+      :primary-action-label="bannerState.primaryActionLabel"
+      :secondary-action-label="bannerState.secondaryActionLabel"
+      @primary-action="emit('apply-latest')"
+      @secondary-action="emit('keep-draft')"
+    />
+
+    <div class="canvas-live-summary">
+      <div class="canvas-live-summary__status">
+        <div v-if="live" class="canvas-live-dot" />
+        <span class="canvas-live-summary__eyebrow">
+          {{ live ? 'Agent is designing' : 'Canvas inspection' }}
+        </span>
+      </div>
+      <div class="canvas-live-summary__details">
+        <span>{{ operationLabel }}</span>
+        <span>v{{ projectVersion }}</span>
+        <span>{{ headerElementCount }} elements</span>
+      </div>
+    </div>
+
     <!-- Activity indicator / toolbar header -->
     <div class="canvas-live-header">
-      <div v-if="live" class="canvas-live-indicator">
-        <div class="canvas-live-dot" />
-        <span class="canvas-live-label">Agent is designing...</span>
-        <span v-if="project" class="canvas-live-count">{{ elementCount }} elements</span>
-      </div>
-      <div v-else class="canvas-live-toolbar">
+      <div v-if="!live" class="canvas-live-toolbar">
         <div class="canvas-tool-group">
           <button
             class="canvas-tool-btn"
@@ -43,8 +74,8 @@
           title="Open full editor"
           @click="openFullEditor"
         >
-          <ExternalLink :size="12" />
-          <span>Full Editor</span>
+            <ExternalLink :size="12" />
+          <span>Studio Tools</span>
         </button>
       </div>
     </div>
@@ -85,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   MousePointer2,
@@ -99,17 +130,35 @@ import {
   Palette,
 } from 'lucide-vue-next'
 import CanvasStage from '@/components/canvas/editor/CanvasStage.vue'
+import CanvasSyncBanner from '@/components/canvas/CanvasSyncBanner.vue'
+import CanvasWorkspaceHeader from '@/components/canvas/CanvasWorkspaceHeader.vue'
 import { useCanvasEditor } from '@/composables/useCanvasEditor'
 import { useCanvasHistory } from '@/composables/useCanvasHistory'
-import type { CanvasElement, EditorState } from '@/types/canvas'
+import type { CanvasElement, CanvasSyncStatus, EditorState } from '@/types/canvas'
+import type { CanvasUpdateEventData } from '@/types/event'
 
 interface Props {
   sessionId: string
   projectId: string
   live: boolean
+  refreshToken?: number
+  latestUpdate?: CanvasUpdateEventData | null
+  syncStatus?: CanvasSyncStatus
+  pendingRemoteVersion?: number | null
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  refreshToken: 0,
+  latestUpdate: null,
+  syncStatus: 'saved',
+  pendingRemoteVersion: null,
+})
+
+const emit = defineEmits<{
+  (e: 'apply-latest'): void
+  (e: 'keep-draft'): void
+}>()
+
 const router = useRouter()
 const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
 
@@ -136,6 +185,43 @@ const { pushState } = useCanvasHistory()
 const error = ref<string | null>(null)
 
 const elementCount = computed(() => elements.value.length)
+const projectTitle = computed(() => props.latestUpdate?.project_name || project.value?.name || 'Canvas workspace')
+const projectVersion = computed(() => props.latestUpdate?.version ?? project.value?.version ?? 0)
+const headerElementCount = computed(() => props.latestUpdate?.element_count ?? elementCount.value)
+const effectiveSyncStatus = computed<CanvasSyncStatus>(() => props.syncStatus)
+
+const operationLabel = computed(() => {
+  const rawOperation = props.latestUpdate?.operation || (props.live ? 'agent sketching' : 'manual review')
+  return rawOperation.replace(/_/g, ' ')
+})
+
+const bannerState = computed(() => {
+  if (props.syncStatus === 'conflict') {
+    return {
+      status: 'conflict' as const,
+      title: 'Agent updated this canvas',
+      description: props.pendingRemoteVersion !== null
+        ? `A newer remote version (v${props.pendingRemoteVersion}) is ready to apply.`
+        : 'A newer remote version is ready to apply.',
+      primaryActionLabel: 'Apply latest',
+      secondaryActionLabel: 'Keep my draft',
+    }
+  }
+
+  if (props.syncStatus === 'stale') {
+    return {
+      status: 'stale' as const,
+      title: 'Your draft is behind the latest agent canvas',
+      description: props.pendingRemoteVersion !== null
+        ? `Reload v${props.pendingRemoteVersion} when you are ready to pick up the agent changes.`
+        : 'Reload the newer server version when you are ready to pick up the agent changes.',
+      primaryActionLabel: 'Reload canvas',
+      secondaryActionLabel: '',
+    }
+  }
+
+  return null
+})
 
 // In live mode, force 'hand' tool and disable selection for read-only viewing
 const effectiveEditorState = computed<EditorState>(() => {
@@ -153,18 +239,22 @@ const effectiveEditorState = computed<EditorState>(() => {
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 const REFRESH_DEBOUNCE_MS = 500
 
-function scheduleRefresh() {
+function scheduleRefresh(options: { fitToView?: boolean } = {}) {
   if (refreshTimer) clearTimeout(refreshTimer)
   refreshTimer = setTimeout(() => {
-    refresh()
+    void refresh(options)
   }, REFRESH_DEBOUNCE_MS)
 }
 
-async function refresh() {
+async function refresh(options: { fitToView?: boolean } = {}) {
   if (!props.projectId) return
   try {
     error.value = null
     await loadProject(props.projectId)
+    if (options.fitToView) {
+      await nextTick()
+      fitToView()
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load canvas'
   }
@@ -284,15 +374,17 @@ function handlePanChange(x: number, y: number) {
 
 function openFullEditor() {
   if (!props.projectId) return
-  router.push(`/chat/canvas/${props.projectId}`)
+  router.push({
+    path: `/chat/canvas/${props.projectId}`,
+    query: props.sessionId ? { sessionId: props.sessionId } : undefined,
+  })
 }
 
-// Watch projectId changes — load initial project and refresh on changes
 watch(
-  () => props.projectId,
-  (newId) => {
+  [() => props.projectId, () => props.refreshToken ?? 0],
+  ([newId], [previousId]) => {
     if (newId) {
-      refresh()
+      scheduleRefresh({ fitToView: newId !== previousId })
     }
   },
   { immediate: true },
@@ -306,18 +398,10 @@ watch(
       // Agent finished — switch to interactive mode
       setTool('select')
       // Final refresh to get the complete state
-      refresh().then(() => {
-        fitToView()
-      })
+      void refresh({ fitToView: true })
     }
   },
 )
-
-// Expose scheduleRefresh for parent to call on SSE canvas_update events
-defineExpose({
-  scheduleRefresh,
-  refresh,
-})
 
 onUnmounted(() => {
   if (refreshTimer) {
@@ -334,23 +418,37 @@ onUnmounted(() => {
   height: 100%;
   width: 100%;
   overflow: hidden;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background:
+    radial-gradient(circle at top right, rgba(17, 24, 39, 0.04), transparent 28%),
+    linear-gradient(180deg, rgba(17, 24, 39, 0.02), transparent 32%);
 }
 
 .canvas-live-header {
   flex-shrink: 0;
-  height: 36px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   padding: 0 10px;
-  border-bottom: 1px solid var(--border-light);
-  background: var(--background-white-main);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(10px);
 }
 
-.canvas-live-indicator {
+.canvas-live-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+}
+
+.canvas-live-summary__status {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
 }
 
 .canvas-live-dot {
@@ -366,19 +464,20 @@ onUnmounted(() => {
   50% { opacity: 0.5; transform: scale(1.3); }
 }
 
-.canvas-live-label {
+.canvas-live-summary__eyebrow {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
 }
 
-.canvas-live-count {
-  margin-left: auto;
-  font-size: 11px;
+.canvas-live-summary__details {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  font-size: 12px;
   color: var(--text-tertiary);
-  padding: 1px 6px;
-  background: var(--fill-tsp-gray-main);
-  border-radius: 4px;
 }
 
 .canvas-live-toolbar {
@@ -453,6 +552,12 @@ onUnmounted(() => {
   min-height: 0;
   position: relative;
   overflow: hidden;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-2xl);
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.03), rgba(17, 24, 39, 0.01)),
+    #e8e6e1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .canvas-live-loading,

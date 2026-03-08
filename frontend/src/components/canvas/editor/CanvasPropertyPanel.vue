@@ -209,13 +209,13 @@ function handleFontSizeChange(size: number) {
 
 <style scoped>
 .property-panel {
-  width: 260px;
-  height: 100%;
+  width: 100%;
   overflow-y: auto;
-  background: var(--background-white-main, #ffffff);
-  border-left: 1px solid var(--border-light, #e5e5e5);
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--border-light, #e5e5e5);
+  border-radius: 20px;
   flex-shrink: 0;
-  padding: 12px;
+  padding: 14px;
 }
 
 .empty-state {
@@ -231,7 +231,11 @@ function handleFontSizeChange(size: number) {
 }
 
 .panel-section {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid rgba(17, 24, 39, 0.06);
+  border-radius: 16px;
+  background: rgba(17, 24, 39, 0.02);
 }
 
 .section-title {
@@ -258,11 +262,12 @@ function handleFontSizeChange(size: number) {
 
 .prop-input {
   flex: 1;
-  height: 28px;
+  min-width: 0;
+  height: 34px;
   border: 1px solid var(--border-light, #e5e5e5);
-  border-radius: 6px;
-  padding: 0 8px;
-  font-size: 12px;
+  border-radius: 10px;
+  padding: 0 10px;
+  font-size: 13px;
   color: var(--text-primary, #1a1a1a);
   background: var(--background-white-main, #ffffff);
   outline: none;
@@ -275,6 +280,7 @@ function handleFontSizeChange(size: number) {
 
 .name-input {
   width: 100%;
+  margin-top: 6px;
 }
 
 .prop-slider {
@@ -297,9 +303,9 @@ function handleFontSizeChange(size: number) {
 }
 
 .prop-value {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #666666);
-  min-width: 36px;
+  min-width: 42px;
   text-align: right;
 }
 
@@ -310,7 +316,7 @@ function handleFontSizeChange(size: number) {
 .color-swatch {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: 10px;
   border: 1px solid var(--border-light, #e5e5e5);
   flex-shrink: 0;
 }
@@ -318,14 +324,15 @@ function handleFontSizeChange(size: number) {
 .prop-textarea {
   width: 100%;
   border: 1px solid var(--border-light, #e5e5e5);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 12px;
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 13px;
   color: var(--text-primary, #1a1a1a);
   background: var(--background-white-main, #ffffff);
   outline: none;
   resize: vertical;
   font-family: inherit;
+  line-height: 1.5;
   transition: border-color 0.15s;
 }
 
@@ -334,11 +341,11 @@ function handleFontSizeChange(size: number) {
 }
 
 .image-src-display {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #666666);
   word-break: break-all;
-  padding: 6px 8px;
+  padding: 8px 10px;
   background: var(--fill-tsp-gray-main, #f5f5f5);
-  border-radius: 6px;
+  border-radius: 10px;
 }
 </style>

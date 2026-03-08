@@ -34,7 +34,7 @@
         :replayScreenshots="panelProps.replayScreenshots"
         :summaryStreamText="panelProps.summaryStreamText"
         :isSummaryStreaming="panelProps.isSummaryStreaming"
-        :activeCanvasProjectId="panelProps.activeCanvasProjectId"
+        :activeCanvasUpdate="panelProps.activeCanvasUpdate"
         @hide="() => hideToolPanel(true)"
         @jumpToRealTime="jumpToRealTime"
         @stepForward="handleTimelineStepForward"
@@ -49,7 +49,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import type { ToolContent } from '../types/message'
-import type { PlanEventData } from '../types/event'
+import type { CanvasUpdateEventData, PlanEventData } from '../types/event'
 import type { ScreenshotMetadata } from '../types/screenshot'
 import ToolPanelContent from './ToolPanelContent.vue'
 import { useResizeObserver } from '../composables/useResizeObserver'
@@ -123,7 +123,7 @@ const panelProps = defineProps<{
   replayScreenshots?: ScreenshotMetadata[]
   summaryStreamText?: string
   isSummaryStreaming?: boolean
-  activeCanvasProjectId?: string | null
+  activeCanvasUpdate?: CanvasUpdateEventData | null
 }>()
 
 // Track if state change was from user action

@@ -1,153 +1,176 @@
 <template>
   <div class="canvas-page">
-    <!-- Loading overlay -->
     <div v-if="loading" class="canvas-loading">
       <div class="canvas-loading-spinner" />
       <span class="canvas-loading-text">Loading project...</span>
     </div>
 
-    <!-- Main editor layout -->
     <template v-else-if="project">
-      <!-- Top bar -->
-      <header class="canvas-topbar">
-        <div class="canvas-topbar-left">
-          <button
-            class="canvas-topbar-btn"
-            title="Back"
-            @click="handleBack"
-          >
-            <ArrowLeft :size="18" />
-          </button>
-          <input
-            v-model="projectName"
-            class="canvas-project-name"
-            type="text"
-            placeholder="Untitled project"
-            @blur="handleProjectNameChange"
-            @keydown.enter="($event.target as HTMLInputElement).blur()"
-          />
-          <span v-if="saving" class="canvas-save-indicator">
-            <Save :size="14" />
-            Saving...
-          </span>
-          <span v-else-if="editorState.isDirty" class="canvas-save-indicator canvas-save-unsaved">
-            Unsaved changes
-          </span>
-        </div>
-
-        <div class="canvas-topbar-right">
-          <button
-            class="canvas-topbar-btn"
-            title="Undo (Ctrl+Z)"
-            :disabled="!canUndo"
-            @click="handleUndo"
-          >
-            <Undo2 :size="18" />
-          </button>
-          <button
-            class="canvas-topbar-btn"
-            title="Redo (Ctrl+Shift+Z)"
-            :disabled="!canRedo"
-            @click="handleRedo"
-          >
-            <Redo2 :size="18" />
-          </button>
-          <button
-            class="canvas-topbar-btn"
-            title="Save (Ctrl+S)"
-            @click="saveProject"
-          >
-            <Save :size="18" />
-          </button>
-          <button
-            class="canvas-topbar-btn canvas-topbar-btn--primary"
-            title="Export"
-            @click="showExportDialog = true"
-          >
-            <Download :size="18" />
-            <span>Export</span>
-          </button>
-        </div>
-      </header>
-
-      <!-- Editor body: toolbar + stage + right panels -->
-      <div class="canvas-body">
-        <!-- Left toolbar -->
-        <CanvasToolbar
-          :active-tool="editorState.activeTool"
-          @tool-change="setTool"
+      <div class="canvas-studio-shell">
+        <CanvasWorkspaceHeader
+          :project-name="project.name"
+          :sync-status="canvasSyncStatus"
+          :mode="workspaceMode"
+          :session-id="routeSessionId"
+          :version="project.version"
+          :element-count="elements.length"
+          secondary-action-label="Return to Chat"
+          primary-action-label="Export"
+          @secondary-action="handleBack"
+          @primary-action="showExportDialog = true"
         />
 
-        <!-- Center stage -->
-        <div class="canvas-stage-wrapper">
-          <CanvasStage
-            ref="stageRef"
-            :elements="elements"
-            :selected-element-ids="editorState.selectedElementIds"
-            :editor-state="editorState"
-            :page-width="pageWidth"
-            :page-height="pageHeight"
-            :page-background="pageBackground"
-            @element-select="handleElementSelect"
-            @element-move="handleElementMove"
-            @element-transform="handleElementTransform"
-            @stage-click="clearSelection"
-            @pan-change="handlePanChange"
-            @wheel="handleWheel"
-          />
+        <CanvasSyncBanner
+          v-if="pageSyncBanner"
+          :status="pageSyncBanner.status"
+          :title="pageSyncBanner.title"
+          :description="pageSyncBanner.description"
+          :primary-action-label="pageSyncBanner.primaryActionLabel"
+          :secondary-action-label="pageSyncBanner.secondaryActionLabel"
+          @primary-action="handlePrimarySyncAction"
+          @secondary-action="handleSecondarySyncAction"
+        />
 
-          <!-- Floating zoom controls -->
-          <CanvasZoomControls
-            :zoom="editorState.zoom"
-            class="canvas-zoom-controls"
-            @zoom-in="handleZoomIn"
-            @zoom-out="handleZoomOut"
-            @fit="handleFitToScreen"
-            @reset="handleResetZoom"
-          />
+        <div class="canvas-studio-actions">
+          <div class="canvas-project-name-shell">
+            <input
+              v-model="projectName"
+              class="canvas-project-name"
+              type="text"
+              placeholder="Untitled project"
+              @blur="handleProjectNameChange"
+              @keydown.enter="($event.target as HTMLInputElement).blur()"
+            />
+            <span v-if="saving" class="canvas-save-indicator">
+              <Save :size="14" />
+              Saving...
+            </span>
+            <span
+              v-else-if="editorState.isDirty"
+              class="canvas-save-indicator canvas-save-unsaved"
+            >
+              Unsaved changes
+            </span>
+          </div>
+
+          <div class="canvas-studio-actions__buttons">
+            <button
+              class="canvas-topbar-btn"
+              title="Undo (Ctrl+Z)"
+              :disabled="!canUndo"
+              @click="handleUndo"
+            >
+              <Undo2 :size="18" />
+            </button>
+            <button
+              class="canvas-topbar-btn"
+              title="Redo (Ctrl+Shift+Z)"
+              :disabled="!canRedo"
+              @click="handleRedo"
+            >
+              <Redo2 :size="18" />
+            </button>
+            <button
+              class="canvas-topbar-btn"
+              title="Save (Ctrl+S)"
+              @click="saveProject"
+            >
+              <Save :size="18" />
+            </button>
+            <button
+              class="canvas-topbar-btn"
+              title="Fit canvas"
+              @click="handleFitToScreen"
+            >
+              <ArrowLeftRight :size="18" />
+            </button>
+          </div>
         </div>
 
-        <!-- Right panels -->
-        <aside class="canvas-right-panels">
-          <CanvasPropertyPanel
-            :element="selectedElements[0] || null"
-            @property-change="handlePropertyChange"
-          />
-          <CanvasLayerPanel
-            :elements="elements"
-            :selected-element-ids="editorState.selectedElementIds"
-            @select="handleElementSelect"
-            @toggle-visibility="handleToggleVisibility"
-            @toggle-lock="handleToggleLock"
-            @bring-to-front="handleBringToFront"
-            @send-to-back="handleSendToBack"
-          />
-          <CanvasAIPanel
-            :project-id="project.id"
-            @image-generated="handleImageGenerated"
-            @project-updated="handleProjectUpdated"
-          />
-        </aside>
-      </div>
+        <div class="canvas-body">
+          <div class="canvas-toolbar-shell">
+            <CanvasToolbar
+              :active-tool="editorState.activeTool"
+              @tool-change="setTool"
+            />
+          </div>
 
-      <!-- Export dialog -->
-      <CanvasExportDialog
-        v-if="showExportDialog"
-        :project="project"
-        @close="showExportDialog = false"
-        @export-png="handleExportPNG"
-        @export-json="handleExportJSON"
-      />
+          <div class="canvas-stage-shell">
+            <div class="canvas-stage-wrapper">
+              <CanvasStage
+                ref="stageRef"
+                :elements="elements"
+                :selected-element-ids="editorState.selectedElementIds"
+                :highlighted-element-ids="syncState.highlightedElementIds"
+                :editor-state="editorState"
+                :page-width="pageWidth"
+                :page-height="pageHeight"
+                :page-background="pageBackground"
+                @element-select="handleElementSelect"
+                @element-move="handleElementMove"
+                @element-transform="handleElementTransform"
+                @stage-click="clearSelection"
+                @pan-change="handlePanChange"
+                @wheel="handleWheel"
+              />
+
+              <CanvasZoomControls
+                :zoom="editorState.zoom"
+                class="canvas-zoom-controls"
+                @zoom-in="handleZoomIn"
+                @zoom-out="handleZoomOut"
+                @fit="handleFitToScreen"
+                @reset="handleResetZoom"
+              />
+            </div>
+          </div>
+
+          <aside class="canvas-right-panels">
+            <CanvasActivityRail
+              :session-id="routeSessionId"
+              :server-version="syncState.serverVersion"
+              :pending-remote-version="syncState.pendingRemoteVersion"
+              :element-count="elements.length"
+              :last-operation="formattedLastRemoteOperation"
+              :last-source="syncState.lastRemoteSource"
+              :changed-element-ids="syncState.lastChangedElementIds"
+              :updated-at="project.updated_at"
+            />
+            <CanvasPropertyPanel
+              :element="selectedElements[0] || null"
+              @property-change="handlePropertyChange"
+            />
+            <CanvasLayerPanel
+              :elements="elements"
+              :selected-element-ids="editorState.selectedElementIds"
+              @select="handleElementSelect"
+              @toggle-visibility="handleToggleVisibility"
+              @toggle-lock="handleToggleLock"
+              @bring-to-front="handleBringToFront"
+              @send-to-back="handleSendToBack"
+            />
+            <CanvasAIPanel
+              :project-id="project.id"
+              @image-generated="handleImageGenerated"
+              @project-updated="handleProjectUpdated"
+            />
+          </aside>
+        </div>
+
+        <CanvasExportDialog
+          v-if="showExportDialog"
+          :project="project"
+          @close="showExportDialog = false"
+          @export-png="handleExportPNG"
+          @export-json="handleExportJSON"
+        />
+      </div>
     </template>
 
-    <!-- No project: prompt to create -->
     <div v-else class="canvas-empty">
       <h2 class="canvas-empty-title">Canvas Editor</h2>
       <p class="canvas-empty-subtitle">Create a new project to get started.</p>
-      <button
-        class="canvas-empty-btn"
-        @click="handleCreateProject"
-      >
+      <button class="canvas-empty-btn" @click="handleCreateProject">
         Create New Project
       </button>
     </div>
@@ -155,28 +178,41 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Undo2, Redo2, Save, Download, ArrowLeft } from 'lucide-vue-next'
-import { useCanvasEditor } from '@/composables/useCanvasEditor'
-import { useCanvasHistory } from '@/composables/useCanvasHistory'
-import { useCanvasExport } from '@/composables/useCanvasExport'
-import type { CanvasElement, CanvasProject } from '@/types/canvas'
+import { ArrowLeftRight, Redo2, Save, Undo2 } from 'lucide-vue-next'
+
+import { getSessionProject } from '@/api/canvas'
+import CanvasActivityRail from '@/components/canvas/CanvasActivityRail.vue'
+import CanvasSyncBanner from '@/components/canvas/CanvasSyncBanner.vue'
+import CanvasWorkspaceHeader from '@/components/canvas/CanvasWorkspaceHeader.vue'
+import CanvasAIPanel from '@/components/canvas/editor/CanvasAIPanel.vue'
+import CanvasExportDialog from '@/components/canvas/editor/CanvasExportDialog.vue'
+import CanvasLayerPanel from '@/components/canvas/editor/CanvasLayerPanel.vue'
+import CanvasPropertyPanel from '@/components/canvas/editor/CanvasPropertyPanel.vue'
 import CanvasStage from '@/components/canvas/editor/CanvasStage.vue'
 import CanvasToolbar from '@/components/canvas/editor/CanvasToolbar.vue'
-import CanvasPropertyPanel from '@/components/canvas/editor/CanvasPropertyPanel.vue'
-import CanvasLayerPanel from '@/components/canvas/editor/CanvasLayerPanel.vue'
-import CanvasAIPanel from '@/components/canvas/editor/CanvasAIPanel.vue'
 import CanvasZoomControls from '@/components/canvas/editor/CanvasZoomControls.vue'
-import CanvasExportDialog from '@/components/canvas/editor/CanvasExportDialog.vue'
+import { useCanvasEditor } from '@/composables/useCanvasEditor'
+import { useCanvasExport } from '@/composables/useCanvasExport'
+import { useCanvasHistory } from '@/composables/useCanvasHistory'
+import type {
+  CanvasElement,
+  CanvasProject,
+  CanvasSyncStatus,
+} from '@/types/canvas'
 
 const route = useRoute()
 const router = useRouter()
 const routeProjectId = computed(() => route.params.projectId as string | undefined)
+const routeSessionId = computed(() =>
+  typeof route.query.sessionId === 'string' ? route.query.sessionId : null,
+)
 
 const {
   project,
   editorState,
+  syncState,
   loading,
   saving,
   activePage,
@@ -200,6 +236,9 @@ const {
   setPan,
   bringToFront,
   sendToBack,
+  syncFromRemoteProject,
+  applyPendingRemoteUpdate,
+  dismissPendingRemoteUpdate,
 } = useCanvasEditor()
 
 const { canUndo, canRedo, pushState, undo, redo } = useCanvasHistory()
@@ -210,10 +249,53 @@ const projectName = ref('')
 const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
 const hasUserAdjustedViewport = ref(false)
 const isApplyingViewportTransform = ref(false)
+let sessionSyncTimer: ReturnType<typeof setInterval> | null = null
 
 const pageWidth = computed(() => activePage.value?.width ?? project.value?.width ?? 1920)
 const pageHeight = computed(() => activePage.value?.height ?? project.value?.height ?? 1080)
 const pageBackground = computed(() => activePage.value?.background ?? project.value?.background ?? '#FFFFFF')
+const formattedLastRemoteOperation = computed(() =>
+  syncState.value.lastRemoteOperation?.replace(/_/g, ' ') ?? null,
+)
+const canvasSyncStatus = computed<CanvasSyncStatus>(() => {
+  if (saving.value || loading.value) return 'syncing'
+  if (syncState.value.hasRemoteConflict) return 'conflict'
+  if (syncState.value.isStale) return 'stale'
+  if (routeSessionId.value) return 'live'
+  return 'saved'
+})
+const workspaceMode = computed<'agent' | 'manual'>(() => (
+  editorState.value.isDirty || syncState.value.hasRemoteConflict || syncState.value.isStale
+    ? 'manual'
+    : 'agent'
+))
+const pageSyncBanner = computed(() => {
+  if (syncState.value.hasRemoteConflict) {
+    return {
+      status: 'conflict' as const,
+      title: 'Agent updated this canvas',
+      description: syncState.value.pendingRemoteVersion !== null
+        ? `A newer remote version (v${syncState.value.pendingRemoteVersion}) is waiting while you finish your local draft.`
+        : 'A newer remote version is waiting while you finish your local draft.',
+      primaryActionLabel: 'Apply latest',
+      secondaryActionLabel: 'Keep my draft',
+    }
+  }
+
+  if (syncState.value.isStale) {
+    return {
+      status: 'stale' as const,
+      title: 'Your draft is behind the latest agent canvas',
+      description: syncState.value.pendingRemoteVersion !== null
+        ? `Reload v${syncState.value.pendingRemoteVersion} when you are ready to replace your draft with the latest agent output.`
+        : 'Reload the latest agent output when you are ready to replace your draft.',
+      primaryActionLabel: 'Reload canvas',
+      secondaryActionLabel: '',
+    }
+  }
+
+  return null
+})
 
 interface Bounds {
   minX: number
@@ -238,7 +320,6 @@ function generateId(): string {
   return `el-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-// Sync project name with local editable input
 watch(
   () => project.value?.name,
   (name) => {
@@ -249,20 +330,15 @@ watch(
   { immediate: true },
 )
 
-// --- Lifecycle ---
 onMounted(async () => {
-  if (routeProjectId.value) {
-    await loadProject(routeProjectId.value)
-    if (project.value) {
-      pushState(project.value.pages)
-      await fitViewportToContent({ force: true })
-    }
-  }
+  await loadInitialCanvasProject()
+  startSessionSync()
   window.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  stopSessionSync()
 })
 
 watch(
@@ -278,28 +354,40 @@ watch(
   },
 )
 
-// --- Navigation ---
+watch(
+  () => routeSessionId.value,
+  () => {
+    stopSessionSync()
+    startSessionSync()
+  },
+)
+
 function handleBack() {
   router.push('/chat')
 }
 
-// --- Project name ---
 function handleProjectNameChange() {
   if (!project.value || projectName.value === project.value.name) return
   project.value.name = projectName.value
   markDirty()
 }
 
-// --- Create project ---
 async function handleCreateProject() {
-  const newProject = await createProject('Untitled project')
+  const newProject = await createProject(
+    'Untitled project',
+    undefined,
+    undefined,
+    { sessionId: routeSessionId.value ?? undefined },
+  )
   if (newProject) {
-    router.replace({ path: `/chat/canvas/${newProject.id}` })
+    router.replace({
+      path: `/chat/canvas/${newProject.id}`,
+      query: routeSessionId.value ? { sessionId: routeSessionId.value } : undefined,
+    })
     pushState(newProject.pages)
   }
 }
 
-// --- Element events ---
 function handleElementSelect(elementId: string, multi?: boolean) {
   selectElement(elementId, multi)
 }
@@ -346,6 +434,14 @@ function handleProjectUpdated(updatedProject: CanvasProject) {
   project.value = updatedProject
   editorState.value.selectedElementIds = []
   editorState.value.isDirty = false
+  syncState.value.sessionId = updatedProject.session_id
+  syncState.value.serverVersion = updatedProject.version
+  syncState.value.pendingRemoteVersion = null
+  syncState.value.hasRemoteConflict = false
+  syncState.value.isStale = false
+  syncState.value.lastRemoteOperation = 'ai_edit'
+  syncState.value.lastRemoteSource = 'manual'
+  syncState.value.lastChangedElementIds = []
   void fitViewportToContent()
 }
 
@@ -381,6 +477,18 @@ function handleImageGenerated(urls: string[] | null | undefined) {
   handleAddElement(element)
 }
 
+async function handlePrimarySyncAction() {
+  if (routeSessionId.value) {
+    await applyPendingRemoteUpdate(() => getSessionProject(routeSessionId.value!))
+    return
+  }
+  await applyPendingRemoteUpdate()
+}
+
+function handleSecondarySyncAction() {
+  dismissPendingRemoteUpdate()
+}
+
 function handleToggleVisibility(elementId: string, visible: boolean) {
   if (project.value) {
     pushState(project.value.pages)
@@ -409,7 +517,6 @@ function handleSendToBack(elementId: string) {
   sendToBack(elementId)
 }
 
-// --- Wheel zoom ---
 function handlePanChange(x: number, y: number) {
   if (isApplyingViewportTransform.value) return
   hasUserAdjustedViewport.value = true
@@ -437,7 +544,6 @@ async function handleFitToScreen() {
   await fitViewportToContent({ force: true })
 }
 
-// --- Undo / Redo ---
 function handleUndo() {
   if (!project.value) return
   const restored = undo(project.value.pages)
@@ -554,7 +660,9 @@ async function waitForStageReady() {
 }
 
 function applyViewportToBounds(bounds: Bounds, padding: number) {
-  const stage = stageRef.value?.getStage()
+  const stage = typeof stageRef.value?.getStage === 'function'
+    ? stageRef.value.getStage()
+    : null
   if (!stage) return
 
   const stageWidth = stage.width()
@@ -594,9 +702,88 @@ async function fitViewportToContent(options?: { force?: boolean }) {
   )
 }
 
-// --- Export ---
+async function loadInitialCanvasProject() {
+  if (routeProjectId.value) {
+    await loadProject(routeProjectId.value)
+    if (project.value) {
+      pushState(project.value.pages)
+      await fitViewportToContent({ force: true })
+    }
+    return
+  }
+
+  if (!routeSessionId.value) {
+    return
+  }
+
+  try {
+    const sessionProject = await getSessionProject(routeSessionId.value)
+    const syncResult = await syncFromRemoteProject(sessionProject, {
+      operation: 'session_link',
+      source: 'system',
+    })
+    if (syncResult !== 'ignored') {
+      await router.replace({
+        path: `/chat/canvas/${sessionProject.id}`,
+        query: { sessionId: routeSessionId.value },
+      })
+      pushState(sessionProject.pages)
+      await fitViewportToContent({ force: true })
+    }
+  } catch {
+    // Session may not have an active canvas yet.
+  }
+}
+
+async function syncSessionProject() {
+  if (!routeSessionId.value) return
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+
+  try {
+    const sessionProject = await getSessionProject(routeSessionId.value)
+    if (project.value && sessionProject.id !== project.value.id && editorState.value.isDirty) {
+      return
+    }
+
+    const syncResult = await syncFromRemoteProject(sessionProject, {
+      operation: 'agent_sync',
+      source: 'agent',
+    })
+
+    if (!routeProjectId.value || routeProjectId.value !== sessionProject.id) {
+      await router.replace({
+        path: `/chat/canvas/${sessionProject.id}`,
+        query: { sessionId: routeSessionId.value },
+      })
+    }
+
+    if (syncResult === 'applied') {
+      await fitViewportToContent()
+    }
+  } catch {
+    // Session may not expose an active canvas while the agent is idle.
+  }
+}
+
+function startSessionSync() {
+  if (!routeSessionId.value) return
+  void syncSessionProject()
+  sessionSyncTimer = setInterval(() => {
+    void syncSessionProject()
+  }, 3000)
+}
+
+function stopSessionSync() {
+  if (sessionSyncTimer) {
+    clearInterval(sessionSyncTimer)
+    sessionSyncTimer = null
+  }
+}
+
 function handleExportPNG() {
-  const stageNode = stageRef.value?.getStage()
+  const stageNode = typeof stageRef.value?.getStage === 'function'
+    ? stageRef.value.getStage()
+    : null
   if (stageNode) exportPNG(stageNode)
   showExportDialog.value = false
 }
@@ -608,20 +795,17 @@ function handleExportJSON() {
   showExportDialog.value = false
 }
 
-// --- Keyboard shortcuts ---
 function handleKeydown(event: KeyboardEvent) {
   const isCtrlOrMeta = event.ctrlKey || event.metaKey
   const target = event.target as HTMLElement
   const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
 
-  // Ctrl+S: Save
   if (isCtrlOrMeta && event.key === 's') {
     event.preventDefault()
     saveProject()
     return
   }
 
-  // Ctrl+Z: Undo, Ctrl+Shift+Z: Redo
   if (isCtrlOrMeta && event.key === 'z') {
     event.preventDefault()
     if (event.shiftKey) {
@@ -632,10 +816,8 @@ function handleKeydown(event: KeyboardEvent) {
     return
   }
 
-  // Skip remaining shortcuts when focused on text input
   if (isInput) return
 
-  // Delete or Backspace: delete selected elements
   if (event.key === 'Delete' || event.key === 'Backspace') {
     event.preventDefault()
     if (editorState.value.selectedElementIds.length > 0) {
@@ -647,13 +829,11 @@ function handleKeydown(event: KeyboardEvent) {
     return
   }
 
-  // Escape: clear selection
   if (event.key === 'Escape') {
     clearSelection()
     return
   }
 
-  // Ctrl+A: select all
   if (isCtrlOrMeta && event.key === 'a') {
     event.preventDefault()
     selectAll()
@@ -667,11 +847,21 @@ function handleKeydown(event: KeyboardEvent) {
   flex-direction: column;
   height: 100vh;
   width: 100%;
-  background: var(--background-white-main);
+  background:
+    radial-gradient(circle at top left, rgba(17, 24, 39, 0.04), transparent 26%),
+    linear-gradient(180deg, #f7f6f3 0%, #efede8 100%);
   overflow: hidden;
 }
 
-/* Loading */
+.canvas-studio-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-5);
+}
+
 .canvas-loading {
   display: flex;
   flex-direction: column;
@@ -699,31 +889,29 @@ function handleKeydown(event: KeyboardEvent) {
   color: var(--text-secondary);
 }
 
-/* Top bar */
-.canvas-topbar {
+.canvas-studio-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
-  min-height: 48px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border-light);
-  background: var(--background-white-main);
-  gap: 8px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-2xl);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(10px);
 }
 
-.canvas-topbar-left {
+.canvas-project-name-shell {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-3);
   min-width: 0;
-  flex: 1;
 }
 
-.canvas-topbar-right {
+.canvas-studio-actions__buttons {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 
@@ -732,20 +920,21 @@ function handleKeydown(event: KeyboardEvent) {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 32px;
-  min-width: 32px;
-  padding: 0 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
+  height: 36px;
+  min-width: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--background-white-main);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 13px;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .canvas-topbar-btn:hover:not(:disabled) {
   background: var(--fill-tsp-gray-main);
+  border-color: var(--border-dark);
   color: var(--text-primary);
 }
 
@@ -754,38 +943,27 @@ function handleKeydown(event: KeyboardEvent) {
   cursor: not-allowed;
 }
 
-.canvas-topbar-btn--primary {
-  background: var(--text-primary);
-  color: var(--background-white-main);
-  padding: 0 12px;
-}
-
-.canvas-topbar-btn--primary:hover:not(:disabled) {
-  opacity: 0.85;
-  background: var(--text-primary);
-  color: var(--background-white-main);
-}
-
 .canvas-project-name {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 14px;
-  font-weight: 500;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--text-primary);
-  max-width: 280px;
-  min-width: 120px;
+  max-width: 320px;
+  min-width: 220px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .canvas-project-name:hover {
-  border-color: var(--border-light);
+  border-color: var(--border-dark);
 }
 
 .canvas-project-name:focus {
-  border-color: var(--text-tertiary);
+  border-color: rgba(17, 24, 39, 0.2);
+  background: var(--background-white-main);
 }
 
 .canvas-save-indicator {
@@ -801,20 +979,45 @@ function handleKeydown(event: KeyboardEvent) {
   color: var(--text-secondary);
 }
 
-/* Editor body */
 .canvas-body {
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  gap: var(--space-4);
 }
 
-/* Stage wrapper */
-.canvas-stage-wrapper {
+.canvas-toolbar-shell {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-2xl);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 12px 28px var(--shadow-XS);
+  overflow: hidden;
+}
+
+.canvas-stage-shell {
   flex: 1;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top center, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.58)),
+    linear-gradient(180deg, #d7d4cf 0%, #cbc7c2 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 18px 44px rgba(15, 23, 42, 0.08);
+}
+
+.canvas-stage-wrapper {
   position: relative;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   overflow: hidden;
+  border: 1px solid rgba(17, 24, 39, 0.06);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at center, rgba(17, 24, 39, 0.03), rgba(17, 24, 39, 0) 64%),
+    #dedad4;
 }
 
 .canvas-zoom-controls {
@@ -824,18 +1027,15 @@ function handleKeydown(event: KeyboardEvent) {
   z-index: 10;
 }
 
-/* Right panels */
 .canvas-right-panels {
-  width: 260px;
-  min-width: 260px;
+  width: 320px;
+  min-width: 320px;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border-light);
-  background: var(--background-white-main);
+  gap: var(--space-3);
   overflow-y: auto;
 }
 
-/* Empty state */
 .canvas-empty {
   display: flex;
   flex-direction: column;
@@ -872,5 +1072,41 @@ function handleKeydown(event: KeyboardEvent) {
 
 .canvas-empty-btn:hover {
   opacity: 0.85;
+}
+
+@media (max-width: 1180px) {
+  .canvas-body {
+    flex-direction: column;
+  }
+
+  .canvas-toolbar-shell {
+    align-self: flex-start;
+  }
+
+  .canvas-right-panels {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 820px) {
+  .canvas-studio-shell {
+    padding: var(--space-4);
+  }
+
+  .canvas-studio-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .canvas-project-name {
+    min-width: 0;
+    width: 100%;
+    max-width: none;
+  }
+
+  .canvas-studio-actions__buttons {
+    justify-content: flex-end;
+  }
 }
 </style>
