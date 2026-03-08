@@ -37,3 +37,34 @@ def test_streaming_summarize_prompt_is_plain_text_format() -> None:
     assert "## 📊" not in STREAMING_SUMMARIZE_PROMPT
     assert "## 🔍" not in STREAMING_SUMMARIZE_PROMPT
     assert "Use emoji prefixes on section headings" not in STREAMING_SUMMARIZE_PROMPT
+
+
+def test_summarize_prompt_includes_artifact_section_in_canonical_structure() -> None:
+    """When artifact_references are provided, ## Artifact References appears
+    between ## Conclusion and ## References in the template."""
+    prompt = build_summarize_prompt(
+        has_sources=True,
+        source_list="[1] Source A - https://a.example",
+        research_depth="STANDARD",
+        artifact_references=[
+            {"filename": "report-fixed-id.md", "content_type": "text/markdown"},
+            {"filename": "chart.png", "content_type": "image/png"},
+        ],
+    )
+
+    assert "## Artifact References" in prompt
+    # The artifact section must appear before the template's "## References (MANDATORY"
+    assert prompt.index("## Artifact References") < prompt.index("## References (MANDATORY")
+    assert "`report-fixed-id.md`" in prompt
+    assert "`chart.png`" in prompt
+
+
+def test_summarize_prompt_omits_artifact_section_when_no_artifacts() -> None:
+    """Without artifact_references, no artifact section appears in the prompt."""
+    prompt = build_summarize_prompt(
+        has_sources=True,
+        source_list="[1] Source A - https://a.example",
+        research_depth="STANDARD",
+    )
+
+    assert "## Artifact References" not in prompt
