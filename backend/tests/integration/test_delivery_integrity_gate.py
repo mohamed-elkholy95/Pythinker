@@ -200,13 +200,8 @@ class TestDeliveryIntegrityGateIntegration:
         assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_completed_plan_summary_downgrades_hallucination_on_telegram(self, executor, mock_llm):
-        """Hallucination ratio critical should downgrade to warning when all steps completed.
-
-        The output_verifier already appends a disclaimer to the content.
-        Blocking completed research entirely is worse UX than delivering
-        with a quality notice — the user spent minutes waiting for results.
-        """
+    async def test_completed_plan_summary_blocks_hallucination_on_telegram(self, executor, mock_llm):
+        """Critical hallucination findings must still block Telegram final delivery."""
         weak_summary = (
             "# Final Report\n\n## Findings\nSynthesized content beyond source snippets."
             "\n\n> **Note:** Some information in this response "
@@ -232,9 +227,8 @@ class TestDeliveryIntegrityGateIntegration:
 
         events = [event async for event in executor.summarize(all_steps_completed=True)]
 
-        # Downgraded: user receives their completed research with disclaimer
-        assert any(isinstance(event, ReportEvent) for event in events)
-        assert not any(isinstance(event, ErrorEvent) for event in events)
+        assert any(isinstance(event, ErrorEvent) for event in events)
+        assert not any(isinstance(event, ReportEvent) for event in events)
 
     @pytest.mark.asyncio
     async def test_structural_failure_still_blocks_even_when_all_steps_completed(self, executor, mock_llm):
@@ -245,9 +239,7 @@ class TestDeliveryIntegrityGateIntegration:
         executor._extract_report_from_file_write_memory = MagicMock(return_value=None)
         executor._needs_verification = MagicMock(return_value=False)
         executor._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
-        executor._run_delivery_integrity_gate = MagicMock(
-            return_value=(False, ["stream_truncation_unresolved"])
-        )
+        executor._run_delivery_integrity_gate = MagicMock(return_value=(False, ["stream_truncation_unresolved"]))
         mock_llm.ask.return_value = {"content": '["Follow-up question?"]'}
 
         async def weak_summary_stream(*args, **kwargs):
