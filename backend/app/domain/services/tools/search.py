@@ -30,6 +30,12 @@ _BLOCKED_IP_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
 ]
 
 
+def _is_pdf_url(url: str) -> bool:
+    """Check if URL points to a PDF file (by extension)."""
+    path = urlparse(url).path.lower()
+    return path.endswith(".pdf")
+
+
 def _validate_fetch_url(url: str) -> bool:
     """Return False if URL resolves to a blocked/private IP range (SSRF protection).
 
@@ -1463,7 +1469,7 @@ wide_research(
             _s = _get_settings()
             if _s.scraping_spider_enabled:
                 top_k = _s.scraping_spider_top_k
-                top_urls = [item.link for item in all_items[:top_k] if item.link]
+                top_urls = [item.link for item in all_items[:top_k] if item.link and not _is_pdf_url(item.link)]
                 if top_urls:
                     logger.info(
                         "Spider-enriching %d URLs for wide_research on '%s'",
