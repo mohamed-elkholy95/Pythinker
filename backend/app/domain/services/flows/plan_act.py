@@ -1415,6 +1415,63 @@ class PlanActFlow(BaseFlow):
         )
 
     @staticmethod
+    def _build_executor_artifact_references(
+        session_files: list[FileInfo] | None,
+        attachments: list[dict[str, str]] | None,
+    ) -> list[dict[str, str]]:
+        """Build normalized artifact references for summarize-time delivery integrity checks."""
+        references: list[dict[str, str]] = []
+        seen_filenames: set[str] = set()
+
+        def _append_reference(
+            *,
+            filename: str | None,
+            content_type: str | None = None,
+            file_path: str | None = None,
+        ) -> None:
+            normalized_filename = (filename or "").strip()
+            if not normalized_filename or normalized_filename in seen_filenames:
+                return
+
+            seen_filenames.add(normalized_filename)
+            reference = {"filename": normalized_filename}
+            if content_type:
+                reference["content_type"] = content_type
+            if file_path:
+                reference["file_path"] = file_path
+            references.append(reference)
+
+        for file_info in session_files or []:
+            fallback_name = os.path.basename(file_info.file_path or "")
+            _append_reference(
+                filename=file_info.filename or fallback_name,
+                content_type=file_info.content_type,
+                file_path=file_info.file_path,
+            )
+
+        for attachment in attachments or []:
+            _append_reference(
+                filename=attachment.get("filename"),
+                content_type=attachment.get("content_type"),
+                file_path=attachment.get("storage_key") or attachment.get("file_path"),
+            )
+
+        return references
+
+    def _current_source_count(self) -> int:
+        """Return the current tracked source count for partial-result events."""
+        tracker = getattr(getattr(self, "executor", None), "_source_tracker", None)
+        count = getattr(tracker, "source_count", None)
+        if isinstance(count, int):
+            return max(count, 0)
+        if tracker and hasattr(tracker, "get_collected_sources"):
+            try:
+                return max(len(tracker.get_collected_sources() or []), 0)
+            except Exception:
+                logger.debug("Failed to derive source count from tracker", exc_info=True)
+        return 0
+
+    @staticmethod
     def _filter_files_for_delivery_scope(
         files: list[FileInfo],
         delivery_scope_id: str | None,
@@ -3079,6 +3136,7 @@ class PlanActFlow(BaseFlow):
                             await self._task_state_manager.update_step_status(str(step.id), "in_progress")
 
                             # Emit PlanEvent so frontend sees updated progress immediately
+                            self.plan.sync_phase_statuses()
                             yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
 
                             # Select appropriate executor for this step (multi-agent dispatch)
@@ -3242,6 +3300,7 @@ class PlanActFlow(BaseFlow):
                         step_span.set_attribute("step.success", step.success)
 
                         # Emit PlanEvent so frontend progress bar reflects step completion immediately
+                        self.plan.sync_phase_statuses()
                         yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
 
                         # Emit PartialResultEvent so frontend can show a running headline
@@ -3257,7 +3316,7 @@ class PlanActFlow(BaseFlow):
                                 step_index=max(_step_idx, 0),
                                 step_title=step.description or "",
                                 headline=_headline,
-                                sources_count=0,
+                                sources_count=self._current_source_count(),
                             )
 
                         # Session bridging: save progress after each step
@@ -3504,6 +3563,10 @@ class PlanActFlow(BaseFlow):
                                 "Injected artifact manifest (%d files) into summarization context",
                                 len(self._report_attachments),
                             )
+
+                    self.executor.set_artifact_references(
+                        self._build_executor_artifact_references(session_files, self._report_attachments)
+                    )
 
                     # Fallback: ensure executor has user_request for topic anchoring,
                     # even when no steps executed (normally set in execute_step()).
@@ -3766,6 +3829,7 @@ class PlanActFlow(BaseFlow):
                     for s in self.plan.steps:
                         if s.success and s.status != ExecutionStatus.COMPLETED:
                             s.status = ExecutionStatus.COMPLETED
+                    self.plan.sync_phase_statuses()
                     self.plan.status = ExecutionStatus.COMPLETED
                     logger.info(f"Agent {self._agent_id} plan has been completed")
                     yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)

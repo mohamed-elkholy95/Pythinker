@@ -524,6 +524,47 @@ class Plan(BaseModel):
         """Get all steps belonging to a phase."""
         return [s for s in self.steps if s.phase_id == phase_id]
 
+    def sync_phase_statuses(self) -> None:
+        """Derive phase status from the current status of its constituent steps."""
+        if not self.phases:
+            return
+
+        steps_by_id = {step.id: step for step in self.steps}
+        success_statuses = {ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED}
+        terminal_statuses = set(ExecutionStatus.get_terminal_statuses())
+
+        for phase in self.phases:
+            if phase.skipped:
+                phase.status = ExecutionStatus.SKIPPED
+                continue
+
+            phase_steps = [steps_by_id[step_id] for step_id in phase.step_ids if step_id in steps_by_id]
+            if not phase_steps:
+                phase_steps = [step for step in self.steps if step.phase_id == phase.id]
+            if not phase_steps:
+                phase.status = ExecutionStatus.PENDING
+                continue
+
+            statuses = [step.status for step in phase_steps]
+            if all(status == ExecutionStatus.PENDING for status in statuses):
+                phase.status = ExecutionStatus.PENDING
+                continue
+
+            if all(status in success_statuses for status in statuses):
+                phase.status = ExecutionStatus.COMPLETED
+                continue
+
+            if all(status in terminal_statuses for status in statuses):
+                if any(status == ExecutionStatus.FAILED for status in statuses):
+                    phase.status = ExecutionStatus.FAILED
+                elif any(status == ExecutionStatus.BLOCKED for status in statuses):
+                    phase.status = ExecutionStatus.BLOCKED
+                else:
+                    phase.status = ExecutionStatus.RUNNING
+                continue
+
+            phase.status = ExecutionStatus.RUNNING
+
     def get_current_phase(self) -> Phase | None:
         """Get the currently active phase (first non-completed, non-skipped)."""
         for phase in sorted(self.phases, key=lambda p: p.order):

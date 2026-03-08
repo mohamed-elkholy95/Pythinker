@@ -16,6 +16,7 @@ import logging
 import re
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from app.core import prometheus_metrics as pm
@@ -340,6 +341,11 @@ class MessageRouter:
                             continue
                         last_telegram_wait_delivery_event = last_telegram_message_event
                         for outbound in outbounds:
+                            await self._persist_generated_outbound_artifacts(
+                                user_id=user_id,
+                                session_id=session_id,
+                                outbound=outbound,
+                            )
                             await self._record_outbound_activity(user_id, message, outbound.content)
                             yield outbound
                         continue
@@ -358,6 +364,11 @@ class MessageRouter:
                     suppress_first_generic_agent_ack = False
                 self._remember_latest_response(user_id, message, event, event_type=event_type)
                 for outbound in outbounds:
+                    await self._persist_generated_outbound_artifacts(
+                        user_id=user_id,
+                        session_id=session_id,
+                        outbound=outbound,
+                    )
                     await self._record_outbound_activity(user_id, message, outbound.content)
                     yield outbound
 
@@ -369,6 +380,11 @@ class MessageRouter:
                     if final_outbounds:
                         self._remember_latest_response(user_id, message, final_event, event_type=final_type)
                         for outbound in final_outbounds:
+                            await self._persist_generated_outbound_artifacts(
+                                user_id=user_id,
+                                session_id=session_id,
+                                outbound=outbound,
+                            )
                             await self._record_outbound_activity(user_id, message, outbound.content)
                             yield outbound
         except Exception:
@@ -649,7 +665,14 @@ class MessageRouter:
                 sources=response.get("sources"),
                 force_pdf=True,
             )
+            session_id = await self._user_channel_repo.get_session_key(user_id, message.channel, message.chat_id)
             for outbound in outbounds:
+                if session_id:
+                    await self._persist_generated_outbound_artifacts(
+                        user_id=user_id,
+                        session_id=session_id,
+                        outbound=outbound,
+                    )
                 yield outbound
             return
 
@@ -843,6 +866,77 @@ class MessageRouter:
                 source.channel,
                 source.chat_id,
             )
+
+    def _get_generated_artifact_persistor(self) -> Any | None:
+        """Resolve a concrete generated-artifact persistence hook without triggering mock auto-creation."""
+        service_dict = getattr(self._agent_service, "__dict__", {})
+        if "persist_generated_artifact" in service_dict:
+            return service_dict["persist_generated_artifact"]
+
+        method = getattr(type(self._agent_service), "persist_generated_artifact", None)
+        if method is None:
+            return None
+        return method.__get__(self._agent_service, type(self._agent_service))
+
+    @staticmethod
+    def _build_generated_artifact_virtual_path(session_id: str, outbound: OutboundMessage, media: Any) -> str:
+        """Build a stable virtual session path for generated delivery artifacts."""
+        suffix = Path(getattr(media, "filename", "") or getattr(media, "url", "")).suffix or ".bin"
+        content_hash = str(outbound.metadata.get("content_hash") or "").strip()
+        if not content_hash:
+            content_hash = hashlib.sha256(
+                f"{getattr(media, 'filename', '')}:{getattr(media, 'url', '')}".encode()
+            ).hexdigest()[:12]
+
+        mime_type = str(getattr(media, "mime_type", "") or "").strip().lower()
+        stem = "telegram_pdf" if mime_type == "application/pdf" else "telegram_artifact"
+        return f"/channel-deliveries/{session_id}/{stem}_{content_hash}{suffix}"
+
+    async def _persist_generated_outbound_artifacts(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        outbound: OutboundMessage,
+    ) -> None:
+        """Persist locally generated outbound media into session storage."""
+        if outbound.channel != ChannelType.TELEGRAM or not outbound.media:
+            return
+
+        persistor = self._get_generated_artifact_persistor()
+        if persistor is None:
+            return
+
+        for media in outbound.media:
+            local_path = str(getattr(media, "url", "") or "").strip()
+            if not local_path:
+                continue
+
+            path = Path(local_path)
+            if not path.is_file():
+                continue
+
+            try:
+                await persistor(
+                    session_id=session_id,
+                    user_id=user_id,
+                    local_path=local_path,
+                    filename=getattr(media, "filename", "") or path.name,
+                    content_type=getattr(media, "mime_type", None),
+                    virtual_path=self._build_generated_artifact_virtual_path(session_id, outbound, media),
+                    metadata={
+                        "delivery_channel": str(outbound.channel),
+                        "delivery_mode": str(outbound.metadata.get("delivery_mode", "")),
+                        "content_hash": str(outbound.metadata.get("content_hash", "")),
+                        "event_type": str(outbound.metadata.get("event_type", "")),
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to persist generated outbound artifact for session %s chat=%s",
+                    session_id,
+                    outbound.chat_id,
+                )
 
     async def _update_context_summary_if_needed(self, user_id: str, source: InboundMessage, content: str) -> None:
         """Persist rolling summary metadata for long Telegram conversations."""

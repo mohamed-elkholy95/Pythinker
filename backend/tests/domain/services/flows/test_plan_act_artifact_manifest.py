@@ -108,3 +108,25 @@ class TestBuildArtifactManifest:
         source = inspect.getsource(PlanActFlow.__init__)
         assert "_report_attachments" in source
         assert "list[dict[str, str]]" in source
+
+
+class TestCurrentSourceCount:
+    def test_prefers_source_tracker_count(self):
+        from types import SimpleNamespace
+
+        from app.domain.services.flows.plan_act import PlanActFlow
+
+        flow = PlanActFlow.__new__(PlanActFlow)
+        flow.executor = SimpleNamespace(_source_tracker=SimpleNamespace(source_count=12))
+
+        assert flow._current_source_count() == 12
+
+    def test_falls_back_to_zero_without_tracker(self):
+        from types import SimpleNamespace
+
+        from app.domain.services.flows.plan_act import PlanActFlow
+
+        flow = PlanActFlow.__new__(PlanActFlow)
+        flow.executor = SimpleNamespace()
+
+        assert flow._current_source_count() == 0
