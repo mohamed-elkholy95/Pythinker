@@ -8,6 +8,10 @@ from app.infrastructure.external.message_queue.redis_stream_queue import Message
 
 logger = logging.getLogger(__name__)
 
+_LIVENESS_KEY_PREFIX = "task:liveness:"
+_LIVENESS_TTL_SECONDS = 30
+_LIVENESS_HEARTBEAT_INTERVAL = 10
+
 
 class RedisStreamTask(Task):
     """Redis Stream-based task implementation following the Task protocol."""
@@ -34,6 +38,10 @@ class RedisStreamTask(Task):
 
         # Register task instance
         RedisStreamTask._task_registry[self._id] = self
+
+        # Liveness signal (Redis key heartbeated during execution)
+        self._session_id: str | None = getattr(runner, "session_id", None)
+        self._heartbeat_task: asyncio.Task | None = None
 
     @property
     def id(self) -> str:
@@ -183,15 +191,20 @@ class RedisStreamTask(Task):
             except Exception:
                 logger.debug("Fallback stream delete also failed for task %s", self._id)
 
-    async def _execute_task(self):
+    async def _execute_task(self) -> None:
         """Execute the task using the TaskRunner."""
         try:
+            await self._set_liveness()
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_liveness())
             await self._runner.run(self)
         except asyncio.CancelledError:
-            logger.info(f"Task {self._id} execution cancelled")
+            logger.info("Task %s was cancelled", self._id)
         except Exception as e:
-            logger.error(f"Task {self._id} execution failed: {e!s}")
+            logger.exception("Task %s execution failed: %s", self._id, e)
         finally:
+            if self._heartbeat_task and not self._heartbeat_task.done():
+                self._heartbeat_task.cancel()
+            await self._clear_liveness()
             self._on_task_done()
 
     @classmethod
@@ -202,6 +215,57 @@ class RedisStreamTask(Task):
             Optional[RedisStreamTask]: Task instance if found, None otherwise
         """
         return cls._task_registry.get(task_id)
+
+    @classmethod
+    async def get_liveness(cls, session_id: str) -> str | None:
+        """Check if a task is alive for the given session.
+
+        Returns:
+            The task_id string if a liveness key exists, None otherwise.
+        """
+        try:
+            from app.infrastructure.storage.redis import get_redis
+
+            raw_redis = get_redis().client
+            value = await raw_redis.get(f"{_LIVENESS_KEY_PREFIX}{session_id}")
+            return value.decode() if value else None
+        except Exception as e:
+            logger.warning("Failed to read liveness key for session %s: %s", session_id, e)
+            return None
+
+    async def _set_liveness(self) -> None:
+        """SET liveness key in Redis with TTL. Value = task_id."""
+        if not self._session_id:
+            return
+        try:
+            from app.infrastructure.storage.redis import get_redis
+
+            raw_redis = get_redis().client
+            await raw_redis.set(
+                f"{_LIVENESS_KEY_PREFIX}{self._session_id}",
+                self._id,
+                ex=_LIVENESS_TTL_SECONDS,
+            )
+        except Exception as e:
+            logger.warning("Failed to set liveness key for session %s: %s", self._session_id, e)
+
+    async def _heartbeat_liveness(self) -> None:
+        """Periodically refresh liveness key TTL."""
+        while True:
+            await asyncio.sleep(_LIVENESS_HEARTBEAT_INTERVAL)
+            await self._set_liveness()
+
+    async def _clear_liveness(self) -> None:
+        """DELETE liveness key on task completion/failure."""
+        if not self._session_id:
+            return
+        try:
+            from app.infrastructure.storage.redis import get_redis
+
+            raw_redis = get_redis().client
+            await raw_redis.delete(f"{_LIVENESS_KEY_PREFIX}{self._session_id}")
+        except Exception as e:
+            logger.warning("Failed to clear liveness key for session %s: %s", self._session_id, e)
 
     @classmethod
     def create(cls, runner: TaskRunner) -> "RedisStreamTask":
