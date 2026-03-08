@@ -9,6 +9,7 @@ to focused sub-services internally.
 """
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from datetime import UTC, datetime
@@ -21,7 +22,16 @@ from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
-from app.domain.models.event import AgentEvent, BaseEvent, DoneEvent, ErrorEvent, MessageEvent, ProgressEvent, WaitEvent
+from app.domain.models.event import (
+    AgentEvent,
+    BaseEvent,
+    DoneEvent,
+    ErrorEvent,
+    MessageEvent,
+    PlanningPhase,
+    ProgressEvent,
+    WaitEvent,
+)
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
@@ -32,6 +42,8 @@ from app.domain.services.agents.agent_task_factory import AgentTaskFactory
 from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.workspace import get_session_workspace_initializer
 from app.domain.utils.cancellation import CancellationToken
+from app.infrastructure.external.message_queue.redis_stream_queue import RedisStreamQueue
+from app.infrastructure.external.task.redis_task import RedisStreamTask
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -777,41 +789,147 @@ class AgentDomainService:
                             yield ErrorEvent(error=terminal_event.error or "Task failed in a previous execution cycle.")
                             terminal_status = SessionStatus.FAILED
                         else:
-                            # Orphaned session — task lost but status never updated.
-                            # Guard: if the session was updated recently (< 180s),
-                            # this is likely a reconnect race — the teardown just
-                            # cleared task_id while the agent asyncio task is still
-                            # alive.  Yield an idle DoneEvent instead of cancelling
-                            # a potentially live session.
-                            # 180s matches the SSE non-terminal grace period (120s)
-                            # plus margin for network delays and frontend retry backoff.
-                            updated_at = self._ensure_aware_utc(session.updated_at if session else None)
-                            session_age = (datetime.now(UTC) - updated_at).total_seconds() if updated_at else 999
-                            if session_age < 180.0:
+                            # --- Reconnect liveness check ---
+                            # Use Redis liveness signal to detect if a task is still running
+                            # on another worker (cross-worker safe).
+                            live_task_id = await RedisStreamTask.get_liveness(session_id)
+
+                            if live_task_id:
+                                # Task is alive — poll its output stream directly
                                 logger.info(
-                                    "Session %s is RUNNING with no task but updated %.1fs ago — "
-                                    "likely reconnect race, emitting done instead of cancelling",
+                                    "Reconnect found live task %s for session %s via liveness signal",
+                                    live_task_id,
                                     session_id,
-                                    session_age,
                                 )
-                                yield DoneEvent(
-                                    title=session.title if session else "Session active",
-                                    summary="Session is being processed. Please wait.",
-                                )
-                                terminal_status = SessionStatus.COMPLETED
+                                output_stream = RedisStreamQueue(f"task:output:{live_task_id}")
+                                poll_deadline = asyncio.get_event_loop().time() + 120.0
+                                while asyncio.get_event_loop().time() < poll_deadline:
+                                    event_id_out, event_data = await output_stream.get(
+                                        start_id=latest_event_id or "0",
+                                        block_ms=2000,
+                                    )
+                                    if event_id_out and event_data:
+                                        latest_event_id = event_id_out
+                                        try:
+                                            event_str = (
+                                                event_data
+                                                if isinstance(event_data, (str, bytes))
+                                                else json.dumps(event_data)
+                                            )
+                                            event = TypeAdapter(AgentEvent).validate_json(event_str)
+                                        except Exception:
+                                            logger.debug(
+                                                "Failed to parse event from liveness stream for session %s",
+                                                session_id,
+                                                exc_info=True,
+                                            )
+                                            continue
+                                        received_events = True
+                                        yield event
+                                        if isinstance(event, DoneEvent):
+                                            terminal_status = SessionStatus.COMPLETED
+                                            break
+                                        if isinstance(event, ErrorEvent):
+                                            terminal_status = SessionStatus.FAILED
+                                            break
+                                    else:
+                                        # Check if liveness key expired
+                                        still_alive = await RedisStreamTask.get_liveness(session_id)
+                                        if not still_alive:
+                                            break
+                                if terminal_status is None:
+                                    terminal_status = SessionStatus.COMPLETED
+                                    yield DoneEvent()
                             else:
-                                logger.warning(
-                                    "Session %s is RUNNING but has no active task (stale %.1fs); marking CANCELLED",
-                                    session_id,
-                                    session_age,
-                                )
-                                await self._session_repository.update_status(session_id, SessionStatus.CANCELLED)
-                                interruption_event = ErrorEvent(
-                                    error="Session task was interrupted before completion (for example by cancellation or service reload). Please retry."
-                                )
-                                await self._session_repository.add_event(session_id, interruption_event)
-                                yield interruption_event
-                                terminal_status = SessionStatus.CANCELLED
+                                # No liveness key — check grace period
+                                updated_at = self._ensure_aware_utc(session.updated_at if session else None)
+                                session_age = (datetime.now(UTC) - updated_at).total_seconds() if updated_at else 999
+
+                                if session_age < 180.0:
+                                    logger.info(
+                                        "Session %s is RUNNING with no liveness signal but updated %.1fs ago — bounded polling",
+                                        session_id,
+                                        session_age,
+                                    )
+                                    yield ProgressEvent(
+                                        phase=PlanningPhase.EXECUTING_SETUP,
+                                        message="Session is being processed. Reconnecting...",
+                                    )
+
+                                    bounded_deadline = asyncio.get_event_loop().time() + 15.0
+                                    found_live = False
+                                    while asyncio.get_event_loop().time() < bounded_deadline:
+                                        late_task_id = await RedisStreamTask.get_liveness(session_id)
+                                        if late_task_id:
+                                            found_live = True
+                                            logger.info(
+                                                "Late liveness found for session %s (task %s) — switching to stream polling",
+                                                session_id,
+                                                late_task_id,
+                                            )
+                                            output_stream = RedisStreamQueue(f"task:output:{late_task_id}")
+                                            while True:
+                                                ev_id, ev_data = await output_stream.get(
+                                                    start_id=latest_event_id or "0",
+                                                    block_ms=2000,
+                                                )
+                                                if ev_id and ev_data:
+                                                    latest_event_id = ev_id
+                                                    try:
+                                                        ev_str = (
+                                                            ev_data
+                                                            if isinstance(ev_data, (str, bytes))
+                                                            else json.dumps(ev_data)
+                                                        )
+                                                        event = TypeAdapter(AgentEvent).validate_json(ev_str)
+                                                    except Exception:
+                                                        logger.debug(
+                                                            "Failed to parse late-liveness event for session %s",
+                                                            session_id,
+                                                            exc_info=True,
+                                                        )
+                                                        continue
+                                                    received_events = True
+                                                    yield event
+                                                    if isinstance(event, DoneEvent):
+                                                        terminal_status = SessionStatus.COMPLETED
+                                                        break
+                                                    if isinstance(event, ErrorEvent):
+                                                        terminal_status = SessionStatus.FAILED
+                                                        break
+                                                else:
+                                                    still_alive = await RedisStreamTask.get_liveness(session_id)
+                                                    if not still_alive:
+                                                        break
+                                            if terminal_status is None:
+                                                terminal_status = SessionStatus.COMPLETED
+                                                yield DoneEvent()
+                                            break
+                                        await asyncio.sleep(1.0)
+
+                                    if not found_live and terminal_status is None:
+                                        logger.warning(
+                                            "Session %s bounded polling exhausted (%.1fs age) — emitting done",
+                                            session_id,
+                                            session_age,
+                                        )
+                                        yield DoneEvent()
+                                        terminal_status = SessionStatus.COMPLETED
+                                else:
+                                    # Stale orphan — cancel
+                                    logger.warning(
+                                        "Session %s appears orphaned (%.1fs since last update, no liveness). Cancelling.",
+                                        session_id,
+                                        session_age,
+                                    )
+                                    await self._session_repository.update_status(session_id, SessionStatus.CANCELLED)
+                                    interruption_event = ErrorEvent(
+                                        error="Session task was interrupted before completion. "
+                                        "Please try again or start a new session."
+                                    )
+                                    await self._session_repository.add_event(session_id, interruption_event)
+                                    yield interruption_event
+                                    terminal_status = SessionStatus.CANCELLED
                     else:
                         # Session is idle — no active task, no new input.
                         # Yield a DoneEvent so the frontend receives a terminal
