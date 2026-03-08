@@ -559,6 +559,14 @@ class TestExecutionAgentDeliveryIntegrityGate:
         kwargs = executor._run_delivery_integrity_gate.call_args.kwargs
         assert "hallucination_ratio_critical" in (kwargs.get("additional_issues") or [])
 
+    def test_hallucination_ratio_critical_is_downgradable(self, executor):
+        """Hallucination ratio is downgradable — completed research must reach users with disclaimer."""
+        assert executor._can_downgrade_delivery_integrity_issues(["hallucination_ratio_critical"]) is True
+
+    def test_stream_truncation_unresolved_is_not_downgradable(self, executor):
+        """Structural corruption (truncated output) must always block."""
+        assert executor._can_downgrade_delivery_integrity_issues(["stream_truncation_unresolved"]) is False
+
     @staticmethod
     def _has_counter_call(metrics_spy: MagicMock, metric_name: str, **expected_labels: str) -> bool:
         for call in metrics_spy.record_counter.call_args_list:

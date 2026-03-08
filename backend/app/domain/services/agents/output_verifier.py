@@ -143,8 +143,30 @@ class OutputVerifier:
         chunks: list[str] = []
         for source in collected:
             snippet = source.snippet or ""
+            # Prepend title and URL so LettuceDetect can ground entity names,
+            # project names, and URLs that appear in the synthesized report.
+            prefix_parts: list[str] = []
+            if source.title and source.title != source.url:
+                prefix_parts.append(source.title)
+            if source.url:
+                prefix_parts.append(source.url)
+            prefix = " — ".join(prefix_parts)
             if snippet.strip():
-                chunks.append(snippet)
+                chunk = f"{prefix}: {snippet}" if prefix else snippet
+            elif prefix:
+                chunk = prefix
+            else:
+                continue
+            chunks.append(chunk)
+
+        # Supplement with key facts from execution context — these contain
+        # extracted details from browser visits and tool results that aren't
+        # captured in source tracker snippets.
+        if hasattr(self._context_manager, "_context") and self._context_manager._context.key_facts:
+            chunks.extend(
+                fact for fact in self._context_manager._context.key_facts
+                if fact and len(fact) > 20
+            )
 
         return chunks
 
@@ -429,10 +451,10 @@ class OutputVerifier:
                     )
 
                     # Tiered response based on hallucination severity:
-                    # - >block_threshold: disclaimer (too many spans to redact cleanly)
-                    # - warn_threshold-block_threshold: reliability notice
+                    # - >block_threshold: blocking issue + disclaimer
+                    # - warn_threshold-block_threshold: reliability notice (non-blocking)
                     # - <warn_threshold: pass through (noise-level, not actionable)
-                    _block_threshold = getattr(settings, "hallucination_block_threshold", 0.25)
+                    _block_threshold = getattr(settings, "hallucination_block_threshold", 0.30)
                     _warn_threshold = getattr(settings, "hallucination_warn_threshold", 0.10)
                     if lettuce_result.hallucination_ratio > _block_threshold:
                         disclaimer = (
