@@ -94,6 +94,21 @@ class SourceTracker:
                 self._url_to_citation[source.url] = i
         return "\n".join(lines)
 
+    def restore_sources(self, sources: list[SourceCitation]) -> None:
+        """Restore persisted sources from a prior session.
+
+        Used during session reactivation to hydrate the tracker with
+        sources from previous report events so hallucination verification
+        retains its grounding context.
+        """
+        self.clear()
+        for source in sources:
+            if source.url and source.url not in self._seen_urls:
+                self._seen_urls.add(source.url)
+                self._collected_sources.append(source)
+                self._citation_counter += 1
+                self._url_to_citation[source.url] = self._citation_counter
+
     def clear(self) -> None:
         """Reset all tracking state."""
         self._collected_sources.clear()

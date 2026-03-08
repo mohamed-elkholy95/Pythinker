@@ -1979,3 +1979,11 @@ class ExecutionAgent(BaseAgent):
     def get_collected_sources(self) -> list[SourceCitation]:
         """Get all collected source citations."""
         return self._source_tracker.get_collected_sources()
+
+    def restore_collected_sources(self, sources: list[SourceCitation]) -> None:
+        """Restore persisted sources from a prior session.
+
+        Used during session reactivation to hydrate grounding context so
+        hallucination verification retains access to original sources.
+        """
+        self._source_tracker.restore_sources(sources)
