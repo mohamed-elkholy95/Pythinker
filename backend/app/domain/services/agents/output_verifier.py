@@ -137,8 +137,6 @@ class OutputVerifier:
             List of source context strings.
         """
         collected = self._source_tracker._collected_sources
-        if not collected:
-            return []
 
         chunks: list[str] = []
         for source in collected:
@@ -497,9 +495,14 @@ class OutputVerifier:
                 if not lettuce_result.skipped:
                     logger.info("LettuceDetect: %s", lettuce_result.get_summary())
                 else:
+                    warning = (
+                        "hallucination_verification_skipped_no_grounding_context"
+                        if not source_context
+                        else "hallucination_verification_skipped"
+                    )
                     return HallucinationVerificationResult(
                         content=content,
-                        warnings=["hallucination_verification_skipped"],
+                        warnings=[warning],
                         skipped=True,
                     )
 
