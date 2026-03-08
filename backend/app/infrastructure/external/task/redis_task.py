@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar
 
 from app.domain.external.task import Task, TaskRunner
 from app.infrastructure.external.message_queue.redis_stream_queue import MessageQueue, RedisStreamQueue
@@ -21,7 +21,7 @@ _LIVENESS_HEARTBEAT_INTERVAL = 10
 class RedisStreamTask(Task):
     """Redis Stream-based task implementation following the Task protocol."""
 
-    _task_registry: ClassVar[dict[str, "RedisStreamTask"]] = {}
+    _task_registry: ClassVar[dict[str, RedisStreamTask]] = {}
 
     def __init__(self, runner: TaskRunner):
         """Initialize Redis Stream task with a task runner.
@@ -219,7 +219,7 @@ class RedisStreamTask(Task):
             self._on_task_done()
 
     @classmethod
-    def get(cls, task_id: str) -> Optional["RedisStreamTask"]:
+    def get(cls, task_id: str) -> RedisStreamTask | None:
         """Get a task by its ID.
 
         Returns:
@@ -279,7 +279,7 @@ class RedisStreamTask(Task):
             logger.warning("Failed to clear liveness key for session %s: %s", self._session_id, e)
 
     @classmethod
-    def create(cls, runner: TaskRunner) -> "RedisStreamTask":
+    def create(cls, runner: TaskRunner) -> RedisStreamTask:
         """Create a new task instance with the specified TaskRunner.
 
         Args:

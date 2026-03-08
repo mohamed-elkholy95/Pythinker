@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from app.domain.external.message_queue import MessageQueue
 
@@ -18,7 +18,7 @@ class TaskRunner(ABC):
     """
 
     @abstractmethod
-    async def run(self, task: "Task") -> None:
+    async def run(self, task: Task) -> None:
         """Main task execution logic.
 
         This method contains the core functionality of the task.
@@ -41,7 +41,7 @@ class TaskRunner(ABC):
         ...
 
     @abstractmethod
-    async def on_done(self, task: "Task") -> None:
+    async def on_done(self, task: Task) -> None:
         """Called when task execution is done.
 
         Use this method to handle graceful shutdown and cleanup.
@@ -112,7 +112,7 @@ class Task(Protocol):
         ...
 
     @classmethod
-    def get(cls, task_id: str) -> Optional["Task"]:
+    def get(cls, task_id: str) -> Task | None:
         """Get a task by its ID.
 
         Returns:
@@ -121,7 +121,7 @@ class Task(Protocol):
         ...
 
     @classmethod
-    def create(cls, runner: TaskRunner) -> "Task":
+    def create(cls, runner: TaskRunner) -> Task:
         """Create a new task instance with the specified task runner.
 
         Args:
