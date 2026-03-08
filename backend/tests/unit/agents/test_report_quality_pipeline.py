@@ -11,6 +11,7 @@ Covers:
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -215,7 +216,7 @@ def _make_lettuce_result(ratio: float, span_count: int = 2, skipped: bool = Fals
 
 
 class TestHallucinationDisclaimerNotRedaction:
-    """The 10-25% hallucination ratio branch must append a disclaimer
+    """The 5-15% hallucination ratio branch must append a disclaimer
     and must NOT call redact_hallucinations (which produces […] markers)."""
 
     @pytest.mark.asyncio
@@ -243,7 +244,7 @@ class TestHallucinationDisclaimerNotRedaction:
     async def test_moderate_ratio_does_not_call_redact_hallucinations(self):
         ov = _make_output_verifier()
         content = "# Report\n\nSome findings."
-        lettuce_result = _make_lettuce_result(ratio=0.18, span_count=1)
+        lettuce_result = _make_lettuce_result(ratio=0.12, span_count=1)
         mock_verifier = MagicMock()
         mock_verifier.verify.return_value = lettuce_result
         mock_verifier.redact_hallucinations = MagicMock(return_value="should not be called")
@@ -257,11 +258,34 @@ class TestHallucinationDisclaimerNotRedaction:
         mock_verifier.redact_hallucinations.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_high_ratio_above_25_still_uses_critical_path(self):
-        """Ratio > 25% keeps the critical blocking path, not the new disclaimer."""
+    async def test_moderate_ratio_18_pct_uses_disclaimer_path(self):
+        """Ratio 18% is in the moderate band (10-30%) — gets disclaimer, not block.
+
+        Industry standard (LLM Guard) tolerates up to 30%. Research reports
+        normally produce 15-25% ungrounded text from synthesis beyond snippets.
+        """
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        lettuce_result = _make_lettuce_result(ratio=0.30, span_count=1)
+        lettuce_result = _make_lettuce_result(ratio=0.18, span_count=1)
+        mock_verifier = MagicMock()
+        mock_verifier.verify.return_value = lettuce_result
+
+        with patch(
+            "app.domain.services.agents.lettuce_verifier.get_lettuce_verifier",
+            return_value=mock_verifier,
+        ):
+            result = await ov.verify_hallucination(content, "query")
+
+        assert not result.blocking_issues
+        assert "hallucination_ratio_moderate" in result.warnings
+        assert "Reliability Notice" in result.content
+
+    @pytest.mark.asyncio
+    async def test_high_ratio_above_30_uses_critical_path(self):
+        """Ratio > 30% triggers blocking — likely genuine hallucination."""
+        ov = _make_output_verifier()
+        content = "# Report\n\nContent."
+        lettuce_result = _make_lettuce_result(ratio=0.35, span_count=5)
         mock_verifier = MagicMock()
         mock_verifier.verify.return_value = lettuce_result
 
@@ -273,6 +297,43 @@ class TestHallucinationDisclaimerNotRedaction:
 
         assert result.blocking_issues
         assert "hallucination_ratio_critical" in result.blocking_issues
+
+
+class TestSourceGroundingContext:
+    def test_build_source_context_includes_browser_snippets(self):
+        ov = _make_output_verifier()
+        ov._source_tracker._collected_sources = [
+            SimpleNamespace(
+                title="Example Project",
+                url="https://example.com/project",
+                snippet="Browser-fetched body text describing repository behavior and features.",
+            )
+        ]
+
+        assert ov.build_source_context() == [
+            "Example Project — https://example.com/project: Browser-fetched body text describing repository behavior and features."
+        ]
+
+    def test_browser_source_tracker_extracts_text_snippet_from_content(self):
+        from app.domain.services.agents.source_tracker import SourceTracker
+
+        tracker = SourceTracker()
+        event = MagicMock()
+        event.function_args = {"url": "https://example.com/project"}
+        event.tool_content = SimpleNamespace(
+            content=(
+                "<html><title>Example Project</title><body>"
+                "<h1>Example Project</h1><p>Repository overview with grounded browser text.</p>"
+                "</body></html>"
+            )
+        )
+
+        tracker._extract_browser_source(event, datetime.now(UTC))
+
+        source = tracker.get_collected_sources()[0]
+        assert source.title == "Example Project"
+        assert source.snippet is not None
+        assert "Repository overview with grounded browser text." in source.snippet
 
 
 class TestTruncationNoticeHeader:
@@ -540,8 +601,9 @@ class TestDirectDeliveryShortCircuit:
         assert "## Artifact References" in report.content
 
     @pytest.mark.asyncio
-    async def test_summarize_telegram_gate_failure_emits_generic_error(self):
-        from app.domain.models.event import ErrorEvent
+    async def test_summarize_telegram_gate_failure_downgrades_when_all_steps_completed(self):
+        """Telegram delivery should downgrade (not block) when all steps completed."""
+        from app.domain.models.event import ErrorEvent, ReportEvent
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
 
         agent = _make_execution_agent_for_summarize()
@@ -575,6 +637,97 @@ class TestDirectDeliveryShortCircuit:
 
         events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
 
+        # With all steps completed, gate downgrades to warning and delivers
+        assert any(isinstance(event, ReportEvent) for event in events)
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_summarize_telegram_hallucination_ratio_critical_downgrades_when_completed(self):
+        """Hallucination ratio critical downgrades to warning when all steps completed.
+
+        The output_verifier already appends a disclaimer to the content.
+        Completed research must reach the user with a quality notice rather
+        than being blocked entirely — zero delivery is worse UX than a
+        disclaimer-annotated report.
+        """
+        from app.domain.models.event import ErrorEvent, ReportEvent
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        agent = _make_execution_agent_for_summarize()
+        raw_report = (
+            "# Final Report\n\n"
+            "## Final Result\n"
+            "Trending repositories were analyzed and summarized.\n\n"
+            "## Findings\n"
+            "This report contains synthesized claims beyond source snippets.\n"
+            "\n> **Note:** Some information in this response "
+            "could not be fully verified against available sources."
+        )
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        agent._delivery_channel = "telegram"
+        agent._run_delivery_integrity_gate = MagicMock(return_value=(False, ["hallucination_ratio_critical"]))
+        agent._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+
+        async def summary_stream(*_args, **_kwargs):
+            agent.llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield raw_report
+
+        agent.llm.ask_stream = summary_stream
+        agent.llm.ask = AsyncMock(return_value={"content": '["Follow-up question?"]'})
+
+        events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
+
+        # Downgraded: report delivered with disclaimer
+        assert any(isinstance(event, ReportEvent) for event in events)
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_summarize_telegram_gate_failure_blocks_when_steps_incomplete(self):
+        """Telegram delivery should block when steps did NOT all complete."""
+        from app.domain.models.event import ErrorEvent, ReportEvent
+        from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
+
+        agent = _make_execution_agent_for_summarize()
+        raw_report = (
+            "# Final Report\n\n"
+            "## Final Result\n"
+            "Trending repositories were analyzed and summarized.\n\n"
+            "## Findings\n"
+            "The report is otherwise ready for delivery.\n"
+        )
+        policy = ResponsePolicy(
+            mode=VerbosityMode.STANDARD,
+            min_required_sections=["final result", "artifact references"],
+            allow_compression=False,
+        )
+
+        agent._delivery_channel = "telegram"
+        agent._run_delivery_integrity_gate = MagicMock(return_value=(False, ["coverage_missing:artifact references"]))
+        agent._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+
+        async def summary_stream(*_args, **_kwargs):
+            agent.llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield raw_report
+
+        agent.llm.ask_stream = summary_stream
+        agent.llm.ask = AsyncMock(return_value={"content": '["Follow-up question?"]'})
+
+        # all_steps_completed=False — should block
+        events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=False)]
+
         error = next(event for event in events if isinstance(event, ErrorEvent))
         assert error.error == "I couldn't send the final response for this request. Please send it again."
-        assert "coverage_missing:artifact references" not in error.error
+        assert not any(isinstance(event, ReportEvent) for event in events)

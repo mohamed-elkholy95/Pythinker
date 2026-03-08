@@ -142,6 +142,7 @@ class ResponseGenerator:
     __slots__ = (
         "_coalesce_flush_seconds",
         "_coalesce_max_chars",
+        "_coalesce_pending",
         "_llm",
         "_memory",
         "_metrics",
@@ -173,6 +174,7 @@ class ResponseGenerator:
         # Mutable state (set per-run by the caller)
         self._pre_trim_report_cache: str | None = None
         self._user_request: str | None = None
+        self._coalesce_pending: str = ""  # Unflushed buffer for error recovery
 
     # ── State Setters ──────────────────────────────────────────────────
 
@@ -206,6 +208,11 @@ class ResponseGenerator:
         buffered_chars = 0
         last_flush_at = loop.time()
 
+        # Expose pending buffer for error recovery — when the upstream generator
+        # raises mid-stream, the caller can read self._coalesce_pending to salvage
+        # any unflushed content that the normal yield path never emitted.
+        self._coalesce_pending = ""
+
         async with aclosing(stream_iter) as stream:
             async for raw_chunk in stream:
                 chunk = raw_chunk or ""
@@ -214,6 +221,7 @@ class ResponseGenerator:
 
                 buffered_chunks.append(chunk)
                 buffered_chars += len(chunk)
+                self._coalesce_pending = "".join(buffered_chunks)
 
                 now = loop.time()
                 should_flush = buffered_chars >= max_chars
@@ -228,10 +236,12 @@ class ResponseGenerator:
                 coalesced_chunk = "".join(buffered_chunks)
                 buffered_chunks.clear()
                 buffered_chars = 0
+                self._coalesce_pending = ""
                 last_flush_at = now
                 yield StreamEvent(content=coalesced_chunk, is_final=False, phase=phase)
 
             if buffered_chunks:
+                self._coalesce_pending = ""
                 yield StreamEvent(content="".join(buffered_chunks), is_final=False, phase=phase)
 
     # ── Continuation / Merging ─────────────────────────────────────────
