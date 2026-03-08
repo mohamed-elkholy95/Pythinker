@@ -150,10 +150,15 @@ class TestDeliveryIntegrityGateIntegration:
         assert report.content != weak_summary
 
     @pytest.mark.asyncio
-    async def test_completed_plan_summary_blocks_when_summary_and_pretrim_report_both_fail_grounding(
+    async def test_completed_plan_summary_downgrades_when_summary_and_pretrim_report_both_fail_grounding(
         self, executor, mock_llm
     ):
-        """Telegram final delivery should fail closed when neither summary nor draft is grounded."""
+        """Telegram final delivery should downgrade (not block) when all steps completed.
+
+        Even when neither summary nor draft passes grounding, the user deserves
+        to see their completed work.  The delivery gate downgrades to a warning
+        and delivers the report — this applies equally to Telegram and web UI.
+        """
         weak_summary = (
             "# Final Report\n\n"
             "## Findings\n"
@@ -189,6 +194,166 @@ class TestDeliveryIntegrityGateIntegration:
         mock_llm.ask_stream = weak_summary_stream
 
         events = [event async for event in executor.summarize(all_steps_completed=True)]
+
+        # With all steps completed, the gate downgrades to warning and delivers
+        assert any(isinstance(event, ReportEvent) for event in events)
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_completed_plan_summary_downgrades_hallucination_on_telegram(self, executor, mock_llm):
+        """Hallucination ratio critical should downgrade to warning when all steps completed.
+
+        The output_verifier already appends a disclaimer to the content.
+        Blocking completed research entirely is worse UX than delivering
+        with a quality notice — the user spent minutes waiting for results.
+        """
+        weak_summary = (
+            "# Final Report\n\n## Findings\nSynthesized content beyond source snippets."
+            "\n\n> **Note:** Some information in this response "
+            "could not be fully verified against available sources."
+        )
+
+        executor._user_request = "Provide a grounded final report."
+        executor._extract_report_from_file_write_memory = MagicMock(return_value=None)
+        executor._needs_verification = MagicMock(return_value=False)
+        executor._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+        executor._run_delivery_integrity_gate = MagicMock(return_value=(False, ["hallucination_ratio_critical"]))
+        mock_llm.ask.return_value = {"content": '["Follow-up question?"]'}
+
+        async def weak_summary_stream(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield weak_summary
+
+        mock_llm.ask_stream = weak_summary_stream
+
+        events = [event async for event in executor.summarize(all_steps_completed=True)]
+
+        # Downgraded: user receives their completed research with disclaimer
+        assert any(isinstance(event, ReportEvent) for event in events)
+        assert not any(isinstance(event, ErrorEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_structural_failure_still_blocks_even_when_all_steps_completed(self, executor, mock_llm):
+        """Stream truncation (structural corruption) must always block — content is incomplete."""
+        weak_summary = "# Final Report\n\n## Findings\nPartial content"
+
+        executor._user_request = "Provide a grounded final report."
+        executor._extract_report_from_file_write_memory = MagicMock(return_value=None)
+        executor._needs_verification = MagicMock(return_value=False)
+        executor._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+        executor._run_delivery_integrity_gate = MagicMock(
+            return_value=(False, ["stream_truncation_unresolved"])
+        )
+        mock_llm.ask.return_value = {"content": '["Follow-up question?"]'}
+
+        async def weak_summary_stream(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield weak_summary
+
+        mock_llm.ask_stream = weak_summary_stream
+
+        events = [event async for event in executor.summarize(all_steps_completed=True)]
+
+        # Structural failure: never downgradable
+        assert any(isinstance(event, ErrorEvent) for event in events)
+        assert not any(isinstance(event, ReportEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_stream_error_salvages_accumulated_content_as_partial_report(self, executor, mock_llm):
+        """When streaming fails mid-way, accumulated content should be delivered as partial report."""
+        executor._user_request = "Research the topic in detail."
+        mock_llm.ask.return_value = {"content": '["Follow-up question?"]'}
+
+        accumulated_content = (
+            "# Research Report\n\n"
+            "## Findings\n"
+            "The analysis revealed several key insights about the topic "
+            "including market trends, competitive dynamics, and growth projections.\n\n"
+            "## Details\n"
+            "Detailed analysis with supporting evidence from multiple sources "
+            "demonstrates that the sector has experienced consistent 15% year-over-year "
+            "growth driven by technological innovation and changing consumer preferences."
+        )
+
+        async def stream_then_crash(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield accumulated_content
+            raise ConnectionError()  # Simulates provider disconnect (empty str(e))
+
+        mock_llm.ask_stream = stream_then_crash
+
+        events = [event async for event in executor.summarize()]
+
+        # Should salvage as partial report, NOT emit ErrorEvent
+        report_events = [e for e in events if isinstance(e, ReportEvent)]
+        assert len(report_events) == 1
+        assert "[Partial]" in report_events[0].title
+        assert "Research Report" in report_events[0].content
+        assert not any(isinstance(e, ErrorEvent) for e in events)
+
+    @pytest.mark.asyncio
+    async def test_stream_error_with_no_content_emits_error_event(self, executor, mock_llm):
+        """When streaming fails before producing content, ErrorEvent should be emitted."""
+        executor._user_request = "Research the topic."
+        mock_llm.ask.return_value = {"content": '["Follow-up question?"]'}
+
+        async def immediate_crash(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "test",
+            }
+            raise TimeoutError()  # Crashes before yielding anything
+
+            yield ""  # Make this an async generator
+
+        mock_llm.ask_stream = immediate_crash
+
+        events = [event async for event in executor.summarize()]
+
+        # No content to salvage → ErrorEvent with diagnostic label
+        assert any(isinstance(e, ErrorEvent) for e in events)
+        error_events = [e for e in events if isinstance(e, ErrorEvent)]
+        assert "TimeoutError" in error_events[0].error
+
+    @pytest.mark.asyncio
+    async def test_incomplete_plan_summary_blocks_on_telegram(self, executor, mock_llm):
+        """Telegram final delivery should block when steps did NOT all complete."""
+        weak_summary = "# Final Report\n\n## Findings\nIncomplete work.\n\n## Conclusion\nMissing steps."
+
+        executor._user_request = "Provide a grounded final report."
+        executor._extract_report_from_file_write_memory = MagicMock(return_value=None)
+        executor._needs_verification = MagicMock(return_value=False)
+        executor._can_auto_repair_delivery_integrity = MagicMock(return_value=False)
+        executor._run_delivery_integrity_gate = MagicMock(
+            return_value=(False, ["coverage_missing:artifact references"])
+        )
+        mock_llm.ask.return_value = {"content": '["Follow-up question?"]'}
+
+        async def weak_summary_stream(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield weak_summary
+
+        mock_llm.ask_stream = weak_summary_stream
+
+        # all_steps_completed=False — should block
+        events = [event async for event in executor.summarize(all_steps_completed=False)]
 
         assert any(isinstance(event, ErrorEvent) for event in events)
         assert not any(isinstance(event, ReportEvent) for event in events)
