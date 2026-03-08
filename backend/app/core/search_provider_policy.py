@@ -17,7 +17,7 @@ ALLOWED_SEARCH_PROVIDERS = frozenset(
         "jina",
     }
 )
-DEFAULT_SEARCH_PROVIDER_CHAIN = ("serper", "brave", "tavily", "exa")
+DEFAULT_SEARCH_PROVIDER_CHAIN = ("tavily", "brave", "exa", "serper")
 
 
 def _looks_like_json_input(raw_value: str) -> bool:
