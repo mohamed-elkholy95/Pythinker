@@ -1450,7 +1450,7 @@ async def chat(
                         with contextlib.suppress(asyncio.CancelledError):
                             await task
                     # Retrieve result to suppress "Task exception was never retrieved"
-                    with contextlib.suppress(Exception):
+                    with contextlib.suppress(Exception, asyncio.CancelledError):
                         task.result()
             try:
                 await stream_iter.aclose()
@@ -1465,7 +1465,7 @@ async def chat(
                         task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
                             await task
-                    with contextlib.suppress(Exception):
+                    with contextlib.suppress(Exception, asyncio.CancelledError):
                         task.result()
             try:
                 await stream_iter.aclose()
@@ -1570,10 +1570,14 @@ async def chat(
             request_cancellation = getattr(agent_service, "request_cancellation", None)
             if callable(request_cancellation):
                 if close_reason == "client_disconnected":
-                    # ORPHANED TASK FIX: Immediate cancellation when client disconnects
-                    # User is gone - no point in grace period, stop immediately
-                    with contextlib.suppress(Exception):
-                        request_cancellation(session_id)
+                    # A full page refresh also looks like a disconnect to the server.
+                    # Defer cancellation briefly so the browser can reconnect with
+                    # Last-Event-ID instead of losing the running session mid-task.
+                    _schedule_disconnect_cancellation(
+                        session_id=session_id,
+                        agent_service=agent_service,
+                        grace_seconds=disconnect_cancellation_grace_seconds,
+                    )
                 elif close_reason == "generator_cancelled":
                     # Short grace period (5s) for legitimate reconnection attempts
                     # Reduced from 45s to prevent orphaned background tasks
