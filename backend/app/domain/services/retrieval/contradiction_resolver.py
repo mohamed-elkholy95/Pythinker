@@ -92,7 +92,11 @@ class ContradictionResolver:
                     # Same entity with different numeric values
                     value1 = claim1["value"]
                     value2 = claim2["value"]
-                    diff_pct = abs(value1 - value2) / max(value1, value2)
+                    max_val = max(value1, value2)
+                    if max_val == 0:
+                        # Both zero — identical, not a contradiction
+                        continue
+                    diff_pct = abs(value1 - value2) / max_val
 
                     if diff_pct > 0.1:  # 10% difference threshold
                         # Mark contradiction
@@ -160,6 +164,27 @@ class ContradictionResolver:
 
         return len(words1 & words2) >= min_shared
 
+    @staticmethod
+    def _safe_index(value: object, upper_bound: int) -> int | None:
+        """Coerce an LLM-returned value to a valid list index.
+
+        LLM JSON may return None, strings ("0"), floats (1.0), or
+        garbage for index fields.  This safely converts to int and
+        validates the range [0, upper_bound).
+
+        Returns:
+            Valid int index, or None if the value is unusable.
+        """
+        if value is None:
+            return None
+        try:
+            idx = int(value)
+        except (TypeError, ValueError):
+            return None
+        if 0 <= idx < upper_bound:
+            return idx
+        return None
+
     async def _detect_llm_contradictions(
         self,
         evidence_list: list["MemoryEvidence"],
@@ -192,29 +217,32 @@ For example, "User prefers Python" and "User also uses JavaScript" are NOT contr
             import json
 
             data = json.loads(response.get("content", "{}"))
+            n = len(evidence_list)
 
             for contradiction in data.get("contradictions", []):
-                id1 = contradiction.get("id1")
-                id2 = contradiction.get("id2")
+                id1 = self._safe_index(contradiction.get("id1"), n)
+                id2 = self._safe_index(contradiction.get("id2"), n)
                 reason = contradiction.get("reason", "Semantic contradiction")
 
-                if 0 <= id1 < len(evidence_list) and 0 <= id2 < len(evidence_list):
-                    ev1 = evidence_list[id1]
-                    ev2 = evidence_list[id2]
+                if id1 is None or id2 is None or id1 == id2:
+                    continue
 
-                    if ev2.memory_id not in ev1.contradictions:
-                        ev1.contradictions.append(ev2.memory_id)
-                        ev1.contradiction_reasons.append(reason)
+                ev1 = evidence_list[id1]
+                ev2 = evidence_list[id2]
 
-                    if ev1.memory_id not in ev2.contradictions:
-                        ev2.contradictions.append(ev1.memory_id)
-                        ev2.contradiction_reasons.append(reason)
+                if ev2.memory_id not in ev1.contradictions:
+                    ev1.contradictions.append(ev2.memory_id)
+                    ev1.contradiction_reasons.append(reason)
+
+                if ev1.memory_id not in ev2.contradictions:
+                    ev2.contradictions.append(ev1.memory_id)
+                    ev2.contradiction_reasons.append(reason)
 
         except Exception as e:
             if isinstance(e, LLMKeysExhaustedError):
                 logger.debug("LLM contradiction detection skipped: %s", e)
             else:
-                logger.warning(f"LLM contradiction detection failed: {e}")
+                logger.warning("LLM contradiction detection failed: %s", e)
 
         return evidence_list
 

@@ -463,3 +463,248 @@ class TestContradictionResolverIntegration:
 
         # Should return empty list
         assert len(result) == 0
+
+
+class TestLLMNullIndexHandling:
+    """Test that LLM returning None/invalid indices doesn't crash.
+
+    Regression tests for TypeError: '<=' not supported between
+    instances of 'int' and 'NoneType'.
+    """
+
+    @staticmethod
+    def _make_evidence(memory_id: str, content: str) -> MemoryEvidence:
+        return MemoryEvidence(
+            memory_id=memory_id,
+            content=content,
+            source_type="user_knowledge",
+            retrieval_score=0.9,
+            embedding_quality=0.9,
+            timestamp=datetime.now(UTC),
+            session_id="session-null",
+            memory_type="fact",
+            importance="high",
+        )
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_null_id1(self):
+        """LLM returns null for id1 — must not crash."""
+        mock_llm = MagicMock()
+        mock_llm.ask = AsyncMock(
+            return_value={
+                "content": '{"contradictions": [{"id1": null, "id2": 1, "reason": "test"}]}'
+            }
+        )
+        evidence_list = [
+            self._make_evidence("mem-a", "Fact A"),
+            self._make_evidence("mem-b", "Fact B"),
+        ]
+        resolver = ContradictionResolver(llm=mock_llm)
+        result = await resolver.detect_contradictions(evidence_list)
+
+        # Should not crash and no contradictions should be marked
+        assert len(result[0].contradictions) == 0
+        assert len(result[1].contradictions) == 0
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_null_id2(self):
+        """LLM returns null for id2 — must not crash."""
+        mock_llm = MagicMock()
+        mock_llm.ask = AsyncMock(
+            return_value={
+                "content": '{"contradictions": [{"id1": 0, "id2": null, "reason": "test"}]}'
+            }
+        )
+        evidence_list = [
+            self._make_evidence("mem-a", "Fact A"),
+            self._make_evidence("mem-b", "Fact B"),
+        ]
+        resolver = ContradictionResolver(llm=mock_llm)
+        result = await resolver.detect_contradictions(evidence_list)
+
+        assert len(result[0].contradictions) == 0
+        assert len(result[1].contradictions) == 0
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_missing_id_keys(self):
+        """LLM omits id1/id2 keys entirely — must not crash."""
+        mock_llm = MagicMock()
+        mock_llm.ask = AsyncMock(
+            return_value={
+                "content": '{"contradictions": [{"reason": "they conflict"}]}'
+            }
+        )
+        evidence_list = [
+            self._make_evidence("mem-a", "Fact A"),
+            self._make_evidence("mem-b", "Fact B"),
+        ]
+        resolver = ContradictionResolver(llm=mock_llm)
+        result = await resolver.detect_contradictions(evidence_list)
+
+        assert len(result[0].contradictions) == 0
+        assert len(result[1].contradictions) == 0
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_string_indices(self):
+        """LLM returns string numbers — should coerce to int and work."""
+        mock_llm = MagicMock()
+        mock_llm.ask = AsyncMock(
+            return_value={
+                "content": '{"contradictions": [{"id1": "0", "id2": "1", "reason": "conflict"}]}'
+            }
+        )
+        evidence_list = [
+            self._make_evidence("mem-a", "Fact A"),
+            self._make_evidence("mem-b", "Fact B"),
+        ]
+        resolver = ContradictionResolver(llm=mock_llm)
+        result = await resolver.detect_contradictions(evidence_list)
+
+        # String "0" and "1" should be coerced and work
+        assert "mem-b" in result[0].contradictions
+        assert "mem-a" in result[1].contradictions
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_out_of_range_indices(self):
+        """LLM returns indices beyond evidence list — skip silently."""
+        mock_llm = MagicMock()
+        mock_llm.ask = AsyncMock(
+            return_value={
+                "content": '{"contradictions": [{"id1": 0, "id2": 99, "reason": "conflict"}]}'
+            }
+        )
+        evidence_list = [
+            self._make_evidence("mem-a", "Fact A"),
+            self._make_evidence("mem-b", "Fact B"),
+        ]
+        resolver = ContradictionResolver(llm=mock_llm)
+        result = await resolver.detect_contradictions(evidence_list)
+
+        assert len(result[0].contradictions) == 0
+        assert len(result[1].contradictions) == 0
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_self_contradiction(self):
+        """LLM returns id1 == id2 — skip self-contradiction."""
+        mock_llm = MagicMock()
+        mock_llm.ask = AsyncMock(
+            return_value={
+                "content": '{"contradictions": [{"id1": 0, "id2": 0, "reason": "self-conflict"}]}'
+            }
+        )
+        evidence_list = [
+            self._make_evidence("mem-a", "Fact A"),
+            self._make_evidence("mem-b", "Fact B"),
+        ]
+        resolver = ContradictionResolver(llm=mock_llm)
+        result = await resolver.detect_contradictions(evidence_list)
+
+        assert len(result[0].contradictions) == 0
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_negative_index(self):
+        """LLM returns negative index — skip silently."""
+        mock_llm = MagicMock()
+        mock_llm.ask = AsyncMock(
+            return_value={
+                "content": '{"contradictions": [{"id1": -1, "id2": 0, "reason": "test"}]}'
+            }
+        )
+        evidence_list = [
+            self._make_evidence("mem-a", "Fact A"),
+            self._make_evidence("mem-b", "Fact B"),
+        ]
+        resolver = ContradictionResolver(llm=mock_llm)
+        result = await resolver.detect_contradictions(evidence_list)
+
+        assert len(result[0].contradictions) == 0
+
+    @pytest.mark.asyncio
+    async def test_llm_returns_non_numeric_string_index(self):
+        """LLM returns 'first' instead of 0 — skip silently."""
+        mock_llm = MagicMock()
+        mock_llm.ask = AsyncMock(
+            return_value={
+                "content": '{"contradictions": [{"id1": "first", "id2": "second", "reason": "test"}]}'
+            }
+        )
+        evidence_list = [
+            self._make_evidence("mem-a", "Fact A"),
+            self._make_evidence("mem-b", "Fact B"),
+        ]
+        resolver = ContradictionResolver(llm=mock_llm)
+        result = await resolver.detect_contradictions(evidence_list)
+
+        assert len(result[0].contradictions) == 0
+        assert len(result[1].contradictions) == 0
+
+
+class TestNumericZeroDivision:
+    """Test that zero-valued numeric claims don't cause ZeroDivisionError."""
+
+    @pytest.mark.asyncio
+    async def test_both_values_zero(self):
+        """Two claims with value 0 — must not crash with ZeroDivisionError."""
+        evidence_list = [
+            MemoryEvidence(
+                memory_id="mem-z1",
+                content="The count is 0 items",
+                source_type="user_knowledge",
+                retrieval_score=0.9,
+                embedding_quality=0.9,
+                timestamp=datetime.now(UTC),
+                session_id="session-z1",
+                memory_type="fact",
+                importance="high",
+            ),
+            MemoryEvidence(
+                memory_id="mem-z2",
+                content="The count is 0 items",
+                source_type="user_knowledge",
+                retrieval_score=0.9,
+                embedding_quality=0.9,
+                timestamp=datetime.now(UTC),
+                session_id="session-z2",
+                memory_type="fact",
+                importance="high",
+            ),
+        ]
+        resolver = ContradictionResolver()
+        result = await resolver.detect_contradictions(evidence_list)
+
+        # Same value — no contradiction
+        assert len(result[0].contradictions) == 0
+
+    @pytest.mark.asyncio
+    async def test_one_value_zero_other_nonzero(self):
+        """One claim is 0, other is nonzero — detects contradiction without crash."""
+        evidence_list = [
+            MemoryEvidence(
+                memory_id="mem-z3",
+                content="The score is 0 points",
+                source_type="user_knowledge",
+                retrieval_score=0.9,
+                embedding_quality=0.9,
+                timestamp=datetime.now(UTC),
+                session_id="session-z3",
+                memory_type="fact",
+                importance="high",
+            ),
+            MemoryEvidence(
+                memory_id="mem-z4",
+                content="The score is 50 points",
+                source_type="user_knowledge",
+                retrieval_score=0.9,
+                embedding_quality=0.9,
+                timestamp=datetime.now(UTC),
+                session_id="session-z4",
+                memory_type="fact",
+                importance="high",
+            ),
+        ]
+        resolver = ContradictionResolver()
+        result = await resolver.detect_contradictions(evidence_list)
+
+        # 0 vs 50 is a 100% difference — should detect contradiction
+        assert "mem-z4" in result[0].contradictions
+        assert "mem-z3" in result[1].contradictions
