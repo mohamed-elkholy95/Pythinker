@@ -4,7 +4,7 @@ Starts the channel gateway as an independent process that:
 1. Validates ``CHANNEL_GATEWAY_ENABLED`` is true.
 2. Initialises a MongoDB connection (same URI as the main backend).
 3. Wires the dependency chain:
-   ``MongoUserChannelRepository → MessageRouter → NanobotGateway``
+   ``MongoUserChannelRepository → MessageRouter → ChannelTransportGateway``
 4. Starts the gateway and waits for a shutdown signal (SIGINT / SIGTERM).
 
 Usage::
@@ -196,18 +196,19 @@ async def run_gateway() -> None:
         telegram_streaming=settings.telegram_streaming,
     )
 
-    # NanobotGateway — may not exist yet during incremental development.
+    # ChannelTransportGateway — may not exist yet during incremental development.
     try:
         from app.infrastructure.external.channels.nanobot_gateway import (
-            NanobotGateway,
+            ChannelTransportGateway,
         )
     except ImportError:
         logger.error(
-            "NanobotGateway not available. Ensure app.infrastructure.external.channels.nanobot_gateway is implemented."
+            "ChannelTransportGateway not available. "
+            "Ensure app.infrastructure.external.channels.nanobot_gateway is implemented."
         )
         sys.exit(1)
 
-    gateway = NanobotGateway(
+    gateway = ChannelTransportGateway(
         message_router,
         telegram_token=settings.telegram_bot_token,
         telegram_allowed=settings.telegram_allowed_users or None,

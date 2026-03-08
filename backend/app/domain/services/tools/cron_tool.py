@@ -20,7 +20,7 @@ class CronServiceProtocol(Protocol):
     """Abstraction over any cron scheduling backend.
 
     The CronBridge (infrastructure layer) implements this protocol to wrap
-    nanobot's CronService without the domain depending on infrastructure.
+    the vendored CronService without the domain depending on infrastructure.
     """
 
     async def add_job(
