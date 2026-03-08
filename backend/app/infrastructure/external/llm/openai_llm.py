@@ -249,7 +249,8 @@ class OpenAILLM(LLM):
 
         cfg = dict(profiles.get(provider_key, profiles["default"]))
         if is_streaming:
-            cfg["read"] = min(cfg["read"], 30.0)
+            stream_read_timeout = max(30.0, float(getattr(settings, "llm_stream_read_timeout", 90.0) or 90.0))
+            cfg["read"] = min(cfg["read"], stream_read_timeout)
         if is_tool_call:
             cfg["read"] = min(cfg["read"], 90.0)
         if global_timeout > 0:
@@ -2762,6 +2763,46 @@ To extract data from a webpage:
                 if normalized_finish_reason == "length":
                     logger.warning("OpenAI streaming response truncated (finish_reason=length)")
                 return
+
+            except httpx.ReadTimeout:
+                # Provider stopped sending chunks for longer than the read timeout.
+                # If content was already streamed, treat as truncation (not fatal).
+                # The caller's delivery integrity gate handles truncation recovery.
+                stream_elapsed = time.monotonic() - stream_start
+                streamed_chars = sum(len(p) for p in completion_parts)
+                if completion_parts:
+                    logger.warning(
+                        "LLM ask_stream() read timeout after %.1fs — treating %d chars as truncated "
+                        "(model=%s)",
+                        stream_elapsed,
+                        streamed_chars,
+                        effective_model,
+                    )
+                    self._last_stream_metadata = {
+                        "finish_reason": "length",
+                        "truncated": True,
+                        "provider": "openai",
+                        "error": "read_timeout_mid_stream",
+                    }
+                    # Don't raise — caller already has the partial content via earlier yields.
+                    # Setting truncated=True triggers the continuation/retry logic.
+                    return
+                else:
+                    logger.error(
+                        "LLM ask_stream() read timeout before any content (%.1fs, model=%s)",
+                        stream_elapsed,
+                        effective_model,
+                    )
+                    self._last_stream_metadata = {
+                        "finish_reason": "error",
+                        "truncated": False,
+                        "provider": "openai",
+                        "error": "read_timeout_no_content",
+                    }
+                    raise RuntimeError(
+                        f"LLM stream read timeout after {stream_elapsed:.0f}s with no content "
+                        f"(model={effective_model})"
+                    ) from None
 
             except RateLimitError as e:
                 self._last_stream_metadata = {
