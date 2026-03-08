@@ -325,9 +325,12 @@ def repair_citations(report_content: str, source_list: str) -> str:
                     # Compare URLs: extract URL from both entries
                     existing_url = _URL_RE.search(m.group(2))
                     auth_url = _URL_RE.search(authoritative_entries[num])
-                    if existing_url and auth_url:
-                        if existing_url.group(0).rstrip("/") != auth_url.group(0).rstrip("/"):
-                            fabricated_count += 1
+                    if (
+                        existing_url
+                        and auth_url
+                        and existing_url.group(0).rstrip("/") != auth_url.group(0).rstrip("/")
+                    ):
+                        fabricated_count += 1
 
             # If any reference entries are fabricated, rebuild the entire section
             # from the authoritative list
