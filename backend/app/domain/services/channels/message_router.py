@@ -209,7 +209,7 @@ class MessageRouter:
         self._telegram_context_summarization_threshold_turns = telegram_context_summarization_threshold_turns
         self._telegram_final_delivery_only = telegram_final_delivery_only
         self._telegram_final_delivery_allow_wait_prompts = telegram_final_delivery_allow_wait_prompts
-        self._telegram_streaming = telegram_streaming
+        self._telegram_streaming = self._normalize_telegram_streaming_mode(telegram_streaming)
         self._telegram_delivery_policy = telegram_delivery_policy or TelegramDeliveryPolicy(
             pdf_delivery_enabled=telegram_pdf_delivery_enabled,
             message_min_chars=telegram_pdf_message_min_chars,
@@ -351,6 +351,34 @@ class MessageRouter:
                         continue
 
                     if event_type == "stream" and self._telegram_streaming_enabled(message.channel):
+                        pending_final_event = last_telegram_report_event or last_telegram_message_event
+                        if (
+                            pending_final_event is not None
+                            and pending_final_event is not last_telegram_wait_delivery_event
+                        ):
+                            pending_type = getattr(pending_final_event, "type", None)
+                            pending_outbounds = await self._event_to_outbounds(
+                                pending_final_event,
+                                message,
+                                user_id=user_id,
+                            )
+                            if pending_outbounds:
+                                self._remember_latest_response(
+                                    user_id,
+                                    message,
+                                    pending_final_event,
+                                    event_type=pending_type,
+                                )
+                                for outbound in pending_outbounds:
+                                    await self._persist_generated_outbound_artifacts(
+                                        user_id=user_id,
+                                        session_id=session_id,
+                                        outbound=outbound,
+                                    )
+                                    await self._record_outbound_activity(user_id, message, outbound.content)
+                                    yield outbound
+                            last_telegram_message_event = None
+                            last_telegram_report_event = None
                         pass
                     elif event_type not in {"error", "progress"}:
                         continue
@@ -465,6 +493,7 @@ class MessageRouter:
             if not self._telegram_streaming_enabled(source.channel):
                 return None
             is_final = bool(getattr(event, "is_final", False))
+            content = getattr(event, "content", "") or ""
             metadata = self._telegram_message_id_metadata(source)
             metadata.update(
                 {
@@ -474,13 +503,13 @@ class MessageRouter:
                     "_telegram_stream_final": is_final,
                 }
             )
-            preview_text = self._telegram_stream_preview_text(event)
+            preview_text = self._telegram_stream_preview_text(event, content=content)
             if preview_text is not None:
                 metadata["_telegram_stream_preview_text"] = preview_text
             return OutboundMessage(
                 channel=source.channel,
                 chat_id=source.chat_id,
-                content="",
+                content=content,
                 reply_to=source.id,
                 metadata=metadata,
             )
@@ -1060,8 +1089,22 @@ class MessageRouter:
         return channel == ChannelType.TELEGRAM and self._telegram_streaming != "off"
 
     @staticmethod
-    def _telegram_stream_preview_text(event: object) -> str | None:
+    def _normalize_telegram_streaming_mode(value: object) -> str:
+        """Normalize Telegram preview streaming mode to the OpenClaw-compatible runtime set."""
+        if isinstance(value, bool):
+            return "partial" if value else "off"
+        normalized = str(value or "").strip().lower()
+        if normalized == "progress":
+            return "partial"
+        if normalized in {"off", "partial", "block"}:
+            return normalized
+        return "partial"
+
+    @staticmethod
+    def _telegram_stream_preview_text(event: object, *, content: str = "") -> str | None:
         """Return a small generic status string for Telegram preview streaming."""
+        if content.strip():
+            return None
         if bool(getattr(event, "is_final", False)):
             return None
 
@@ -1087,13 +1130,17 @@ class MessageRouter:
 
     @staticmethod
     def _telegram_message_id_metadata(source: InboundMessage) -> dict[str, Any]:
-        """Preserve the originating Telegram message id for downstream reply/edit routing."""
+        """Preserve Telegram delivery context for downstream reply/edit routing."""
         if source.channel != ChannelType.TELEGRAM:
             return {}
         metadata = getattr(source, "metadata", None)
         if not isinstance(metadata, dict):
             return {}
-        message_id = metadata.get("message_id")
-        if message_id is None:
-            return {}
-        return {"message_id": message_id}
+        preserved: dict[str, Any] = {}
+        if metadata.get("message_id") is not None:
+            preserved["message_id"] = metadata["message_id"]
+        if metadata.get("message_thread_id") is not None:
+            preserved["message_thread_id"] = metadata["message_thread_id"]
+        if "is_forum" in metadata:
+            preserved["is_forum"] = bool(metadata["is_forum"])
+        return preserved

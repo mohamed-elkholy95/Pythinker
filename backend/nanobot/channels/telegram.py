@@ -11,7 +11,7 @@ from typing import ClassVar
 
 from loguru import logger
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
-from telegram.error import NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
@@ -29,6 +29,7 @@ class _TelegramPreviewState:
     message_id: int | None = None
     last_sent_at: float = 0.0
     last_text: str = ""
+    reply_applied: bool = False
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -116,11 +117,16 @@ def _split_message(content: str, max_len: int = 4000) -> list[str]:
     return chunks
 
 
+_TELEGRAM_HTML_PARSE_ERR_RE = re.compile(r"can't parse entities|parse entities|find end of the entity", re.IGNORECASE)
+_TELEGRAM_THREAD_NOT_FOUND_RE = re.compile(r"message thread not found", re.IGNORECASE)
+_TELEGRAM_MESSAGE_NOT_MODIFIED_RE = re.compile(r"message is not modified", re.IGNORECASE)
+
+
 class TelegramChannel(BaseChannel):
     """
-    Telegram channel using long polling.
+    Telegram channel using polling or webhook delivery.
 
-    Simple and reliable - no webhook/public IP needed.
+    The transport mode is selected from config at startup.
     """
 
     name = "telegram"
@@ -158,7 +164,7 @@ class TelegramChannel(BaseChannel):
         self._shutdown_event: asyncio.Event = asyncio.Event()
 
     async def start(self) -> None:
-        """Start the Telegram bot with long polling."""
+        """Start the Telegram bot with polling or webhook delivery."""
         if not self.config.token:
             logger.error("Telegram bot token not configured")
             return
@@ -216,11 +222,38 @@ class TelegramChannel(BaseChannel):
         except Exception as e:
             logger.warning("Failed to register bot commands: {}", e)
 
-        # Start polling (this runs until stopped)
-        await self._app.updater.start_polling(
-            allowed_updates=["message", "callback_query"],
-            drop_pending_updates=True,  # Ignore old messages on startup
-        )
+        allowed_updates = ["message", "callback_query"]
+        if getattr(self.config, "webhook_mode", False):
+            secret_token = str(getattr(self.config, "webhook_secret", "") or "").strip()
+            if not secret_token:
+                logger.error("Telegram webhook mode requires webhook_secret")
+                return
+
+            webhook_path = str(getattr(self.config, "webhook_path", "/telegram-webhook") or "/telegram-webhook")
+            webhook_host = str(getattr(self.config, "webhook_host", "127.0.0.1") or "127.0.0.1")
+            webhook_port = int(getattr(self.config, "webhook_port", 8787))
+            webhook_url = str(getattr(self.config, "webhook_url", "") or "").strip() or None
+
+            await self._app.updater.start_webhook(
+                listen=webhook_host,
+                port=webhook_port,
+                url_path=webhook_path.lstrip("/"),
+                bootstrap_retries=int(getattr(self.config, "polling_bootstrap_retries", 5)),
+                webhook_url=webhook_url,
+                allowed_updates=allowed_updates,
+                drop_pending_updates=True,
+                secret_token=secret_token,
+            )
+        else:
+            try:
+                await self._app.bot.delete_webhook(drop_pending_updates=True)
+            except Exception as exc:
+                logger.debug("Telegram delete_webhook before polling failed: {}", exc)
+
+            await self._app.updater.start_polling(
+                allowed_updates=allowed_updates,
+                drop_pending_updates=True,
+            )
 
         # Keep running until stopped
         if not self._running:
@@ -244,6 +277,11 @@ class TelegramChannel(BaseChannel):
 
         if self._app:
             logger.info("Stopping Telegram bot...")
+            if getattr(self.config, "webhook_mode", False):
+                try:
+                    await self._app.bot.delete_webhook(drop_pending_updates=False)
+                except Exception as exc:
+                    logger.debug("Telegram delete_webhook during shutdown failed: {}", exc)
             await self._app.updater.stop()
             await self._app.stop()
             await self._app.shutdown()
@@ -261,6 +299,204 @@ class TelegramChannel(BaseChannel):
             return "audio"
         return "document"
 
+    @staticmethod
+    def _normalize_streaming_mode(value: object) -> str:
+        """Normalize Telegram preview streaming mode to the OpenClaw runtime set."""
+        if isinstance(value, bool):
+            return "partial" if value else "off"
+        normalized = str(value or "").strip().lower()
+        if normalized == "progress":
+            return "partial"
+        if normalized in {"off", "partial", "block"}:
+            return normalized
+        return "partial"
+
+    def _reply_to_mode(self) -> str:
+        """Resolve Telegram reply threading mode, preserving the legacy boolean flag."""
+        mode = str(getattr(self.config, "reply_to_mode", "") or "").strip().lower()
+        if getattr(self.config, "reply_to_message", False):
+            if mode == "all":
+                return "all"
+            return "first"
+        if mode in {"off", "first", "all"}:
+            return mode
+        return "off"
+
+    @staticmethod
+    def _normalize_message_id(value: object) -> int | None:
+        """Parse a Telegram message/thread id into a positive integer."""
+        if isinstance(value, bool):
+            return None
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            return None
+        return normalized if normalized > 0 else None
+
+    @classmethod
+    def _reply_parameters_for_metadata(cls, metadata: dict[str, object], reply_to_mode: str) -> ReplyParameters | None:
+        """Build ReplyParameters for the source message when reply threading is enabled."""
+        if reply_to_mode == "off":
+            return None
+        message_id = cls._normalize_message_id(metadata.get("message_id"))
+        if message_id is None:
+            return None
+        return ReplyParameters(message_id=message_id, allow_sending_without_reply=True)
+
+    @staticmethod
+    def _should_include_reply_for_send(
+        reply_to_mode: str,
+        *,
+        reply_applied: bool,
+    ) -> bool:
+        """Return whether the next physical Telegram send should include reply parameters."""
+        return reply_to_mode == "all" or (reply_to_mode == "first" and not reply_applied)
+
+    @staticmethod
+    def _resolve_outbound_message_thread_id(metadata: dict[str, object]) -> int | None:
+        """Resolve Telegram outbound thread param, omitting the General forum topic id=1."""
+        thread_id = TelegramChannel._normalize_message_id(metadata.get("message_thread_id"))
+        if thread_id is None:
+            return None
+        if bool(metadata.get("is_forum")) and thread_id == 1:
+            return None
+        return thread_id
+
+    @staticmethod
+    def _format_bad_request(exc: BadRequest) -> str:
+        """Normalize PTB BadRequest messages for pattern matching."""
+        return str(exc).strip()
+
+    @classmethod
+    def _is_html_parse_error(cls, exc: BadRequest) -> bool:
+        return bool(_TELEGRAM_HTML_PARSE_ERR_RE.search(cls._format_bad_request(exc)))
+
+    @classmethod
+    def _is_thread_not_found_error(cls, exc: BadRequest) -> bool:
+        return bool(_TELEGRAM_THREAD_NOT_FOUND_RE.search(cls._format_bad_request(exc)))
+
+    @classmethod
+    def _is_message_not_modified_error(cls, exc: BadRequest) -> bool:
+        return bool(_TELEGRAM_MESSAGE_NOT_MODIFIED_RE.search(cls._format_bad_request(exc)))
+
+    @staticmethod
+    def _without_message_thread_id(kwargs: dict[str, object]) -> dict[str, object]:
+        next_kwargs = dict(kwargs)
+        next_kwargs.pop("message_thread_id", None)
+        return next_kwargs
+
+    async def _send_with_thread_fallback(self, sender, **kwargs):
+        """Retry one Telegram send without message_thread_id when the thread no longer exists."""
+        try:
+            return await self._send_with_retry(sender, **kwargs)
+        except BadRequest as exc:
+            if "message_thread_id" not in kwargs or not self._is_thread_not_found_error(exc):
+                raise
+            logger.warning("Telegram thread not found; retrying without message_thread_id")
+            fallback_kwargs = self._without_message_thread_id(kwargs)
+            return await self._send_with_retry(sender, **fallback_kwargs)
+
+    async def _send_text_with_fallback(
+        self,
+        *,
+        sender,
+        text: str,
+        plain_text: str | None = None,
+        parse_mode: str | None = None,
+        allow_thread_fallback: bool = False,
+        ignore_not_modified: bool = False,
+        **kwargs,
+    ):
+        """Send or edit Telegram text, retrying plain text on HTML parse failures."""
+        send_kwargs = dict(kwargs)
+        send_kwargs["text"] = text
+        if parse_mode == "HTML":
+            send_kwargs["parse_mode"] = "HTML"
+
+        try:
+            if allow_thread_fallback:
+                return await self._send_with_thread_fallback(sender, **send_kwargs)
+            return await self._send_with_retry(sender, **send_kwargs)
+        except BadRequest as exc:
+            if ignore_not_modified and self._is_message_not_modified_error(exc):
+                return None
+            if parse_mode != "HTML" or not self._is_html_parse_error(exc):
+                raise
+
+            fallback_kwargs = dict(send_kwargs)
+            fallback_kwargs.pop("parse_mode", None)
+            fallback_kwargs["text"] = plain_text if plain_text is not None else text
+            if allow_thread_fallback:
+                return await self._send_with_thread_fallback(sender, **fallback_kwargs)
+            try:
+                return await self._send_with_retry(sender, **fallback_kwargs)
+            except BadRequest as fallback_exc:
+                if ignore_not_modified and self._is_message_not_modified_error(fallback_exc):
+                    return None
+                raise
+
+    async def _send_media_with_fallback(
+        self,
+        *,
+        sender,
+        caption_plain: str | None = None,
+        parse_mode: str | None = None,
+        allow_thread_fallback: bool = False,
+        **kwargs,
+    ):
+        """Send Telegram media, retrying without HTML parse mode when captions fail."""
+        send_kwargs = dict(kwargs)
+        if parse_mode == "HTML" and caption_plain:
+            send_kwargs["parse_mode"] = "HTML"
+
+        try:
+            if allow_thread_fallback:
+                return await self._send_with_thread_fallback(sender, **send_kwargs)
+            return await self._send_with_retry(sender, **send_kwargs)
+        except BadRequest as exc:
+            if parse_mode != "HTML" or not caption_plain or not self._is_html_parse_error(exc):
+                raise
+            fallback_kwargs = dict(send_kwargs)
+            fallback_kwargs.pop("parse_mode", None)
+            fallback_kwargs["caption"] = caption_plain
+            if allow_thread_fallback:
+                return await self._send_with_thread_fallback(sender, **fallback_kwargs)
+            return await self._send_with_retry(sender, **fallback_kwargs)
+
+    @classmethod
+    def _build_inbound_delivery_context(cls, message, user) -> tuple[dict[str, object], str]:
+        """Build OpenClaw-style Telegram routing context for inbound messages."""
+        chat = getattr(message, "chat", None)
+        chat_type = getattr(chat, "type", None)
+        is_group = chat_type in {"group", "supergroup"}
+        is_forum = bool(getattr(chat, "is_forum", False))
+        raw_thread_id = cls._normalize_message_id(getattr(message, "message_thread_id", None))
+        resolved_forum_thread_id = raw_thread_id if raw_thread_id is not None else 1 if is_forum else None
+
+        metadata: dict[str, object] = {
+            "message_id": getattr(message, "message_id", None),
+            "user_id": getattr(user, "id", None),
+            "username": getattr(user, "username", None),
+            "first_name": getattr(user, "first_name", None),
+            "is_group": is_group,
+            "is_forum": is_forum,
+        }
+        if is_forum and resolved_forum_thread_id is not None:
+            metadata["message_thread_id"] = resolved_forum_thread_id
+        elif not is_group and raw_thread_id is not None:
+            metadata["message_thread_id"] = raw_thread_id
+
+        chat_id = str(message.chat_id)
+        if is_group:
+            if resolved_forum_thread_id is not None:
+                return metadata, f"telegram:group:{chat_id}:topic:{resolved_forum_thread_id}"
+            return metadata, f"telegram:group:{chat_id}"
+
+        direct_peer_id = str(getattr(user, "id", "") or chat_id)
+        if raw_thread_id is not None:
+            return metadata, f"telegram:direct:{direct_peer_id}:thread:{chat_id}:{raw_thread_id}"
+        return metadata, f"telegram:direct:{direct_peer_id}"
+
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Telegram."""
         if not self._app:
@@ -276,12 +512,9 @@ class TelegramChannel(BaseChannel):
             return
 
         metadata = msg.metadata or {}
-        reply_params = None
-        if self.config.reply_to_message:
-            reply_to_message_id = metadata.get("message_id")
-            if reply_to_message_id:
-                reply_params = ReplyParameters(message_id=reply_to_message_id, allow_sending_without_reply=True)
-
+        reply_to_mode = self._reply_to_mode()
+        base_reply_params = self._reply_parameters_for_metadata(metadata, reply_to_mode)
+        message_thread_id = self._resolve_outbound_message_thread_id(metadata)
         parse_mode = str(metadata.get("parse_mode", "HTML"))
         delivery_mode = str(metadata.get("delivery_mode", "text"))
         reply_markup = self._coerce_reply_markup(metadata.get("reply_markup"))
@@ -290,15 +523,25 @@ class TelegramChannel(BaseChannel):
         caption_value = str(metadata.get("caption", msg.content or ""))
         caption_sent = False
         media_success = True
+        allow_thread_fallback = message_thread_id is not None and not bool(metadata.get("is_forum"))
+        preview_state = self._preview_states.get(self._preview_key(msg))
+        reply_applied = preview_state.reply_applied if preview_state is not None else False
 
         if bool(metadata.get("_progress")) and bool(metadata.get("_telegram_stream")):
             if not self._is_stream_preview_message(msg):
                 return
+            preview_reply_params = (
+                base_reply_params
+                if self._should_include_reply_for_send(reply_to_mode, reply_applied=reply_applied)
+                else None
+            )
             await self._send_or_edit_preview(
                 msg,
                 chat_id=chat_id,
                 parse_mode=parse_mode,
-                reply_params=reply_params,
+                reply_params=preview_reply_params,
+                message_thread_id=message_thread_id,
+                allow_thread_fallback=allow_thread_fallback,
             )
             return
 
@@ -329,11 +572,18 @@ class TelegramChannel(BaseChannel):
 
                 send_kwargs: dict[str, object] = {
                     "chat_id": chat_id,
-                    "reply_parameters": reply_params,
                 }
+                current_reply_params = (
+                    base_reply_params
+                    if self._should_include_reply_for_send(reply_to_mode, reply_applied=reply_applied)
+                    else None
+                )
+                if current_reply_params is not None:
+                    send_kwargs["reply_parameters"] = current_reply_params
+                if message_thread_id is not None:
+                    send_kwargs["message_thread_id"] = message_thread_id
                 if media_type == "document" and not caption_sent and caption_value:
                     send_kwargs["caption"] = caption_value[:1024]
-                    send_kwargs["parse_mode"] = parse_mode
                     if reply_markup is not None:
                         send_kwargs["reply_markup"] = reply_markup
                     caption_sent = True
@@ -342,17 +592,40 @@ class TelegramChannel(BaseChannel):
                     cached_file_id = await self._get_cached_pdf_file_id(content_hash)
                     if cached_file_id:
                         send_kwargs[param] = cached_file_id
-                        await self._send_with_retry(sender, **send_kwargs)
+                        await self._send_media_with_fallback(
+                            sender=sender,
+                            parse_mode=parse_mode,
+                            caption_plain=caption_value[:1024] if caption_sent and caption_value else None,
+                            allow_thread_fallback=allow_thread_fallback,
+                            **send_kwargs,
+                        )
+                        if current_reply_params is not None:
+                            reply_applied = True
                         continue
 
                 if "://" in media_path:
                     send_kwargs[param] = media_path
-                    response = await self._send_with_retry(sender, **send_kwargs)
+                    response = await self._send_media_with_fallback(
+                        sender=sender,
+                        parse_mode=parse_mode,
+                        caption_plain=caption_value[:1024] if caption_sent and caption_value else None,
+                        allow_thread_fallback=allow_thread_fallback,
+                        **send_kwargs,
+                    )
                 else:
                     # PTB expects a live file handle for local uploads during the awaited send call.
                     with open(media_path, "rb") as handle:  # noqa: ASYNC230
                         send_kwargs[param] = handle
-                        response = await self._send_with_retry(sender, **send_kwargs)
+                        response = await self._send_media_with_fallback(
+                            sender=sender,
+                            parse_mode=parse_mode,
+                            caption_plain=caption_value[:1024] if caption_sent and caption_value else None,
+                            allow_thread_fallback=allow_thread_fallback,
+                            **send_kwargs,
+                        )
+
+                if current_reply_params is not None:
+                    reply_applied = True
 
                 if media_type == "document" and content_hash:
                     response_document = getattr(response, "document", None)
@@ -364,11 +637,14 @@ class TelegramChannel(BaseChannel):
                 media_success = False
                 logger.error("Failed to send media {}: {}", media_path, exc)
                 try:
-                    await self._send_with_retry(
-                        self._app.bot.send_message,
-                        chat_id=chat_id,
+                    await self._send_text_with_fallback(
+                        sender=self._app.bot.send_message,
                         text=f"[Failed to send: {filename}]",
-                        reply_parameters=reply_params,
+                        plain_text=f"[Failed to send: {filename}]",
+                        chat_id=chat_id,
+                        reply_parameters=current_reply_params,
+                        message_thread_id=message_thread_id,
+                        allow_thread_fallback=allow_thread_fallback,
                     )
                 except Exception as fallback_exc:
                     logger.error("Failed to send Telegram media error notice: {}", fallback_exc)
@@ -382,24 +658,25 @@ class TelegramChannel(BaseChannel):
             max_chunks = max(1, int(getattr(self.config, "max_messages_per_batch", 5)))
             for index, chunk in enumerate(_split_message(msg.content)[:max_chunks]):
                 try:
-                    if parse_mode == "HTML":
-                        payload_text = _markdown_to_telegram_html(chunk)
-                        await self._send_with_retry(
-                            self._app.bot.send_message,
-                            chat_id=chat_id,
-                            text=payload_text,
-                            parse_mode="HTML",
-                            reply_parameters=reply_params,
-                            reply_markup=reply_markup if index == 0 else None,
-                        )
-                    else:
-                        await self._send_with_retry(
-                            self._app.bot.send_message,
-                            chat_id=chat_id,
-                            text=chunk,
-                            reply_parameters=reply_params,
-                            reply_markup=reply_markup if index == 0 else None,
-                        )
+                    payload_text = _markdown_to_telegram_html(chunk) if parse_mode == "HTML" else chunk
+                    current_reply_params = (
+                        base_reply_params
+                        if self._should_include_reply_for_send(reply_to_mode, reply_applied=reply_applied)
+                        else None
+                    )
+                    await self._send_text_with_fallback(
+                        sender=self._app.bot.send_message,
+                        text=payload_text,
+                        plain_text=chunk,
+                        parse_mode=parse_mode if parse_mode == "HTML" else None,
+                        chat_id=chat_id,
+                        reply_parameters=current_reply_params,
+                        reply_markup=reply_markup if index == 0 else None,
+                        message_thread_id=message_thread_id,
+                        allow_thread_fallback=allow_thread_fallback,
+                    )
+                    if current_reply_params is not None:
+                        reply_applied = True
                 except Exception as exc:
                     logger.error("Error sending Telegram text chunk: {}", exc)
                     break
@@ -408,11 +685,23 @@ class TelegramChannel(BaseChannel):
 
     async def _send_with_retry(self, sender, **kwargs):
         """Send with RetryAfter/transient retry handling."""
-        max_attempts = 3
-        base_delay = max(1, int(getattr(self.config, "rate_limit_cooldown_seconds", 3)))
+        max_attempts = max(1, int(getattr(self.config, "send_retry_max_attempts", 3)))
+        base_delay = max(
+            0.1,
+            float(
+                getattr(
+                    self.config,
+                    "send_retry_base_delay_seconds",
+                    getattr(self.config, "rate_limit_cooldown_seconds", 3),
+                )
+            ),
+        )
+        max_delay = max(base_delay, float(getattr(self.config, "send_retry_max_delay_seconds", 30.0)))
         for attempt in range(max_attempts):
             try:
                 return await sender(**kwargs)
+            except BadRequest:
+                raise
             except RetryAfter as exc:
                 retry_after = exc.retry_after
                 seconds = (
@@ -424,7 +713,7 @@ class TelegramChannel(BaseChannel):
             except (TimedOut, NetworkError, OSError) as exc:
                 if attempt >= max_attempts - 1:
                     raise
-                backoff = float(base_delay * (attempt + 1))
+                backoff = min(max_delay, float(base_delay * (attempt + 1)))
                 logger.warning("Telegram transient send error (attempt {}): {}", attempt + 1, exc)
                 await asyncio.sleep(backoff)
         raise RuntimeError("Telegram send retries exhausted")
@@ -433,7 +722,7 @@ class TelegramChannel(BaseChannel):
         """Return whether an outbound is a streamed Telegram preview delta."""
         metadata = msg.metadata or {}
         return (
-            str(getattr(self.config, "streaming", "partial")).lower() != "off"
+            self._normalize_streaming_mode(getattr(self.config, "streaming", "partial")) != "off"
             and bool(metadata.get("_progress"))
             and bool(metadata.get("_telegram_stream"))
         )
@@ -455,6 +744,8 @@ class TelegramChannel(BaseChannel):
         chat_id: int,
         parse_mode: str,
         reply_params: ReplyParameters | None,
+        message_thread_id: int | None,
+        allow_thread_fallback: bool,
     ) -> None:
         """Accumulate stream deltas into a single preview message."""
         if not self._app:
@@ -495,31 +786,30 @@ class TelegramChannel(BaseChannel):
             return
 
         if state.message_id is None:
-            send_kwargs: dict[str, object] = {
-                "chat_id": chat_id,
-                "text": rendered_text,
-                "reply_parameters": reply_params,
-            }
-            if parse_mode == "HTML":
-                send_kwargs["parse_mode"] = "HTML"
-            sent_message = await self._send_with_retry(
-                self._app.bot.send_message,
-                **send_kwargs,
+            sent_message = await self._send_text_with_fallback(
+                sender=self._app.bot.send_message,
+                text=rendered_text,
+                plain_text=state.content,
+                parse_mode=parse_mode if parse_mode == "HTML" else None,
+                chat_id=chat_id,
+                reply_parameters=reply_params,
+                message_thread_id=message_thread_id,
+                allow_thread_fallback=allow_thread_fallback,
             )
             sent_message_id = getattr(sent_message, "message_id", None)
             if isinstance(sent_message_id, int):
                 state.message_id = sent_message_id
+            if reply_params is not None:
+                state.reply_applied = True
         else:
-            edit_kwargs: dict[str, object] = {
-                "chat_id": chat_id,
-                "message_id": state.message_id,
-                "text": rendered_text,
-            }
-            if parse_mode == "HTML":
-                edit_kwargs["parse_mode"] = "HTML"
-            await self._send_with_retry(
-                self._app.bot.edit_message_text,
-                **edit_kwargs,
+            await self._send_text_with_fallback(
+                sender=self._app.bot.edit_message_text,
+                text=rendered_text,
+                plain_text=state.content,
+                parse_mode=parse_mode if parse_mode == "HTML" else None,
+                chat_id=chat_id,
+                message_id=state.message_id,
+                ignore_not_modified=True,
             )
 
         state.last_text = rendered_text
@@ -549,17 +839,15 @@ class TelegramChannel(BaseChannel):
             return False
 
         if rendered_text != state.last_text:
-            edit_kwargs: dict[str, object] = {
-                "chat_id": chat_id,
-                "message_id": state.message_id,
-                "text": rendered_text,
-                "reply_markup": reply_markup,
-            }
-            if parse_mode == "HTML":
-                edit_kwargs["parse_mode"] = "HTML"
-            await self._send_with_retry(
-                self._app.bot.edit_message_text,
-                **edit_kwargs,
+            await self._send_text_with_fallback(
+                sender=self._app.bot.edit_message_text,
+                text=rendered_text,
+                plain_text=msg.content,
+                parse_mode=parse_mode if parse_mode == "HTML" else None,
+                chat_id=chat_id,
+                message_id=state.message_id,
+                reply_markup=reply_markup,
+                ignore_not_modified=True,
             )
 
         self._preview_states.pop(self._preview_key(msg), None)
@@ -686,6 +974,7 @@ class TelegramChannel(BaseChannel):
         """Handle /start command."""
         if not update.message or not update.effective_user:
             return
+        metadata, session_key = self._build_inbound_delivery_context(update.message, update.effective_user)
 
         # PYTHINKER-PATCH: Telegram deep link `/start bind_<CODE>` must be
         # forwarded to the bus so MessageRouter can normalize it to `/link CODE`.
@@ -696,6 +985,8 @@ class TelegramChannel(BaseChannel):
                     sender_id=self._sender_id(update.effective_user),
                     chat_id=str(update.message.chat_id),
                     content=f"/start {payload}",
+                    metadata=metadata,
+                    session_key=session_key,
                 )
                 return
 
@@ -751,12 +1042,16 @@ class TelegramChannel(BaseChannel):
 
     async def _forward_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Forward slash commands to the bus for unified handling in AgentLoop."""
+        del context
         if not update.message or not update.effective_user:
             return
+        metadata, session_key = self._build_inbound_delivery_context(update.message, update.effective_user)
         await self._handle_message(
             sender_id=self._sender_id(update.effective_user),
             chat_id=str(update.message.chat_id),
             content=update.message.text,
+            metadata=metadata,
+            session_key=session_key,
         )
 
     async def _on_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -769,17 +1064,21 @@ class TelegramChannel(BaseChannel):
         data = (callback.data or "").strip()
         await callback.answer()
 
-        if data != "telegram:get_pdf:last":
+        if not data:
             return
 
         user = callback.from_user
         if user is None or callback.message is None:
             return
 
+        content = "/pdf" if data == "telegram:get_pdf:last" else data
+        metadata, session_key = self._build_inbound_delivery_context(callback.message, user)
         await self._handle_message(
             sender_id=self._sender_id(user),
             chat_id=str(callback.message.chat_id),
-            content="/pdf",
+            content=content,
+            metadata=metadata,
+            session_key=session_key,
         )
 
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -863,6 +1162,7 @@ class TelegramChannel(BaseChannel):
         logger.debug("Telegram message from {}: {}...", sender_id, content[:50])
 
         str_chat_id = str(chat_id)
+        metadata, session_key = self._build_inbound_delivery_context(message, user)
 
         # Telegram media groups: buffer briefly, forward as one aggregated turn.
         if media_group_id := getattr(message, "media_group_id", None):
@@ -873,13 +1173,8 @@ class TelegramChannel(BaseChannel):
                     "chat_id": str_chat_id,
                     "contents": [],
                     "media": [],
-                    "metadata": {
-                        "message_id": message.message_id,
-                        "user_id": user.id,
-                        "username": user.username,
-                        "first_name": user.first_name,
-                        "is_group": message.chat.type != "private",
-                    },
+                    "metadata": metadata,
+                    "session_key": session_key,
                 }
                 self._start_typing(str_chat_id)
             buf = self._media_group_buffers[key]
@@ -899,13 +1194,8 @@ class TelegramChannel(BaseChannel):
             chat_id=str_chat_id,
             content=content,
             media=media_paths,
-            metadata={
-                "message_id": message.message_id,
-                "user_id": user.id,
-                "username": user.username,
-                "first_name": user.first_name,
-                "is_group": message.chat.type != "private",
-            },
+            metadata=metadata,
+            session_key=session_key,
         )
 
     async def _flush_media_group(self, key: str) -> None:
@@ -921,6 +1211,7 @@ class TelegramChannel(BaseChannel):
                 content=content,
                 media=list(dict.fromkeys(buf["media"])),
                 metadata=buf["metadata"],
+                session_key=buf["session_key"],
             )
         finally:
             self._media_group_tasks.pop(key, None)
