@@ -20,7 +20,7 @@
 - **Task 4 (Playwright Mermaid rendering parity): Completed**
 - **Task 5 (ReportLab and factory regression coverage): Completed**
 - **Task 6 (PDF spider skip regression coverage): Completed**
-- **Task 7 (repo-wide verification and merge): In Progress**
+- **Task 7 (repo-wide verification and merge): Completed**
 
 ---
 
@@ -126,7 +126,7 @@ The plan should therefore not re-implement those features. It should only close 
 
 ### Task 7: Complete repo-wide verification before merge
 
-**Status:** In Progress
+**Status:** Completed
 
 **Required verification gates:**
 1. Backend: `ruff check .`
@@ -137,7 +137,7 @@ The plan should therefore not re-implement those features. It should only close 
 6. Frontend: `bun run test:run`
 7. Sandbox: Mermaid CLI runtime smoke render
 
-This task is only complete once the branch is verified and merged without changing the tested tree.
+This task was completed after the rebased branch was verified and then fast-forward merged into `main` without changing the tested tree.
 
 ---
 
