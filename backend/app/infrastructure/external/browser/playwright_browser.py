@@ -217,6 +217,17 @@ class PlaywrightBrowser:
         self._current_viewport: dict[str, int] = DEFAULT_VIEWPORT
         self._current_timezone: str = DEFAULT_TIMEZONE
 
+        # Shutdown guard — prevents spurious reconnect on intentional cleanup
+        self._shutting_down: bool = False
+        # CDP keepalive task — periodic JS eval to prevent idle WebSocket disconnects
+        self._keepalive_task: asyncio.Task | None = None
+        self._keepalive_enabled: bool = self._safe_bool(
+            getattr(self.settings, "browser_cdp_keepalive_enabled", True), True
+        )
+        self._keepalive_interval: float = self._safe_float(
+            getattr(self.settings, "browser_cdp_keepalive_interval", 45.0), 45.0, minimum=5.0
+        )
+
         # Recovery callback — set by BrowserTool to emit progress events on reconnect
         self._recovery_callback: Callable[[], Awaitable[None]] | None = None
 
@@ -1134,18 +1145,17 @@ class PlaywrightBrowser:
         Different from page.on('crash') which only fires for renderer crashes.
         This catches browser process death (kill -9, OOM killer, supervisord restart).
 
-        Schedules a proactive reconnect so the browser is ready before the next
-        user operation rather than waiting for a lazy reconnect on demand.
+        Skips reconnect during intentional shutdown (cleanup/close) to prevent
+        task leaks and false reconnect noise.
         """
+        if self._shutting_down:
+            logger.debug("Browser disconnected during intentional shutdown; skipping reconnect")
+            return
+
         logger.error(f"Browser disconnected (CDP: {self.cdp_url}) - marking connection unhealthy")
         self._connection_healthy = False
-        try:
-            loop = asyncio.get_running_loop()
-            task = loop.create_task(self._proactive_reconnect())
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
-        except RuntimeError:
-            pass  # No running event loop; reconnect will happen lazily on next operation
+        with contextlib.suppress(RuntimeError):
+            self._track_background_task(self._proactive_reconnect())
 
     async def _proactive_reconnect(self, delay: float = 3.0) -> None:
         """Reconnect after browser disconnect with a short delay.
@@ -1176,6 +1186,86 @@ class PlaywrightBrowser:
                         logger.debug(f"Recovery callback failed: {cb_err}")
         except Exception as e:
             logger.warning(f"Proactive reconnect failed (CDP: {self.cdp_url}): {e} — will retry on next operation")
+
+    # ── Background task lifecycle ──────────────────────────────────────
+
+    def _track_background_task(self, coro) -> asyncio.Task:
+        """Create a background task with automatic cleanup on completion."""
+        task = asyncio.get_running_loop().create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    async def _cancel_background_tasks(self) -> None:
+        """Cancel all outstanding background tasks (keepalive, reconnects, etc.)."""
+        tasks = [t for t in self._background_tasks if not t.done()]
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._background_tasks.clear()
+        self._keepalive_task = None
+
+    # ── CDP keepalive ───────────────────────────────────────────────────
+
+    def _start_keepalive(self) -> None:
+        """Start the CDP keepalive loop if enabled and not already running."""
+        if not self._keepalive_enabled:
+            return
+        if self._keepalive_task and not self._keepalive_task.done():
+            return  # Already running
+        try:
+            self._keepalive_task = self._track_background_task(self._keepalive_loop())
+            logger.debug("CDP keepalive started (interval=%.1fs)", self._keepalive_interval)
+        except RuntimeError:
+            pass  # No running event loop
+
+    async def _stop_keepalive(self) -> None:
+        """Stop the CDP keepalive loop."""
+        if self._keepalive_task and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._keepalive_task
+        self._keepalive_task = None
+
+    async def _keepalive_loop(self) -> None:
+        """Periodic keepalive loop — runs until cancelled."""
+        while True:
+            await asyncio.sleep(self._keepalive_interval)
+            if self._shutting_down:
+                return
+            await self._keepalive_ping()
+
+    async def _keepalive_ping(self) -> None:
+        """Send a single keepalive probe to the browser.
+
+        Skips when shutting down, already unhealthy, or navigation is in progress.
+        Treats 'Execution context was destroyed' as a navigation race (non-fatal).
+        """
+        if self._shutting_down:
+            return
+        if not self._connection_healthy:
+            return
+        if self._navigation_lock.locked():
+            logger.debug("Keepalive skipped: navigation in progress")
+            return
+        if self._is_page_closed(self.page):
+            return
+
+        try:
+            await asyncio.wait_for(
+                self.page.evaluate("() => true"),
+                timeout=self._quick_health_check_timeout,
+            )
+        except Exception as exc:
+            if "Execution context was destroyed" in str(exc):
+                logger.debug("Keepalive: execution context destroyed (navigation race) — non-fatal")
+                return
+            logger.warning("CDP keepalive probe failed: %s", exc)
+            self._connection_healthy = False
+            # Schedule proactive reconnect
+            with contextlib.suppress(RuntimeError):
+                self._track_background_task(self._proactive_reconnect())
 
     def is_healthy(self) -> bool:
         """Synchronous health check for fast-path routing.
@@ -1607,6 +1697,10 @@ class PlaywrightBrowser:
                 if attempt > 0:
                     await self._verify_and_reset_viewport()
 
+                # Reset shutdown flag and start keepalive
+                self._shutting_down = False
+                self._start_keepalive()
+
                 return True
 
             except Exception as e:
@@ -1662,8 +1756,12 @@ class PlaywrightBrowser:
         Closes pages, contexts, browser connection, and Playwright instance
         in the correct order to avoid resource leaks.
         """
+        self._shutting_down = True
         self._connection_healthy = False
         self._interactive_elements_cache = []
+
+        # Cancel keepalive and any other background tasks before closing browser
+        await self._cancel_background_tasks()
 
         try:
             # Close pages in all contexts
