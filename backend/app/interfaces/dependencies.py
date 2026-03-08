@@ -54,7 +54,15 @@ def build_pdf_renderer_from_settings(settings: Any):
     """Return the configured report PDF renderer with safe fallback."""
     from app.domain.services.pdf.reportlab_pdf_renderer import ReportLabPdfRenderer
 
-    reportlab_renderer = ReportLabPdfRenderer()
+    # Determine sandbox URL for Mermaid diagram rendering
+    sandbox_url = getattr(settings, "sandbox_address", None)
+    if sandbox_url:
+        if not sandbox_url.startswith("http"):
+            sandbox_url = f"http://{sandbox_url}"
+        if ":8080" not in sandbox_url and ":" not in sandbox_url.split("//", 1)[-1]:
+            sandbox_url = f"{sandbox_url}:8080"
+
+    reportlab_renderer = ReportLabPdfRenderer(sandbox_base_url=sandbox_url)
     renderer_choice = (getattr(settings, "telegram_pdf_renderer", "reportlab") or "reportlab").strip().lower()
 
     if renderer_choice == "playwright":
