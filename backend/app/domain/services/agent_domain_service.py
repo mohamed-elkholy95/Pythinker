@@ -205,6 +205,10 @@ class AgentDomainService:
         """Delegate to task factory."""
         return await self._task_factory.build_reactivation_context(session_id)
 
+    async def _build_reactivation_sources(self, session_id: str) -> list:
+        """Delegate to task factory."""
+        return await self._task_factory.build_reactivation_sources(session_id)
+
     # ------------------------------------------------------------------
     # Public interface (unchanged)
     # ------------------------------------------------------------------
@@ -530,6 +534,19 @@ class AgentDomainService:
                                         )
                                 except Exception as e:
                                     logger.warning(f"Reactivation context injection failed (non-fatal): {e}")
+
+                                # Hydrate persisted sources into the executor for grounding
+                                try:
+                                    reactivation_sources = await self._build_reactivation_sources(session_id)
+                                    if reactivation_sources:
+                                        task.hydrate_reactivation_sources(reactivation_sources)
+                                        logger.info(
+                                            "Hydrated %d persisted sources into reactivated task for session %s",
+                                            len(reactivation_sources),
+                                            session_id,
+                                        )
+                                except Exception as e:
+                                    logger.warning(f"Reactivation source hydration failed (non-fatal): {e}")
 
                             # Initialize workspace with template selection on first message
                             try:
