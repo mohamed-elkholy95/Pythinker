@@ -2,7 +2,9 @@
 
 from app.domain.services.agents.citation_integrity import (
     CitationIntegrityResult,
+    count_numbered_sources,
     normalize_citation_numbering,
+    parse_numbered_source_entries,
     repair_citations,
     validate_citations,
 )
@@ -215,3 +217,74 @@ class TestSourceRegistry:
         id1 = registry.register("https://Example.com/path/", "Source")
         id2 = registry.register("https://example.com/path", "Source 2")
         assert id1 == id2  # Same after normalization
+
+
+class TestParseNumberedSourceEntries:
+    """Tests for parse_numbered_source_entries() multiline handling."""
+
+    def test_single_line_entries(self):
+        source_list = "[1] Source A - https://a.example\n[2] Source B - https://b.example\n"
+        entries = parse_numbered_source_entries(source_list)
+        assert len(entries) == 2
+        assert "[1] Source A" in entries[1]
+        assert "[2] Source B" in entries[2]
+
+    def test_multiline_title(self):
+        source_list = (
+            "[1] Source Title Line 1\n"
+            "Continuation of title - https://one.example\n"
+            "[2] Source Two - https://two.example\n"
+        )
+        entries = parse_numbered_source_entries(source_list)
+        assert len(entries) == 2
+        assert "Continuation of title" in entries[1]
+        assert "[2] Source Two" in entries[2]
+
+    def test_count_numbered_sources(self):
+        source_list = (
+            "[1] Source Title Line 1\n"
+            "Continuation of title - https://one.example\n"
+            "[2] Source Two - https://two.example\n"
+        )
+        assert count_numbered_sources(source_list) == 2
+
+
+class TestAuthoritativeRepair:
+    """Tests for repair_citations() with authoritative source validation."""
+
+    def test_repair_citations_rebuilds_fake_reference_entries_from_authoritative_source_list(self):
+        report = (
+            "# Report\n\n"
+            "Claim text [1]\n\n"
+            "## References\n"
+            "[1] Fake Source - https://fake.example\n"
+        )
+        source_list = (
+            "[1] Real Source One - https://one.example\n"
+            "[2] Real Source Two - https://two.example\n"
+        )
+
+        repaired = repair_citations(report, source_list)
+
+        assert "Fake Source" not in repaired
+        assert "https://fake.example" not in repaired
+        assert "Real Source One" in repaired
+
+    def test_repair_preserves_valid_references(self):
+        """References matching authoritative entries should be preserved."""
+        report = (
+            "# Report\n\n"
+            "Claim [1]. Another [2].\n\n"
+            "## References\n"
+            "[1] Source A - https://a.example\n"
+            "[2] Source B - https://b.example\n"
+        )
+        source_list = (
+            "[1] Source A - https://a.example\n"
+            "[2] Source B - https://b.example\n"
+        )
+
+        repaired = repair_citations(report, source_list)
+
+        assert "Source A" in repaired
+        assert "Source B" in repaired
