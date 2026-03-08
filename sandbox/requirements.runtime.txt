@@ -62,7 +62,7 @@ pyee==13.0.0
 pyhanko==0.31.0
 pyhanko-certvalidator==0.29.0
 pyparsing==3.2.5
-pypdf==6.1.1
+pypdf==6.7.5
 pyphen==0.17.2
 python-bidi==0.6.6
 python-dateutil==2.9.0.post0
