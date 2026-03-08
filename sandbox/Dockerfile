@@ -98,7 +98,12 @@ RUN if [ "$TARGETARCH" = "arm64" ] && [ "$USE_CHROMIUM" != "1" ]; then \
 
 # Node CLI tools used by sandbox code-dev/test endpoints
 # yarn 1.22.22 matches the reference sandbox environment (report §3.1)
-RUN npm install -g prettier eslint typescript jest @types/node yarn@1.22.22
+RUN npm install -g prettier eslint typescript jest @types/node yarn@1.22.22 @mermaid-js/mermaid-cli
+
+# Mermaid CLI puppeteer config for containerized rendering
+COPY <<'EOF' /opt/mermaid-puppeteer.json
+{"args":["--no-sandbox","--disable-setuid-sandbox","--disable-gpu"]}
+EOF
 
 # Optional pnpm globals (add-ons profile)
 RUN mkdir -p ${PNPM_HOME} /home/ubuntu/.config/pnpm /home/ubuntu/.local/share/pnpm/global/5 /home/ubuntu/.pnpm-store/v10/projects && \
