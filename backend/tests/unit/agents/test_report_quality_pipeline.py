@@ -331,6 +331,40 @@ class TestSourceGroundingContext:
         assert "Repository overview with grounded browser text." in source.snippet
 
 
+    def test_build_source_context_uses_key_facts_when_collected_sources_empty(self):
+        """build_source_context() must return key_facts even when _collected_sources is empty."""
+        ov = _make_output_verifier()
+        ov._source_tracker._collected_sources = []
+        ov._context_manager._context.key_facts = [
+            "The browser visited https://example.com and extracted a grounded summary of the product page."
+        ]
+
+        result = ov.build_source_context()
+        assert result == [
+            "The browser visited https://example.com and extracted a grounded summary of the product page."
+        ]
+
+    @pytest.mark.asyncio
+    async def test_verify_hallucination_uses_specific_warning_when_no_grounding_context(self):
+        """When no grounding context exists at all, emit precise skip warning."""
+        ov = _make_output_verifier()
+        ov._source_tracker._collected_sources = []
+        ov._context_manager._context.key_facts = []
+
+        lettuce_result = _make_lettuce_result(ratio=0, span_count=0, skipped=True)
+        mock_verifier = MagicMock()
+        mock_verifier.verify.return_value = lettuce_result
+
+        with patch(
+            "app.domain.services.agents.lettuce_verifier.get_lettuce_verifier",
+            return_value=mock_verifier,
+        ):
+            result = await ov.verify_hallucination("# Report\n\nContent.", "query")
+
+        assert result.skipped is True
+        assert result.warnings == ["hallucination_verification_skipped_no_grounding_context"]
+
+
 class TestTruncationNoticeHeader:
     def test_has_truncation_artifacts_delegate(self):
         """ExecutionAgent._has_truncation_artifacts must delegate to ResponseGenerator."""
