@@ -388,7 +388,10 @@ class TelegramDeliveryPolicy:
         message_id = source.metadata.get("message_id")
         if message_id is None:
             return {}
-        return {"message_id": message_id}
+        metadata: dict[str, object] = {"message_id": message_id}
+        if "is_group" in source.metadata:
+            metadata["is_group"] = bool(source.metadata["is_group"])
+        return metadata
 
     def _build_caption(self, *, title: str, content: str) -> str:
         title_html = html.escape(title.strip() or "Report")
