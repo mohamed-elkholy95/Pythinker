@@ -140,6 +140,7 @@ class ResponseGenerator:
     """
 
     __slots__ = (
+        "_artifact_references",
         "_coalesce_flush_seconds",
         "_coalesce_max_chars",
         "_coalesce_pending",
@@ -172,6 +173,7 @@ class ResponseGenerator:
         self._coalesce_flush_seconds = coalesce_flush_seconds
 
         # Mutable state (set per-run by the caller)
+        self._artifact_references: list[dict[str, str]] = []
         self._pre_trim_report_cache: str | None = None
         self._user_request: str | None = None
         self._coalesce_pending: str = ""  # Unflushed buffer for error recovery
@@ -183,6 +185,55 @@ class ResponseGenerator:
 
     def set_user_request(self, request: str | None) -> None:
         self._user_request = request
+
+    def set_artifact_references(self, references: list[dict[str, Any]] | None) -> None:
+        """Set normalized artifact references for delivery-integrity repairs."""
+        normalized: list[dict[str, str]] = []
+        seen_filenames: set[str] = set()
+
+        for reference in references or []:
+            if not isinstance(reference, dict):
+                continue
+
+            filename = str(
+                reference.get("filename")
+                or reference.get("file_name")
+                or reference.get("path")
+                or reference.get("file_path")
+                or ""
+            ).strip()
+            if not filename or filename in seen_filenames:
+                continue
+
+            seen_filenames.add(filename)
+            normalized_reference = {"filename": filename}
+
+            content_type = str(reference.get("content_type") or "").strip()
+            if content_type:
+                normalized_reference["content_type"] = content_type
+
+            file_path = str(reference.get("file_path") or reference.get("storage_key") or "").strip()
+            if file_path:
+                normalized_reference["file_path"] = file_path
+
+            normalized.append(normalized_reference)
+
+        self._artifact_references = normalized
+
+    def _artifact_references_section(self) -> str:
+        """Render a deterministic artifact reference section."""
+        if not self._artifact_references:
+            return "## Artifact References\n- No file artifacts were created or referenced in this response."
+
+        lines: list[str] = []
+        for reference in self._artifact_references:
+            line = f"- `{reference['filename']}`"
+            content_type = reference.get("content_type")
+            if content_type:
+                line += f" ({content_type})"
+            lines.append(line)
+
+        return "## Artifact References\n" + "\n".join(lines)
 
     # ── Stream Helpers ─────────────────────────────────────────────────
 
@@ -470,6 +521,9 @@ class ResponseGenerator:
             else:
                 warnings.append("coverage_relevance_low")
 
+        if self._artifact_references and _BOILERPLATE_ARTIFACT_REFS_RE.search(content):
+            issues.append("coverage_missing:artifact references")
+
         if additional_warnings:
             warnings.extend(additional_warnings)
         if additional_issues:
@@ -592,7 +646,7 @@ class ResponseGenerator:
         if "final result" in missing:
             sections.append("## Final Result\nThe requested work has been completed as summarized above.")
         if "artifact references" in missing:
-            sections.append("## Artifact References\n- No file artifacts were created or referenced in this response.")
+            sections.append(self._artifact_references_section())
         if "key caveat" in missing:
             sections.append("## Key Caveat\n- Validate the output with targeted checks before relying on it.")
         if "next step" in missing:

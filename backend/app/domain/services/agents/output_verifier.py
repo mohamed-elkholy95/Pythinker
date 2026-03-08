@@ -163,10 +163,7 @@ class OutputVerifier:
         # extracted details from browser visits and tool results that aren't
         # captured in source tracker snippets.
         if hasattr(self._context_manager, "_context") and self._context_manager._context.key_facts:
-            chunks.extend(
-                fact for fact in self._context_manager._context.key_facts
-                if fact and len(fact) > 20
-            )
+            chunks.extend(fact for fact in self._context_manager._context.key_facts if fact and len(fact) > 20)
 
         return chunks
 
@@ -454,7 +451,7 @@ class OutputVerifier:
                     # - >block_threshold: blocking issue + disclaimer
                     # - warn_threshold-block_threshold: reliability notice (non-blocking)
                     # - <warn_threshold: pass through (noise-level, not actionable)
-                    _block_threshold = getattr(settings, "hallucination_block_threshold", 0.30)
+                    _block_threshold = getattr(settings, "hallucination_block_threshold", 0.15)
                     _warn_threshold = getattr(settings, "hallucination_warn_threshold", 0.10)
                     if lettuce_result.hallucination_ratio > _block_threshold:
                         disclaimer = (
