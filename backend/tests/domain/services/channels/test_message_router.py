@@ -121,6 +121,7 @@ def _make_inbound(
     sender_id: str = "tg-user-42",
     chat_id: str = "tg-chat-99",
     session_key_override: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> InboundMessage:
     return InboundMessage(
         channel=channel,
@@ -128,6 +129,7 @@ def _make_inbound(
         chat_id=chat_id,
         content=content,
         session_key_override=session_key_override,
+        metadata=metadata or {},
     )
 
 
@@ -565,18 +567,71 @@ class TestRouteInbound:
         replies = [r async for r in router.route_inbound(inbound)]
 
         assert len(replies) == 3
-        assert replies[0].content == ""
+        assert replies[0].content == "Thinking"
         assert replies[0].metadata["message_id"] == 777
         assert replies[0].metadata["_progress"] is True
         assert replies[0].metadata["_telegram_stream"] is True
         assert replies[0].metadata["_telegram_stream_phase"] == "thinking"
         assert replies[0].metadata["_telegram_stream_final"] is False
-        assert replies[0].metadata["_telegram_stream_preview_text"] == "Working on it..."
-        assert replies[1].content == ""
+        assert "_telegram_stream_preview_text" not in replies[0].metadata
+        assert replies[1].content == " more"
         assert replies[1].metadata["message_id"] == 777
-        assert replies[1].metadata["_telegram_stream_preview_text"] == "Working on it..."
+        assert "_telegram_stream_preview_text" not in replies[1].metadata
         assert replies[-1].metadata["message_id"] == 777
         assert replies[-1].content == "Final answer"
+
+    @pytest.mark.asyncio
+    async def test_telegram_streaming_progress_alias_matches_partial_behavior(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(
+            events=[
+                StreamEvent(content="Thinking", is_final=False, phase="thinking"),
+                _DynamicMessageEvent("Final answer"),
+            ]
+        )
+        router = MessageRouter(
+            agent_svc,
+            repo,
+            telegram_final_delivery_only=True,
+            telegram_streaming="progress",
+        )
+
+        inbound = _make_inbound("Run task", metadata={"message_id": 777})
+        replies = [r async for r in router.route_inbound(inbound)]
+
+        assert len(replies) == 2
+        assert replies[0].content == "Thinking"
+        assert replies[0].metadata["_telegram_stream"] is True
+        assert replies[0].metadata["_telegram_stream_final"] is False
+        assert replies[1].content == "Final answer"
+
+    @pytest.mark.asyncio
+    async def test_telegram_streaming_rotates_preview_across_multiple_assistant_messages(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-1")
+        agent_svc = _make_agent_service(
+            events=[
+                StreamEvent(content="Draft one", is_final=False, phase="thinking"),
+                _DynamicMessageEvent("First answer"),
+                StreamEvent(content="Draft two", is_final=False, phase="thinking"),
+                _DynamicMessageEvent("Second answer"),
+            ]
+        )
+        router = MessageRouter(
+            agent_svc,
+            repo,
+            telegram_final_delivery_only=True,
+            telegram_streaming="partial",
+        )
+
+        inbound = _make_inbound("Run task", metadata={"message_id": 777})
+        replies = [r async for r in router.route_inbound(inbound)]
+
+        assert [reply.content for reply in replies] == [
+            "Draft one",
+            "First answer",
+            "Draft two",
+            "Second answer",
+        ]
 
     @pytest.mark.asyncio
     async def test_telegram_streaming_off_preserves_existing_final_only_behavior(self) -> None:
@@ -879,10 +934,15 @@ class TestEventToOutbound:
         result = router._event_to_outbound(_FakeUserMessageEvent(), source)
         assert result is None
 
-    def test_stream_event_produces_generic_telegram_preview_metadata(self) -> None:
+    def test_stream_event_preserves_real_partial_text_and_thread_metadata(self) -> None:
         router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
-        source = _make_inbound()
-        source.metadata["message_id"] = 777
+        source = _make_inbound(
+            metadata={
+                "message_id": 777,
+                "message_thread_id": 42,
+                "is_forum": True,
+            }
+        )
 
         result = router._event_to_outbound(
             StreamEvent(content="Thinking", is_final=False, phase="thinking"),
@@ -890,26 +950,34 @@ class TestEventToOutbound:
         )
 
         assert result is not None
-        assert result.content == ""
+        assert result.content == "Thinking"
         assert result.reply_to == source.id
         assert result.metadata == {
             "message_id": 777,
+            "message_thread_id": 42,
+            "is_forum": True,
             "_progress": True,
             "_telegram_stream": True,
             "_telegram_stream_phase": "thinking",
             "_telegram_stream_final": False,
-            "_telegram_stream_preview_text": "Working on it...",
         }
 
-    def test_message_event_preserves_telegram_message_id_in_metadata(self) -> None:
+    def test_message_event_preserves_telegram_message_and_thread_metadata(self) -> None:
         router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
-        source = _make_inbound()
-        source.metadata["message_id"] = 888
+        source = _make_inbound(
+            metadata={
+                "message_id": 888,
+                "message_thread_id": 99,
+                "is_forum": True,
+            }
+        )
 
         result = router._event_to_outbound(_FakeMessageEvent(), source)
 
         assert result is not None
         assert result.metadata["message_id"] == 888
+        assert result.metadata["message_thread_id"] == 99
+        assert result.metadata["is_forum"] is True
 
 
 # ---------------------------------------------------------------------------

@@ -34,8 +34,19 @@ class TestTelegramDefaults:
     def test_webhook_url_empty(self, settings):
         assert settings.telegram_webhook_url == ""
 
+    def test_webhook_secret_empty(self, settings):
+        assert settings.telegram_webhook_secret == ""
+
+    def test_webhook_listener_defaults(self, settings):
+        assert settings.telegram_webhook_path == "/telegram-webhook"
+        assert settings.telegram_webhook_host == "127.0.0.1"
+        assert settings.telegram_webhook_port == 8787
+
     def test_proxy_url_empty(self, settings):
         assert settings.telegram_proxy_url == ""
+
+    def test_reply_to_mode_off_by_default(self, settings):
+        assert settings.telegram_reply_to_mode == "off"
 
     def test_require_linked_account_disabled_by_default(self, settings):
         assert settings.telegram_require_linked_account is False

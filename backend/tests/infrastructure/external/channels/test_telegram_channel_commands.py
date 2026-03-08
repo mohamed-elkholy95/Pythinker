@@ -10,7 +10,7 @@ import pytest
 from nanobot.bus.events import OutboundMessage
 from nanobot.channels.telegram import TelegramChannel
 from nanobot.config.schema import TelegramConfig
-from telegram.error import RetryAfter, TimedOut
+from telegram.error import BadRequest, RetryAfter, TimedOut
 from telegram.ext import CallbackQueryHandler
 
 
@@ -31,6 +31,8 @@ def _make_update(text: str) -> SimpleNamespace:
         chat_id=5829880422,
         text=text,
         reply_text=AsyncMock(),
+        message_id=99,
+        chat=SimpleNamespace(type="private", is_forum=False),
     )
     user = SimpleNamespace(
         id=5829880422,
@@ -40,12 +42,50 @@ def _make_update(text: str) -> SimpleNamespace:
     return SimpleNamespace(message=message, effective_user=user)
 
 
+def _make_text_message_update(
+    text: str,
+    *,
+    chat_id: int = 5829880422,
+    user_id: int = 5829880422,
+    username: str = "john",
+    first_name: str = "John",
+    chat_type: str = "private",
+    message_id: int = 99,
+    message_thread_id: int | None = None,
+    is_forum: bool = False,
+) -> SimpleNamespace:
+    user = SimpleNamespace(
+        id=user_id,
+        username=username,
+        first_name=first_name,
+    )
+    message = SimpleNamespace(
+        chat_id=chat_id,
+        text=text,
+        caption=None,
+        reply_text=AsyncMock(),
+        photo=[],
+        voice=None,
+        audio=None,
+        document=None,
+        message_id=message_id,
+        message_thread_id=message_thread_id,
+        media_group_id=None,
+        chat=SimpleNamespace(type=chat_type, is_forum=is_forum),
+    )
+    return SimpleNamespace(message=message, effective_user=user)
+
+
 def _make_callback_update(data: str) -> SimpleNamespace:
     callback_query = SimpleNamespace(
         data=data,
         answer=AsyncMock(),
-        message=SimpleNamespace(chat_id=5829880422),
-        from_user=SimpleNamespace(id=5829880422, username="john"),
+        message=SimpleNamespace(
+            chat_id=5829880422,
+            message_id=99,
+            chat=SimpleNamespace(type="private", is_forum=False),
+        ),
+        from_user=SimpleNamespace(id=5829880422, username="john", first_name="John"),
     )
     return SimpleNamespace(callback_query=callback_query, effective_user=callback_query.from_user)
 
@@ -60,13 +100,21 @@ def _make_fake_application(channel: TelegramChannel):
     app.bot = SimpleNamespace(
         get_me=AsyncMock(return_value=SimpleNamespace(username="nanobot_test")),
         set_my_commands=AsyncMock(),
+        delete_webhook=AsyncMock(),
     )
 
     async def _start_polling(**kwargs):
         channel._running = False
         return
 
-    app.updater = SimpleNamespace(start_polling=AsyncMock(side_effect=_start_polling))
+    async def _start_webhook(**kwargs):
+        channel._running = False
+        return
+
+    app.updater = SimpleNamespace(
+        start_polling=AsyncMock(side_effect=_start_polling),
+        start_webhook=AsyncMock(side_effect=_start_webhook),
+    )
     return app, add_handler_calls
 
 
@@ -106,6 +154,15 @@ async def test_start_with_bind_payload_forwards_to_bus() -> None:
         sender_id="5829880422|john",
         chat_id="5829880422",
         content="/start bind_ABC123",
+        metadata={
+            "message_id": 99,
+            "user_id": 5829880422,
+            "username": "john",
+            "first_name": "John",
+            "is_group": False,
+            "is_forum": False,
+        },
+        session_key="telegram:direct:5829880422",
     )
     update.message.reply_text.assert_not_awaited()
 
@@ -140,6 +197,15 @@ async def test_forward_command_routes_supported_slash_commands(command_text: str
         sender_id="5829880422|john",
         chat_id="5829880422",
         content=command_text,
+        metadata={
+            "message_id": 99,
+            "user_id": 5829880422,
+            "username": "john",
+            "first_name": "John",
+            "is_group": False,
+            "is_forum": False,
+        },
+        session_key="telegram:direct:5829880422",
     )
 
 
@@ -237,6 +303,133 @@ async def test_callback_query_pdf_last_forwards_pdf_command() -> None:
         sender_id="5829880422|john",
         chat_id="5829880422",
         content="/pdf",
+        metadata={
+            "message_id": 99,
+            "user_id": 5829880422,
+            "username": "john",
+            "first_name": "John",
+            "is_group": False,
+            "is_forum": False,
+        },
+        session_key="telegram:direct:5829880422",
+    )
+
+
+@pytest.mark.asyncio
+async def test_callback_query_forwards_generic_callback_data_as_message() -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+
+    update = _make_callback_update("/status")
+    context = SimpleNamespace()
+
+    await channel._on_callback_query(update, context)
+
+    update.callback_query.answer.assert_awaited_once()
+    channel._handle_message.assert_awaited_once_with(
+        sender_id="5829880422|john",
+        chat_id="5829880422",
+        content="/status",
+        metadata={
+            "message_id": 99,
+            "user_id": 5829880422,
+            "username": "john",
+            "first_name": "John",
+            "is_group": False,
+            "is_forum": False,
+        },
+        session_key="telegram:direct:5829880422",
+    )
+
+
+@pytest.mark.asyncio
+async def test_start_with_webhook_mode_uses_start_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
+    channel = _make_channel(
+        webhook_mode=True,
+        webhook_url="https://example.test/telegram-webhook",
+        webhook_secret="secret-token",
+        webhook_path="/telegram-webhook",
+        webhook_host="127.0.0.1",
+        webhook_port=8787,
+    )
+    fake_app, _add_handler_calls = _make_fake_application(channel)
+    monkeypatch.setattr("nanobot.channels.telegram.Application.builder", lambda: _FakeBuilder(fake_app))
+
+    await channel.start()
+
+    fake_app.updater.start_polling.assert_not_awaited()
+    fake_app.updater.start_webhook.assert_awaited_once()
+    kwargs = fake_app.updater.start_webhook.await_args.kwargs
+    assert kwargs["webhook_url"] == "https://example.test/telegram-webhook"
+    assert kwargs["secret_token"] == "secret-token"
+    assert kwargs["url_path"] == "telegram-webhook"
+    assert kwargs["listen"] == "127.0.0.1"
+    assert kwargs["port"] == 8787
+    assert "message" in kwargs["allowed_updates"]
+    assert "callback_query" in kwargs["allowed_updates"]
+
+
+@pytest.mark.asyncio
+async def test_on_message_forum_topic_forwards_thread_metadata_and_session_key() -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    update = _make_text_message_update(
+        "hello from topic",
+        chat_type="supergroup",
+        message_thread_id=42,
+        is_forum=True,
+    )
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_awaited_once_with(
+        sender_id="5829880422|john",
+        chat_id="5829880422",
+        content="hello from topic",
+        media=[],
+        metadata={
+            "message_id": 99,
+            "message_thread_id": 42,
+            "user_id": 5829880422,
+            "username": "john",
+            "first_name": "John",
+            "is_group": True,
+            "is_forum": True,
+        },
+        session_key="telegram:group:5829880422:topic:42",
+    )
+
+
+@pytest.mark.asyncio
+async def test_on_message_dm_topic_uses_sender_scoped_session_key() -> None:
+    channel = _make_channel()
+    channel._handle_message = AsyncMock()
+    channel._start_typing = MagicMock()
+    update = _make_text_message_update(
+        "hello from dm topic",
+        user_id=123456789,
+        chat_type="private",
+        message_thread_id=9,
+    )
+
+    await channel._on_message(update, SimpleNamespace())
+
+    channel._handle_message.assert_awaited_once_with(
+        sender_id="123456789|john",
+        chat_id="5829880422",
+        content="hello from dm topic",
+        media=[],
+        metadata={
+            "message_id": 99,
+            "message_thread_id": 9,
+            "user_id": 123456789,
+            "username": "john",
+            "first_name": "John",
+            "is_group": False,
+            "is_forum": False,
+        },
+        session_key="telegram:direct:123456789:thread:5829880422:9",
     )
 
 
@@ -348,7 +541,7 @@ async def test_send_document_retries_on_retry_after(monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.asyncio
 async def test_send_document_failure_falls_back_to_text(tmp_path: Path) -> None:
-    channel = _make_channel()
+    channel = _make_channel(send_retry_max_attempts=3)
     media_path = tmp_path / "broken.pdf"
     media_path.write_bytes(b"%PDF")
 
@@ -426,9 +619,10 @@ async def test_send_document_reuses_cached_file_id(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_progress_preview_creates_then_edits_single_message() -> None:
+@pytest.mark.parametrize("streaming_mode", ["partial", "progress"])
+async def test_progress_preview_creates_then_edits_single_message(streaming_mode: str) -> None:
     channel = _make_channel(
-        streaming="partial",
+        streaming=streaming_mode,
         streaming_throttle_seconds=0.0,
         streaming_min_initial_chars=1,
     )
@@ -649,6 +843,157 @@ async def test_streaming_off_skips_preview_logic() -> None:
     assert bot.send_message.await_args.kwargs["text"] == "Final answer"
     bot.edit_message_text.assert_not_awaited()
     bot.delete_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_text_html_parse_error_retries_plain_text() -> None:
+    channel = _make_channel()
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(
+            side_effect=[
+                BadRequest("can't parse entities"),
+                SimpleNamespace(message_id=321),
+            ]
+        ),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Bad <b markup",
+            metadata={"parse_mode": "HTML"},
+        )
+    )
+
+    assert bot.send_message.await_count == 2
+    first_call = bot.send_message.await_args_list[0].kwargs
+    second_call = bot.send_message.await_args_list[1].kwargs
+    assert first_call["parse_mode"] == "HTML"
+    assert "parse_mode" not in second_call
+    assert second_call["text"] == "Bad <b markup"
+
+
+@pytest.mark.asyncio
+async def test_send_text_dm_topic_thread_not_found_retries_without_thread_id() -> None:
+    channel = _make_channel()
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(
+            side_effect=[
+                BadRequest("Message thread not found"),
+                SimpleNamespace(message_id=321),
+            ]
+        ),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Hello topic",
+            metadata={"message_thread_id": 42, "is_forum": False},
+        )
+    )
+
+    assert bot.send_message.await_count == 2
+    first_call = bot.send_message.await_args_list[0].kwargs
+    second_call = bot.send_message.await_args_list[1].kwargs
+    assert first_call["message_thread_id"] == 42
+    assert "message_thread_id" not in second_call
+
+
+@pytest.mark.asyncio
+async def test_send_text_forum_topic_thread_not_found_does_not_retry_without_thread_id() -> None:
+    channel = _make_channel()
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(side_effect=BadRequest("Message thread not found")),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="Hello forum topic",
+            metadata={"message_thread_id": 42, "is_forum": True},
+        )
+    )
+
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["message_thread_id"] == 42
+
+
+@pytest.mark.asyncio
+async def test_reply_to_mode_first_only_applies_reply_to_first_text_chunk() -> None:
+    channel = _make_channel(reply_to_mode="first")
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content=("a" * 4000) + " b",
+            metadata={"message_id": 99},
+        )
+    )
+
+    assert bot.send_message.await_count == 2
+    first_reply = bot.send_message.await_args_list[0].kwargs["reply_parameters"]
+    second_reply = bot.send_message.await_args_list[1].kwargs["reply_parameters"]
+    assert first_reply is not None
+    assert first_reply.message_id == 99
+    assert second_reply is None
+
+
+@pytest.mark.asyncio
+async def test_reply_to_mode_all_applies_reply_to_every_text_chunk() -> None:
+    channel = _make_channel(reply_to_mode="all")
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content=("a" * 4000) + " b",
+            metadata={"message_id": 99},
+        )
+    )
+
+    assert bot.send_message.await_count == 2
+    first_reply = bot.send_message.await_args_list[0].kwargs["reply_parameters"]
+    second_reply = bot.send_message.await_args_list[1].kwargs["reply_parameters"]
+    assert first_reply is not None
+    assert second_reply is not None
+    assert first_reply.message_id == 99
+    assert second_reply.message_id == 99
 
 
 @pytest.mark.asyncio

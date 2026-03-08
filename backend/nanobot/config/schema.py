@@ -31,6 +31,7 @@ class TelegramConfig(Base):
     allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs or usernames
     proxy: str | None = None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
     reply_to_message: bool = False  # If true, bot replies quote the original message
+    reply_to_mode: Literal["off", "first", "all"] = "off"
     rate_limit_cooldown_seconds: int = 3  # Cooldown used for RetryAfter/transient retries
     max_messages_per_batch: int = 5  # Hard limit for split text chunks per outbound message
     pdf_file_id_cache_redis_enabled: bool = False  # Toggle Redis file_id cache for repeated PDFs
@@ -39,6 +40,12 @@ class TelegramConfig(Base):
     streaming: Literal["off", "partial", "block", "progress"] = "partial"
     streaming_throttle_seconds: float = 1.0
     streaming_min_initial_chars: int = 30
+    webhook_mode: bool = False
+    webhook_url: str = ""
+    webhook_secret: str = ""
+    webhook_path: str = "/telegram-webhook"
+    webhook_host: str = "127.0.0.1"
+    webhook_port: int = 8787
     polling_bootstrap_retries: int = 5  # PTB polling bootstrap retries
     polling_stall_restart_enabled: bool = True  # Enable channel restart on stall detection
     polling_stall_timeout_seconds: int = 60  # Stall timeout before requesting restart
