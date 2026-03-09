@@ -3141,3 +3141,51 @@ async def test_on_message_location_preserves_location_context() -> None:
     loc = inbound.metadata["location"]
     assert loc["latitude"] == 30.05
     assert loc["longitude"] == 31.23
+
+
+# ---------------------------------------------------------------------------
+# quoteText support tests (Task 8 parity)
+# ---------------------------------------------------------------------------
+
+
+def test_reply_parameters_for_metadata_with_quote_text() -> None:
+    """When metadata includes quote_text, ReplyParameters should carry the quote field."""
+    metadata = {"message_id": 42, "quote_text": "This specific sentence"}
+    result = TelegramChannel._reply_parameters_for_metadata(metadata, "first")
+    assert result is not None
+    assert result.message_id == 42
+    assert result.quote == "This specific sentence"
+
+
+def test_reply_parameters_for_metadata_without_quote_text() -> None:
+    """Without quote_text, ReplyParameters should not carry a quote field."""
+    metadata = {"message_id": 42}
+    result = TelegramChannel._reply_parameters_for_metadata(metadata, "first")
+    assert result is not None
+    assert result.message_id == 42
+    assert result.quote is None
+
+
+def test_reply_parameters_for_metadata_empty_quote_text() -> None:
+    """Empty or whitespace-only quote_text should be ignored."""
+    metadata = {"message_id": 42, "quote_text": "   "}
+    result = TelegramChannel._reply_parameters_for_metadata(metadata, "first")
+    assert result is not None
+    assert result.quote is None
+
+
+def test_build_delivery_metadata_includes_quote_text() -> None:
+    """build_message_notify_delivery_metadata should pass through quote_text."""
+    from app.domain.services.tools.message import build_message_notify_delivery_metadata
+
+    result = build_message_notify_delivery_metadata({"quote_text": "Important bit"})
+    assert result is not None
+    assert result["quote_text"] == "Important bit"
+
+
+def test_build_delivery_metadata_ignores_empty_quote_text() -> None:
+    """Empty quote_text should not appear in delivery metadata."""
+    from app.domain.services.tools.message import build_message_notify_delivery_metadata
+
+    result = build_message_notify_delivery_metadata({"quote_text": ""})
+    assert result is None
