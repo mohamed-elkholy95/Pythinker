@@ -281,6 +281,7 @@ services:
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      - MINIO_IDENTITY_OPENID_ENABLE=off
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
