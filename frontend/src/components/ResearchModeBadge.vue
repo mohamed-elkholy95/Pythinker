@@ -205,9 +205,9 @@ defineProps<{
 }
 
 :global(.dark) .badge-deal {
-  border-color: rgba(251, 146, 60, 0.3);
-  background: linear-gradient(145deg, rgba(124, 45, 18, 0.3), rgba(154, 52, 18, 0.2));
-  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(251, 146, 60, 0.35);
+  background: linear-gradient(145deg, rgba(124, 45, 18, 0.65), rgba(154, 52, 18, 0.5));
+  color: #fed7aa;
 }
 
 :global(.dark) .badge-deal .badge-icon-wrap {
