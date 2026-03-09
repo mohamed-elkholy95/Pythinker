@@ -476,6 +476,18 @@ def get_feature_flags() -> dict[str, bool]:
             "token_budget_manager": False,
             # Live file streaming (future)
             "live_file_streaming": False,
+            # LeadAgentRuntime (DeerFlow convergence)
+            "feature_lead_agent_runtime": False,
+            "feature_runtime_workspace_contracts": True,
+            "feature_runtime_clarification_gate": True,
+            "feature_runtime_dangling_recovery": True,
+            "feature_runtime_quality_gates": True,
+            "feature_runtime_insight_promotion": True,
+            "feature_runtime_capability_manifest": True,
+            "feature_runtime_skill_discovery": True,
+            "feature_runtime_research_trace": True,
+            "feature_runtime_delegate_tool": True,
+            "feature_runtime_channel_overlay": True,
         }
     return {
         "tree_of_thoughts": settings.feature_tree_of_thoughts,
@@ -525,4 +537,16 @@ def get_feature_flags() -> dict[str, bool]:
         "token_budget_manager": settings.feature_token_budget_manager,
         # Live file streaming (future)
         "live_file_streaming": settings.feature_live_file_streaming,
+        # LeadAgentRuntime (DeerFlow convergence)
+        "feature_lead_agent_runtime": settings.feature_lead_agent_runtime,
+        "feature_runtime_workspace_contracts": settings.feature_runtime_workspace_contracts,
+        "feature_runtime_clarification_gate": settings.feature_runtime_clarification_gate,
+        "feature_runtime_dangling_recovery": settings.feature_runtime_dangling_recovery,
+        "feature_runtime_quality_gates": settings.feature_runtime_quality_gates,
+        "feature_runtime_insight_promotion": settings.feature_runtime_insight_promotion,
+        "feature_runtime_capability_manifest": settings.feature_runtime_capability_manifest,
+        "feature_runtime_skill_discovery": settings.feature_runtime_skill_discovery,
+        "feature_runtime_research_trace": settings.feature_runtime_research_trace,
+        "feature_runtime_delegate_tool": settings.feature_runtime_delegate_tool,
+        "feature_runtime_channel_overlay": settings.feature_runtime_channel_overlay,
     }
