@@ -95,8 +95,8 @@
             <span class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)]">{{ headerTimer.formatted.value }}</span>
           </div>
 
-          <!-- Center: Operation label + step counter -->
-          <div class="text-[var(--text-tertiary)] text-sm font-medium max-w-[300px] flex items-center justify-center gap-1.5 min-w-0">
+          <!-- Center: Operation label + step counter (px-24 prevents overlap with absolute left/right elements) -->
+          <div class="text-[var(--text-tertiary)] text-sm font-medium max-w-[60%] px-24 flex items-center justify-center gap-1.5 min-w-0">
             <BarChart3
               v-if="currentViewType === 'chart'"
               :size="14"
