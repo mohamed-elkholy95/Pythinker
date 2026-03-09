@@ -512,6 +512,10 @@ class MessageRouter:
         if event_type == "stream":
             if not self._telegram_streaming_enabled(source.channel):
                 return None
+            lane = str(getattr(event, "lane", "answer") or "answer").strip().lower()
+            # Suppress reasoning lane for non-Telegram channels
+            if lane == "reasoning" and source.channel != ChannelType.TELEGRAM:
+                return None
             is_final = bool(getattr(event, "is_final", False))
             content = getattr(event, "content", "") or ""
             metadata = self._telegram_message_id_metadata(source)
@@ -520,6 +524,7 @@ class MessageRouter:
                     "_progress": True,
                     "_telegram_stream": True,
                     "_telegram_stream_phase": getattr(event, "phase", "thinking"),
+                    "_telegram_stream_lane": lane,
                     "_telegram_stream_final": is_final,
                 }
             )

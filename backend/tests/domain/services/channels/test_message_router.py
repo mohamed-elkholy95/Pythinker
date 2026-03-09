@@ -1125,8 +1125,34 @@ class TestEventToOutbound:
             "_progress": True,
             "_telegram_stream": True,
             "_telegram_stream_phase": "thinking",
+            "_telegram_stream_lane": "answer",
             "_telegram_stream_final": False,
         }
+
+    def test_stream_event_reasoning_lane_passes_through_for_telegram(self) -> None:
+        router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
+        source = _make_inbound(metadata={"message_id": 100})
+
+        result = router._event_to_outbound(
+            StreamEvent(content="Planning step 1", is_final=False, phase="thinking", lane="reasoning"),
+            source,
+        )
+
+        assert result is not None
+        assert result.metadata["_telegram_stream_lane"] == "reasoning"
+        assert result.content == "Planning step 1"
+
+    def test_stream_event_reasoning_lane_suppressed_for_non_telegram(self) -> None:
+        router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
+        source = _make_inbound(metadata={"message_id": 100})
+        source.channel = ChannelType.WEB  # type: ignore[assignment]
+
+        result = router._event_to_outbound(
+            StreamEvent(content="Planning", is_final=False, phase="thinking", lane="reasoning"),
+            source,
+        )
+
+        assert result is None
 
     def test_message_event_preserves_telegram_message_and_thread_metadata(self) -> None:
         router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")

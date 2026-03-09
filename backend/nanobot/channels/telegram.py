@@ -1322,8 +1322,7 @@ class TelegramChannel(BaseChannel):
             if isinstance(item, dict) and str(item.get("url", "") or "").strip()
         }
         allow_thread_fallback = message_thread_id is not None and not bool(metadata.get("is_forum"))
-        preview_state = self._preview_states.get(self._preview_key(msg))
-        reply_applied = preview_state.reply_applied if preview_state is not None else False
+        reply_applied = self._any_lane_reply_applied(msg)
         action_reply_params = (
             base_reply_params
             if self._should_include_reply_for_send(reply_to_mode, reply_applied=reply_applied)
@@ -1736,15 +1735,23 @@ class TelegramChannel(BaseChannel):
             and bool(metadata.get("_telegram_stream"))
         )
 
-    def _has_preview_state(self, msg: OutboundMessage) -> bool:
-        """Return whether a preview lifecycle exists for this outbound."""
-        return self._preview_key(msg) in self._preview_states
+    def _has_preview_state(self, msg: OutboundMessage, *, lane: str = "answer") -> bool:
+        """Return whether a preview lifecycle exists for this outbound lane."""
+        return self._preview_key(msg, lane=lane) in self._preview_states
 
-    def _preview_key(self, msg: OutboundMessage) -> str:
-        """Key preview state by chat and source Telegram message id."""
+    def _any_lane_reply_applied(self, msg: OutboundMessage) -> bool:
+        """Return True if reply threading was already applied in any lane."""
+        for lane in ("answer", "reasoning"):
+            state = self._preview_states.get(self._preview_key(msg, lane=lane))
+            if state is not None and state.reply_applied:
+                return True
+        return False
+
+    def _preview_key(self, msg: OutboundMessage, *, lane: str = "answer") -> str:
+        """Key preview state by chat, source message id, and delivery lane."""
         metadata = msg.metadata or {}
         source_message_id = metadata.get("message_id")
-        return f"{msg.chat_id}:{source_message_id or 'root'}"
+        return f"{msg.chat_id}:{source_message_id or 'root'}:{lane}"
 
     async def _send_or_edit_preview(
         self,
@@ -1756,11 +1763,14 @@ class TelegramChannel(BaseChannel):
         message_thread_id: int | None,
         allow_thread_fallback: bool,
     ) -> None:
-        """Accumulate stream deltas into a single preview message."""
+        """Accumulate stream deltas into a single lane-aware preview message."""
         if not self._app:
             return
 
-        state = self._preview_states.setdefault(self._preview_key(msg), _TelegramPreviewState())
+        lane = str((msg.metadata or {}).get("_telegram_stream_lane", "answer")).strip()
+        state = self._preview_states.setdefault(
+            self._preview_key(msg, lane=lane), _TelegramPreviewState()
+        )
         preview_override = (msg.metadata or {}).get("_telegram_stream_preview_text")
         if isinstance(preview_override, str):
             state.content = preview_override
@@ -1770,7 +1780,7 @@ class TelegramChannel(BaseChannel):
         is_final = bool((msg.metadata or {}).get("_telegram_stream_final"))
         if not state.content and is_final:
             if state.message_id is None:
-                self._preview_states.pop(self._preview_key(msg), None)
+                self._preview_states.pop(self._preview_key(msg, lane=lane), None)
             return
 
         rendered_text = self._render_preview_text(state.content, parse_mode=parse_mode)
@@ -1792,6 +1802,10 @@ class TelegramChannel(BaseChannel):
             return
 
         if rendered_text == state.last_text:
+            return
+
+        # Regressive update blocking: never shrink a visible preview (OpenClaw lane-delivery.ts:123-138)
+        if state.message_id is not None and len(rendered_text) < len(state.last_text):
             return
 
         if state.message_id is None:
@@ -1834,11 +1848,11 @@ class TelegramChannel(BaseChannel):
         delivery_mode: str,
         reply_markup: InlineKeyboardMarkup | None,
     ) -> bool:
-        """Edit the preview in place when the final reply is text-only and eligible."""
+        """Edit the answer-lane preview in place when the final reply is text-only."""
         if not self._app:
             return False
 
-        state = self._preview_states.get(self._preview_key(msg))
+        state = self._preview_states.get(self._preview_key(msg, lane="answer"))
         if state is None or state.message_id is None:
             return False
         if msg.media or delivery_mode == "pdf_only":
@@ -1860,12 +1874,12 @@ class TelegramChannel(BaseChannel):
                 ignore_not_modified=True,
             )
 
-        self._preview_states.pop(self._preview_key(msg), None)
+        self._preview_states.pop(self._preview_key(msg, lane="answer"), None)
         return True
 
     async def _clear_preview(self, msg: OutboundMessage, *, chat_id: int) -> None:
-        """Remove any preview state and delete the visible preview message if present."""
-        state = self._preview_states.pop(self._preview_key(msg), None)
+        """Remove answer-lane preview state and delete the visible preview message."""
+        state = self._preview_states.pop(self._preview_key(msg, lane="answer"), None)
         if state is None or state.message_id is None:
             return
         await self._delete_preview_message(chat_id=chat_id, message_id=state.message_id)
