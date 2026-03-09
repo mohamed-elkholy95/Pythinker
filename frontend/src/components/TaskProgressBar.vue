@@ -281,6 +281,8 @@ interface Props {
   isSessionComplete?: boolean
   /** Replay screenshot URL for completed sessions */
   replayScreenshotUrl?: string
+  /** Shared session start timestamp so all timers stay in sync. */
+  sessionStartTime?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -420,28 +422,10 @@ const previousStepStatuses = ref<Map<string, string>>(new Map())
 
 const completedCount = computed(() => steps.value.filter(s => s.status === 'completed').length)
 
-const shouldShowInitialProgress = computed(() => {
-  if (!(props.isLoading || props.isThinking)) return false
-  if (steps.value.length === 0) return false
-  if (completedCount.value > 0) return false
-  return !steps.value.some(step => step.status === 'running')
-})
-
-/** 1-based position of the active task: running index+1, else completed count.
- *  When loading between steps (some completed, none running), advance to
- *  completedCount+1 so the counter doesn't stall during the inter-step gap. */
+/** 1-based position of the active task: running index+1, else completed count. */
 const currentCount = computed(() => {
   const runningIdx = steps.value.findIndex(s => s.status === 'running')
   if (runningIdx >= 0) return runningIdx + 1
-  if (shouldShowInitialProgress.value) return 1
-  // Advance past completed count while actively loading and not all done yet
-  if (
-    (props.isLoading || props.isThinking)
-    && completedCount.value > 0
-    && completedCount.value < steps.value.length
-  ) {
-    return completedCount.value + 1
-  }
   return completedCount.value
 })
 const totalCount = computed(() => steps.value.length)
@@ -540,7 +524,7 @@ const toggleExpand = () => {
   isExpanded.value = !isExpanded.value
 }
 
-const startTimer = () => timer.start()
+const startTimer = () => timer.start(props.sessionStartTime || undefined)
 const stopTimer = () => timer.stop()
 
 // Start/stop animations based on loading/thinking state
