@@ -325,12 +325,11 @@ class ConversationContextService:
             self._flush_timer.cancel()
             self._flush_timer = None
 
-        # Take snapshot and clear buffer
+        # Take snapshot — keep buffer intact until success (atomic flush)
         async with self._buffer_lock:
             if not self._buffer:
                 return
             turns = list(self._buffer)
-            self._buffer.clear()
 
         start_time = time.time()
         try:
@@ -381,6 +380,13 @@ class ConversationContextService:
             # Batch upsert to Qdrant
             await self._repository.upsert_batch(qdrant_turns)
 
+            # Success — now clear the flushed turns from the buffer
+            async with self._buffer_lock:
+                # Only remove the turns we successfully flushed; new turns
+                # may have been appended while we were awaiting the API.
+                flushed_ids = {id(t) for t in turns}
+                self._buffer = [t for t in self._buffer if id(t) not in flushed_ids]
+
             # Record metrics
             for turn in turns:
                 conversation_context_turns_stored.inc(
@@ -402,7 +408,11 @@ class ConversationContextService:
 
         except Exception:
             conversation_context_embed_errors.inc({})
-            logger.warning("Failed to flush conversation context buffer", exc_info=True)
+            logger.warning(
+                "Failed to flush %d conversation turns (retained in buffer for retry)",
+                len(turns),
+                exc_info=True,
+            )
 
     async def flush_remaining(self) -> None:
         """Force-flush any remaining buffered turns. Called on session end."""

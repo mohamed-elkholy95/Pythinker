@@ -29,14 +29,21 @@ class BaseDocument(Document, Generic[T]):
         cls._DOMAIN_MODEL_CLASS = domain_model_class
 
     def update_from_domain(self, domain_obj: T) -> None:
-        """Update the document from domain model"""
+        """Update the document from domain model.
+
+        Only sets fields that exist on the document class, preventing
+        ValueError when the domain model evolves ahead of the document
+        (e.g. gateway running stale code while backend has new fields).
+        """
         data = domain_obj.model_dump(exclude={"id", "created_at"})
         data[self._ID_FIELD] = domain_obj.id
         if hasattr(self, "updated_at"):
             data["updated_at"] = datetime.now(UTC)
 
+        known_fields = set(self.model_fields)
         for field, value in data.items():
-            setattr(self, field, value)
+            if field in known_fields:
+                setattr(self, field, value)
 
     def to_domain(self) -> T:
         """Convert MongoDB document to domain model"""
@@ -230,6 +237,12 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
     takeover_state: TakeoverState = TakeoverState.IDLE  # Takeover lifecycle state
     takeover_reason: str | None = None  # Reason for current takeover
+
+    # Telegram option commands (channel-level state, not runtime behavior)
+    reasoning_visibility: str | None = None  # off | on | stream
+    thinking_level: str | None = None  # off | low | medium | high
+    verbose_mode: str | None = None  # off | on
+    elevated_mode: str | None = None  # off | on
 
     class Settings:
         name: ClassVar[str] = "sessions"
