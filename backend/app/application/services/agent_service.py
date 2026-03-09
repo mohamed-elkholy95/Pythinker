@@ -1268,6 +1268,13 @@ class AgentService:
         await self._session_repository.update_title(session_id, title)
         logger.info(f"Session {session_id} renamed successfully")
 
+    async def update_session_fields(self, session_id: str, user_id: str, updates: dict[str, Any]) -> None:
+        """Update arbitrary allowlisted fields on a session owned by *user_id*."""
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            raise NotFoundError("Session not found")
+        await self._session_repository.update_by_id(session_id, updates)
+
     async def clear_unread_message_count(self, session_id: str, user_id: str) -> None:
         """Clear the unread message count for a session, ensuring it belongs to the user"""
         logger.info(f"Clearing unread message count for session {session_id} for user {user_id}")
