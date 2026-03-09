@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Slash-command constants
 # ---------------------------------------------------------------------------
-SLASH_COMMANDS = frozenset({"/new", "/stop", "/help", "/commands", "/status", "/link", "/pdf"})
+SLASH_COMMANDS = frozenset({"/new", "/stop", "/help", "/commands", "/status", "/link", "/pdf", "/reasoning"})
+_REASONING_VISIBILITY_LEVELS = frozenset({"off", "on", "stream"})
 
 HELP_TEXT = (
     "Available commands:\n"
@@ -43,7 +44,8 @@ HELP_TEXT = (
     "  /bind   — Alias of /link\n"
     "  :bind   — Legacy alias of /link\n"
     "  /help   — Show this help message\n"
-    "  /commands — Alias of /help"
+    "  /commands — Alias of /help\n"
+    "  /reasoning — Set reasoning visibility (off, on, stream)"
 )
 
 TELEGRAM_LINK_REQUIRED_TEXT = (
@@ -600,6 +602,35 @@ class MessageRouter:
                     yield self._make_reply(message, "Failed to stop the session.")
             else:
                 yield self._make_reply(message, "No active session to stop.")
+            return
+
+        if command == "/reasoning":
+            parts = content.split(maxsplit=1)
+            level = parts[1].strip().lower() if len(parts) > 1 else ""
+            session_id = await self._user_channel_repo.get_session_key(
+                user_id, message.channel, message.chat_id
+            )
+            if not level:
+                current = await self._get_reasoning_visibility(session_id, user_id)
+                yield self._make_reply(
+                    message,
+                    f"Current reasoning level: {current}.\nValid levels: off, on, stream",
+                )
+                return
+            if level not in _REASONING_VISIBILITY_LEVELS:
+                yield self._make_reply(
+                    message,
+                    f'Unrecognized reasoning level "{level}". Valid levels: off, on, stream.',
+                )
+                return
+            await self._set_reasoning_visibility(session_id, user_id, level)
+            if level == "off":
+                ack = "Reasoning visibility disabled."
+            elif level == "stream":
+                ack = "Reasoning stream enabled (Telegram only)."
+            else:
+                ack = "Reasoning visibility enabled."
+            yield self._make_reply(message, ack)
             return
 
         if command == "/link":
@@ -1281,6 +1312,25 @@ class MessageRouter:
         if anchor and len(candidate.encode("utf-8")) <= 64:
             return candidate
         return f"{_TELEGRAM_FOLLOW_UP_CALLBACK_PREFIX}:{safe_index}"
+
+    # ------------------------------------------------------------------
+    # Reasoning visibility persistence
+    # ------------------------------------------------------------------
+
+    async def _get_reasoning_visibility(self, session_id: str | None, user_id: str | None) -> str:
+        """Return the current reasoning visibility level for the session, defaulting to ``"off"``."""
+        if not session_id or not user_id:
+            return "off"
+        session = await self._agent_service.get_session(session_id, user_id)
+        if session is None:
+            return "off"
+        return session.reasoning_visibility or "off"
+
+    async def _set_reasoning_visibility(self, session_id: str | None, user_id: str | None, level: str) -> None:
+        """Persist *level* (``off | on | stream``) to the session document."""
+        if not session_id or not user_id:
+            return
+        await self._agent_service.update_session_fields(session_id, user_id, {"reasoning_visibility": level})
 
     # ------------------------------------------------------------------
     # Helpers
