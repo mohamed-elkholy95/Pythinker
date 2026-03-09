@@ -48,7 +48,7 @@ class ReconciliationJob:
         Returns:
             Statistics about the reconciliation run
         """
-        logger.info("Starting reconciliation job")
+        logger.debug("Starting reconciliation job")
         start_time = datetime.now(UTC)
 
         stats = {
@@ -80,10 +80,13 @@ class ReconciliationJob:
         stats["completed_at"] = end_time.isoformat()
         stats["duration_seconds"] = duration
 
-        logger.info(
-            f"Reconciliation job completed in {duration:.2f}s: "
-            f"retried={stats['failed_retried']}, "
-            f"missing={stats['missing_vectors_found']}"
+        # Log at info only when work was done, debug otherwise to reduce noise
+        log_fn = logger.info if (stats["failed_retried"] > 0 or stats["missing_vectors_found"] > 0) else logger.debug
+        log_fn(
+            "Reconciliation job completed in %.2fs: retried=%d, missing=%d",
+            duration,
+            stats["failed_retried"],
+            stats["missing_vectors_found"],
         )
 
         return stats
