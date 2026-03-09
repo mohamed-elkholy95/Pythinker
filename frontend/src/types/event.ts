@@ -44,7 +44,8 @@ export type AgentSSEEvent = {
     | 'verification'
     | 'reflection'
     | 'partial_result'
-    | 'phase';
+    | 'phase'
+    | 'eval_metrics';
   data:
     | ToolEventData
     | ToolStreamEventData
@@ -76,7 +77,8 @@ export type AgentSSEEvent = {
     | FlowTransitionEventData
     | VerificationEventData
     | ReflectionEventData
-    | PartialResultEventData;
+    | PartialResultEventData
+    | EvalMetricsEventData;
 }
 
 export interface BaseEventData {
@@ -397,4 +399,12 @@ export interface PartialResultEventData extends BaseEventData {
   step_title: string;
   headline: string;
   sources_count: number;
+}
+
+// ── Evaluation metrics events (observability) ─────────────────────────
+
+export interface EvalMetricsEventData extends BaseEventData {
+  metrics: Record<string, unknown>;
+  hallucination_score: number;
+  passed: boolean;
 }
