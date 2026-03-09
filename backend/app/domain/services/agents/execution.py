@@ -208,10 +208,7 @@ class ExecutionAgent(BaseAgent):
             source_tracker=self._source_tracker,
             metrics=_metrics,
         )
-        # Backward-compatible aliases for test access
-        self._view_operation_count = self._step_executor._view_operation_count
-        self._multimodal_findings = self._step_executor._multimodal_findings
-        self._view_tools = self._step_executor._view_tools
+        # (Backward-compatible aliases are provided as properties below)
 
         # Adaptive response policy controls
         self._response_policy: ResponsePolicy | None = None
@@ -466,7 +463,10 @@ class ExecutionAgent(BaseAgent):
 
                     step.status = ExecutionStatus.COMPLETED
 
-                    # Apply hallucination verification on step results
+                    # Apply hallucination verification on step results.
+                    # Use _display_result so step.result (the structured domain object)
+                    # is never mutated by display-layer post-processing.
+                    _display_result: str | None = step.result
                     if step.result and self._user_request:
                         result_str = str(step.result)
                         if self._needs_verification(result_str, self._user_request):
@@ -474,12 +474,12 @@ class ExecutionAgent(BaseAgent):
                                 result_str, self._user_request
                             )
                             if verified_result != result_str:
-                                step.result = verified_result
+                                _display_result = verified_result
                                 logger.info("Hallucination verification refined step result")
 
                     yield StepEvent(status=StepStatus.COMPLETED, step=step)
-                    if step.result:
-                        yield MessageEvent(message=step.result)
+                    if _display_result:
+                        yield MessageEvent(message=_display_result)
                     continue
                 elif isinstance(event, ToolEvent):
                     # Track tool usage for prompt adapter
@@ -718,6 +718,10 @@ class ExecutionAgent(BaseAgent):
             accumulated_text = ""
             attempt_text = ""  # pre-initialised so CancelledError handler can always read it
             stream_messages = list(self.memory.get_messages())
+            # Save original messages before Stage-1 mutates stream_messages for
+            # continuation turns; Stage-2 uses this snapshot so it only ever
+            # prepends the system + last-user messages (no duplicate history).
+            original_stream_messages = stream_messages
             stream_metadata: dict[str, Any] = {}
             truncation_exhausted = False
             max_stream_continuations = 2 if delivery_integrity_enabled else 1
@@ -735,7 +739,7 @@ class ExecutionAgent(BaseAgent):
                 all_steps_completed=all_steps_completed,
                 delivery_channel=delivery_channel,
             ):
-                message_content = self._pre_trim_report_cache or ""
+                message_content = self._clean_report_content(self._pre_trim_report_cache or "")
                 stream_metadata = {"provider": "pretrim_cache", "finish_reason": "stop", "truncated": False}
                 logger.info(
                     "Skipping summarization — pre-trim draft passed gate directly (%d chars)",
@@ -887,7 +891,6 @@ class ExecutionAgent(BaseAgent):
                     if not is_final_truncated:
                         self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="recovered")
 
-                yield StreamEvent(content="", is_final=True, phase="summarizing")
                 message_content = accumulated_text.strip()
             message_content = self._collapse_duplicate_report_payload(message_content)
 
@@ -1113,9 +1116,11 @@ class ExecutionAgent(BaseAgent):
                             },
                         )
 
-                        # Request continuation using pattern-specific prompt
+                        # Request continuation using pattern-specific prompt.
+                        # Use original_stream_messages (pre-Stage-1-mutation snapshot) so
+                        # the context is never duplicated across continuation turns.
                         continuation_messages = [
-                            *stream_messages,
+                            *original_stream_messages,
                             {"role": "assistant", "content": message_content},
                             {"role": "user", "content": truncation_assessment.continuation_prompt},
                         ]
@@ -1175,9 +1180,10 @@ class ExecutionAgent(BaseAgent):
                                 _stage2_resolved = True
                                 break  # Content looks complete
 
-                            # Update continuation messages for next attempt
+                            # Update continuation messages for next attempt.
+                            # Use original_stream_messages snapshot to avoid duplication.
                             continuation_messages = [
-                                *stream_messages,
+                                *original_stream_messages,
                                 {"role": "assistant", "content": message_content},
                                 {"role": "user", "content": post_assessment.continuation_prompt},
                             ]
@@ -1206,6 +1212,12 @@ class ExecutionAgent(BaseAgent):
 
                 except Exception as e:
                     logger.debug(f"Pattern-based truncation detection failed: {e}")
+
+            # Emit the final stream sentinel AFTER all Stage-2 continuations have
+            # completed so the frontend never sees is_final=True mid-stream.
+            # The pretrim fast-path already emits its own is_final sentinel above.
+            if stream_metadata.get("provider") != "pretrim_cache":
+                yield StreamEvent(content="", is_final=True, phase="summarizing")
 
             # Guaranteed fallback: inject complete References section if truncated/missing
             message_content = self._ensure_complete_references(message_content)
@@ -1587,7 +1599,13 @@ class ExecutionAgent(BaseAgent):
             # Also check the coalescing buffer for unflushed content that wasn't
             # yielded before the error (e.g. small final chunk still in buffer).
             _coalesce_pending = getattr(self._response_generator, "_coalesce_pending", "") or ""
-            _salvage = accumulated_text or (attempt_text + _coalesce_pending) or ""
+            _current_attempt_extra = attempt_text + _coalesce_pending
+            # Proper merge: when both sides have content use merge helper to avoid
+            # duplication; when only one side has content use it directly.
+            if accumulated_text and _current_attempt_extra:
+                _salvage = self._merge_stream_continuation(accumulated_text, _current_attempt_extra)
+            else:
+                _salvage = accumulated_text or _current_attempt_extra
             if _salvage.strip():
                 _salvage_clean = self._clean_report_content(_salvage.strip())
                 if _salvage_clean and len(_salvage_clean) > 200:
@@ -1848,26 +1866,35 @@ class ExecutionAgent(BaseAgent):
     async def _retry_step_result_json(self, raw_message: str) -> dict[str, Any] | None:
         """Two-pass correction retry for non-JSON step outputs.
 
-        Uses the LLM as a strict formatter and then runs local JSON extraction/repair
-        on the correction result to avoid hard failing on prose-prefixed responses.
+        Attempt 1: uses response_format=json_object (enforced by the API).
+        Attempt 2: falls back to plain-text mode with an explicit "JSON only"
+        instruction in the prompt — handles providers that reject json_object format.
+
+        Uses local JSON extraction/repair on the correction result to avoid hard
+        failing on prose-prefixed responses.
         """
         schema = '{"success": boolean, "result": string|null, "attachments": string[]}'
         preview = raw_message[:1800]
-        correction_prompts = [
+        # Each tuple: (prompt_text, use_json_format)
+        correction_attempts: list[tuple[str, bool]] = [
             (
                 "Your previous response was not valid JSON.\n"
                 f'Previous response:\n"""\n{preview}\n"""\n\n'
                 f"You MUST respond with ONLY valid JSON matching this schema: {schema}\n"
-                "No prose. No markdown. JSON object only."
+                "No prose. No markdown. JSON object only.",
+                True,  # attempt 1: enforce via response_format
             ),
             (
                 "Return ONLY a valid JSON object. "
                 f"Schema: {schema}. "
-                "No explanation, no markdown, and no surrounding text."
+                "No explanation, no markdown, and no surrounding text. "
+                "Respond only with valid JSON.",
+                False,  # attempt 2: plain mode with explicit instruction
             ),
         ]
 
-        for attempt_index, correction_prompt in enumerate(correction_prompts, start=1):
+        for attempt_index, (correction_prompt, use_json_format) in enumerate(correction_attempts, start=1):
+            response_format: dict[str, str] | None = {"type": "json_object"} if use_json_format else None
             try:
                 correction = await self.llm.ask(
                     messages=[
@@ -1878,12 +1905,20 @@ class ExecutionAgent(BaseAgent):
                         {"role": "user", "content": correction_prompt},
                     ],
                     tools=None,
-                    response_format={"type": "json_object"},
+                    response_format=response_format,
                     enable_caching=False,
                     model=self._step_model_override,
                 )
             except Exception as correction_err:
-                logger.warning("Step JSON correction retry failed on attempt %d: %s", attempt_index, correction_err)
+                logger.warning(
+                    "Step JSON correction retry failed on attempt %d (json_format=%s): %s",
+                    attempt_index,
+                    use_json_format,
+                    correction_err,
+                )
+                if use_json_format:
+                    # json_object format rejected by provider — fall through to plain attempt
+                    logger.info("Falling through to plain-mode JSON correction retry")
                 continue
 
             corrected_content = str(correction.get("content", "") or "")
@@ -1933,6 +1968,34 @@ class ExecutionAgent(BaseAgent):
     def _is_report_structure(self, content: str) -> bool:
         """Check if content has report-like structure (delegated to ResponseGenerator)."""
         return self._response_generator.is_report_structure(content)
+
+    # ── Backward-compatible StepExecutor property aliases ─────────────
+    # These proxy through _step_executor so they always reflect live state
+    # rather than stale snapshot values set at __init__ time.
+
+    @property
+    def _view_operation_count(self) -> int:
+        return self._step_executor._view_operation_count
+
+    @_view_operation_count.setter
+    def _view_operation_count(self, value: int) -> None:
+        self._step_executor._view_operation_count = value
+
+    @property
+    def _multimodal_findings(self) -> list:
+        return self._step_executor._multimodal_findings
+
+    @_multimodal_findings.setter
+    def _multimodal_findings(self, value: list) -> None:
+        self._step_executor._multimodal_findings = value
+
+    @property
+    def _view_tools(self) -> set:
+        return self._step_executor._view_tools
+
+    @_view_tools.setter
+    def _view_tools(self, value: set) -> None:
+        self._step_executor._view_tools = value
 
     # Context Manager Integration (Phase 1)
     def get_context_manager(self) -> ContextManager:
