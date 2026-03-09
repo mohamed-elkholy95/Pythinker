@@ -20,10 +20,10 @@ export function useElapsedTimer() {
     return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
   })
 
-  function start() {
+  function start(fromTime?: number) {
     if (intervalId) return // already running
-    startTime.value = Date.now()
-    elapsedSeconds.value = 0
+    startTime.value = fromTime ?? Date.now()
+    elapsedSeconds.value = Math.floor((Date.now() - startTime.value) / 1000)
     intervalId = setInterval(() => {
       if (startTime.value) {
         elapsedSeconds.value = Math.floor((Date.now() - startTime.value) / 1000)
