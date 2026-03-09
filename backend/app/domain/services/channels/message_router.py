@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Slash-command constants
 # ---------------------------------------------------------------------------
-SLASH_COMMANDS = frozenset({"/new", "/stop", "/help", "/status", "/link", "/pdf"})
+SLASH_COMMANDS = frozenset({"/new", "/stop", "/help", "/commands", "/status", "/link", "/pdf"})
 
 HELP_TEXT = (
     "Available commands:\n"
@@ -42,7 +42,8 @@ HELP_TEXT = (
     "  /pdf    — Send the last assistant response as a PDF\n"
     "  /bind   — Alias of /link\n"
     "  :bind   — Legacy alias of /link\n"
-    "  /help   — Show this help message"
+    "  /help   — Show this help message\n"
+    "  /commands — Alias of /help"
 )
 
 TELEGRAM_LINK_REQUIRED_TEXT = (
@@ -54,6 +55,8 @@ TELEGRAM_LINK_REQUIRED_TEXT = (
 
 # Event types that produce outbound messages (progress is heartbeat-only, not user-visible).
 _OUTBOUND_EVENT_TYPES = frozenset({"message", "report", "error", "progress", "stream"})
+_TELEGRAM_FOLLOW_UP_CALLBACK_PREFIX = "telegram:followup:"
+_TELEGRAM_FOLLOW_UP_LABEL = "Follow-up options:"
 _RESEARCH_REPORT_REQUEST_RE = re.compile(
     r"\bresearch\b[\s\S]{0,120}\breport\b|\breport\b[\s\S]{0,120}\bresearch\b",
     re.IGNORECASE,
@@ -305,11 +308,14 @@ class MessageRouter:
         last_telegram_wait_delivery_event: object | None = None
         try:
             attachments = self._build_agent_attachments(message)
+            follow_up = self._extract_follow_up(message)
+            agent_message = self._build_agent_message(message)
             async for event in self._agent_service.chat(
                 session_id=session_id,
                 user_id=user_id,
-                message=message.content,
+                message=agent_message,
                 attachments=attachments,
+                follow_up=follow_up,
             ):
                 if self._should_suppress_generic_agent_ack_event(
                     event,
@@ -354,7 +360,7 @@ class MessageRouter:
                             yield outbound
                         continue
 
-                    if event_type == "stream" and self._telegram_streaming_enabled(message.channel):
+                    if event_type in {"stream", "suggestion"}:
                         pending_final_event = last_telegram_report_event or last_telegram_message_event
                         if (
                             pending_final_event is not None
@@ -383,7 +389,10 @@ class MessageRouter:
                                     yield outbound
                             last_telegram_message_event = None
                             last_telegram_report_event = None
-                        pass
+                        if event_type == "stream" and self._telegram_streaming_enabled(message.channel):
+                            pass
+                        elif event_type != "suggestion":
+                            continue
                     elif event_type not in {"error", "progress"}:
                         continue
 
@@ -452,14 +461,13 @@ class MessageRouter:
     def _event_to_outbound(self, event: object, source: InboundMessage) -> OutboundMessage | None:
         """Convert an agent event to an OutboundMessage, or ``None`` for internal events.
 
-        Only ``message``, ``report``, ``error``, and ``progress`` events produce
-        outbound messages.  Progress events carry no visible content — they serve
-        as heartbeats to reset the gateway's stall tracker.  All other event types
-        (plan, step, tool, done, etc.) are silently dropped.
+        Only ``message``, ``report``, ``suggestion``, ``error``, and ``progress``
+        events produce outbound messages.  Progress events carry no visible
+        content — they serve as heartbeats to reset the gateway's stall tracker.
+        All other event types (plan, step, tool, done, etc.) are silently
+        dropped.
         """
         event_type = getattr(event, "type", None)
-        if event_type not in _OUTBOUND_EVENT_TYPES:
-            return None
 
         if event_type == "message":
             text = getattr(event, "message", "") or ""
@@ -467,9 +475,14 @@ class MessageRouter:
             role = getattr(event, "role", "assistant")
             if role == "user":
                 return None
-            if not text:
+            delivery_metadata = getattr(event, "delivery_metadata", None)
+            has_telegram_action = isinstance(delivery_metadata, dict) and isinstance(
+                delivery_metadata.get("telegram_action"),
+                dict,
+            )
+            if not text and not has_telegram_action:
                 return None
-            return self._make_reply(source, text)
+            return self._make_reply(source, text, metadata=delivery_metadata)
 
         if event_type == "report":
             title = getattr(event, "title", "Report")
@@ -478,6 +491,9 @@ class MessageRouter:
             if not text:
                 return None
             return self._make_reply(source, text)
+
+        if event_type == "suggestion":
+            return self._suggestion_event_to_outbound(event, source)
 
         if event_type == "error":
             error_msg = getattr(event, "error", "Unknown error")
@@ -518,6 +534,9 @@ class MessageRouter:
                 metadata=metadata,
             )
 
+        if event_type not in _OUTBOUND_EVENT_TYPES:
+            return None
+
         return None  # pragma: no cover
 
     # ------------------------------------------------------------------
@@ -533,7 +552,7 @@ class MessageRouter:
         """Intercept and respond to slash commands."""
         command = content.split()[0].lower()
 
-        if command == "/help":
+        if command in {"/help", "/commands"}:
             yield self._make_reply(message, HELP_TEXT)
             return
 
@@ -1145,19 +1164,139 @@ class MessageRouter:
             )
         return attachments or None
 
+    @staticmethod
+    def _build_agent_message(message: InboundMessage) -> str:
+        """Add compact untrusted Telegram reply context ahead of the user message when available."""
+        prefix = MessageRouter._telegram_reply_context_prefix(message)
+        if not prefix:
+            return message.content
+        if not message.content:
+            return prefix
+        return f"{prefix}\n\n{message.content}"
+
+    @staticmethod
+    def _telegram_reply_context_prefix(message: InboundMessage) -> str | None:
+        """Render OpenClaw-style reply context blocks for Telegram inbound messages."""
+        if message.channel != ChannelType.TELEGRAM:
+            return None
+        metadata = getattr(message, "metadata", None)
+        if not isinstance(metadata, dict):
+            return None
+
+        reply_to_body = str(metadata.get("reply_to_body", "") or "").strip()
+        if not reply_to_body:
+            return None
+
+        blocks: list[str] = []
+        conversation_info: dict[str, Any] = {}
+        if metadata.get("message_id") is not None:
+            conversation_info["message_id"] = metadata["message_id"]
+        if metadata.get("reply_to_id") is not None:
+            conversation_info["reply_to_id"] = metadata["reply_to_id"]
+        if conversation_info:
+            blocks.append(
+                f"Conversation info (untrusted metadata):\n```json\n{json.dumps(conversation_info, indent=2)}\n```"
+            )
+
+        replied_message: dict[str, Any] = {}
+        reply_to_sender = str(metadata.get("reply_to_sender", "") or "").strip()
+        if reply_to_sender:
+            replied_message["sender_label"] = reply_to_sender
+        if metadata.get("reply_to_is_quote") is True:
+            replied_message["is_quote"] = True
+        replied_message["body"] = reply_to_body
+        blocks.append(
+            f"Replied message (untrusted, for context):\n```json\n{json.dumps(replied_message, indent=2)}\n```"
+        )
+        return "\n\n".join(blocks)
+
+    @staticmethod
+    def _extract_follow_up(message: InboundMessage) -> dict[str, str] | None:
+        """Return normalized follow-up metadata for callback-driven user replies."""
+        metadata = getattr(message, "metadata", None)
+        if not isinstance(metadata, dict):
+            return None
+        raw_follow_up = metadata.get("follow_up")
+        if not isinstance(raw_follow_up, dict):
+            return None
+
+        selected_suggestion = str(raw_follow_up.get("selected_suggestion", "") or "").strip()
+        source = str(raw_follow_up.get("source", "") or "").strip()
+        anchor_event_id = str(raw_follow_up.get("anchor_event_id", "") or "").strip()
+        if not selected_suggestion or not source:
+            return None
+
+        follow_up = {
+            "selected_suggestion": selected_suggestion,
+            "source": source,
+        }
+        if anchor_event_id:
+            follow_up["anchor_event_id"] = anchor_event_id
+        return follow_up
+
+    @classmethod
+    def _suggestion_event_to_outbound(cls, event: object, source: InboundMessage) -> OutboundMessage | None:
+        """Render Telegram follow-up suggestions as native inline buttons."""
+        if source.channel != ChannelType.TELEGRAM:
+            return None
+
+        raw_suggestions = getattr(event, "suggestions", None)
+        if not isinstance(raw_suggestions, list):
+            return None
+        suggestions = [str(item).strip() for item in raw_suggestions if str(item).strip()]
+        if not suggestions:
+            return None
+
+        anchor_event_id = str(getattr(event, "anchor_event_id", "") or "").strip()
+        inline_keyboard: list[list[dict[str, str]]] = []
+        for index, suggestion in enumerate(suggestions[:3]):
+            inline_keyboard.append(
+                [
+                    {
+                        "text": suggestion,
+                        "callback_data": cls._telegram_follow_up_callback_data(anchor_event_id, index),
+                    }
+                ]
+            )
+        if not inline_keyboard:
+            return None
+
+        return cls._make_reply(
+            source,
+            _TELEGRAM_FOLLOW_UP_LABEL,
+            metadata={"reply_markup": {"inline_keyboard": inline_keyboard}},
+        )
+
+    @staticmethod
+    def _telegram_follow_up_callback_data(anchor_event_id: str, index: int) -> str:
+        """Build a Telegram-safe callback token for a follow-up suggestion button."""
+        safe_index = max(0, int(index))
+        anchor = anchor_event_id.strip()
+        candidate = f"{_TELEGRAM_FOLLOW_UP_CALLBACK_PREFIX}{anchor}:{safe_index}"
+        if anchor and len(candidate.encode("utf-8")) <= 64:
+            return candidate
+        return f"{_TELEGRAM_FOLLOW_UP_CALLBACK_PREFIX}:{safe_index}"
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _make_reply(source: InboundMessage, content: str) -> OutboundMessage:
+    def _make_reply(
+        source: InboundMessage,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> OutboundMessage:
         """Build an ``OutboundMessage`` addressed to the sender of *source*."""
+        reply_metadata = MessageRouter._telegram_message_id_metadata(source)
+        if isinstance(metadata, dict):
+            reply_metadata.update(metadata)
         return OutboundMessage(
             channel=source.channel,
             chat_id=source.chat_id,
             content=content,
             reply_to=source.id,
-            metadata=MessageRouter._telegram_message_id_metadata(source),
+            metadata=reply_metadata,
         )
 
     @staticmethod
