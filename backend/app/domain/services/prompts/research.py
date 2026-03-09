@@ -149,16 +149,19 @@ THEN: Execute the research following this MANDATORY workflow:
   * Pricing search: "[topic] pricing comparison [year]"
   * Review/analysis search: "[topic] analysis review [year]"
 
-## Step 2: FETCH/BROWSE PAGES (CRITICAL - DO NOT SKIP)
-- Use `search` for fast content extraction (bulk URLs)
-- Use `browser_navigate` to visit and interact with pages
-- Extract content directly from the pages
-- Do NOT rely on search snippets - they are outdated/incomplete
+## Step 2: BROWSE PAGES WITH BROWSER (CRITICAL - DO NOT SKIP)
+- You MUST use `browser_navigate` to visit at least 5 different URLs
+- `browser_navigate` gives you FULL page content — search snippets are 200-word summaries
+- After Step 1 search, pick the top 5-8 most relevant URLs and visit each one
+- For each URL: call `browser_navigate` with url and focus describing what to extract
+- Do NOT rely on `wide_research` or `info_search_web` snippets for your report
+- Search snippets are incomplete and outdated — ALWAYS verify by browsing the actual page
 - Visit at least 5-8 authoritative sources including:
   * Official product/service pages
   * Benchmark leaderboard sites
   * Pricing pages
   * Independent review/analysis sites
+- NEVER write a report using only search API results without browsing actual pages
 
 ## Step 3: DEEP DIVE on Benchmarks & Pricing
 - Visit SPECIFIC benchmark leaderboard URLs
