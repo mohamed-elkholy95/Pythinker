@@ -398,17 +398,18 @@
           <!-- Partial Results - provisional findings accumulated during execution -->
           <PartialResults :results="partialResults" />
 
-          <!-- Task Progress Bar Container - shown above ChatBox when ToolPanel is closed -->
-          <div v-if="showTaskProgressBar" class="relative mb-2">
-            <!-- Scroll to bottom button - positioned above progress bar -->
+          <!-- Scroll to bottom button - positioned above progress bar with measured spacing -->
+          <div v-if="!follow" class="flex justify-end mb-2">
             <button
               @click="handleFollow"
-              v-if="!follow"
-              class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute end-0 z-30"
-              style="bottom: 2cm"
+              class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)]"
             >
               <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
             </button>
+          </div>
+
+          <!-- Task Progress Bar Container - shown above ChatBox when ToolPanel is closed -->
+          <div v-if="showTaskProgressBar" class="relative mb-2">
 
             <!-- Task Progress Bar -->
             <TaskProgressBar
@@ -3397,7 +3398,7 @@ const openTextFileInReportModal = async (file: FileInfo) => {
         : preparePlainTextForViewer(textContent);
     const reportPreview: ReportData = {
       id: file.file_id,
-      title: file.filename,
+      title: (file.metadata?.title as string) || file.filename,
       content: contentForModal,
       author: 'Pythinker',
       lastModified: file.upload_date ? new Date(file.upload_date).getTime() : Date.now(),
