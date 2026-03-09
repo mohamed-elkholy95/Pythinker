@@ -141,6 +141,7 @@ from app.domain.utils.cancellation import CancellationToken
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
+    from app.domain.services.tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +312,7 @@ class PlanActFlow(BaseFlow):
         # Phase 2: Proactive token budget management (feature-flagged)
         self._token_budget = None  # Created at flow start if flag enabled
 
-        tools = [
+        tools: list[BaseTool] = [
             ShellTool(sandbox),
             BrowserTool(browser, scraper=scraper),
             FileTool(sandbox, session_id=session_id),
@@ -559,6 +560,7 @@ class PlanActFlow(BaseFlow):
         # Debouncing for background tasks (P1.4: reduce event loop contention)
         self._last_compact_time: datetime | None = None
         self._compact_debounce_seconds = 10  # Min seconds between compactions
+        self._compact_lock: asyncio.Lock = asyncio.Lock()
         self._last_save_time: datetime | None = None
         self._save_debounce_seconds = 5  # Min seconds between saves
 
@@ -979,72 +981,79 @@ class PlanActFlow(BaseFlow):
         self._last_compact_time = now
 
         async def _compact():
-            try:
-                # Estimate current tokens from executor memory
-                await self.executor._ensure_memory()
-                current_tokens = self.executor.memory.estimate_tokens()
+            if self._compact_lock.locked():
+                logger.debug(f"Agent {self._agent_id} skipping compaction — another run is already in progress")
+                return
+            async with self._compact_lock:
+                try:
+                    # Estimate current tokens from executor memory
+                    await self.executor._ensure_memory()
+                    current_tokens = self.executor.memory.estimate_tokens()
 
-                # Track token usage for growth rate analysis
-                self._memory_manager.track_token_usage(current_tokens)
+                    # Track token usage for growth rate analysis
+                    self._memory_manager.track_token_usage(current_tokens)
 
-                # Get pressure status
-                pressure = self._memory_manager.get_pressure_status(current_tokens)
+                    # Get pressure status
+                    pressure = self._memory_manager.get_pressure_status(current_tokens)
 
-                # Check if compaction should be triggered
-                should_compact, trigger_reason = self._memory_manager.should_trigger_compaction(
-                    pressure=pressure, recent_tools=self._recent_tools, iteration_count=self._iteration_count
-                )
-
-                if force or should_compact:
-                    compact_reason = reason if force else trigger_reason
-                    logger.info(
-                        f"Agent {self._agent_id} triggering memory compaction: {compact_reason} "
-                        f"(tokens: {current_tokens}, pressure: {pressure.level.value})"
+                    # Check if compaction should be triggered
+                    should_compact, trigger_reason = self._memory_manager.should_trigger_compaction(
+                        pressure=pressure, recent_tools=self._recent_tools, iteration_count=self._iteration_count
                     )
 
-                    messages = self.executor.memory.get_messages()
-                    flags = self._resolve_feature_flags()
+                    if force or should_compact:
+                        compact_reason = reason if force else trigger_reason
+                        logger.info(
+                            f"Agent {self._agent_id} triggering memory compaction: {compact_reason} "
+                            f"(tokens: {current_tokens}, pressure: {pressure.level.value})"
+                        )
 
-                    if flags.get("context_optimization"):
-                        optimized_messages, report = self._memory_manager.optimize_context(
+                        messages = self.executor.memory.get_messages()
+                        flags = self._resolve_feature_flags()
+
+                        if flags.get("context_optimization"):
+                            optimized_messages, report = self._memory_manager.optimize_context(
+                                messages,
+                                preserve_recent=10,
+                                token_threshold=int(pressure.max_tokens * 0.65),
+                            )
+                            if report.tokens_saved > 0:
+                                self.executor.memory.messages = optimized_messages
+                                await self._repository.save_memory(
+                                    self._agent_id, self.executor.name, self.executor.memory
+                                )
+                                logger.info(
+                                    f"Agent {self._agent_id} context optimization saved {report.tokens_saved} tokens "
+                                    f"(semantic={report.semantic_compacted}, temporal={report.temporal_compacted})"
+                                )
+                                logger.debug(f"Agent {self._agent_id} background memory compact completed")
+                                return
+
+                        # Use smart compaction with result extraction
+                        compacted_messages, tokens_saved = self._memory_manager.compact_messages_batch(
                             messages,
                             preserve_recent=10,
-                            token_threshold=int(pressure.max_tokens * 0.65),
+                            token_threshold=int(pressure.max_tokens * 0.7),  # Compact when at 70%
                         )
-                        if report.tokens_saved > 0:
-                            self.executor.memory.messages = optimized_messages
+
+                        if tokens_saved > 0:
+                            # Update memory with compacted messages
+                            self.executor.memory.messages = compacted_messages
                             await self._repository.save_memory(self._agent_id, self.executor.name, self.executor.memory)
-                            logger.info(
-                                f"Agent {self._agent_id} context optimization saved {report.tokens_saved} tokens "
-                                f"(semantic={report.semantic_compacted}, temporal={report.temporal_compacted})"
-                            )
-                            logger.debug(f"Agent {self._agent_id} background memory compact completed")
-                            return
+                            logger.info(f"Agent {self._agent_id} compaction saved {tokens_saved} tokens")
+                        else:
+                            # Fallback to simple compact if no savings from smart compaction
+                            await self.executor.compact_memory()
 
-                    # Use smart compaction with result extraction
-                    compacted_messages, tokens_saved = self._memory_manager.compact_messages_batch(
-                        messages,
-                        preserve_recent=10,
-                        token_threshold=int(pressure.max_tokens * 0.7),  # Compact when at 70%
-                    )
-
-                    if tokens_saved > 0:
-                        # Update memory with compacted messages
-                        self.executor.memory.messages = compacted_messages
-                        await self._repository.save_memory(self._agent_id, self.executor.name, self.executor.memory)
-                        logger.info(f"Agent {self._agent_id} compaction saved {tokens_saved} tokens")
+                        logger.debug(f"Agent {self._agent_id} background memory compact completed")
                     else:
-                        # Fallback to simple compact if no savings from smart compaction
-                        await self.executor.compact_memory()
-
-                    logger.debug(f"Agent {self._agent_id} background memory compact completed")
-                else:
-                    logger.debug(
-                        f"Agent {self._agent_id} skipping compaction "
-                        f"(tokens: {current_tokens}, pressure: {pressure.level.value})"
-                    )
-            except Exception as e:
-                logger.warning(f"Agent {self._agent_id} background memory compact failed: {e}")
+                        logger.debug(
+                            f"Agent {self._agent_id} skipping compaction "
+                            f"(tokens: {current_tokens}, pressure: {pressure.level.value})"
+                        )
+                except Exception as e:
+                    self._last_compact_time = None
+                    logger.warning(f"Agent {self._agent_id} background memory compact failed: {e}")
 
         task = asyncio.create_task(_compact())
         self._track_background_task(task)

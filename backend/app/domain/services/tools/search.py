@@ -1391,15 +1391,15 @@ class SearchTool(BaseTool):
                 result.message = (
                     (result.message or "")
                     + f"\n\n[SYSTEM NOTE: {enriched_count} search results above have been enriched "
-                    "with full page content (~2000 chars each). Use these enriched snippets directly "
-                    "for your analysis. Use browser_navigate ONLY for pages that need deeper inspection "
-                    "beyond the enriched content, or for pages not in the top results.]"
+                    "with full page content (~2000 chars each). These enriched snippets provide initial "
+                    "content. For comprehensive research, use browser_navigate to visit the most promising "
+                    "URLs for full page content, detailed data, and information beyond snippets.]"
                 )
             elif self._browser:
                 result.message = (
                     (result.message or "") + "\n\n[SYSTEM NOTE: Search results contain brief snippets only. "
-                    "Use browser_navigate to visit the most relevant URLs and extract "
-                    "detailed content for thorough research.]"
+                    "IMPORTANT: Use browser_navigate to visit the top 3-5 most relevant URLs from "
+                    "these results to gather detailed information for your research.]"
                 )
 
         return result
@@ -1666,11 +1666,11 @@ wide_research(
         if self._browser and search_data:
             await self._schedule_background_preview(search_data, count=3)
 
-            # Append system note to prevent LLM from re-navigating these same URLs
+            # Append system note to guide LLM on browser navigation after background preview
             message += (
-                "\n\n[SYSTEM NOTE: Top search result URLs are being opened automatically in the browser. "
-                "Do NOT call browser_navigate to these same URLs. Proceed to analyze the search snippets "
-                "or use browser_get_content to read pages already opened.]"
+                "\n\n[SYSTEM NOTE: Top search result URLs are being previewed in the background. "
+                "You may still use browser_navigate for interactive exploration or to visit pages "
+                "that need deeper inspection beyond what snippets provide.]"
             )
 
         return ToolResult(

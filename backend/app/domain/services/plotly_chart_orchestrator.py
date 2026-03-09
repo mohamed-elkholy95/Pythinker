@@ -8,6 +8,7 @@ the Plotly chart generator script in the sandbox.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -144,13 +145,43 @@ class PlotlyChartOrchestrator:
                 command=command,
             )
 
-            # Clean up temp file (best-effort)
-            with contextlib.suppress(Exception):
-                await self._sandbox.file_delete(path=tmp_input)
-
             if not result.success:
                 logger.error("Plotly chart generation script failed: %s", result.message)
+                # Clean up temp file (best-effort)
+                with contextlib.suppress(Exception):
+                    await self._sandbox.file_delete(path=tmp_input)
                 return None
+
+            # If the process is still running, wait for it to complete
+            exec_status = result.data.get("status") if isinstance(result.data, dict) else None
+            if exec_status == "running":
+                logger.debug("Plotly script still running — waiting up to 30s")
+                with contextlib.suppress(Exception):
+                    await self._sandbox.wait_for_process(session_id=self._session_id, seconds=30)
+                # Fetch output via view_shell after waiting
+                with contextlib.suppress(Exception):
+                    view_result = await self._sandbox.exec_command(
+                        session_id=self._session_id,
+                        exec_dir="/home/ubuntu",
+                        command="true",  # no-op — retrieves buffered output
+                    )
+                    result = view_result
+
+            # If completed but output is empty, do a short retry
+            if isinstance(result.data, dict) and not result.data.get("output", "").strip():
+                logger.debug("Plotly script output empty — retrying after 0.5s")
+                await asyncio.sleep(0.5)
+                with contextlib.suppress(Exception):
+                    retry_result = await self._sandbox.exec_command(
+                        session_id=self._session_id,
+                        exec_dir="/home/ubuntu",
+                        command="true",
+                    )
+                    result = retry_result
+
+            # Clean up temp file after output is captured (best-effort)
+            with contextlib.suppress(Exception):
+                await self._sandbox.file_delete(path=tmp_input)
 
             # Parse JSON output from script stdout
             # Sandbox API returns data as dict with "output" key
