@@ -10,10 +10,10 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from loguru import logger
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReactionTypeEmoji, ReplyParameters, Update
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 from telegram.ext import (
     Application,
@@ -47,6 +47,9 @@ class _TelegramPreviewState:
     last_sent_at: float = 0.0
     last_text: str = ""
     reply_applied: bool = False
+
+
+_FOLLOW_UP_CALLBACK_PREFIX = "telegram:followup:"
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -143,6 +146,7 @@ _TELEGRAM_SENT_MESSAGE_TTL_SECONDS = 24 * 60 * 60.0
 _TELEGRAM_SENT_MESSAGE_MAX = 4000
 _TELEGRAM_MAX_COMMANDS = 100
 _TELEGRAM_MENU_COMMAND_RE = re.compile(r"^[a-z0-9_]{1,32}$")
+_TELEGRAM_HELP_PAGE_SIZE = 8
 
 
 class TelegramChannel(BaseChannel):
@@ -164,8 +168,9 @@ class TelegramChannel(BaseChannel):
         BotCommand("link", "Link your account with a code"),
         BotCommand("bind", "Alias of /link for link codes"),
         BotCommand("help", "Show available commands"),
+        BotCommand("commands", "List all slash commands"),
     ]
-    _KNOWN_SLASH_COMMANDS = frozenset({"start", "new", "stop", "status", "pdf", "link", "bind", "help"})
+    _KNOWN_SLASH_COMMANDS = frozenset({"start", "new", "stop", "status", "pdf", "link", "bind", "help", "commands"})
 
     def __init__(
         self,
@@ -229,6 +234,7 @@ class TelegramChannel(BaseChannel):
         self._app.add_handler(CommandHandler("link", self._forward_command))
         self._app.add_handler(CommandHandler("bind", self._forward_command))
         self._app.add_handler(CommandHandler("help", self._on_help))
+        self._app.add_handler(CommandHandler("commands", self._on_help))
         self._app.add_handler(CallbackQueryHandler(self._on_callback_query))
         self._app.add_handler(MessageReactionHandler(self._on_message_reaction))
 
@@ -627,6 +633,71 @@ class TelegramChannel(BaseChannel):
         return bool(metadata.get("_telegram_stream")) and not bool(metadata.get("_telegram_stream_final"))
 
     @classmethod
+    def _resolve_reply_target_sender(cls, reply_like) -> str | None:
+        """Return a simple sender label for a replied-to Telegram message."""
+        if reply_like is None:
+            return None
+        reply_from = getattr(reply_like, "from_user", None)
+        first_name = str(getattr(reply_from, "first_name", "") or "").strip()
+        if first_name:
+            return first_name
+        username = str(getattr(reply_from, "username", "") or "").strip()
+        if username:
+            return username
+        user_id = getattr(reply_from, "id", None)
+        return str(user_id).strip() if user_id is not None else None
+
+    @staticmethod
+    def _resolve_reply_media_placeholder(reply_like) -> str | None:
+        """Mirror OpenClaw-style media placeholders for replied-to Telegram messages."""
+        if reply_like is None:
+            return None
+        if getattr(reply_like, "photo", None):
+            return "<media:image>"
+        if getattr(reply_like, "video", None) or getattr(reply_like, "video_note", None):
+            return "<media:video>"
+        if getattr(reply_like, "audio", None) or getattr(reply_like, "voice", None):
+            return "<media:audio>"
+        if getattr(reply_like, "document", None):
+            return "<media:document>"
+        if getattr(reply_like, "sticker", None):
+            return "<media:sticker>"
+        return None
+
+    @classmethod
+    def _resolve_reply_context(cls, message) -> dict[str, object]:
+        """Extract reply target metadata from Telegram reply and quote fields."""
+        reply_to_message = getattr(message, "reply_to_message", None)
+        external_reply = getattr(message, "external_reply", None)
+        reply_like = reply_to_message or external_reply
+        quote = getattr(message, "quote", None)
+        external_quote = getattr(external_reply, "quote", None) if external_reply is not None else None
+
+        quote_text = str(getattr(quote, "text", "") or getattr(external_quote, "text", "") or "").strip()
+        if quote_text:
+            reply_body = quote_text
+            reply_is_quote = True
+        else:
+            reply_body = str(getattr(reply_like, "text", "") or getattr(reply_like, "caption", "") or "").strip()
+            reply_is_quote = False
+            if not reply_body:
+                reply_body = cls._resolve_reply_media_placeholder(reply_like) or ""
+
+        if not reply_body:
+            return {}
+
+        metadata: dict[str, object] = {"reply_to_body": reply_body}
+        reply_message_id = cls._normalize_message_id(getattr(reply_like, "message_id", None))
+        if reply_message_id is not None:
+            metadata["reply_to_id"] = reply_message_id
+        reply_sender = cls._resolve_reply_target_sender(reply_like)
+        if reply_sender:
+            metadata["reply_to_sender"] = reply_sender
+        if reply_is_quote:
+            metadata["reply_to_is_quote"] = True
+        return metadata
+
+    @classmethod
     def _build_inbound_delivery_context(cls, message, user) -> tuple[dict[str, object], str]:
         """Build OpenClaw-style Telegram routing context for inbound messages."""
         chat = getattr(message, "chat", None)
@@ -661,6 +732,7 @@ class TelegramChannel(BaseChannel):
             metadata["message_thread_id"] = resolved_forum_thread_id
         elif not is_group and raw_thread_id is not None:
             metadata["message_thread_id"] = raw_thread_id
+        metadata.update(cls._resolve_reply_context(message))
 
         chat_id = str(message.chat_id)
         if is_channel_post:
@@ -813,24 +885,67 @@ class TelegramChannel(BaseChannel):
         return commands[:_TELEGRAM_MAX_COMMANDS]
 
     @classmethod
+    def _help_entries(cls) -> list[tuple[str, str]]:
+        """Return built-in and custom commands for Telegram help rendering."""
+        entries = [(command.command, command.description) for command in cls.BOT_COMMANDS]
+        entries.extend(cls._custom_command_entries())
+        return entries
+
+    @staticmethod
+    def _format_help_command_name(command: str) -> str:
+        """Render one Telegram command label for help text."""
+        normalized = str(command or "").strip().lower()
+        if normalized in {"link", "bind"}:
+            return f"/{normalized} <CODE>"
+        return f"/{normalized}"
+
+    @classmethod
+    def _build_help_pagination_keyboard(cls, current_page: int, total_pages: int) -> InlineKeyboardMarkup | None:
+        """Build OpenClaw-style Telegram pagination controls for /help."""
+        if total_pages <= 1:
+            return None
+
+        buttons: list[InlineKeyboardButton] = []
+        if current_page > 1:
+            buttons.append(InlineKeyboardButton(text="◀ Prev", callback_data=f"commands_page_{current_page - 1}"))
+        buttons.append(InlineKeyboardButton(text=f"{current_page}/{total_pages}", callback_data="commands_page_noop"))
+        if current_page < total_pages:
+            buttons.append(InlineKeyboardButton(text="Next ▶", callback_data=f"commands_page_{current_page + 1}"))
+        return InlineKeyboardMarkup([buttons]) if buttons else None
+
+    @classmethod
+    def _build_help_page(cls, page: int = 1) -> tuple[str, InlineKeyboardMarkup | None]:
+        """Render one Telegram /help page with optional inline pagination."""
+        entries = cls._help_entries()
+        total_pages = max(1, (len(entries) + _TELEGRAM_HELP_PAGE_SIZE - 1) // _TELEGRAM_HELP_PAGE_SIZE)
+        current_page = min(max(1, int(page)), total_pages)
+        start = (current_page - 1) * _TELEGRAM_HELP_PAGE_SIZE
+        end = start + _TELEGRAM_HELP_PAGE_SIZE
+        page_entries = entries[start:end]
+
+        header = f"🤖 Pythinker commands ({current_page}/{total_pages})" if total_pages > 1 else "🤖 Pythinker commands"
+        lines = [header]
+        lines.extend(
+            f"{cls._format_help_command_name(command)} — {description}" for command, description in page_entries
+        )
+        return "\n".join(lines), cls._build_help_pagination_keyboard(current_page, total_pages)
+
+    @classmethod
     def _build_help_text(cls) -> str:
-        """Render Telegram help text with app-registered primary custom commands."""
-        lines = [
-            "🤖 Pythinker commands:",
-            "/new — Start a new conversation",
-            "/stop — Stop the current task",
-            "/status — Show current session status",
-            "/pdf — Get the last response as a PDF",
-            "/link <CODE> — Link your web account",
-            "/bind <CODE> — Alias of /link",
-            "/help — Show available commands",
-        ]
-        custom_commands = cls._custom_command_entries()
-        if custom_commands:
-            lines.append("")
-            lines.append("Custom commands:")
-            lines.extend(f"/{command} — {description}" for command, description in custom_commands)
-        return "\n".join(lines)
+        """Backward-compatible help text accessor for the first Telegram help page."""
+        return cls._build_help_page(1)[0]
+
+    @staticmethod
+    def _parse_commands_page_callback_data(value: str) -> int | str | None:
+        """Parse `commands_page_*` callback tokens."""
+        match = re.fullmatch(r"commands_page_(\d+|noop)(?::.+)?", value.strip())
+        if match is None:
+            return None
+        page_value = match.group(1)
+        if page_value == "noop":
+            return "noop"
+        page = int(page_value)
+        return page if page > 0 else None
 
     @staticmethod
     def _normalize_inline_buttons_scope(value: object) -> str:
@@ -1209,6 +1324,25 @@ class TelegramChannel(BaseChannel):
         allow_thread_fallback = message_thread_id is not None and not bool(metadata.get("is_forum"))
         preview_state = self._preview_states.get(self._preview_key(msg))
         reply_applied = preview_state.reply_applied if preview_state is not None else False
+        action_reply_params = (
+            base_reply_params
+            if self._should_include_reply_for_send(reply_to_mode, reply_applied=reply_applied)
+            else None
+        )
+
+        if await self._dispatch_telegram_action(
+            msg,
+            chat_id=chat_id,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup,
+            reply_parameters=action_reply_params,
+            message_thread_id=message_thread_id,
+            allow_thread_fallback=allow_thread_fallback,
+        ):
+            if keep_typing_after_send and msg.chat_id not in self._typing_tasks:
+                self._start_typing(msg.chat_id)
+            self._cleanup_temp_files(cleanup_paths)
+            return
 
         if bool(metadata.get("_progress")) and bool(metadata.get("_telegram_stream")):
             if not self._is_stream_preview_message(msg):
@@ -1402,6 +1536,161 @@ class TelegramChannel(BaseChannel):
             self._start_typing(msg.chat_id)
 
         self._cleanup_temp_files(cleanup_paths)
+
+    async def _dispatch_telegram_action(
+        self,
+        msg: OutboundMessage,
+        *,
+        chat_id: int,
+        parse_mode: str,
+        reply_markup: InlineKeyboardMarkup | None,
+        reply_parameters: ReplyParameters | None,
+        message_thread_id: int | None,
+        allow_thread_fallback: bool,
+    ) -> bool:
+        """Dispatch Telegram-native actions embedded in outbound metadata."""
+        if not self._app:
+            return False
+
+        metadata = msg.metadata or {}
+        action = metadata.get("telegram_action")
+        if not isinstance(action, dict):
+            return False
+
+        action_type = str(action.get("type", "") or "").strip().lower()
+        message_id = self._normalize_message_id(action.get("message_id"))
+        if not action_type:
+            return False
+
+        if action_type == "edit_text":
+            if message_id is None:
+                return False
+            payload_text = _markdown_to_telegram_html(msg.content) if parse_mode == "HTML" else msg.content
+            await self._send_text_with_fallback(
+                sender=self._app.bot.edit_message_text,
+                text=payload_text,
+                plain_text=msg.content,
+                parse_mode=parse_mode if parse_mode == "HTML" else None,
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=reply_markup,
+                ignore_not_modified=True,
+            )
+            return True
+
+        if action_type == "edit_buttons":
+            if message_id is None:
+                return False
+            try:
+                await self._send_with_retry(
+                    self._app.bot.edit_message_reply_markup,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reply_markup=reply_markup,
+                )
+            except BadRequest as exc:
+                if not self._is_message_not_modified_error(exc):
+                    raise
+            return True
+
+        if action_type == "delete":
+            if message_id is None:
+                return False
+            await self._send_with_retry(
+                self._app.bot.delete_message,
+                chat_id=chat_id,
+                message_id=message_id,
+            )
+            return True
+
+        if action_type == "react":
+            if message_id is None:
+                return False
+            remove = bool(action.get("remove"))
+            emoji = str(action.get("emoji", "") or "").strip()
+            if remove:
+                reaction: ReactionTypeEmoji | None = None
+            elif emoji:
+                reaction = ReactionTypeEmoji(emoji=emoji)
+            else:
+                return False
+
+            await self._send_with_retry(
+                self._app.bot.set_message_reaction,
+                chat_id=chat_id,
+                message_id=message_id,
+                reaction=reaction,
+            )
+            return True
+
+        if action_type == "poll":
+            question = str(action.get("question", "") or "").strip()
+            raw_options = action.get("options")
+            if not question or not isinstance(raw_options, list):
+                return False
+            options = [str(option).strip() for option in raw_options if str(option).strip()]
+            if len(options) < 2:
+                return False
+            poll_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "question": question,
+                "options": options,
+            }
+            if "allows_multiple_answers" in action:
+                poll_kwargs["allows_multiple_answers"] = bool(action.get("allows_multiple_answers"))
+            if "is_anonymous" in action:
+                poll_kwargs["is_anonymous"] = bool(action.get("is_anonymous"))
+            open_period = self._normalize_message_id(action.get("open_period"))
+            if open_period is not None:
+                poll_kwargs["open_period"] = open_period
+            if reply_parameters is not None:
+                poll_kwargs["reply_parameters"] = reply_parameters
+            if message_thread_id is not None:
+                poll_kwargs["message_thread_id"] = message_thread_id
+            if allow_thread_fallback:
+                response = await self._send_with_thread_fallback(self._app.bot.send_poll, **poll_kwargs)
+            else:
+                response = await self._send_with_retry(self._app.bot.send_poll, **poll_kwargs)
+            self._remember_sent_message(chat_id=chat_id, message_id=getattr(response, "message_id", None))
+            return True
+
+        if action_type == "topic_create":
+            name = str(action.get("name", "") or "").strip()
+            if not name:
+                return False
+            topic_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "name": name,
+            }
+            icon_color = self._normalize_message_id(action.get("icon_color"))
+            if icon_color is not None:
+                topic_kwargs["icon_color"] = icon_color
+            icon_custom_emoji_id = str(action.get("icon_custom_emoji_id", "") or "").strip()
+            if icon_custom_emoji_id:
+                topic_kwargs["icon_custom_emoji_id"] = icon_custom_emoji_id
+            await self._send_with_retry(self._app.bot.create_forum_topic, **topic_kwargs)
+            return True
+
+        if action_type == "sticker":
+            file_id = str(action.get("file_id", "") or "").strip()
+            if not file_id:
+                return False
+            sticker_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "sticker": file_id,
+            }
+            if reply_parameters is not None:
+                sticker_kwargs["reply_parameters"] = reply_parameters
+            if message_thread_id is not None:
+                sticker_kwargs["message_thread_id"] = message_thread_id
+            if allow_thread_fallback:
+                response = await self._send_with_thread_fallback(self._app.bot.send_sticker, **sticker_kwargs)
+            else:
+                response = await self._send_with_retry(self._app.bot.send_sticker, **sticker_kwargs)
+            self._remember_sent_message(chat_id=chat_id, message_id=getattr(response, "message_id", None))
+            return True
+
+        return False
 
     async def _send_with_retry(self, sender, **kwargs):
         """Send with RetryAfter/transient retry handling."""
@@ -1691,6 +1980,49 @@ class TelegramChannel(BaseChannel):
                 rows.append(buttons)
         return InlineKeyboardMarkup(rows) if rows else None
 
+    @staticmethod
+    def _parse_follow_up_callback_data(value: str) -> tuple[str | None, int] | None:
+        """Parse compact follow-up callback data into anchor/id parts."""
+        if not value.startswith(_FOLLOW_UP_CALLBACK_PREFIX):
+            return None
+        payload = value[len(_FOLLOW_UP_CALLBACK_PREFIX) :]
+        if ":" not in payload:
+            return None
+        anchor_event_id, index_raw = payload.rsplit(":", 1)
+        try:
+            index = int(index_raw)
+        except ValueError:
+            return None
+        if index < 0:
+            return None
+        normalized_anchor = anchor_event_id.strip() or None
+        return normalized_anchor, index
+
+    @staticmethod
+    def _button_attr(button: object, name: str) -> Any:
+        """Read one inline button attribute from PTB objects or test doubles."""
+        if isinstance(button, dict):
+            return button.get(name)
+        return getattr(button, name, None)
+
+    @classmethod
+    def _resolve_callback_button_text(cls, message: object, callback_data: str) -> str | None:
+        """Find the clicked inline button text from the callback message keyboard."""
+        reply_markup = getattr(message, "reply_markup", None)
+        keyboard = getattr(reply_markup, "inline_keyboard", None)
+        if not isinstance(keyboard, list):
+            return None
+        for row in keyboard:
+            if not isinstance(row, list):
+                continue
+            for button in row:
+                if str(cls._button_attr(button, "callback_data") or "").strip() != callback_data:
+                    continue
+                text = str(cls._button_attr(button, "text") or "").strip()
+                if text:
+                    return text
+        return None
+
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         if not update.message or not update.effective_user:
@@ -1726,7 +2058,9 @@ class TelegramChannel(BaseChannel):
             return
         if self._should_skip_update(update):
             return
-        await update.message.reply_text(self._build_help_text())
+        help_text, reply_markup = self._build_help_page(1)
+        reply_kwargs = {"reply_markup": reply_markup} if reply_markup is not None else {}
+        await update.message.reply_text(help_text, **reply_kwargs)
 
     async def _unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle unknown slash commands with a help hint."""
@@ -1811,7 +2145,41 @@ class TelegramChannel(BaseChannel):
         if not self._inline_buttons_allowed_for_message(callback.message):
             return
 
-        content = "/pdf" if data == "telegram:get_pdf:last" else data
+        commands_page = self._parse_commands_page_callback_data(data)
+        if commands_page is not None:
+            if commands_page == "noop":
+                return
+            if self._app is None:
+                return
+            help_text, reply_markup = self._build_help_page(int(commands_page))
+            try:
+                await self._app.bot.edit_message_text(
+                    callback.message.chat_id,
+                    callback.message.message_id,
+                    help_text,
+                    reply_markup=reply_markup,
+                )
+            except BadRequest as exc:
+                if not self._is_message_not_modified_error(exc):
+                    raise
+            return
+
+        metadata, session_key = self._build_inbound_delivery_context(callback.message, user)
+        follow_up = self._parse_follow_up_callback_data(data)
+        if data == "telegram:get_pdf:last":
+            content = "/pdf"
+        elif follow_up is not None:
+            anchor_event_id, _index = follow_up
+            selected_suggestion = self._resolve_callback_button_text(callback.message, data)
+            content = selected_suggestion or data
+            if selected_suggestion:
+                metadata["follow_up"] = {
+                    "selected_suggestion": selected_suggestion,
+                    "source": "suggestion_click",
+                    **({"anchor_event_id": anchor_event_id} if anchor_event_id else {}),
+                }
+        else:
+            content = data
         if not await self._is_inbound_allowed(
             message=callback.message,
             user=user,
@@ -1819,7 +2187,6 @@ class TelegramChannel(BaseChannel):
             content=content,
         ):
             return
-        metadata, session_key = self._build_inbound_delivery_context(callback.message, user)
         await self._handle_message(
             sender_id=self._sender_id(user),
             chat_id=str(callback.message.chat_id),
