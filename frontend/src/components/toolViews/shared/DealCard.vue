@@ -23,7 +23,7 @@
               :src="faviconUrl"
               alt=""
               class="store-favicon"
-              @error="faviconError = true"
+              @error="faviconError = true; markFaviconFailed(deal.url)"
             />
             <span v-else class="store-letter">{{ storeLetter }}</span>
           </div>
@@ -72,7 +72,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { Trophy, Ticket } from 'lucide-vue-next';
-import { getFaviconUrl } from '@/utils/toolDisplay';
+import { getFaviconUrl, markFaviconFailed } from '@/utils/toolDisplay';
 import type { DealItem } from '@/types/toolContent';
 
 const props = defineProps<{
