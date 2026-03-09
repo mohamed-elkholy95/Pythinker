@@ -22,13 +22,14 @@ describe('PartialResults', () => {
     expect(wrapper.text()).toContain('12 sources')
   })
 
-  it('shows header text', () => {
+  it('does not render the findings header', () => {
     const wrapper = mount(PartialResults, {
       props: {
         results: [{ stepIndex: 0, stepTitle: 'Search', headline: 'Found results', sourcesCount: 3 }],
       },
     })
-    expect(wrapper.text()).toContain('Findings so far')
+    expect(wrapper.text()).not.toContain('Findings so far')
+    expect(wrapper.find('.partial-results-header').exists()).toBe(false)
   })
 
   it('hides sources count when zero', () => {

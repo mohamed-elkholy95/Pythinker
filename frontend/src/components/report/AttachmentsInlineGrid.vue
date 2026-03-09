@@ -196,7 +196,7 @@ const getFileUrl = (file: FileInfo) => fileApi.getFileUrl(file.file_id)
 const openChartInteractive = (pngFile: FileInfo) => {
   const htmlFile = getChartHtmlFile(pngFile, props.attachments)
   if (htmlFile) {
-    window.open(fileApi.getFileUrl(htmlFile.file_id), '_blank')
+    emit('openFile', htmlFile)
   } else {
     emit('openFile', pngFile)
   }

@@ -25,6 +25,9 @@ const CodeFilePreview = defineAsyncComponent(
 const ImageFilePreview = defineAsyncComponent(
   () => import('../components/filePreviews/ImageFilePreview.vue')
 );
+const HtmlFilePreview = defineAsyncComponent(
+  () => import('../components/filePreviews/HtmlFilePreview.vue')
+);
 
 export interface FileType {
   icon: Component; // Lucide icon component
@@ -264,7 +267,7 @@ export const getFileType = (filename: string, metadata?: Record<string, any>): F
   if (file_extension === 'html' && isInteractiveChartFile(metadata)) {
     return {
       icon: FileBarChart, // Use chart icon for interactive charts
-      preview: UnknownFilePreview, // Preview not used for charts (opens in new tab)
+      preview: HtmlFilePreview,
       isInteractiveChart: true,
     };
   }

@@ -169,13 +169,17 @@
         <div class="flex-1"></div>
       </div>
       <!-- Phase progress strip - shown above messages during active agent runs -->
-      <PhaseStrip
+      <div
         v-if="showPhaseStrip"
-        :current-phase="phaseStripPhase!"
-        :start-time="phaseStripStartTime"
-        :step-progress="phaseStripStepProgress"
-        @cancel="handleCancel"
-      />
+        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px]"
+      >
+        <PhaseStrip
+          :current-phase="phaseStripPhase!"
+          :start-time="phaseStripStartTime"
+          :step-progress="phaseStripStepProgress"
+          @cancel="handleCancel"
+        />
+      </div>
 	      <div
           v-if="chatViewMode === 'chat'"
 	        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1"
