@@ -3641,6 +3641,10 @@ const eventRegistry = createEventHandlerRegistry({
   verification: (data) => handleVerificationEvent(data),
   reflection: (data) => handleReflectionEvent(data),
   partial_result: (data) => handlePartialResultEvent(data as PartialResultEventData),
+  eval_metrics: (data) => {
+    const metrics = data as import('../types/event').EvalMetricsEventData
+    console.debug('[EvalMetrics]', metrics.passed ? 'PASSED' : 'WARN', `hallucination=${metrics.hallucination_score}`)
+  },
 })
 
 // Process a single event (extracted from handleEvent for batching)
@@ -4700,7 +4704,7 @@ const handleCopyLink = async () => {
 .dark .chat-bottom-dock,
 :deep(.dark) .chat-bottom-dock-fixed,
 .dark .chat-bottom-dock-fixed {
-  background: transparent;
+  background: var(--background-gray-main);
 }
 
 /* 120-degree diagonal shimmer text effect */

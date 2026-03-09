@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.models.event import (
     AgentEvent,
+    EvalMetricsEvent,
     MCPHealthEvent,
     MessageEvent,
     PlanEvent,
@@ -739,6 +740,30 @@ class MCPHealthSSEEvent(BaseSSEEvent):
         )
 
 
+class EvalMetricsEventData(BaseEventData):
+    """SSE data for evaluation metrics (Ragas-style quality scores)."""
+
+    metrics: dict[str, Any]
+    hallucination_score: float = 0.0
+    passed: bool = True
+
+
+class EvalMetricsSSEEvent(BaseSSEEvent):
+    event: Literal["eval_metrics"] = "eval_metrics"
+    data: EvalMetricsEventData
+
+    @classmethod
+    def from_event(cls, event: EvalMetricsEvent) -> Self:
+        return cls(
+            data=EvalMetricsEventData(
+                **BaseEventData.base_event_data(event),
+                metrics=event.metrics,
+                hallucination_score=event.hallucination_score,
+                passed=event.passed,
+            )
+        )
+
+
 AgentSSEEvent = (
     CommonSSEEvent
     | PlanSSEEvent
@@ -762,6 +787,7 @@ AgentSSEEvent = (
     | ThoughtSSEEvent
     | WorkspaceSSEEvent
     | MCPHealthSSEEvent
+    | EvalMetricsSSEEvent
 )
 
 
