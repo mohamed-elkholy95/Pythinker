@@ -7,10 +7,19 @@ from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 
 _TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64
-_TELEGRAM_ACTION_TYPES = frozenset({
-    "edit_text", "edit_buttons", "delete", "react", "poll",
-    "topic_create", "sticker", "pin", "unpin",
-})
+_TELEGRAM_ACTION_TYPES = frozenset(
+    {
+        "edit_text",
+        "edit_buttons",
+        "delete",
+        "react",
+        "poll",
+        "topic_create",
+        "sticker",
+        "pin",
+        "unpin",
+    }
+)
 
 
 def _normalize_positive_int(value: object) -> int | None:
