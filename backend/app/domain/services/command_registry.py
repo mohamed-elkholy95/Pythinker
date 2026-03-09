@@ -24,8 +24,8 @@ class CommandScope(str, Enum):
     """Where a command is available (OpenClaw scope field)."""
 
     NATIVE = "native"  # Only registered as a Telegram bot menu command
-    TEXT = "text"       # Only matched as /command in message body text
-    BOTH = "both"       # Registered in both paths
+    TEXT = "text"  # Only matched as /command in message body text
+    BOTH = "both"  # Registered in both paths
 
 
 @dataclass
@@ -53,14 +53,14 @@ class CommandArg:
 class CommandMapping:
     """Maps a command to a skill invocation or session mutation."""
 
-    command: str           # Command name (without leading slash)
-    skill_id: str          # Skill to invoke (or "builtin:<name>" for session commands)
-    description: str       # Help text
+    command: str  # Command name (without leading slash)
+    skill_id: str  # Skill to invoke (or "builtin:<name>" for session commands)
+    description: str  # Help text
     aliases: list[str] = field(default_factory=list)
     args: list[CommandArg] = field(default_factory=list)
     scope: CommandScope = CommandScope.BOTH
     args_menu: str | None = None  # "auto" or arg name to display as inline menu
-    category: str = "general"     # session | options | status | management | tools
+    category: str = "general"  # session | options | status | management | tools
 
 
 # ---------------------------------------------------------------------------
@@ -72,9 +72,9 @@ class CommandRegistry:
     """Registry for mapping commands to skill invocations."""
 
     def __init__(self) -> None:
-        self._command_map: dict[str, str] = {}        # command -> skill_id
-        self._skill_commands: dict[str, str] = {}      # skill_id -> primary command
-        self._command_help: dict[str, str] = {}        # command -> description
+        self._command_map: dict[str, str] = {}  # command -> skill_id
+        self._skill_commands: dict[str, str] = {}  # skill_id -> primary command
+        self._command_help: dict[str, str] = {}  # command -> description
         self._commands: dict[str, CommandMapping] = {}  # command -> full mapping
         self._initialized = False
 
