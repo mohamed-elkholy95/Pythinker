@@ -21,6 +21,18 @@ export interface BuildPlanningCardStateArgs {
   thinkingText: string
 }
 
+export interface PlanningCardVisibilityArgs {
+  isChatMode: boolean
+  showSessionWarmupMessage: boolean
+  isToolPanelOpen: boolean
+  isTaskCompleted: boolean
+  responsePhase: 'streaming' | 'timed_out'
+  sessionResearchMode: 'deep_research' | 'fast_search' | null
+  hasActivePlanningCard: boolean
+  hasPlanningHandoff: boolean
+  planStepCount: number
+}
+
 export const PLANNING_PHASES = [
   'received',
   'analyzing',
@@ -154,4 +166,21 @@ export function buildPlanningCardState(args: BuildPlanningCardStateArgs): Planni
     progressPercent: undefined,
     complexityCategory: undefined,
   }
+}
+
+export function shouldShowPlanningCard(args: PlanningCardVisibilityArgs): boolean {
+  return (
+    !args.isChatMode &&
+    !args.showSessionWarmupMessage &&
+    !args.isToolPanelOpen &&
+    !args.isTaskCompleted &&
+    args.responsePhase !== 'timed_out' &&
+    args.sessionResearchMode === 'deep_research' &&
+    args.hasActivePlanningCard &&
+    (args.hasPlanningHandoff || args.planStepCount === 0)
+  )
+}
+
+export function shouldDismissPlanningHandoff(hasVisibleExecutionStep: boolean): boolean {
+  return hasVisibleExecutionStep
 }

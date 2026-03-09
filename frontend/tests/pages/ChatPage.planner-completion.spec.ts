@@ -1,5 +1,6 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { shouldDismissPlanningHandoff, shouldShowPlanningCard } from '@/utils/planningCard'
 
 describe('ChatPage - Planner Completion Behavior', () => {
   beforeEach(() => {
@@ -20,13 +21,17 @@ describe('ChatPage - Planner Completion Behavior', () => {
     const planStepCount = ref(0)
 
     const showPlanningCard = computed(() =>
-      !showSessionWarmupMessage.value &&
-      !isToolPanelOpen.value &&
-      !isTaskCompleted.value &&
-      responsePhase.value !== 'timed_out' &&
-      sessionResearchMode.value === 'deep_research' &&
-      planningProgress.value !== null &&
-      planStepCount.value === 0
+      shouldShowPlanningCard({
+        isChatMode: false,
+        showSessionWarmupMessage: showSessionWarmupMessage.value,
+        isToolPanelOpen: isToolPanelOpen.value,
+        isTaskCompleted: isTaskCompleted.value,
+        responsePhase: responsePhase.value,
+        sessionResearchMode: sessionResearchMode.value,
+        hasActivePlanningCard: planningProgress.value !== null,
+        hasPlanningHandoff: false,
+        planStepCount: planStepCount.value,
+      })
     )
 
     expect(showPlanningCard.value).toBe(false)
@@ -57,6 +62,7 @@ describe('ChatPage - Planner Completion Behavior', () => {
     const isTaskCompleted = ref(false)
     const responsePhase = ref<'streaming' | 'timed_out'>('streaming')
     const sessionResearchMode = ref<'deep_research' | 'fast_search'>('deep_research')
+    const hasVisibleExecutionStep = ref(false)
     const planningCardState = ref<{
       phase: string
       message: string
@@ -77,16 +83,46 @@ describe('ChatPage - Planner Completion Behavior', () => {
     )
 
     const showPlanningCard = computed(() =>
-      !showSessionWarmupMessage.value &&
-      !isToolPanelOpen.value &&
-      !isTaskCompleted.value &&
-      responsePhase.value !== 'timed_out' &&
-      sessionResearchMode.value === 'deep_research' &&
-      !!activePlanningCardState.value &&
-      (!!planningHandoffState.value || planStepCount.value === 0)
+      !hasVisibleExecutionStep.value &&
+      shouldShowPlanningCard({
+        isChatMode: false,
+        showSessionWarmupMessage: showSessionWarmupMessage.value,
+        isToolPanelOpen: isToolPanelOpen.value,
+        isTaskCompleted: isTaskCompleted.value,
+        responsePhase: responsePhase.value,
+        sessionResearchMode: sessionResearchMode.value,
+        hasActivePlanningCard: !!activePlanningCardState.value,
+        hasPlanningHandoff: !!planningHandoffState.value,
+        planStepCount: planStepCount.value,
+      })
     )
 
     expect(showPlanningCard.value).toBe(true)
+  })
+
+  it('hides the plan-ready handoff once execution steps become visible', async () => {
+    const planningHandoffState = ref<{
+      title?: string
+      phase: string
+      message: string
+      progressPercent?: number
+    } | null>({
+      title: 'Plan ready',
+      phase: 'executing_setup',
+      message: 'Starting execution from the approved plan.',
+      progressPercent: 100,
+    })
+    const hasVisibleExecutionStep = ref(false)
+
+    watch(hasVisibleExecutionStep, (isVisible) => {
+      if (!shouldDismissPlanningHandoff(isVisible)) return
+      planningHandoffState.value = null
+    })
+
+    hasVisibleExecutionStep.value = true
+    await nextTick()
+
+    expect(planningHandoffState.value).toBeNull()
   })
 
   it('clears plan-ready handoff after the timeout', () => {
