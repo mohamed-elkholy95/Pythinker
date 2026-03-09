@@ -151,6 +151,28 @@ def _should_block_tool_at_pressure(tool_name: str, level: str) -> bool:
     return False
 
 
+_LONG_TIMEOUT_TOOLS: frozenset[str] = frozenset(
+    {
+        "wide_research",
+        "info_search_web",
+        "deal_scraper_search",
+        "deal_scraper_compare",
+        "deal_scraper_recommend",
+    }
+)
+_DEFAULT_TOOL_TIMEOUT: float = 120.0
+_LONG_TOOL_TIMEOUT: float = 300.0
+
+
+def _resolve_tool_timeout(function_name: str) -> float:
+    """Return timeout in seconds based on tool type."""
+    if function_name.startswith("browser_"):
+        return _LONG_TOOL_TIMEOUT
+    if function_name in _LONG_TIMEOUT_TOOLS:
+        return _LONG_TOOL_TIMEOUT
+    return _DEFAULT_TOOL_TIMEOUT
+
+
 class BaseAgent:
     """
     Base agent class, defining the basic behavior of the agent
@@ -987,7 +1009,7 @@ class BaseAgent:
                     ) as _tool_span:
                         result = await asyncio.wait_for(
                             tool.invoke_function(function_name, **arguments),
-                            timeout=120.0,
+                            timeout=_resolve_tool_timeout(function_name),
                         )
                         try:
                             _tool_span.set_attribute("tool.success", result.success)
@@ -997,12 +1019,13 @@ class BaseAgent:
                 else:
                     result = await asyncio.wait_for(
                         tool.invoke_function(function_name, **arguments),
-                        timeout=120.0,
+                        timeout=_resolve_tool_timeout(function_name),
                     )
             except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
                 raise
             except TimeoutError:
-                last_error = "Tool execution timed out after 120s"
+                _timeout_used = _resolve_tool_timeout(function_name)
+                last_error = f"Tool execution timed out after {_timeout_used:.0f}s"
                 self._log.tool_failed(function_name, tool_call_id, last_error, log_start)
                 # Classify timeout: network-related tools are recoverable, others are fatal
                 network_tools = {"info_search_web", "browser_get_content", "browser_navigate", "mcp_call_tool"}
@@ -1340,6 +1363,8 @@ class BaseAgent:
             raise ValueError(f"invalid JSON: {exc.msg}") from exc
 
         if parsed is None:
+            return {}
+        if parsed == []:
             return {}
         if not isinstance(parsed, dict):
             raise ValueError(f"expected JSON object for tool '{function_name}', got {type(parsed).__name__}")
