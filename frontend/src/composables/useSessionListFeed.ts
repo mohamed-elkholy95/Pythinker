@@ -1,7 +1,9 @@
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
 
 import { getSessions, getSessionsSSE } from '@/api/agent';
 import { useSessionStatus } from '@/composables/useSessionStatus';
+import { useAuthStore } from '@/stores/authStore';
 import type { ListSessionItem } from '@/types/response';
 
 interface SessionListFeedOptions {
@@ -17,6 +19,8 @@ export function useSessionListFeed(options: SessionListFeedOptions = {}) {
     fallbackPollIntervalMs = DEFAULT_FALLBACK_POLL_INTERVAL_MS,
   } = options;
 
+  const { isAuthenticated } = storeToRefs(useAuthStore());
+
   const sessions = ref<ListSessionItem[]>([]);
   const isLoading = ref<boolean>(initialFetch);
   const isConnected = ref(false);
@@ -31,6 +35,7 @@ export function useSessionListFeed(options: SessionListFeedOptions = {}) {
   };
 
   const fetchSessions = async (showLoading = false) => {
+    if (!isAuthenticated.value) return;
     if (showLoading || sessions.value.length === 0) {
       isLoading.value = true;
     }
@@ -45,7 +50,7 @@ export function useSessionListFeed(options: SessionListFeedOptions = {}) {
   };
 
   const startFallbackPolling = () => {
-    if (fallbackPollTimer) return;
+    if (fallbackPollTimer || !isAuthenticated.value) return;
     fallbackPollTimer = setInterval(() => {
       void fetchSessions();
     }, fallbackPollIntervalMs);
@@ -58,6 +63,7 @@ export function useSessionListFeed(options: SessionListFeedOptions = {}) {
   };
 
   const connectSSE = async () => {
+    if (!isAuthenticated.value) return;
     disconnectSSE();
     stopFallbackPolling();
     try {
@@ -98,6 +104,17 @@ export function useSessionListFeed(options: SessionListFeedOptions = {}) {
     );
   });
 
+  const stopAuthWatch = watch(isAuthenticated, (authed) => {
+    if (authed) {
+      void fetchSessions(true);
+      void connectSSE();
+    } else {
+      disconnectSSE();
+      stopFallbackPolling();
+      sessions.value = [];
+    }
+  });
+
   onMounted(() => {
     if (initialFetch) {
       void fetchSessions(true);
@@ -106,6 +123,7 @@ export function useSessionListFeed(options: SessionListFeedOptions = {}) {
   });
 
   onUnmounted(() => {
+    stopAuthWatch();
     unsubscribeStatusChange();
     disconnectSSE();
     stopFallbackPolling();
