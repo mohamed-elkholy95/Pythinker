@@ -10,7 +10,6 @@ from app.domain.services.runtime.lead_agent_runtime import (
     LeadAgentRuntime,
     build_runtime_pipeline,
 )
-from app.domain.services.runtime.middleware import RuntimeContext
 
 
 @pytest.mark.asyncio

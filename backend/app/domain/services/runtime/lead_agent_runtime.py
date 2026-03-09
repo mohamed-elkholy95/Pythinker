@@ -88,13 +88,13 @@ def build_runtime_pipeline(
             model_name=model_name,
             max_concurrent_delegates=max_concurrent_delegates,
         ),
-        DanglingToolCallMiddleware(),                                      # 4
-        QualityGateMiddleware(                                             # 5
+        DanglingToolCallMiddleware(),                                      # 3
+        QualityGateMiddleware(                                             # 4
             toolset_manager=toolset_manager,
             coverage_validator=coverage_validator,
             grounding_validator=grounding_validator,
         ),
-        ClarificationMiddleware(),                                         # 6
+        ClarificationMiddleware(),                                         # 5
     ]
 
     # Optional: skill discovery (inserted at position 2, after capability)
