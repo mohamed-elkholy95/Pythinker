@@ -7,7 +7,10 @@ from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 
 _TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64
-_TELEGRAM_ACTION_TYPES = frozenset({"edit_text", "edit_buttons", "delete", "react", "poll", "topic_create", "sticker"})
+_TELEGRAM_ACTION_TYPES = frozenset({
+    "edit_text", "edit_buttons", "delete", "react", "poll",
+    "topic_create", "sticker", "pin", "unpin",
+})
 
 
 def _normalize_positive_int(value: object) -> int | None:
@@ -145,6 +148,16 @@ def normalize_message_notify_telegram_action(value: object) -> dict[str, Any] | 
         if not file_id:
             return None
         normalized["file_id"] = file_id
+        return normalized
+
+    if action_type in {"pin", "unpin"}:
+        message_id = _normalize_positive_int(value.get("message_id"))
+        if message_id is None:
+            return None
+        normalized["message_id"] = message_id
+        if action_type == "pin" and "disable_notification" in value:
+            normalized["disable_notification"] = bool(value.get("disable_notification"))
+        return normalized
 
     return normalized
 
@@ -223,6 +236,8 @@ class MessageTool(BaseTool):
                             "poll",
                             "topic_create",
                             "sticker",
+                            "pin",
+                            "unpin",
                         ],
                     },
                     "message_id": {"type": "integer"},

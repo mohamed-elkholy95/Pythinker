@@ -3189,3 +3189,99 @@ def test_build_delivery_metadata_ignores_empty_quote_text() -> None:
 
     result = build_message_notify_delivery_metadata({"quote_text": ""})
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Pin/Unpin action and action discovery tests (Task 9 parity)
+# ---------------------------------------------------------------------------
+
+
+def test_list_supported_actions_returns_all_action_types() -> None:
+    """list_supported_actions should enumerate all dispatched action types."""
+    actions = TelegramChannel.list_supported_actions()
+    assert "edit_text" in actions
+    assert "delete" in actions
+    assert "react" in actions
+    assert "poll" in actions
+    assert "topic_create" in actions
+    assert "sticker" in actions
+    assert "pin" in actions
+    assert "unpin" in actions
+
+
+@pytest.mark.asyncio
+async def test_send_telegram_action_pin_dispatches_to_pin_chat_message() -> None:
+    """Telegram pin action should call bot.pin_chat_message."""
+    channel = _make_channel()
+    channel._app = SimpleNamespace(bot=SimpleNamespace(pin_chat_message=AsyncMock()))
+    msg = OutboundMessage(
+        channel="telegram",
+        chat_id="5829880422",
+        content="",
+        metadata={
+            "message_id": 99,
+            "telegram_action": {
+                "type": "pin",
+                "message_id": 555,
+                "disable_notification": True,
+            },
+        },
+    )
+    await channel.send(msg)
+    channel._app.bot.pin_chat_message.assert_awaited_once_with(
+        chat_id=5829880422,
+        message_id=555,
+        disable_notification=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_telegram_action_unpin_dispatches_to_unpin_chat_message() -> None:
+    """Telegram unpin action should call bot.unpin_chat_message."""
+    channel = _make_channel()
+    channel._app = SimpleNamespace(bot=SimpleNamespace(unpin_chat_message=AsyncMock()))
+    msg = OutboundMessage(
+        channel="telegram",
+        chat_id="5829880422",
+        content="",
+        metadata={
+            "message_id": 99,
+            "telegram_action": {
+                "type": "unpin",
+                "message_id": 555,
+            },
+        },
+    )
+    await channel.send(msg)
+    channel._app.bot.unpin_chat_message.assert_awaited_once_with(
+        chat_id=5829880422,
+        message_id=555,
+    )
+
+
+def test_normalize_telegram_action_pin() -> None:
+    """Pin action validation should extract message_id and disable_notification."""
+    from app.domain.services.tools.message import normalize_message_notify_telegram_action
+
+    result = normalize_message_notify_telegram_action({
+        "type": "pin",
+        "message_id": 42,
+        "disable_notification": True,
+    })
+    assert result == {"type": "pin", "message_id": 42, "disable_notification": True}
+
+
+def test_normalize_telegram_action_unpin() -> None:
+    """Unpin action validation should extract message_id."""
+    from app.domain.services.tools.message import normalize_message_notify_telegram_action
+
+    result = normalize_message_notify_telegram_action({"type": "unpin", "message_id": 42})
+    assert result == {"type": "unpin", "message_id": 42}
+
+
+def test_normalize_telegram_action_pin_requires_message_id() -> None:
+    """Pin action without message_id should return None."""
+    from app.domain.services.tools.message import normalize_message_notify_telegram_action
+
+    result = normalize_message_notify_telegram_action({"type": "pin"})
+    assert result is None

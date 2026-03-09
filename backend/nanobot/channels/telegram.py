@@ -926,6 +926,17 @@ class TelegramChannel(BaseChannel):
         return ["message", "callback_query", "channel_post", "message_reaction"]
 
     @staticmethod
+    def list_supported_actions() -> list[str]:
+        """Return the Telegram action types supported by this channel adapter.
+
+        Mirrors OpenClaw's ``listActions()`` pattern for action discovery.
+        """
+        return [
+            "edit_text", "edit_buttons", "delete", "react",
+            "poll", "topic_create", "sticker", "pin", "unpin",
+        ]
+
+    @staticmethod
     def _command_registry():
         """Resolve the shared app command registry when available."""
         try:
@@ -1779,6 +1790,28 @@ class TelegramChannel(BaseChannel):
             else:
                 response = await self._send_with_retry(self._app.bot.send_sticker, **sticker_kwargs)
             self._remember_sent_message(chat_id=chat_id, message_id=getattr(response, "message_id", None))
+            return True
+
+        if action_type == "pin":
+            if message_id is None:
+                return False
+            pin_kwargs: dict[str, object] = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+            }
+            if bool(action.get("disable_notification")):
+                pin_kwargs["disable_notification"] = True
+            await self._send_with_retry(self._app.bot.pin_chat_message, **pin_kwargs)
+            return True
+
+        if action_type == "unpin":
+            if message_id is None:
+                return False
+            await self._send_with_retry(
+                self._app.bot.unpin_chat_message,
+                chat_id=chat_id,
+                message_id=message_id,
+            )
             return True
 
         return False
