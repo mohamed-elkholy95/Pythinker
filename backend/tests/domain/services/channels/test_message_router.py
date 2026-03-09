@@ -495,8 +495,8 @@ class TestRouteInbound:
         agent_svc.create_session.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_route_uses_session_key_override(self) -> None:
-        """session_key_override on InboundMessage is used directly."""
+    async def test_route_uses_session_key_override_with_existing_session(self) -> None:
+        """session_key_override reuses an existing live session from the repo."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="other-sess")
         agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
         router = MessageRouter(agent_svc, repo)
@@ -505,8 +505,22 @@ class TestRouteInbound:
         replies = [r async for r in router.route_inbound(msg)]
 
         assert len(replies) == 1
-        # Should not have created a new session or looked up existing one
+        # Existing session is live and reusable — no new session created
         agent_svc.create_session.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_route_session_key_override_creates_session_when_none_exists(self) -> None:
+        """session_key_override creates a new session when no stored session exists."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("First message", session_key_override="telegram:direct:12345")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        agent_svc.create_session.assert_awaited_once()
+        repo.set_session_key.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_route_filters_internal_events(self) -> None:
@@ -1240,7 +1254,8 @@ class TestEventToOutbound:
             },
         }
 
-    def test_suggestion_event_produces_telegram_follow_up_buttons(self) -> None:
+    def test_suggestion_event_suppressed_for_telegram(self) -> None:
+        """Follow-up suggestions are a web-UI concern — suppressed on Telegram."""
         router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
         source = _make_inbound(
             metadata={
@@ -1257,29 +1272,7 @@ class TestEventToOutbound:
 
         result = router._event_to_outbound(event, source)
 
-        assert result is not None
-        assert result.content == "Follow-up options:"
-        assert result.metadata == {
-            "message_id": 321,
-            "message_thread_id": 12,
-            "is_group": True,
-            "reply_markup": {
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": "Add examples",
-                            "callback_data": "telegram:followup:evt-followup-123:0",
-                        }
-                    ],
-                    [
-                        {
-                            "text": "Explain the tradeoffs",
-                            "callback_data": "telegram:followup:evt-followup-123:1",
-                        }
-                    ],
-                ]
-            },
-        }
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
