@@ -9,19 +9,35 @@ Assembles the ordered middleware stack and exposes a clean lifecycle API:
     ctx = await runtime.finalize()        # AFTER_RUN
 
 Middleware execution order (important — do not change without updating tests):
-    1. WorkspaceMiddleware   — session-scoped path resolution
-    2. DanglingToolCallMiddleware — conversation history sanitisation
-    3. ClarificationMiddleware   — pending-question surface gate
+    1. WorkspaceMiddleware          — session-scoped path resolution
+    2. CapabilityMiddleware         — per-session capability manifest
+    3. SkillDiscoveryMiddleware     — filesystem skill scanning (optional)
+    4. DanglingToolCallMiddleware   — conversation history sanitisation
+    5. QualityGateMiddleware        — tool filtering + grounding/coverage
+    6. ClarificationMiddleware      — pending-question surface gate
+    7. InsightPromotionMiddleware   — ContextGraph → Qdrant (optional)
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
+from app.domain.services.runtime.capability_middleware import CapabilityMiddleware
 from app.domain.services.runtime.clarification_middleware import ClarificationMiddleware
 from app.domain.services.runtime.dangling_tool_middleware import DanglingToolCallMiddleware
+from app.domain.services.runtime.insight_promotion_middleware import (
+    InsightPromotionMiddleware,
+)
 from app.domain.services.runtime.middleware import (
     RuntimeContext,
     RuntimeHook,
+    RuntimeMiddleware,
     RuntimePipeline,
+)
+from app.domain.services.runtime.quality_gate_middleware import QualityGateMiddleware
+from app.domain.services.runtime.skill_discovery_middleware import (
+    SkillDiscoveryMiddleware,
 )
 from app.domain.services.runtime.workspace_middleware import WorkspaceMiddleware
 
@@ -30,6 +46,17 @@ def build_runtime_pipeline(
     session_id: str,
     agent_id: str,
     workspace_base: str = "/home/ubuntu",
+    *,
+    memory_service: Any | None = None,
+    toolset_manager: Any | None = None,
+    coverage_validator: Any | None = None,
+    grounding_validator: Any | None = None,
+    active_skills: list[str] | None = None,
+    mcp_servers: list[str] | None = None,
+    tool_categories: set[str] | None = None,
+    model_name: str = "default",
+    max_concurrent_delegates: int = 3,
+    skills_root: Path | str | None = None,
 ) -> RuntimePipeline:
     """Construct an ordered :class:`RuntimePipeline` for a single agent session.
 
@@ -38,15 +65,46 @@ def build_runtime_pipeline(
         agent_id: Identifier of the lead agent being executed.
         workspace_base: Root directory under which per-session workspaces are
             created.  Defaults to ``/home/ubuntu`` (sandbox default).
+        memory_service: Optional memory service for insight promotion.
+        toolset_manager: Optional tool-filtering manager for quality gates.
+        coverage_validator: Optional coverage validator for quality gates.
+        grounding_validator: Optional grounding validator for quality gates.
+        active_skills: Skill names active for this session.
+        mcp_servers: MCP server identifiers.
+        tool_categories: Tool category labels.
+        model_name: Language model identifier.
+        max_concurrent_delegates: Delegate concurrency cap.
+        skills_root: Root directory for filesystem skill scanning.
 
     Returns:
         A :class:`RuntimePipeline` with middlewares in the prescribed order.
     """
-    middlewares = [
-        WorkspaceMiddleware(base_dir=workspace_base),
-        DanglingToolCallMiddleware(),
-        ClarificationMiddleware(),
+    middlewares: list[RuntimeMiddleware] = [
+        WorkspaceMiddleware(base_dir=workspace_base),                     # 1
+        CapabilityMiddleware(                                              # 2
+            active_skills=active_skills,
+            mcp_servers=mcp_servers,
+            tool_categories=tool_categories,
+            model_name=model_name,
+            max_concurrent_delegates=max_concurrent_delegates,
+        ),
+        DanglingToolCallMiddleware(),                                      # 4
+        QualityGateMiddleware(                                             # 5
+            toolset_manager=toolset_manager,
+            coverage_validator=coverage_validator,
+            grounding_validator=grounding_validator,
+        ),
+        ClarificationMiddleware(),                                         # 6
     ]
+
+    # Optional: skill discovery (inserted at position 2, after capability)
+    if skills_root:
+        middlewares.insert(2, SkillDiscoveryMiddleware(skills_root=skills_root))
+
+    # Optional: insight promotion (always last — runs after all step processing)
+    if memory_service:
+        middlewares.append(InsightPromotionMiddleware(memory_service=memory_service))
+
     return RuntimePipeline(middlewares=middlewares)
 
 
@@ -71,6 +129,17 @@ class LeadAgentRuntime:
         session_id: str,
         agent_id: str,
         workspace_base: str = "/home/ubuntu",
+        *,
+        memory_service: Any | None = None,
+        toolset_manager: Any | None = None,
+        coverage_validator: Any | None = None,
+        grounding_validator: Any | None = None,
+        active_skills: list[str] | None = None,
+        mcp_servers: list[str] | None = None,
+        tool_categories: set[str] | None = None,
+        model_name: str = "default",
+        max_concurrent_delegates: int = 3,
+        skills_root: Path | str | None = None,
     ) -> None:
         self._session_id = session_id
         self._agent_id = agent_id
@@ -78,6 +147,16 @@ class LeadAgentRuntime:
             session_id=session_id,
             agent_id=agent_id,
             workspace_base=workspace_base,
+            memory_service=memory_service,
+            toolset_manager=toolset_manager,
+            coverage_validator=coverage_validator,
+            grounding_validator=grounding_validator,
+            active_skills=active_skills,
+            mcp_servers=mcp_servers,
+            tool_categories=tool_categories,
+            model_name=model_name,
+            max_concurrent_delegates=max_concurrent_delegates,
+            skills_root=skills_root,
         )
         self._ctx: RuntimeContext | None = None
 
