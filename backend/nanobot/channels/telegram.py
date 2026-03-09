@@ -169,8 +169,9 @@ class TelegramChannel(BaseChannel):
         BotCommand("bind", "Alias of /link for link codes"),
         BotCommand("help", "Show available commands"),
         BotCommand("commands", "List all slash commands"),
+        BotCommand("reasoning", "Set reasoning visibility (off, on, stream)"),
     ]
-    _KNOWN_SLASH_COMMANDS = frozenset({"start", "new", "stop", "status", "pdf", "link", "bind", "help", "commands"})
+    _KNOWN_SLASH_COMMANDS = frozenset({"start", "new", "stop", "status", "pdf", "link", "bind", "help", "commands", "reasoning"})
 
     def __init__(
         self,
