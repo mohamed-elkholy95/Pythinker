@@ -523,6 +523,21 @@ class PromptOptimizationSettingsMixin:
     # Prevents re-spending tokens on identical evaluation calls across runs.
     dspy_cache_dir: str = "/app/data/dspy_cache"
 
+    # ── LeadAgentRuntime (DeerFlow convergence) ─────────────────────────
+    # Master switch: when False, AgentTaskRunner skips runtime construction entirely.
+    feature_lead_agent_runtime: bool = False
+    # Individual middleware toggles (only effective when master switch is on):
+    feature_runtime_workspace_contracts: bool = True
+    feature_runtime_clarification_gate: bool = True
+    feature_runtime_dangling_recovery: bool = True
+    feature_runtime_quality_gates: bool = True
+    feature_runtime_insight_promotion: bool = True
+    feature_runtime_capability_manifest: bool = True
+    feature_runtime_skill_discovery: bool = True
+    feature_runtime_research_trace: bool = True
+    feature_runtime_delegate_tool: bool = True
+    feature_runtime_channel_overlay: bool = True
+
 
 class TypoCorrectionSettingsMixin:
     """Typo correction (PromptQuickValidator) configuration."""
