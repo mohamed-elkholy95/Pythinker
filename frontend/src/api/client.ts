@@ -214,7 +214,16 @@ export const _responseInterceptorFulfilled = (response: import('axios').AxiosRes
 };
 
 export const _responseInterceptorRejected = async (error: AxiosError) => {
-  const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean; __isRefreshRequest?: boolean };
+  const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean; __isRefreshRequest?: boolean }) | undefined;
+
+  // Axios omits config on network errors / cancelled requests — nothing to retry
+  if (!originalRequest) {
+    return Promise.reject({
+      code: error.response?.status || 0,
+      message: error.message || 'Network error',
+      details: error.response?.data,
+    } satisfies ApiError);
+  }
 
   // Skip retry logic for refresh requests to prevent infinite loops
   if (originalRequest.__isRefreshRequest) {
