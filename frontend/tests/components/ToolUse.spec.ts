@@ -68,6 +68,7 @@ describe('ToolUse', () => {
     })
 
     expect(wrapper.text()).toContain('This is a message to the user')
+    expect(wrapper.find('.inline-message-card').exists()).toBe(true)
   })
 
   it('should show shimmer effect when tool is calling', () => {

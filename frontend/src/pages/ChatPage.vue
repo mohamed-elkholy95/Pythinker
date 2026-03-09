@@ -179,15 +179,11 @@
 	      <div
           v-if="chatViewMode === 'chat'"
 	        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1"
-	        :class="{ 'chat-content-with-pinned-dock': shouldPinComposerToBottom }"
+          :style="chatContentStyle"
 	      >
         <div
-          class="flex flex-col w-full pb-[80px] pt-[24px] flex-1"
-          :class="{
-            'chat-messages-with-pinned-dock': shouldPinComposerToBottom,
-            'chat-messages-with-progress-dock': shouldPinComposerToBottom && showProgressDockSpacer && !showThumbnailDockSpacer,
-            'chat-messages-with-thumbnail-dock': shouldPinComposerToBottom && showThumbnailDockSpacer,
-          }"
+          class="flex flex-col w-full pt-[24px] flex-1"
+          :style="chatMessagesStyle"
         >
           <ChatMessage v-for="(message, index) in messages" :key="message.id" :message="message"
             :activeThinkingStepId="isChatMode ? undefined : activeThinkingStepId"
@@ -626,7 +622,10 @@ import {
   buildPlanningCardState,
   createPlanningPreviewBatcher,
   normalizePlanningPhase,
+  shouldDismissPlanningHandoff,
+  shouldShowPlanningCard,
 } from '@/utils/planningCard';
+import { resolveChatDockLayout } from '@/utils/chatDockLayout';
 import {
   getRestoreAbortReason,
   isTerminalSessionStatus,
@@ -1135,8 +1134,10 @@ const _observerRef = ref<HTMLDivElement>();
 const chatSplitRef = ref<HTMLDivElement>();
 const chatContainerRef = ref<HTMLDivElement>();
 const _chatBottomDockRef = ref<HTMLDivElement>();
+const chatBottomDockHeight = ref(0);
 const chatBottomDockStyle = ref<Record<string, string>>({});
 let chatContainerResizeObserver: ResizeObserver | null = null;
+let chatBottomDockResizeObserver: ResizeObserver | null = null;
 const MOBILE_VIEWPORT_BREAKPOINT = 640;
 const isTouchLikeViewport = () =>
   window.innerWidth < MOBILE_VIEWPORT_BREAKPOINT
@@ -1253,6 +1254,28 @@ const shouldPinComposerToBottom = computed(() =>
   isLoading.value || hasAgentStartedResponding.value || messages.value.length > 0
 );
 
+const chatDockLayout = computed(() =>
+  resolveChatDockLayout({
+    isPinned: shouldPinComposerToBottom.value,
+    dockHeight: chatBottomDockHeight.value,
+  }),
+);
+
+const chatContentStyle = computed<Record<string, string>>(() => ({
+  paddingBottom: `calc(${chatDockLayout.value.contentPaddingBottomPx}px + env(safe-area-inset-bottom))`,
+}));
+
+const chatMessagesStyle = computed<Record<string, string>>(() => ({
+  paddingBottom: `calc(${chatDockLayout.value.messagesPaddingBottomPx}px + env(safe-area-inset-bottom))`,
+}));
+
+const measureChatBottomDock = () => {
+  const chatBottomDock = _chatBottomDockRef.value;
+  chatBottomDockHeight.value = chatBottomDock
+    ? Math.max(Math.ceil(chatBottomDock.getBoundingClientRect().height), 0)
+    : 0;
+};
+
 const updateChatBottomDockStyle = () => {
   if (!shouldPinComposerToBottom.value) {
     chatBottomDockStyle.value = {};
@@ -1273,6 +1296,11 @@ const updateChatBottomDockStyle = () => {
     left: `${Math.max(dockLeft, horizontalPadding)}px`,
     width: `${dockWidth}px`,
   };
+};
+
+const updateChatBottomDockMetrics = () => {
+  measureChatBottomDock();
+  updateChatBottomDockStyle();
 };
 
 const getSplitContainerWidth = () => {
@@ -1387,7 +1415,7 @@ const resetToolPanelWidth = () => {
 
 const handleViewportResize = () => {
   isMobileViewport.value = isTouchLikeViewport();
-  updateChatBottomDockStyle();
+  updateChatBottomDockMetrics();
 
   if (isMobileViewport.value) {
     stopSplitterDrag();
@@ -1724,7 +1752,7 @@ watch(
   [shouldPinComposerToBottom, toolPanelSize],
   async () => {
     await nextTick();
-    updateChatBottomDockStyle();
+    updateChatBottomDockMetrics();
   },
   { immediate: true }
 );
@@ -1995,6 +2023,18 @@ const currentRunningStepId = computed<string | undefined>(() => {
 });
 
 const hasRunningStep = computed(() => !!currentRunningStepId.value);
+const hasVisibleExecutionStep = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const message = messages.value[i];
+    if (message.type === 'user') break;
+    if (message.type !== 'step') continue;
+    const step = message.content as StepContent;
+    if (step.status === 'running' || step.status === 'started') {
+      return true;
+    }
+  }
+  return false;
+});
 const hasThinkingSignal = computed(() => isThinkingStreaming.value || isThinking.value);
 const hasActiveToolCall = computed(() => lastTool.value?.status === 'calling');
 
@@ -2056,14 +2096,18 @@ const activePlanningCardState = computed<ActivePlanningCardState | null>(() =>
 );
 
 const showPlanningCard = computed(() =>
-  !isChatMode.value &&
-  !showSessionWarmupMessage.value &&
-  !isToolPanelOpen.value &&
-  !isTaskCompleted.value &&
-  responsePhase.value !== 'timed_out' &&
-  sessionResearchMode.value === 'deep_research' &&
-  !!activePlanningCardState.value &&
-  (!!planningHandoffState.value || !plan.value || plan.value.steps.length === 0)
+  !hasVisibleExecutionStep.value &&
+  shouldShowPlanningCard({
+    isChatMode: isChatMode.value,
+    showSessionWarmupMessage: showSessionWarmupMessage.value,
+    isToolPanelOpen: isToolPanelOpen.value,
+    isTaskCompleted: isTaskCompleted.value,
+    responsePhase: responsePhase.value === 'timed_out' ? 'timed_out' : 'streaming',
+    sessionResearchMode: sessionResearchMode.value,
+    hasActivePlanningCard: !!activePlanningCardState.value,
+    hasPlanningHandoff: !!planningHandoffState.value,
+    planStepCount: plan.value?.steps?.length ?? 0,
+  })
 );
 
 // ── PhaseStrip computed state ─────────────────────────────────────────────
@@ -2111,14 +2155,6 @@ const showPhaseStrip = computed(() =>
   phaseStripPhase.value !== null &&
   phaseStripStartTime.value > 0
 )
-
-// Add extra bottom scroll room when task progress bar or planning card is visible (no thumbnail).
-const showProgressDockSpacer = computed(() =>
-  showTaskProgressBar.value || showPlanningCard.value
-);
-
-// Add extra bottom scroll room when mini preview thumbnail is rendered with the task progress bar.
-const showThumbnailDockSpacer = computed(() => showTaskProgressBar.value && shouldShowThumbnail.value);
 
 // Handle tool panel state changes
 const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) => {
@@ -2981,6 +3017,11 @@ watch(isTaskCompleted, (completed) => {
   if (!completed) return;
   planningProgress.value = null;
   planningPreviewBatcher.reset('');
+  clearPlanningHandoff();
+});
+
+watch(hasVisibleExecutionStep, (isVisible) => {
+  if (!shouldDismissPlanningHandoff(isVisible)) return;
   clearPlanningHandoff();
 });
 
@@ -4092,11 +4133,18 @@ onMounted(async () => {
 
   if (typeof ResizeObserver !== 'undefined' && chatContainerRef.value) {
     chatContainerResizeObserver = new ResizeObserver(() => {
-      updateChatBottomDockStyle();
+      updateChatBottomDockMetrics();
     });
     chatContainerResizeObserver.observe(chatContainerRef.value);
   }
+  if (typeof ResizeObserver !== 'undefined' && _chatBottomDockRef.value) {
+    chatBottomDockResizeObserver = new ResizeObserver(() => {
+      measureChatBottomDock();
+    });
+    chatBottomDockResizeObserver.observe(_chatBottomDockRef.value);
+  }
   await nextTick();
+  updateChatBottomDockMetrics();
   handleViewportResize();
 
   if (await initializePendingSession()) {
@@ -4167,6 +4215,10 @@ onUnmounted(() => {
   if (chatContainerResizeObserver) {
     chatContainerResizeObserver.disconnect();
     chatContainerResizeObserver = null;
+  }
+  if (chatBottomDockResizeObserver) {
+    chatBottomDockResizeObserver.disconnect();
+    chatBottomDockResizeObserver = null;
   }
   stopSplitterDrag();
   if (cancelCurrentChat.value) {
@@ -4632,22 +4684,6 @@ const handleCopyLink = async () => {
   z-index: 20;
 }
 
-.chat-content-with-pinned-dock {
-  padding-bottom: calc(8px + env(safe-area-inset-bottom));
-}
-
-.chat-messages-with-pinned-dock {
-  padding-bottom: calc(196px + env(safe-area-inset-bottom));
-}
-
-.chat-messages-with-progress-dock {
-  padding-bottom: calc(270px + env(safe-area-inset-bottom));
-}
-
-.chat-messages-with-thumbnail-dock {
-  padding-bottom: calc(296px + env(safe-area-inset-bottom));
-}
-
 .chat-bottom-dock-fixed {
   position: fixed;
   bottom: 0;
@@ -4661,20 +4697,6 @@ const handleCopyLink = async () => {
 :deep(.dark) .chat-bottom-dock-fixed,
 .dark .chat-bottom-dock-fixed {
   background: transparent;
-}
-
-@media (max-width: 640px) {
-  .chat-messages-with-pinned-dock {
-    padding-bottom: calc(212px + env(safe-area-inset-bottom));
-  }
-
-  .chat-messages-with-progress-dock {
-    padding-bottom: calc(286px + env(safe-area-inset-bottom));
-  }
-
-  .chat-messages-with-thumbnail-dock {
-    padding-bottom: calc(312px + env(safe-area-inset-bottom));
-  }
 }
 
 /* 120-degree diagonal shimmer text effect */
