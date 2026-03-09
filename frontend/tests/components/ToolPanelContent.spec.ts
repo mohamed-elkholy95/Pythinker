@@ -87,6 +87,19 @@ describe('ToolPanelContent', () => {
     expect(wrapper.text()).toContain('Report complete');
   });
 
+  it('keeps report-complete view visible from persisted final report text after summary stream clears', () => {
+    const wrapper = mountToolPanelContent({
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+      finalReportText: '# Final report',
+      replayScreenshotUrl: 'blob:final-screenshot',
+      isLoading: false,
+    });
+
+    expect(wrapper.find('streaming-report-view-stub').exists()).toBe(true);
+    expect(wrapper.text()).toContain('Report complete');
+  });
+
   it('shows browser chrome in live preview for browser tools', () => {
     const wrapper = mountToolPanelContent({
       toolContent: {

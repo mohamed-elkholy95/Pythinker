@@ -127,4 +127,35 @@ describe('useStreamingPresentationState', () => {
 
     state.dispose();
   });
+
+  it('uses persisted final report text after summary streaming has been cleared', async () => {
+    const finalReportText = ref('');
+
+    const state = useStreamingPresentationState({
+      isInitializing: false,
+      isSummaryStreaming: false,
+      summaryStreamText: '',
+      finalReportText,
+      isThinking: false,
+      isActiveOperation: false,
+      toolDisplayName: 'Browser',
+      toolDescription: 'Browsing',
+      baseViewType: 'live_preview',
+      isSessionComplete: true,
+      replayScreenshotUrl: 'blob:final-frame',
+      previewText: ''
+    });
+
+    finalReportText.value = '# Final report';
+    await nextTick();
+
+    expect(state.phase.value).toBe('summary_final');
+    expect(state.headline.value).toBe('Report complete');
+    expect(state.viewType.value).toBe('report');
+
+    await vi.advanceTimersByTimeAsync(20);
+    expect(state.previewText.value).toBe('# Final report');
+
+    state.dispose();
+  });
 });

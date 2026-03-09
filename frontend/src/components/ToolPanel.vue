@@ -33,6 +33,7 @@
         :replayMetadata="panelProps.replayMetadata"
         :replayScreenshots="panelProps.replayScreenshots"
         :summaryStreamText="panelProps.summaryStreamText"
+        :finalReportText="panelProps.finalReportText"
         :isSummaryStreaming="panelProps.isSummaryStreaming"
         :activeCanvasUpdate="panelProps.activeCanvasUpdate"
         @hide="() => hideToolPanel(true)"
@@ -122,6 +123,7 @@ const panelProps = defineProps<{
   replayMetadata?: ScreenshotMetadata | null
   replayScreenshots?: ScreenshotMetadata[]
   summaryStreamText?: string
+  finalReportText?: string
   isSummaryStreaming?: boolean
   activeCanvasUpdate?: CanvasUpdateEventData | null
 }>()

@@ -256,12 +256,12 @@
 
           <!-- Streaming Report (live summary composition — highest priority) -->
           <div
-            v-if="isSummaryPhase || summaryStreamText"
+            v-if="showReportPresentation"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <StreamingReportView
-              :text="summaryStreamText || ''"
-              :is-final="!isSummaryStreaming"
+              :text="reportPresentationText"
+              :is-final="showPersistedFinalReport || !isSummaryStreaming"
             />
           </div>
 
@@ -580,6 +580,7 @@ const props = defineProps<{
   replayMetadata?: ScreenshotMetadata | null;
   replayScreenshots?: ScreenshotMetadata[];
   summaryStreamText?: string;
+  finalReportText?: string;
   isSummaryStreaming?: boolean;
   /** When true, hides the frame header and outer card styling (used in embedded/workspace mode) */
   embedded?: boolean;
@@ -668,6 +669,24 @@ const currentViewType = computed(() => {
   if (shouldShowArtifactEditor.value) return 'editor';
   return computedViewType.value;
 });
+
+const isViewingLatestTimelineStep = computed(() => {
+  if (!props.timelineTotalSteps || props.timelineTotalSteps <= 0) return true;
+  if (!props.timelineCurrentStep || props.timelineCurrentStep <= 0) return true;
+  return props.timelineCurrentStep === props.timelineTotalSteps;
+});
+
+const showPersistedFinalReport = computed(() => {
+  if (!props.finalReportText) return false;
+  if (!props.isReplayMode) return true;
+  return props.realTime || isViewingLatestTimelineStep.value;
+});
+
+const reportPresentationText = computed(() => {
+  const persistedReportText = showPersistedFinalReport.value ? (props.finalReportText || '') : '';
+  return persistedReportText || props.summaryStreamText || '';
+});
+const showReportPresentation = computed(() => isSummaryPhase.value || reportPresentationText.value.length > 0);
 
 // Tool state
 const toolName = computed(() => props.toolContent?.name || '');
@@ -916,6 +935,7 @@ const streamingPresentation = useStreamingPresentationState({
   isInitializing: computed(() => false),
   isSummaryStreaming: computed(() => !!props.isSummaryStreaming),
   summaryStreamText: computed(() => props.summaryStreamText || ''),
+  finalReportText: computed(() => showPersistedFinalReport.value ? (props.finalReportText || '') : ''),
   isThinking: computed(() => !!props.isThinking),
   isActiveOperation: computed(() => isActiveOperation.value),
   toolDisplayName: computed(() => toolDisplay.value?.displayName || ''),

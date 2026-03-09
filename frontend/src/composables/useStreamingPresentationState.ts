@@ -14,6 +14,7 @@ export interface StreamingPresentationInput {
   isInitializing: MaybeRefOrGetter<boolean>;
   isSummaryStreaming: MaybeRefOrGetter<boolean>;
   summaryStreamText?: MaybeRefOrGetter<string | undefined>;
+  finalReportText?: MaybeRefOrGetter<string | undefined>;
   isThinking?: MaybeRefOrGetter<boolean | undefined>;
   isActiveOperation?: MaybeRefOrGetter<boolean | undefined>;
   toolDisplayName?: MaybeRefOrGetter<string | undefined>;
@@ -147,10 +148,12 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
   const desiredPhase = computed<StreamPhase>(() => {
     const summaryStreaming = resolve(input.isSummaryStreaming);
     const summaryText = resolve(input.summaryStreamText || '') || '';
+    const finalReportText = resolve(input.finalReportText || '') || '';
     const thinking = Boolean(resolve(input.isThinking || false));
     const activeOperation = Boolean(resolve(input.isActiveOperation || false));
 
     if (summaryStreaming) return 'summarizing';
+    if (finalReportText.length > 0) return 'summary_final';
     if (!summaryStreaming && summaryText.length > 0) return 'summary_final';
     if (thinking || activeOperation) return 'thinking';
     return 'idle';
@@ -179,7 +182,11 @@ export function useStreamingPresentationState(input: StreamingPresentationInput)
   watch(
     () => {
       const summaryText = resolve(input.summaryStreamText || '') || '';
+      const finalReportText = resolve(input.finalReportText || '') || '';
       const sourcePreviewText = resolve(input.previewText || '') || '';
+      if (phase.value === 'summary_final' && finalReportText.length > 0) {
+        return finalReportText;
+      }
       return phase.value === 'summarizing' || phase.value === 'summary_final'
         ? summaryText
         : sourcePreviewText;

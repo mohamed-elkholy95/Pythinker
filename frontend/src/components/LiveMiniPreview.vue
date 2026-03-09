@@ -252,6 +252,8 @@ const props = withDefaults(defineProps<{
   isSummaryStreaming?: boolean;
   /** Buffered summary stream text */
   summaryStreamText?: string;
+  /** Persisted final report content shown after summary streaming ends */
+  finalReportText?: string;
   /** Whether session has completed and should show replay frame when idle */
   isSessionComplete?: boolean;
   /** Replay frame URL provided by parent composable */
@@ -270,6 +272,7 @@ const props = withDefaults(defineProps<{
   toolContent: undefined,
   isSummaryStreaming: false,
   summaryStreamText: '',
+  finalReportText: '',
   isSessionComplete: false,
   replayScreenshotUrl: ''
 });
@@ -373,6 +376,7 @@ const streamingPresentation = useStreamingPresentationState({
   isInitializing: computed(() => !!props.isInitializing),
   isSummaryStreaming: computed(() => !!props.isSummaryStreaming),
   summaryStreamText: computed(() => props.summaryStreamText || ''),
+  finalReportText: computed(() => props.finalReportText || ''),
   isThinking: computed(() => false),
   isActiveOperation: computed(() => !!props.isActive),
   toolDisplayName: computed(() => toolDisplay.value?.displayName || props.toolName || ''),
