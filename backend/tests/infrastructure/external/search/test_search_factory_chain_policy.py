@@ -225,7 +225,7 @@ def test_missing_provider_configuration_warning_emitted_once_per_provider_detail
 
     with (
         patch("app.infrastructure.external.search.factory.get_settings", return_value=settings),
-        caplog.at_level("WARNING", logger="app.infrastructure.external.search.factory"),
+        caplog.at_level("INFO", logger="app.infrastructure.external.search.factory"),
     ):
         assert search_factory._provider_kwargs("brave") is None
         assert search_factory._provider_kwargs("brave") is None

@@ -26,12 +26,16 @@ DEFAULT_PROVIDER_CHAIN = list(DEFAULT_SEARCH_PROVIDER_CHAIN)
 
 
 def _warn_missing_provider_config_once(provider: str, detail: str) -> None:
-    """Emit missing-provider-config warning only once per process."""
+    """Emit missing-provider-config notice only once per process.
+
+    Uses info level because unconfigured providers are expected when
+    the fallback chain covers them (e.g. brave missing but tavily active).
+    """
     key = f"{provider}:{detail}"
     if key in _missing_config_warned:
         return
     _missing_config_warned.add(key)
-    logger.warning("%s Search not configured: %s", provider.capitalize(), detail)
+    logger.info("%s Search not configured: %s", provider.capitalize(), detail)
 
 
 class SearchProviderRegistry:
