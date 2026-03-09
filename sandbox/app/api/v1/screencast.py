@@ -288,7 +288,8 @@ async def stream_frames_ws(
                         break
                     try:
                         await websocket.send_text("ping")
-                    except (RuntimeError, WebSocketDisconnect):
+                    except (RuntimeError, WebSocketDisconnect, AssertionError):
+                        # AssertionError: websockets legacy protocol race during teardown
                         disconnected.set()
                         stream_cancel.set()
                         break
@@ -336,7 +337,7 @@ async def stream_frames_ws(
                     # Send frame as binary
                     try:
                         await websocket.send_bytes(frame.data)
-                    except (RuntimeError, WebSocketDisconnect):
+                    except (RuntimeError, WebSocketDisconnect, AssertionError):
                         disconnected.set()
                         stream_cancel.set()
                         break
@@ -364,7 +365,7 @@ async def stream_frames_ws(
                         if fallback:
                             await websocket.send_bytes(fallback)
                             frame_count += 1
-                    except (RuntimeError, WebSocketDisconnect):
+                    except (RuntimeError, WebSocketDisconnect, AssertionError):
                         disconnected.set()
                         stream_cancel.set()
                         break
@@ -386,7 +387,7 @@ async def stream_frames_ws(
                                 "error": "Chrome became unresponsive after multiple recovery attempts"
                             }
                         )
-                    except (RuntimeError, WebSocketDisconnect):
+                    except (RuntimeError, WebSocketDisconnect, AssertionError):
                         pass
                     break
 
@@ -409,7 +410,7 @@ async def stream_frames_ws(
                         await websocket.send_json(
                             {"error": "Failed to recover screencast after Chrome hang"}
                         )
-                    except (RuntimeError, WebSocketDisconnect):
+                    except (RuntimeError, WebSocketDisconnect, AssertionError):
                         pass
                     break
 
@@ -429,6 +430,9 @@ async def stream_frames_ws(
 
     except WebSocketDisconnect:
         logger.info("[CDP Stream] Client disconnected")
+    except AssertionError:
+        # websockets legacy protocol race condition during connection teardown
+        logger.info("[CDP Stream] Connection closed during teardown (websockets assertion)")
     except Exception as e:
         logger.error(f"[CDP Stream] Error: {e}", exc_info=True)
     finally:
