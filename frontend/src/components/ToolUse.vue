@@ -1,8 +1,11 @@
 <template>
   <!-- Inline message tools (rendered as plain text) -->
-  <p v-if="isInlineMessageTool && tool.args?.text" class="inline-message-text whitespace-pre-wrap break-words">
-    {{ tool.args.text }}
-  </p>
+  <div v-if="isInlineMessageTool && tool.args?.text" class="inline-message-card">
+    <div class="inline-message-label">{{ inlineMessageLabel }}</div>
+    <p class="inline-message-text whitespace-pre-wrap break-words">
+      {{ tool.args.text }}
+    </p>
+  </div>
   <!-- Fast search with inline results -->
   <div v-else-if="isFastSearchWithResults" class="fast-search-tool-wrapper flex w-full flex-col gap-0 max-w-full">
     <div class="flex w-full items-start group gap-1.5">
@@ -183,6 +186,12 @@ const isInlineMessageTool = computed(() => {
   return INLINE_MESSAGE_TOOLS.has(props.tool.name);
 });
 
+const inlineMessageLabel = computed(() => {
+  if (props.tool.name === 'system_note') return t('System note');
+  if (props.tool.name === 'user_message') return t('User message');
+  return t('Step update');
+});
+
 const handleClick = () => {
   emit("click");
 };
@@ -193,11 +202,59 @@ const handleBrowseUrl = (url: string) => {
 </script>
 
 <style scoped>
+.inline-message-card {
+  position: relative;
+  margin-top: 2px;
+  padding: 10px 12px 11px 15px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-main) 88%, white);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.82));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.inline-message-card::before {
+  content: '';
+  position: absolute;
+  inset-block: 10px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 9999px;
+  background: rgba(59, 130, 246, 0.62);
+}
+
+.inline-message-label {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
 .inline-message-text {
+  margin-top: 6px;
   color: var(--text-secondary);
   font-size: 14.5px;
   line-height: 1.55;
   font-weight: 400;
+}
+
+:deep(.dark) .inline-message-card,
+.dark .inline-message-card {
+  border-color: rgba(148, 163, 184, 0.22);
+  background:
+    linear-gradient(135deg, rgba(30, 41, 59, 0.76), rgba(15, 23, 42, 0.72));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 2px rgba(15, 23, 42, 0.18);
+}
+
+:deep(.dark) .inline-message-card::before,
+.dark .inline-message-card::before {
+  background: rgba(96, 165, 250, 0.7);
 }
 
 .tool-shimmer {
