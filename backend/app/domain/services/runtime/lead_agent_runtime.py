@@ -216,6 +216,46 @@ class LeadAgentRuntime:
         self._ctx = active_ctx
         return active_ctx
 
+    async def before_tool(self, ctx: RuntimeContext | None = None) -> RuntimeContext:
+        """Run the BEFORE_TOOL hook before each tool invocation.
+
+        Args:
+            ctx: Optional context override.  Uses ``self._ctx`` when omitted.
+
+        Returns:
+            The (possibly mutated) context after all BEFORE_TOOL handlers.
+
+        Raises:
+            RuntimeError: If no context is available (runtime not initialised
+                and no override supplied).
+        """
+        active_ctx = ctx if ctx is not None else self._ctx
+        if active_ctx is None:
+            raise RuntimeError("Runtime not initialized")
+        active_ctx = await self._pipeline.run_hook(RuntimeHook.before_tool, active_ctx)
+        self._ctx = active_ctx
+        return active_ctx
+
+    async def after_tool(self, ctx: RuntimeContext | None = None) -> RuntimeContext:
+        """Run the AFTER_TOOL hook after each tool invocation.
+
+        Args:
+            ctx: Optional context override.  Uses ``self._ctx`` when omitted.
+
+        Returns:
+            The (possibly mutated) context after all AFTER_TOOL handlers.
+
+        Raises:
+            RuntimeError: If no context is available (runtime not initialised
+                and no override supplied).
+        """
+        active_ctx = ctx if ctx is not None else self._ctx
+        if active_ctx is None:
+            raise RuntimeError("Runtime not initialized")
+        active_ctx = await self._pipeline.run_hook(RuntimeHook.after_tool, active_ctx)
+        self._ctx = active_ctx
+        return active_ctx
+
     async def finalize(self) -> RuntimeContext:
         """Run the AFTER_RUN hook to clean up session resources.
 
