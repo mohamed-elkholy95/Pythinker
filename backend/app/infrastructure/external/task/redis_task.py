@@ -239,7 +239,8 @@ class RedisStreamTask(Task):
 
             raw_redis = get_redis().client
             value = await raw_redis.get(f"{_LIVENESS_KEY_PREFIX}{session_id}")
-            return value.decode() if value else None
+            # Redis client uses decode_responses=True, so value is already str
+            return value or None
         except Exception as e:
             logger.warning("Failed to read liveness key for session %s: %s", session_id, e)
             return None
