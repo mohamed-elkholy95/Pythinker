@@ -126,7 +126,7 @@
           <div class="coupon-section-header">
             <Ticket :size="13" />
             <span>Coupons &amp; Promo Codes</span>
-            <span class="coupon-count">{{ sortedCoupons.length }}</span>
+            <span class="coupon-count">{{ couponsWithCode.length || sortedCoupons.length }}</span>
           </div>
           <div class="coupon-grid">
             <CouponCard
@@ -298,6 +298,11 @@ const sortedCoupons = computed(() => {
     return a.store.localeCompare(b.store);
   });
 });
+
+// Coupons with actual codes (for the count badge)
+const couponsWithCode = computed(() =>
+  sortedCoupons.value.filter(c => c.code && c.code.trim()),
+);
 
 const emptyReason = computed<DealEmptyReason>(() => props.content?.empty_reason ?? 'no_matches');
 
