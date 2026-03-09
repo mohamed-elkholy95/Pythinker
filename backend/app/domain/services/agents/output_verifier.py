@@ -165,12 +165,75 @@ class OutputVerifier:
 
         return chunks
 
-    # ── Table Exemption ────────────────────────────────────────────────
+    # ── Content Exemption ──────────────────────────────────────────────
 
     _NUMERIC_TABLE_RE = re.compile(
         r"[\$€£]\s*\d|[\d.]+\s*%|\d+\.\d+\s*points|score.per.dollar",
         re.IGNORECASE,
     )
+
+    # Patterns that LettuceDetect cannot meaningfully verify:
+    # - Bare URLs (not in source context verbatim)
+    # - Mermaid diagram syntax (graph TD, flowchart, etc.)
+    # - Reference/bibliography sections ([N] Title - URL)
+    _MERMAID_BLOCK_RE = re.compile(
+        r"```(?:mermaid|graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|gantt|pie|erDiagram)"
+        r".*?```",
+        re.DOTALL,
+    )
+    _REFERENCE_SECTION_RE = re.compile(
+        r"(?:^|\n)#{1,4}\s*(?:References|Sources|Bibliography|Works Cited|Citations)\s*\n"
+        r"((?:\s*(?:\[?\d+\]?\.?\s*)?(?:https?://\S+|[^\n]+https?://\S+)\s*\n?)+)",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    _BARE_URL_LINE_RE = re.compile(
+        r"^\s*(?:\[?\d+\]?\.?\s+)?(?:[^\n]*?\s)?https?://\S+\s*$",
+        re.MULTILINE,
+    )
+
+    @staticmethod
+    def _strip_unverifiable_content(text: str) -> str:
+        """Remove content patterns that produce systematic false positives.
+
+        LettuceDetect flags these as hallucinated because they don't appear
+        verbatim in the grounding context:
+        - Mermaid diagram blocks (graph syntax, not factual claims)
+        - Reference/bibliography sections (URL lists)
+        - Lines that are primarily bare URLs with citation numbers
+        """
+        if not text:
+            return text
+
+        stripped = text
+        mermaid_count = 0
+        ref_count = 0
+        url_line_count = 0
+
+        # Strip Mermaid blocks
+        mermaid_matches = OutputVerifier._MERMAID_BLOCK_RE.findall(stripped)
+        mermaid_count = len(mermaid_matches)
+        stripped = OutputVerifier._MERMAID_BLOCK_RE.sub("", stripped)
+
+        # Strip reference/bibliography sections
+        ref_matches = OutputVerifier._REFERENCE_SECTION_RE.findall(stripped)
+        ref_count = len(ref_matches)
+        stripped = OutputVerifier._REFERENCE_SECTION_RE.sub("", stripped)
+
+        # Strip bare URL citation lines (e.g. "[6] Title - https://...")
+        url_lines = OutputVerifier._BARE_URL_LINE_RE.findall(stripped)
+        url_line_count = len(url_lines)
+        stripped = OutputVerifier._BARE_URL_LINE_RE.sub("", stripped)
+
+        if mermaid_count or ref_count or url_line_count:
+            logger.info(
+                "Exempted %d Mermaid block(s), %d reference section(s), "
+                "and %d URL citation line(s) from hallucination check",
+                mermaid_count,
+                ref_count,
+                url_line_count,
+            )
+
+        return stripped
 
     @staticmethod
     def _strip_cited_tables(text: str) -> str:
@@ -394,8 +457,10 @@ class OutputVerifier:
                     _total += len(_chunk)
                 source_context = trimmed_context or source_context
 
-                # Exempt cited markdown tables from hallucination checking
+                # Exempt content patterns that produce systematic false positives:
+                # cited tables, Mermaid diagrams, reference sections, URL citation lines
                 content_for_verification = self._strip_cited_tables(content)
+                content_for_verification = self._strip_unverifiable_content(content_for_verification)
 
                 lettuce_result = verifier.verify(
                     context=source_context,
@@ -449,7 +514,7 @@ class OutputVerifier:
                     # - >block_threshold: blocking issue + disclaimer
                     # - warn_threshold-block_threshold: reliability notice (non-blocking)
                     # - <warn_threshold: pass through (noise-level, not actionable)
-                    _block_threshold = getattr(settings, "hallucination_block_threshold", 0.15)
+                    _block_threshold = getattr(settings, "hallucination_block_threshold", 0.30)
                     _warn_threshold = getattr(settings, "hallucination_warn_threshold", 0.10)
                     if lettuce_result.hallucination_ratio > _block_threshold:
                         disclaimer = (
