@@ -11,6 +11,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -49,7 +50,7 @@ class SkillSummary:
 # ---------------------------------------------------------------------------
 
 
-def _parse_frontmatter(path: Path) -> dict | None:  # type: ignore[type-arg]
+def _parse_frontmatter(path: Path) -> dict[str, Any] | None:
     """Read *path* and parse its YAML frontmatter block.
 
     Args:
