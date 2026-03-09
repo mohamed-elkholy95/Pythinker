@@ -22,6 +22,7 @@
               :search-query="searchQuery"
               :is-summary-streaming="props.isSummaryStreaming"
               :summary-stream-text="props.summaryStreamText"
+              :final-report-text="props.finalReportText"
               :is-session-complete="props.isSessionComplete"
               :replay-screenshot-url="props.replayScreenshotUrl"
               size="lg"
@@ -177,6 +178,7 @@
           :search-query="searchQuery"
           :is-summary-streaming="props.isSummaryStreaming"
           :summary-stream-text="props.summaryStreamText"
+          :final-report-text="props.finalReportText"
           :is-session-complete="props.isSessionComplete"
           :replay-screenshot-url="props.replayScreenshotUrl"
           size="md"
@@ -273,6 +275,8 @@ interface Props {
   isSummaryStreaming?: boolean
   /** Live summary stream text */
   summaryStreamText?: string
+  /** Persisted final report content shown after summary streaming ends */
+  finalReportText?: string
   /** Whether session status is completed/failed */
   isSessionComplete?: boolean
   /** Replay screenshot URL for completed sessions */
@@ -289,6 +293,7 @@ const props = withDefaults(defineProps<Props>(), {
   isInitializing: false,
   isSummaryStreaming: false,
   summaryStreamText: '',
+  finalReportText: '',
   isSessionComplete: false,
   replayScreenshotUrl: ''
 })
@@ -488,6 +493,7 @@ const streamingPresentation = useStreamingPresentationState({
   isInitializing: computed(() => !!props.isInitializing),
   isSummaryStreaming: computed(() => !!props.isSummaryStreaming),
   summaryStreamText: computed(() => props.summaryStreamText || ''),
+  finalReportText: computed(() => props.finalReportText || ''),
   isThinking: computed(() => !!props.isThinking),
   isActiveOperation: computed(() => isToolRunning.value),
   toolDisplayName: computed(() => currentToolDisplayName.value),

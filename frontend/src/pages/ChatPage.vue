@@ -423,6 +423,7 @@
               :isInitializing="isInitializing || isSandboxInitializing"
               :isSummaryStreaming="isSummaryStreaming"
               :summaryStreamText="summaryStreamText"
+              :finalReportText="finalReportText"
               :isSessionComplete="isSessionComplete"
               :replayScreenshotUrl="replay.currentScreenshotUrl.value"
               @openPanel="handleOpenPanel"
@@ -492,6 +493,7 @@
         :isLoading="isLoading"
         :isThinking="isThinking"
         :summaryStreamText="summaryStreamText"
+        :finalReportText="finalReportText"
         :isSummaryStreaming="isSummaryStreaming"
         @jumpToRealTime="jumpToRealTime"
         :showTimeline="showTimelineControls"
@@ -783,6 +785,7 @@ const createInitialState = () => ({
   isThinkingStreaming: false, // True when streaming thinking is in progress
   summaryStreamText: '', // Accumulated streaming summary text
   isSummaryStreaming: false, // True when summary is streaming live
+  finalReportText: '', // Persisted final report markdown for live-view completion state
   allowStandaloneSummaryOnNextAssistant: false, // One-shot flag: render only the final summary assistant block outside step timeline
   isStale: false, // True when agent appears unresponsive (no events for 60s)
   filePreviewOpen: false,
@@ -840,6 +843,7 @@ const {
   isThinkingStreaming,
   summaryStreamText,
   isSummaryStreaming,
+  finalReportText,
   allowStandaloneSummaryOnNextAssistant,
   isStale,
   filePreviewOpen,
@@ -2665,6 +2669,9 @@ const handleToolEvent = (toolData: ToolEventData) => {
     lastTool.value = toolContent;
   }
   if (toolContent.name !== 'message') {
+    if (isLoading.value) {
+      finalReportText.value = '';
+    }
     const preservedTool = shouldPreserveDealToolInLiveView(lastNoMessageTool.value, toolContent)
       ? lastNoMessageTool.value
       : undefined;
@@ -3259,6 +3266,7 @@ const handleReportEvent = (reportData: ReportEventData) => {
   followUpAnchorEventId.value = reportData.event_id;
 
   const normalizedReportContent = collapseDuplicateReportBlocks(reportData.content);
+  finalReportText.value = normalizedReportContent;
   const sections = extractSectionsFromMarkdown(normalizedReportContent);
   const epochSec = toEpochSeconds(reportData.timestamp) ?? Math.floor(Date.now() / 1000);
   const nextReportContent: ReportContent = {
@@ -3845,6 +3853,9 @@ const chat = async (
   clearSelectedSkills();
   suggestions.value = [];
   receivedDoneEvent.value = false;
+  if (normalizedMessage || files.length > 0 || followUp) {
+    finalReportText.value = '';
+  }
   lastHeartbeatAt.value = 0;
   isWaitingForReply.value = false;
   clearTakeoverCta();

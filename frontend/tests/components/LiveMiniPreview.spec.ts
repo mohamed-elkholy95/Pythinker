@@ -117,4 +117,23 @@ describe('LiveMiniPreview', () => {
     expect(wrapper.find('.streaming-preview').exists()).toBe(true)
     expect(wrapper.text()).toContain('Report complete')
   })
+
+  it('keeps report-complete view visible from persisted final report text after streaming clears', () => {
+    const wrapper = shallowMount(LiveMiniPreview, {
+      props: {
+        sessionId: 'session-1',
+        enabled: true,
+        toolName: 'browser',
+        toolFunction: 'browser_navigate',
+        isSessionComplete: true,
+        replayScreenshotUrl: 'blob:final-screenshot',
+        isActive: false,
+        finalReportText: '# Final report',
+      },
+    })
+
+    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
+    expect(wrapper.find('.final-screenshot-image').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Report complete')
+  })
 })
