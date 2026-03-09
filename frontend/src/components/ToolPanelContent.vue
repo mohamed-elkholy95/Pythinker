@@ -588,6 +588,8 @@ const props = defineProps<{
   forceViewType?: ContentViewType;
   /** Latest canvas update event from SSE so same-project updates still propagate. */
   activeCanvasUpdate?: CanvasUpdateEventData | null;
+  /** Shared session start timestamp so all timers stay in sync. */
+  sessionStartTime?: number;
 }>();
 
 // ── Elapsed timer + connection status for header ──────────────────
@@ -597,7 +599,7 @@ const connectionStore = useConnectionStore()
 // Start/stop timer based on loading state
 watch(() => props.isLoading, (loading) => {
   if (loading) {
-    headerTimer.start()
+    headerTimer.start(props.sessionStartTime || undefined)
   } else {
     headerTimer.stop()
   }
