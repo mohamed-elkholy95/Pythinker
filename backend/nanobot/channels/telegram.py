@@ -191,8 +191,14 @@ class TelegramChannel(BaseChannel):
         BotCommand("help", "Show available commands"),
         BotCommand("commands", "List all slash commands"),
         BotCommand("reasoning", "Set reasoning visibility (off, on, stream)"),
+        BotCommand("think", "Set thinking level (off, low, medium, high)"),
+        BotCommand("verbose", "Toggle verbose mode (off, on)"),
+        BotCommand("elevated", "Toggle elevated mode (off, on)"),
     ]
-    _KNOWN_SLASH_COMMANDS = frozenset({"start", "new", "stop", "status", "pdf", "link", "bind", "help", "commands", "reasoning"})
+    _KNOWN_SLASH_COMMANDS = frozenset({
+        "start", "new", "stop", "status", "pdf", "link", "bind", "help", "commands",
+        "reasoning", "think", "thinking", "t", "verbose", "v", "elevated", "elev",
+    })
 
     def __init__(
         self,
