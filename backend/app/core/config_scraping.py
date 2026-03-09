@@ -38,6 +38,11 @@ class ScrapingSettingsMixin:
     # Per-domain authentication
     scraping_hf_token: str = ""  # HuggingFace token for gated model pages (HF_TOKEN)
 
+    # Auto-enrichment for info_search_web results
+    search_auto_enrich_enabled: bool = True  # Fetch full page content for top-K search results
+    search_auto_enrich_top_k: int = 5  # Number of top search result URLs to enrich
+    search_auto_enrich_snippet_chars: int = 2000  # Max chars per enriched snippet
+
     # Content thresholds
     scraping_min_content_length: int = 500  # Minimum text length before escalating
     scraping_max_content_length: int = 100000  # Maximum text length to return
