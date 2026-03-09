@@ -115,8 +115,11 @@ class Session(BaseModel):
     takeover_state: TakeoverState = TakeoverState.IDLE  # Takeover lifecycle state
     takeover_reason: str | None = None  # Reason for current takeover (manual|captcha|login|2fa|payment|verification)
 
-    # Telegram reasoning visibility (independent of thinking_mode which controls runtime effort)
+    # Telegram option commands (channel-level state, not runtime behavior)
     reasoning_visibility: str | None = None  # off | on | stream — controls Telegram reasoning lane
+    thinking_level: str | None = None        # off | low | medium | high — controls LLM thinking effort
+    verbose_mode: str | None = None          # off | on — controls verbose output
+    elevated_mode: str | None = None         # off | on — controls elevated execution mode
 
     def get_last_plan(self) -> Plan | None:
         """Get the last plan from the events"""
