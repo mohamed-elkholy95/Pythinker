@@ -108,11 +108,26 @@ const _failedFaviconDomains = new Set<string>();
 // Debug flag — enabled via ?debugCitations in URL or console: window.__citDebug = true
 const _citDebug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugCitations');
 
+/**
+ * Normalize inline GFM alert markers so marked.js can parse them as blockquotes.
+ *
+ * LLMs sometimes embed alert syntax inline (e.g., "Caveat: > [!WARNING]\n> text")
+ * instead of starting the blockquote at column 0. This pre-processor splits such
+ * lines so the `>` marker starts its own line.
+ */
+const normalizeInlineAlerts = (markdown: string): string => {
+  return markdown.replace(
+    /^(.+?)\s*>\s*(\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\])/gim,
+    (_, prefix, marker) => `${prefix.replace(/[:\s]+$/, '')}\n\n> ${marker}`,
+  );
+};
+
 // Apply same normalizers as TiptapReportEditor: verification markers + inline citations
 const htmlContent = computed(() => {
   if (!props.content) return '<p></p>';
   const normalizedMarkdown = normalizeVerificationMarkers(props.content);
-  const linkedMarkdown = linkifyInlineCitations(normalizedMarkdown);
+  const alertNormalized = normalizeInlineAlerts(normalizedMarkdown);
+  const linkedMarkdown = linkifyInlineCitations(alertNormalized);
   // Collapse 3+ consecutive newlines to 2 — prevents excessive <br> gaps from `breaks: true`
   const collapsed = linkedMarkdown.replace(/\n{3,}/g, '\n\n');
   const rawHtml = marked.parse(collapsed, { async: false, breaks: true, gfm: true }) as string;
