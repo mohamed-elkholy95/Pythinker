@@ -417,6 +417,27 @@ class AgentTaskRunner(TaskRunner):
                 except Exception as exc:
                     logger.warning("SkillsLoader unavailable: %s", exc)
 
+            # ── LeadAgentRuntime (opt-in via feature flag) ─────────
+            self._lead_agent_runtime = None
+            if feature_flags.get("feature_lead_agent_runtime", False):
+                try:
+                    from app.domain.services.runtime.lead_agent_runtime import (
+                        LeadAgentRuntime,
+                    )
+
+                    self._lead_agent_runtime = LeadAgentRuntime(
+                        session_id=self._session_id,
+                        agent_id=self._agent_id,
+                        workspace_base="/home/ubuntu",
+                        memory_service=self._memory_service,
+                    )
+                    logger.info(
+                        "LeadAgentRuntime initialized for session %s",
+                        self._session_id,
+                    )
+                except Exception as exc:
+                    logger.warning("LeadAgentRuntime unavailable: %s", exc)
+
             self._plan_act_flow = PlanActFlow(
                 self._agent_id,
                 self._repository,
