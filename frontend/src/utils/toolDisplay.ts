@@ -243,16 +243,47 @@ export function extractToolUrl(args?: Record<string, unknown>): string | null {
 }
 
 /**
+ * Session-scoped cache of hostnames whose favicons failed to load.
+ * Prevents repeated 404 requests to DuckDuckGo's favicon service.
+ */
+const failedFaviconHosts = new Set<string>();
+
+/**
  * Get favicon URL for a domain using DuckDuckGo's favicon service.
- * Some subdomains may return 404 — callers should handle img @error
- * and cache failed domains to avoid repeated requests.
+ * Returns null if the hostname has previously failed, avoiding repeat 404s.
  */
 export function getFaviconUrl(url: string): string | null {
   try {
     const u = new URL(url);
+    if (failedFaviconHosts.has(u.hostname)) return null;
     return `https://icons.duckduckgo.com/ip3/${u.hostname}.ico`;
   } catch {
     return null;
+  }
+}
+
+/** Mark a URL's hostname as having a failed favicon so future calls skip it. */
+export function markFaviconFailed(url: string): void {
+  try {
+    failedFaviconHosts.add(new URL(url).hostname);
+  } catch { /* invalid URL — ignore */ }
+}
+
+/** Get a short letter icon for a URL (for favicon fallbacks). */
+export function getIconLetterFromUrl(url: string, title?: string): string {
+  try {
+    const hostname = new URL(url).hostname.replace('www.', '');
+    if (hostname.includes('wikipedia')) return 'W';
+    if (hostname.includes('github')) return 'G';
+    if (hostname.includes('stackoverflow')) return 'S';
+    if (hostname.includes('reddit')) return 'R';
+    if (hostname.includes('youtube')) return 'Y';
+    if (hostname.includes('twitter') || hostname.includes('x.com')) return 'X';
+    if (hostname.includes('linkedin')) return 'in';
+    if (hostname.includes('medium')) return 'M';
+    return hostname.charAt(0).toUpperCase();
+  } catch {
+    return title?.charAt(0).toUpperCase() || '?';
   }
 }
 
