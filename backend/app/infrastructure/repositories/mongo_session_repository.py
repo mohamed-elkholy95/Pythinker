@@ -50,6 +50,8 @@ ALLOWED_SESSION_UPDATE_FIELDS: frozenset[str] = frozenset(
         "sandbox_owned",
         "sandbox_lifecycle_mode",
         "sandbox_created_at",
+        # Telegram reasoning visibility
+        "reasoning_visibility",
     }
 )
 

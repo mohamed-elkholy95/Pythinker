@@ -115,6 +115,9 @@ class Session(BaseModel):
     takeover_state: TakeoverState = TakeoverState.IDLE  # Takeover lifecycle state
     takeover_reason: str | None = None  # Reason for current takeover (manual|captcha|login|2fa|payment|verification)
 
+    # Telegram reasoning visibility (independent of thinking_mode which controls runtime effort)
+    reasoning_visibility: str | None = None  # off | on | stream — controls Telegram reasoning lane
+
     def get_last_plan(self) -> Plan | None:
         """Get the last plan from the events"""
         for event in reversed(self.events):
