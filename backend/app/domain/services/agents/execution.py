@@ -51,6 +51,7 @@ from app.domain.services.prompts.execution import (
 )
 from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.tools.base import BaseTool
+from app.domain.services.tools.message import build_message_notify_delivery_metadata
 from app.domain.services.tools.tool_tracing import get_tool_tracer
 from app.domain.utils.json_parser import JsonParser
 from app.domain.utils.json_repair import parse_json_response
@@ -538,6 +539,14 @@ class ExecutionAgent(BaseAgent):
                                 success=success,
                                 args=event.function_args,
                             )
+
+                    if event.function_name and event.function_name == "message_notify_user":
+                        if event.status == ToolStatus.CALLING:
+                            yield MessageEvent(
+                                message=event.function_args.get("text", ""),
+                                delivery_metadata=build_message_notify_delivery_metadata(event.function_args),
+                            )
+                        continue
 
                     if event.function_name and event.function_name == "message_ask_user":
                         if event.status == ToolStatus.CALLING:
