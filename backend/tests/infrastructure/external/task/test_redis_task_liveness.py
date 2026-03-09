@@ -144,7 +144,8 @@ class TestGetLiveness:
     @pytest.mark.asyncio
     async def test_returns_task_id_when_key_exists(self, mock_redis_client):
         """get_liveness should return the task_id string when key exists."""
-        mock_redis_client.get = AsyncMock(return_value=b"task-uuid-abc123")
+        # Redis client uses decode_responses=True, so values are str not bytes
+        mock_redis_client.get = AsyncMock(return_value="task-uuid-abc123")
         with patch("app.infrastructure.storage.redis.get_redis") as mock_get_redis:
             mock_get_redis.return_value.client = mock_redis_client
             result = await RedisStreamTask.get_liveness("sess-xyz")
