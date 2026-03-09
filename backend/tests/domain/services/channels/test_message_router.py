@@ -1679,3 +1679,91 @@ class TestSlashElevated:
 
         assert len(replies) == 1
         assert "disabled" in replies[0].content.lower()
+
+
+# ---------------------------------------------------------------------------
+# Telegram context prefix — forward and location blocks
+# ---------------------------------------------------------------------------
+
+
+class TestTelegramContextPrefixForwardLocation:
+    """_telegram_reply_context_prefix should include forward and location blocks."""
+
+    @pytest.mark.asyncio
+    async def test_forwarded_message_context_included_in_prefix(self) -> None:
+        """Forwarded message metadata should appear as a context block."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        recorded_chat_kwargs: dict[str, Any] = {}
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+
+        async def _recording_chat(**kwargs: Any):
+            recorded_chat_kwargs.update(kwargs)
+            yield _FakeMessageEvent()
+
+        agent_svc.chat = _recording_chat
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound(
+            "Check this forwarded message",
+            metadata={
+                "message_id": 100,
+                "is_forwarded": True,
+                "forward_from": "Alice",
+                "forward_date": "2026-03-08T12:00:00",
+            },
+        )
+        _ = [reply async for reply in router.route_inbound(msg)]
+
+        content = recorded_chat_kwargs["message"]
+        assert "Forwarded message context (untrusted)" in content
+        assert '"forwarded": true' in content
+        assert '"from": "Alice"' in content
+        assert "Check this forwarded message" in content
+
+    @pytest.mark.asyncio
+    async def test_location_context_included_in_prefix(self) -> None:
+        """Location metadata should appear as a context block."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        recorded_chat_kwargs: dict[str, Any] = {}
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+
+        async def _recording_chat(**kwargs: Any):
+            recorded_chat_kwargs.update(kwargs)
+            yield _FakeMessageEvent()
+
+        agent_svc.chat = _recording_chat
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound(
+            "Where am I?",
+            metadata={
+                "message_id": 200,
+                "location": {"latitude": 30.05, "longitude": 31.23},
+            },
+        )
+        _ = [reply async for reply in router.route_inbound(msg)]
+
+        content = recorded_chat_kwargs["message"]
+        assert "Location context:" in content
+        assert "30.05" in content
+        assert "31.23" in content
+        assert "Where am I?" in content
+
+    @pytest.mark.asyncio
+    async def test_bare_message_id_does_not_produce_prefix(self) -> None:
+        """A message with only message_id (no reply/forward/location) should not get a prefix."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        recorded_chat_kwargs: dict[str, Any] = {}
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+
+        async def _recording_chat(**kwargs: Any):
+            recorded_chat_kwargs.update(kwargs)
+            yield _FakeMessageEvent()
+
+        agent_svc.chat = _recording_chat
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("Hello", metadata={"message_id": 300})
+        _ = [reply async for reply in router.route_inbound(msg)]
+
+        assert recorded_chat_kwargs["message"] == "Hello"

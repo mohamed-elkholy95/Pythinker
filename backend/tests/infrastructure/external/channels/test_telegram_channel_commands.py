@@ -2950,3 +2950,194 @@ async def test_per_lane_finalization_independence() -> None:
     assert channel._has_preview_state(ref_msg, lane="reasoning")
     reasoning_state = channel._preview_states[channel._preview_key(ref_msg, lane="reasoning")]
     assert not reasoning_state.finalized
+
+
+# ---------------------------------------------------------------------------
+# Forward and location context extraction tests (Task 7 parity)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_forward_context_user_origin() -> None:
+    """Forwarded messages from a user carry sender name and id."""
+    message = SimpleNamespace(
+        forward_origin=SimpleNamespace(
+            type="user",
+            sender_user=SimpleNamespace(id=123, first_name="Alice"),
+        ),
+        forward_date="2026-03-08T12:00:00",
+    )
+    ctx = TelegramChannel._resolve_forward_context(message)
+    assert ctx["is_forwarded"] is True
+    assert ctx["forward_from"] == "Alice"
+    assert ctx["forward_from_id"] == 123
+    assert ctx["forward_date"] == "2026-03-08T12:00:00"
+
+
+def test_resolve_forward_context_channel_origin() -> None:
+    """Forwarded messages from a channel carry channel title and id."""
+    message = SimpleNamespace(
+        forward_origin=SimpleNamespace(
+            type="channel",
+            chat=SimpleNamespace(id=-1001234, title="News Channel"),
+        ),
+        forward_date=None,
+    )
+    ctx = TelegramChannel._resolve_forward_context(message)
+    assert ctx["is_forwarded"] is True
+    assert ctx["forward_from_chat"] == "News Channel"
+    assert ctx["forward_from_chat_id"] == -1001234
+    assert "forward_date" not in ctx
+
+
+def test_resolve_forward_context_hidden_user_origin() -> None:
+    """Forwarded messages from a hidden user use the provided name or [hidden]."""
+    message = SimpleNamespace(
+        forward_origin=SimpleNamespace(type="hidden_user", sender_user_name="Ghost"),
+        forward_date=None,
+    )
+    ctx = TelegramChannel._resolve_forward_context(message)
+    assert ctx["is_forwarded"] is True
+    assert ctx["forward_from"] == "Ghost"
+
+
+def test_resolve_forward_context_no_forward() -> None:
+    """Non-forwarded messages produce an empty context dict."""
+    message = SimpleNamespace(forward_origin=None, forward_date=None)
+    assert TelegramChannel._resolve_forward_context(message) == {}
+
+
+def test_resolve_location_context_plain_location() -> None:
+    """Plain GPS locations produce lat/lng context."""
+    message = SimpleNamespace(
+        location=SimpleNamespace(latitude=30.0, longitude=31.2),
+        venue=None,
+    )
+    ctx = TelegramChannel._resolve_location_context(message)
+    loc = ctx["location"]
+    assert loc["latitude"] == 30.0
+    assert loc["longitude"] == 31.2
+    assert "title" not in loc
+
+
+def test_resolve_location_context_venue() -> None:
+    """Venue messages include title and address."""
+    message = SimpleNamespace(
+        location=None,
+        venue=SimpleNamespace(
+            location=SimpleNamespace(latitude=51.5, longitude=-0.1),
+            title="Big Ben",
+            address="London SW1A 0AA",
+        ),
+    )
+    ctx = TelegramChannel._resolve_location_context(message)
+    loc = ctx["location"]
+    assert loc["latitude"] == 51.5
+    assert loc["title"] == "Big Ben"
+    assert loc["address"] == "London SW1A 0AA"
+
+
+def test_resolve_location_context_no_location() -> None:
+    """Messages without location/venue produce an empty context dict."""
+    message = SimpleNamespace(location=None, venue=None)
+    assert TelegramChannel._resolve_location_context(message) == {}
+
+
+@pytest.mark.asyncio
+async def test_on_message_forwarded_message_preserves_forward_context() -> None:
+    """Forwarded messages should include forward context in the inbound bus message."""
+    channel = _make_channel()
+    channel._running = True
+    channel._bot_username = "pythinker"
+    channel._bot_user_id = 99999
+
+    message = SimpleNamespace(
+        chat_id=5829880422,
+        text="Check this out",
+        caption=None,
+        reply_text=AsyncMock(),
+        photo=[],
+        voice=None,
+        audio=None,
+        document=None,
+        video=None,
+        video_note=None,
+        sticker=None,
+        message_id=42,
+        message_thread_id=None,
+        media_group_id=None,
+        reply_to_message=None,
+        quote=None,
+        external_reply=None,
+        forward_origin=SimpleNamespace(
+            type="user",
+            sender_user=SimpleNamespace(id=777, first_name="Bob"),
+        ),
+        forward_date="2026-03-08T15:00:00",
+        location=None,
+        venue=None,
+        chat=SimpleNamespace(type="private", is_forum=False, id=5829880422),
+        from_user=SimpleNamespace(id=5829880422, username="john", first_name="John"),
+        sender_chat=None,
+    )
+    update = SimpleNamespace(
+        message=message,
+        effective_user=SimpleNamespace(id=5829880422, username="john", first_name="John"),
+        update_id=201,
+    )
+    ctx = MagicMock()
+    await channel._on_message(update, ctx)
+
+    assert channel.bus.publish_inbound.call_count == 1
+    inbound = channel.bus.publish_inbound.call_args.args[0]
+    assert inbound.metadata["is_forwarded"] is True
+    assert inbound.metadata["forward_from"] == "Bob"
+    assert inbound.metadata["forward_from_id"] == 777
+
+
+@pytest.mark.asyncio
+async def test_on_message_location_preserves_location_context() -> None:
+    """Location messages should include location data in the inbound bus message."""
+    channel = _make_channel()
+    channel._running = True
+    channel._bot_username = "pythinker"
+    channel._bot_user_id = 99999
+
+    message = SimpleNamespace(
+        chat_id=5829880422,
+        text=None,
+        caption=None,
+        reply_text=AsyncMock(),
+        photo=[],
+        voice=None,
+        audio=None,
+        document=None,
+        video=None,
+        video_note=None,
+        sticker=None,
+        message_id=43,
+        message_thread_id=None,
+        media_group_id=None,
+        reply_to_message=None,
+        quote=None,
+        external_reply=None,
+        forward_origin=None,
+        forward_date=None,
+        location=SimpleNamespace(latitude=30.05, longitude=31.23),
+        venue=None,
+        chat=SimpleNamespace(type="private", is_forum=False, id=5829880422),
+        from_user=SimpleNamespace(id=5829880422, username="john", first_name="John"),
+        sender_chat=None,
+    )
+    update = SimpleNamespace(
+        message=message,
+        effective_user=SimpleNamespace(id=5829880422, username="john", first_name="John"),
+        update_id=202,
+    )
+    ctx = MagicMock()
+    await channel._on_message(update, ctx)
+
+    assert channel.bus.publish_inbound.call_count == 1
+    inbound = channel.bus.publish_inbound.call_args.args[0]
+    loc = inbound.metadata["location"]
+    assert loc["latitude"] == 30.05
+    assert loc["longitude"] == 31.23
