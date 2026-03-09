@@ -683,6 +683,7 @@ class StreamEvent(BaseEvent):
     content: str  # Streamed content chunk
     is_final: bool = False  # Whether this is the final chunk
     phase: str = "thinking"  # "thinking" for planning, "summarizing" for report generation
+    lane: str = "answer"  # "answer" for main response, "reasoning" for thinking/planning visibility
 
 
 class ToolStreamEvent(BaseEvent):
