@@ -3988,7 +3988,7 @@ const restoreSession = async (
     if (shouldAbortRestore('after_get_session')) return;
 
     sessionStatus.value = session.status as SessionStatus;
-    sessionResearchMode.value = (session.research_mode as agentApi.ResearchMode) || 'deep_research';
+    sessionResearchMode.value = (session.research_mode as agentApi.ResearchMode) || sessionResearchMode.value || null;
     sessionSource.value = (session.source || 'web').toLowerCase();
     // Set title from session data so it doesn't stay as "New Chat"
     if (session.title?.trim()) {

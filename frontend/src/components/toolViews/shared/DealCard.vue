@@ -34,7 +34,7 @@
           <span v-else-if="deal.in_stock === false" class="stock-pill stock-out">Out of Stock</span>
           <span v-if="categoryLabel" class="item-category-pill">{{ categoryLabel }}</span>
         </div>
-        <div class="deal-product-name">{{ deal.product_name || 'Unnamed product' }}</div>
+        <div class="deal-product-name" :title="deal.product_name || ''">{{ deal.product_name || 'Unnamed product' }}</div>
         <div v-if="deal.coupon_code" class="deal-coupon-tag">
           <Ticket :size="9" />
           <code>{{ deal.coupon_code }}</code>
