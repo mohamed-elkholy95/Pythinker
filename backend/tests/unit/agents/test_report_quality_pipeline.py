@@ -259,10 +259,11 @@ class TestHallucinationDisclaimerNotRedaction:
 
     @pytest.mark.asyncio
     async def test_ratio_above_block_threshold_uses_critical_path(self):
-        """Ratios above the 15% critical threshold must block delivery."""
+        """Ratios above the 30% critical threshold must block delivery."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        lettuce_result = _make_lettuce_result(ratio=0.18, span_count=1)
+        # 35% is above the 30% block threshold → critical path
+        lettuce_result = _make_lettuce_result(ratio=0.35, span_count=3)
         mock_verifier = MagicMock()
         mock_verifier.verify.return_value = lettuce_result
 
@@ -274,6 +275,26 @@ class TestHallucinationDisclaimerNotRedaction:
 
         assert "hallucination_ratio_critical" in result.blocking_issues
         assert "could not be fully verified" in result.content
+
+    @pytest.mark.asyncio
+    async def test_ratio_between_warn_and_block_is_moderate(self):
+        """Ratios between 10-30% get disclaimer treatment, not blocking."""
+        ov = _make_output_verifier()
+        content = "# Report\n\nContent."
+        # 18% is above warn (10%) but below block (30%) → moderate
+        lettuce_result = _make_lettuce_result(ratio=0.18, span_count=1)
+        mock_verifier = MagicMock()
+        mock_verifier.verify.return_value = lettuce_result
+
+        with patch(
+            "app.domain.services.agents.lettuce_verifier.get_lettuce_verifier",
+            return_value=mock_verifier,
+        ):
+            result = await ov.verify_hallucination(content, "query")
+
+        assert result.blocking_issues == []
+        assert "hallucination_ratio_moderate" in result.warnings
+        assert "Reliability Notice" in result.content
 
     @pytest.mark.asyncio
     async def test_high_ratio_above_30_uses_critical_path(self):
@@ -711,8 +732,12 @@ class TestDirectDeliveryShortCircuit:
         assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_summarize_telegram_hallucination_ratio_critical_blocks_when_completed(self):
-        """Critical hallucination findings must still block completed Telegram delivery."""
+    async def test_summarize_telegram_hallucination_ratio_critical_downgrades_when_completed(self):
+        """Hallucination findings downgrade (not block) on completed Telegram delivery.
+
+        Completed research should ALWAYS reach the user with a disclaimer.
+        Only structural failures (truncation, citation integrity) remain non-downgradable.
+        """
         from app.domain.models.event import ErrorEvent, ReportEvent
         from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
 
@@ -749,8 +774,9 @@ class TestDirectDeliveryShortCircuit:
 
         events = [event async for event in agent.summarize(response_policy=policy, all_steps_completed=True)]
 
-        assert any(isinstance(event, ErrorEvent) for event in events)
-        assert not any(isinstance(event, ReportEvent) for event in events)
+        # Hallucination is now downgradable — completed research delivers with disclaimer
+        assert any(isinstance(event, ReportEvent) for event in events)
+        assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
     async def test_summarize_telegram_gate_failure_blocks_when_steps_incomplete(self):

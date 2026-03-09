@@ -200,8 +200,12 @@ class TestDeliveryIntegrityGateIntegration:
         assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
-    async def test_completed_plan_summary_blocks_hallucination_on_telegram(self, executor, mock_llm):
-        """Critical hallucination findings must still block Telegram final delivery."""
+    async def test_completed_plan_summary_downgrades_hallucination_on_telegram(self, executor, mock_llm):
+        """Hallucination findings downgrade (not block) on completed Telegram delivery.
+
+        Completed research should ALWAYS reach the user with a disclaimer.
+        Only structural failures (truncation, citation integrity) remain non-downgradable.
+        """
         weak_summary = (
             "# Final Report\n\n## Findings\nSynthesized content beyond source snippets."
             "\n\n> **Note:** Some information in this response "
@@ -227,8 +231,9 @@ class TestDeliveryIntegrityGateIntegration:
 
         events = [event async for event in executor.summarize(all_steps_completed=True)]
 
-        assert any(isinstance(event, ErrorEvent) for event in events)
-        assert not any(isinstance(event, ReportEvent) for event in events)
+        # Hallucination is now downgradable — completed research delivers with disclaimer
+        assert any(isinstance(event, ReportEvent) for event in events)
+        assert not any(isinstance(event, ErrorEvent) for event in events)
 
     @pytest.mark.asyncio
     async def test_structural_failure_still_blocks_even_when_all_steps_completed(self, executor, mock_llm):
