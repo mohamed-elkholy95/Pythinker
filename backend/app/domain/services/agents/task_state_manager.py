@@ -20,7 +20,7 @@ from app.domain.models.reflection import ProgressMetrics
 logger = logging.getLogger(__name__)
 
 
-TASK_STATE_PATH = "/home/ubuntu/task_state.md"
+DEFAULT_TASK_STATE_PATH = "/home/ubuntu/task_state.md"
 
 TASK_STATE_TEMPLATE = """# Task State
 
@@ -277,16 +277,18 @@ class TaskStateManager:
     Enhanced with ProgressMetrics for reflection system integration (Phase 2).
     """
 
-    def __init__(self, sandbox=None):
+    def __init__(self, sandbox=None, task_state_path: str = DEFAULT_TASK_STATE_PATH):
         """
         Initialize the task state manager.
 
         Args:
             sandbox: Optional sandbox for file operations
+            task_state_path: Path to the task state file in the sandbox
         """
         self._sandbox = sandbox
         self._state: TaskState | None = None
-        self._file_path = TASK_STATE_PATH
+        self._task_state_path = task_state_path
+        self._file_path = self._task_state_path
         # Lock to serialize concurrent sandbox writes
         self._write_lock = asyncio.Lock()
         # Progress metrics for reflection integration
