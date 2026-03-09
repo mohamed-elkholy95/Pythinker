@@ -1029,11 +1029,11 @@ export const createSSEConnection = async <T = unknown>(
             if (event.event === 'progress') {
               const progressData = parsedData as { phase?: string; token_expires_at?: number };
               if (progressData.phase === 'heartbeat') {
-                // Check if token is nearing expiry (within 5 minutes)
+                // Check if token is nearing expiry (within 10 minutes)
                 if (typeof progressData.token_expires_at === 'number') {
                   const secondsUntilExpiry = progressData.token_expires_at - Math.floor(Date.now() / 1000);
-                  if (secondsUntilExpiry > 0 && secondsUntilExpiry <= 300) {
-                    // Token expires within 5 minutes — trigger proactive refresh
+                  if (secondsUntilExpiry > 0 && secondsUntilExpiry <= 600) {
+                    // Token expires within 10 minutes — trigger proactive refresh
                     refreshAuthToken().then((newToken) => {
                       if (newToken) {
                         requestHeaders.Authorization = `Bearer ${newToken}`;
@@ -1205,6 +1205,12 @@ export const createSSEConnection = async <T = unknown>(
 
       ssePromise.catch((err: unknown) => {
         const error = err instanceof Error ? err : new Error(String(err));
+
+        // Control errors are expected reconnection flow — don't log as failures
+        if (isSseControlError(error)) {
+          return;
+        }
+
         logSseDiagnostics('client', 'connect:promise_rejected', {
           endpoint,
           attempt,
@@ -1214,12 +1220,6 @@ export const createSSEConnection = async <T = unknown>(
         });
 
         if (abortController.signal.aborted) {
-          return;
-        }
-        if (
-          isSseControlError(error, SSE_CONTROL_ERROR_MANUAL_RETRY)
-          || isSseControlError(error, SSE_CONTROL_ERROR_FATAL_STOP)
-        ) {
           return;
         }
 
