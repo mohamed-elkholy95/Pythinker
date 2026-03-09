@@ -426,6 +426,7 @@
               :finalReportText="finalReportText"
               :isSessionComplete="isSessionComplete"
               :replayScreenshotUrl="replay.currentScreenshotUrl.value"
+              :sessionStartTime="phaseStripStartTime"
               @openPanel="handleOpenPanel"
               @requestRefresh="handleThumbnailRefresh"
             />
@@ -509,6 +510,7 @@
         :replayMetadata="replay.currentScreenshot.value"
         :replayScreenshots="replay.screenshots.value"
         :activeCanvasUpdate="activeCanvasUpdate"
+        :sessionStartTime="phaseStripStartTime"
         @timelineStepForward="handleTimelineStepForward"
         @timelineStepBackward="handleTimelineStepBackward"
         @timelineSeek="handleTimelineSeek"
@@ -2152,10 +2154,12 @@ const phaseStripPhase = computed<PhaseStripPhase | null>(() => {
 const phaseStripStepProgress = computed<{ current: number; total: number } | null>(() => {
   const steps = plan.value?.steps
   if (!steps || steps.length === 0) return null
+  const runningIdx = steps.findIndex((s: { status?: string }) => s.status === 'running')
   const completed = steps.filter(
-    (s: { status?: string }) => s.status === 'completed' || s.status === 'failed' || s.status === 'skipped'
+    (s: { status?: string }) => s.status === 'completed' || s.status === 'failed' || s.status === 'skipped',
   ).length
-  return { current: completed, total: steps.length }
+  const current = runningIdx >= 0 ? runningIdx + 1 : completed
+  return { current, total: steps.length }
 })
 
 const showPhaseStrip = computed(() =>
