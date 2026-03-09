@@ -23,6 +23,9 @@
         <button @click="handleLibraryClick" class="collapsed-icon-btn" aria-label="Library">
           <Library class="h-5 w-5" />
         </button>
+        <button @click="handleCollapsedSearchClick" class="collapsed-icon-btn" aria-label="Search">
+          <Search class="h-5 w-5" />
+        </button>
       </div>
       <div class="collapsed-sidebar-bottom">
         <button @click="openSettingsDialog('settings')" class="collapsed-icon-btn" aria-label="Settings">
@@ -309,6 +312,12 @@ const openSearch = async () => {
   isSearching.value = true
   await nextTick()
   searchInputRef.value?.focus()
+}
+
+const handleCollapsedSearchClick = async () => {
+  showLeftPanel()
+  await nextTick()
+  openSearch()
 }
 
 const closeSearch = () => {
