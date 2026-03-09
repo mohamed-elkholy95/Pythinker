@@ -310,10 +310,10 @@ class PlannerAgent(BaseAgent):
             ]
 
             async for chunk in self.llm.ask_stream(thinking_messages, tools=None, response_format=None):
-                yield StreamEvent(content=chunk, is_final=False)
+                yield StreamEvent(content=chunk, is_final=False, lane="reasoning")
 
             # Signal end of thinking stream
-            yield StreamEvent(content="", is_final=True)
+            yield StreamEvent(content="", is_final=True, lane="reasoning")
 
         except Exception as e:
             logger.warning(f"Thinking stream failed, continuing with plan creation: {e}")

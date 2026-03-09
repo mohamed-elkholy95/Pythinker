@@ -249,6 +249,7 @@ class ResponseGenerator:
         stream_iter: AsyncGenerator[str, None],
         *,
         phase: str = "summarizing",
+        lane: str = "answer",
     ) -> AsyncGenerator[StreamEvent, None]:
         """Coalesce small LLM chunks into smoother StreamEvent payloads."""
         max_chars = max(1, int(self._coalesce_max_chars))
@@ -289,11 +290,11 @@ class ResponseGenerator:
                 buffered_chars = 0
                 self._coalesce_pending = ""
                 last_flush_at = now
-                yield StreamEvent(content=coalesced_chunk, is_final=False, phase=phase)
+                yield StreamEvent(content=coalesced_chunk, is_final=False, phase=phase, lane=lane)
 
             if buffered_chunks:
                 self._coalesce_pending = ""
-                yield StreamEvent(content="".join(buffered_chunks), is_final=False, phase=phase)
+                yield StreamEvent(content="".join(buffered_chunks), is_final=False, phase=phase, lane=lane)
 
     # ── Continuation / Merging ─────────────────────────────────────────
 
