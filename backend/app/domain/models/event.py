@@ -486,6 +486,7 @@ class MessageEvent(BaseEvent):
     role: Literal["user", "assistant"] = "assistant"
     message: str
     attachments: list[FileInfo] | None = None
+    delivery_metadata: dict[str, Any] | None = None
     skills: list[str] | None = None  # Skill IDs enabled for this message
     thinking_mode: str | None = None  # Model tier override: 'auto', 'fast', 'deep_think'
     # Follow-up context from suggestion clicks
