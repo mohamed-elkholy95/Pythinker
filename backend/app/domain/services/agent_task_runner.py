@@ -556,14 +556,33 @@ class AgentTaskRunner(TaskRunner):
         the state manifest, context manager, and attention injector
         for Pythinker-style context management.
 
-        If no agent_factory was provided, this method is a no-op.
+        If no agent_factory was provided, factory initialization is skipped.
         The method is idempotent - calling it multiple times has no effect.
         """
         if self._initialized:
             return
 
+        # Initialize LeadAgentRuntime (runs BEFORE_RUN hook on all middlewares)
+        if self._lead_agent_runtime is not None:
+            try:
+                ctx = await self._lead_agent_runtime.initialize()
+                # Rebind task_state_manager path if workspace contract provided one
+                workspace_contract = ctx.metadata.get("workspace_contract")
+                if workspace_contract and self._plan_act_flow:
+                    tsm = getattr(self._plan_act_flow, "_task_state_manager", None)
+                    new_path = getattr(workspace_contract, "task_state_path", None)
+                    if tsm and new_path:
+                        tsm._file_path = new_path
+                        logger.info(
+                            "Runtime workspace contract rebind: task_state_path=%s",
+                            new_path,
+                        )
+            except Exception as exc:
+                logger.warning("LeadAgentRuntime.initialize() failed: %s", exc)
+
         if self._agent_factory is None:
             logger.debug(f"Agent {self._agent_id}: No agent factory provided, skipping Pythinker initialization")
+            self._initialized = True
             return
 
         components = self._agent_factory.get_session_components(self._session_id)
@@ -661,6 +680,32 @@ class AgentTaskRunner(TaskRunner):
     async def _sync_event_attachments_to_storage(self, event: EventWithAttachments) -> None:
         """Sync event attachments to storage (delegated to FileSyncManager)."""
         await self._file_sync_manager.sync_event_attachments_to_storage(event)
+
+    @staticmethod
+    def _rewrite_chart_image_urls(event: ReportEvent) -> None:
+        """Rewrite local chart image filenames in report content to API download URLs.
+
+        After attachments are synced to storage each image/png attachment with a
+        resolved file_id gets its markdown image reference updated so the frontend
+        can fetch the file via the files API instead of relying on a sandbox path.
+        """
+        if not event.attachments or not event.content:
+            return
+        for attachment in event.attachments:
+            # Only process PNG images — skip HTML/SVG attachments
+            if getattr(attachment, "content_type", None) != "image/png":
+                continue
+            file_id = getattr(attachment, "file_id", None)
+            if not file_id:
+                continue
+            filename = getattr(attachment, "name", None) or getattr(attachment, "filename", None)
+            if not filename:
+                continue
+            # Replace ](filename) with the API download URL
+            event.content = event.content.replace(
+                f"]({filename})",
+                f"](/api/v1/files/{file_id}/download)",
+            )
 
     async def _resolve_workspace_deliverables_root(self) -> str:
         """Resolve the deliverables directory from session workspace_structure.
@@ -1253,6 +1298,24 @@ class AgentTaskRunner(TaskRunner):
         then handles async tool-specific content generation.
         """
         emitted_events: list[BaseEvent] = []
+
+        # ── Runtime: before_tool / after_tool hooks ──────────────────
+        if self._lead_agent_runtime is not None and self._lead_agent_runtime.context is not None:
+            try:
+                if event.status == ToolStatus.CALLING:
+                    runtime_ctx = self._lead_agent_runtime.context
+                    runtime_ctx.metadata["current_tool"] = event.tool_name
+                    runtime_ctx.metadata["current_tool_args"] = event.function_args
+                    await self._lead_agent_runtime.before_tool(runtime_ctx)
+                elif event.status == ToolStatus.CALLED:
+                    runtime_ctx = self._lead_agent_runtime.context
+                    runtime_ctx.metadata["tool_result"] = (
+                        event.function_result.message if event.function_result else None
+                    )
+                    await self._lead_agent_runtime.after_tool(runtime_ctx)
+            except Exception as exc:
+                logger.warning("LeadAgentRuntime tool hook failed: %s", exc)
+
         try:
             # Enrich action metadata using ToolEventHandler (action_type, command, cwd, file_path)
             self._tool_event_handler.enrich_action_metadata(event)
@@ -1387,6 +1450,9 @@ class AgentTaskRunner(TaskRunner):
             if self._plan_act_flow is not None:
                 self._plan_act_flow.set_cancel_token(self._cancel_token)
             logger.info(f"Agent {self._agent_id} message processing task started (task_id={task.id})")
+
+            # Ensure runtime is initialized (idempotent)
+            await self.initialize()
 
             # Initialize sandbox and MCP tool concurrently
             # Wire MCP health callback so events stream to the client
@@ -1587,6 +1653,26 @@ class AgentTaskRunner(TaskRunner):
                 self._session_id,
             )
 
+        # ── Runtime: before_step hook ──────────────────────────────────
+        if self._lead_agent_runtime is not None and self._lead_agent_runtime.context is not None:
+            try:
+                runtime_ctx = self._lead_agent_runtime.context
+                runtime_ctx.metadata["user_request"] = message.message
+                runtime_ctx = await self._lead_agent_runtime.before_step(runtime_ctx)
+
+                # Clarification gate: if a middleware flagged clarification needed,
+                # surface the question to the user and pause the flow.
+                if runtime_ctx.metadata.get("awaiting_clarification"):
+                    for evt in runtime_ctx.events:
+                        if isinstance(evt, dict) and evt.get("type") == "clarification":
+                            yield MessageEvent(message=evt["formatted"])
+                    yield WaitEvent()
+                    return
+            except Exception as exc:
+                logger.warning("LeadAgentRuntime.before_step() failed: %s", exc)
+
+        _step_output_text: str = ""
+
         async with self._usage_context():
             async for event in self._flow.run(message):
                 # Check if task is paused (for user takeover) before processing each event
@@ -1615,11 +1701,16 @@ class AgentTaskRunner(TaskRunner):
                 else:
                     emitted_events = []
 
+                # Track final textual output for runtime after_step metadata
+                if isinstance(event, MessageEvent) and event.message:
+                    _step_output_text = event.message
+
                 if isinstance(event, ReportEvent):
                     await self._ensure_report_file(event)
                     # Sync attachments to storage for events that contain file references
                     # This resolves file_path to file_id for proper frontend access
                     await self._sync_event_attachments_to_storage(event)
+                    self._rewrite_chart_image_urls(event)
                 elif isinstance(event, MessageEvent):
                     # Sync attachments to storage for events that contain file references
                     # This resolves file_path to file_id for proper frontend access
@@ -1637,6 +1728,19 @@ class AgentTaskRunner(TaskRunner):
                 yield event
                 for emitted_event in emitted_events:
                     yield emitted_event
+
+        # ── Runtime: after_step hook ──────────────────────────────────
+        if self._lead_agent_runtime is not None and self._lead_agent_runtime.context is not None:
+            try:
+                runtime_ctx = self._lead_agent_runtime.context
+                runtime_ctx.metadata["step_output"] = _step_output_text
+                # Build source context for grounding evaluation
+                executor = getattr(self._plan_act_flow, "executor", None)
+                if executor and hasattr(executor, "_build_source_context"):
+                    runtime_ctx.metadata["source_context"] = executor._build_source_context()
+                await self._lead_agent_runtime.after_step(runtime_ctx)
+            except Exception as exc:
+                logger.warning("LeadAgentRuntime.after_step() failed: %s", exc)
 
         # If mode switch was requested, switch to Agent mode and re-run with the task
         if mode_switch_task and self._mode == AgentMode.DISCUSS:
@@ -1668,6 +1772,7 @@ class AgentTaskRunner(TaskRunner):
                         await self._ensure_report_file(event)
                         # Sync attachments to storage for events that contain file references
                         await self._sync_event_attachments_to_storage(event)
+                        self._rewrite_chart_image_urls(event)
                     elif isinstance(event, MessageEvent):
                         # Sync attachments to storage for events that contain file references
                         await self._sync_event_attachments_to_storage(event)
@@ -1684,6 +1789,13 @@ class AgentTaskRunner(TaskRunner):
     async def destroy(self) -> None:
         """Destroy the task and release resources"""
         logger.info("Starting to destroy agent task")
+
+        # Finalize LeadAgentRuntime (runs AFTER_RUN hook on all middlewares)
+        if self._lead_agent_runtime is not None and self._lead_agent_runtime.context is not None:
+            try:
+                await self._lead_agent_runtime.finalize()
+            except Exception as exc:
+                logger.warning("LeadAgentRuntime.finalize() failed: %s", exc)
 
         # Stop periodic screenshot capture and take final screenshot
         if self._screenshot_service:
