@@ -6,6 +6,7 @@ durable project knowledge (distilled outcomes) using TTL-based expiry.
 
 import enum
 import time
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -40,4 +41,4 @@ class TraceEntry(BaseModel):
     source_tool: str = ""
     tier: TraceTier = TraceTier.TRANSIENT
     created_at: float = Field(default_factory=time.time)
-    metadata: dict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
