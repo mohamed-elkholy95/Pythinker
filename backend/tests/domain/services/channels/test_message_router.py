@@ -105,11 +105,17 @@ class _FakeSession:
         session_id: str = "sess-123",
         status: SessionStatus = SessionStatus.RUNNING,
         reasoning_visibility: str | None = None,
+        thinking_level: str | None = None,
+        verbose_mode: str | None = None,
+        elevated_mode: str | None = None,
     ) -> None:
         self.id = session_id
         self.status = status
         self.created_at = datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC)
         self.reasoning_visibility = reasoning_visibility
+        self.thinking_level = thinking_level
+        self.verbose_mode = verbose_mode
+        self.elevated_mode = elevated_mode
 
 
 # ---------------------------------------------------------------------------
@@ -1561,3 +1567,115 @@ class TestSlashReasoning:
 
         assert len(replies) == 1
         assert "off" in replies[0].content
+
+
+# ---------------------------------------------------------------------------
+# /think, /verbose, /elevated command tests
+# ---------------------------------------------------------------------------
+
+
+class TestSlashThink:
+    @pytest.mark.asyncio
+    async def test_think_set_high(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        agent_svc.update_session_fields = AsyncMock()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/think high"))]
+
+        assert len(replies) == 1
+        assert "high" in replies[0].content.lower()
+        agent_svc.update_session_fields.assert_awaited_once_with(
+            "sess-123", "user-abc", {"thinking_level": "high"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_think_alias_t(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        agent_svc.update_session_fields = AsyncMock()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/t medium"))]
+
+        assert len(replies) == 1
+        assert "medium" in replies[0].content.lower()
+
+    @pytest.mark.asyncio
+    async def test_think_no_arg_shows_current(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        session = _FakeSession(thinking_level="low")
+        agent_svc = _make_agent_service(session=session)
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/think"))]
+
+        assert len(replies) == 1
+        assert "low" in replies[0].content
+
+    @pytest.mark.asyncio
+    async def test_think_invalid_level(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/think extreme"))]
+
+        assert len(replies) == 1
+        assert "Unrecognized" in replies[0].content
+
+
+class TestSlashVerbose:
+    @pytest.mark.asyncio
+    async def test_verbose_on(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        agent_svc.update_session_fields = AsyncMock()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/verbose on"))]
+
+        assert len(replies) == 1
+        assert "enabled" in replies[0].content.lower()
+        agent_svc.update_session_fields.assert_awaited_once_with(
+            "sess-123", "user-abc", {"verbose_mode": "on"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_verbose_alias_v(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        agent_svc.update_session_fields = AsyncMock()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/v off"))]
+
+        assert len(replies) == 1
+        assert "disabled" in replies[0].content.lower()
+
+
+class TestSlashElevated:
+    @pytest.mark.asyncio
+    async def test_elevated_on(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        agent_svc.update_session_fields = AsyncMock()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/elevated on"))]
+
+        assert len(replies) == 1
+        assert "enabled" in replies[0].content.lower()
+
+    @pytest.mark.asyncio
+    async def test_elevated_alias_elev(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        agent_svc.update_session_fields = AsyncMock()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/elev off"))]
+
+        assert len(replies) == 1
+        assert "disabled" in replies[0].content.lower()
