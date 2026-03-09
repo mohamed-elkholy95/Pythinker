@@ -123,7 +123,7 @@ class TestDanglingToolCallMiddleware:
 
         ctx = RuntimeContext(
             session_id="sess-test",
-            step_index=0,
+            agent_id="a-1",
             metadata={"message_history": messages},
         )
 
@@ -138,7 +138,7 @@ class TestDanglingToolCallMiddleware:
 
     async def test_before_step_no_message_history_is_noop(self) -> None:
         """before_step is a no-op when message_history is absent from metadata."""
-        ctx = RuntimeContext(session_id="sess-noop", step_index=1, metadata={})
+        ctx = RuntimeContext(session_id="sess-noop", agent_id="a-1", metadata={})
 
         middleware = DanglingToolCallMiddleware()
         result_ctx = await middleware.before_step(ctx)
