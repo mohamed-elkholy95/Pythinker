@@ -707,12 +707,7 @@ class MessageRouter:
             return
 
         if command == "/models":
-            # Stub: show current model and invite user to browse (Tier 3)
-            yield self._make_reply(
-                message,
-                "Model selection is managed via the web UI.\n"
-                "Current session uses the default model configured by the administrator.",
-            )
+            yield self._make_reply(message, self._build_model_info())
             return
 
         if command == "/link":
@@ -1446,6 +1441,30 @@ class MessageRouter:
         if not session_id or not user_id:
             return
         await self._agent_service.update_session_fields(session_id, user_id, {field: value})
+
+    @staticmethod
+    def _build_model_info() -> str:
+        """Render model configuration info for /models command."""
+        try:
+            from app.core.config import get_settings
+
+            s = get_settings()
+            lines = ["Model configuration:"]
+            lines.append(f"  Default: {s.model_name}")
+            if s.adaptive_model_selection_enabled:
+                lines.append("  Adaptive routing: enabled")
+                fast = s.fast_model or s.model_name
+                balanced = s.balanced_model or s.model_name
+                powerful = s.powerful_model or s.model_name
+                lines.append(f"  Fast tier: {fast}")
+                lines.append(f"  Balanced tier: {balanced}")
+                lines.append(f"  Powerful tier: {powerful}")
+            else:
+                lines.append("  Adaptive routing: disabled")
+            lines.append(f"  Provider: {s.llm_provider}")
+            return "\n".join(lines)
+        except Exception:
+            return "Model information unavailable."
 
     # ------------------------------------------------------------------
     # Helpers
