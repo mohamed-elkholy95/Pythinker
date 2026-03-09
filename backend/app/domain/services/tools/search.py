@@ -564,6 +564,63 @@ class SearchTool(BaseTool):
             self._background_tasks.add(task)
             task.add_done_callback(self._handle_background_task_done)
 
+    async def _auto_enrich_results(self, search_data: Any) -> int:
+        """Enrich top-K search result snippets with full page content via scraper.
+
+        Mirrors the spider enrichment pattern from wide_research but applies
+        to info_search_web results.  Replaces ~200-char search snippets with
+        ~2000-char page excerpts so the LLM has grounded content without
+        needing to call browser_navigate manually.
+
+        Returns the number of successfully enriched results.
+        """
+        if not self._scraper or not search_data:
+            return 0
+
+        from app.core.config import get_settings as _get_settings
+
+        settings = _get_settings()
+        if not settings.search_auto_enrich_enabled:
+            return 0
+
+        top_k = settings.search_auto_enrich_top_k
+        max_snippet = settings.search_auto_enrich_snippet_chars
+
+        # Extract items from SearchResults or raw list
+        items = search_data.results if hasattr(search_data, "results") else search_data
+        if not items:
+            return 0
+
+        candidates = [
+            item.link
+            for item in items[:top_k]
+            if item.link and not _is_pdf_url(item.link) and not _should_skip_spider(item.link)
+        ]
+        if not candidates:
+            return 0
+
+        logger.info(
+            "Auto-enriching %d/%d search result URLs",
+            len(candidates),
+            min(top_k, len(items)),
+        )
+
+        try:
+            fetched = await self._scraper.fetch_batch(candidates)
+            url_to_content = {r.url: r for r in fetched if r.success and len(r.text) > 200}
+            for item in items:
+                if item.link in url_to_content:
+                    r = url_to_content[item.link]
+                    item.snippet = r.text[:max_snippet]
+                    if r.title and not item.title:
+                        item.title = r.title
+            enriched_count = len(url_to_content)
+            logger.info("Auto-enriched %d/%d URLs for info_search_web", enriched_count, len(candidates))
+            return enriched_count
+        except Exception as exc:
+            logger.warning("Auto-enrichment failed: %s", exc)
+            return 0
+
     @classmethod
     def _is_tracking_query_param(cls, key: str) -> bool:
         key_lower = key.lower()
@@ -1319,17 +1376,31 @@ class SearchTool(BaseTool):
         elif result.success:
             result.message = "[INFO SEARCH]"
 
+        # Auto-enrich search results with full page content (model-agnostic)
+        enriched_count = 0
+        if result.success and result.data and self._scraper:
+            enriched_count = await self._auto_enrich_results(result.data)
+
         # Fire-and-forget: open top 3 results in browser for live preview visibility
         if result.success and self._browser and result.data:
             await self._schedule_background_preview(result.data, count=3)
 
-            # Append system note to prevent LLM from re-navigating these same URLs
-            result.message = (
-                (result.message or "")
-                + "\n\n[SYSTEM NOTE: Top search result URLs are being opened automatically in the browser. "
-                "Do NOT call browser_navigate to these same URLs. Proceed to analyze the search snippets "
-                "or use browser_get_content to read pages already opened.]"
-            )
+        # Append contextual guidance based on enrichment status
+        if result.success and result.data:
+            if enriched_count > 0:
+                result.message = (
+                    (result.message or "")
+                    + f"\n\n[SYSTEM NOTE: {enriched_count} search results above have been enriched "
+                    "with full page content (~2000 chars each). Use these enriched snippets directly "
+                    "for your analysis. Use browser_navigate ONLY for pages that need deeper inspection "
+                    "beyond the enriched content, or for pages not in the top results.]"
+                )
+            elif self._browser:
+                result.message = (
+                    (result.message or "") + "\n\n[SYSTEM NOTE: Search results contain brief snippets only. "
+                    "Use browser_navigate to visit the most relevant URLs and extract "
+                    "detailed content for thorough research.]"
+                )
 
         return result
 
