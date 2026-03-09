@@ -145,7 +145,7 @@ import { computed, reactive, toRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Search, Loader2, Check } from 'lucide-vue-next';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
-import { getFaviconUrl } from '@/utils/toolDisplay';
+import { getFaviconUrl, markFaviconFailed } from '@/utils/toolDisplay';
 import { useStaggeredResults } from '@/composables/useStaggeredResults';
 
 export interface SearchResult {
@@ -242,6 +242,7 @@ function formatSnippet(snippet: string): string {
  */
 function handleFaviconError(_event: Event, link: string) {
   faviconErrors[link] = true;
+  markFaviconFailed(link);
 }
 
 /**

@@ -97,7 +97,7 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Search, Loader2, ChevronDown } from 'lucide-vue-next';
-import { getFaviconUrl } from '@/utils/toolDisplay';
+import { getFaviconUrl, markFaviconFailed } from '@/utils/toolDisplay';
 import type { SearchResultItem } from '@/types/search';
 
 const props = withDefaults(
@@ -226,6 +226,7 @@ function getDomain(link: string): string {
 
 function handleFaviconError(link: string) {
   faviconErrors.value[link] = true;
+  markFaviconFailed(link);
 }
 
 function handleOpen(result: SearchResultItem) {

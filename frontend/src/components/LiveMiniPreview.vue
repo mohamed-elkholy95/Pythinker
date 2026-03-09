@@ -88,11 +88,13 @@
             <div v-if="searchResults.length > 0" class="search-results-mini">
               <div v-for="(result, idx) in searchResults.slice(0, 3)" :key="idx" class="search-result-item">
                 <img
+                  v-if="!faviconErrors[result.url || result.link]"
                   :src="getFavicon(result.url || result.link)"
                   alt=""
                   class="result-favicon"
-                  @error="handleFaviconError"
+                  @error="onFaviconError(result.url || result.link)"
                 />
+                <span v-else class="result-favicon-fallback">{{ getIconLetterFromUrl(result.url || result.link, result.title) }}</span>
                 <div class="result-text">
                   <span class="result-title">{{ truncate(result.title || result.name || 'Result', 25) }}</span>
                   <span v-if="result.snippet" class="result-snippet">{{ truncate(result.snippet, 40) }}</span>
@@ -215,14 +217,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, toRef, watch } from 'vue';
+import { computed, reactive, ref, toRef, watch } from 'vue';
 import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan, BarChart3 } from 'lucide-vue-next';
 import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
-import { getFaviconUrl, getToolDisplay } from '@/utils/toolDisplay';
+import { getFaviconUrl, getToolDisplay, markFaviconFailed, getIconLetterFromUrl } from '@/utils/toolDisplay';
 import { fileApi } from '@/api/file';
 import type { ToolContent } from '@/types/message';
 import type { ToolEventData } from '@/types/event';
@@ -469,10 +471,12 @@ const truncate = (text: string, maxLength: number): string => {
 // Get favicon URL for a given link using shared utility
 const getFavicon = (link: string): string => getFaviconUrl(link) ?? '';
 
-// Handle favicon load error by hiding the image
-const handleFaviconError = (event: Event) => {
-  const img = event.target as HTMLImageElement;
-  img.style.display = 'none';
+// Track favicon errors per URL and cache failures globally
+const faviconErrors: Record<string, boolean> = reactive({});
+
+const onFaviconError = (url: string) => {
+  faviconErrors[url] = true;
+  markFaviconFailed(url);
 };
 
 // Extract filename from path
@@ -796,6 +800,22 @@ const sizeClass = computed(() => {
   flex-shrink: 0;
   margin-top: 1px;
   border-radius: 2px;
+}
+
+.result-favicon-fallback {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border-radius: 2px;
+  background: var(--fill-tsp-gray-main, #e5e7eb);
+  color: var(--text-tertiary, #9ca3af);
+  font-size: 7px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .result-text {
