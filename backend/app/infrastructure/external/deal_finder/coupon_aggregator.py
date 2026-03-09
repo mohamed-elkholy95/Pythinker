@@ -89,7 +89,6 @@ _STORE_NOISE_WORDS: set[str] = {
     "plan",
     "plans",
     "student",
-    "best",
     "top",
     "latest",
     "new",
@@ -210,11 +209,30 @@ def _source_name_from_domain(domain: str) -> str:
     return "web_research"
 
 
+# Known slug overrides for stores whose names don't slugify correctly.
+# Maps lowercase store name → (retailmenot_slug, couponscom_slug).
+_STORE_SLUG_OVERRIDES: dict[str, tuple[str, str]] = {
+    "best buy": ("bestbuy", "best-buy"),
+    "b&h photo": ("bhphotovideo", "bh-photo"),
+    "b&h": ("bhphotovideo", "bh-photo"),
+    "micro center": ("microcenter", "micro-center"),
+    "home depot": ("homedepot", "home-depot"),
+    "macy's": ("macys", "macys"),
+}
+
+
 def _source_url_for_store(store: str, source_name: str) -> list[str]:
     """Build source-specific diagnostic URLs for a store."""
     clean_name = _extract_store_name(store)
-    store_slug_dot = clean_name.replace(" ", "").replace("'", "")
-    store_slug_dash = clean_name.replace(" ", "-").replace("'", "")
+
+    # Use known-slug override when available
+    override = _STORE_SLUG_OVERRIDES.get(clean_name)
+    if override:
+        store_slug_dot, store_slug_dash = override
+    else:
+        sanitized = clean_name.replace("&", "and").replace("'", "")
+        store_slug_dot = sanitized.replace(" ", "")
+        store_slug_dash = sanitized.replace(" ", "-")
 
     if source_name == "retailmenot":
         return [f"https://www.retailmenot.com/view/{store_slug_dot}.com"]
@@ -606,6 +624,23 @@ async def fetch_web_research_coupons(
     return coupons
 
 
+def _partition_coupons(
+    coupons: list[CouponInfo],
+) -> tuple[list[CouponInfo], list[CouponInfo]]:
+    """Split coupons into those with actual codes and those without.
+
+    Returns (with_code, without_code) lists preserving input order.
+    """
+    with_code: list[CouponInfo] = []
+    without_code: list[CouponInfo] = []
+    for c in coupons:
+        if c.code and c.code.strip():
+            with_code.append(c)
+        else:
+            without_code.append(c)
+    return with_code, without_code
+
+
 async def aggregate_coupons(
     scraper: Scraper,
     store: str,
@@ -681,4 +716,9 @@ async def aggregate_coupons(
     # Deduplicate and sort by confidence (highest first)
     deduplicated = _deduplicate_coupons(all_coupons)
     deduplicated.sort(key=lambda c: c.confidence, reverse=True)
-    return deduplicated, source_failures
+
+    # Partition: prioritize coupons with actual codes
+    with_code, without_code = _partition_coupons(deduplicated)
+    # Backfill from no-code coupons only when very few real codes exist
+    result = with_code + without_code[: max(0, 3 - len(with_code))] if len(with_code) < 3 else with_code
+    return result, source_failures
