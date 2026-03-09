@@ -13,6 +13,8 @@ from app.domain.models.event import (
     ErrorEvent,
     MessageEvent,
     StepEvent,
+    ToolEvent,
+    ToolStatus,
 )
 from app.domain.models.plan import ExecutionStatus
 from app.domain.services.agents.critic import CriticConfig
@@ -307,6 +309,219 @@ class TestExecutionAgent:
 
         assert any(isinstance(event, StepEvent) for event in events)
         executor._retry_step_result_json.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_execute_step_emits_message_event_for_message_notify_user(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """message_notify_user CALLING events should become outbound-visible MessageEvents."""
+
+        async def fake_execute(*_args, **_kwargs):
+            yield ToolEvent(
+                tool_call_id="tool-call-1",
+                tool_name="message",
+                function_name="message_notify_user",
+                function_args={"text": "Working on it."},
+                status=ToolStatus.CALLING,
+            )
+
+        executor.execute = fake_execute
+
+        user_message = mock_message(message="Start", attachments=[])
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, user_message)]
+
+        message_events = [event for event in events if isinstance(event, MessageEvent)]
+        assert any(event.message == "Working on it." for event in message_events)
+
+    @pytest.mark.asyncio
+    async def test_execute_step_sanitizes_telegram_buttons_for_message_notify_user(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Telegram buttons from message_notify_user should be trimmed and filtered before emission."""
+
+        async def fake_execute(*_args, **_kwargs):
+            yield ToolEvent(
+                tool_call_id="tool-call-2",
+                tool_name="message",
+                function_name="message_notify_user",
+                function_args={
+                    "text": "Pick one",
+                    "buttons": [
+                        [
+                            {"text": "  Approve  ", "callback_data": "  cmd:approve  "},
+                            {"text": "   ", "callback_data": "cmd:skip"},
+                        ],
+                        [
+                            {"text": "Missing data", "callback_data": "   "},
+                        ],
+                    ],
+                },
+                status=ToolStatus.CALLING,
+            )
+
+        executor.execute = fake_execute
+
+        user_message = mock_message(message="Start", attachments=[])
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, user_message)]
+
+        message_events = [event for event in events if isinstance(event, MessageEvent) and event.message == "Pick one"]
+        assert len(message_events) == 1
+        assert message_events[0].delivery_metadata == {
+            "reply_markup": {
+                "inline_keyboard": [
+                    [{"text": "Approve", "callback_data": "cmd:approve"}],
+                ]
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_execute_step_normalizes_telegram_action_for_message_notify_user(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Telegram action payloads should be preserved in delivery metadata."""
+
+        async def fake_execute(*_args, **_kwargs):
+            yield ToolEvent(
+                tool_call_id="tool-call-3",
+                tool_name="message",
+                function_name="message_notify_user",
+                function_args={
+                    "text": "",
+                    "telegram_action": {"type": "delete", "message_id": "321"},
+                },
+                status=ToolStatus.CALLING,
+            )
+
+        executor.execute = fake_execute
+
+        user_message = mock_message(message="Start", attachments=[])
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, user_message)]
+
+        message_events = [event for event in events if isinstance(event, MessageEvent)]
+        assert len(message_events) == 1
+        assert message_events[0].delivery_metadata == {
+            "telegram_action": {
+                "type": "delete",
+                "message_id": 321,
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_execute_step_normalizes_telegram_poll_action_for_message_notify_user(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Telegram poll payloads should be preserved in delivery metadata."""
+
+        async def fake_execute(*_args, **_kwargs):
+            yield ToolEvent(
+                tool_call_id="tool-call-4",
+                tool_name="message",
+                function_name="message_notify_user",
+                function_args={
+                    "text": "",
+                    "telegram_action": {
+                        "type": "poll",
+                        "question": "Pick one",
+                        "options": ["Fast", "Deep"],
+                        "allows_multiple_answers": True,
+                        "is_anonymous": False,
+                        "open_period": 60,
+                    },
+                },
+                status=ToolStatus.CALLING,
+            )
+
+        executor.execute = fake_execute
+
+        user_message = mock_message(message="Start", attachments=[])
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, user_message)]
+
+        message_events = [event for event in events if isinstance(event, MessageEvent)]
+        assert len(message_events) == 1
+        assert message_events[0].delivery_metadata == {
+            "telegram_action": {
+                "type": "poll",
+                "question": "Pick one",
+                "options": ["Fast", "Deep"],
+                "allows_multiple_answers": True,
+                "is_anonymous": False,
+                "open_period": 60,
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_execute_step_normalizes_telegram_topic_create_action_for_message_notify_user(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Telegram topic-create payloads should be preserved in delivery metadata."""
+
+        async def fake_execute(*_args, **_kwargs):
+            yield ToolEvent(
+                tool_call_id="tool-call-5",
+                tool_name="message",
+                function_name="message_notify_user",
+                function_args={
+                    "text": "",
+                    "telegram_action": {
+                        "type": "topic_create",
+                        "name": "Ops Room",
+                        "icon_color": 7322096,
+                        "icon_custom_emoji_id": "emoji-123",
+                    },
+                },
+                status=ToolStatus.CALLING,
+            )
+
+        executor.execute = fake_execute
+
+        user_message = mock_message(message="Start", attachments=[])
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, user_message)]
+
+        message_events = [event for event in events if isinstance(event, MessageEvent)]
+        assert len(message_events) == 1
+        assert message_events[0].delivery_metadata == {
+            "telegram_action": {
+                "type": "topic_create",
+                "name": "Ops Room",
+                "icon_color": 7322096,
+                "icon_custom_emoji_id": "emoji-123",
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_execute_step_normalizes_telegram_sticker_action_for_message_notify_user(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Telegram sticker payloads should be preserved in delivery metadata."""
+
+        async def fake_execute(*_args, **_kwargs):
+            yield ToolEvent(
+                tool_call_id="tool-call-6",
+                tool_name="message",
+                function_name="message_notify_user",
+                function_args={
+                    "text": "",
+                    "telegram_action": {
+                        "type": "sticker",
+                        "file_id": "sticker-file-id",
+                    },
+                },
+                status=ToolStatus.CALLING,
+            )
+
+        executor.execute = fake_execute
+
+        user_message = mock_message(message="Start", attachments=[])
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, user_message)]
+
+        message_events = [event for event in events if isinstance(event, MessageEvent)]
+        assert len(message_events) == 1
+        assert message_events[0].delivery_metadata == {
+            "telegram_action": {
+                "type": "sticker",
+                "file_id": "sticker-file-id",
+            }
+        }
 
 
 class TestToolExecution:
