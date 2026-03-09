@@ -40,13 +40,34 @@ from nanobot.config.schema import TelegramConfig
 
 @dataclass(slots=True)
 class _TelegramPreviewState:
-    """Tracks the lifecycle of a streamed Telegram preview message."""
+    """Tracks the lifecycle of a streamed Telegram preview message.
+
+    Fields mirror OpenClaw's ``DraftLaneState`` and ``TelegramDraftStream``:
+    - ``generation`` increments on boundary rotation (``forceNewMessage``).
+    - ``finalized`` marks the lane as done; further updates are ignored.
+    """
 
     content: str = ""
     message_id: int | None = None
     last_sent_at: float = 0.0
     last_text: str = ""
     reply_applied: bool = False
+    generation: int = 0
+    finalized: bool = False
+
+
+@dataclass(slots=True)
+class _ArchivedPreview:
+    """An old preview message available for consumption by final delivery.
+
+    Mirrors OpenClaw ``lane-delivery.ts`` archived-preview semantics:
+    the old message can be edited in-place by final send instead of
+    creating a new message, reducing message-count churn.
+    """
+
+    message_id: int
+    last_text: str
+    delete_if_unused: bool = True
 
 
 _FOLLOW_UP_CALLBACK_PREFIX = "telegram:followup:"
@@ -190,6 +211,7 @@ class TelegramChannel(BaseChannel):
         self._pdf_file_id_cache: dict[str, tuple[str, float]] = {}
         self._pdf_file_id_cache_ttl_seconds = 24 * 60 * 60
         self._preview_states: dict[str, _TelegramPreviewState] = {}
+        self._archived_previews: dict[str, list[_ArchivedPreview]] = {}  # base_key -> archived msgs
         self._recent_update_keys: OrderedDict[str, float] = OrderedDict()
         self._sent_message_keys: OrderedDict[tuple[str, int], float] = OrderedDict()
         self._shutdown_event: asyncio.Event = asyncio.Event()
@@ -1364,7 +1386,7 @@ class TelegramChannel(BaseChannel):
                 self._start_typing(msg.chat_id)
             return
 
-        if self._has_preview_state(msg):
+        if self._has_preview_state(msg) or self._preview_base_key(msg) in self._archived_previews:
             preview_finalized = await self._finalize_preview_with_text(
                 msg,
                 chat_id=chat_id,
@@ -1737,8 +1759,13 @@ class TelegramChannel(BaseChannel):
         )
 
     def _has_preview_state(self, msg: OutboundMessage, *, lane: str = "answer") -> bool:
-        """Return whether a preview lifecycle exists for this outbound lane."""
-        return self._preview_key(msg, lane=lane) in self._preview_states
+        """Return whether a non-finalized preview lifecycle exists for this outbound lane."""
+        state = self._preview_states.get(self._preview_key(msg, lane=lane))
+        return state is not None and not state.finalized
+
+    def _has_any_preview_state(self, msg: OutboundMessage) -> bool:
+        """Return True if any lane has a non-finalized preview."""
+        return any(self._has_preview_state(msg, lane=lane) for lane in ("answer", "reasoning"))
 
     def _any_lane_reply_applied(self, msg: OutboundMessage) -> bool:
         """Return True if reply threading was already applied in any lane."""
@@ -1750,9 +1777,14 @@ class TelegramChannel(BaseChannel):
 
     def _preview_key(self, msg: OutboundMessage, *, lane: str = "answer") -> str:
         """Key preview state by chat, source message id, and delivery lane."""
+        return f"{self._preview_base_key(msg)}:{lane}"
+
+    @staticmethod
+    def _preview_base_key(msg: OutboundMessage) -> str:
+        """Base key (chat + source message) shared across all lanes."""
         metadata = msg.metadata or {}
         source_message_id = metadata.get("message_id")
-        return f"{msg.chat_id}:{source_message_id or 'root'}:{lane}"
+        return f"{msg.chat_id}:{source_message_id or 'root'}"
 
     async def _send_or_edit_preview(
         self,
@@ -1769,9 +1801,13 @@ class TelegramChannel(BaseChannel):
             return
 
         lane = str((msg.metadata or {}).get("_telegram_stream_lane", "answer")).strip()
-        state = self._preview_states.setdefault(
-            self._preview_key(msg, lane=lane), _TelegramPreviewState()
-        )
+        key = self._preview_key(msg, lane=lane)
+        state = self._preview_states.setdefault(key, _TelegramPreviewState())
+
+        # Skip updates to a finalized lane (OpenClaw per-lane finalization)
+        if state.finalized:
+            return
+
         preview_override = (msg.metadata or {}).get("_telegram_stream_preview_text")
         if isinstance(preview_override, str):
             state.content = preview_override
@@ -1781,7 +1817,7 @@ class TelegramChannel(BaseChannel):
         is_final = bool((msg.metadata or {}).get("_telegram_stream_final"))
         if not state.content and is_final:
             if state.message_id is None:
-                self._preview_states.pop(self._preview_key(msg, lane=lane), None)
+                self._preview_states.pop(key, None)
             return
 
         rendered_text = self._render_preview_text(state.content, parse_mode=parse_mode)
@@ -1849,12 +1885,13 @@ class TelegramChannel(BaseChannel):
         delivery_mode: str,
         reply_markup: InlineKeyboardMarkup | None,
     ) -> bool:
-        """Edit the answer-lane preview in place when the final reply is text-only."""
-        if not self._app:
-            return False
+        """Edit the answer-lane preview in place when the final reply is text-only.
 
-        state = self._preview_states.get(self._preview_key(msg, lane="answer"))
-        if state is None or state.message_id is None:
+        Also attempts archived-preview consumption (OpenClaw lane-delivery.ts:317-359):
+        if no active answer preview exists but an archived preview is available,
+        the archived message is edited in-place instead of creating a new message.
+        """
+        if not self._app:
             return False
         if msg.media or delivery_mode == "pdf_only":
             return False
@@ -1863,27 +1900,88 @@ class TelegramChannel(BaseChannel):
         if not rendered_text or len(rendered_text) > 4000:
             return False
 
-        if rendered_text != state.last_text:
+        answer_key = self._preview_key(msg, lane="answer")
+        state = self._preview_states.get(answer_key)
+
+        # Try active preview first
+        target_message_id: int | None = state.message_id if state else None
+
+        # Archived preview consumption: reuse an old preview message if no active one
+        base_key = self._preview_base_key(msg)
+        archived: _ArchivedPreview | None = None
+        if target_message_id is None:
+            archived_list = self._archived_previews.get(base_key)
+            if archived_list:
+                archived = archived_list.pop(0)
+                target_message_id = archived.message_id
+                if not archived_list:
+                    self._archived_previews.pop(base_key, None)
+
+        if target_message_id is None:
+            return False
+
+        # Check regressive blocking against the source text
+        source_last_text = state.last_text if state else (archived.last_text if archived else "")
+        if source_last_text and len(rendered_text) < len(source_last_text):
+            # Still consumed — just don't shrink
+            pass
+        elif rendered_text != source_last_text:
             await self._send_text_with_fallback(
                 sender=self._app.bot.edit_message_text,
                 text=rendered_text,
                 plain_text=msg.content,
                 parse_mode=parse_mode if parse_mode == "HTML" else None,
                 chat_id=chat_id,
-                message_id=state.message_id,
+                message_id=target_message_id,
                 reply_markup=reply_markup,
                 ignore_not_modified=True,
             )
 
-        self._preview_states.pop(self._preview_key(msg, lane="answer"), None)
+        # Mark lane as finalized and clean up
+        if state:
+            state.finalized = True
+        self._preview_states.pop(answer_key, None)
         return True
 
     async def _clear_preview(self, msg: OutboundMessage, *, chat_id: int) -> None:
-        """Remove answer-lane preview state and delete the visible preview message."""
-        state = self._preview_states.pop(self._preview_key(msg, lane="answer"), None)
-        if state is None or state.message_id is None:
+        """Remove all lane preview states and delete visible preview messages."""
+        for lane in ("answer", "reasoning"):
+            key = self._preview_key(msg, lane=lane)
+            state = self._preview_states.pop(key, None)
+            if state is not None and state.message_id is not None:
+                await self._delete_preview_message(chat_id=chat_id, message_id=state.message_id)
+
+        # Clean up any remaining archived previews for this message
+        base_key = self._preview_base_key(msg)
+        archived_list = self._archived_previews.pop(base_key, None)
+        if archived_list:
+            for ap in archived_list:
+                if ap.delete_if_unused:
+                    await self._delete_preview_message(chat_id=chat_id, message_id=ap.message_id)
+
+    def _force_new_preview(self, msg: OutboundMessage, *, lane: str = "answer") -> None:
+        """Archive the current lane preview and prepare for a new generation.
+
+        Mirrors OpenClaw ``draft-stream.ts`` ``forceNewMessage()`` — the
+        generation counter increments so late-arriving edits from the old
+        generation are silently ignored.  The old preview message is stored
+        as an archived preview for potential consumption by final delivery.
+        """
+        key = self._preview_key(msg, lane=lane)
+        state = self._preview_states.pop(key, None)
+        if state is None:
             return
-        await self._delete_preview_message(chat_id=chat_id, message_id=state.message_id)
+        if state.message_id is not None:
+            base_key = self._preview_base_key(msg)
+            self._archived_previews.setdefault(base_key, []).append(
+                _ArchivedPreview(
+                    message_id=state.message_id,
+                    last_text=state.last_text,
+                    delete_if_unused=True,
+                )
+            )
+        # Next setdefault will create a fresh state with generation+1
+        self._preview_states[key] = _TelegramPreviewState(generation=state.generation + 1)
 
     async def _delete_preview_message(self, *, chat_id: int, message_id: int) -> None:
         """Delete a visible preview message."""
