@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.models.channel import ChannelType, InboundMessage, MediaAttachment
-from app.domain.models.event import StreamEvent
+from app.domain.models.event import MessageEvent, StreamEvent, SuggestionEvent
 from app.domain.services.channels.message_router import (
     HELP_TEXT,
     MessageRouter,
@@ -288,6 +288,89 @@ class TestRouteInbound:
                 "metadata": {},
             },
         ]
+
+    @pytest.mark.asyncio
+    async def test_route_passes_follow_up_metadata_to_agent_service_chat(self) -> None:
+        """Telegram follow-up button taps must reach AgentService.chat() as structured follow_up metadata."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        recorded_chat_kwargs: dict[str, Any] = {}
+
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+
+        async def _recording_chat(**kwargs: Any):
+            recorded_chat_kwargs.update(kwargs)
+            yield _FakeMessageEvent()
+
+        agent_svc.chat = _recording_chat
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound(
+            "Add examples",
+            metadata={
+                "message_id": 333,
+                "follow_up": {
+                    "selected_suggestion": "Add examples",
+                    "anchor_event_id": "evt-followup-123",
+                    "source": "suggestion_click",
+                },
+            },
+        )
+        _ = [reply async for reply in router.route_inbound(msg)]
+
+        assert recorded_chat_kwargs["message"] == "Add examples"
+        assert recorded_chat_kwargs["follow_up"] == {
+            "selected_suggestion": "Add examples",
+            "anchor_event_id": "evt-followup-123",
+            "source": "suggestion_click",
+        }
+
+    @pytest.mark.asyncio
+    async def test_route_prepends_telegram_reply_context_for_agent(self) -> None:
+        """Telegram reply metadata should become explicit untrusted context for the agent prompt."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        recorded_chat_kwargs: dict[str, Any] = {}
+
+        agent_svc = _make_agent_service(events=[_FakeMessageEvent()])
+
+        async def _recording_chat(**kwargs: Any):
+            recorded_chat_kwargs.update(kwargs)
+            yield _FakeMessageEvent()
+
+        agent_svc.chat = _recording_chat
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound(
+            "Sure, see below",
+            metadata={
+                "message_id": 333,
+                "reply_to_id": 9001,
+                "reply_to_body": "summarize this",
+                "reply_to_sender": "Ada",
+                "reply_to_is_quote": True,
+            },
+        )
+
+        _ = [reply async for reply in router.route_inbound(msg)]
+
+        assert agent_svc.create_session.await_args.kwargs["initial_message"] == "Sure, see below"
+        assert recorded_chat_kwargs["message"] == (
+            "Conversation info (untrusted metadata):\n"
+            "```json\n"
+            "{\n"
+            '  "message_id": 333,\n'
+            '  "reply_to_id": 9001\n'
+            "}\n"
+            "```\n\n"
+            "Replied message (untrusted, for context):\n"
+            "```json\n"
+            "{\n"
+            '  "sender_label": "Ada",\n'
+            '  "is_quote": true,\n'
+            '  "body": "summarize this"\n'
+            "}\n"
+            "```\n\n"
+            "Sure, see below"
+        )
 
     @pytest.mark.asyncio
     async def test_route_reuses_completed_session_for_telegram(self) -> None:
@@ -867,6 +950,18 @@ class TestSlashHelp:
         assert "/status" in replies[0].content
         assert "/help" in replies[0].content
 
+    @pytest.mark.asyncio
+    async def test_commands_alias_returns_command_list(self) -> None:
+        repo = _make_user_channel_repo(user_id="user-abc")
+        agent_svc = _make_agent_service()
+        router = MessageRouter(agent_svc, repo)
+
+        msg = _make_inbound("/commands")
+        replies = [r async for r in router.route_inbound(msg)]
+
+        assert len(replies) == 1
+        assert replies[0].content == HELP_TEXT
+
 
 class TestSlashStatus:
     @pytest.mark.asyncio
@@ -1051,6 +1146,106 @@ class TestEventToOutbound:
         assert result.metadata["message_thread_id"] == 99
         assert result.metadata["is_group"] is True
         assert result.metadata["is_forum"] is True
+
+    def test_message_event_merges_delivery_metadata_with_telegram_reply_context(self) -> None:
+        router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
+        source = _make_inbound(
+            metadata={
+                "message_id": 321,
+                "message_thread_id": 12,
+                "is_group": True,
+            }
+        )
+        event = MessageEvent(
+            message="Choose a mode",
+            delivery_metadata={
+                "reply_markup": {
+                    "inline_keyboard": [
+                        [{"text": "Fast", "callback_data": "mode:fast"}],
+                    ]
+                }
+            },
+        )
+
+        result = router._event_to_outbound(event, source)
+
+        assert result is not None
+        assert result.metadata == {
+            "message_id": 321,
+            "message_thread_id": 12,
+            "is_group": True,
+            "reply_markup": {
+                "inline_keyboard": [
+                    [{"text": "Fast", "callback_data": "mode:fast"}],
+                ]
+            },
+        }
+
+    def test_message_event_with_telegram_action_and_no_text_still_produces_outbound(self) -> None:
+        router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
+        source = _make_inbound(metadata={"message_id": 999})
+        event = MessageEvent(
+            message="",
+            delivery_metadata={
+                "telegram_action": {
+                    "type": "delete",
+                    "message_id": 321,
+                }
+            },
+        )
+
+        result = router._event_to_outbound(event, source)
+
+        assert result is not None
+        assert result.content == ""
+        assert result.metadata == {
+            "message_id": 999,
+            "telegram_action": {
+                "type": "delete",
+                "message_id": 321,
+            },
+        }
+
+    def test_suggestion_event_produces_telegram_follow_up_buttons(self) -> None:
+        router = MessageRouter(MagicMock(), MagicMock(), telegram_streaming="partial")
+        source = _make_inbound(
+            metadata={
+                "message_id": 321,
+                "message_thread_id": 12,
+                "is_group": True,
+            }
+        )
+        event = SuggestionEvent(
+            suggestions=["Add examples", "Explain the tradeoffs"],
+            source="completion",
+            anchor_event_id="evt-followup-123",
+        )
+
+        result = router._event_to_outbound(event, source)
+
+        assert result is not None
+        assert result.content == "Follow-up options:"
+        assert result.metadata == {
+            "message_id": 321,
+            "message_thread_id": 12,
+            "is_group": True,
+            "reply_markup": {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "Add examples",
+                            "callback_data": "telegram:followup:evt-followup-123:0",
+                        }
+                    ],
+                    [
+                        {
+                            "text": "Explain the tradeoffs",
+                            "callback_data": "telegram:followup:evt-followup-123:1",
+                        }
+                    ],
+                ]
+            },
+        }
 
 
 # ---------------------------------------------------------------------------
