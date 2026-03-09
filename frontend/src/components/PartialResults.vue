@@ -13,7 +13,6 @@ defineProps<{
 
 <template>
   <div v-if="results.length" class="partial-results">
-    <div class="partial-results-header">Findings so far</div>
     <ul class="partial-results-list">
       <li v-for="r in results" :key="r.stepIndex" class="partial-result-item">
         <span class="result-headline">{{ r.headline }}</span>
@@ -31,15 +30,6 @@ defineProps<{
   background: var(--background-surface, #f8fafc);
   border-radius: 0 0.375rem 0.375rem 0;
   font-size: 0.8125rem;
-}
-
-.partial-results-header {
-  font-weight: 600;
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  opacity: 0.6;
-  margin-bottom: 0.375rem;
 }
 
 .partial-results-list {
