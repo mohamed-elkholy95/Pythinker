@@ -31,12 +31,26 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Slash-command constants
 # ---------------------------------------------------------------------------
-SLASH_COMMANDS = frozenset({
-    "/new", "/stop", "/help", "/commands", "/status", "/link", "/pdf",
-    "/reasoning", "/think", "/thinking", "/t",
-    "/verbose", "/v", "/elevated", "/elev",
-    "/models",
-})
+SLASH_COMMANDS = frozenset(
+    {
+        "/new",
+        "/stop",
+        "/help",
+        "/commands",
+        "/status",
+        "/link",
+        "/pdf",
+        "/reasoning",
+        "/think",
+        "/thinking",
+        "/t",
+        "/verbose",
+        "/v",
+        "/elevated",
+        "/elev",
+        "/models",
+    }
+)
 _REASONING_VISIBILITY_LEVELS = frozenset({"off", "on", "stream"})
 _THINKING_LEVELS = frozenset({"off", "low", "medium", "high"})
 _TOGGLE_LEVELS = frozenset({"off", "on"})
@@ -614,9 +628,7 @@ class MessageRouter:
         if command == "/reasoning":
             parts = content.split(maxsplit=1)
             level = parts[1].strip().lower() if len(parts) > 1 else ""
-            session_id = await self._user_channel_repo.get_session_key(
-                user_id, message.channel, message.chat_id
-            )
+            session_id = await self._user_channel_repo.get_session_key(user_id, message.channel, message.chat_id)
             if not level:
                 current = await self._get_reasoning_visibility(session_id, user_id)
                 yield self._make_reply(
@@ -643,9 +655,7 @@ class MessageRouter:
         if command in {"/think", "/thinking", "/t"}:
             parts = content.split(maxsplit=1)
             level = parts[1].strip().lower() if len(parts) > 1 else ""
-            session_id = await self._user_channel_repo.get_session_key(
-                user_id, message.channel, message.chat_id
-            )
+            session_id = await self._user_channel_repo.get_session_key(user_id, message.channel, message.chat_id)
             if not level:
                 current = await self._get_session_option(session_id, user_id, "thinking_level")
                 yield self._make_reply(
@@ -667,9 +677,7 @@ class MessageRouter:
         if command in {"/verbose", "/v"}:
             parts = content.split(maxsplit=1)
             level = parts[1].strip().lower() if len(parts) > 1 else ""
-            session_id = await self._user_channel_repo.get_session_key(
-                user_id, message.channel, message.chat_id
-            )
+            session_id = await self._user_channel_repo.get_session_key(user_id, message.channel, message.chat_id)
             if not level:
                 current = await self._get_session_option(session_id, user_id, "verbose_mode")
                 yield self._make_reply(message, f"Verbose mode: {current}.\nValid levels: off, on")
@@ -688,9 +696,7 @@ class MessageRouter:
         if command in {"/elevated", "/elev"}:
             parts = content.split(maxsplit=1)
             level = parts[1].strip().lower() if len(parts) > 1 else ""
-            session_id = await self._user_channel_repo.get_session_key(
-                user_id, message.channel, message.chat_id
-            )
+            session_id = await self._user_channel_repo.get_session_key(user_id, message.channel, message.chat_id)
             if not level:
                 current = await self._get_session_option(session_id, user_id, "elevated_mode")
                 yield self._make_reply(message, f"Elevated mode: {current}.\nValid levels: off, on")
@@ -1336,15 +1342,11 @@ class MessageRouter:
                 forward_info["from_channel"] = metadata["forward_from_chat"]
             if metadata.get("forward_date"):
                 forward_info["date"] = metadata["forward_date"]
-            blocks.append(
-                f"Forwarded message context (untrusted):\n```json\n{json.dumps(forward_info, indent=2)}\n```"
-            )
+            blocks.append(f"Forwarded message context (untrusted):\n```json\n{json.dumps(forward_info, indent=2)}\n```")
 
         # Location context
         if metadata.get("location") and isinstance(metadata["location"], dict):
-            blocks.append(
-                f"Location context:\n```json\n{json.dumps(metadata['location'], indent=2)}\n```"
-            )
+            blocks.append(f"Location context:\n```json\n{json.dumps(metadata['location'], indent=2)}\n```")
 
         return "\n\n".join(blocks) if blocks else None
 

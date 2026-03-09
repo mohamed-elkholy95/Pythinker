@@ -196,11 +196,28 @@ class TelegramChannel(BaseChannel):
         BotCommand("elevated", "Toggle elevated mode (off, on)"),
         BotCommand("models", "Show model information"),
     ]
-    _KNOWN_SLASH_COMMANDS = frozenset({
-        "start", "new", "stop", "status", "pdf", "link", "bind", "help", "commands",
-        "reasoning", "think", "thinking", "t", "verbose", "v", "elevated", "elev",
-        "models",
-    })
+    _KNOWN_SLASH_COMMANDS = frozenset(
+        {
+            "start",
+            "new",
+            "stop",
+            "status",
+            "pdf",
+            "link",
+            "bind",
+            "help",
+            "commands",
+            "reasoning",
+            "think",
+            "thinking",
+            "t",
+            "verbose",
+            "v",
+            "elevated",
+            "elev",
+            "models",
+        }
+    )
 
     def __init__(
         self,
@@ -932,8 +949,15 @@ class TelegramChannel(BaseChannel):
         Mirrors OpenClaw's ``listActions()`` pattern for action discovery.
         """
         return [
-            "edit_text", "edit_buttons", "delete", "react",
-            "poll", "topic_create", "sticker", "pin", "unpin",
+            "edit_text",
+            "edit_buttons",
+            "delete",
+            "react",
+            "poll",
+            "topic_create",
+            "sticker",
+            "pin",
+            "unpin",
         ]
 
     @staticmethod

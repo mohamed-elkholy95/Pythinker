@@ -117,9 +117,9 @@ class Session(BaseModel):
 
     # Telegram option commands (channel-level state, not runtime behavior)
     reasoning_visibility: str | None = None  # off | on | stream — controls Telegram reasoning lane
-    thinking_level: str | None = None        # off | low | medium | high — controls LLM thinking effort
-    verbose_mode: str | None = None          # off | on — controls verbose output
-    elevated_mode: str | None = None         # off | on — controls elevated execution mode
+    thinking_level: str | None = None  # off | low | medium | high — controls LLM thinking effort
+    verbose_mode: str | None = None  # off | on — controls verbose output
+    elevated_mode: str | None = None  # off | on — controls elevated execution mode
 
     def get_last_plan(self) -> Plan | None:
         """Get the last plan from the events"""
