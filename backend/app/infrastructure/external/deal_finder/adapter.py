@@ -189,7 +189,8 @@ def _title_matches_query(title: str, query: str) -> bool:
     query_lower = query.lower()
 
     query_words = [
-        w for w in re.split(r"[\s\-/]+", query_lower)
+        w
+        for w in re.split(r"[\s\-/]+", query_lower)
         if w and w not in _TITLE_STOP_WORDS and (len(w) > 1 or w.isdigit())
     ]
     if not query_words:
