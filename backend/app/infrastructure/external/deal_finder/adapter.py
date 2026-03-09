@@ -130,6 +130,140 @@ def _store_from_url(url: str) -> str:
     return store_names.get(domain, domain)
 
 
+_TITLE_STOP_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "for",
+        "in",
+        "on",
+        "at",
+        "to",
+        "of",
+        "is",
+        "it",
+        "by",
+        "with",
+        "from",
+        "as",
+        "not",
+        "no",
+        "all",
+        "best",
+        "new",
+        "buy",
+        "get",
+        "top",
+        "hot",
+        "pro",
+        "vs",
+        "how",
+        "what",
+        "find",
+        "deal",
+        "deals",
+        "price",
+        "sale",
+        "off",
+        "coupon",
+        "promo",
+        "discount",
+    }
+)
+
+
+def _title_matches_query(title: str, query: str) -> bool:
+    """Check if a search result title is relevant to the original query.
+
+    Multi-signal relevance filter:
+    1. Exact phrase: full query as substring → always pass
+    2. Numeric enforcement: if query has numbers, title must contain at least one
+    3. Word overlap: >= 50% of non-stop query words must appear in title
+    """
+    if not title or not query:
+        return False
+    title_lower = title.lower()
+    query_lower = query.lower()
+
+    query_words = [
+        w for w in re.split(r"[\s\-/]+", query_lower)
+        if w and w not in _TITLE_STOP_WORDS and (len(w) > 1 or w.isdigit())
+    ]
+    if not query_words:
+        return False
+
+    # Signal 1: Exact phrase match — always relevant
+    if query_lower in title_lower:
+        return True
+
+    # Signal 2: Numeric token enforcement
+    # If the query contains numbers (e.g. "5" in "GLM 5 AI"), at least one
+    # must appear in the title. Prevents "GLM 400C" matching "GLM 5".
+    query_nums = [w for w in query_words if w.isdigit()]
+    if query_nums:
+        title_tokens = re.split(r"[\s\-/,]+", title_lower)
+        if not any(num in token for token in title_tokens for num in query_nums):
+            return False
+
+    # Signal 3: Word overlap threshold — at least 50% of query words
+    matched = sum(1 for word in query_words if word in title_lower)
+    threshold = max(1, len(query_words) // 2)  # At least 1, at least 50%
+    return matched >= threshold
+
+
+# URL path segments that indicate non-purchasable pages (news, blogs, reviews)
+_EDITORIAL_PATH_SEGMENTS = frozenset(
+    {
+        "news",
+        "blog",
+        "blogs",
+        "article",
+        "articles",
+        "press",
+        "press-release",
+        "press-releases",
+        "editorial",
+        "editorials",
+        "review",
+        "reviews",
+        "opinion",
+        "opinions",
+        "story",
+        "stories",
+        "post",
+        "posts",
+        "magazine",
+        "journal",
+        "about",
+        "careers",
+        "help",
+        "support",
+        "faq",
+        "contact",
+        "privacy",
+        "terms",
+    }
+)
+
+
+def _is_editorial_url(url: str) -> bool:
+    """Detect URLs that are likely editorial/news rather than product pages.
+
+    Checks URL path segments against known non-commerce patterns.
+    Product URLs like /dp/, /product/, /p/ are NOT flagged.
+    """
+    try:
+        path = urlparse(url).path.lower().strip("/")
+    except Exception:
+        return False
+    segments = path.split("/")
+    # Only check first 2 path segments (deeper paths less indicative)
+    return any(seg in _EDITORIAL_PATH_SEGMENTS for seg in segments[:2])
+
+
 def _simplify_query(query: str) -> str:
     """Remove color/year modifiers from a query for retry.
 
@@ -190,6 +324,14 @@ def _score_deal(
     # Extraction confidence (0-10 pts)
     score += int(extraction_confidence * 10)
 
+    # Discount outlier penalty: >85% discount without coupon is suspicious
+    if deal.original_price and deal.original_price > deal.price:
+        discount = (deal.original_price - deal.price) / deal.original_price * 100
+        if discount > 85 and not has_coupon:
+            score = max(0, score - 30)  # Heavy penalty
+        elif discount > 70 and extraction_confidence < 0.5:
+            score = max(0, score - 15)  # Moderate penalty for unconfident high discount
+
     return min(100, score)
 
 
@@ -215,6 +357,9 @@ def _extract_deals_from_snippets(
         if not url or url in seen_urls:
             continue
         seen_urls.add(url)
+
+        if _is_editorial_url(url):
+            continue
 
         title = item.title or ""
         snippet = item.snippet or ""
@@ -405,7 +550,7 @@ class DealFinderAdapter:
             store_name = _store_from_url(f"https://{store_domain}")
             search_query = f"{query} price deal site:{store_domain}"
             try:
-                result = await self._search_store(search_query, store_domain, timeout)
+                result = await self._search_store(search_query, store_domain, timeout, original_query=query)
             except Exception as exc:
                 error_msg = str(exc) or type(exc).__name__
                 logger.warning("Search failed for %s: %s", store_domain, error_msg)
@@ -424,7 +569,9 @@ class DealFinderAdapter:
                 if simplified and simplified != query:
                     retry_query = f"{simplified} site:{store_domain}"
                     try:
-                        retry_result = await self._search_store(retry_query, store_domain, timeout)
+                        retry_result = await self._search_store(
+                            retry_query, store_domain, timeout, original_query=simplified
+                        )
                         if retry_result:
                             deals.extend(retry_result)
                             searched_stores.append(store_name)
@@ -546,6 +693,7 @@ class DealFinderAdapter:
         search_query: str,
         store_domain: str,
         timeout: int,  # noqa: ASYNC109
+        original_query: str = "",
     ) -> list[DealResult]:
         """Search a single store and extract prices from results."""
         deals: list[DealResult] = []
@@ -576,17 +724,27 @@ class DealFinderAdapter:
             logger.debug("Search returned 0 results for query: %s", search_query)
             return deals
 
+        relevance_query = original_query or search_query
         urls_to_scrape = []
+        skipped_irrelevant = 0
+        skipped_editorial = 0
         for item in search_results.results[:10]:  # Top 10 results per store
             url = item.link
             if url and store_domain in _domain_from_url(url):
-                urls_to_scrape.append((url, item.title))
+                if _is_editorial_url(url):
+                    skipped_editorial += 1
+                elif _title_matches_query(item.title or "", relevance_query):
+                    urls_to_scrape.append((url, item.title))
+                else:
+                    skipped_irrelevant += 1
 
         logger.debug(
-            "Store %s: %d search results → %d URLs matched domain filter",
+            "Store %s: %d search results → %d URLs matched domain+relevance (%d skipped irrelevant, %d skipped editorial)",
             store_domain,
             len(search_results.results),
             len(urls_to_scrape),
+            skipped_irrelevant,
+            skipped_editorial,
         )
 
         settings = get_settings()
