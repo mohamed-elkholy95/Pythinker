@@ -2712,3 +2712,241 @@ async def test_channel_finalizes_preview_against_original_message_context() -> N
     assert edit_kwargs["chat_id"] == 5829880422
     assert edit_kwargs["message_id"] == 321
     assert edit_kwargs["text"] == "Final answer for 99"
+
+
+# ---------------------------------------------------------------------------
+# Dual-lane preview delivery (Task 3)
+# ---------------------------------------------------------------------------
+
+
+def _make_streaming_channel() -> TelegramChannel:
+    """Helper: channel with streaming enabled and no throttle for predictable tests."""
+    channel = _make_channel(
+        streaming="partial",
+        streaming_throttle_seconds=0.0,
+        streaming_min_initial_chars=1,
+    )
+    bot = SimpleNamespace(
+        send_document=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_voice=AsyncMock(),
+        send_audio=AsyncMock(),
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=321)),
+        edit_message_text=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+    channel._app = SimpleNamespace(bot=bot)
+    return channel
+
+
+def _stream_msg(content: str, *, lane: str = "answer", is_final: bool = False, msg_id: int = 99) -> OutboundMessage:
+    """Helper: build a stream-type OutboundMessage for a specific lane."""
+    return OutboundMessage(
+        channel="telegram",
+        chat_id="5829880422",
+        content=content,
+        metadata={
+            "_progress": True,
+            "_telegram_stream": True,
+            "_telegram_stream_lane": lane,
+            "_telegram_stream_final": is_final,
+            "message_id": msg_id,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_dual_lane_answer_and_reasoning_get_separate_previews() -> None:
+    """Answer and reasoning lanes create independent preview messages."""
+    channel = _make_streaming_channel()
+    bot = channel._app.bot
+
+    # Stream answer lane
+    await channel.send(_stream_msg("Answer part 1", lane="answer"))
+    # Stream reasoning lane
+    bot.send_message.return_value = SimpleNamespace(message_id=555)
+    await channel.send(_stream_msg("Thinking...", lane="reasoning"))
+
+    assert bot.send_message.await_count == 2
+    # First call = answer preview (msg_id 321), second = reasoning preview (msg_id 555)
+    first_text = bot.send_message.await_args_list[0].kwargs["text"]
+    second_text = bot.send_message.await_args_list[1].kwargs["text"]
+    assert "Answer" in first_text
+    assert "Thinking" in second_text
+
+
+@pytest.mark.asyncio
+async def test_finalized_lane_ignores_further_updates() -> None:
+    """Once a lane is finalized, subsequent stream updates are silently dropped."""
+    channel = _make_streaming_channel()
+    bot = channel._app.bot
+
+    # Create and finalize answer preview
+    await channel.send(_stream_msg("Hello", lane="answer"))
+    key = channel._preview_key(
+        OutboundMessage(channel="telegram", chat_id="5829880422", content="", metadata={"message_id": 99}),
+        lane="answer",
+    )
+    state = channel._preview_states.get(key)
+    assert state is not None
+    state.finalized = True
+
+    # Send more content — should be ignored
+    await channel.send(_stream_msg(" more", lane="answer"))
+    # Only the original send_message, no edits for the finalized content
+    assert bot.edit_message_text.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_regressive_update_blocked_on_existing_preview() -> None:
+    """Edits that would shrink the visible text are blocked."""
+    channel = _make_streaming_channel()
+    bot = channel._app.bot
+
+    await channel.send(_stream_msg("Long answer text here", lane="answer"))
+    assert bot.send_message.await_count == 1
+
+    # Now send a shorter override — should be blocked
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="5829880422",
+            content="",
+            metadata={
+                "_progress": True,
+                "_telegram_stream": True,
+                "_telegram_stream_lane": "answer",
+                "_telegram_stream_preview_text": "Short",
+                "message_id": 99,
+            },
+        )
+    )
+    assert bot.edit_message_text.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_force_new_preview_archives_old_message() -> None:
+    """_force_new_preview archives the current preview and increments generation."""
+    channel = _make_streaming_channel()
+    bot = channel._app.bot
+
+    msg = _stream_msg("Initial", lane="answer")
+    await channel.send(msg)
+    assert bot.send_message.await_count == 1
+
+    # Force new preview (simulates boundary rotation)
+    ref_msg = OutboundMessage(
+        channel="telegram", chat_id="5829880422", content="", metadata={"message_id": 99},
+    )
+    channel._force_new_preview(ref_msg, lane="answer")
+
+    # Old message should be archived
+    base_key = channel._preview_base_key(ref_msg)
+    assert base_key in channel._archived_previews
+    archived_list = channel._archived_previews[base_key]
+    assert len(archived_list) == 1
+    assert archived_list[0].message_id == 321
+
+    # New state should have incremented generation
+    key = channel._preview_key(ref_msg, lane="answer")
+    new_state = channel._preview_states.get(key)
+    assert new_state is not None
+    assert new_state.generation == 1
+    assert new_state.message_id is None
+
+
+@pytest.mark.asyncio
+async def test_archived_preview_consumed_by_final_delivery() -> None:
+    """Final text delivery reuses an archived preview message via edit."""
+    channel = _make_streaming_channel()
+    bot = channel._app.bot
+
+    # Stream and archive an answer preview
+    msg = _stream_msg("Preview text", lane="answer")
+    await channel.send(msg)
+    ref_msg = OutboundMessage(
+        channel="telegram", chat_id="5829880422", content="", metadata={"message_id": 99},
+    )
+    channel._force_new_preview(ref_msg, lane="answer")
+
+    # Now send final answer — should consume archived preview via edit
+    final_msg = OutboundMessage(
+        channel="telegram",
+        chat_id="5829880422",
+        content="Final answer",
+        metadata={"message_id": 99},
+    )
+    await channel.send(final_msg)
+
+    # Should have edited the archived message (321), not sent a new one
+    bot.edit_message_text.assert_awaited()
+    edit_kwargs = bot.edit_message_text.await_args.kwargs
+    assert edit_kwargs["message_id"] == 321
+    assert "Final answer" in edit_kwargs["text"]
+
+    # Archived list should be consumed
+    base_key = channel._preview_base_key(ref_msg)
+    assert base_key not in channel._archived_previews
+
+
+@pytest.mark.asyncio
+async def test_clear_preview_cleans_all_lanes_and_archived() -> None:
+    """_clear_preview removes both lanes and deletes archived previews."""
+    channel = _make_streaming_channel()
+    bot = channel._app.bot
+
+    # Create answer preview
+    await channel.send(_stream_msg("Answer", lane="answer"))
+
+    # Create reasoning preview
+    bot.send_message.return_value = SimpleNamespace(message_id=555)
+    await channel.send(_stream_msg("Reasoning", lane="reasoning"))
+
+    # Archive a preview
+    ref_msg = OutboundMessage(
+        channel="telegram", chat_id="5829880422", content="", metadata={"message_id": 99},
+    )
+    channel._force_new_preview(ref_msg, lane="answer")
+
+    # Clear all
+    await channel._clear_preview(ref_msg, chat_id=5829880422)
+
+    # All states should be gone
+    assert not channel._has_preview_state(ref_msg, lane="answer")
+    assert not channel._has_preview_state(ref_msg, lane="reasoning")
+    assert channel._preview_base_key(ref_msg) not in channel._archived_previews
+
+    # Archived + reasoning message should have been deleted
+    assert bot.delete_message.await_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_per_lane_finalization_independence() -> None:
+    """Answer can finalize while reasoning continues streaming."""
+    channel = _make_streaming_channel()
+    bot = channel._app.bot
+
+    # Stream both lanes
+    await channel.send(_stream_msg("Answer", lane="answer"))
+    bot.send_message.return_value = SimpleNamespace(message_id=555)
+    await channel.send(_stream_msg("Thinking step 1", lane="reasoning"))
+
+    # Finalize answer via final delivery
+    final_msg = OutboundMessage(
+        channel="telegram",
+        chat_id="5829880422",
+        content="Final answer text",
+        metadata={"message_id": 99},
+    )
+    await channel.send(final_msg)
+
+    # Answer lane should be finalized and cleaned up
+    ref_msg = OutboundMessage(
+        channel="telegram", chat_id="5829880422", content="", metadata={"message_id": 99},
+    )
+    assert not channel._has_preview_state(ref_msg, lane="answer")
+
+    # Reasoning lane should still be active
+    assert channel._has_preview_state(ref_msg, lane="reasoning")
+    reasoning_state = channel._preview_states[channel._preview_key(ref_msg, lane="reasoning")]
+    assert not reasoning_state.finalized
