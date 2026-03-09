@@ -1767,3 +1767,30 @@ class TestTelegramContextPrefixForwardLocation:
         _ = [reply async for reply in router.route_inbound(msg)]
 
         assert recorded_chat_kwargs["message"] == "Hello"
+
+
+# ---------------------------------------------------------------------------
+# /models command
+# ---------------------------------------------------------------------------
+
+
+class TestSlashModels:
+    @pytest.mark.asyncio
+    async def test_models_returns_config_info(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The /models command should show current model configuration."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        router = MessageRouter(agent_svc, repo)
+
+        # Mock _build_model_info to return deterministic output
+        monkeypatch.setattr(
+            MessageRouter,
+            "_build_model_info",
+            staticmethod(lambda: "Model configuration:\n  Default: gpt-4o\n  Adaptive routing: disabled\n  Provider: openai"),
+        )
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/models"))]
+
+        assert len(replies) == 1
+        assert "gpt-4o" in replies[0].content
+        assert "openai" in replies[0].content
