@@ -35,6 +35,7 @@ SLASH_COMMANDS = frozenset({
     "/new", "/stop", "/help", "/commands", "/status", "/link", "/pdf",
     "/reasoning", "/think", "/thinking", "/t",
     "/verbose", "/v", "/elevated", "/elev",
+    "/models",
 })
 _REASONING_VISIBILITY_LEVELS = frozenset({"off", "on", "stream"})
 _THINKING_LEVELS = frozenset({"off", "low", "medium", "high"})
@@ -705,6 +706,15 @@ class MessageRouter:
             yield self._make_reply(message, ack)
             return
 
+        if command == "/models":
+            # Stub: show current model and invite user to browse (Tier 3)
+            yield self._make_reply(
+                message,
+                "Model selection is managed via the web UI.\n"
+                "Current session uses the default model configured by the administrator.",
+            )
+            return
+
         if command == "/link":
             parts = content.split(maxsplit=1)
             if len(parts) < 2 or not parts[1].strip():
@@ -1284,39 +1294,64 @@ class MessageRouter:
 
     @staticmethod
     def _telegram_reply_context_prefix(message: InboundMessage) -> str | None:
-        """Render OpenClaw-style reply context blocks for Telegram inbound messages."""
+        """Render OpenClaw-style inbound context blocks for Telegram messages.
+
+        Includes reply, forwarded, and location context when present.
+        """
         if message.channel != ChannelType.TELEGRAM:
             return None
         metadata = getattr(message, "metadata", None)
         if not isinstance(metadata, dict):
             return None
 
-        reply_to_body = str(metadata.get("reply_to_body", "") or "").strip()
-        if not reply_to_body:
-            return None
-
         blocks: list[str] = []
-        conversation_info: dict[str, Any] = {}
-        if metadata.get("message_id") is not None:
-            conversation_info["message_id"] = metadata["message_id"]
-        if metadata.get("reply_to_id") is not None:
-            conversation_info["reply_to_id"] = metadata["reply_to_id"]
-        if conversation_info:
+
+        # Conversation info — only include when reply_to_id is present
+        # (a bare message_id alone is noise, not useful agent context)
+        reply_to_id = metadata.get("reply_to_id")
+        if reply_to_id is not None:
+            conversation_info: dict[str, Any] = {}
+            if metadata.get("message_id") is not None:
+                conversation_info["message_id"] = metadata["message_id"]
+            conversation_info["reply_to_id"] = reply_to_id
             blocks.append(
                 f"Conversation info (untrusted metadata):\n```json\n{json.dumps(conversation_info, indent=2)}\n```"
             )
 
-        replied_message: dict[str, Any] = {}
-        reply_to_sender = str(metadata.get("reply_to_sender", "") or "").strip()
-        if reply_to_sender:
-            replied_message["sender_label"] = reply_to_sender
-        if metadata.get("reply_to_is_quote") is True:
-            replied_message["is_quote"] = True
-        replied_message["body"] = reply_to_body
-        blocks.append(
-            f"Replied message (untrusted, for context):\n```json\n{json.dumps(replied_message, indent=2)}\n```"
-        )
-        return "\n\n".join(blocks)
+        # Reply context
+        reply_to_body = str(metadata.get("reply_to_body", "") or "").strip()
+        if reply_to_body:
+            replied_message: dict[str, Any] = {}
+            reply_to_sender = str(metadata.get("reply_to_sender", "") or "").strip()
+            if reply_to_sender:
+                replied_message["sender_label"] = reply_to_sender
+            if metadata.get("reply_to_is_quote") is True:
+                replied_message["is_quote"] = True
+            replied_message["body"] = reply_to_body
+            blocks.append(
+                f"Replied message (untrusted, for context):\n```json\n{json.dumps(replied_message, indent=2)}\n```"
+            )
+
+        # Forwarded message context
+        if metadata.get("is_forwarded"):
+            forward_info: dict[str, Any] = {"forwarded": True}
+            if metadata.get("forward_from"):
+                forward_info["from"] = metadata["forward_from"]
+            if metadata.get("forward_from_chat"):
+                forward_info["from_channel"] = metadata["forward_from_chat"]
+            if metadata.get("forward_date"):
+                forward_info["date"] = metadata["forward_date"]
+            blocks.append(
+                f"Forwarded message context (untrusted):\n```json\n{json.dumps(forward_info, indent=2)}\n```"
+            )
+
+        # Location context
+        if metadata.get("location") and isinstance(metadata["location"], dict):
+            blocks.append(
+                f"Location context:\n```json\n{json.dumps(metadata['location'], indent=2)}\n```"
+            )
+
+        return "\n\n".join(blocks) if blocks else None
 
     @staticmethod
     def _extract_follow_up(message: InboundMessage) -> dict[str, str] | None:
