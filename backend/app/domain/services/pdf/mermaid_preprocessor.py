@@ -12,8 +12,6 @@ import logging
 import re
 from dataclasses import dataclass
 
-import httpx
-
 logger = logging.getLogger(__name__)
 
 _MERMAID_BLOCK_RE = re.compile(
@@ -112,65 +110,84 @@ class MermaidPreprocessor:
         """Render a single mermaid block to PNG via sandbox APIs.
 
         Steps:
-            1. POST /api/v1/file/write — write .mmd source to /tmp/
+            1. POST /api/v1/file/write — write .mmd source to /workspace/
             2. POST /api/v1/shell/exec — run mmdc to produce .png
             3. POST /api/v1/shell/wait — wait for mmdc to finish
             4. GET  /api/v1/file/download — retrieve PNG bytes
 
         Returns PNG bytes or None on failure.
         """
-        input_path = f"/tmp/mermaid_{block.key}.mmd"
-        output_path = f"/tmp/mermaid_{block.key}.png"
+        from app.infrastructure.external.http_pool import HTTPClientPool
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(_RENDER_TIMEOUT_SECONDS)) as client:
-            # 1. Write mermaid source file
-            resp = await client.post(
-                f"{self._sandbox_url}/api/v1/file/write",
-                json={"path": input_path, "content": block.source},
-            )
-            if resp.status_code != 200:
-                logger.warning("Mermaid file write failed: HTTP %d", resp.status_code)
-                return None
+        # Use /workspace/ — sandbox allows writes here (/tmp/ may be restricted)
+        input_path = f"/workspace/.mermaid/mermaid_{block.key}.mmd"
+        output_path = f"/workspace/.mermaid/mermaid_{block.key}.png"
 
-            # 2. Execute mmdc
-            cmd = _MMDC_CMD.format(input=input_path, output=output_path)
-            resp = await client.post(
-                f"{self._sandbox_url}/api/v1/shell/exec",
-                json={"id": f"mermaid_{block.key}", "exec_dir": "/tmp", "command": cmd},
-            )
-            if resp.status_code != 200:
-                logger.warning("Mermaid mmdc exec failed: HTTP %d", resp.status_code)
-                return None
+        managed = await HTTPClientPool.get_client(
+            "sandbox-mermaid",
+            base_url=self._sandbox_url,
+            timeout=_RENDER_TIMEOUT_SECONDS,
+        )
+        client = managed.client
 
-            # 3. Wait for mmdc to finish
-            resp = await client.post(
-                f"{self._sandbox_url}/api/v1/shell/wait",
-                json={"id": f"mermaid_{block.key}", "seconds": 15},
-            )
-            if resp.status_code != 200:
-                logger.warning("Mermaid mmdc wait failed: HTTP %d", resp.status_code)
-                return None
+        # 0. Ensure render directory exists
+        await client.post(
+            "/api/v1/shell/exec",
+            json={
+                "id": f"mermaid_mkdir_{block.key}",
+                "exec_dir": "/workspace",
+                "command": "mkdir -p /workspace/.mermaid",
+            },
+        )
 
-            data = resp.json()
-            returncode = data.get("data", {}).get("returncode")
-            if returncode is not None and returncode != 0:
-                output = data.get("data", {}).get("output", "")
-                logger.warning("mmdc exited with code %d: %s", returncode, output[:200])
-                return None
+        # 1. Write mermaid source file
+        resp = await client.post(
+            "/api/v1/file/write",
+            json={"path": input_path, "content": block.source},
+        )
+        if resp.status_code != 200:
+            logger.warning("Mermaid file write failed: HTTP %d", resp.status_code)
+            return None
 
-            # 4. Download rendered PNG
-            resp = await client.get(
-                f"{self._sandbox_url}/api/v1/file/download",
-                params={"path": output_path},
-            )
-            if resp.status_code != 200:
-                logger.warning("Mermaid PNG download failed: HTTP %d", resp.status_code)
-                return None
+        # 2. Execute mmdc
+        cmd = _MMDC_CMD.format(input=input_path, output=output_path)
+        resp = await client.post(
+            "/api/v1/shell/exec",
+            json={"id": f"mermaid_{block.key}", "exec_dir": "/workspace/.mermaid", "command": cmd},
+        )
+        if resp.status_code != 200:
+            logger.warning("Mermaid mmdc exec failed: HTTP %d", resp.status_code)
+            return None
 
-            png_bytes = resp.content
-            logger.info(
-                "Mermaid block %s rendered to PNG (%d bytes)",
-                block.key,
-                len(png_bytes),
-            )
-            return png_bytes
+        # 3. Wait for mmdc to finish
+        resp = await client.post(
+            "/api/v1/shell/wait",
+            json={"id": f"mermaid_{block.key}", "seconds": 15},
+        )
+        if resp.status_code != 200:
+            logger.warning("Mermaid mmdc wait failed: HTTP %d", resp.status_code)
+            return None
+
+        data = resp.json()
+        returncode = data.get("data", {}).get("returncode")
+        if returncode is not None and returncode != 0:
+            output = data.get("data", {}).get("output", "")
+            logger.warning("mmdc exited with code %d: %s", returncode, output[:200])
+            return None
+
+        # 4. Download rendered PNG
+        resp = await client.get(
+            "/api/v1/file/download",
+            params={"path": output_path},
+        )
+        if resp.status_code != 200:
+            logger.warning("Mermaid PNG download failed: HTTP %d", resp.status_code)
+            return None
+
+        png_bytes = resp.content
+        logger.info(
+            "Mermaid block %s rendered to PNG (%d bytes)",
+            block.key,
+            len(png_bytes),
+        )
+        return png_bytes

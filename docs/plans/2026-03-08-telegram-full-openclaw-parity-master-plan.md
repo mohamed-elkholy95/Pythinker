@@ -84,15 +84,23 @@ Use these `openclaw-main` files as the authoritative references while implementi
 
 This section is intentionally factual. It is not a completion claim for full parity.
 
+**Re-review note (2026-03-09):** This snapshot was refreshed against the current codebase and a passing Telegram-focused regression run:
+
+```bash
+conda run -n pythinker bash -lc 'cd backend && pytest -p no:cov -o addopts= tests/domain/services/channels/test_message_router.py tests/infrastructure/external/channels/test_telegram_channel_commands.py -q'
+```
+
+Result: `202 passed`
+
 ### Completed Or Close Enough
 
 - Custom polling and webhook ownership are in place in `backend/nanobot/channels/telegram.py`, `backend/nanobot/channels/telegram_webhook.py`, and `backend/nanobot/channels/telegram_update_offset_store.py`.
 - Allowed updates now cover `message`, `callback_query`, `channel_post`, and `message_reaction`.
 - Offset persistence, update dedupe, DM/group/topic policy checks, account linking, and sender/topic session key routing are implemented.
-- Inbound media metadata, sticker metadata, reply/thread identifiers, and basic reply quote text are preserved.
-- Single-lane Telegram preview streaming exists: create preview, edit preview, and finalize preview against the final answer.
-- Paginated `/help` and `/commands` menus exist with `commands_page_*` callback pagination.
-- Suggestion follow-up buttons exist and callback taps reach `AgentService.chat(...)` as structured `follow_up` metadata.
+- Inbound media metadata, sticker metadata, reply/thread identifiers, forwarded-message metadata, location metadata, and reply-media placeholders are preserved.
+- Lane-aware stream plumbing exists in the event model and Telegram delivery path: separate answer/reasoning preview state, archived-preview consumption, regressive update blocking, generation tracking, and per-lane finalization are implemented.
+- Session fields and text commands exist for `reasoning_visibility`, `thinking_level`, `verbose_mode`, and `elevated_mode`. `/models` also exists as a text command.
+- Paginated `/help` and `/commands` menus exist with `commands_page_*` callback pagination, and custom primary commands can be registered into the Telegram command menu.
 - Telegram-native outbound actions already supported in Pythinker:
   - `edit_text`
   - `edit_buttons`
@@ -101,34 +109,44 @@ This section is intentionally factual. It is not a completion claim for full par
   - `poll`
   - `topic_create`
   - `sticker`
+  - `pin`
+  - `unpin`
 
 ### Partial Parity
 
 - Reply context is only partial.
-  - Pythinker preserves `reply_to_id`, `reply_to_body`, `reply_to_sender`, and `reply_to_is_quote`.
-  - OpenClaw also preserves forwarded context, reply media context, location fallback, thread starter context, and inbound history context.
+  - Pythinker preserves `reply_to_id`, `reply_to_body`, `reply_to_sender`, `reply_to_is_quote`, forwarded context, reply-media placeholders, and location context.
+  - OpenClaw still goes further with thread starter context, bounded inbound history, and richer structured sender/conversation blocks.
 - Native command UX is only partial.
-  - Pythinker has paginated `/help` and `/commands`.
-  - OpenClaw also has command argument menus, option toggles, `/reasoning`, `/think`, `/verbose`, `/elevated`, `/models`, and callback-driven state changes.
+  - Pythinker has paginated `/help` and `/commands`, text commands for `/reasoning`, `/think`, `/verbose`, `/elevated`, and `/models`, plus a command registry schema that now supports args, choices, scopes, and `args_menu`.
+  - OpenClaw still has Telegram-native argument menus, callback-driven option toggles, and provider/model button workflows.
 - Streaming is only partial.
-  - Pythinker has one preview lane.
-  - OpenClaw has separate `answer` and `reasoning` lanes plus reasoning visibility/session controls.
+  - Pythinker has lane-aware `StreamEvent`s and Telegram supports separate answer/reasoning preview lanes.
+  - OpenClaw still has end-to-end answer/reasoning split across the full runtime plus enforced reasoning visibility/session controls.
+- Session-option parity is only partial.
+  - Pythinker persists `reasoning_visibility`, `thinking_level`, `verbose_mode`, and `elevated_mode`.
+  - The main runtime and Telegram delivery path do not yet obey those settings consistently.
+- Suggestion follow-up handling is only partial.
+  - Callback parsing for historic `telegram:followup:*` payloads still exists.
+  - The router currently suppresses Telegram suggestion-button rendering, so this is not an active parity feature.
+- Outbound send semantics are only partial.
+  - Pythinker now supports `quote_text`, reply-to-first/all, thread fallback, and dual-lane preview finalization behavior.
+  - OpenClaw still has broader chunk-aware follow-up send behavior, fuller voice fallback semantics, and more exact delivery-state parity.
 - Telegram actions exist but are not architecturally complete.
-  - Pythinker has bounded action envelopes in the app tool path.
-  - OpenClaw has a broader action adapter, account-aware gating, and richer send/edit semantics.
+  - Pythinker has bounded action envelopes, normalization, discovery, and channel dispatch for `edit_text`, `edit_buttons`, `delete`, `react`, `poll`, `topic_create`, `sticker`, `pin`, and `unpin`.
+  - OpenClaw still has a broader shared action adapter, account-aware gating, sticker search, and status-reaction integration.
 
 ### Not Yet Implemented
 
-- Dual-lane answer/reasoning delivery.
-- Reasoning visibility state (`off`, `on`, `stream`) and its command UX.
+- End-to-end dual-lane answer/reasoning runtime parity across the main execution and summarization paths.
+- Delivery-side enforcement of `reasoning_visibility` (`off`, `on`, `stream`).
 - Command-argument inline menus.
 - Telegram model/provider button workflows.
-- Forwarded-message metadata parity.
-- Reply-media and location context parity.
 - Thread starter and pending history prompt context parity.
-- Quote-text outbound send semantics.
 - Status/ack reaction parity.
 - Unified Telegram action adapter comparable to OpenClaw’s plugin layer.
+- Change-hashed / overflow-aware native command menu sync and collision handling.
+- Persistent topic/session bindings beyond routing keys.
 
 ## What “Full Parity” Means In Practice
 
@@ -144,19 +162,19 @@ Pythinker should only be considered at full Telegram parity when all of the foll
 
 These are the non-negotiable gaps that must be resolved before the remaining Telegram work can be “just transport”.
 
-### 1. No Answer/Reasoning Lane In Pythinker’s Event Contract
+### 1. Lane-Aware Events Exist, But Main Runtime Split Is Incomplete
 
-Current Pythinker stream delivery in `backend/app/domain/services/channels/message_router.py` only sees a single generic `StreamEvent` text flow. OpenClaw’s Telegram delivery explicitly tracks lanes in `src/telegram/lane-delivery.ts` with `LaneName = "answer" | "reasoning"`.
-
-Implication:
-- Pythinker cannot implement true dual-lane Telegram behavior until the upstream event stream can distinguish answer text from reasoning text.
-
-### 2. No Persisted Telegram Session State For Reasoning Visibility
-
-OpenClaw supports reasoning-level session state (`off`, `on`, `stream`) via directive handling and session persistence. Pythinker currently exposes `thinking_mode` (`auto`, `fast`, `deep_think`) but not Telegram-native reasoning visibility state.
+Pythinker now has `lane` on `StreamEvent`, Telegram preserves lane metadata, and the Telegram channel maintains separate preview state per lane. The remaining gap is that the main runtime still does not emit a true OpenClaw-style answer/reasoning split consistently across execution and summarization.
 
 Implication:
-- Even if Telegram had a second preview lane tomorrow, there is no session-level source of truth telling it whether that lane should be hidden, shown statically, or streamed live.
+- Telegram dual-lane delivery is only partially real until the runtime emits both lanes intentionally instead of falling back to the default `answer` lane for most output.
+
+### 2. Persisted Reasoning Visibility State Exists, But Delivery Does Not Obey It
+
+Pythinker now persists Telegram-native session fields for `reasoning_visibility`, `thinking_level`, `verbose_mode`, and `elevated_mode`. The remaining gap is that Telegram delivery and the main chat/runtime path do not yet enforce those settings.
+
+Implication:
+- Users can store Telegram option state today, but that state is not yet a reliable source of truth for runtime or delivery behavior.
 
 ### 3. No Central Callback Namespace For Rich Telegram UX
 
@@ -173,9 +191,9 @@ The remaining parity work is grouped below in the order that actually reduces ri
 
 ### Workstream 1: Introduce A Dual-Lane Telegram Streaming Contract
 
-**Status:** Not Started
+**Status:** In Progress
 
-**Why it matters:** This is the biggest remaining gap. Without lane-aware events, Pythinker cannot match OpenClaw’s Telegram answer/reasoning behavior.
+**Why it matters:** This is still the biggest remaining gap. Pythinker now has lane-aware infrastructure, but it does not yet deliver a fully faithful OpenClaw answer/reasoning split end-to-end.
 
 **Reference files:**
 - `/home/mac/Desktop/Pythinker-main/openclaw-main/src/telegram/lane-delivery.ts`
@@ -204,6 +222,16 @@ The remaining parity work is grouped below in the order that actually reduces ri
   - a finalized preview may remain visible
   - superseded previews may be deleted
 
+**Current progress in Pythinker:**
+- `StreamEvent` already declares `lane`.
+- planner/runtime code can emit `lane="reasoning"` in some paths.
+- router preserves lane for Telegram and suppresses reasoning lane for non-Telegram channels.
+- Telegram preview state already supports archived-preview consumption, regressive update blocking, generation tracking, and per-lane finalization.
+
+**What still remains:**
+- Main execution/summarization paths still do not emit a full OpenClaw-style answer/reasoning split consistently.
+- Delivery result types are not yet formalized into a stable app-level contract.
+
 **Critical OpenClaw behaviors to replicate (verified against source):**
 
 1. **Archived preview consumption** (`lane-delivery.ts` lines 317-359): When a lane boundary rotates, the old preview message is not immediately deleted. Instead, the final send for the new boundary can **consume** the archived preview (edit it in-place) rather than sending a new message. This avoids message-count churn. The `deleteIfUnused` flag controls whether an unconsumed archived preview is cleaned up.
@@ -228,9 +256,9 @@ The remaining parity work is grouped below in the order that actually reduces ri
 
 ### Workstream 2: Add Reasoning Visibility State And Telegram Controls
 
-**Status:** Not Started
+**Status:** In Progress
 
-**Why it matters:** OpenClaw’s second lane is useful because users can control it with `/reasoning off|on|stream`. Pythinker currently has no equivalent state model.
+**Why it matters:** OpenClaw’s second lane is useful because users can control it with `/reasoning off|on|stream`. Pythinker now has persisted state and text commands, but delivery behavior still ignores that state.
 
 **Reference files:**
 - `/home/mac/Desktop/Pythinker-main/openclaw-main/src/auto-reply/thinking.ts`
@@ -259,6 +287,15 @@ The remaining parity work is grouped below in the order that actually reduces ri
   - `on`: reasoning available but not live-streamed
   - `stream`: reasoning lane streams live
 
+**Current progress in Pythinker:**
+- Session fields now exist for `reasoning_visibility`, `thinking_level`, `verbose_mode`, and `elevated_mode`.
+- `/reasoning`, `/think`, `/verbose`, `/elevated`, and `/models` text commands are implemented.
+
+**What still remains:**
+- No Telegram-native argument menu is shown when `/reasoning` is invoked without an argument.
+- Lane delivery does not yet obey `off|on|stream`.
+- The main chat/runtime path does not yet apply the stored session options consistently.
+
 **Important note:** This is not the same as Pythinker’s current `thinking_mode`. `thinking_mode` chooses runtime effort. OpenClaw’s `reasoning` setting controls visibility of reasoning output.
 
 **Design boundary:** The `"stream"` value is Telegram-specific. OpenClaw’s `directive-handling.impl.ts` line 397 explicitly says "Reasoning stream enabled (Telegram only)." This means the `"stream"` reasoning level is a transport-visibility concern, not a universal agent concern. The state should be stored per-session but the `"stream"` behavior is only consumed by the Telegram delivery path.
@@ -267,7 +304,7 @@ The remaining parity work is grouped below in the order that actually reduces ri
 
 ### Workstream 3: Build Command-Argument Menus And Callback-Driven Option Toggles
 
-**Status:** Not Started
+**Status:** In Progress
 
 **Why it matters:** OpenClaw does not force users to memorize every option string. Telegram native commands open button menus for arguments when possible.
 
@@ -295,13 +332,11 @@ The remaining parity work is grouped below in the order that actually reduces ri
 - `/models`
 - any additional custom command that can expose `choices`
 
-**Current blocker:** Pythinker’s command registry only stores:
-- primary command
-- skill id
-- description
-- aliases
+**Current progress in Pythinker:**
+- The command registry now supports typed args, choices, `args_menu`, and `scope`.
+- Telegram can register custom primary commands from the shared registry into the bot command menu.
 
-It does not store typed arguments, choices, or menu metadata. That registry needs a real schema upgrade.
+**Current blocker:** Telegram does not yet consume the richer registry schema to render argument menus or reconstruct slash commands from callback taps.
 
 **Command scope system** (missing from original plan): OpenClaw commands have a `scope` field (`"native" | "text" | "both"`) that controls where a command is available:
 - `native`: Only registered as a Telegram bot menu command
@@ -349,15 +384,14 @@ Validation rules differ per scope (`commands-registry.data.ts` lines 81-124). Wi
 - thread/topic metadata
 - reply quote/body metadata
 - media attachment metadata
+- forwarded-message context
+- reply target media placeholders
+- location/venue context
 
 **What OpenClaw still does that Pythinker does not:**
-- forwarded-message context
-- reply target media context
-- location context extraction
 - thread starter body
 - pending history context between replies
-- richer mention/reply/implicit-mention handling
-- structured inbound user context blocks in the prompt
+- richer structured sender/conversation context blocks in the prompt
 
 **Reference files:**
 - `/home/mac/Desktop/Pythinker-main/openclaw-main/src/telegram/bot-message-context.ts`
@@ -388,14 +422,15 @@ Validation rules differ per scope (`commands-registry.data.ts` lines 81-124). Wi
 - message-thread fallback
 - text/media send paths
 - PDF fallback path
+- explicit `quote_text` support on outbound send
+- first-chunk-only reply application for normal text chunking
+- markdown-to-Telegram HTML rendering
+- preview finalization against the final answer lane
 
 **What OpenClaw still does better:**
-- explicit `quoteText` support on outbound send
-- first-chunk-only application of reply reference, quote text, and buttons
 - chunk-aware follow-up text sends after media
 - voice-message fallback semantics
-- richer markdown-to-Telegram rendering behavior
-- pin support and more exact delivery progress tracking
+- more exact delivery progress tracking
 
 **Reference files:**
 - `/home/mac/Desktop/Pythinker-main/openclaw-main/src/telegram/send.ts`
@@ -407,8 +442,8 @@ Validation rules differ per scope (`commands-registry.data.ts` lines 81-124). Wi
 - `backend/app/domain/services/tools/message.py`
 - `backend/tests/infrastructure/external/channels/test_telegram_channel_commands.py`
 
-**Notable current gap in Pythinker tool contract:**
-- `message_notify_user` does not expose OpenClaw-like send parameters such as `quoteText`.
+**Notable current gaps in Pythinker tool contract:**
+- The core send contract still does not model all OpenClaw delivery outcomes and follow-up behaviors as first-class concepts.
 
 ### Workstream 7: Expand Telegram Action Surface Into A Stable App Contract
 
@@ -417,6 +452,8 @@ Validation rules differ per scope (`commands-registry.data.ts` lines 81-124). Wi
 **What Pythinker has now:**
 - action envelope types in `backend/app/domain/services/tools/message.py`
 - dispatch support in `backend/nanobot/channels/telegram.py`
+- action discovery via `list_supported_actions()`
+- support for `pin` and `unpin`
 
 **What is still missing versus OpenClaw:**
 - one unified Telegram action adapter boundary
@@ -475,6 +512,7 @@ OpenClaw implements a full state-machine for lifecycle reactions via `createStat
 - Telegram command registration
 - paginated `/help`
 - `/commands` alias
+- custom primary commands from the shared command registry can be added to the Telegram menu
 
 **What OpenClaw still has that Pythinker does not:**
 - change-hashed command menu sync to avoid rate limits
@@ -500,6 +538,7 @@ OpenClaw implements a full state-machine for lifecycle reactions via `createStat
 - forum topic routing keys
 - topic create outbound action
 - session key separation by DM thread/topic
+- forum-topic and DM-thread aware inbound policy routing
 
 **What remains versus OpenClaw:**
 - persistent thread/topic bindings with richer session meta
@@ -515,18 +554,21 @@ OpenClaw implements a full state-machine for lifecycle reactions via `createStat
 
 The work should be done in this order. The order is about dependency management, not convenience.
 
-### Task 0: Commit And Stabilize WIP Transport Parity Code
+### Task 0: Stabilize And Truth-Check The Parity Baseline
 
-**Prerequisite:** The current uncommitted changes (+1,727 lines across 8 files) implement Tier 1 transport-level parity features. These must be committed and stabilized before starting the Tier 2 architectural work.
+**Status:** Historical prerequisite mostly complete
 
-**WIP covers:**
+**Current note:** The original “large uncommitted WIP” prerequisite is stale. Re-review on 2026-03-09 found that most of that transport baseline has already landed in the codebase and is covered by passing Telegram tests. Current local uncommitted changes should still be reviewed independently before additional parity work lands.
+
+**Current baseline covers:**
 - `/commands` alias and paginated `/help` with callback pagination
 - Reply context extraction (quote, external_reply, media placeholders)
-- Follow-up suggestion buttons via `telegram:followup:*` callbacks
+- Forwarded and location context extraction
 - `delivery_metadata` on `MessageEvent`
-- Full action dispatch (edit/delete/react/poll/topic/sticker)
+- Full action dispatch (edit/delete/react/poll/topic/sticker/pin/unpin)
 - Button and action normalization in `message.py`
-- ~955 lines of new tests
+- lane-aware preview delivery behavior with archived-preview coverage
+- broad Telegram router/channel regression coverage
 
 **Deliverable:**
 - Atomic commits per concern (tests, router, telegram, message tool, event model)
@@ -708,6 +750,16 @@ Until then, the correct status is:
 - Telegram full OpenClaw parity is still incomplete.
 
 ## Amendments Log
+
+**2026-03-09 — Re-review progress refresh (current codebase + tests):**
+
+1. Refreshed **Current Pythinker Status Snapshot** from the actual current tree instead of the earlier WIP assumptions
+2. Added a **Re-review note** with the latest passing Telegram-focused regression command and result (`202 passed`)
+3. Moved Workstreams **1, 2, and 3** from `Not Started` to `In Progress`
+4. Updated the snapshot to reflect shipped items that were previously undercounted: lane-aware preview infrastructure, persisted Telegram option fields, forwarded/location context, `quote_text`, and `pin`/`unpin`
+5. Corrected the suggestion-button note: callback parsing remains, but Telegram suggestion rendering is currently suppressed in the router
+6. Rewrote the stale **Hard Architectural Gaps** entries for dual-lane events and reasoning visibility to describe the current partial implementation accurately
+7. Replaced the old **Task 0** WIP prerequisite note with a factual historical-status note so the plan no longer claims a large uncommitted baseline that has already mostly landed
 
 **2026-03-08 — Post-review amendments (verified against OpenClaw source):**
 

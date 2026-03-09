@@ -903,31 +903,51 @@ class MessageRouter:
         Reuses existing sessions only while they are non-terminal.
         """
         if message.session_key_override:
-            return message.session_key_override
-
-        session_id = await self._user_channel_repo.get_session_key(user_id, message.channel, message.chat_id)
-
-        # If we have a stored session, verify it still exists and is reusable.
-        if session_id:
-            session = await self._agent_service.get_session(session_id, user_id)
-            if session is not None:
-                session_activity = await self._user_channel_repo.get_session_activity(
-                    user_id,
-                    message.channel,
-                    message.chat_id,
-                )
-                if not self._should_reuse_session(message, session, session_activity):
+            # The override is a *desired* session key — verify it still maps
+            # to a live session.  If it does, reuse it.  Otherwise, fall
+            # through and create a new session (storing the mapping under
+            # the normal channel key so subsequent messages find it).
+            session_id = await self._user_channel_repo.get_session_key(
+                user_id, message.channel, message.chat_id
+            )
+            if session_id:
+                session = await self._agent_service.get_session(session_id, user_id)
+                if session is not None:
+                    session_activity = await self._user_channel_repo.get_session_activity(
+                        user_id, message.channel, message.chat_id
+                    )
+                    if self._should_reuse_session(message, session, session_activity):
+                        return session_id
                     logger.info(
-                        "Stored session %s is terminal, creating a new session for %s/%s",
+                        "Override session %s is terminal, creating new session for %s/%s",
+                        session_id, message.channel, message.chat_id,
+                    )
+                else:
+                    logger.info("Override session %s no longer exists, creating new one", session_id)
+            # No reusable session — fall through to create a new one.
+
+        else:
+            session_id = await self._user_channel_repo.get_session_key(user_id, message.channel, message.chat_id)
+
+            # If we have a stored session, verify it still exists and is reusable.
+            if session_id:
+                session = await self._agent_service.get_session(session_id, user_id)
+                if session is not None:
+                    session_activity = await self._user_channel_repo.get_session_activity(
+                        user_id,
+                        message.channel,
+                        message.chat_id,
+                    )
+                    if self._should_reuse_session(message, session, session_activity):
+                        return session_id
+                    logger.info(
+                        "Stored session %s is terminal, creating new session for %s/%s",
                         session_id,
                         message.channel,
                         message.chat_id,
                     )
                 else:
-                    return session_id
-            else:
-                # Session was deleted — fall through and create a new one
-                logger.info("Stored session %s no longer exists, creating new one", session_id)
+                    logger.info("Stored session %s no longer exists, creating new one", session_id)
 
         # Create a new session
         session = await self._agent_service.create_session(
@@ -1376,9 +1396,15 @@ class MessageRouter:
 
     @classmethod
     def _suggestion_event_to_outbound(cls, event: object, source: InboundMessage) -> OutboundMessage | None:
-        """Render Telegram follow-up suggestions as native inline buttons."""
-        if source.channel != ChannelType.TELEGRAM:
+        """Render follow-up suggestions as native inline buttons.
+
+        Currently suppressed for Telegram — follow-up questions are a
+        web-UI concern and add noise to the Telegram conversation.
+        """
+        if source.channel == ChannelType.TELEGRAM:
             return None
+        # Non-Telegram channels: no rendering implemented yet.
+        return None
 
         raw_suggestions = getattr(event, "suggestions", None)
         if not isinstance(raw_suggestions, list):
