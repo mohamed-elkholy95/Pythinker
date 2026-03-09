@@ -158,6 +158,10 @@ def build_message_notify_delivery_metadata(function_args: Mapping[str, Any]) -> 
             "inline_keyboard": buttons,
         }
 
+    quote_text = _normalize_non_empty_string(function_args.get("quote_text"))
+    if quote_text:
+        metadata["quote_text"] = quote_text
+
     telegram_action = normalize_message_notify_telegram_action(function_args.get("telegram_action"))
     if telegram_action:
         metadata["telegram_action"] = telegram_action
@@ -197,6 +201,10 @@ class MessageTool(BaseTool):
                         "required": ["text", "callback_data"],
                     },
                 },
+            },
+            "quote_text": {
+                "type": "string",
+                "description": "(Optional) Text to quote from the replied-to message (Telegram reply_parameters.quote).",
             },
             "telegram_action": {
                 "type": "object",
@@ -239,6 +247,7 @@ class MessageTool(BaseTool):
         text: str,
         attachments: str | list[str] | None = None,
         buttons: list[list[dict[str, str]]] | None = None,
+        quote_text: str | None = None,
         telegram_action: dict[str, Any] | None = None,
     ) -> ToolResult:
         """Send notification message to user, no response needed
@@ -247,12 +256,13 @@ class MessageTool(BaseTool):
             text: Message text to display to user
             attachments: (Optional) List of attachments to show to user
             buttons: (Optional) Telegram inline keyboard rows
+            quote_text: (Optional) Text to quote from the replied-to message
             telegram_action: (Optional) Telegram-native delivery action
 
         Returns:
             Message sending result
         """
-        del buttons, telegram_action
+        del buttons, quote_text, telegram_action
 
         # Return success result, actual UI display logic implemented by caller
         return ToolResult(success=True, data="Continue")
