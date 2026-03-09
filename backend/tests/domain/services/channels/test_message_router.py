@@ -104,10 +104,12 @@ class _FakeSession:
         self,
         session_id: str = "sess-123",
         status: SessionStatus = SessionStatus.RUNNING,
+        reasoning_visibility: str | None = None,
     ) -> None:
         self.id = session_id
         self.status = status
         self.created_at = datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC)
+        self.reasoning_visibility = reasoning_visibility
 
 
 # ---------------------------------------------------------------------------
@@ -1451,3 +1453,111 @@ class TestEdgeCases:
 
         assert len(replies) == 1
         assert replies[0].reply_to == msg.id
+
+
+# ---------------------------------------------------------------------------
+# /reasoning command tests
+# ---------------------------------------------------------------------------
+
+
+class TestSlashReasoning:
+    @pytest.mark.asyncio
+    async def test_reasoning_no_arg_shows_current_level(self) -> None:
+        """``/reasoning`` with no argument shows current level."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        session = _FakeSession(reasoning_visibility="stream")
+        agent_svc = _make_agent_service(session=session)
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/reasoning"))]
+
+        assert len(replies) == 1
+        assert "stream" in replies[0].content
+        assert "Valid levels" in replies[0].content
+
+    @pytest.mark.asyncio
+    async def test_reasoning_no_arg_defaults_to_off(self) -> None:
+        """``/reasoning`` with no session reasoning_visibility defaults to 'off'."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        session = _FakeSession(reasoning_visibility=None)
+        agent_svc = _make_agent_service(session=session)
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/reasoning"))]
+
+        assert len(replies) == 1
+        assert "off" in replies[0].content
+
+    @pytest.mark.asyncio
+    async def test_reasoning_set_on(self) -> None:
+        """``/reasoning on`` persists the level and acks."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        agent_svc.update_session_fields = AsyncMock()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/reasoning on"))]
+
+        assert len(replies) == 1
+        assert "enabled" in replies[0].content.lower()
+        agent_svc.update_session_fields.assert_awaited_once_with(
+            "sess-123", "user-abc", {"reasoning_visibility": "on"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_reasoning_set_stream(self) -> None:
+        """``/reasoning stream`` persists and returns Telegram-specific ack."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        agent_svc.update_session_fields = AsyncMock()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/reasoning stream"))]
+
+        assert len(replies) == 1
+        assert "stream enabled" in replies[0].content.lower()
+        assert "Telegram" in replies[0].content
+        agent_svc.update_session_fields.assert_awaited_once_with(
+            "sess-123", "user-abc", {"reasoning_visibility": "stream"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_reasoning_set_off(self) -> None:
+        """``/reasoning off`` persists and returns disabled ack."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        agent_svc.update_session_fields = AsyncMock()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/reasoning off"))]
+
+        assert len(replies) == 1
+        assert "disabled" in replies[0].content.lower()
+        agent_svc.update_session_fields.assert_awaited_once_with(
+            "sess-123", "user-abc", {"reasoning_visibility": "off"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_reasoning_invalid_level(self) -> None:
+        """``/reasoning banana`` returns an error listing valid levels."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id="sess-123")
+        agent_svc = _make_agent_service()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/reasoning banana"))]
+
+        assert len(replies) == 1
+        assert "Unrecognized" in replies[0].content
+        assert "banana" in replies[0].content
+
+    @pytest.mark.asyncio
+    async def test_reasoning_no_session(self) -> None:
+        """``/reasoning`` with no active session defaults to 'off'."""
+        repo = _make_user_channel_repo(user_id="user-abc", session_id=None)
+        agent_svc = _make_agent_service()
+        router = MessageRouter(agent_svc, repo)
+
+        replies = [r async for r in router.route_inbound(_make_inbound("/reasoning"))]
+
+        assert len(replies) == 1
+        assert "off" in replies[0].content
