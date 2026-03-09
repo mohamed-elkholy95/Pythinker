@@ -832,11 +832,15 @@ class AgentTaskRunner(TaskRunner):
             chart_error = f"{type(exc).__name__}: {exc}"
 
         if chart_result is None:
-            logger.warning(
+            # Chart extraction failure from an actual error is a warning;
+            # "no chart data" is expected for non-quantitative reports (info).
+            _chart_msg = chart_error or "no chart data extracted from report"
+            _log_fn = logger.warning if chart_error else logger.info
+            _log_fn(
                 "Plotly chart unavailable for report_id=%s session=%s: %s. Falling back to legacy SVG.",
                 event.id,
                 self._session_id,
-                chart_error or "no chart data extracted from report",
+                _chart_msg,
             )
             return await self._ensure_legacy_svg_chart(
                 event,
