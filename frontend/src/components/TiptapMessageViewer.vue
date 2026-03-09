@@ -109,16 +109,19 @@ const _failedFaviconDomains = new Set<string>();
 const _citDebug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugCitations');
 
 /**
- * Normalize inline GFM alert markers so marked.js can parse them as blockquotes.
- *
- * LLMs sometimes embed alert syntax inline (e.g., "Caveat: > [!WARNING]\n> text")
- * instead of starting the blockquote at column 0. This pre-processor splits such
- * lines so the `>` marker starts its own line.
+ * Normalize inline GFM alert markers that aren't at line-start into proper blockquote syntax.
+ * Handles patterns like "Caveat: > [!WARNING]" or "Next step: > [!NOTE]"
+ * by splitting them so the alert marker starts on its own line as a blockquote.
  */
-const normalizeInlineAlerts = (markdown: string): string => {
-  return markdown.replace(
-    /^(.+?)\s*>\s*(\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\])/gim,
-    (_, prefix, marker) => `${prefix.replace(/[:\s]+$/, '')}\n\n> ${marker}`,
+const normalizeInlineAlerts = (md: string): string => {
+  // Match: non-empty text before `> [!TYPE]` on the same line
+  // Captures: prefix text, alert type, optional trailing content on same line
+  return md.replace(
+    /^(.+?)\s*>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/gim,
+    (_, prefix, type) => {
+      const trimmedPrefix = prefix.replace(/:$/, '').trim();
+      return trimmedPrefix ? `${trimmedPrefix}\n\n> [!${type.toUpperCase()}]` : `> [!${type.toUpperCase()}]`;
+    },
   );
 };
 
@@ -126,10 +129,10 @@ const normalizeInlineAlerts = (markdown: string): string => {
 const htmlContent = computed(() => {
   if (!props.content) return '<p></p>';
   const normalizedMarkdown = normalizeVerificationMarkers(props.content);
-  const alertNormalized = normalizeInlineAlerts(normalizedMarkdown);
-  const linkedMarkdown = linkifyInlineCitations(alertNormalized);
+  const linkedMarkdown = linkifyInlineCitations(normalizedMarkdown);
+  const processed = normalizeInlineAlerts(linkedMarkdown);
   // Collapse 3+ consecutive newlines to 2 — prevents excessive <br> gaps from `breaks: true`
-  const collapsed = linkedMarkdown.replace(/\n{3,}/g, '\n\n');
+  const collapsed = processed.replace(/\n{3,}/g, '\n\n');
   const rawHtml = marked.parse(collapsed, { async: false, breaks: true, gfm: true }) as string;
   const sanitized = DOMPurify.sanitize(rawHtml);
   if (_citDebug) {
