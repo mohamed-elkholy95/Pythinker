@@ -196,6 +196,11 @@ class OpenAILLM(LLM):
         # Client will be created with active key on-demand
         self.client: AsyncOpenAI | None = None
 
+        # Per-key client cache — avoids creating a new AsyncOpenAI instance on every call
+        self._cached_client: AsyncOpenAI | None = None
+        self._cached_client_key: str | None = None
+        self._cached_client_base: str | None = None
+
         tags = []
         if self._is_glm_api:
             tags.append("[GLM API]")
@@ -439,6 +444,14 @@ class OpenAILLM(LLM):
             key_count = len(self._key_pool.keys) if hasattr(self, "_key_pool") else 1
             raise APIKeysExhaustedError("OpenAI/OpenRouter", key_count)
 
+        # Return cached client if key and base URL are unchanged
+        if (
+            self._cached_client is not None
+            and self._cached_client_key == key
+            and self._cached_client_base == self._api_base
+        ):
+            return self._cached_client
+
         # Detect if using Kimi Code API and add required headers
         default_headers = None
         if self._api_base and "kimi.com" in self._api_base:
@@ -449,12 +462,16 @@ class OpenAILLM(LLM):
             }
             logger.debug("Using Kimi Code API headers")
 
-        return AsyncOpenAI(
+        client = AsyncOpenAI(
             api_key=key,
             base_url=self._api_base,
             default_headers=default_headers,
             timeout=self._create_timeout(is_streaming=is_streaming, is_tool_call=is_tool_call),
         )
+        self._cached_client = client
+        self._cached_client_key = key
+        self._cached_client_base = self._api_base
+        return client
 
     def _parse_openai_rate_limit(self, error: Exception) -> int:
         """Parse OpenAI rate limit error for TTL.

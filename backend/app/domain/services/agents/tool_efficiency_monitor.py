@@ -296,3 +296,9 @@ def get_efficiency_monitor(
             strong_threshold=strong_threshold,
         )
     return _efficiency_monitor
+
+
+def reset_efficiency_monitor() -> None:
+    """Reset the singleton for testing. Call in test teardown."""
+    global _efficiency_monitor
+    _efficiency_monitor = None

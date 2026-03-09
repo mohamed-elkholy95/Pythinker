@@ -85,6 +85,14 @@ class TruncationDetector:
     Context7 validated: Pattern detection, regex matching, dataclass return types.
     """
 
+    # Matches lines that end with a URL — used to suppress mid_sentence false positives
+    _URL_LINE_RE: ClassVar[re.Pattern[str]] = re.compile(
+        r"(?:https?://|www\.)\S+$"
+        r"|"
+        r"\S+\.(?:com|org|io|net|edu|gov)\S*$",
+        re.IGNORECASE,
+    )
+
     # Continuation prompt for incomplete reference sections
     REFERENCES_CONTINUATION_PROMPT: ClassVar[str] = (
         "Your previous response has an incomplete ## References section. "
@@ -161,6 +169,19 @@ class TruncationDetector:
         ),
     ]
 
+    @classmethod
+    def _last_line_is_url(cls, content: str) -> bool:
+        """Return True if the last non-empty line of *content* ends with a URL.
+
+        Used to suppress mid_sentence_no_punctuation false positives when
+        the response legitimately ends with a bare link.
+        """
+        for line in reversed(content.splitlines()):
+            stripped = line.strip()
+            if stripped:
+                return bool(cls._URL_LINE_RE.search(stripped))
+        return False
+
     def __init__(self, patterns: list[TruncationPattern] | None = None):
         """Initialize truncation detector with patterns.
 
@@ -216,12 +237,17 @@ class TruncationDetector:
         evidence = []
         matches = []
 
+        url_last_line = self._last_line_is_url(content)
+
         for pattern_obj, compiled_pattern in self._compiled_patterns:
             if compiled_pattern.search(content):
                 # Reduce false positives for unclosed_code_block pattern
                 # Only flag as truncation if the code block appears incomplete
                 if pattern_obj.name == "unclosed_code_block" and not self._is_truly_unclosed_code_block(content):
                     continue  # Skip this false positive
+                # Suppress mid_sentence false positive when the last line ends with a URL
+                if pattern_obj.name == "mid_sentence_no_punctuation" and url_last_line:
+                    continue  # URL endings are not truncation signals
                 matches.append(pattern_obj)
                 evidence.append(f"Matched pattern: {pattern_obj.name}")
 
