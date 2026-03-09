@@ -63,14 +63,6 @@ defineProps<{
   border-color: var(--border-hover);
 }
 
-:global(.dark) .research-badge {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-}
-
-:global(.dark) .research-badge:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-}
-
 /* ── Icon container ── */
 .badge-icon-wrap {
   display: flex;
@@ -174,14 +166,31 @@ defineProps<{
   border-radius: inherit;
 }
 
-/* ── Dark theme ── */
-:global(.dark) .badge-deep {
+/* ── Label ── */
+.badge-label {
+  position: relative;
+  z-index: 1;
+}
+</style>
+
+<!-- Dark theme overrides — unscoped because :global(.dark) is stripped in production builds -->
+<style>
+.dark .research-badge {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  border-color: var(--border-light);
+}
+
+.dark .research-badge:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.dark .badge-deep {
   border-color: rgba(255, 255, 255, 0.15);
   background: linear-gradient(145deg, var(--fill-tsp-white-main), rgba(255, 255, 255, 0.05));
   color: rgba(255, 255, 255, 0.9);
 }
 
-:global(.dark) .badge-deep::after {
+.dark .badge-deep::after {
   background: linear-gradient(
     105deg,
     transparent 35%,
@@ -192,31 +201,31 @@ defineProps<{
   );
 }
 
-:global(.dark) .badge-fast .badge-icon-wrap {
+.dark .badge-fast .badge-icon-wrap {
   background: rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.9);
   box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.05);
 }
 
-:global(.dark) .badge-deep .badge-icon-wrap {
+.dark .badge-deep .badge-icon-wrap {
   background: linear-gradient(135deg, #f4f4f5, #ffffff);
   color: #000000;
   box-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
 }
 
-:global(.dark) .badge-deal {
+.dark .badge-deal {
   border-color: rgba(251, 146, 60, 0.35);
   background: linear-gradient(145deg, rgba(124, 45, 18, 0.65), rgba(154, 52, 18, 0.5));
   color: #fed7aa;
 }
 
-:global(.dark) .badge-deal .badge-icon-wrap {
+.dark .badge-deal .badge-icon-wrap {
   background: linear-gradient(135deg, #fb923c, #f97316);
   color: #000000;
   box-shadow: 0 0 12px rgba(251, 146, 60, 0.4);
 }
 
-:global(.dark) .badge-deal::after {
+.dark .badge-deal::after {
   background: linear-gradient(
     105deg,
     transparent 35%,
@@ -225,15 +234,5 @@ defineProps<{
     rgba(251, 146, 60, 0.1) 55%,
     transparent 65%
   );
-}
-
-:global(.dark) .research-badge {
-  border-color: var(--border-light);
-}
-
-/* ── Label ── */
-.badge-label {
-  position: relative;
-  z-index: 1;
 }
 </style>
