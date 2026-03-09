@@ -178,6 +178,7 @@ defineProps<{
 :global(.dark) .badge-deep {
   border-color: rgba(255, 255, 255, 0.15);
   background: linear-gradient(145deg, var(--fill-tsp-white-main), rgba(255, 255, 255, 0.05));
+  color: rgba(255, 255, 255, 0.9);
 }
 
 :global(.dark) .badge-deep::after {
@@ -206,6 +207,7 @@ defineProps<{
 :global(.dark) .badge-deal {
   border-color: rgba(251, 146, 60, 0.3);
   background: linear-gradient(145deg, rgba(124, 45, 18, 0.3), rgba(154, 52, 18, 0.2));
+  color: rgba(255, 255, 255, 0.9);
 }
 
 :global(.dark) .badge-deal .badge-icon-wrap {
