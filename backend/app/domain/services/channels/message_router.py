@@ -31,21 +31,27 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Slash-command constants
 # ---------------------------------------------------------------------------
-SLASH_COMMANDS = frozenset({"/new", "/stop", "/help", "/commands", "/status", "/link", "/pdf", "/reasoning"})
+SLASH_COMMANDS = frozenset({
+    "/new", "/stop", "/help", "/commands", "/status", "/link", "/pdf",
+    "/reasoning", "/think", "/thinking", "/t",
+    "/verbose", "/v", "/elevated", "/elev",
+})
 _REASONING_VISIBILITY_LEVELS = frozenset({"off", "on", "stream"})
+_THINKING_LEVELS = frozenset({"off", "low", "medium", "high"})
+_TOGGLE_LEVELS = frozenset({"off", "on"})
 
 HELP_TEXT = (
     "Available commands:\n"
-    "  /new    — Start a new conversation\n"
-    "  /stop   — Cancel the current request\n"
-    "  /status — Show active session info\n"
-    "  /link   — Link your Telegram to your web account\n"
-    "  /pdf    — Send the last assistant response as a PDF\n"
-    "  /bind   — Alias of /link\n"
-    "  :bind   — Legacy alias of /link\n"
-    "  /help   — Show this help message\n"
-    "  /commands — Alias of /help\n"
-    "  /reasoning — Set reasoning visibility (off, on, stream)"
+    "  /new       — Start a new conversation\n"
+    "  /stop      — Cancel the current request\n"
+    "  /status    — Show active session info\n"
+    "  /link      — Link your Telegram to your web account\n"
+    "  /pdf       — Send the last assistant response as a PDF\n"
+    "  /reasoning — Set reasoning visibility (off, on, stream)\n"
+    "  /think     — Set thinking level (off, low, medium, high)\n"
+    "  /verbose   — Toggle verbose mode (off, on)\n"
+    "  /elevated  — Toggle elevated mode (off, on)\n"
+    "  /help      — Show this help message"
 )
 
 TELEGRAM_LINK_REQUIRED_TEXT = (
@@ -630,6 +636,72 @@ class MessageRouter:
                 ack = "Reasoning stream enabled (Telegram only)."
             else:
                 ack = "Reasoning visibility enabled."
+            yield self._make_reply(message, ack)
+            return
+
+        if command in {"/think", "/thinking", "/t"}:
+            parts = content.split(maxsplit=1)
+            level = parts[1].strip().lower() if len(parts) > 1 else ""
+            session_id = await self._user_channel_repo.get_session_key(
+                user_id, message.channel, message.chat_id
+            )
+            if not level:
+                current = await self._get_session_option(session_id, user_id, "thinking_level")
+                yield self._make_reply(
+                    message,
+                    f"Current thinking level: {current}.\nValid levels: off, low, medium, high",
+                )
+                return
+            if level not in _THINKING_LEVELS:
+                yield self._make_reply(
+                    message,
+                    f'Unrecognized thinking level "{level}". Valid levels: off, low, medium, high.',
+                )
+                return
+            await self._set_session_option(session_id, user_id, "thinking_level", level)
+            ack = f"Thinking level set to {level}." if level != "off" else "Extended thinking disabled."
+            yield self._make_reply(message, ack)
+            return
+
+        if command in {"/verbose", "/v"}:
+            parts = content.split(maxsplit=1)
+            level = parts[1].strip().lower() if len(parts) > 1 else ""
+            session_id = await self._user_channel_repo.get_session_key(
+                user_id, message.channel, message.chat_id
+            )
+            if not level:
+                current = await self._get_session_option(session_id, user_id, "verbose_mode")
+                yield self._make_reply(message, f"Verbose mode: {current}.\nValid levels: off, on")
+                return
+            if level not in _TOGGLE_LEVELS:
+                yield self._make_reply(
+                    message,
+                    f'Unrecognized verbose setting "{level}". Valid levels: off, on.',
+                )
+                return
+            await self._set_session_option(session_id, user_id, "verbose_mode", level)
+            ack = "Verbose mode enabled." if level == "on" else "Verbose mode disabled."
+            yield self._make_reply(message, ack)
+            return
+
+        if command in {"/elevated", "/elev"}:
+            parts = content.split(maxsplit=1)
+            level = parts[1].strip().lower() if len(parts) > 1 else ""
+            session_id = await self._user_channel_repo.get_session_key(
+                user_id, message.channel, message.chat_id
+            )
+            if not level:
+                current = await self._get_session_option(session_id, user_id, "elevated_mode")
+                yield self._make_reply(message, f"Elevated mode: {current}.\nValid levels: off, on")
+                return
+            if level not in _TOGGLE_LEVELS:
+                yield self._make_reply(
+                    message,
+                    f'Unrecognized elevated setting "{level}". Valid levels: off, on.',
+                )
+                return
+            await self._set_session_option(session_id, user_id, "elevated_mode", level)
+            ack = "Elevated mode enabled." if level == "on" else "Elevated mode disabled."
             yield self._make_reply(message, ack)
             return
 
@@ -1314,23 +1386,31 @@ class MessageRouter:
         return f"{_TELEGRAM_FOLLOW_UP_CALLBACK_PREFIX}:{safe_index}"
 
     # ------------------------------------------------------------------
-    # Reasoning visibility persistence
+    # Session option persistence
     # ------------------------------------------------------------------
 
     async def _get_reasoning_visibility(self, session_id: str | None, user_id: str | None) -> str:
         """Return the current reasoning visibility level for the session, defaulting to ``"off"``."""
+        return await self._get_session_option(session_id, user_id, "reasoning_visibility")
+
+    async def _set_reasoning_visibility(self, session_id: str | None, user_id: str | None, level: str) -> None:
+        """Persist *level* (``off | on | stream``) to the session document."""
+        await self._set_session_option(session_id, user_id, "reasoning_visibility", level)
+
+    async def _get_session_option(self, session_id: str | None, user_id: str | None, field: str) -> str:
+        """Return a session option field value, defaulting to ``"off"``."""
         if not session_id or not user_id:
             return "off"
         session = await self._agent_service.get_session(session_id, user_id)
         if session is None:
             return "off"
-        return session.reasoning_visibility or "off"
+        return getattr(session, field, None) or "off"
 
-    async def _set_reasoning_visibility(self, session_id: str | None, user_id: str | None, level: str) -> None:
-        """Persist *level* (``off | on | stream``) to the session document."""
+    async def _set_session_option(self, session_id: str | None, user_id: str | None, field: str, value: str) -> None:
+        """Persist a single session option field."""
         if not session_id or not user_id:
             return
-        await self._agent_service.update_session_fields(session_id, user_id, {"reasoning_visibility": level})
+        await self._agent_service.update_session_fields(session_id, user_id, {field: value})
 
     # ------------------------------------------------------------------
     # Helpers
