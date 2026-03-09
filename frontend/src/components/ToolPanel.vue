@@ -36,6 +36,7 @@
         :finalReportText="panelProps.finalReportText"
         :isSummaryStreaming="panelProps.isSummaryStreaming"
         :activeCanvasUpdate="panelProps.activeCanvasUpdate"
+        :sessionStartTime="panelProps.sessionStartTime"
         @hide="() => hideToolPanel(true)"
         @jumpToRealTime="jumpToRealTime"
         @stepForward="handleTimelineStepForward"
@@ -126,6 +127,8 @@ const panelProps = defineProps<{
   finalReportText?: string
   isSummaryStreaming?: boolean
   activeCanvasUpdate?: CanvasUpdateEventData | null
+  /** Shared session start timestamp so all timers stay in sync. */
+  sessionStartTime?: number
 }>()
 
 // Track if state change was from user action
