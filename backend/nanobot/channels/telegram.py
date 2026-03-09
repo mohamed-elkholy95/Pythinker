@@ -194,10 +194,12 @@ class TelegramChannel(BaseChannel):
         BotCommand("think", "Set thinking level (off, low, medium, high)"),
         BotCommand("verbose", "Toggle verbose mode (off, on)"),
         BotCommand("elevated", "Toggle elevated mode (off, on)"),
+        BotCommand("models", "Show model information"),
     ]
     _KNOWN_SLASH_COMMANDS = frozenset({
         "start", "new", "stop", "status", "pdf", "link", "bind", "help", "commands",
         "reasoning", "think", "thinking", "t", "verbose", "v", "elevated", "elev",
+        "models",
     })
 
     def __init__(
@@ -420,13 +422,21 @@ class TelegramChannel(BaseChannel):
 
     @classmethod
     def _reply_parameters_for_metadata(cls, metadata: dict[str, object], reply_to_mode: str) -> ReplyParameters | None:
-        """Build ReplyParameters for the source message when reply threading is enabled."""
+        """Build ReplyParameters for the source message when reply threading is enabled.
+
+        Supports OpenClaw-style ``quote_text`` (maps to Telegram ``reply_parameters.quote``).
+        """
         if reply_to_mode == "off":
             return None
         message_id = cls._normalize_message_id(metadata.get("message_id"))
         if message_id is None:
             return None
-        return ReplyParameters(message_id=message_id, allow_sending_without_reply=True)
+        quote_text = str(metadata.get("quote_text", "") or "").strip() or None
+        return ReplyParameters(
+            message_id=message_id,
+            allow_sending_without_reply=True,
+            **({"quote": quote_text} if quote_text else {}),
+        )
 
     @staticmethod
     def _should_include_reply_for_send(
@@ -726,6 +736,57 @@ class TelegramChannel(BaseChannel):
             metadata["reply_to_is_quote"] = True
         return metadata
 
+    @staticmethod
+    def _resolve_forward_context(message) -> dict[str, object]:
+        """Extract forwarded message metadata (OpenClaw bot-message-context.ts parity)."""
+        forward_origin = getattr(message, "forward_origin", None)
+        forward_date = getattr(message, "forward_date", None)
+        if forward_origin is None and forward_date is None:
+            return {}
+
+        metadata: dict[str, object] = {"is_forwarded": True}
+        if forward_date is not None:
+            metadata["forward_date"] = str(forward_date)
+
+        # Origin type determines what we can extract
+        origin_type = getattr(forward_origin, "type", None)
+        if origin_type == "user":
+            fwd_user = getattr(forward_origin, "sender_user", None)
+            if fwd_user is not None:
+                metadata["forward_from"] = getattr(fwd_user, "first_name", None) or str(getattr(fwd_user, "id", ""))
+                metadata["forward_from_id"] = getattr(fwd_user, "id", None)
+        elif origin_type == "channel":
+            fwd_chat = getattr(forward_origin, "chat", None)
+            if fwd_chat is not None:
+                metadata["forward_from_chat"] = getattr(fwd_chat, "title", None) or str(getattr(fwd_chat, "id", ""))
+                metadata["forward_from_chat_id"] = getattr(fwd_chat, "id", None)
+        elif origin_type == "hidden_user":
+            metadata["forward_from"] = getattr(forward_origin, "sender_user_name", None) or "[hidden]"
+        return metadata
+
+    @staticmethod
+    def _resolve_location_context(message) -> dict[str, object]:
+        """Extract location/venue from a Telegram message."""
+        location = getattr(message, "location", None)
+        venue = getattr(message, "venue", None)
+        if location is None and venue is None:
+            return {}
+        metadata: dict[str, object] = {}
+        if venue is not None:
+            loc = getattr(venue, "location", None) or location
+            metadata["location"] = {
+                "latitude": getattr(loc, "latitude", None),
+                "longitude": getattr(loc, "longitude", None),
+                "title": getattr(venue, "title", None),
+                "address": getattr(venue, "address", None),
+            }
+        elif location is not None:
+            metadata["location"] = {
+                "latitude": getattr(location, "latitude", None),
+                "longitude": getattr(location, "longitude", None),
+            }
+        return metadata
+
     @classmethod
     def _build_inbound_delivery_context(cls, message, user) -> tuple[dict[str, object], str]:
         """Build OpenClaw-style Telegram routing context for inbound messages."""
@@ -762,6 +823,8 @@ class TelegramChannel(BaseChannel):
         elif not is_group and raw_thread_id is not None:
             metadata["message_thread_id"] = raw_thread_id
         metadata.update(cls._resolve_reply_context(message))
+        metadata.update(cls._resolve_forward_context(message))
+        metadata.update(cls._resolve_location_context(message))
 
         chat_id = str(message.chat_id)
         if is_channel_post:
