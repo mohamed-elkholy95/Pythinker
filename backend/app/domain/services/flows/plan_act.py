@@ -490,6 +490,42 @@ class PlanActFlow(BaseFlow):
             self.executor._efficiency_monitor = ToolEfficiencyMonitor(
                 research_mode=self._research_mode,
             )
+
+        # ── Deterministic Research Pipeline ──────────────────────
+        if (
+            self._research_mode in ("deep_research",)  # Phase 1
+            and flags.get("research_deterministic_pipeline", True)
+        ):
+            from app.domain.services.agents.evidence_acquisition import (
+                EvidenceAcquisitionService,
+            )
+            from app.domain.services.agents.research_execution_policy import (
+                ResearchExecutionPolicy,
+            )
+            from app.domain.services.agents.source_selector import SourceSelector
+            from app.domain.services.agents.synthesis_guard import SynthesisGuard
+
+            _research_config = get_settings()
+            _selector = SourceSelector(config=_research_config)
+            _evidence_service = EvidenceAcquisitionService(
+                scraper=scraper,
+                browser=browser,
+                tool_result_store=tool_result_store,
+                config=_research_config,
+            )
+            _guard = SynthesisGuard(config=_research_config)
+
+            _research_policy = ResearchExecutionPolicy(
+                source_selector=_selector,
+                evidence_service=_evidence_service,
+                synthesis_guard=_guard,
+                config=_research_config,
+                source_tracker=self.executor._source_tracker,
+            )
+            self.executor._research_execution_policy = _research_policy
+            self.executor._tool_interceptors.append(_research_policy)
+            logger.info("Deterministic research pipeline enabled for session %s", session_id)
+
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
         # URL Failure Guard: session-scoped, shared across all steps
