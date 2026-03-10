@@ -4712,6 +4712,11 @@ const handleCopyLink = async () => {
 .chat-bottom-dock {
   padding-top: 8px;
   z-index: 20;
+  background: linear-gradient(
+    to bottom,
+    transparent 0px,
+    var(--background-gray-main) 48px
+  );
 }
 
 .chat-bottom-dock-fixed {
@@ -4720,13 +4725,6 @@ const handleCopyLink = async () => {
   z-index: 40;
   max-width: calc(100vw - 40px);
   padding-bottom: calc(12px + env(safe-area-inset-bottom));
-}
-
-:deep(.dark) .chat-bottom-dock,
-.dark .chat-bottom-dock,
-:deep(.dark) .chat-bottom-dock-fixed,
-.dark .chat-bottom-dock-fixed {
-  background: var(--background-gray-main);
 }
 
 /* 120-degree diagonal shimmer text effect */
