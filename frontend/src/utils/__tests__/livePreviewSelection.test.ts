@@ -40,4 +40,31 @@ describe('livePreviewSelection', () => {
       isSessionComplete: false,
     })).toBe('terminal');
   });
+
+  it('does not prefer browser preview when disabled', () => {
+    expect(shouldPreferBrowserPreviewForSearch({
+      baseViewType: 'search',
+      sessionId: 'session-123',
+      enabled: false,
+    })).toBe(false);
+  });
+
+  it('falls back to search view when session is complete (live mode)', () => {
+    expect(resolveLivePreviewViewType({
+      baseViewType: 'search',
+      sessionId: 'session-123',
+      enabled: true,
+      isReplayMode: false,
+      isSessionComplete: true,
+    })).toBe('search');
+  });
+
+  it('falls back to search in replay mode without screenshot', () => {
+    expect(shouldPreferBrowserPreviewForSearch({
+      baseViewType: 'search',
+      enabled: true,
+      isReplayMode: true,
+      hasReplayScreenshot: false,
+    })).toBe(false);
+  });
 });

@@ -272,6 +272,7 @@ class TestInfoSearchWebEnrichmentIntegration:
             message="Results",
             data=_make_search_data(3),
         )
+        tool._browse_top_results = AsyncMock()
 
         with patch(_SETTINGS_PATCH) as ms:
             ms.return_value = _default_settings(search_auto_enrich_enabled=False)
