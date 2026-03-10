@@ -735,6 +735,35 @@ class PlanActFlow(BaseFlow):
             if error is not None:
                 logger.warning("PlanActFlow background task failed for agent %s: %s", self._agent_id, error)
 
+    async def _drain_background_tasks(self, drain_timeout: float = 5.0) -> None:
+        """Await all pending background tasks before a critical phase transition.
+
+        Called before SUMMARIZING to ensure the last step's state save is
+        flushed to the sandbox file.  Uses a bounded timeout to prevent
+        indefinite blocking.
+        """
+        if not self._background_tasks:
+            return
+        pending = list(self._background_tasks)
+        logger.debug(
+            "Draining %d background task(s) for agent %s",
+            len(pending),
+            self._agent_id,
+        )
+        done, not_done = await asyncio.wait(pending, timeout=drain_timeout)
+        for _task in not_done:
+            logger.warning(
+                "Background task did not complete within %.1fs for agent %s",
+                drain_timeout,
+                self._agent_id,
+            )
+        # Consume exceptions so they don't leak as unhandled
+        for task in done:
+            if task.done() and not task.cancelled():
+                exc = task.exception()
+                if exc:
+                    logger.warning("Background task failed during drain: %s", exc)
+
     def _resolve_feature_flags(self) -> dict[str, bool]:
         """Return injected feature flags, falling back to core config."""
         if self._feature_flags is not None:
@@ -3493,6 +3522,8 @@ class PlanActFlow(BaseFlow):
                         continue
                     self._transition_to(AgentStatus.EXECUTING)
                 elif self.status == AgentStatus.SUMMARIZING:
+                    # Drain pending background tasks (especially final step's state save)
+                    await self._drain_background_tasks()
                     # Conclusion with tracing
                     await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started summarizing")
