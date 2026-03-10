@@ -87,12 +87,14 @@ class SourceTracker:
             [2] Title - URL
         """
         lines: list[str] = []
-        for i, source in enumerate(self._collected_sources, start=1):
+        bibliography_sources = self._get_bibliography_sources()
+        self._url_to_citation = {}
+
+        for i, source in enumerate(bibliography_sources, start=1):
             # Sanitize multiline titles to prevent citation parser confusion
             title = re.sub(r"\s+", " ", source.title or source.url).strip()
             lines.append(f"[{i}] {title} - {source.url}")
-            if source.url not in self._url_to_citation:
-                self._url_to_citation[source.url] = i
+            self._url_to_citation[source.url] = i
         return "\n".join(lines)
 
     def restore_sources(self, sources: list[SourceCitation]) -> None:
@@ -158,29 +160,39 @@ class SourceTracker:
             else:
                 continue
 
-            if url and url not in self._seen_urls and len(self._collected_sources) < self._max_collected_sources:
-                self._seen_urls.add(url)
-                self._collected_sources.append(
-                    SourceCitation(
-                        url=url,
-                        title=title or url,
-                        snippet=snippet[:2000] if snippet else None,
-                        access_time=access_time,
-                        source_type="search",
-                    )
+            if not url:
+                continue
+
+            existing_index = self._find_source_index(url)
+            if existing_index is not None:
+                # Never downgrade an already grounded source back to a search snippet.
+                continue
+
+            if len(self._collected_sources) >= self._max_collected_sources:
+                continue
+
+            self._seen_urls.add(url)
+            self._collected_sources.append(
+                SourceCitation(
+                    url=url,
+                    title=title or url,
+                    snippet=snippet[:2000] if snippet else None,
+                    access_time=access_time,
+                    source_type="search",
                 )
-                self._citation_counter += 1
-                self._url_to_citation[url] = self._citation_counter
-                logger.debug(
-                    "Tracked search source [%d]: %s",
-                    self._citation_counter,
-                    (title[:50] if title else url[:50]),
-                )
+            )
+            self._citation_counter += 1
+            self._url_to_citation[url] = self._citation_counter
+            logger.debug(
+                "Tracked search source [%d]: %s",
+                self._citation_counter,
+                (title[:50] if title else url[:50]),
+            )
 
     def _extract_browser_source(self, event: ToolEvent, access_time: datetime) -> None:
         """Extract source from browser navigation events."""
         url = event.function_args.get("url", "")
-        if not url or url in self._seen_urls or len(self._collected_sources) >= self._max_collected_sources:
+        if not url:
             return
 
         title = url
@@ -190,6 +202,28 @@ class SourceTracker:
             if content:
                 title = self._extract_title_from_content(content) or url
                 snippet = self._extract_snippet_from_content(content)
+
+        existing_index = self._find_source_index(url)
+        if existing_index is not None:
+            existing_source = self._collected_sources[existing_index]
+            has_grounded_title = bool(title and title != url)
+            has_grounded_snippet = bool(snippet and snippet.strip())
+            if not has_grounded_title and not has_grounded_snippet:
+                logger.debug("Skipped browser upgrade for %s because no grounded content was extracted", url)
+                return
+
+            self._collected_sources[existing_index] = SourceCitation(
+                url=url,
+                title=title if has_grounded_title else existing_source.title,
+                snippet=snippet if has_grounded_snippet else existing_source.snippet,
+                access_time=access_time,
+                source_type="browser",
+            )
+            logger.debug("Upgraded tracked source to browser grounding: %s", title[:50])
+            return
+
+        if len(self._collected_sources) >= self._max_collected_sources:
+            return
 
         self._seen_urls.add(url)
         self._collected_sources.append(
@@ -229,3 +263,17 @@ class SourceTracker:
         if not text:
             return None
         return text[:8000]
+
+    def _get_bibliography_sources(self) -> list[SourceCitation]:
+        """Prefer grounded sources when any browser/file evidence exists."""
+        grounded_sources = [s for s in self._collected_sources if s.source_type in {"browser", "file"}]
+        if grounded_sources:
+            return grounded_sources
+        return self._collected_sources
+
+    def _find_source_index(self, url: str) -> int | None:
+        """Return the index of a tracked source for a URL, if present."""
+        for index, source in enumerate(self._collected_sources):
+            if source.url == url:
+                return index
+        return None

@@ -330,6 +330,27 @@ class TestSourceGroundingContext:
             "Example Project — https://example.com/project: Browser-fetched body text describing repository behavior and features."
         ]
 
+    def test_build_source_context_prefers_grounded_sources_when_available(self):
+        ov = _make_output_verifier()
+        ov._source_tracker._collected_sources = [
+            SimpleNamespace(
+                title="Secondary blog",
+                url="https://blog.example.com/post",
+                snippet="Search snippet from a secondary source.",
+                source_type="search",
+            ),
+            SimpleNamespace(
+                title="Official docs",
+                url="https://docs.example.com/guide",
+                snippet="Grounded browser-fetched content from the official page.",
+                source_type="browser",
+            ),
+        ]
+
+        assert ov.build_source_context() == [
+            "Official docs — https://docs.example.com/guide: Grounded browser-fetched content from the official page."
+        ]
+
     def test_browser_source_tracker_extracts_text_snippet_from_content(self):
         from app.domain.services.agents.source_tracker import SourceTracker
 
@@ -350,6 +371,124 @@ class TestSourceGroundingContext:
         assert source.title == "Example Project"
         assert source.snippet is not None
         assert "Repository overview with grounded browser text." in source.snippet
+
+    def test_browser_source_upgrades_existing_search_source_for_same_url(self):
+        from app.domain.services.agents.source_tracker import SourceTracker
+
+        tracker = SourceTracker()
+
+        search_event = MagicMock()
+        search_event.tool_content = SimpleNamespace(
+            results=[
+                SimpleNamespace(
+                    link="https://example.com/project",
+                    title="Example Project Search Result",
+                    snippet="Search snippet only.",
+                )
+            ]
+        )
+        search_event.function_result = None
+
+        tracker._extract_search_sources(search_event, datetime.now(UTC))
+
+        browser_event = MagicMock()
+        browser_event.function_args = {"url": "https://example.com/project"}
+        browser_event.tool_content = SimpleNamespace(
+            content=(
+                "<html><title>Example Project Official Docs</title>"
+                "<body><p>Grounded browser content describing the actual repository behavior.</p></body></html>"
+            )
+        )
+
+        tracker._extract_browser_source(browser_event, datetime.now(UTC))
+
+        sources = tracker.get_collected_sources()
+        assert len(sources) == 1
+        assert sources[0].source_type == "browser"
+        assert sources[0].title == "Example Project Official Docs"
+        assert sources[0].snippet is not None
+        assert "Grounded browser content describing the actual repository behavior." in sources[0].snippet
+
+    def test_browser_source_does_not_overwrite_search_source_with_empty_browser_payload(self):
+        from app.domain.services.agents.source_tracker import SourceTracker
+
+        tracker = SourceTracker()
+
+        search_event = MagicMock()
+        search_event.tool_content = SimpleNamespace(
+            results=[
+                SimpleNamespace(
+                    link="https://example.com/project",
+                    title="Example Project Search Result",
+                    snippet="Useful search snippet.",
+                )
+            ]
+        )
+        search_event.function_result = None
+        tracker._extract_search_sources(search_event, datetime.now(UTC))
+
+        browser_event = MagicMock()
+        browser_event.function_args = {"url": "https://example.com/project"}
+        browser_event.tool_content = None
+
+        tracker._extract_browser_source(browser_event, datetime.now(UTC))
+
+        sources = tracker.get_collected_sources()
+        assert len(sources) == 1
+        assert sources[0].source_type == "search"
+        assert sources[0].title == "Example Project Search Result"
+        assert sources[0].snippet == "Useful search snippet."
+
+    def test_build_numbered_source_list_prefers_grounded_sources_when_available(self):
+        from app.domain.models.source_citation import SourceCitation
+        from app.domain.services.agents.source_tracker import SourceTracker
+
+        tracker = SourceTracker()
+        now = datetime.now(UTC)
+        tracker.restore_sources(
+            [
+                SourceCitation(
+                    url="https://search-only.example.com/post",
+                    title="Search-only result",
+                    snippet="Snippet from search",
+                    access_time=now,
+                    source_type="search",
+                ),
+                SourceCitation(
+                    url="https://docs.example.com/guide",
+                    title="Official Guide",
+                    snippet="Grounded browser text",
+                    access_time=now,
+                    source_type="browser",
+                ),
+            ]
+        )
+
+        bibliography = tracker.build_numbered_source_list()
+
+        assert "Official Guide - https://docs.example.com/guide" in bibliography
+        assert "Search-only result - https://search-only.example.com/post" not in bibliography
+
+    def test_build_numbered_source_list_keeps_search_sources_when_no_grounded_sources_exist(self):
+        from app.domain.models.source_citation import SourceCitation
+        from app.domain.services.agents.source_tracker import SourceTracker
+
+        tracker = SourceTracker()
+        tracker.restore_sources(
+            [
+                SourceCitation(
+                    url="https://search-only.example.com/post",
+                    title="Search-only result",
+                    snippet="Snippet from search",
+                    access_time=datetime.now(UTC),
+                    source_type="search",
+                )
+            ]
+        )
+
+        bibliography = tracker.build_numbered_source_list()
+
+        assert "Search-only result - https://search-only.example.com/post" in bibliography
 
 
     def test_build_source_context_uses_key_facts_when_collected_sources_empty(self):
