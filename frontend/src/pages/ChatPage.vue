@@ -214,7 +214,7 @@
           />
 
           <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
-          <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4">
+          <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4 mb-4">
             <ThinkingIndicator :showText="true" />
           </div>
           <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
@@ -395,8 +395,8 @@
             />
           </Transition>
 
-          <!-- Partial Results - provisional findings accumulated during execution -->
-          <PartialResults :results="partialResults" />
+          <!-- Partial Results - disabled: findings are already visible in step timeline -->
+          <!-- <PartialResults :results="partialResults" /> -->
 
           <!-- Scroll to bottom button - positioned above progress bar with measured spacing -->
           <div v-if="!follow" class="flex justify-end mb-2">

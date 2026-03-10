@@ -1,7 +1,7 @@
 <template>
   <div class="browser-chrome">
-    <!-- Left: Device toggle -->
-    <div class="device-toggle">
+    <!-- Left: Device toggle (hidden in live view where it has no effect) -->
+    <div v-if="showDeviceToggle" class="device-toggle">
       <button
         class="device-btn"
         :class="{ active: device === 'desktop' }"
@@ -91,12 +91,15 @@ const props = withDefaults(
     isFullscreen?: boolean
     /** Whether to show the Edit button */
     showEdit?: boolean
+    /** Whether to show the desktop/mobile device toggle */
+    showDeviceToggle?: boolean
   }>(),
   {
     url: '/',
     device: 'desktop',
     isFullscreen: false,
     showEdit: false,
+    showDeviceToggle: true,
   },
 )
 

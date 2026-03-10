@@ -205,6 +205,7 @@
               :device="livePreviewDevice"
               :is-fullscreen="false"
               :show-edit="false"
+              :show-device-toggle="false"
               @update:device="handleBrowserChromeDeviceUpdate"
               @navigate-home="handleBrowserChromeHome"
               @open-external="handleBrowserChromeOpenExternal"

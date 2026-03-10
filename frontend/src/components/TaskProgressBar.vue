@@ -602,6 +602,11 @@ onUnmounted(() => {
   position: relative;
 }
 
+/* Reserve vertical space for the floating thumbnail that extends above the bar */
+.collapsed-wrapper.has-thumbnail {
+  margin-top: 58px;
+}
+
 .progress-bar-collapsed {
   position: relative;
   z-index: 7;
