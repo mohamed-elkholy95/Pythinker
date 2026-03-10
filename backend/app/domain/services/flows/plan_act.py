@@ -1488,6 +1488,27 @@ class PlanActFlow(BaseFlow):
             + "\n\nReference these files by name in your summary where relevant."
         )
 
+    def _merge_session_files_into_attachments(self, session_files: list) -> None:
+        """Merge session files into _report_attachments, avoiding duplicates.
+
+        Unlike the previous guard (``if not self._report_attachments``), this
+        method *always* appends novel session files so that artifacts added by
+        the file-sync pipeline are not silently dropped when the list is already
+        partially populated.
+        """
+        if not session_files:
+            return
+        existing_filenames = {a["filename"] for a in self._report_attachments}
+        for f in session_files:
+            if f.filename not in existing_filenames:
+                self._report_attachments.append(
+                    {
+                        "filename": f.filename,
+                        "storage_key": getattr(f, "storage_key", "") or f.file_path or "",
+                    }
+                )
+                existing_filenames.add(f.filename)
+
     @staticmethod
     def _build_executor_artifact_references(
         session_files: list[FileInfo] | None,
@@ -3630,17 +3651,13 @@ class PlanActFlow(BaseFlow):
                             len(session_files),
                         )
 
-                    # Fix 6: Snapshot session files into _report_attachments so the artifact
-                    # manifest covers files that were stored in session but may not yet be
-                    # reflected in the storage upload pipeline at summarization time.
-                    if session_files and not self._report_attachments:
-                        self._report_attachments = [
-                            {
-                                "filename": f.filename,
-                                "storage_key": getattr(f, "storage_key", "") or f.file_path or "",
-                            }
-                            for f in session_files
-                        ]
+                    # Merge session files into _report_attachments so the artifact
+                    # manifest covers files that were stored in session but may not yet
+                    # be reflected in the storage upload pipeline at summarization time.
+                    # Uses dedup merge instead of a guard so that files added by the
+                    # file-sync pipeline are never silently dropped.
+                    if session_files:
+                        self._merge_session_files_into_attachments(session_files)
 
                     # Inject artifact manifest from any tracked report attachments into the
                     # summarization context.  _report_attachments may also be populated by the
