@@ -34,16 +34,14 @@
       :is-active="isActive"
     />
 
-    <!-- Summary streaming preview (must take precedence over stale tool previews) -->
+    <!-- Summary / Report preview — renders actual markdown content scaled down -->
     <div v-else-if="isSummaryPhase" class="content-preview streaming-preview">
       <div class="streaming-mini-window">
         <div class="streaming-mini-header">
           <span class="streaming-mini-title">{{ streamingPresentation.headline.value }}</span>
         </div>
-        <div class="streaming-mini-body">
-          <div class="streaming-mini-lines">
-            <div class="streaming-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
-          </div>
+        <div class="streaming-mini-body report-mini-body">
+          <div class="report-mini-content markdown-body-mini" v-html="miniReportHtml"></div>
         </div>
       </div>
       <div v-if="isSummaryStreaming" class="activity-indicator"></div>
@@ -219,6 +217,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, toRef, watch } from 'vue';
 import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan, BarChart3 } from 'lucide-vue-next';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -388,6 +388,14 @@ const streamingPresentation = useStreamingPresentationState({
 });
 
 const isSummaryPhase = computed(() => streamingPresentation.isSummaryPhase.value);
+
+// Render actual markdown for the mini report preview (same content as main StreamingReportView)
+const miniReportHtml = computed(() => {
+  const text = props.finalReportText || props.summaryStreamText || '';
+  if (!text) return '';
+  const raw = marked.parse(text, { async: false, breaks: true, gfm: true }) as string;
+  return DOMPurify.sanitize(raw);
+});
 
 // Track whether the live preview has been shown at least once this session to prevent
 // flicker when tool context briefly becomes empty between tool calls.
@@ -1047,16 +1055,101 @@ const sizeClass = computed(() => {
   overflow: hidden;
 }
 
-.streaming-line {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--bolt-elements-borderColor);
-  animation: line-appear 0.6s ease-out both;
+/* Mini report — scaled-down rendered markdown matching the main panel */
+.report-mini-body {
+  padding: 3px 5px;
+  overflow: hidden;
 }
 
-@keyframes line-appear {
-  from { width: 0; opacity: 0; }
-  to { opacity: 0.6; }
+.report-mini-content {
+  transform-origin: top left;
+  transform: scale(0.38);
+  width: 263%;  /* 100% / 0.38 to fill container at scaled size */
+  pointer-events: none;
+}
+
+.markdown-body-mini {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  word-wrap: break-word;
+}
+
+.markdown-body-mini :deep(h1) {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.markdown-body-mini :deep(h2) {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+
+.markdown-body-mini :deep(h3) {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+
+.markdown-body-mini :deep(p) {
+  margin: 0 0 6px;
+}
+
+.markdown-body-mini :deep(ul),
+.markdown-body-mini :deep(ol) {
+  margin: 0 0 6px;
+  padding-left: 16px;
+}
+
+.markdown-body-mini :deep(li) {
+  margin: 0 0 2px;
+}
+
+.markdown-body-mini :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+}
+
+.markdown-body-mini :deep(th),
+.markdown-body-mini :deep(td) {
+  padding: 3px 6px;
+  border: 1px solid var(--border-light);
+  text-align: left;
+}
+
+.markdown-body-mini :deep(th) {
+  background: var(--bolt-elements-bg-depth-2);
+  font-weight: 600;
+}
+
+.markdown-body-mini :deep(blockquote) {
+  border-left: 2px solid var(--border-main);
+  padding-left: 8px;
+  color: var(--text-secondary);
+  margin: 6px 0;
+}
+
+.markdown-body-mini :deep(code) {
+  background: var(--bolt-elements-bg-depth-2);
+  padding: 1px 3px;
+  border-radius: 2px;
+  font-size: 12px;
+}
+
+.markdown-body-mini :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 8px 0;
+}
+
+.markdown-body-mini :deep(strong) {
+  font-weight: 600;
 }
 
 /* Tool Preview (fallback) */
