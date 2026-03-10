@@ -37,7 +37,7 @@ def test_default_first_line() -> None:
 def test_whitespace_only_result() -> None:
     headline = extract_headline("   \n\t  ", tool_name="shell")
     assert "shell" in headline
-    assert "completed" in headline
+    assert "no result" in headline
 
 
 def test_search_result_no_tool_name() -> None:
@@ -71,7 +71,7 @@ def test_long_line_gets_ellipsis() -> None:
 def test_no_tool_name_fallback() -> None:
     headline = extract_headline("", tool_name="")
     assert "Tool" in headline
-    assert "completed" in headline
+    assert "no result" in headline
 
 
 def test_multiline_skips_blank_lines() -> None:
