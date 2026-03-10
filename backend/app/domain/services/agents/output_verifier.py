@@ -160,12 +160,56 @@ class OutputVerifier:
                 continue
             chunks.append(chunk)
 
-        # Supplement with key facts from execution context ONLY when no external
-        # sources are available. When external sources exist, key_facts may contain
-        # LLM-generated claims from prior steps, creating a self-referential
-        # grounding loop where fabricated data validates itself.
-        if not chunks and hasattr(self._context_manager, "_context") and self._context_manager._context.key_facts:
-            chunks.extend(fact for fact in self._context_manager._context.key_facts if fact and len(fact) > 20)
+        # ── Fallback chain when no external sources are available ──
+        # When external sources exist, key_facts may contain LLM-generated claims
+        # from prior steps, creating a self-referential grounding loop where
+        # fabricated data validates itself.  Only fall back when chunks is empty.
+
+        if not chunks and hasattr(self._context_manager, "_context"):
+            ctx = self._context_manager._context
+
+            # Fallback 1: key_facts from execution context
+            key_facts = getattr(ctx, "key_facts", None) or []
+            if key_facts:
+                facts = [fact for fact in key_facts if fact and len(fact) > 20]
+                if facts:
+                    chunks.extend(facts)
+                    logger.warning(
+                        "Grounding fallback: using %d key_facts as grounding context (no tracked sources available)",
+                        len(facts),
+                    )
+
+            # Fallback 2: tool execution summaries from browser-related tools
+            # When deep_research uses browser_navigate directly, SourceTracker
+            # may not receive events but ContextManager still records the tool
+            # executions.  Browser tool summaries and key_findings provide
+            # legitimate grounding evidence from actual page content.
+            if not chunks:
+                _browser_tool_names = {
+                    "browser_navigate",
+                    "browser_get_content",
+                    "browser_view",
+                    "browser_agent",
+                }
+                tool_contexts = getattr(ctx, "tools", None) or []
+                tool_chunks: list[str] = []
+                for tc in tool_contexts:
+                    tool_name = getattr(tc, "tool_name", "")
+                    if tool_name not in _browser_tool_names:
+                        continue
+                    summary = getattr(tc, "summary", "")
+                    if summary and len(summary) > 20:
+                        tool_chunks.append(summary)
+                    findings = getattr(tc, "key_findings", []) or []
+                    tool_chunks.extend(f for f in findings if f and len(f) > 10)
+
+                if tool_chunks:
+                    chunks.extend(tool_chunks)
+                    logger.warning(
+                        "Grounding fallback: using %d tool execution summaries/findings "
+                        "as grounding context (no tracked sources or key_facts available)",
+                        len(tool_chunks),
+                    )
 
         return chunks
 
