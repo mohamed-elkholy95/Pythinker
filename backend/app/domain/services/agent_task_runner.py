@@ -641,6 +641,33 @@ class AgentTaskRunner(TaskRunner):
         await task.output_stream.put(event.model_dump_json())
         await self._session_repository.add_event(self._session_id, event)
 
+    @staticmethod
+    def _should_persist_tool_progress_event(event: ToolProgressEvent) -> bool:
+        """Persist only meaningful progress checkpoints that represent real tool state.
+
+        High-frequency progress ticks without checkpoint payload create noisy
+        session history and do not help replay. Checkpoint-bearing progress
+        events, especially for sandbox-visible actions, are useful for the
+        timeline and restore flow.
+        """
+        checkpoint = event.checkpoint_data
+        if not isinstance(checkpoint, dict) or not checkpoint:
+            return False
+
+        meaningful_keys = (
+            "action",
+            "action_function",
+            "url",
+            "index",
+            "coordinate_x",
+            "coordinate_y",
+            "query",
+            "store_statuses",
+            "partial_deals",
+            "command_category",
+        )
+        return any(key in checkpoint for key in meaningful_keys)
+
     async def _pop_event(self, task: Task) -> AgentEvent | None:
         _redis_id, event_str = await task.input_stream.pop()
         if event_str is None:
@@ -1596,10 +1623,16 @@ class AgentTaskRunner(TaskRunner):
                         logger.debug(f"Agent {self._agent_id} paused, waiting for resume...")
                         await asyncio.sleep(0.5)
 
-                    # ToolStreamEvent and ToolProgressEvent are ephemeral (preview only)
-                    # — send to SSE but skip persistence
-                    if isinstance(event, (ToolStreamEvent, ToolProgressEvent)):
+                    # ToolStreamEvent is always ephemeral (preview only).
+                    # ToolProgressEvent is streamed live and only persisted when it
+                    # contains a meaningful checkpoint for replay/timeline history.
+                    if isinstance(event, ToolStreamEvent):
                         await task.output_stream.put(event.model_dump_json())
+                        continue
+                    if isinstance(event, ToolProgressEvent):
+                        await task.output_stream.put(event.model_dump_json())
+                        if self._should_persist_tool_progress_event(event):
+                            await self._session_repository.add_event(self._session_id, event)
                         continue
 
                     await self._put_and_add_event(task, event)
