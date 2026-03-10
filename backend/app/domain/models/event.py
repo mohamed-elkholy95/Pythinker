@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Discriminator, Field
+from pydantic import BaseModel, Discriminator, Field, field_validator
 
 from app.domain.models.file import FileInfo
 from app.domain.models.plan import Plan, Step
@@ -627,7 +627,12 @@ class ReportEvent(BaseEvent):
     title: str  # Report title
     content: str  # Markdown content of the report
     attachments: list[FileInfo] | None = None  # Associated files
-    sources: list[SourceCitation] | None = None  # Bibliography/references
+    sources: list[SourceCitation] = Field(default_factory=list)  # Normalized: never None
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _normalize_sources(cls, v: list[SourceCitation] | None) -> list[SourceCitation]:
+        return v if v is not None else []
 
 
 class SkillPackageFileData(BaseModel):
