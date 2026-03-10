@@ -885,17 +885,18 @@ async def stream_sessions(
 
 
 async def _is_task_active(session_id: str) -> bool:
-    """Check if session has an actively-running task via Redis liveness key.
+    """Check if session has an actively-running task via the domain service.
 
     Returns True when the task runner is still heartbeating, which means
     the session is mid-execution (e.g. in summarization phase) even though
     session.status may already read 'completed' from the execution phase.
-    """
-    from app.infrastructure.external.task.redis_task import RedisStreamTask
 
+    Routes through AgentDomainService to respect DDD layer boundaries
+    (interfaces must not import infrastructure directly).
+    """
     try:
-        liveness = await RedisStreamTask.get_liveness(session_id)
-        return liveness is not None
+        agent_service = get_agent_service()
+        return await agent_service.is_task_active(session_id)
     except Exception:
         return False
 

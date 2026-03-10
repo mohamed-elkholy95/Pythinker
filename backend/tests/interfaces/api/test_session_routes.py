@@ -937,39 +937,31 @@ async def test_chat_failed_session_no_input_returns_done_event():
 # ---------------------------------------------------------------------------
 
 
-_LIVENESS_PATCH_PATH = "app.infrastructure.external.task.redis_task.RedisStreamTask.get_liveness"
+_AGENT_SVC_PATCH = "app.interfaces.api.session_routes.get_agent_service"
 
 
 @pytest.mark.asyncio
 async def test_is_task_active_returns_true_when_liveness_exists():
-    """_is_task_active returns True when Redis liveness key is present."""
-    with patch(
-        _LIVENESS_PATCH_PATH,
-        new_callable=AsyncMock,
-        return_value="task-uuid-123",
-    ):
+    """_is_task_active returns True when agent service reports active task."""
+    mock_svc = AsyncMock()
+    mock_svc.is_task_active = AsyncMock(return_value=True)
+    with patch(_AGENT_SVC_PATCH, return_value=mock_svc):
         assert await _is_task_active("sess-alive") is True
 
 
 @pytest.mark.asyncio
 async def test_is_task_active_returns_false_when_no_liveness():
-    """_is_task_active returns False when no liveness key exists."""
-    with patch(
-        _LIVENESS_PATCH_PATH,
-        new_callable=AsyncMock,
-        return_value=None,
-    ):
+    """_is_task_active returns False when no active task."""
+    mock_svc = AsyncMock()
+    mock_svc.is_task_active = AsyncMock(return_value=False)
+    with patch(_AGENT_SVC_PATCH, return_value=mock_svc):
         assert await _is_task_active("sess-gone") is False
 
 
 @pytest.mark.asyncio
 async def test_is_task_active_returns_false_on_redis_error():
     """_is_task_active must swallow exceptions and return False."""
-    with patch(
-        _LIVENESS_PATCH_PATH,
-        new_callable=AsyncMock,
-        side_effect=ConnectionError("redis down"),
-    ):
+    with patch(_AGENT_SVC_PATCH, side_effect=ConnectionError("redis down")):
         assert await _is_task_active("sess-err") is False
 
 
