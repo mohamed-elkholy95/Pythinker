@@ -460,6 +460,7 @@ Respond ONLY with the JSON object, no other text.""",
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        stream_read_timeout: float | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Ollama API.
 
@@ -472,6 +473,8 @@ Respond ONLY with the JSON object, no other text.""",
             response_format: Optional response format
             tool_choice: Optional tool choice
             enable_caching: Whether to use caching
+            stream_read_timeout: Unused (Ollama uses its own timeout config).
+                Accepted for Protocol compatibility.
 
         Yields:
             Content chunks as strings
