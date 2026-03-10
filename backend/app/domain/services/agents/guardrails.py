@@ -682,22 +682,88 @@ class OutputGuardrails:
             if (match := pattern.search(text))
         ]
 
+    # ── Token normalization for relevance check ─────────────────────
+    # Expanded stop-word list covering determiners, prepositions, auxiliaries,
+    # and common query filler words that carry no topical signal.
+    _STOP_WORDS: ClassVar[frozenset[str]] = frozenset({
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+        "to", "for", "of", "and", "in", "on", "with", "by", "from", "at",
+        "it", "its", "this", "that", "these", "those", "i", "me", "my",
+        "we", "our", "you", "your", "he", "she", "they", "them", "their",
+        "what", "which", "who", "whom", "how", "when", "where", "why",
+        "do", "does", "did", "has", "have", "had", "will", "would", "can",
+        "could", "should", "shall", "may", "might", "must", "not", "no",
+        "so", "if", "or", "but", "about", "into", "over", "just", "also",
+        "than", "then", "very", "too", "more", "most", "some", "any", "all",
+        "each", "every", "both", "few", "many", "much", "such", "only",
+    })
+
+    # Regex: split CamelCase / PascalCase into constituent words.
+    _CAMEL_RE: ClassVar[re.Pattern[str]] = re.compile(
+        r"(?<=[a-z])(?=[A-Z])"  # lowercase→uppercase boundary
+        r"|(?<=[A-Z])(?=[A-Z][a-z])"  # ABCDef → ABC Def
+    )
+
+    @classmethod
+    def _normalize_tokens(cls, text: str) -> set[str]:
+        """Normalize text into a set of comparable tokens.
+
+        Handles possessives (karpathy's → karpathy), CamelCase splitting
+        (AutoResearch → auto, research), punctuation stripping, and
+        hyphenated words (auto-research → auto, research).
+        """
+        # Strip possessives before splitting
+        text = re.sub(r"['']s\b", "", text)
+        text = re.sub(r"['']t\b", "", text)
+
+        tokens: set[str] = set()
+        for raw_word in text.split():
+            # Strip surrounding punctuation
+            word = re.sub(r'^[\W_]+|[\W_]+$', '', raw_word)
+            if not word:
+                continue
+
+            lowered = word.lower()
+
+            # Split hyphenated words (e.g. "auto-research" → "auto", "research")
+            if "-" in lowered:
+                parts = [p for p in lowered.split("-") if p]
+                tokens.update(parts)
+                # Also keep the joined form (e.g. "autoresearch")
+                tokens.add("".join(parts))
+            else:
+                # Split CamelCase (e.g. "AutoResearch" → "auto", "research")
+                camel_parts = cls._CAMEL_RE.split(word)
+                if len(camel_parts) > 1:
+                    for part in camel_parts:
+                        lp = part.lower()
+                        if lp:
+                            tokens.add(lp)
+                    # Also keep the joined lowercase form
+                    tokens.add(lowered)
+                else:
+                    tokens.add(lowered)
+
+        # Remove stop words and single-character tokens (noise)
+        tokens -= cls._STOP_WORDS
+        return {t for t in tokens if len(t) > 1}
+
     def _check_relevance(
         self,
         output: str,
         query: str,
     ) -> list[OutputIssue]:
-        """Check if output is relevant to the query."""
+        """Check if output is relevant to the query.
+
+        Uses normalized token overlap: possessives are stripped, CamelCase and
+        hyphenated words are split, and an expanded stop-word list is applied.
+        """
         issues = []
 
-        # Simple word overlap check
-        query_words = set(query.lower().split())
-        output_words = set(output.lower().split())
-
-        # Remove common stop words
-        stop_words = {"the", "a", "an", "is", "are", "to", "for", "of", "and", "in", "on", "with"}
-        query_words -= stop_words
-        output_words -= stop_words
+        query_words = self._normalize_tokens(query)
+        # Only sample the first ~4000 chars of output for performance
+        output_sample = output[:4000] if len(output) > 4000 else output
+        output_words = self._normalize_tokens(output_sample)
 
         if query_words:
             overlap = len(query_words & output_words) / len(query_words)
