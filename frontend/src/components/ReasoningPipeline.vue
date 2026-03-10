@@ -241,8 +241,14 @@ function restartSpawner() {
 }
 
 watch(() => props.currentStage, (s) => {
-  if (s !== 'idle' && s !== 'completed') startAnimation()
-  else stopAnimation()
+  if (s === 'idle') {
+    stopAnimation()
+  } else if (s === 'completed') {
+    // Stop spawning new particles but let existing ones drain out
+    if (spawnTimer) { clearInterval(spawnTimer); spawnTimer = null }
+  } else {
+    startAnimation()
+  }
 }, { immediate: true })
 
 watch(isExpanded, () => { particles.value = []; nextTick(restartSpawner) })
@@ -302,27 +308,33 @@ const compactLabel = computed(() => compactLabelFull.value || (activeNode.value 
 <template>
   <Transition name="nn-fade">
     <div
-      v-if="currentStage !== 'idle' && currentStage !== 'completed'"
+      v-if="currentStage !== 'idle'"
       class="nn-root"
-      :class="{ 'nn-expanded': isExpanded }"
+      :class="{ 'nn-expanded': isExpanded, 'nn-completed': currentStage === 'completed' }"
     >
 
       <!-- ── HEADER ── -->
       <div class="nn-header">
-        <span class="nn-pulse-dot"></span>
+        <span v-if="currentStage === 'completed'" class="nn-complete-dot"></span>
+        <span v-else class="nn-pulse-dot"></span>
         <span class="nn-title">NeuralFlow</span>
 
         <!-- live activity inline label -->
-        <span class="nn-activity-inline" v-if="compactLabel" :title="compactLabelFull">{{ compactLabel }}</span>
+        <span class="nn-activity-inline" v-if="currentStage !== 'completed' && compactLabel" :title="compactLabelFull">{{ compactLabel }}</span>
 
         <!-- progress bar -->
         <div class="nn-progress-track">
-          <div class="nn-progress-fill" :style="{ width: progressPct + '%', background: activeNode?.color ?? '#6366f1' }"></div>
+          <div class="nn-progress-fill" :style="{ width: currentStage === 'completed' ? '100%' : progressPct + '%', background: currentStage === 'completed' ? '#10b981' : (activeNode?.color ?? '#6366f1') }"></div>
         </div>
 
         <!-- active stage pill -->
-        <span class="nn-badge" :style="{ color: activeNode?.color, borderColor: (activeNode?.color ?? '#6366f1') + '44', background: (activeNode?.color ?? '#6366f1') + '11' }">
-          {{ activeNode?.label ?? '' }}
+        <span
+          class="nn-badge"
+          :style="currentStage === 'completed'
+            ? { color: '#10b981', borderColor: '#10b98144', background: '#10b98111' }
+            : { color: activeNode?.color, borderColor: (activeNode?.color ?? '#6366f1') + '44', background: (activeNode?.color ?? '#6366f1') + '11' }"
+        >
+          {{ currentStage === 'completed' ? 'Done' : (activeNode?.label ?? '') }}
         </span>
       </div>
 
@@ -462,6 +474,16 @@ const compactLabel = computed(() => compactLabelFull.value || (activeNode.value 
   60%  { box-shadow: 0 0 0 5px rgba(99,102,241,0); }
   100% { box-shadow: 0 0 0 0   rgba(99,102,241,0); }
 }
+
+.nn-complete-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #10b981; flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+}
+
+/* Completed state — subtle dim to signal inactive */
+.nn-completed { opacity: 0.7; }
+.nn-completed .nn-header { cursor: default; }
 
 .nn-title {
   font-size: 10.5px; font-weight: 700; text-transform: uppercase;
