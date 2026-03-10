@@ -733,9 +733,7 @@ class ExecutionAgent(BaseAgent):
 
             _summarize_model: str | None = _get_settings().fast_model or None
             _summarize_max_tokens: int = _get_settings().summarization_max_tokens
-            _summarize_stream_timeout: float | None = (
-                getattr(_get_settings(), "llm_summarization_stream_read_timeout", None)
-            )
+            _summarize_stream_timeout: float = _get_settings().llm_summarization_stream_read_timeout
 
             if self._can_deliver_pretrim_report_directly(
                 response_policy=active_policy,

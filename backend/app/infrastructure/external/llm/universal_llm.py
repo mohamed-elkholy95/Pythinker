@@ -518,6 +518,7 @@ class UniversalLLM:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        stream_read_timeout: float | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream a chat response chunk by chunk.
 
@@ -537,6 +538,7 @@ class UniversalLLM:
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
+            stream_read_timeout=stream_read_timeout,
         )
         async for chunk in gen:
             yield chunk
