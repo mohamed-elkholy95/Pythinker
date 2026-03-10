@@ -2138,6 +2138,15 @@ class PlanActFlow(BaseFlow):
                 )
                 yield DoneEvent()
 
+    @staticmethod
+    def _get_verification_timeout_seconds(settings: Any) -> float:
+        """Read verification timeout from the run-scoped settings snapshot."""
+        raw_timeout = getattr(settings, "verification_timeout_seconds", 0.0)
+        try:
+            return float(raw_timeout)
+        except (TypeError, ValueError):
+            return 0.0
+
     async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:
         """Internal run method with tracing."""
         await self._check_cancelled()
@@ -2907,7 +2916,7 @@ class PlanActFlow(BaseFlow):
                     # Verify plan before execution (Phase 1: Plan-Verify-Execute)
                     await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started verifying plan")
-                    _verification_timeout = getattr(get_settings(), "verification_timeout_seconds", 0.0)
+                    _verification_timeout = self._get_verification_timeout_seconds(settings)
                     try:
                         async with (
                             asyncio.timeout(_verification_timeout) if _verification_timeout > 0 else nullcontext()
