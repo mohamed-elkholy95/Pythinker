@@ -2859,6 +2859,7 @@ To extract data from a webpage:
                         model=model,
                         temperature=temperature,
                         max_tokens=max_tokens,
+                        stream_read_timeout=stream_read_timeout,
                         _attempt=_attempt + 1,
                     ):
                         yield chunk
@@ -2892,6 +2893,7 @@ To extract data from a webpage:
                             model=model,
                             temperature=temperature,
                             max_tokens=max_tokens,
+                            stream_read_timeout=stream_read_timeout,
                             _attempt=_attempt + 1,
                         ):
                             yield chunk

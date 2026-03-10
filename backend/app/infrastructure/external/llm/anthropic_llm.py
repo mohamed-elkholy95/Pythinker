@@ -637,6 +637,7 @@ class AnthropicLLM(LLM):
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        stream_read_timeout: float | None = None,
         _attempt: int = 0,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Anthropic API with automatic key rotation.
@@ -647,6 +648,8 @@ class AnthropicLLM(LLM):
             response_format: Optional response format
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
+            stream_read_timeout: Unused (Anthropic SDK manages its own timeouts).
+                Accepted for Protocol compatibility.
             _attempt: Internal retry counter
 
         Yields:
