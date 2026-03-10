@@ -712,9 +712,10 @@ class OutputGuardrails:
         (AutoResearch → auto, research), punctuation stripping, and
         hyphenated words (auto-research → auto, research).
         """
-        # Strip possessives before splitting
-        text = re.sub(r"['']s\b", "", text)
-        text = re.sub(r"['']t\b", "", text)
+        # Strip possessives and contractions before splitting
+        # Covers ASCII apostrophe (') and curly/smart quotes (\u2018, \u2019)
+        text = re.sub(r"['\u2018\u2019]s\b", "", text)
+        text = re.sub(r"['\u2018\u2019]t\b", "", text)
 
         tokens: set[str] = set()
         for raw_word in text.split():
