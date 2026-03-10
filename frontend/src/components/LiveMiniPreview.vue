@@ -48,7 +48,7 @@
     </div>
 
     <!-- Terminal view (shell, code_executor) -->
-    <div v-else-if="currentViewType === 'terminal' && contentPreview" class="content-preview terminal-preview">
+    <div v-else-if="presentationViewType === 'terminal' && contentPreview" class="content-preview terminal-preview">
       <div class="terminal-window">
         <div class="terminal-header">
           <span class="terminal-title">{{ terminalTitle }}</span>
@@ -64,7 +64,7 @@
     </div>
 
     <!-- Terminal tool running without content yet - show live preview -->
-    <div v-else-if="currentViewType === 'terminal' && isActive && sessionId && enabled" class="live-preview-container">
+    <div v-else-if="presentationViewType === 'terminal' && isActive && sessionId && enabled" class="live-preview-container">
       <LiveViewer
         :session-id="sessionId"
         :enabled="enabled"
@@ -75,7 +75,7 @@
     </div>
 
     <!-- Search results view (search, info tools) -->
-    <div v-else-if="currentViewType === 'search'" class="content-preview search-preview">
+    <div v-else-if="presentationViewType === 'search'" class="content-preview search-preview">
       <div class="search-window">
         <div class="search-header">
           <Search :size="10" class="search-header-icon" />
@@ -121,7 +121,7 @@
     </div>
 
     <!-- Editor view (file tools) -->
-    <div v-else-if="currentViewType === 'editor' && contentPreview" class="content-preview file-preview">
+    <div v-else-if="presentationViewType === 'editor' && contentPreview" class="content-preview file-preview">
       <div class="file-window">
         <div class="file-header">
           <span class="file-title">{{ fileName }}</span>
@@ -137,7 +137,7 @@
     </div>
 
     <!-- Chart view (chart tool creates images, not visible via live preview) -->
-    <div v-else-if="currentViewType === 'chart'" class="content-preview chart-preview">
+    <div v-else-if="presentationViewType === 'chart'" class="content-preview chart-preview">
       <div class="chart-mini-window">
         <div class="chart-mini-header">
           <BarChart3 :size="10" class="chart-header-icon" />
@@ -224,6 +224,7 @@ import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
+import { resolveLivePreviewViewType } from '@/utils/livePreviewSelection';
 import { getFaviconUrl, getToolDisplay, markFaviconFailed, getIconLetterFromUrl } from '@/utils/toolDisplay';
 import { fileApi } from '@/api/file';
 import type { ToolContent } from '@/types/message';
@@ -362,11 +363,24 @@ const toolDisplay = computed(() => {
 // Use content config to determine view type
 const { currentViewType } = useContentConfig(toRef(() => effectiveToolContent.value));
 
+const presentationViewType = computed(() => resolveLivePreviewViewType({
+  baseViewType: currentViewType.value,
+  sessionId: props.sessionId,
+  enabled: props.enabled,
+  isReplayMode: !!props.isSessionComplete,
+  hasReplayScreenshot: !!props.replayScreenshotUrl,
+  isSessionComplete: !!props.isSessionComplete,
+}));
+
 const baseViewTypeForPresentation = computed(() => {
-  if (currentViewType.value === 'terminal' || currentViewType.value === 'editor' || currentViewType.value === 'search') {
-    return currentViewType.value;
+  if (
+    presentationViewType.value === 'terminal' ||
+    presentationViewType.value === 'editor' ||
+    presentationViewType.value === 'search'
+  ) {
+    return presentationViewType.value;
   }
-  if (currentViewType.value === 'live_preview') {
+  if (presentationViewType.value === 'live_preview') {
     return 'live_preview';
   }
   return 'generic';
@@ -428,7 +442,7 @@ const shouldShowLivePreview = computed(() => {
     return false;
   }
 
-  return props.isActive || currentViewType.value === 'live_preview';
+  return props.isActive || presentationViewType.value === 'live_preview';
 });
 
 // Mark live preview as shown once it becomes visible (watcher avoids side effects in computed)
