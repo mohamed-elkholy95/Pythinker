@@ -27,6 +27,8 @@ from app.domain.models.event import (
     MCPHealthEvent,
     MessageEvent,
     ModeChangeEvent,
+    PlanEvent,
+    PlanStatus,
     ReportEvent,
     ResearchModeEvent,
     TitleEvent,
@@ -719,14 +721,28 @@ class AgentTaskRunner(TaskRunner):
 
         try:
             session = await self._session_repository.find_by_id(self._session_id)
-            if session and session.workspace_structure and "deliverables" in session.workspace_structure:
-                self._workspace_deliverables_root = "/workspace/deliverables"
-                logger.debug(
-                    "Resolved workspace deliverables root: %s (session=%s)",
-                    self._workspace_deliverables_root,
-                    self._session_id,
-                )
-                return self._workspace_deliverables_root
+            workspace_structure = getattr(session, "workspace_structure", None)
+            if isinstance(workspace_structure, dict):
+                output_path = str(workspace_structure.get("_output_path") or "").strip()
+                if output_path and self._research_mode == ResearchMode.DEEP_RESEARCH:
+                    self._workspace_deliverables_root = f"{output_path.rstrip('/')}/reports"
+                    logger.debug(
+                        "Resolved workspace deliverables root from persisted output path: %s (session=%s)",
+                        self._workspace_deliverables_root,
+                        self._session_id,
+                    )
+                    return self._workspace_deliverables_root
+
+                if "deliverables" in workspace_structure:
+                    self._workspace_deliverables_root = "/workspace/deliverables"
+                    logger.debug(
+                        "Resolved workspace deliverables root: %s (session=%s)",
+                        self._workspace_deliverables_root,
+                        self._session_id,
+                    )
+                    return self._workspace_deliverables_root
+
+            logger.debug("No workspace deliverables root found in session metadata for %s", self._session_id)
         except Exception as e:
             logger.debug("Could not resolve workspace deliverables: %s", e)
 
@@ -1574,6 +1590,8 @@ class AgentTaskRunner(TaskRunner):
                             self._session_id, event.message, event.timestamp
                         )
                         await self._session_repository.increment_unread_message_count(self._session_id)
+                    elif isinstance(event, PlanEvent) and event.status == PlanStatus.COMPLETED:
+                        await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
                     elif isinstance(event, WaitEvent):
                         await self._session_repository.update_status(self._session_id, SessionStatus.WAITING)
                         return
