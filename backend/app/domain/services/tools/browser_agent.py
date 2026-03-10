@@ -386,7 +386,12 @@ class BrowserAgentTool(BaseTool):
                 current_step=f"Step {steps_completed}: Processing page",
                 steps_completed=steps_completed,
                 steps_total=steps_total,
-                checkpoint_data={"action": "wait", "action_function": "browser_agent_run", "url": current_url},
+                checkpoint_data={
+                    "action": "wait",
+                    "action_function": "browser_agent_run",
+                    "url": current_url,
+                    "command_category": "browse",
+                },
             )
             return
 
@@ -422,6 +427,7 @@ class BrowserAgentTool(BaseTool):
             if coordinate_x is not None and coordinate_y is not None:
                 checkpoint_data["coordinate_x"] = coordinate_x
                 checkpoint_data["coordinate_y"] = coordinate_y
+            checkpoint_data["command_category"] = "browse"
 
             self._enqueue_progress(
                 current_step=f"Step {steps_completed}: {self._describe_action(normalized_action, action_args)}",
