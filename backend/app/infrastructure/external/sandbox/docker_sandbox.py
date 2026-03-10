@@ -1639,13 +1639,47 @@ class DockerSandbox(Sandbox):
         Thread-safe: uses asyncio.Lock to serialise concurrent access
         to the shared ``_active_sessions`` dict.
 
-        Returns the previous session_id if one was registered (caller should stop it).
+        Checks Redis liveness before reassignment — if the current owner
+        has an active task (``task:liveness:{session_id}`` key exists),
+        the reassignment is blocked and ``None`` is returned.
+
+        Returns the previous session_id if one was displaced, or ``None``
+        if no displacement occurred (either new assignment or blocked).
         """
         async with cls._active_sessions_lock:
             previous = cls._active_sessions.get(sandbox_address)
-            cls._active_sessions[sandbox_address] = session_id
+
+            # If there's an existing owner, check if their task is still running
             if previous and previous != session_id:
-                logger.info(f"Sandbox {sandbox_address} reassigned: {previous} -> {session_id}")
+                try:
+                    from app.infrastructure.storage.redis import get_redis
+
+                    raw_redis = get_redis().client
+                    liveness_key = f"task:liveness:{previous}"
+                    is_active = await raw_redis.exists(liveness_key)
+                    if is_active:
+                        logger.warning(
+                            "Sandbox %s ownership BLOCKED: session %s still active (requested by %s)",
+                            sandbox_address,
+                            previous,
+                            session_id,
+                        )
+                        return None
+                except Exception as e:
+                    logger.warning(
+                        "Redis liveness check failed for %s, allowing reassignment: %s",
+                        previous,
+                        e,
+                    )
+
+                logger.info(
+                    "Sandbox %s reassigned: %s -> %s",
+                    sandbox_address,
+                    previous,
+                    session_id,
+                )
+
+            cls._active_sessions[sandbox_address] = session_id
             return previous if previous and previous != session_id else None
 
     @classmethod
