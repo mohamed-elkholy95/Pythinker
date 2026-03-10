@@ -97,6 +97,23 @@ class SourceTracker:
             self._url_to_citation[source.url] = i
         return "\n".join(lines)
 
+    def add_source(self, citation: SourceCitation) -> None:
+        """Add a pre-built SourceCitation (e.g., from evidence pipeline).
+
+        Deduplicates by URL. Upgrades search→browser if browser grounding.
+
+        Args:
+            citation: A fully constructed SourceCitation to register.
+        """
+        for i, existing in enumerate(self._collected_sources):
+            if existing.url == citation.url:
+                # Browser grounding always upgrades a search-typed entry
+                if citation.source_type == "browser" and existing.source_type == "search":
+                    self._collected_sources[i] = citation
+                return
+        if len(self._collected_sources) < self._max_collected_sources:
+            self._collected_sources.append(citation)
+
     def restore_sources(self, sources: list[SourceCitation]) -> None:
         """Restore persisted sources from a prior session.
 
