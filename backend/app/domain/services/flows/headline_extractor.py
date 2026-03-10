@@ -23,7 +23,7 @@ def extract_headline(tool_result: str, tool_name: str = "") -> str:
         A non-empty headline string of at most 120 characters.
     """
     if not tool_result.strip():
-        return f"{tool_name or 'Tool'} completed (no output)"
+        return f"{tool_name or 'Tool'} returned no result"
 
     # Search results — extract count and query from first line
     count_match = re.search(r"Found (\d+) results?\b", tool_result)
