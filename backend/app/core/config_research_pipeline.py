@@ -8,7 +8,7 @@ Pipeline modes
 --------------
 shadow   — pipeline runs alongside the existing flow; its decisions are
            logged but never enforced.  Safe to deploy without changing UX.
-enforced — pipeline gates synthesis and can block report generation when
+enforced — (DEFAULT) pipeline gates synthesis and can block report generation when
            quality thresholds are not met.
 
 All fields are environment-variable overridable via pydantic-settings
@@ -23,7 +23,7 @@ class ResearchPipelineSettingsMixin:
 
     # ── Feature flags ──────────────────────────────────────────────────────
     research_deterministic_pipeline_enabled: bool = True
-    research_pipeline_mode: Literal["shadow", "enforced"] = "shadow"
+    research_pipeline_mode: Literal["shadow", "enforced"] = "enforced"
 
     # ── Source selection ───────────────────────────────────────────────────
     research_source_select_count: int = 4  # Top-N sources passed to acquisition
