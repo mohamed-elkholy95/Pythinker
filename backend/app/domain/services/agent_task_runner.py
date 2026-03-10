@@ -224,6 +224,8 @@ class AgentTaskRunner(TaskRunner):
         self._discuss_flow: DiscussFlow | None = None
         self._coordinator_flow: CoordinatorFlow | None = None
         self._fast_search_flow: FastSearchFlow | None = None
+        # Always-present default; conditionally replaced in _init_plan_act_flow()
+        self._lead_agent_runtime: object | None = None
 
         if mode == AgentMode.AGENT:
             if research_mode == ResearchMode.FAST_SEARCH:
