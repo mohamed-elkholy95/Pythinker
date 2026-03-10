@@ -2907,7 +2907,7 @@ class PlanActFlow(BaseFlow):
                     # Verify plan before execution (Phase 1: Plan-Verify-Execute)
                     await self._check_cancelled()
                     logger.info(f"Agent {self._agent_id} started verifying plan")
-                    _verification_timeout = getattr(self._settings, "verification_timeout_seconds", 0.0)
+                    _verification_timeout = getattr(get_settings(), "verification_timeout_seconds", 0.0)
                     try:
                         async with (
                             asyncio.timeout(_verification_timeout) if _verification_timeout > 0 else nullcontext()
