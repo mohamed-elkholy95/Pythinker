@@ -206,6 +206,11 @@ class ComparisonChartGenerator:
             score = len(table.rows) * len(table.headers)
             numeric_density = self._numeric_cell_count(table)
             score += numeric_density * 2
+            # Row count bonus: prefer tables with more data points for richer charts.
+            # Without this, a small 3-row all-numeric table can outscore a larger
+            # 10-row table that has mixed text/numeric content.
+            if len(table.rows) >= 5:
+                score += len(table.rows) * 3
             if table.heading and self._VS_PATTERN.search(table.heading):
                 score += 12
             if self._VS_PATTERN.search(" ".join(table.headers)):
