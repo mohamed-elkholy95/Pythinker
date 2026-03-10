@@ -43,11 +43,11 @@ class PlaywrightPdfRenderer(PdfReportRenderer):
         *,
         timeout_ms: int = 20_000,
         fallback_renderer: PdfReportRenderer | None = None,
-        sandbox_base_url: str | None = None,
+        mermaid: MermaidPreprocessor | None = None,
     ) -> None:
         self._timeout_ms = max(1_000, int(timeout_ms))
         self._fallback_renderer = fallback_renderer
-        self._mermaid = MermaidPreprocessor(sandbox_base_url=sandbox_base_url) if sandbox_base_url else None
+        self._mermaid = mermaid
 
         assets_root = Path(__file__).resolve().parent
         template_root = assets_root / "templates"
