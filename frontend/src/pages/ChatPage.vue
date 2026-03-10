@@ -642,6 +642,7 @@ import {
 } from '@/utils/chatRestoreGuards';
 import { normalizeTransientTools } from '@/utils/sessionFinalization';
 import { shouldPreserveDealToolInLiveView } from '@/utils/dealLiveViewSelection';
+import { buildTimelineEntryFromToolProgress } from '@/utils/toolProgressTimeline';
 import {
   isStructuredSummaryAssistantMessage,
   shouldNestAssistantMessageInStep,
@@ -2591,6 +2592,18 @@ const handleToolProgressEvent = (data: import('../types/event').ToolProgressEven
 
   const timelineTool = toolTimeline.value.find((tool) => tool.tool_call_id === data.tool_call_id);
   applyToolProgressUpdate(timelineTool, data);
+
+  const syntheticTimelineTool = buildTimelineEntryFromToolProgress(data);
+  if (syntheticTimelineTool) {
+    upsertToolTimeline(syntheticTimelineTool);
+
+    if (realTime.value && canOpenLiveViewPanel.value) {
+      panelToolId.value = syntheticTimelineTool.tool_call_id;
+      if (isToolPanelOpen.value) {
+        showToolPanelIfAllowed(syntheticTimelineTool, true);
+      }
+    }
+  }
 
   const lastStep = getLastStep();
   if (lastStep) {
