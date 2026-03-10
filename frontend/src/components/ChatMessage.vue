@@ -125,7 +125,7 @@
       </div>
       
       <ReasoningPipeline
-        v-if="props.activeReasoningState && props.activeReasoningState !== 'idle' && props.activeReasoningState !== 'completed' && !isAssistantSummaryCompact"
+        v-if="props.activeReasoningState && props.activeReasoningState !== 'idle' && !isAssistantSummaryCompact"
         :currentStage="props.activeReasoningState"
         :thinkingText="props.thinkingText"
         :liveActivity="props.liveActivity"
