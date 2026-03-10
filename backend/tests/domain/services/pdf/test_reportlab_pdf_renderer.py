@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 from app.domain.models.source_citation import SourceCitation
+from app.domain.services.pdf.mermaid_preprocessor import MermaidPreprocessor
 from app.domain.services.pdf.models import ReportPdfPayload
 from app.domain.services.pdf.reportlab_pdf_renderer import ReportLabPdfRenderer
+
+
+def _make_mermaid_preprocessor() -> MermaidPreprocessor:
+    """Build a MermaidPreprocessor with a mock httpx client for tests."""
+    mock_client = MagicMock(spec=httpx.AsyncClient)
+    return MermaidPreprocessor(http_client=mock_client)
 
 
 @pytest.mark.asyncio
@@ -30,7 +38,7 @@ async def test_reportlab_renderer_passes_preprocessed_mermaid_images(mocker) -> 
     )
 
     mocker.patch(
-        "app.domain.services.pdf.reportlab_pdf_renderer.MermaidPreprocessor.preprocess_markdown",
+        "app.domain.services.pdf.mermaid_preprocessor.MermaidPreprocessor.preprocess_markdown",
         AsyncMock(return_value=("<!--MERMAID:abc123-->", {"abc123": png_bytes})),
     )
     build_pdf_bytes = mocker.patch(
@@ -38,7 +46,7 @@ async def test_reportlab_renderer_passes_preprocessed_mermaid_images(mocker) -> 
         return_value=b"%PDF-1.4 test",
     )
 
-    renderer = ReportLabPdfRenderer(sandbox_base_url="http://sandbox:8080")
+    renderer = ReportLabPdfRenderer(mermaid=_make_mermaid_preprocessor())
     result = await renderer.render(payload)
 
     assert result == b"%PDF-1.4 test"
