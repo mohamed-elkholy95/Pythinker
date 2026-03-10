@@ -414,6 +414,9 @@ class ExecutionAgent(BaseAgent):
 
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
+        # Per-step tool success tracking for evidence-based completion
+        _step_tool_total = 0
+        _step_tool_errors = 0
         try:
             async for event in self.execute(execution_message):
                 if isinstance(event, ErrorEvent):
@@ -489,6 +492,11 @@ class ExecutionAgent(BaseAgent):
                         # Guard against None function_name
                         func_name = event.function_name or "unknown"
                         self._prompt_adapter.track_tool_use(func_name, success=success, error=error)
+
+                        # Per-step evidence counters (not capped like prompt_adapter)
+                        _step_tool_total += 1
+                        if not success:
+                            _step_tool_errors += 1
 
                         # Track sources from tool events for report bibliography
                         self._track_sources_from_tool_event(event)
@@ -577,13 +585,29 @@ class ExecutionAgent(BaseAgent):
                             return
                         continue
                 yield event
-            # Only mark as COMPLETED if not already set to FAILED.
-            # Also set step.success so plan_act.py's belt-and-suspenders
-            # status sync does not override COMPLETED → FAILED.
+            # Evidence-based step completion: only mark COMPLETED if the step
+            # produced a meaningful result OR had at least one successful tool call.
+            # Steps where all tools failed and no result was produced are FAILED,
+            # not silently coerced to COMPLETED.
             if step.status != ExecutionStatus.FAILED:
-                step.status = ExecutionStatus.COMPLETED
-                if not step.success:
-                    step.success = True
+                has_result = bool(step.result and str(step.result).strip())
+                has_successful_tool = _step_tool_total > _step_tool_errors
+
+                if has_result or has_successful_tool or _step_tool_total == 0:
+                    # Normal completion: has output, has successful tools, or was LLM-only
+                    step.status = ExecutionStatus.COMPLETED
+                    if not step.success:
+                        step.success = True
+                else:
+                    # All tools failed and no result — mark as FAILED
+                    step.status = ExecutionStatus.FAILED
+                    step.success = False
+                    logger.warning(
+                        "Step %s marked FAILED: %d/%d tool calls failed, no result produced",
+                        step.id,
+                        _step_tool_errors,
+                        _step_tool_total,
+                    )
         finally:
             # Always restore tools, system prompt, and model override after step
             self.tools = original_tools
@@ -1226,7 +1250,11 @@ class ExecutionAgent(BaseAgent):
 
             # Prepend incomplete-report warning header when truncation was unresolvable OR
             # when the content still carries `[…]` streaming artifacts.
-            if truncation_exhausted or self._has_truncation_artifacts(message_content):
+            # BUT suppress if there are zero collected sources — the problem isn't
+            # truncation, it's lack of evidence. Showing a truncation banner for
+            # a zero-source report is misleading.
+            source_count = len(self._collected_sources) if self._collected_sources else 0
+            if (truncation_exhausted or self._has_truncation_artifacts(message_content)) and source_count > 0:
                 truncation_notice = (
                     "> **Incomplete Report:** This report contains sections that were not fully "
                     "generated due to output length limits. Sections marked `[…]` contain truncated "
@@ -1234,9 +1262,10 @@ class ExecutionAgent(BaseAgent):
                 )
                 message_content = truncation_notice + message_content
                 logger.warning(
-                    "Prepended truncation notice to report (truncation_exhausted=%s, artifacts=%s)",
+                    "Prepended truncation notice to report (truncation_exhausted=%s, artifacts=%s, sources=%d)",
                     truncation_exhausted,
                     self._has_truncation_artifacts(message_content),
+                    source_count,
                 )
 
             delivery_gate_additional_issues: list[str] = []
@@ -1661,6 +1690,9 @@ class ExecutionAgent(BaseAgent):
         truncated/missing References section, appends the source list from
         SourceTracker. Skips injection if the LLM-generated reference count
         already meets or exceeds the expected count.
+
+        Guards against double-injection: if the content already has multiple
+        References headings, deduplicates down to one.
         """
         if not self._collected_sources:
             return content
@@ -1670,6 +1702,15 @@ class ExecutionAgent(BaseAgent):
             return content
 
         expected_count = len(self._collected_sources)
+
+        # Deduplication guard: strip duplicate References headings if present
+        ref_heading_count = len(re.findall(r"^##\s+References?\s*$", content, re.MULTILINE | re.IGNORECASE))
+        if ref_heading_count > 1:
+            logger.warning("Found %d References headings, deduplicating", ref_heading_count)
+            parts = re.split(r"(^##\s+References?\s*$)", content, flags=re.MULTILINE | re.IGNORECASE)
+            # Keep content up to and including first References section + its content
+            if len(parts) >= 3:
+                content = parts[0] + parts[1] + parts[2]
 
         # Check if References heading exists
         ref_match = re.search(r"^##\s+References?\s*$", content, re.MULTILINE | re.IGNORECASE)
