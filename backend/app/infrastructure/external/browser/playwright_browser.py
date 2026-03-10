@@ -143,7 +143,7 @@ class PlaywrightBrowser:
         self.llm = get_llm()
         self.settings = get_settings()
         configured_cdp_url = getattr(self.settings, "browser_cdp_url", None)
-        self.cdp_url = cdp_url or configured_cdp_url or "ws://localhost:9222"
+        self.cdp_url = cdp_url or configured_cdp_url or "http://localhost:9222"
         self.block_resources = block_resources
         # Use settings-configured blocked types, fallback to BLOCKABLE_RESOURCE_TYPES
         default_blocked_types = self.settings.browser_blocked_types_set or BLOCKABLE_RESOURCE_TYPES

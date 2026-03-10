@@ -1,6 +1,6 @@
 """Unit tests for browser memory pressure monitoring (Priority 1)."""
 
-import socket
+import urllib.request
 from unittest.mock import patch
 
 import pytest
@@ -9,12 +9,20 @@ from app.infrastructure.external.browser.playwright_browser import PlaywrightBro
 
 
 def _is_cdp_available() -> bool:
-    """Check if a local Chrome CDP endpoint is reachable."""
+    """Check if a local Chrome CDP /json/version endpoint is reachable via HTTP.
+
+    TCP-only checks are insufficient: a personal Chrome on port 9222 passes TCP
+    but fails Playwright's connect_over_cdp (which requires the HTTP endpoint).
+    This check validates the HTTP layer that Playwright actually uses.
+    """
     for port in (9222, 8222):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(0.5)
-            if sock.connect_ex(("127.0.0.1", port)) == 0:
-                return True
+        try:
+            url = f"http://127.0.0.1:{port}/json/version"
+            with urllib.request.urlopen(url, timeout=1) as resp:  # noqa: S310
+                if resp.status == 200:
+                    return True
+        except Exception:  # noqa: S110
+            pass
     return False
 
 
