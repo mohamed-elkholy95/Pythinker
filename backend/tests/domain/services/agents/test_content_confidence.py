@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from app.domain.models.evidence import (
     ConfidenceBucket,
     HardFailReason,
@@ -23,7 +21,6 @@ from app.domain.models.evidence import (
     SoftFailReason,
 )
 from app.domain.services.agents.content_confidence import ContentConfidenceAssessor
-
 
 # ---------------------------------------------------------------------------
 # Config helper
@@ -488,7 +485,7 @@ class TestSoftFails:
         """boilerplate_ratio field is populated on the assessment."""
         a = self._assessor()
         boilerplate_lines = ["© 2024 Corp", "Privacy Policy", "All Rights Reserved"] * 5
-        content = "\n".join(["Some real content here."] + boilerplate_lines)
+        content = "\n".join(["Some real content here.", *boilerplate_lines])
         result = a.assess(
             content=content,
             url="https://example.com",

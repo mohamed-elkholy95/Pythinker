@@ -16,7 +16,7 @@ Covers:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -33,7 +33,6 @@ from app.domain.services.agents.source_selector import SourceSelector
 from app.domain.services.agents.source_tracker import SourceTracker
 from app.domain.services.agents.synthesis_guard import SynthesisGuard
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -41,41 +40,41 @@ from app.domain.services.agents.synthesis_guard import SynthesisGuard
 
 def _make_config(**overrides: object) -> SimpleNamespace:
     """Return a SimpleNamespace with all required research pipeline config fields."""
-    defaults = dict(
+    defaults = {
         # Source selection
-        research_deterministic_pipeline_enabled=True,
-        research_pipeline_mode="enforced",
-        research_source_select_count=4,
-        research_source_max_per_domain=1,
-        research_source_allow_multi_page_domains=True,
+        "research_deterministic_pipeline_enabled": True,
+        "research_pipeline_mode": "enforced",
+        "research_source_select_count": 4,
+        "research_source_max_per_domain": 1,
+        "research_source_allow_multi_page_domains": True,
         # Scoring weights
-        research_weight_relevance=0.35,
-        research_weight_authority=0.25,
-        research_weight_freshness=0.20,
-        research_weight_rank=0.20,
+        "research_weight_relevance": 0.35,
+        "research_weight_authority": 0.25,
+        "research_weight_freshness": 0.20,
+        "research_weight_rank": 0.20,
         # Acquisition
-        research_acquisition_concurrency=4,
-        research_acquisition_timeout_seconds=30.0,
-        research_excerpt_chars=2000,
-        research_full_content_offload=False,
+        "research_acquisition_concurrency": 4,
+        "research_acquisition_timeout_seconds": 30.0,
+        "research_excerpt_chars": 2000,
+        "research_full_content_offload": False,
         # Confidence thresholds
-        research_soft_fail_verify_threshold=2,
-        research_soft_fail_required_threshold=3,
-        research_thin_content_chars=500,
-        research_boilerplate_ratio_threshold=0.6,
+        "research_soft_fail_verify_threshold": 2,
+        "research_soft_fail_required_threshold": 3,
+        "research_thin_content_chars": 500,
+        "research_boilerplate_ratio_threshold": 0.6,
         # Synthesis gate — default
-        research_min_fetched_sources=3,
-        research_min_high_confidence=2,
-        research_require_official_source=False,  # disable for easier testing
-        research_require_independent_source=False,  # disable for easier testing
+        "research_min_fetched_sources": 3,
+        "research_min_high_confidence": 2,
+        "research_require_official_source": False,  # disable for easier testing
+        "research_require_independent_source": False,  # disable for easier testing
         # Synthesis gate — relaxed
-        research_relaxation_enabled=True,
-        research_relaxed_min_fetched_sources=2,
-        research_relaxed_min_high_confidence=1,
-        research_relaxed_require_official_source=False,
+        "research_relaxation_enabled": True,
+        "research_relaxed_min_fetched_sources": 2,
+        "research_relaxed_min_high_confidence": 1,
+        "research_relaxed_require_official_source": False,
         # Telemetry
-        research_telemetry_enabled=False,
-    )
+        "research_telemetry_enabled": False,
+    }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -168,7 +167,7 @@ class TestFullPipelineGoodSources:
         )
         emit_event = AsyncMock()
 
-        policy, tracker = _build_pipeline(config, scraper)
+        policy, _tracker = _build_pipeline(config, scraper)
 
         search_results = _make_search_results(
             urls=[
@@ -325,7 +324,7 @@ class TestMixedConfidencePipeline:
             )
         )
 
-        policy, tracker = _build_pipeline(config, scraper, browser=browser)
+        policy, _tracker = _build_pipeline(config, scraper, browser=browser)
         search_results = _make_search_results(
             urls=[
                 "https://docs.python.org/testing",

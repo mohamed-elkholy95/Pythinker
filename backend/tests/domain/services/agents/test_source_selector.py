@@ -8,12 +8,9 @@ from __future__ import annotations
 
 import types
 
-import pytest
-
 from app.domain.models.evidence import QueryContext, SelectedSource, SourceType
 from app.domain.models.search import SearchResultItem
 from app.domain.services.agents.source_selector import SourceSelector
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -25,15 +22,15 @@ def _item(title: str, link: str, snippet: str = "A search snippet.") -> SearchRe
 
 
 def _default_config(**overrides: object) -> types.SimpleNamespace:
-    defaults = dict(
-        research_source_select_count=4,
-        research_source_max_per_domain=1,
-        research_source_allow_multi_page_domains=False,
-        research_weight_relevance=0.35,
-        research_weight_authority=0.35,
-        research_weight_freshness=0.10,
-        research_weight_rank=0.20,
-    )
+    defaults = {
+        "research_source_select_count": 4,
+        "research_source_max_per_domain": 1,
+        "research_source_allow_multi_page_domains": False,
+        "research_weight_relevance": 0.35,
+        "research_weight_authority": 0.35,
+        "research_weight_freshness": 0.10,
+        "research_weight_rank": 0.20,
+    }
     defaults.update(overrides)
     return types.SimpleNamespace(**defaults)
 

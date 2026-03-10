@@ -229,7 +229,12 @@ class EvidenceAcquisitionService:
         excerpt = content[:excerpt_chars]
 
         content_ref: str | None = None
-        if self._store is not None and len(content) > self._store.offload_threshold:
+        should_offload = getattr(self._config, "research_full_content_offload", True)
+        if (
+            should_offload
+            and self._store is not None
+            and len(content) > self._store.offload_threshold
+        ):
             result_id, _preview = self._store.store(content, "evidence_acquisition")
             content_ref = result_id
 

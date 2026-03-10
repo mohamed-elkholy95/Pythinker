@@ -493,7 +493,7 @@ class PlanActFlow(BaseFlow):
 
         # ── Deterministic Research Pipeline ──────────────────────
         if (
-            self._research_mode in ("deep_research",)  # Phase 1
+            self._research_mode == "deep_research"  # Phase 1
             and flags.get("research_deterministic_pipeline", True)
         ):
             from app.domain.services.agents.evidence_acquisition import (
