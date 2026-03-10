@@ -171,9 +171,7 @@ class EvidenceAcquisitionService:
         start_ms: int,
     ) -> EvidenceRecord:
         """Core acquisition logic: fetch → assess → maybe promote → record."""
-        timeout: float = getattr(
-            self._config, "research_acquisition_timeout_seconds", 30.0
-        )
+        timeout: float = getattr(self._config, "research_acquisition_timeout_seconds", 30.0)
 
         # 1. Primary fetch via Scrapling
         scraped = await asyncio.wait_for(
@@ -206,9 +204,7 @@ class EvidenceAcquisitionService:
 
         if needs_promotion and self._browser is not None:
             browser_content = await self._browser_extract(source.url)
-            if browser_content and len(browser_content) > max(
-                len(content), _BROWSER_MIN_IMPROVEMENT_CHARS
-            ):
+            if browser_content and len(browser_content) > max(len(content), _BROWSER_MIN_IMPROVEMENT_CHARS):
                 content = browser_content
                 browser_promoted = True
                 browser_changed_outcome = True
@@ -229,12 +225,8 @@ class EvidenceAcquisitionService:
         excerpt = content[:excerpt_chars]
 
         content_ref: str | None = None
-        should_offload = getattr(self._config, "research_full_content_offload", True)
-        if (
-            should_offload
-            and self._store is not None
-            and len(content) > self._store.offload_threshold
-        ):
+        offload_enabled = getattr(self._config, "research_full_content_offload", True)
+        if offload_enabled and self._store is not None and self._store.should_offload(content):
             result_id, _preview = self._store.store(content, "evidence_acquisition")
             content_ref = result_id
 

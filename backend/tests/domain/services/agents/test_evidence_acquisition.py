@@ -25,6 +25,7 @@ from app.domain.models.evidence import (
     SourceType,
 )
 from app.domain.services.agents.evidence_acquisition import EvidenceAcquisitionService
+from app.domain.services.agents.tool_result_store import ToolResultStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -115,11 +116,7 @@ def mock_scraper() -> AsyncMock:
 @pytest.fixture
 def mock_browser() -> AsyncMock:
     browser = AsyncMock()
-    browser.navigate = AsyncMock(
-        return_value=SimpleNamespace(
-            content="Full browser content with JS rendered. " * 100
-        )
-    )
+    browser.navigate = AsyncMock(return_value=SimpleNamespace(content="Full browser content with JS rendered. " * 100))
     return browser
 
 
@@ -127,6 +124,7 @@ def mock_browser() -> AsyncMock:
 def mock_store() -> MagicMock:
     store = MagicMock()
     store.offload_threshold = 4000
+    store.should_offload = MagicMock(side_effect=lambda content: len(content) > 4000)
     store.store = MagicMock(return_value=("trs-abc123", "preview..."))
     return store
 
@@ -177,10 +175,7 @@ class TestSuccessfulAcquisition:
         mock_store: MagicMock,
         emit_event: AsyncMock,
     ) -> None:
-        sources = [
-            _source(url=f"https://site{i}.com/page", domain=f"site{i}.com", rank=i)
-            for i in range(1, 5)
-        ]
+        sources = [_source(url=f"https://site{i}.com/page", domain=f"site{i}.com", rank=i) for i in range(1, 5)]
         svc = EvidenceAcquisitionService(
             scraper=mock_scraper,
             browser=mock_browser,
@@ -200,9 +195,7 @@ class TestSuccessfulAcquisition:
         emit_event: AsyncMock,
     ) -> None:
         long_text = "word " * 1000  # ~5000 chars
-        mock_scraper.fetch_with_escalation = AsyncMock(
-            return_value=_good_scraped(text=long_text)
-        )
+        mock_scraper.fetch_with_escalation = AsyncMock(return_value=_good_scraped(text=long_text))
         svc = EvidenceAcquisitionService(
             scraper=mock_scraper,
             browser=mock_browser,
@@ -223,9 +216,7 @@ class TestSuccessfulAcquisition:
     ) -> None:
         # store.offload_threshold is 4000; content "word " * 1000 is ~5000 chars
         long_text = "word " * 1000
-        mock_scraper.fetch_with_escalation = AsyncMock(
-            return_value=_good_scraped(text=long_text)
-        )
+        mock_scraper.fetch_with_escalation = AsyncMock(return_value=_good_scraped(text=long_text))
         mock_store.offload_threshold = 4000
 
         svc = EvidenceAcquisitionService(
@@ -248,9 +239,7 @@ class TestSuccessfulAcquisition:
         emit_event: AsyncMock,
     ) -> None:
         short_text = "word " * 100  # ~500 chars, below 4000
-        mock_scraper.fetch_with_escalation = AsyncMock(
-            return_value=_good_scraped(text=short_text)
-        )
+        mock_scraper.fetch_with_escalation = AsyncMock(return_value=_good_scraped(text=short_text))
         mock_store.offload_threshold = 4000
 
         svc = EvidenceAcquisitionService(
@@ -273,9 +262,7 @@ class TestSuccessfulAcquisition:
         emit_event: AsyncMock,
     ) -> None:
         long_text = "word " * 1000
-        mock_scraper.fetch_with_escalation = AsyncMock(
-            return_value=_good_scraped(text=long_text)
-        )
+        mock_scraper.fetch_with_escalation = AsyncMock(return_value=_good_scraped(text=long_text))
         mock_store.offload_threshold = 4000
 
         svc = EvidenceAcquisitionService(
@@ -511,9 +498,7 @@ class TestBrowserPromotion:
                 research_thin_content_chars=600,
             ),
         )
-        await svc.acquire(
-            [_source(importance="high")], query_context=None, emit_event=emit_event
-        )
+        await svc.acquire([_source(importance="high")], query_context=None, emit_event=emit_event)
 
         mock_browser.navigate.assert_called_once()
 
@@ -550,9 +535,7 @@ class TestBrowserPromotion:
                 research_thin_content_chars=600,
             ),
         )
-        await svc.acquire(
-            [_source(importance="medium")], query_context=None, emit_event=emit_event
-        )
+        await svc.acquire([_source(importance="medium")], query_context=None, emit_event=emit_event)
 
         mock_browser.navigate.assert_not_called()
 
@@ -606,9 +589,7 @@ class TestFailureHandling:
         emit_event: AsyncMock,
     ) -> None:
         scraper = AsyncMock()
-        scraper.fetch_with_escalation = AsyncMock(
-            side_effect=RuntimeError("network error")
-        )
+        scraper.fetch_with_escalation = AsyncMock(side_effect=RuntimeError("network error"))
         svc = EvidenceAcquisitionService(
             scraper=scraper,
             browser=mock_browser,
@@ -632,9 +613,7 @@ class TestFailureHandling:
     ) -> None:
 
         scraper = AsyncMock()
-        scraper.fetch_with_escalation = AsyncMock(
-            side_effect=TimeoutError()
-        )
+        scraper.fetch_with_escalation = AsyncMock(side_effect=TimeoutError())
         svc = EvidenceAcquisitionService(
             scraper=scraper,
             browser=mock_browser,
@@ -769,10 +748,7 @@ class TestEventEmission:
 
         # Find any call that mentions the domain
         all_calls = emit_event.call_args_list
-        found = any(
-            "specific-domain.com" in str(call)
-            for call in all_calls
-        )
+        found = any("specific-domain.com" in str(call) for call in all_calls)
         assert found, "Expected domain name in emitted progress event"
 
     @pytest.mark.asyncio
@@ -819,12 +795,8 @@ class TestQueryContextPropagation:
             comparative=False,
         )
         # Content that clearly contains both entities
-        rich_text = (
-            "Python is a high-level language created by Guido van Rossum. " * 30
-        )
-        mock_scraper.fetch_with_escalation = AsyncMock(
-            return_value=_good_scraped(text=rich_text)
-        )
+        rich_text = "Python is a high-level language created by Guido van Rossum. " * 30
+        mock_scraper.fetch_with_escalation = AsyncMock(return_value=_good_scraped(text=rich_text))
         svc = EvidenceAcquisitionService(
             scraper=mock_scraper,
             browser=mock_browser,
@@ -855,3 +827,59 @@ class TestQueryContextPropagation:
         records = await svc.acquire([_source()], query_context=None, emit_event=emit_event)
 
         assert len(records) == 1
+
+
+# ---------------------------------------------------------------------------
+# TestRealToolResultStoreIntegration
+# ---------------------------------------------------------------------------
+
+
+class TestRealToolResultStoreIntegration:
+    """Verify EvidenceAcquisitionService works with a real ToolResultStore (not MagicMock)."""
+
+    @pytest.mark.asyncio
+    async def test_content_offloaded_with_real_tool_result_store(
+        self,
+        mock_scraper: AsyncMock,
+        mock_browser: AsyncMock,
+        emit_event: AsyncMock,
+    ) -> None:
+        """Real ToolResultStore integration should offload large content without AttributeError."""
+        long_text = "word " * 1000  # ~5000 chars
+        mock_scraper.fetch_with_escalation = AsyncMock(return_value=_good_scraped(text=long_text))
+        store = ToolResultStore(offload_threshold=4000, preview_chars=120)
+
+        svc = EvidenceAcquisitionService(
+            scraper=mock_scraper,
+            browser=mock_browser,
+            tool_result_store=store,
+            config=_config(),
+        )
+
+        records = await svc.acquire([_source()], query_context=None, emit_event=emit_event)
+
+        assert records[0].content_ref is not None
+        assert store.retrieve(records[0].content_ref) is not None
+
+    @pytest.mark.asyncio
+    async def test_no_offload_with_real_store_below_threshold(
+        self,
+        mock_scraper: AsyncMock,
+        mock_browser: AsyncMock,
+        emit_event: AsyncMock,
+    ) -> None:
+        """Content below threshold should not be offloaded with real ToolResultStore."""
+        short_text = "word " * 100  # ~500 chars, below 4000
+        mock_scraper.fetch_with_escalation = AsyncMock(return_value=_good_scraped(text=short_text))
+        store = ToolResultStore(offload_threshold=4000, preview_chars=120)
+
+        svc = EvidenceAcquisitionService(
+            scraper=mock_scraper,
+            browser=mock_browser,
+            tool_result_store=store,
+            config=_config(),
+        )
+
+        records = await svc.acquire([_source()], query_context=None, emit_event=emit_event)
+
+        assert records[0].content_ref is None

@@ -58,6 +58,11 @@ class ToolResultStore:
 
     # ── Public API ────────────────────────────────────────────────────
 
+    @property
+    def offload_threshold(self) -> int:
+        """Compatibility accessor for callers that still read the threshold directly."""
+        return self._offload_threshold
+
     def should_offload(self, content: str) -> bool:
         """Check whether content exceeds the offload threshold."""
         return len(content) > self._offload_threshold
