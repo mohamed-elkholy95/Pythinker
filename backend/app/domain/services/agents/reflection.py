@@ -412,6 +412,17 @@ class ReflectionAgent:
                 attempted_actions=actions_text,
             )
 
+        # Build runtime issues section
+        runtime_issues_section = ""
+        if progress.runtime_issues:
+            issue_lines = "\n".join(f"- {issue}" for issue in progress.runtime_issues)
+            runtime_issues_section = (
+                f"\n## Runtime Issues ({len(progress.runtime_issues)} detected):\n"
+                f"These runtime failures and missing deliverables MUST be acknowledged in your assessment. "
+                f"Do NOT claim there are no errors or blockers if issues are listed here.\n"
+                f"{issue_lines}\n"
+            )
+
         # Default progress check prompt
         return REFLECT_PROGRESS_PROMPT.format(
             goal=goal,
@@ -424,6 +435,7 @@ class ReflectionAgent:
             error_count=progress.error_count,
             last_error=last_error or "None",
             is_stalled="Yes" if progress.is_stalled else "No",
+            runtime_issues_section=runtime_issues_section,
             trigger_reason=trigger_type.value,
         )
 
