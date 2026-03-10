@@ -125,6 +125,28 @@ class StepExecutor:
     # ── Result Payload Validation ─────────────────────────────────────
 
     @staticmethod
+    def _looks_like_serialized_json(raw_message: str | None) -> bool:
+        """Return True when the raw message is a serialized JSON container."""
+        if not isinstance(raw_message, str):
+            return False
+        stripped = raw_message.lstrip()
+        return stripped.startswith("{") or stripped.startswith("[")
+
+    @staticmethod
+    def _is_tool_result_artifact(parsed_response: Any) -> bool:
+        """Detect ToolResult-shaped payloads echoed back as step results."""
+        if not isinstance(parsed_response, dict):
+            return False
+
+        if parsed_response.get("success") is not True:
+            return False
+
+        if parsed_response.get("result") is not None:
+            return False
+
+        return "message" in parsed_response or "data" in parsed_response
+
+    @staticmethod
     def apply_step_result_payload(step: Step, parsed_response: Any, raw_message: str) -> bool:
         """Apply execution step payload with strict schema validation and safe fallback.
 
@@ -140,11 +162,22 @@ class StepExecutor:
         Returns:
             True if strict validation passed, False otherwise.
         """
+        if StepExecutor._is_tool_result_artifact(parsed_response):
+            step.success = False
+            step.result = None
+            step.attachments = []
+            step.error = "Step response matched a tool result artifact instead of an execution step result"
+            return False
+
         try:
             step_result = ExecutionStepResult.model_validate(parsed_response)
             step.success = step_result.success
             step.result = step_result.result if step_result.success else None
-            if step_result.success and step.result is None:
+            if (
+                step_result.success
+                and step.result is None
+                and not StepExecutor._looks_like_serialized_json(raw_message)
+            ):
                 step.result = raw_message
             step.attachments = list(step_result.attachments)
             step.error = None if step_result.success else (step.error or "Step reported failure")
@@ -161,7 +194,12 @@ class StepExecutor:
 
             result_value = parsed_response.get("result")
             if step.success:
-                step.result = str(result_value) if result_value is not None else raw_message
+                if result_value is not None:
+                    step.result = str(result_value)
+                elif not StepExecutor._looks_like_serialized_json(raw_message):
+                    step.result = raw_message
+                else:
+                    step.result = None
             else:
                 step.result = None
 

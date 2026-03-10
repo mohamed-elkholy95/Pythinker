@@ -48,3 +48,31 @@ def test_last_resort_fallback_handles_empty_raw(step_executor):
     result = step_executor.apply_step_result_payload(step, None, "")
     assert result is False
     assert step.error == "Step response did not match expected JSON schema"
+
+
+def test_success_payload_without_result_does_not_echo_raw_json(step_executor):
+    step = MagicMock(spec=Step)
+    raw = '{"success": true}'
+
+    result = step_executor.apply_step_result_payload(step, {"success": True}, raw)
+
+    assert result is True
+    assert step.success is True
+    assert step.result is None
+    assert step.attachments == []
+
+
+def test_tool_result_shaped_payload_is_rejected(step_executor):
+    step = MagicMock(spec=Step)
+    raw = '{"success": true, "message": "[WIDE RESEARCH] Completed research"}'
+
+    result = step_executor.apply_step_result_payload(
+        step,
+        {"success": True, "message": "[WIDE RESEARCH] Completed research"},
+        raw,
+    )
+
+    assert result is False
+    assert step.success is False
+    assert step.result is None
+    assert "tool result" in step.error.lower()
