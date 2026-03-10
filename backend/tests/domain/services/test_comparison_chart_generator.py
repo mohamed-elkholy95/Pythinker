@@ -191,3 +191,76 @@ def test_build_numeric_chart_spec():
     # Should be sorted by latency (lower first)
     assert spec.points[0].label == "Claude"
     assert spec.points[0].value == 95
+
+
+class TestSelectBestTableRowBonus:
+    """Verify larger tables are preferred over smaller high-density tables."""
+
+    def test_larger_table_preferred_over_small_dense_table(self):
+        """A 10-row table should outscore a 3-row table even if the 3-row
+        table has higher numeric density per cell."""
+        generator = ComparisonChartGenerator()
+
+        markdown = """# GitHub Trending Report
+
+## Quick Stats
+| Metric | Value | Change |
+|--------|-------|--------|
+| Stars | 12500 | +500 |
+| Forks | 3200 | +120 |
+| Issues | 845 | -30 |
+
+## Top 10 Trending Repositories
+| Repository | Stars | Language | Description |
+|-----------|-------|----------|-------------|
+| repo-alpha | 15000 | Python | ML framework |
+| repo-beta | 12000 | Rust | Systems tool |
+| repo-gamma | 9500 | TypeScript | Web framework |
+| repo-delta | 8200 | Go | Cloud native |
+| repo-epsilon | 7100 | Python | Data science |
+| repo-zeta | 6300 | JavaScript | UI library |
+| repo-eta | 5800 | Rust | CLI toolkit |
+| repo-theta | 4900 | Python | NLP library |
+| repo-iota | 4200 | Go | API gateway |
+| repo-kappa | 3700 | TypeScript | State management |
+"""
+        tables = generator._extract_tables(markdown)
+        assert len(tables) == 2
+
+        best = generator._select_best_table(tables)
+        assert best is not None
+        assert len(best.rows) == 10, f"Expected 10-row table, got {len(best.rows)}-row table"
+
+    def test_row_count_bonus_applied(self):
+        """Tables with 5+ rows should receive a bonus to prevent
+        small dense tables from winning.
+
+        Without the row bonus the small table wins:
+          small: 2 rows * 5 headers = 10 + 10 numeric * 2 = 30
+          large: 5 rows * 3 headers = 15 + 5 numeric * 2  = 25
+        With the row bonus (rows*3 for >=5):
+          large gets +15 → 40, beating the small table's 30.
+        """
+        generator = ComparisonChartGenerator()
+
+        markdown = """# Report
+
+## Small Table
+| A | B | C | D | E |
+|---|---|---|---|---|
+| 10 | 20 | 30 | 40 | 50 |
+| 60 | 70 | 80 | 90 | 100 |
+
+## Large Table
+| Name | Value | Notes |
+|------|-------|-------|
+| Alpha | 10 | Good |
+| Beta | 20 | OK |
+| Gamma | 30 | Review |
+| Delta | 40 | Good |
+| Epsilon | 50 | Fine |
+"""
+        tables = generator._extract_tables(markdown)
+        best = generator._select_best_table(tables)
+        assert best is not None
+        assert len(best.rows) >= 5
