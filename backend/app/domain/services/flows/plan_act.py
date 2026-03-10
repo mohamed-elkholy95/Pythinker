@@ -3295,19 +3295,27 @@ class PlanActFlow(BaseFlow):
                         step_span.set_attribute("step.attempts", attempt + 1)
 
                         # Belt-and-suspenders: sync step.status with step.success.
-                        # Respect the executor's explicit COMPLETED status even if
-                        # step.success was not set (e.g. LLM didn't return structured
-                        # JSON but tools ran successfully).
+                        # Respect the executor's evidence-based status — do NOT coerce
+                        # FAILED steps to COMPLETED. The executor now performs
+                        # evidence-based completion checks.
                         if step.success:
                             step.status = ExecutionStatus.COMPLETED
                             await self._task_state_manager.update_step_status(str(step.id), "completed")
                         elif step.status == ExecutionStatus.COMPLETED:
-                            # Executor marked COMPLETED — trust it, fix the inconsistency
+                            # Executor explicitly marked COMPLETED — trust it
                             step.success = True
                             await self._task_state_manager.update_step_status(str(step.id), "completed")
                             logger.info(
                                 "Step %s status was COMPLETED but success=False; "
                                 "corrected to success=True (executor completed normally)",
+                                step.id,
+                            )
+                        elif step.status == ExecutionStatus.FAILED:
+                            # Executor explicitly marked FAILED (evidence-based) — respect it
+                            step.success = False
+                            await self._task_state_manager.update_step_status(str(step.id), "failed")
+                            logger.warning(
+                                "Step %s failed (evidence-based): executor found no successful outcomes",
                                 step.id,
                             )
                         else:
