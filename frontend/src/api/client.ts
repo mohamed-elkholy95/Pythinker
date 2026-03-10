@@ -183,7 +183,12 @@ apiClient.interceptors.request.use(
         const newToken = await refreshAuthToken();
         if (newToken) token = newToken;
       } catch {
-        // Refresh failed — let the request proceed and the 401 interceptor handle it
+        // Refresh failed — re-read token state since clearStoredTokens() may have
+        // been called inside refreshAuthToken().  If tokens were cleared, this
+        // returns null and the request goes out without an Authorization header,
+        // letting the 401 response interceptor handle it cleanly instead of
+        // sending a stale expired token.
+        token = getStoredToken();
       }
     }
 
