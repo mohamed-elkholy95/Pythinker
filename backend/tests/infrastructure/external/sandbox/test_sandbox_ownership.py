@@ -1,7 +1,8 @@
 """Tests for sandbox ownership protection during active sessions."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 

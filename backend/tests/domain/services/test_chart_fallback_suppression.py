@@ -1,6 +1,7 @@
 """Tests for chart fallback suppression when no data is extractable."""
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestChartFallbackSuppression:

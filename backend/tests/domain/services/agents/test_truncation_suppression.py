@@ -1,6 +1,5 @@
 """Tests for truncation notice suppression when evidence is poor."""
 
-import pytest
 
 
 class TestTruncationNoticeSuppression:

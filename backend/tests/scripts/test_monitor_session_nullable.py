@@ -1,5 +1,4 @@
 """Tests for monitor_session nullable sources handling."""
-import pytest
 
 
 class TestMonitorNullableSources:

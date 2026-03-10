@@ -1,5 +1,4 @@
 """Tests for ReportEvent sources normalization."""
-import pytest
 from app.domain.models.event import ReportEvent
 
 
@@ -16,7 +15,8 @@ class TestReportEventSourcesNormalization:
         assert event.sources == []
 
     def test_present_sources_preserved(self):
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
+
         from app.domain.models.source_citation import SourceCitation
         src = SourceCitation(
             url="https://example.com",

@@ -2,8 +2,6 @@
 
 import re
 
-import pytest
-
 
 class TestReferenceSectionDedup:
     """Only one References section should exist in the final output."""
