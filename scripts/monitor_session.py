@@ -257,7 +257,7 @@ class SessionMonitor:
         elif event_type == "report":
             title = data.get("title", "?")
             content = data.get("content", "")
-            sources = data.get("sources", [])
+            sources = data.get("sources") or []  # Handle sources: null
             lines = content.count("\n") + 1
             print(f"\n{C_DIM}{ts}{C_RESET} {color}📄 REPORT: {title}{C_RESET}")
             print(f"         {C_DIM}{lines} lines, {len(sources)} sources{C_RESET}")
