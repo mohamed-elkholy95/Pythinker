@@ -31,8 +31,10 @@ class SandboxContextManager:
 
     # Startup retry parameters — the sandbox container may still be
     # generating the context file when the backend first requests it.
-    _STARTUP_MAX_RETRIES: int = 3
-    _STARTUP_BACKOFF_BASE: float = 1.0  # seconds (1s, 2s, 4s)
+    # Uses blocking time.sleep() intentionally: fires only once at startup
+    # (gated by _has_loaded_once) and total worst-case blocking is 3s.
+    _STARTUP_MAX_RETRIES: int = 2
+    _STARTUP_BACKOFF_BASE: float = 1.0  # seconds (1s, 2s)
 
     @classmethod
     def load_context(cls, force_reload: bool = False) -> dict[str, Any] | None:
