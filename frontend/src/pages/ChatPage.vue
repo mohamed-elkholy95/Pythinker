@@ -3002,14 +3002,20 @@ const handleStreamEvent = (streamData: StreamEventData) => {
   const phase = streamData.phase || 'thinking';
 
   if (phase === 'summarizing') {
-    if (streamData.content) {
-      summaryStreamText.value += streamData.content;
-    }
     if (streamData.is_final) {
+      // When the final chunk carries canonical content (post-processed by
+      // backend: sanitised, citation-repaired, verification-gated), replace
+      // the live buffer so the user sees the authoritative report text.
+      if (streamData.content) {
+        summaryStreamText.value = streamData.content;
+      }
       isSummaryStreaming.value = false;
       allowStandaloneSummaryOnNextAssistant.value = summaryStreamText.value.trim().length > 0;
       // Keep text visible briefly — cleared when ReportEvent arrives
     } else {
+      if (streamData.content) {
+        summaryStreamText.value += streamData.content;
+      }
       isSummaryStreaming.value = true;
     }
     return;

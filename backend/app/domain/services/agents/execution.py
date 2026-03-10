@@ -106,11 +106,21 @@ class ExecutionAgent(BaseAgent):
     SUMMARY_STREAM_COALESCE_FLUSH_SECONDS: float = 0.05
     MIN_DIRECT_DELIVERY_REPORT_LENGTH: int = 1200
 
-    _SYNTHESIS_KEYWORDS: frozenset[str] = frozenset({
-        "write report", "synthesize", "summarize findings", "compile results",
-        "write summary", "final report", "write analysis", "create report",
-        "generate report", "draft report", "prepare summary",
-    })
+    _SYNTHESIS_KEYWORDS: frozenset[str] = frozenset(
+        {
+            "write report",
+            "synthesize",
+            "summarize findings",
+            "compile results",
+            "write summary",
+            "final report",
+            "write analysis",
+            "create report",
+            "generate report",
+            "draft report",
+            "prepare summary",
+        }
+    )
 
     def __init__(
         self,
@@ -297,6 +307,7 @@ class ExecutionAgent(BaseAgent):
         result = self._research_execution_policy.can_synthesize()
 
         from app.core.config import get_settings
+
         settings = get_settings()
         if getattr(settings, "research_pipeline_mode", "shadow") == "shadow":
             logger.info(
@@ -464,6 +475,7 @@ class ExecutionAgent(BaseAgent):
             gate_result = self._check_synthesis_gate()
             if gate_result is not None:
                 from app.domain.models.evidence import SynthesisGateVerdict
+
                 if gate_result.verdict == SynthesisGateVerdict.hard_fail:
                     yield ErrorEvent(
                         error=f"Research evidence insufficient: {'; '.join(gate_result.reasons)}",
@@ -1617,6 +1629,15 @@ class ExecutionAgent(BaseAgent):
             if is_substantial or has_title or is_report_structure:
                 title = message_title or "Summary"
                 sources = self.get_collected_sources() if self._collected_sources else None
+
+                # Emit canonical final StreamEvent so the frontend can replace
+                # its live summary buffer with the post-processed content
+                # (sanitised, citation-repaired, verification-gated).
+                yield StreamEvent(
+                    content=message_content,
+                    is_final=True,
+                    phase="summarizing",
+                )
 
                 report_event_id = report_event_id or str(uuid.uuid4())
                 yield ReportEvent(

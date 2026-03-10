@@ -406,6 +406,43 @@ class TestStreamingPerformance:
         assert blocked_count > 0
 
 
+class TestCanonicalFinalStreamEvent:
+    """Tests for canonical final StreamEvent carrying post-processed report content."""
+
+    def test_final_stream_event_carries_canonical_content(self):
+        """Final StreamEvent with is_final=True can carry the full canonical report text."""
+        canonical = "# Final Report\n\nCleaned and verified content."
+        event = StreamEvent(content=canonical, is_final=True, phase="summarizing")
+        assert event.is_final is True
+        assert event.content == canonical
+        assert event.phase == "summarizing"
+
+    @pytest.mark.asyncio
+    async def test_canonical_final_stream_event_sse_serialization(self):
+        """Canonical final StreamEvent serializes correctly through the SSE pipeline."""
+        canonical = "# Report\n\nSanitised, citation-repaired, verified."
+        event = StreamEvent(content=canonical, is_final=True, phase="summarizing")
+
+        sse_event = await EventMapper.event_to_sse_event(event)
+
+        assert sse_event.event == "stream"
+        assert sse_event.data.content == canonical
+        assert sse_event.data.is_final is True
+        assert sse_event.data.phase == "summarizing"
+
+    def test_empty_final_stream_event_still_valid(self):
+        """Empty is_final=True marker (legacy sentinel) remains valid."""
+        event = StreamEvent(content="", is_final=True, phase="summarizing")
+        assert event.is_final is True
+        assert event.content == ""
+
+    def test_non_final_stream_event_is_incremental(self):
+        """Non-final stream events carry incremental chunks, not full content."""
+        event = StreamEvent(content="partial chunk", is_final=False, phase="summarizing")
+        assert event.is_final is False
+        assert event.content == "partial chunk"
+
+
 class TestEventSerialization:
     """Tests for event serialization for SSE."""
 
