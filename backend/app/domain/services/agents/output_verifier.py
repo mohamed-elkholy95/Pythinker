@@ -160,10 +160,11 @@ class OutputVerifier:
                 continue
             chunks.append(chunk)
 
-        # Supplement with key facts from execution context — these contain
-        # extracted details from browser visits and tool results that aren't
-        # captured in source tracker snippets.
-        if hasattr(self._context_manager, "_context") and self._context_manager._context.key_facts:
+        # Supplement with key facts from execution context ONLY when no external
+        # sources are available. When external sources exist, key_facts may contain
+        # LLM-generated claims from prior steps, creating a self-referential
+        # grounding loop where fabricated data validates itself.
+        if not chunks and hasattr(self._context_manager, "_context") and self._context_manager._context.key_facts:
             chunks.extend(fact for fact in self._context_manager._context.key_facts if fact and len(fact) > 20)
 
         return chunks
