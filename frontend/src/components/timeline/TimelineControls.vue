@@ -87,7 +87,7 @@
           <div
             v-for="marker in toolMarkers"
             :key="`tool-${marker.index}`"
-            class="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none z-10"
+            class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full pointer-events-none z-10"
             :class="marker.colorClass"
             :style="{ left: `${marker.position}%` }"
             :title="marker.label"
