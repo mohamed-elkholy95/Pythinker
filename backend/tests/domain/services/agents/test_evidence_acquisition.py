@@ -26,23 +26,22 @@ from app.domain.models.evidence import (
 )
 from app.domain.services.agents.evidence_acquisition import EvidenceAcquisitionService
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _config(**overrides: object) -> SimpleNamespace:
-    defaults = dict(
-        research_acquisition_concurrency=4,
-        research_acquisition_timeout_seconds=30.0,
-        research_excerpt_chars=2000,
-        research_full_content_offload=True,
-        research_soft_fail_verify_threshold=2,
-        research_soft_fail_required_threshold=3,
-        research_thin_content_chars=500,
-        research_boilerplate_ratio_threshold=0.6,
-    )
+    defaults = {
+        "research_acquisition_concurrency": 4,
+        "research_acquisition_timeout_seconds": 30.0,
+        "research_excerpt_chars": 2000,
+        "research_full_content_offload": True,
+        "research_soft_fail_verify_threshold": 2,
+        "research_soft_fail_required_threshold": 3,
+        "research_thin_content_chars": 500,
+        "research_boilerplate_ratio_threshold": 0.6,
+    }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -259,6 +258,31 @@ class TestSuccessfulAcquisition:
             browser=mock_browser,
             tool_result_store=mock_store,
             config=_config(),
+        )
+        records = await svc.acquire([_source()], query_context=None, emit_event=emit_event)
+
+        assert records[0].content_ref is None
+        mock_store.store.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_offload_disabled_skips_store_even_for_large_content(
+        self,
+        mock_scraper: AsyncMock,
+        mock_browser: AsyncMock,
+        mock_store: MagicMock,
+        emit_event: AsyncMock,
+    ) -> None:
+        long_text = "word " * 1000
+        mock_scraper.fetch_with_escalation = AsyncMock(
+            return_value=_good_scraped(text=long_text)
+        )
+        mock_store.offload_threshold = 4000
+
+        svc = EvidenceAcquisitionService(
+            scraper=mock_scraper,
+            browser=mock_browser,
+            tool_result_store=mock_store,
+            config=_config(research_full_content_offload=False),
         )
         records = await svc.acquire([_source()], query_context=None, emit_event=emit_event)
 
@@ -487,7 +511,7 @@ class TestBrowserPromotion:
                 research_thin_content_chars=600,
             ),
         )
-        records = await svc.acquire(
+        await svc.acquire(
             [_source(importance="high")], query_context=None, emit_event=emit_event
         )
 
@@ -526,7 +550,7 @@ class TestBrowserPromotion:
                 research_thin_content_chars=600,
             ),
         )
-        records = await svc.acquire(
+        await svc.acquire(
             [_source(importance="medium")], query_context=None, emit_event=emit_event
         )
 
@@ -606,11 +630,10 @@ class TestFailureHandling:
         mock_store: MagicMock,
         emit_event: AsyncMock,
     ) -> None:
-        import asyncio
 
         scraper = AsyncMock()
         scraper.fetch_with_escalation = AsyncMock(
-            side_effect=asyncio.TimeoutError()
+            side_effect=TimeoutError()
         )
         svc = EvidenceAcquisitionService(
             scraper=scraper,

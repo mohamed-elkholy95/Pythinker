@@ -10,11 +10,9 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
-
-import pytest
 
 from app.domain.models.evidence import (
     AccessMethod,
@@ -26,12 +24,11 @@ from app.domain.models.evidence import (
 )
 from app.domain.services.agents.synthesis_guard import SynthesisGuard
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2026, 3, 10, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2026, 3, 10, 12, 0, 0, tzinfo=UTC)
 
 
 def _record(

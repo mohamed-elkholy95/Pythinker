@@ -465,18 +465,15 @@ class TestSynthesisGate:
         emit_event: AsyncMock,
         mock_guard: MagicMock,
     ) -> None:
-        """total_search_results increments across multiple on_tool_result calls."""
+        """total_search_results counts raw result items, not tool-call count."""
         ctx = _context("info_search_web")
-        sr = _search_results(5)
-        tr = _tool_result(sr)
+        await policy.on_tool_result(_tool_result(_search_results(5)), "s1", ctx, emit_event)
+        await policy.on_tool_result(_tool_result(_search_results(3)), "s2", ctx, emit_event)
 
-        await policy.on_tool_result(tr, "s1", ctx, emit_event)
-        await policy.on_tool_result(tr, "s2", ctx, emit_event)
-
-        # Now call can_synthesize — it should pass total_search_results=2
+        # The guard should see the total number of raw search results (5 + 3).
         policy.can_synthesize()
         _, call_total, _ = mock_guard.evaluate.call_args[0]
-        assert call_total == 2
+        assert call_total == 8
 
     @pytest.mark.asyncio
     async def test_evidence_records_property_returns_copy(

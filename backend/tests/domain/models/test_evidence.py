@@ -7,7 +7,7 @@ evidence_to_source_citation mapper function.
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -29,7 +29,6 @@ from app.domain.models.evidence import (
     ToolInterceptorResult,
     evidence_to_source_citation,
 )
-
 
 # ---------------------------------------------------------------------------
 # Enum tests
@@ -423,7 +422,7 @@ class TestEvidenceRecord:
             "access_method": AccessMethod.scrapling_http,
             "fetch_tier_reached": 1,
             "extraction_duration_ms": 350,
-            "timestamp": datetime(2026, 3, 10, 12, 0, 0, tzinfo=timezone.utc),
+            "timestamp": datetime(2026, 3, 10, 12, 0, 0, tzinfo=UTC),
             "confidence_bucket": ConfidenceBucket.high,
             "hard_fail_reasons": [],
             "soft_fail_reasons": [],
@@ -582,7 +581,7 @@ class TestEvidenceToSourceCitation:
             access_method=access_method,
             fetch_tier_reached=1,
             extraction_duration_ms=200,
-            timestamp=datetime(2026, 3, 10, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 10, tzinfo=UTC),
             confidence_bucket=ConfidenceBucket.medium,
             hard_fail_reasons=[],
             soft_fail_reasons=[],

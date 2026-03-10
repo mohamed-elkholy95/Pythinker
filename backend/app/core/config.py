@@ -59,13 +59,13 @@ from app.core.config_llm import (
     LLMSettingsMixin,
     LLMTimeoutSettingsMixin,
 )
+from app.core.config_research_pipeline import ResearchPipelineSettingsMixin
 from app.core.config_sandbox import (
     BrowserSettingsMixin,
     SandboxPoolSettingsMixin,
     SandboxSettingsMixin,
     ScreenshotSettingsMixin,
 )
-from app.core.config_research_pipeline import ResearchPipelineSettingsMixin
 from app.core.config_scraping import ScrapingSettingsMixin
 
 # Re-export enums for backward compatibility (existing code imports from config)

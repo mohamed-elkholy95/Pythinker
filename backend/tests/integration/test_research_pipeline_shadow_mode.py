@@ -34,7 +34,6 @@ from app.domain.services.agents.source_selector import SourceSelector
 from app.domain.services.agents.source_tracker import SourceTracker
 from app.domain.services.agents.synthesis_guard import SynthesisGuard
 
-
 # ---------------------------------------------------------------------------
 # Helpers (mirrors test_research_pipeline_integration.py)
 # ---------------------------------------------------------------------------
@@ -42,42 +41,42 @@ from app.domain.services.agents.synthesis_guard import SynthesisGuard
 
 def _make_config(**overrides: object) -> SimpleNamespace:
     """Return a SimpleNamespace with all required research pipeline config fields."""
-    defaults = dict(
+    defaults = {
         # Feature flags
-        research_deterministic_pipeline_enabled=True,
-        research_pipeline_mode="shadow",  # shadow by default in this test module
+        "research_deterministic_pipeline_enabled": True,
+        "research_pipeline_mode": "shadow",  # shadow by default in this test module
         # Source selection
-        research_source_select_count=4,
-        research_source_max_per_domain=1,
-        research_source_allow_multi_page_domains=True,
+        "research_source_select_count": 4,
+        "research_source_max_per_domain": 1,
+        "research_source_allow_multi_page_domains": True,
         # Scoring weights
-        research_weight_relevance=0.35,
-        research_weight_authority=0.25,
-        research_weight_freshness=0.20,
-        research_weight_rank=0.20,
+        "research_weight_relevance": 0.35,
+        "research_weight_authority": 0.25,
+        "research_weight_freshness": 0.20,
+        "research_weight_rank": 0.20,
         # Acquisition
-        research_acquisition_concurrency=4,
-        research_acquisition_timeout_seconds=30.0,
-        research_excerpt_chars=2000,
-        research_full_content_offload=False,
+        "research_acquisition_concurrency": 4,
+        "research_acquisition_timeout_seconds": 30.0,
+        "research_excerpt_chars": 2000,
+        "research_full_content_offload": False,
         # Confidence thresholds
-        research_soft_fail_verify_threshold=2,
-        research_soft_fail_required_threshold=3,
-        research_thin_content_chars=500,
-        research_boilerplate_ratio_threshold=0.6,
+        "research_soft_fail_verify_threshold": 2,
+        "research_soft_fail_required_threshold": 3,
+        "research_thin_content_chars": 500,
+        "research_boilerplate_ratio_threshold": 0.6,
         # Synthesis gate — strict defaults that would normally block
-        research_min_fetched_sources=5,
-        research_min_high_confidence=4,
-        research_require_official_source=True,
-        research_require_independent_source=True,
+        "research_min_fetched_sources": 5,
+        "research_min_high_confidence": 4,
+        "research_require_official_source": True,
+        "research_require_independent_source": True,
         # Synthesis gate — relaxed
-        research_relaxation_enabled=False,  # disabled so hard_fail is unambiguous
-        research_relaxed_min_fetched_sources=3,
-        research_relaxed_min_high_confidence=2,
-        research_relaxed_require_official_source=False,
+        "research_relaxation_enabled": False,  # disabled so hard_fail is unambiguous
+        "research_relaxed_min_fetched_sources": 3,
+        "research_relaxed_min_high_confidence": 2,
+        "research_relaxed_require_official_source": False,
         # Telemetry
-        research_telemetry_enabled=False,
-    )
+        "research_telemetry_enabled": False,
+    }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -312,7 +311,7 @@ class TestShadowModeEvidenceCollection:
             return_value=_make_scraper_response(text=good_text)
         )
 
-        policy, tracker = _build_pipeline(config, scraper)
+        policy, _tracker = _build_pipeline(config, scraper)
         search_results = _make_search_results(
             urls=[
                 "https://docs.python.org/testing",
@@ -526,6 +525,6 @@ class TestShadowVsEnforcedComparison:
         # can_synthesize() itself always returns a real result (not None)
         gate_result = policy.can_synthesize()
         assert gate_result is not None
-        assert gate_result.verdict in {v for v in SynthesisGateVerdict}
+        assert gate_result.verdict in set(SynthesisGateVerdict)
         # Thresholds applied dict is populated
         assert "min_fetched" in gate_result.thresholds_applied

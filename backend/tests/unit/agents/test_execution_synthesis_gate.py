@@ -1,7 +1,5 @@
 """Tests for ExecutionAgent synthesis gate integration."""
 
-import pytest
-from unittest.mock import MagicMock
 
 from app.domain.models.evidence import SynthesisGateResult, SynthesisGateVerdict
 
@@ -118,3 +116,26 @@ class TestSynthesisGateLogic:
             "prepare summary",
         }
         assert expected == ExecutionAgent._SYNTHESIS_KEYWORDS
+
+
+class TestSoftFailDisclaimer:
+    """Soft-fail synthesis steps should inject a caveat into the prompt."""
+
+    def test_apply_synthesis_gate_soft_fail_disclaimer_prepends_warning(self):
+        from app.domain.services.agents.execution import apply_synthesis_gate_soft_fail_disclaimer
+
+        gate_result = SynthesisGateResult(
+            verdict=SynthesisGateVerdict.soft_fail,
+            reasons=["Insufficient high-confidence sources: 1/2"],
+            total_fetched=2,
+            thresholds_applied={"min_high_confidence": 2},
+        )
+
+        prompt = apply_synthesis_gate_soft_fail_disclaimer(
+            "Write the final report.",
+            gate_result,
+        )
+
+        assert prompt.startswith("NOTE: Some evidence thresholds were not fully met.")
+        assert "Insufficient high-confidence sources: 1/2" in prompt
+        assert prompt.endswith("Write the final report.")

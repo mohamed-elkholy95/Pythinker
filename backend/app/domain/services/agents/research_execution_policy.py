@@ -176,8 +176,8 @@ class ResearchExecutionPolicy:
         if not results:
             return None
 
-        # 4. Track total search result count (one increment per tool call)
-        self._total_search_results += 1
+        # 4. Track the raw search-result count for niche-topic relaxation.
+        self._total_search_results += len(results)
 
         query = self._extract_query(context)
 
