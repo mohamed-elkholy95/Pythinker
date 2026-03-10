@@ -18,7 +18,7 @@ def test_build_pdf_renderer_from_settings_normalizes_sandbox_address_for_reportl
     renderer = build_pdf_renderer_from_settings(settings)
 
     assert renderer._mermaid is not None
-    assert renderer._mermaid._sandbox_url == "http://sandbox:8080"
+    assert str(renderer._mermaid._client.base_url) == "http://sandbox:8080"
 
 
 def test_build_pdf_renderer_from_settings_passes_sandbox_address_to_playwright() -> None:
@@ -32,7 +32,7 @@ def test_build_pdf_renderer_from_settings_passes_sandbox_address_to_playwright()
 
     assert isinstance(renderer, PlaywrightPdfRenderer)
     assert renderer._mermaid is not None
-    assert renderer._mermaid._sandbox_url == "http://sandbox:8080"
+    assert str(renderer._mermaid._client.base_url) == "http://sandbox:8080"
 
 
 def test_build_pdf_renderer_from_settings_uses_first_static_sandbox_address() -> None:
@@ -46,4 +46,4 @@ def test_build_pdf_renderer_from_settings_uses_first_static_sandbox_address() ->
 
     assert isinstance(renderer, PlaywrightPdfRenderer)
     assert renderer._mermaid is not None
-    assert renderer._mermaid._sandbox_url == "http://sandbox-a:8081"
+    assert str(renderer._mermaid._client.base_url) == "http://sandbox-a:8081"
