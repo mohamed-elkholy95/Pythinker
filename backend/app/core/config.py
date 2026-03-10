@@ -65,6 +65,7 @@ from app.core.config_sandbox import (
     SandboxSettingsMixin,
     ScreenshotSettingsMixin,
 )
+from app.core.config_research_pipeline import ResearchPipelineSettingsMixin
 from app.core.config_scraping import ScrapingSettingsMixin
 
 # Re-export enums for backward compatibility (existing code imports from config)
@@ -108,6 +109,7 @@ class Settings(
     PromptOptimizationSettingsMixin,
     KnowledgeBaseSettingsMixin,
     ScrapingSettingsMixin,
+    ResearchPipelineSettingsMixin,
     DealScraperSettingsMixin,
     SLOSettingsMixin,
     # Channel gateway / cron / skills / subagent layer
