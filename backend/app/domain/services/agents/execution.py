@@ -106,6 +106,12 @@ class ExecutionAgent(BaseAgent):
     SUMMARY_STREAM_COALESCE_FLUSH_SECONDS: float = 0.05
     MIN_DIRECT_DELIVERY_REPORT_LENGTH: int = 1200
 
+    _SYNTHESIS_KEYWORDS: frozenset[str] = frozenset({
+        "write report", "synthesize", "summarize findings", "compile results",
+        "write summary", "final report", "write analysis", "create report",
+        "generate report", "draft report", "prepare summary",
+    })
+
     def __init__(
         self,
         agent_id: str,
@@ -121,6 +127,7 @@ class ExecutionAgent(BaseAgent):
         feature_flags: dict[str, bool] | None = None,
         cancel_token: "CancellationToken | None" = None,
         tool_result_store=None,
+        research_execution_policy=None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -188,6 +195,11 @@ class ExecutionAgent(BaseAgent):
         # Backward-compatible alias: _collected_sources is a mutable list shared
         # by reference so reads (if/for) in summarize/verifier remain valid.
         self._collected_sources = self._source_tracker._collected_sources
+
+        # Deterministic research pipeline
+        self._research_execution_policy = research_execution_policy
+        if research_execution_policy is not None:
+            self._tool_interceptors.append(research_execution_policy)
 
         # Output verification — delegated to OutputVerifier (Phase 3A extraction)
         self._output_verifier = OutputVerifier(
@@ -267,6 +279,37 @@ class ExecutionAgent(BaseAgent):
             step_description,
             user_thinking_mode=getattr(self, "_user_thinking_mode", None),
         )
+
+    def _is_synthesis_step(self, step_description: str) -> bool:
+        """Detect if a step is a synthesis/report step by keyword matching."""
+        desc_lower = step_description.lower()
+        return any(kw in desc_lower for kw in self._SYNTHESIS_KEYWORDS)
+
+    def _check_synthesis_gate(self):
+        """Check if evidence is sufficient before allowing synthesis.
+
+        Returns None if no policy or shadow mode. Returns SynthesisGateResult
+        in enforced mode so the caller can block on hard_fail verdicts.
+        """
+        if not self._research_execution_policy:
+            return None
+
+        result = self._research_execution_policy.can_synthesize()
+
+        from app.core.config import get_settings
+        settings = get_settings()
+        if getattr(settings, "research_pipeline_mode", "shadow") == "shadow":
+            logger.info(
+                "synthesis_gate_shadow",
+                extra={
+                    "verdict": result.verdict.value,
+                    "reasons": result.reasons,
+                    "thresholds": result.thresholds_applied,
+                },
+            )
+            return None  # Don't block in shadow mode
+
+        return result
 
     async def invoke_tool(
         self,
@@ -411,6 +454,23 @@ class ExecutionAgent(BaseAgent):
                 logger.info("Adaptive model routing selected '%s' for step", selected_model)
             else:
                 logger.debug("Model routing disabled, using default model '%s'", selected_model)
+
+        # Check synthesis gate for synthesis steps (deterministic research pipeline)
+        if (
+            self._research_execution_policy
+            and hasattr(step, "description")
+            and self._is_synthesis_step(step.description or "")
+        ):
+            gate_result = self._check_synthesis_gate()
+            if gate_result is not None:
+                from app.domain.models.evidence import SynthesisGateVerdict
+                if gate_result.verdict == SynthesisGateVerdict.hard_fail:
+                    yield ErrorEvent(
+                        error=f"Research evidence insufficient: {'; '.join(gate_result.reasons)}",
+                        error_type="synthesis_gate_failed",
+                        recoverable=False,
+                    )
+                    return
 
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
