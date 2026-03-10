@@ -76,6 +76,7 @@ class LLM(Protocol):
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        stream_read_timeout: float | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response.
 
@@ -90,6 +91,10 @@ class LLM(Protocol):
             model: Optional model override (unified adaptive routing)
             temperature: Optional temperature override (unified adaptive routing)
             max_tokens: Optional max_tokens override (unified adaptive routing)
+            stream_read_timeout: Optional per-call read timeout override (seconds).
+                When set, overrides the client-level stream read timeout for this
+                specific call.  Used by summarization to allow longer inter-chunk
+                pauses without affecting normal streaming calls.
 
         Yields:
             Content chunks as strings

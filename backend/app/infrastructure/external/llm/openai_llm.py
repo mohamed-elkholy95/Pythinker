@@ -2586,6 +2586,7 @@ To extract data from a webpage:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        stream_read_timeout: float | None = None,
         _attempt: int = 0,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from OpenAI API with automatic key rotation.
@@ -2597,6 +2598,7 @@ To extract data from a webpage:
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
             model: Optional model override for adaptive model selection (DeepCode Phase 1)
+            stream_read_timeout: Optional per-call read timeout override (seconds)
             _attempt: Internal retry counter for key rotation
 
         Yields:
@@ -2705,6 +2707,18 @@ To extract data from a webpage:
             completion_parts: list[str] = []
             usage_counts: dict[str, int] | None = None
             finish_reason: str | None = None
+
+            # Per-request read timeout override (e.g. longer timeout for summarization).
+            # This overrides only the httpx read timeout for this single request,
+            # leaving the cached client's default timeout unchanged.
+            if stream_read_timeout is not None:
+                params["timeout"] = httpx.Timeout(
+                    timeout=None,
+                    connect=10.0,
+                    read=stream_read_timeout,
+                    write=30.0,
+                    pool=30.0,
+                )
 
             try:
                 stream_start = time.monotonic()
