@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.domain.models.event import DoneEvent, FlowSelectionEvent, MessageEvent
+from app.domain.models.event import DoneEvent, FlowSelectionEvent, MessageEvent, PlanEvent, PlanStatus
+from app.domain.models.plan import Plan
 from app.domain.models.session import AgentMode, SessionStatus
 from app.domain.services.agent_task_runner import AgentTaskRunner
 
@@ -136,6 +137,48 @@ async def test_run_does_not_emit_duplicate_done_when_flow_already_emits_done(moc
     assert any(isinstance(event, FlowSelectionEvent) for event in emitted_events)
     assert done_count == 1
     runner._session_repository.update_status.assert_awaited_once()
+
+
+@patch("app.core.config.get_settings")
+@pytest.mark.asyncio
+async def test_run_marks_session_completed_when_completed_plan_event_arrives(mock_settings: MagicMock) -> None:
+    """Completed plan events should update session status before the final done signal."""
+    settings = MagicMock()
+    settings.default_language = "English"
+    settings.screenshot_capture_enabled = False
+    settings.max_search_api_calls_per_task = 20
+    settings.max_wide_research_calls_per_task = 2
+    mock_settings.return_value = settings
+
+    runner = _make_minimal_runner()
+    runner._llm.model = "test-model"
+    runner._llm.model_name = "test-model"
+    runner._sandbox.ensure_sandbox = AsyncMock(return_value=None)
+    runner._mcp_repository.get_mcp_config = AsyncMock(return_value=SimpleNamespace(mcp_servers={}))
+    runner._mcp_tool.initialized = AsyncMock(return_value=None)
+    runner._sync_message_attachments_to_sandbox = AsyncMock(return_value=None)
+    runner._session_repository.update_status = AsyncMock()
+    runner._session_repository.update_title = AsyncMock()
+    runner._session_repository.update_latest_message = AsyncMock()
+    runner._session_repository.increment_unread_message_count = AsyncMock()
+
+    async def _flow_with_completed_plan(_message_obj, _task):
+        yield PlanEvent(status=PlanStatus.COMPLETED, plan=Plan())
+        yield DoneEvent()
+
+    runner._run_flow = _flow_with_completed_plan  # type: ignore[method-assign]
+    runner._pop_event = AsyncMock(return_value=MessageEvent(message="do work", role="user"))
+    runner._put_and_add_event = AsyncMock()
+
+    task = SimpleNamespace(
+        id="task-id",
+        input_stream=SimpleNamespace(is_empty=AsyncMock(side_effect=[False, True, True, True, True])),
+        paused=False,
+    )
+
+    await runner.run(task)
+
+    assert runner._session_repository.update_status.await_count == 2
 
 
 @patch("app.core.config.get_settings")

@@ -1,13 +1,14 @@
 """Tests for auto-saving report events as files."""
 
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.domain.models.event import ReportEvent
 from app.domain.models.file import FileInfo
-from app.domain.models.session import AgentMode
+from app.domain.models.session import AgentMode, ResearchMode
 from app.domain.services.agent_task_runner import AgentTaskRunner
 
 COMPARISON_MARKDOWN = """# LLM Comparison
@@ -87,6 +88,37 @@ def runner(mock_sandbox) -> AgentTaskRunner:
 
 class TestReportFileAttachment:
     @pytest.mark.asyncio
+    async def test_resolve_workspace_deliverables_root_prefers_persisted_output_path(self, runner):
+        runner._session_repository.find_by_id = AsyncMock(
+            return_value=SimpleNamespace(
+                workspace_structure={
+                    "deliverables": "Final reports",
+                    "_output_path": "/workspace/test-session/output",
+                }
+            )
+        )
+
+        resolved = await runner._resolve_workspace_deliverables_root()
+
+        assert resolved == "/workspace/test-session/output/reports"
+
+    @pytest.mark.asyncio
+    async def test_resolve_workspace_deliverables_root_ignores_stale_output_path_for_non_deep_research(self, runner):
+        runner._research_mode = ResearchMode.FAST_SEARCH
+        runner._session_repository.find_by_id = AsyncMock(
+            return_value=SimpleNamespace(
+                workspace_structure={
+                    "deliverables": "Final reports",
+                    "_output_path": "/workspace/test-session/output",
+                }
+            )
+        )
+
+        resolved = await runner._resolve_workspace_deliverables_root()
+
+        assert resolved == "/workspace/deliverables"
+
+    @pytest.mark.asyncio
     async def test_report_event_is_written_and_attached(self, runner, mock_sandbox):
         event = ReportEvent(
             id="report-1",
@@ -121,6 +153,30 @@ class TestReportFileAttachment:
         assert event.attachments[0].file_path == "/workspace/test-session/runs/run-2/report-report-scoped-1.md"
         assert event.attachments[0].metadata is not None
         assert event.attachments[0].metadata.get("delivery_scope") == "run-2"
+
+    @pytest.mark.asyncio
+    async def test_report_event_uses_persisted_workspace_output_path(self, runner, mock_sandbox):
+        runner._session_repository.find_by_id = AsyncMock(
+            return_value=SimpleNamespace(
+                workspace_structure={
+                    "deliverables": "Final reports",
+                    "_output_path": "/workspace/test-session/output",
+                }
+            )
+        )
+        event = ReportEvent(
+            id="report-output-1",
+            title="Output Report",
+            content="# Hello\n\nOutput body.",
+            attachments=None,
+        )
+
+        await runner._ensure_report_file(event)
+
+        mock_sandbox.file_write.assert_called_once()
+        assert event.attachments is not None
+        assert len(event.attachments) == 1
+        assert event.attachments[0].file_path == "/workspace/test-session/output/reports/report-report-output-1.md"
 
     @pytest.mark.asyncio
     async def test_comparison_report_generates_chart_attachment(self, runner, mock_sandbox):

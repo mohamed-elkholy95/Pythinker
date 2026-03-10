@@ -136,7 +136,10 @@ class OutputVerifier:
         Returns:
             List of source context strings.
         """
-        collected = self._source_tracker._collected_sources
+        collected = list(self._source_tracker._collected_sources)
+        grounded_sources = [s for s in collected if getattr(s, "source_type", None) in {"browser", "file"}]
+        if grounded_sources:
+            collected = grounded_sources
 
         chunks: list[str] = []
         for source in collected:
