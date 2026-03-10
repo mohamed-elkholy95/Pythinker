@@ -329,6 +329,9 @@ class ProgressMetrics:
     # Error details
     errors: list[str] = field(default_factory=list)
 
+    # Runtime issues (exceptions, missing artifacts) surfaced during execution
+    runtime_issues: list[str] = field(default_factory=list)
+
     @property
     def success_rate(self) -> float:
         """Calculate success rate of actions."""
@@ -390,6 +393,7 @@ class ProgressMetrics:
             "error_count": self.error_count,
             "is_stalled": self.is_stalled,
             "estimated_progress": round(self.estimated_progress * 100, 1),
+            "runtime_issue_count": len(self.runtime_issues),
         }
 
 

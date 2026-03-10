@@ -432,3 +432,74 @@ class TestReflectionAgent:
 
         assert stats["total_reflections"] == 3
         assert stats["last_reflection_step"] == 5
+
+
+class TestProgressMetricsRuntimeIssues:
+    """Tests for runtime_issues support in ProgressMetrics."""
+
+    def test_progress_metrics_exposes_runtime_issues(self):
+        """ProgressMetrics should carry runtime_issues list and expose count in to_dict()."""
+        metrics = ProgressMetrics()
+        metrics.runtime_issues = [
+            "Evidence acquisition crashed on ToolResultStore.offload_threshold",
+            "Requested artifact agent_observability_report.md missing",
+        ]
+
+        # Check that to_dict() includes the count
+        data = metrics.to_dict()
+        assert data.get("runtime_issue_count") == 2
+
+    def test_progress_metrics_default_empty_runtime_issues(self):
+        """ProgressMetrics should default to empty runtime_issues."""
+        metrics = ProgressMetrics()
+        assert metrics.runtime_issues == []
+
+    def test_to_dict_runtime_issue_count_zero_when_empty(self):
+        """to_dict() should report runtime_issue_count as 0 when no issues."""
+        metrics = ProgressMetrics()
+        data = metrics.to_dict()
+        assert data["runtime_issue_count"] == 0
+
+    def test_runtime_issues_included_in_reflection_prompt(self):
+        """When runtime_issues are present, the reflection prompt should list them."""
+        from app.domain.services.prompts.reflection import REFLECT_PROGRESS_PROMPT
+
+        # The prompt template must have a {runtime_issues_section} placeholder
+        # or similar mechanism. We verify by checking the template contains
+        # the relevant placeholder.
+        assert (
+            "runtime_issues" in REFLECT_PROGRESS_PROMPT.lower() or "{runtime_issues_section}" in REFLECT_PROGRESS_PROMPT
+        )
+
+    @pytest.mark.asyncio
+    async def test_reflection_prompt_surfaces_runtime_issues(self):
+        """ReflectionAgent._build_reflection_prompt should include runtime issues in output."""
+        from app.domain.models.plan import Plan, Step
+
+        mock_llm = MagicMock()
+        mock_parser = MagicMock()
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_parser)
+
+        plan = Plan(
+            title="Test",
+            goal="Do something",
+            steps=[Step(id="1", description="Step 1")],
+        )
+        metrics = ProgressMetrics(steps_completed=1, total_steps=2)
+        metrics.runtime_issues = [
+            "ToolResultStore.offload_threshold crashed",
+            "Artifact report.md was not produced",
+        ]
+
+        prompt = agent._build_reflection_prompt(
+            goal="Do something",
+            plan=plan,
+            progress=metrics,
+            trigger_type=ReflectionTriggerType.STEP_INTERVAL,
+            recent_actions=[],
+            last_error=None,
+        )
+
+        assert "ToolResultStore.offload_threshold crashed" in prompt
+        assert "Artifact report.md was not produced" in prompt
+        assert "Runtime Issues" in prompt or "runtime issues" in prompt.lower()

@@ -137,7 +137,7 @@ REFLECT_PROGRESS_PROMPT = """Assess the current progress and determine if any co
 - Error count: {error_count}
 - Last error (if any): {last_error}
 - Stall indicator: {is_stalled}
-
+{runtime_issues_section}
 ## Trigger Reason:
 {trigger_reason}
 
