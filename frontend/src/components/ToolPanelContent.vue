@@ -302,7 +302,7 @@
                own dedicated content — the screenshot would incorrectly show the
                browser state (e.g. Google) for a shell/terminal tool. -->
           <div
-            v-else-if="isReplayMode && !realTime && !!replayScreenshotUrl && (currentViewType === 'live_preview' || !currentViewType)"
+            v-else-if="isReplayMode && !realTime && !!replayScreenshotUrl && (presentationViewType === 'live_preview' || !presentationViewType)"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <ScreenshotReplayViewer
@@ -314,7 +314,7 @@
           <!-- Replay mode loading (user-navigated): waiting for screenshot blob.
                Only shown for browser-type or unknown tools (same guard as above). -->
           <div
-            v-else-if="isReplayMode && !realTime && !replayScreenshotUrl && (currentViewType === 'live_preview' || !currentViewType)"
+            v-else-if="isReplayMode && !realTime && !replayScreenshotUrl && (presentationViewType === 'live_preview' || !presentationViewType)"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <LoadingState
@@ -325,10 +325,10 @@
           </div>
 
           <!-- Live preview: persistent browser in background shows through (no overlay needed) -->
-          <template v-else-if="currentViewType === 'live_preview' && showPersistentBrowser" />
+          <template v-else-if="presentationViewType === 'live_preview' && showPersistentBrowser" />
 
           <!-- Live preview fallback: persistent browser gone but no replay yet — show last tool result -->
-          <div v-else-if="currentViewType === 'live_preview'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+          <div v-else-if="presentationViewType === 'live_preview'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <GenericContentView
               :tool-name="toolContent?.name"
               :function-name="toolContent?.function"
@@ -341,7 +341,7 @@
           </div>
 
           <!-- Terminal View -->
-          <div v-else-if="currentViewType === 'terminal'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+          <div v-else-if="presentationViewType === 'terminal'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <TerminalContentView
               :content="terminalContent"
               :content-type="terminalContentType"
@@ -353,7 +353,7 @@
           </div>
 
           <!-- Editor View -->
-          <div v-else-if="currentViewType === 'editor'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+          <div v-else-if="presentationViewType === 'editor'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <EditorContentView
               :content="editorContent"
               :filename="fileName"
@@ -365,7 +365,7 @@
           </div>
 
           <!-- Search View -->
-          <div v-else-if="currentViewType === 'search'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+          <div v-else-if="presentationViewType === 'search'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <SearchContentView
               :results="searchResults"
               :is-searching="isSearching"
@@ -376,7 +376,7 @@
           </div>
 
           <!-- Deal View -->
-          <div v-else-if="currentViewType === 'deals'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+          <div v-else-if="presentationViewType === 'deals'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <DealContentView
               :content="dealContent"
               :is-searching="isDealSearching"
@@ -389,7 +389,7 @@
           </div>
 
           <!-- Chart View -->
-          <div v-else-if="currentViewType === 'chart'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+          <div v-else-if="presentationViewType === 'chart'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <ChartToolView
               :session-id="sessionId || ''"
               :chart-content="toolContent"
@@ -401,7 +401,7 @@
           </div>
 
           <!-- Canvas View -->
-          <div v-else-if="currentViewType === 'canvas' && resolvedCanvasProjectId" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+          <div v-else-if="presentationViewType === 'canvas' && resolvedCanvasProjectId" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <CanvasLiveView
               :session-id="sessionId || ''"
               :project-id="resolvedCanvasProjectId"
@@ -413,7 +413,7 @@
           </div>
 
           <!-- Generic/MCP View -->
-          <div v-else-if="currentViewType === 'generic'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+          <div v-else-if="presentationViewType === 'generic'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <GenericContentView
               :tool-name="toolContent?.name"
               :function-name="toolContent?.function"
@@ -426,7 +426,7 @@
           </div>
 
           <!-- Wide Research View (parallel multi-source search) -->
-          <div v-else-if="currentViewType === 'wide_research'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+          <div v-else-if="presentationViewType === 'wide_research'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
             <WideResearchOverlay
               :state="wideResearchState"
               :always-show="true"
@@ -546,6 +546,7 @@ const ScreenshotReplayViewer = defineAsyncComponent(() => import('@/components/S
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { useElapsedTimer } from '@/composables/useElapsedTimer';
 import { useConnectionStore } from '@/stores/connectionStore';
+import { resolveLivePreviewViewType } from '@/utils/livePreviewSelection';
 import { normalizeSearchResults } from '@/utils/searchResults';
 import { isCanvasDomainTool } from '@/utils/viewRouting';
 import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
@@ -671,6 +672,17 @@ const currentViewType = computed(() => {
   if (shouldShowArtifactEditor.value) return 'editor';
   return computedViewType.value;
 });
+
+const isSessionComplete = computed(() => !props.isLoading && !!props.replayScreenshotUrl);
+
+const presentationViewType = computed(() => resolveLivePreviewViewType({
+  baseViewType: currentViewType.value,
+  sessionId: props.sessionId,
+  enabled: true,
+  isReplayMode: !!props.isReplayMode,
+  hasReplayScreenshot: !!props.replayScreenshotUrl,
+  isSessionComplete: isSessionComplete.value,
+}));
 
 const isViewingLatestTimelineStep = computed(() => {
   if (!props.timelineTotalSteps || props.timelineTotalSteps <= 0) return true;
@@ -943,21 +955,24 @@ const streamingPresentation = useStreamingPresentationState({
   toolDisplayName: computed(() => toolDisplay.value?.displayName || ''),
   toolDescription: computed(() => toolSubtitle.value || ''),
   baseViewType: computed(() => {
-    if (currentViewType.value === 'terminal' || currentViewType.value === 'editor' || currentViewType.value === 'search') {
-      return currentViewType.value;
+    if (
+      presentationViewType.value === 'terminal' ||
+      presentationViewType.value === 'editor' ||
+      presentationViewType.value === 'search'
+    ) {
+      return presentationViewType.value;
     }
-    if (currentViewType.value === 'live_preview') {
+    if (presentationViewType.value === 'live_preview') {
       return 'live_preview';
     }
     return 'generic';
   }),
-  isSessionComplete: computed(() => !props.isLoading && !!props.replayScreenshotUrl),
+  isSessionComplete: computed(() => isSessionComplete.value),
   replayScreenshotUrl: computed(() => props.replayScreenshotUrl || ''),
   previewText: computed(() => props.summaryStreamText || '')
 });
 
 const isSummaryPhase = computed(() => streamingPresentation.isSummaryPhase.value);
-const isSessionComplete = computed(() => !props.isLoading && !!props.replayScreenshotUrl);
 
 const activityHeadline = computed(() => {
   if (isSummaryPhase.value) return streamingPresentation.headline.value;
@@ -1136,7 +1151,7 @@ const resolvedBrowserUrl = computed(() => {
 
 const showLivePreviewChrome = computed(() => {
   if (showLivePreviewPlaceholder.value || !showPersistentBrowser.value) return false;
-  return currentViewType.value === 'live_preview' || isBrowserTool(toolName.value) || forceBrowserView.value;
+  return presentationViewType.value === 'live_preview' || isBrowserTool(toolName.value) || forceBrowserView.value;
 });
 
 const livePreviewChromeUrl = computed(() => resolvedBrowserUrl.value || '/');
