@@ -26,6 +26,7 @@ Concise instructions for automated agents working in this repo.
 - **Status report accuracy (absolute)**: summaries/status reports must be 100% factual. Never mark partially done or foundational-only work as `Completed`. Always distinguish `Completed`, `In Progress`, and `Not Started`.
 - **Full implementation only (absolute)**: when writing code, provide full unabridged file implementations. Never use placeholders, omitted sections, or summary-only substitutions.
 - **Persistence for complex requests (absolute)**: do not reduce scope to fit one reply. Output as much valid complete code as possible, then continue on explicit `Continue` prompts until fully done.
+- **Git attribution (always)**: for all future commits and pushes, use author `Mohamed Elkholy <moelkholy1995@gmail.com>`, add no `Co-Authored-By` trailers, and present commits as sole-contributor commits only.
 
 ## Checks (before committing)
 
