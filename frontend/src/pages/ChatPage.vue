@@ -1129,10 +1129,14 @@ const isSessionComplete = computed(() => {
     [SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED].includes(sessionStatus.value)
 })
 
-// Replay mode: session is completed/failed and has replay data
+// Replay mode: session completed with replay data, OR user has stepped
+// away from real-time during a live session and screenshots are available.
 const isReplayMode = computed(() => {
   const ended = !isLoading.value && isSessionComplete.value
-  return !!ended && hasScreenshotReplay.value
+  const completedReplay = !!ended && hasScreenshotReplay.value
+  // Enable replay view when user navigates the timeline during a live session
+  const steppedFromLive = !realTime.value && hasScreenshotReplay.value
+  return completedReplay || steppedFromLive
 })
 
 // Message ID counter for generating unique keys (avoids crypto overhead)
@@ -4298,20 +4302,54 @@ const syncReplayToTool = (tool: ToolContent) => {
   if (!replay.hasScreenshots.value) return;
   const screenshots = replay.screenshots.value;
 
-  // Exact match by tool_call_id (prefer tool_after for result view)
+  // For synthetic timeline entries (tool-progress:{parent_id}:{index}),
+  // extract the parent tool_call_id so we can match against screenshots
+  // which carry the original tool_call_id.
+  const toolId = tool.tool_call_id;
+  const isSynthetic = toolId.startsWith('tool-progress:');
+  const parentToolId = isSynthetic
+    ? toolId.split(':').slice(1, -1).join(':')
+    : toolId;
+
+  // Normalize tool timestamp to epoch seconds. Backend events serialize
+  // datetime as ISO 8601 strings (Pydantic v2) while screenshot timestamps
+  // are already Unix seconds. Without normalization the diff is NaN.
+  const toolEpoch = toEpochSeconds(tool.timestamp as number | string);
+
   let bestIdx = -1;
-  for (let i = screenshots.length - 1; i >= 0; i--) {
-    if (screenshots[i].tool_call_id === tool.tool_call_id) {
-      bestIdx = i;
-      if (screenshots[i].trigger === 'tool_after') break;
+
+  if (isSynthetic && toolEpoch !== null) {
+    // Synthetic entries (browser agent sub-actions) all share the same parent
+    // tool_call_id. Use timestamp to find the closest screenshot for this
+    // specific sub-action within the parent tool's screenshots.
+    let bestDiff = Infinity;
+    for (let i = 0; i < screenshots.length; i++) {
+      if (screenshots[i].tool_call_id !== parentToolId) continue;
+      const ssEpoch = toEpochSeconds(screenshots[i].timestamp as number | string);
+      if (ssEpoch === null) continue;
+      const diff = Math.abs(ssEpoch - toolEpoch);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIdx = i;
+      }
+    }
+  } else {
+    // Regular tool entries: exact match by tool_call_id (prefer tool_after)
+    for (let i = screenshots.length - 1; i >= 0; i--) {
+      if (screenshots[i].tool_call_id === toolId) {
+        bestIdx = i;
+        if (screenshots[i].trigger === 'tool_after') break;
+      }
     }
   }
 
-  // Fallback: closest screenshot by timestamp
-  if (bestIdx < 0 && tool.timestamp) {
+  // Fallback: closest screenshot by timestamp (any tool)
+  if (bestIdx < 0 && toolEpoch !== null) {
     let bestDiff = Infinity;
     for (let i = 0; i < screenshots.length; i++) {
-      const diff = Math.abs((screenshots[i].timestamp || 0) - tool.timestamp);
+      const ssEpoch = toEpochSeconds(screenshots[i].timestamp as number | string);
+      if (ssEpoch === null) continue;
+      const diff = Math.abs(ssEpoch - toolEpoch);
       if (diff < bestDiff) {
         bestDiff = diff;
         bestIdx = i;
@@ -4324,7 +4362,7 @@ const syncReplayToTool = (tool: ToolContent) => {
   }
 };
 
-const showToolFromTimeline = (index: number) => {
+const showToolFromTimeline = async (index: number) => {
   if (toolTimeline.value.length === 0) return;
   if (!canOpenLiveViewPanel.value) return;
   const clampedIndex = Math.max(0, Math.min(index, toolTimeline.value.length - 1));
@@ -4333,6 +4371,10 @@ const showToolFromTimeline = (index: number) => {
   realTime.value = false;
   if (showToolPanelIfAllowed(tool, false)) {
     panelToolId.value = tool.tool_call_id;
+    // Eagerly load screenshots if not available yet (live session stepping)
+    if (!replay.hasScreenshots.value) {
+      await replay.loadScreenshots();
+    }
     // Sync screenshot replay to this tool's timeframe
     syncReplayToTool(tool);
   }

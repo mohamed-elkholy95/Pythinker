@@ -13,13 +13,15 @@ describe('livePreviewSelection', () => {
     })).toBe('live_preview');
   });
 
-  it('prefers replayed browser preview for search timeline steps when a screenshot exists', () => {
+  it('keeps search view in replay mode even when a screenshot exists', () => {
+    // In replay, structured search results are more useful than a static
+    // browser screenshot of a search engine page.
     expect(shouldPreferBrowserPreviewForSearch({
       baseViewType: 'search',
       enabled: true,
       isReplayMode: true,
       hasReplayScreenshot: true,
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it('keeps the search view when no live or replay browser state is available', () => {
