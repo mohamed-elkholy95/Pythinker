@@ -26,6 +26,11 @@ _SPIDER_DENYLIST_DOMAINS: frozenset[str] = frozenset(
         "reddit.com",  # Responsible Builder Policy — requires OAuth
         "x.com",  # Aggressive bot blocking
         "twitter.com",  # Legacy domain for x.com
+        "instagram.com",  # Login wall, returns UI boilerplate only
+        "facebook.com",  # Login wall, no useful anonymous content
+        "tiktok.com",  # Video platform, no text content for research
+        "linkedin.com",  # Login wall, aggressive bot blocking
+        "pinterest.com",  # Login wall, image-only platform
     }
 )
 
