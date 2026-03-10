@@ -51,6 +51,9 @@ _TECH_TERMS = frozenset(
     }
 )
 
+# Output filenames: report.md, data.csv, results.json, etc.
+_FILENAME_PATTERN = re.compile(r"\b([A-Za-z0-9_][A-Za-z0-9._-]*\.(?:md|txt|csv|json|html|png|pdf))\b")
+
 # Numeric constraints: top 5, 10 items, under $100
 _NUMERIC_PATTERNS = [
     re.compile(r"top\s+\d+", re.IGNORECASE),
@@ -172,6 +175,9 @@ def extract(
             seen_v.add(v)
             unique_versions.append(v)
 
+    # 6. Requested output filenames
+    filenames: list[str] = list(dict.fromkeys(m.group(1) for m in _FILENAME_PATTERN.finditer(text)))
+
     extraction_method = (
         "hybrid"
         if "regex" in method_components or len(method_components) > 1
@@ -185,6 +191,7 @@ def extract(
         locked_entities=unique_entities,
         locked_versions=unique_versions,
         numeric_constraints=list(dict.fromkeys(numeric)),
+        requested_filenames=filenames,
         extraction_method=extraction_method,
         extraction_confidence=confidence,
     )

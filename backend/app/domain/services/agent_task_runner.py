@@ -748,6 +748,21 @@ class AgentTaskRunner(TaskRunner):
 
         return f"/workspace/{self._session_id}"
 
+    def _resolve_report_filename(self, event: ReportEvent) -> str:
+        """Resolve the report filename, preferring user-requested names from the contract.
+
+        Checks the current flow's request contract for ``requested_filenames``.
+        Uses the first filename that looks like a markdown file, falling back
+        to the default ``report-{event.id}.md`` pattern.
+        """
+        flow = self._flow
+        contract = getattr(flow, "_request_contract", None) if flow else None
+        if contract is not None:
+            for name in getattr(contract, "requested_filenames", []):
+                if name and name.endswith(".md"):
+                    return name
+        return f"report-{event.id}.md"
+
     async def _ensure_report_file(self, event: ReportEvent) -> None:
         """Persist report content as a file in the sandbox and attach it to the event."""
         if not self._sandbox:
@@ -839,7 +854,7 @@ class AgentTaskRunner(TaskRunner):
             event.content += "\n".join(chart_lines) + "\n"
 
         # --- Write summarized report file (now includes chart references) ---
-        expected_name = f"report-{event.id}.md"
+        expected_name = self._resolve_report_filename(event)
         if not self._has_attachment(existing, expected_name):
             file_path = f"{workspace_root}/{expected_name}"
             try:
