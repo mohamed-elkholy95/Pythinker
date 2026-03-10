@@ -12,6 +12,8 @@ import logging
 import re
 from dataclasses import dataclass
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 _MERMAID_BLOCK_RE = re.compile(
@@ -65,10 +67,14 @@ class MermaidPreprocessor:
 
     Graceful fallback: if any step fails for a block, the original
     code block is preserved unchanged in the output.
+
+    The caller is responsible for supplying a pre-configured
+    ``httpx.AsyncClient`` with the sandbox base URL already set.
+    This keeps the domain layer free of infrastructure imports.
     """
 
-    def __init__(self, sandbox_base_url: str) -> None:
-        self._sandbox_url = sandbox_base_url.rstrip("/")
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        self._client = http_client
 
     async def preprocess_markdown(self, markdown: str) -> tuple[str, dict[str, bytes]]:
         """Process markdown, rendering mermaid blocks to PNG.
@@ -117,18 +123,11 @@ class MermaidPreprocessor:
 
         Returns PNG bytes or None on failure.
         """
-        from app.infrastructure.external.http_pool import HTTPClientPool
-
         # Use /workspace/ — sandbox allows writes here (/tmp/ may be restricted)
         input_path = f"/workspace/.mermaid/mermaid_{block.key}.mmd"
         output_path = f"/workspace/.mermaid/mermaid_{block.key}.png"
 
-        managed = await HTTPClientPool.get_client(
-            "sandbox-mermaid",
-            base_url=self._sandbox_url,
-            timeout=_RENDER_TIMEOUT_SECONDS,
-        )
-        client = managed.client
+        client = self._client
 
         # 0. Ensure render directory exists
         await client.post(

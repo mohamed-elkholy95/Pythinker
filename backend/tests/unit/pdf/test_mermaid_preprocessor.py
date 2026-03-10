@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
+import httpx
 import pytest
 
 from app.domain.services.pdf.mermaid_preprocessor import (
     MermaidPreprocessor,
     extract_mermaid_blocks,
 )
+
+
+def _make_preprocessor(base_url: str = "http://fake:8080") -> MermaidPreprocessor:
+    """Create a MermaidPreprocessor with a real httpx.AsyncClient (no sandbox required)."""
+    client = httpx.AsyncClient(base_url=base_url, timeout=5.0)
+    return MermaidPreprocessor(http_client=client)
 
 
 class TestExtractMermaidBlocks:
@@ -56,7 +65,7 @@ class TestMermaidPreprocessor:
 
     @pytest.mark.asyncio
     async def test_preprocess_no_mermaid_blocks(self):
-        pp = MermaidPreprocessor(sandbox_base_url="http://fake:8080")
+        pp = _make_preprocessor()
         content, images = await pp.preprocess_markdown("No mermaid here")
         assert content == "No mermaid here"
         assert images == {}
@@ -64,9 +73,16 @@ class TestMermaidPreprocessor:
     @pytest.mark.asyncio
     async def test_preprocess_returns_original_on_render_failure(self):
         """When sandbox is unavailable, mermaid blocks stay as-is."""
-        pp = MermaidPreprocessor(sandbox_base_url="http://unreachable:9999")
+        pp = _make_preprocessor(base_url="http://unreachable:9999")
         md = "```mermaid\ngraph TD\n  A-->B\n```"
         content, images = await pp.preprocess_markdown(md)
         # Should return original content unchanged (graceful fallback)
         assert "graph TD" in content
         assert images == {}
+
+    @pytest.mark.asyncio
+    async def test_accepts_injected_http_client(self):
+        """MermaidPreprocessor stores the injected client without infra imports."""
+        mock_client = MagicMock(spec=httpx.AsyncClient)
+        pp = MermaidPreprocessor(http_client=mock_client)
+        assert pp._client is mock_client

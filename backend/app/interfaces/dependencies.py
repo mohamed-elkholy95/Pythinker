@@ -74,14 +74,33 @@ def _normalize_sandbox_base_url(raw_address: str | None) -> str | None:
     return urlunsplit((scheme, f"{parsed.hostname}:{port}", "", "", ""))
 
 
+def _build_mermaid_preprocessor(sandbox_url: str | None):
+    """Build a MermaidPreprocessor with a sandbox HTTP client.
+
+    Returns None when no sandbox URL is configured.
+    This helper lives in the interfaces composition root so that the domain
+    MermaidPreprocessor class stays free of infrastructure imports.
+    """
+    if not sandbox_url:
+        return None
+
+    import httpx
+
+    from app.domain.services.pdf.mermaid_preprocessor import MermaidPreprocessor
+
+    client = httpx.AsyncClient(base_url=sandbox_url, timeout=20.0)
+    return MermaidPreprocessor(http_client=client)
+
+
 def build_pdf_renderer_from_settings(settings: Any):
     """Return the configured report PDF renderer with safe fallback."""
     from app.domain.services.pdf.reportlab_pdf_renderer import ReportLabPdfRenderer
 
     # Determine sandbox URL for Mermaid diagram rendering
     sandbox_url = _normalize_sandbox_base_url(getattr(settings, "sandbox_address", None))
+    mermaid = _build_mermaid_preprocessor(sandbox_url)
 
-    reportlab_renderer = ReportLabPdfRenderer(sandbox_base_url=sandbox_url)
+    reportlab_renderer = ReportLabPdfRenderer(mermaid=mermaid)
     renderer_choice = (getattr(settings, "telegram_pdf_renderer", "reportlab") or "reportlab").strip().lower()
 
     if renderer_choice == "playwright":
@@ -92,7 +111,7 @@ def build_pdf_renderer_from_settings(settings: Any):
             return PlaywrightPdfRenderer(
                 timeout_ms=timeout_ms,
                 fallback_renderer=reportlab_renderer,
-                sandbox_base_url=sandbox_url,
+                mermaid=mermaid,
             )
         except Exception as exc:
             logger.warning("Failed to initialize Playwright PDF renderer; using ReportLab fallback: %s", exc)

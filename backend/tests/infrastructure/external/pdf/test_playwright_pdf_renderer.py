@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 from app.core.prometheus_metrics import (
@@ -15,6 +16,7 @@ from app.core.prometheus_metrics import (
     telegram_pdf_renderer_success_total,
 )
 from app.domain.models.source_citation import SourceCitation
+from app.domain.services.pdf.mermaid_preprocessor import MermaidPreprocessor
 from app.domain.services.pdf.models import ReportPdfPayload
 from app.domain.services.pdf.pdf_renderer import PdfReportRenderer
 from app.infrastructure.external.pdf.playwright_pdf_renderer import (
@@ -22,6 +24,12 @@ from app.infrastructure.external.pdf.playwright_pdf_renderer import (
     _decorate_reference_ids,
     _replace_mermaid_placeholders_with_markdown_images,
 )
+
+
+def _make_mermaid_preprocessor() -> MermaidPreprocessor:
+    """Build a MermaidPreprocessor with a mock httpx client for tests."""
+    mock_client = MagicMock(spec=httpx.AsyncClient)
+    return MermaidPreprocessor(http_client=mock_client)
 
 
 class _FallbackRenderer(PdfReportRenderer):
@@ -121,7 +129,7 @@ async def test_playwright_renderer_emits_linked_citations_and_reference_ids(monk
 
 @pytest.mark.asyncio
 async def test_playwright_renderer_preprocesses_mermaid_when_sandbox_available(mocker) -> None:
-    renderer = PlaywrightPdfRenderer(timeout_ms=1_000, sandbox_base_url="http://sandbox:8080")
+    renderer = PlaywrightPdfRenderer(timeout_ms=1_000, mermaid=_make_mermaid_preprocessor())
     captured_html: dict[str, str] = {}
 
     mocker.patch(

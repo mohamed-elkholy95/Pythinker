@@ -16,14 +16,14 @@ logger = logging.getLogger(__name__)
 class ReportLabPdfRenderer(PdfReportRenderer):
     """Render PDF bytes using the existing ReportLab pipeline.
 
-    When a sandbox_base_url is provided, Mermaid code blocks are pre-rendered
-    to PNG via the sandbox mmdc CLI before PDF generation.
+    When a ``mermaid`` preprocessor is provided, Mermaid code blocks are
+    pre-rendered to PNG via the sandbox mmdc CLI before PDF generation.
+    The preprocessor is constructed by the composition root (infrastructure
+    layer) so that this domain class stays free of infrastructure imports.
     """
 
-    def __init__(self, *, sandbox_base_url: str | None = None) -> None:
-        self._mermaid: MermaidPreprocessor | None = None
-        if sandbox_base_url:
-            self._mermaid = MermaidPreprocessor(sandbox_base_url=sandbox_base_url)
+    def __init__(self, *, mermaid: MermaidPreprocessor | None = None) -> None:
+        self._mermaid = mermaid
 
     async def render(self, payload: ReportPdfPayload) -> bytes:
         pm.telegram_pdf_renderer_invocations_total.inc({"renderer": "reportlab"})
