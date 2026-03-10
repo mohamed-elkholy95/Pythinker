@@ -172,7 +172,14 @@ export const useAuthStore = defineStore('auth', () => {
       if (!silent) {
         isLoading.value = true
       }
-      await apiLogout()
+      // Only call the logout API if we have a valid-looking token.
+      // When tokens are already cleared (e.g. after a failed refresh),
+      // the API call would fail with 401 "Authentication required" or
+      // "Not enough segments" — generating noise without benefit.
+      const token = getStoredToken()
+      if (token && token.split('.').length === 3) {
+        await apiLogout()
+      }
     } catch {
       // Ignore logout errors — always clear local state
     } finally {
