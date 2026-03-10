@@ -24,6 +24,7 @@ from app.domain.models.source_citation import SourceCitation
 from app.interfaces.api.session_routes import (
     _cancel_pending_disconnect_cancellation,
     _event_phase_label,
+    _is_task_active,
     _is_websocket_origin_allowed,
     _normalize_session_status,
     _resolve_stream_exhausted_close_reason,
@@ -924,6 +925,124 @@ async def test_chat_failed_session_no_input_returns_done_event():
         current_user=current_user,
         agent_service=agent_service,
     )
+
+    events = await _collect_sse_events(response)
+    assert len(events) == 1
+    assert events[0]["event"] == "done"
+    agent_service.chat.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _is_task_active() unit tests
+# ---------------------------------------------------------------------------
+
+
+_LIVENESS_PATCH_PATH = "app.infrastructure.external.task.redis_task.RedisStreamTask.get_liveness"
+
+
+@pytest.mark.asyncio
+async def test_is_task_active_returns_true_when_liveness_exists():
+    """_is_task_active returns True when Redis liveness key is present."""
+    with patch(
+        _LIVENESS_PATCH_PATH,
+        new_callable=AsyncMock,
+        return_value="task-uuid-123",
+    ):
+        assert await _is_task_active("sess-alive") is True
+
+
+@pytest.mark.asyncio
+async def test_is_task_active_returns_false_when_no_liveness():
+    """_is_task_active returns False when no liveness key exists."""
+    with patch(
+        _LIVENESS_PATCH_PATH,
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        assert await _is_task_active("sess-gone") is False
+
+
+@pytest.mark.asyncio
+async def test_is_task_active_returns_false_on_redis_error():
+    """_is_task_active must swallow exceptions and return False."""
+    with patch(
+        _LIVENESS_PATCH_PATH,
+        new_callable=AsyncMock,
+        side_effect=ConnectionError("redis down"),
+    ):
+        assert await _is_task_active("sess-err") is False
+
+
+# ---------------------------------------------------------------------------
+# chat() short-circuit + _is_task_active integration tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_chat_completed_session_with_active_task_skips_short_circuit():
+    """Completed session + active liveness → falls through (no DoneEvent short-circuit)."""
+    session_id = "sess-summarizing"
+    session = _make_completed_session(session_id, title="Still summarizing")
+
+    async def fake_chat(**_kwargs):
+        yield DoneEvent(title="Summarization finished")
+
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
+        chat=fake_chat,
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest()  # No message — pure reconnect
+
+    with (
+        patch(
+            "app.interfaces.api.session_routes._is_task_active",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch("app.interfaces.api.session_routes.get_settings") as mock_settings,
+    ):
+        mock_settings.return_value = SimpleNamespace(feature_sse_v2=False)
+        response = await chat(
+            session_id=session_id,
+            request=request,
+            http_request=_make_http_request(),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
+
+    events = await _collect_sse_events(response)
+    event_names = [e["event"] for e in events]
+    # Should NOT have short-circuited; should have reached agent_service.chat()
+    assert "done" in event_names, "Expected done event from agent_service.chat(), not short-circuit"
+
+
+@pytest.mark.asyncio
+async def test_chat_completed_session_without_active_task_still_short_circuits():
+    """Completed session + no active task → short-circuits with DoneEvent as before."""
+    session_id = "sess-truly-done"
+    session = _make_completed_session(session_id, title="Finished task")
+    agent_service = SimpleNamespace(
+        get_session=AsyncMock(return_value=session),
+        get_session_full=AsyncMock(return_value=session),
+        chat=AsyncMock(),  # Should NOT be called
+    )
+    current_user = SimpleNamespace(id="user-1")
+    request = ChatRequest()
+
+    with patch(
+        "app.interfaces.api.session_routes._is_task_active",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        response = await chat(
+            session_id=session_id,
+            request=request,
+            http_request=_make_http_request(),
+            current_user=current_user,
+            agent_service=agent_service,
+        )
 
     events = await _collect_sse_events(response)
     assert len(events) == 1

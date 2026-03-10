@@ -884,6 +884,22 @@ async def stream_sessions(
     return EventSourceResponse(event_generator())
 
 
+async def _is_task_active(session_id: str) -> bool:
+    """Check if session has an actively-running task via Redis liveness key.
+
+    Returns True when the task runner is still heartbeating, which means
+    the session is mid-execution (e.g. in summarization phase) even though
+    session.status may already read 'completed' from the execution phase.
+    """
+    from app.infrastructure.external.task.redis_task import RedisStreamTask
+
+    try:
+        liveness = await RedisStreamTask.get_liveness(session_id)
+        return liveness is not None
+    except Exception:
+        return False
+
+
 @router.post("/{session_id}/chat")
 async def chat(
     session_id: str,
@@ -922,93 +938,102 @@ async def chat(
         or request.follow_up
     )
     if session.status in ("completed", "failed") and not has_fresh_input:
-        resume_cursor = request.event_id or http_request.headers.get("Last-Event-ID")
-        logger.info(
-            "Session %s already %s with no new input (resume_cursor=%s)",
-            session_id,
-            session.status,
-            resume_cursor,
-        )
-
-        replay_events: list[ServerSentEvent] = []
-        stale_resume_gap_event: ServerSentEvent | None = None
-        normalized_terminal_status = _normalize_session_status(session.status)
-        if resume_cursor:
-            session_events = getattr(session, "events", None) or []
-            sse_events = await EventMapper.events_to_sse_events(session_events)
-            cursor_index = next(
-                (
-                    index
-                    for index, sse_event in enumerate(sse_events)
-                    if sse_event.data and getattr(sse_event.data, "event_id", None) == resume_cursor
-                ),
-                None,
+        # Guard: if a task is still actively running (e.g. summarization),
+        # do NOT short-circuit — fall through to the live stream path.
+        if await _is_task_active(session_id):
+            logger.info(
+                "Session %s shows '%s' but has active task — skipping short-circuit",
+                session_id,
+                session.status,
             )
-            if cursor_index is not None:
-                pm.record_sse_resume_cursor_state(endpoint="chat", state="found")
-                replay_events.extend(
-                    ServerSentEvent(
-                        event=sse_event.event,
-                        data=sse_event.data.model_dump_json() if sse_event.data else None,
-                    )
-                    for sse_event in sse_events[cursor_index + 1 :]
-                )
-            else:
-                pm.record_sse_resume_cursor_state(endpoint="chat", state="stale")
-                pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="stale_cursor")
-                logger.info(
-                    "Resume cursor %s not found in completed session %s; falling back to done-only response",
-                    resume_cursor,
-                    session_id,
-                )
-                stale_gap = ErrorEvent(
-                    error="Reconnect gap detected. Resume cursor not found; returning latest session state.",
-                    error_type="stream_gap",
-                    error_code="stream_gap_detected",
-                    error_category="transport",
-                    severity="warning",
-                    recoverable=True,
-                    can_resume=True,
-                    retry_hint="Session is terminal; refreshed state includes the latest available output.",
-                    details={
-                        "session_id": session_id,
-                        "resume_cursor": resume_cursor,
-                        "reason": "stale_cursor",
-                        "status": normalized_terminal_status,
-                    },
-                )
-                sse_gap = await EventMapper.event_to_sse_event(stale_gap)
-                if sse_gap:
-                    stale_resume_gap_event = ServerSentEvent(
-                        event=sse_gap.event,
-                        data=sse_gap.data.model_dump_json() if sse_gap.data else None,
-                    )
         else:
-            pm.record_sse_resume_cursor_state(endpoint="chat", state="absent")
+            resume_cursor = request.event_id or http_request.headers.get("Last-Event-ID")
+            logger.info(
+                "Session %s already %s with no new input (resume_cursor=%s)",
+                session_id,
+                session.status,
+                resume_cursor,
+            )
 
-        if replay_events:
+            replay_events: list[ServerSentEvent] = []
+            stale_resume_gap_event: ServerSentEvent | None = None
+            normalized_terminal_status = _normalize_session_status(session.status)
+            if resume_cursor:
+                session_events = getattr(session, "events", None) or []
+                sse_events = await EventMapper.events_to_sse_events(session_events)
+                cursor_index = next(
+                    (
+                        index
+                        for index, sse_event in enumerate(sse_events)
+                        if sse_event.data and getattr(sse_event.data, "event_id", None) == resume_cursor
+                    ),
+                    None,
+                )
+                if cursor_index is not None:
+                    pm.record_sse_resume_cursor_state(endpoint="chat", state="found")
+                    replay_events.extend(
+                        ServerSentEvent(
+                            event=sse_event.event,
+                            data=sse_event.data.model_dump_json() if sse_event.data else None,
+                        )
+                        for sse_event in sse_events[cursor_index + 1 :]
+                    )
+                else:
+                    pm.record_sse_resume_cursor_state(endpoint="chat", state="stale")
+                    pm.record_sse_resume_cursor_fallback(endpoint="chat", reason="stale_cursor")
+                    logger.info(
+                        "Resume cursor %s not found in completed session %s; falling back to done-only response",
+                        resume_cursor,
+                        session_id,
+                    )
+                    stale_gap = ErrorEvent(
+                        error="Reconnect gap detected. Resume cursor not found; returning latest session state.",
+                        error_type="stream_gap",
+                        error_code="stream_gap_detected",
+                        error_category="transport",
+                        severity="warning",
+                        recoverable=True,
+                        can_resume=True,
+                        retry_hint="Session is terminal; refreshed state includes the latest available output.",
+                        details={
+                            "session_id": session_id,
+                            "resume_cursor": resume_cursor,
+                            "reason": "stale_cursor",
+                            "status": normalized_terminal_status,
+                        },
+                    )
+                    sse_gap = await EventMapper.event_to_sse_event(stale_gap)
+                    if sse_gap:
+                        stale_resume_gap_event = ServerSentEvent(
+                            event=sse_gap.event,
+                            data=sse_gap.data.model_dump_json() if sse_gap.data else None,
+                        )
+            else:
+                pm.record_sse_resume_cursor_state(endpoint="chat", state="absent")
+
+            if replay_events:
+
+                async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
+                    if stale_resume_gap_event:
+                        yield stale_resume_gap_event
+                    for replay_event in replay_events:
+                        yield replay_event
+
+                return EventSourceResponse(completed_generator(), headers=protocol_headers)
+
+            done_event = DoneEvent(title=session.title or "Task completed")
+            sse_done = await EventMapper.event_to_sse_event(done_event)
 
             async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
                 if stale_resume_gap_event:
                     yield stale_resume_gap_event
-                for replay_event in replay_events:
-                    yield replay_event
+                if sse_done:
+                    yield ServerSentEvent(
+                        event=sse_done.event,
+                        data=sse_done.data.model_dump_json() if sse_done.data else None,
+                    )
 
             return EventSourceResponse(completed_generator(), headers=protocol_headers)
-
-        done_event = DoneEvent(title=session.title or "Task completed")
-        sse_done = await EventMapper.event_to_sse_event(done_event)
-
-        async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
-            if stale_resume_gap_event:
-                yield stale_resume_gap_event
-            if sse_done:
-                yield ServerSentEvent(
-                    event=sse_done.event,
-                    data=sse_done.data.model_dump_json() if sse_done.data else None,
-                )
-
-        return EventSourceResponse(completed_generator(), headers=protocol_headers)
 
     # ---------------------------------------------------------------------------
     # Short-circuit for active sessions owned by another process (e.g. gateway).
