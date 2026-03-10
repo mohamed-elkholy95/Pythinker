@@ -17,8 +17,8 @@ class TestFeatureFlagDefaults:
     def test_pipeline_enabled_by_default(self, settings):
         assert settings.research_deterministic_pipeline_enabled is True
 
-    def test_pipeline_mode_shadow_by_default(self, settings):
-        assert settings.research_pipeline_mode == "shadow"
+    def test_pipeline_mode_enforced_by_default(self, settings):
+        assert settings.research_pipeline_mode == "enforced"
 
 
 class TestSourceSelectionDefaults:

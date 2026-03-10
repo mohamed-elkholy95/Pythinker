@@ -129,6 +129,21 @@ class AgentService:
         for key, _entry in sorted(self._file_view_cache.items(), key=lambda item: item[1][0])[:overflow]:
             self._file_view_cache.pop(key, None)
 
+    async def is_task_active(self, session_id: str) -> bool:
+        """Check if session has an actively-running task via Redis liveness key.
+
+        Returns True when the task runner is still heartbeating, which means
+        the session is mid-execution (e.g. in summarization phase) even though
+        session.status may already read 'completed' from the execution phase.
+        """
+        from app.infrastructure.external.task.redis_task import RedisStreamTask
+
+        try:
+            liveness = await RedisStreamTask.get_liveness(session_id)
+            return liveness is not None
+        except Exception:
+            return False
+
     def request_cancellation(self, session_id: str) -> None:
         """Signal that a session's processing should stop (e.g. SSE disconnect)."""
         event = self._session_cancel_events.get(session_id)
