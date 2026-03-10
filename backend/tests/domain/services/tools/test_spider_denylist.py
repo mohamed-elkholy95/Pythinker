@@ -1,7 +1,8 @@
 """Tests for spider denylist expansion — social media platforms."""
 import pytest
-from app.infrastructure.external.scraper.research_spider import should_skip_spider, SPIDER_DENYLIST_DOMAINS
+
 from app.domain.services.tools.search import _should_skip_spider as search_should_skip_spider
+from app.infrastructure.external.scraper.research_spider import should_skip_spider
 
 
 class TestSpiderDenylistExpansion:

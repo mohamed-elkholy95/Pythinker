@@ -1,6 +1,6 @@
 """Tests for grounding context — ensure LLM-generated content doesn't self-validate."""
-import pytest
 from unittest.mock import MagicMock
+
 from app.domain.services.agents.output_verifier import OutputVerifier
 
 

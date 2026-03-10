@@ -1,7 +1,6 @@
 """Tests for evidence-based step completion — steps with failed reads should not be COMPLETED."""
 
-import pytest
-from app.domain.models.plan import Step, ExecutionStatus
+from app.domain.models.plan import ExecutionStatus, Step
 
 
 class TestStepCompletionEvidence:

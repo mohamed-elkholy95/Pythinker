@@ -1,5 +1,4 @@
 """Tests for headline extraction with failed tool results."""
-import pytest
 from app.domain.services.flows.headline_extractor import extract_headline
 
 
