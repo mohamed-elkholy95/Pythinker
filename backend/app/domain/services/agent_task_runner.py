@@ -921,17 +921,22 @@ class AgentTaskRunner(TaskRunner):
             _chart_msg = chart_error or "no chart data extracted from report"
             _log_fn = logger.warning if chart_error else logger.info
             _log_fn(
-                "Plotly chart unavailable for report_id=%s session=%s: %s. Falling back to legacy SVG.",
+                "Plotly chart unavailable for report_id=%s session=%s: %s",
                 event.id,
                 self._session_id,
                 _chart_msg,
             )
-            return await self._ensure_legacy_svg_chart(
-                event,
-                attachments,
-                force_generation=force_generation,
-                generation_mode=f"{generation_mode}_fallback_svg",
-            )
+            # Only fall back to legacy SVG if Plotly failed due to an actual error.
+            # When there's simply no chartable data, don't generate a meaningless
+            # fallback chart — it adds noise without value.
+            if chart_error:
+                return await self._ensure_legacy_svg_chart(
+                    event,
+                    attachments,
+                    force_generation=force_generation,
+                    generation_mode=f"{generation_mode}_fallback_svg",
+                )
+            return attachments
 
         # Create FileInfo for HTML
         html_info = FileInfo(
