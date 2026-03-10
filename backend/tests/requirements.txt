@@ -4,4 +4,7 @@ pytest-cov>=4.0.0
 pytest-mock>=3.10.0
 pytest-xdist>=3.5.0  # Parallel test execution (Context7 recommended)
 pytest-timeout>=2.2.0  # Test timeout handling (Context7 recommended)
-requests>=2.28.0 
+requests>=2.28.0
+# requests 2.32.x emits RequestsDependencyWarning when chardet>=6 is present.
+# Keep the standalone test environment aligned with the runtime compatibility bound.
+chardet>=3.0.2,<6.0.0
