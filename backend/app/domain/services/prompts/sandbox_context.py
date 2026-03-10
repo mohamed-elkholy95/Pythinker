@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 import os
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -26,11 +27,23 @@ class SandboxContextManager:
     _cache_timestamp: datetime | None = None
     _cache_ttl = timedelta(hours=24)
     _warned_no_context: bool = False
+    _has_loaded_once: bool = False
+
+    # Startup retry parameters — the sandbox container may still be
+    # generating the context file when the backend first requests it.
+    _STARTUP_MAX_RETRIES: int = 3
+    _STARTUP_BACKOFF_BASE: float = 1.0  # seconds (1s, 2s, 4s)
 
     @classmethod
     def load_context(cls, force_reload: bool = False) -> dict[str, Any] | None:
         """
         Load sandbox environment context from JSON file.
+
+        On the very first attempt (before any successful load), retries up to
+        ``_STARTUP_MAX_RETRIES`` times with exponential backoff.  This handles
+        the startup race where the sandbox container hasn't finished generating
+        ``sandbox_context.json`` yet.  Subsequent calls (after either a
+        successful load or exhausted retries) return immediately.
 
         Args:
             force_reload: Force reload from disk even if cached
@@ -44,7 +57,38 @@ class SandboxContextManager:
             if age < cls._cache_ttl:
                 return cls._cache
 
-        # Attempt to load context from file (check multiple locations including fallback)
+        # On the first ever load attempt, retry with backoff to handle
+        # the startup race condition with the sandbox container.
+        max_attempts = 1 if cls._has_loaded_once else cls._STARTUP_MAX_RETRIES + 1
+
+        for attempt in range(max_attempts):
+            if attempt > 0:
+                delay = cls._STARTUP_BACKOFF_BASE * (2 ** (attempt - 1))
+                logger.info(
+                    "Sandbox context not found, retrying in %.1fs (attempt %d/%d)",
+                    delay,
+                    attempt + 1,
+                    max_attempts,
+                )
+                time.sleep(delay)
+
+            result = cls._try_load_from_paths()
+            if result is not None:
+                return result
+
+        cls._has_loaded_once = True
+        if not cls._warned_no_context:
+            logger.warning("No sandbox context available - agents will use default environment knowledge")
+            cls._warned_no_context = True
+        return None
+
+    @classmethod
+    def _try_load_from_paths(cls) -> dict[str, Any] | None:
+        """Attempt to load sandbox context from all configured paths.
+
+        Returns:
+            Loaded context dict on success, None if no valid file found.
+        """
         context_paths = [
             "/app/sandbox_context.json",  # Default sandbox location
             os.environ.get("SANDBOX_CONTEXT_JSON", ""),  # Environment override
@@ -67,6 +111,7 @@ class SandboxContextManager:
                 # Update cache
                 cls._cache = context
                 cls._cache_timestamp = datetime.now(UTC)
+                cls._has_loaded_once = True
 
                 logger.info(f"Loaded sandbox context from {path}")
                 return context
@@ -74,9 +119,6 @@ class SandboxContextManager:
             except Exception as e:
                 logger.error(f"Failed to load context from {path}: {e}")
 
-        if not cls._warned_no_context:
-            logger.warning("No sandbox context available - agents will use default environment knowledge")
-            cls._warned_no_context = True
         return None
 
     @classmethod
