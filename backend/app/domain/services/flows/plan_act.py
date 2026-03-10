@@ -66,7 +66,7 @@ from app.domain.services.flows.fast_path import (
     QueryIntent,
     is_suggestion_follow_up_message,
 )
-from app.domain.services.flows.headline_extractor import extract_headline
+from app.domain.services.flows.headline_extractor import extract_headline, is_no_result_headline
 from app.domain.services.flows.llm_heartbeat import LLMHeartbeat
 from app.domain.services.flows.phase_router import PhaseRouter
 from app.domain.services.flows.prompt_quick_validator import (
@@ -3422,12 +3422,26 @@ class PlanActFlow(BaseFlow):
                                 _result_text,
                                 tool_name=step.description or "",
                             )
-                            yield PartialResultEvent(
-                                step_index=max(_step_idx, 0),
-                                step_title=step.description or "",
-                                headline=_headline,
-                                sources_count=self._current_source_count(),
-                            )
+                            # Downgrade research steps that completed with no meaningful output
+                            _desc_lower = (step.description or "").lower()
+                            _step_type_lower = str(getattr(step, "step_type", "") or "").lower()
+                            if is_no_result_headline(_headline) and (
+                                "research" in _desc_lower or _step_type_lower in {"research", "analysis", "execution"}
+                            ):
+                                step.success = False
+                                step.status = ExecutionStatus.FAILED
+                                await self._task_state_manager.update_step_status(str(step.id), "failed")
+                                logger.warning(
+                                    "Step %s produced no meaningful result; downgrading completion to FAILED",
+                                    step.id,
+                                )
+                            else:
+                                yield PartialResultEvent(
+                                    step_index=max(_step_idx, 0),
+                                    step_title=step.description or "",
+                                    headline=_headline,
+                                    sources_count=self._current_source_count(),
+                                )
 
                         # Session bridging: save progress after each step
                         await self._save_progress_artifact()

@@ -45,3 +45,9 @@ def extract_headline(tool_result: str, tool_name: str = "") -> str:
             return line
 
     return f"{tool_name or 'Tool'} completed"
+
+
+def is_no_result_headline(headline: str) -> bool:
+    """Return True when the headline is the sentinel for empty/no-result output."""
+    normalized = (headline or "").strip().lower()
+    return normalized.endswith("returned no result") or not normalized
