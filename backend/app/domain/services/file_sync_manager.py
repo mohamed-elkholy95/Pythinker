@@ -394,6 +394,7 @@ class FileSyncManager:
         file_path: str,
         content_type: str | None = None,
         metadata: dict[str, Any] | None = None,
+        filename_override: str | None = None,
     ) -> FileInfo | None:
         """Download a file from sandbox and upload to persistent storage.
 
@@ -495,7 +496,7 @@ class FileSyncManager:
                     )
                     return None
 
-            file_name = file_path.split("/")[-1] or "unnamed_file"
+            file_name = filename_override or file_path.split("/")[-1] or "unnamed_file"
 
             resolved_content_type = self.infer_content_type(file_path, content_type)
             if resolved_content_type:
@@ -829,6 +830,7 @@ class FileSyncManager:
                     attachment.file_path,
                     content_type=attachment.content_type,
                     metadata=attachment.metadata,
+                    filename_override=attachment.filename,
                 )
                 for attachment in valid_attachments
             ]
