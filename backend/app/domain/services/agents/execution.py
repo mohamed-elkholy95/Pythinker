@@ -733,6 +733,9 @@ class ExecutionAgent(BaseAgent):
 
             _summarize_model: str | None = _get_settings().fast_model or None
             _summarize_max_tokens: int = _get_settings().summarization_max_tokens
+            _summarize_stream_timeout: float | None = (
+                getattr(_get_settings(), "llm_summarization_stream_read_timeout", None)
+            )
 
             if self._can_deliver_pretrim_report_directly(
                 response_policy=active_policy,
@@ -758,6 +761,7 @@ class ExecutionAgent(BaseAgent):
                         tool_choice=None,
                         model=_summarize_model,
                         max_tokens=_summarize_max_tokens,
+                        stream_read_timeout=_summarize_stream_timeout,
                     )
                     async for stream_event in self._iter_coalesced_stream_events(stream_iter, phase="summarizing"):
                         attempt_text += stream_event.content
