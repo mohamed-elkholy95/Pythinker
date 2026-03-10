@@ -290,6 +290,11 @@ class BaseAgent:
         self._efficiency_monitor = ToolEfficiencyMonitor(window_size=10, read_threshold=5, strong_threshold=6)
         self._efficiency_nudges: list[dict] = []
 
+        # Tool interceptors — registered by subclasses (e.g. ExecutionAgent with
+        # ResearchExecutionPolicy).  Empty by default; _run_interceptors() is no-op.
+        self._tool_interceptors: list = []  # list[ToolInterceptor]
+        self._pending_interceptor_events: list = []
+
         # URL Failure Guard — session-scoped, set externally by PlanActFlow
         # When None, guard checks are skipped (backward compatible)
         self._url_failure_guard: UrlFailureGuard | None = None
@@ -1325,6 +1330,62 @@ class BaseAgent:
             },
         ).model_dump_json()
 
+    async def _run_interceptors(
+        self,
+        tool_result: Any,
+        serialized: str,
+        function_name: str,
+        function_args: dict,
+        tool_call_id: str,
+    ) -> tuple[str, list[dict]]:
+        """Run registered tool interceptors and return (content, extra_messages).
+
+        Interceptor errors are caught and logged so the original tool result is
+        always preserved.  Returns immediately when no interceptors are registered.
+        """
+        if not self._tool_interceptors:
+            return serialized, []
+
+        from app.domain.models.evidence import ToolCallContext
+
+        context = ToolCallContext(
+            tool_call_id=tool_call_id,
+            function_name=function_name,
+            function_args=function_args,
+            step_id=getattr(self, "_current_step_id", None),
+            session_id=getattr(self, "_session_id", ""),
+            research_mode=getattr(self, "_research_mode", None),
+        )
+
+        extra_messages: list[dict] = []
+
+        for interceptor in self._tool_interceptors:
+            try:
+                result = await interceptor.on_tool_result(
+                    tool_result=tool_result,
+                    serialized_content=serialized,
+                    context=context,
+                    emit_event=self._buffer_interceptor_event,
+                )
+                if result is not None:
+                    if result.suppress_memory_content:
+                        serialized = ""
+                    if result.override_memory_content is not None:
+                        serialized = result.override_memory_content
+                    if result.extra_messages:
+                        extra_messages.extend(result.extra_messages)
+            except Exception:
+                logger.exception(
+                    "Interceptor %s failed, falling back to original result",
+                    type(interceptor).__name__,
+                )
+
+        return serialized, extra_messages
+
+    async def _buffer_interceptor_event(self, event: Any) -> None:
+        """Buffer an event emitted by an interceptor for yield on next iteration."""
+        self._pending_interceptor_events.append(event)
+
     def _truncate_args_for_logging(self, arguments: dict[str, Any], max_len: int = 100) -> dict[str, str]:
         """Truncate large argument values for logging to prevent log bloat."""
         truncated = {}
@@ -1846,14 +1907,26 @@ class BaseAgent:
                         ),
                     )
 
+                    _serialized = self._serialize_tool_result_for_memory(result, function_name=function_name)
+                    _serialized, _extra_msgs = await self._run_interceptors(
+                        tool_result=result,
+                        serialized=_serialized,
+                        function_name=function_name,
+                        function_args=function_args if isinstance(function_args, dict) else {},
+                        tool_call_id=tool_call_id,
+                    )
+                    for _evt in self._pending_interceptor_events:
+                        yield _evt
+                    self._pending_interceptor_events.clear()
                     tool_responses.append(
                         {
                             "role": "tool",
                             "function_name": function_name,
                             "tool_call_id": tool_call_id,
-                            "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
+                            "content": _serialized,
                         }
                     )
+                    tool_responses.extend(_extra_msgs)
             else:
                 # Sequential execution for non-parallelizable tools (original behavior)
                 for tool_call in tool_calls:
@@ -2015,14 +2088,26 @@ class BaseAgent:
                         confirmation_state=confirmation_state,
                     )
 
+                    _serialized = self._serialize_tool_result_for_memory(result, function_name=function_name)
+                    _serialized, _extra_msgs = await self._run_interceptors(
+                        tool_result=result,
+                        serialized=_serialized,
+                        function_name=function_name,
+                        function_args=function_args if isinstance(function_args, dict) else {},
+                        tool_call_id=tool_call_id,
+                    )
+                    for _evt in self._pending_interceptor_events:
+                        yield _evt
+                    self._pending_interceptor_events.clear()
                     tool_responses.append(
                         {
                             "role": "tool",
                             "function_name": function_name,
                             "tool_call_id": tool_call_id,
-                            "content": self._serialize_tool_result_for_memory(result, function_name=function_name),
+                            "content": _serialized,
                         }
                     )
+                    tool_responses.extend(_extra_msgs)
 
             # Annotate tool results with step time after 50% mark (design 2A)
             if wall_clock_advisory_sent and self._step_start_time is not None:
