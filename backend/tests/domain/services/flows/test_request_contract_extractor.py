@@ -58,3 +58,63 @@ def test_extract_no_entities() -> None:
     # May have quoted or capitalized fallbacks, or empty
     assert isinstance(r.locked_entities, list)
     assert isinstance(r.locked_versions, list)
+
+
+# --- Requested filename extraction tests ---
+
+
+def test_extract_requested_output_filename() -> None:
+    """Explicit .md filename in the query should be captured."""
+    contract = extract(
+        "Produce a cited markdown report named agent_observability_report.md in the workspace.",
+        intent="research",
+        action_type="research",
+    )
+    assert "agent_observability_report.md" in contract.requested_filenames
+
+
+def test_extract_no_filename_when_absent() -> None:
+    """No filename when the query has no file extension pattern."""
+    contract = extract(
+        "Tell me about Python frameworks",
+        intent="research",
+        action_type="research",
+    )
+    assert contract.requested_filenames == []
+
+
+def test_extract_multiple_filenames() -> None:
+    """Multiple filenames in the same query are all captured."""
+    contract = extract(
+        "Save results to output.csv and summary_report.md",
+        intent="research",
+        action_type="research",
+    )
+    assert "output.csv" in contract.requested_filenames
+    assert "summary_report.md" in contract.requested_filenames
+
+
+def test_extract_filename_with_various_extensions() -> None:
+    """Filenames with .txt, .json, .html, .pdf extensions are captured."""
+    contract = extract("Write the data to results.json")
+    assert "results.json" in contract.requested_filenames
+
+    contract2 = extract("Export the page to analysis.html")
+    assert "analysis.html" in contract2.requested_filenames
+
+    contract3 = extract("Create notes.txt with the findings")
+    assert "notes.txt" in contract3.requested_filenames
+
+
+def test_extract_filename_ignores_urls() -> None:
+    """URLs should not be captured as filenames."""
+    contract = extract("Go to example.com and download the file")
+    # example.com should not appear as a requested filename
+    # (no file extension like .md/.txt/.csv/.json/.html/.pdf/.png)
+    assert all(not f.endswith(".com") for f in contract.requested_filenames)
+
+
+def test_extract_empty_query_has_no_filenames() -> None:
+    """Empty query should have no filenames."""
+    contract = extract("")
+    assert contract.requested_filenames == []

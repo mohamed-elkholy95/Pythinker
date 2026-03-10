@@ -312,3 +312,47 @@ class TestReportFileAttachment:
         assert png_attachments[0].metadata is not None
         assert html_attachments[0].metadata.get("generation_mode") == "regenerate"
         assert png_attachments[0].metadata.get("generation_mode") == "regenerate"
+
+    @pytest.mark.asyncio
+    async def test_report_uses_requested_filename_from_contract(self, runner, mock_sandbox):
+        """When the flow has a request contract with a filename, use it instead of report-<id>.md."""
+        from app.domain.models.request_contract import RequestContract
+
+        # Simulate the flow having a request contract with a requested filename
+        mock_flow = MagicMock()
+        mock_flow._request_contract = RequestContract(
+            exact_query="Write agent_observability_report.md",
+            requested_filenames=["agent_observability_report.md"],
+        )
+        runner._plan_act_flow = mock_flow
+
+        event = ReportEvent(
+            id="report-named-1",
+            title="Observability Report",
+            content="# Agent Observability\n\nReport body.",
+            attachments=None,
+        )
+
+        await runner._ensure_report_file(event)
+
+        mock_sandbox.file_write.assert_called_once()
+        assert event.attachments is not None
+        assert len(event.attachments) == 1
+        assert event.attachments[0].filename == "agent_observability_report.md"
+        assert event.attachments[0].file_path.endswith("/agent_observability_report.md")
+
+    @pytest.mark.asyncio
+    async def test_report_falls_back_to_default_name_without_contract(self, runner, mock_sandbox):
+        """Without a request contract, fall back to report-<id>.md."""
+        event = ReportEvent(
+            id="report-fallback-1",
+            title="Fallback Report",
+            content="# Fallback\n\nReport body.",
+            attachments=None,
+        )
+
+        await runner._ensure_report_file(event)
+
+        assert event.attachments is not None
+        assert len(event.attachments) == 1
+        assert event.attachments[0].filename == "report-report-fallback-1.md"
