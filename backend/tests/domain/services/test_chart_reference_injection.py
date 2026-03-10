@@ -6,6 +6,7 @@ written file includes references to chart filenames.
 
 from app.domain.models.event import ReportEvent
 from app.domain.models.file import FileInfo
+from app.domain.services.agent_task_runner import AgentTaskRunner
 
 
 def _inject_chart_references(event: ReportEvent, chart_attachments: list[FileInfo]) -> None:
@@ -166,3 +167,94 @@ class TestChartReferenceFormat:
         chart_attachments: list[FileInfo] = []
         _inject_chart_references(event, chart_attachments)
         assert event.content == original
+
+
+class TestRewriteChartImageUrls:
+    """Tests for _rewrite_chart_image_urls that replaces bare filenames with API URLs."""
+
+    @staticmethod
+    def _make_report(content: str, attachments: list[FileInfo] | None = None) -> ReportEvent:
+        return ReportEvent(
+            id="report-1",
+            title="Test Report",
+            content=content,
+            attachments=attachments,
+            session_id="session-1",
+        )
+
+    def test_png_filename_rewritten_to_api_url(self):
+        attachment = FileInfo(
+            file_id="abc123",
+            filename="comparison-chart-report-1.png",
+            content_type="image/png",
+        )
+        event = self._make_report(
+            content="## Charts\n![Comparison Chart](comparison-chart-report-1.png)\nMore text.",
+            attachments=[attachment],
+        )
+        AgentTaskRunner._rewrite_chart_image_urls(event)
+        assert "](/api/v1/files/abc123/download)" in event.content
+        assert "comparison-chart-report-1.png" not in event.content
+
+    def test_no_rewrite_when_file_id_missing(self):
+        attachment = FileInfo(
+            filename="comparison-chart-report-1.png",
+            content_type="image/png",
+            file_id=None,
+        )
+        event = self._make_report(
+            content="![Chart](comparison-chart-report-1.png)",
+            attachments=[attachment],
+        )
+        AgentTaskRunner._rewrite_chart_image_urls(event)
+        assert "comparison-chart-report-1.png" in event.content
+
+    def test_html_attachment_not_rewritten(self):
+        attachment = FileInfo(
+            file_id="html-id",
+            filename="comparison-chart-report-1.html",
+            content_type="text/html",
+        )
+        event = self._make_report(
+            content="`comparison-chart-report-1.html`",
+            attachments=[attachment],
+        )
+        AgentTaskRunner._rewrite_chart_image_urls(event)
+        assert "comparison-chart-report-1.html" in event.content
+
+    def test_empty_attachments_no_error(self):
+        event = self._make_report(content="Just text.", attachments=[])
+        AgentTaskRunner._rewrite_chart_image_urls(event)
+        assert event.content == "Just text."
+
+    def test_empty_content_no_error(self):
+        event = self._make_report(
+            content="", attachments=[FileInfo(file_id="x", content_type="image/png")]
+        )
+        AgentTaskRunner._rewrite_chart_image_urls(event)
+        assert event.content == ""
+
+    def test_multiple_png_attachments(self):
+        a1 = FileInfo(file_id="id-1", filename="chart-a.png", content_type="image/png")
+        a2 = FileInfo(file_id="id-2", filename="chart-b.png", content_type="image/png")
+        event = self._make_report(
+            content="![A](chart-a.png)\n![B](chart-b.png)",
+            attachments=[a1, a2],
+        )
+        AgentTaskRunner._rewrite_chart_image_urls(event)
+        assert "](/api/v1/files/id-1/download)" in event.content
+        assert "](/api/v1/files/id-2/download)" in event.content
+        assert "chart-a.png" not in event.content
+        assert "chart-b.png" not in event.content
+
+    def test_surrounding_content_preserved(self):
+        attachment = FileInfo(file_id="xyz", filename="chart.png", content_type="image/png")
+        event = self._make_report(
+            content="# Report\nSome analysis.\n![Chart](chart.png)\n\n## Conclusion\nDone.",
+            attachments=[attachment],
+        )
+        AgentTaskRunner._rewrite_chart_image_urls(event)
+        assert "# Report" in event.content
+        assert "Some analysis." in event.content
+        assert "## Conclusion" in event.content
+        assert "](/api/v1/files/xyz/download)" in event.content
