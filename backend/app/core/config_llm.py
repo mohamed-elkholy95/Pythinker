@@ -108,6 +108,14 @@ class LLMTimeoutSettingsMixin:
     # Too high → genuinely stalled streams hang for minutes.
     llm_stream_read_timeout: float = 90.0
 
+    # Higher read timeout for summarization streaming specifically.
+    # Summarization generates the longest content (full research reports with
+    # Mermaid diagrams, tables, citations) and Kimi can pause 30-60s between
+    # sections.  A 71s stream with a 90s timeout has only 19s headroom.
+    # This separate timeout gives summarization more breathing room without
+    # loosening the timeout for all streaming calls.
+    llm_summarization_stream_read_timeout: float = 150.0
+
     # Optional hard timeout (seconds) applied to every LLM call via asyncio.wait_for.
     # Set to 0 to disable.
     llm_hard_call_timeout: float = 0.0
