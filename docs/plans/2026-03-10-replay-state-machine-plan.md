@@ -4,13 +4,15 @@
 
 **Goal:** Replace the split screenshot-matching (ChatPage) + blob-loading (composable) architecture with a unified target-driven replay state machine inside `useScreenshotReplay.ts`, fixing infinite loading, stale screenshots, and transition flash bugs.
 
-**Architecture:** A `ReplayVisualState` enum (`idle | resolving | ready | fallback | error`) drives all UI rendering. The composable owns both matching and blob loading through a single `watch(targetScreenshotId)` watcher with Vue `onCleanup` for stale-request cancellation. ChatPage calls `selectTool(tool)` and reads `visualState` — it never mutates internal replay state. `selectTool()` does matching only; setting `targetScreenshotId` triggers the watcher to load the blob.
+**Architecture:** A `ReplayVisualState` enum (`idle | resolving | ready | fallback | error`) drives all UI rendering. The composable owns both matching and blob loading through a single `watch(targetScreenshotId)` watcher with Vue `onCleanup` for stale-request cancellation. Metadata loading is guarded by both a shared `metadataPromise` and a `metadataVersion` / `sessionId` check so late responses from an old session cannot repopulate state. All frame changes go through one `selectScreenshotIndex()` helper that clears the currently visible blob before retargeting, preventing stale-frame flash during replay seeks.
 
 **Tech Stack:** Vue 3 Composition API, TypeScript strict mode, Vitest
 
 **Design doc:** `docs/plans/2026-03-10-replay-state-machine-design.md`
 
-**Review findings applied:** Single blob-loading owner (watcher only), `metadataPromise` deduplication, session-complete path preserved via async `jumpToLatest()`, `withSetup` test pattern per Vue testing guide.
+**Validation:** Vue watcher cleanup (`watch(..., onCleanup)` / `onWatcherCleanup`) and composable testing (`withSetup`, `app.unmount()`) validated against the official Vue docs via Context7.
+
+**Review findings applied:** Single blob-loading owner (watcher only), `metadataPromise` deduplication, `metadataVersion` stale-session guards, session-complete path preserved via async `jumpToLatest()`, explicit metadata-error handling, unified `selectScreenshotIndex()` frame selection, and `withSetup` + deferred async tests per Vue testing guide.
 
 ---
 
@@ -22,8 +24,9 @@
 The complete rewrite replaces the file. Key architectural decisions:
 - **One blob-loading path**: `watch(targetScreenshotId, ..., { onCleanup })` is the ONLY code that fetches blobs. The old `watch(currentScreenshot)` watcher is removed.
 - **`selectTool()` does matching only**: it finds the screenshot index, sets `targetScreenshotId`, and the watcher handles the rest.
-- **`metadataPromise`** deduplicates concurrent `ensureMetadataLoaded()` calls and caches the "loaded but empty" case.
-- **All index-changing operations** (`stepForward`, `stepBackward`, `seekByProgress`, `jumpToLatest`) set `targetScreenshotId` to trigger blob loading through the watcher.
+- **`metadataPromise` + `metadataVersion`** deduplicate concurrent `ensureMetadataLoaded()` calls, cache the "loaded but empty" case, and ignore late responses for stale sessions.
+- **All index-changing operations** (`selectTool`, `stepForward`, `stepBackward`, `seekByProgress`, `jumpToLatest`) flow through `selectScreenshotIndex()` so they all clear stale UI state before retargeting.
+- **`fallback` vs `error` are truthful states**: `fallback` means no screenshot exists for the selected tool; `error` means screenshot metadata or blob retrieval failed.
 
 **Step 1: Write the complete composable**
 
@@ -35,6 +38,7 @@ import { apiClient, type ApiResponse } from '../api/client'
 import { toEpochSeconds } from '../utils/time'
 
 export type ReplayVisualState = 'idle' | 'resolving' | 'ready' | 'fallback' | 'error'
+type MetadataLoadResult = 'loaded' | 'empty' | 'error'
 
 export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
   const screenshots = ref<ScreenshotMetadata[]>([])
@@ -47,9 +51,10 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
   const targetScreenshotId = ref<string | null>(null)
   let selectionVersion = 0
 
-  // ── Metadata deduplication ──
-  let metadataPromise: Promise<void> | null = null
+  // ── Metadata deduplication + stale-session protection ──
+  let metadataPromise: Promise<MetadataLoadResult> | null = null
   let metadataStatus: 'idle' | 'loading' | 'loaded' | 'error' = 'idle'
+  let metadataVersion = 0
 
   // ── Blob URL management ──
   const currentBlobUrl = ref<string>('')
@@ -171,6 +176,32 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
     await Promise.all(fetches)
   }
 
+  function currentMetadataResult(): MetadataLoadResult {
+    if (metadataStatus === 'error') return 'error'
+    return screenshots.value.length > 0 ? 'loaded' : 'empty'
+  }
+
+  function beginResolvingFrame(): void {
+    currentBlobUrl.value = ''
+    targetScreenshotId.value = null
+    visualState.value = 'resolving'
+  }
+
+  function selectScreenshotIndex(index: number): void {
+    const nextScreenshot = screenshots.value[index]
+    if (!nextScreenshot) {
+      currentIndex.value = -1
+      currentBlobUrl.value = ''
+      targetScreenshotId.value = null
+      visualState.value = hasScreenshots.value ? 'fallback' : 'idle'
+      return
+    }
+
+    currentIndex.value = index
+    beginResolvingFrame()
+    targetScreenshotId.value = nextScreenshot.id
+  }
+
   // ── Single blob-loading watcher ──
   // This is the ONLY path that fetches blobs for display.
   // All operations that change the displayed frame do so by setting
@@ -201,29 +232,48 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
     void prefetchBehind(2)
   })
 
-  // ── Metadata loading (deduplicated, caches empty results) ──
+  // ── Metadata loading (deduplicated, caches empty results, ignores stale sessions) ──
 
-  async function ensureMetadataLoaded(): Promise<void> {
-    if (metadataStatus === 'loaded') return
+  async function ensureMetadataLoaded(): Promise<MetadataLoadResult> {
+    if (!sessionId.value) return 'empty'
+    if (metadataStatus === 'loaded') return screenshots.value.length > 0 ? 'loaded' : 'empty'
+    if (metadataStatus === 'error') return 'error'
     if (metadataPromise) return metadataPromise
 
+    const requestedSessionId = sessionId.value
+    const requestVersion = metadataVersion
+    metadataStatus = 'loading'
+    isLoading.value = true
+
     metadataPromise = (async () => {
-      if (!sessionId.value) return
-      isLoading.value = true
       try {
         const response = await apiClient.get<ApiResponse<ScreenshotListResponse>>(
-          `/sessions/${sessionId.value}/screenshots`
+          `/sessions/${requestedSessionId}/screenshots`
         )
-        screenshots.value = response.data.data.screenshots.filter(
+
+        if (requestVersion !== metadataVersion || requestedSessionId !== sessionId.value) {
+          return currentMetadataResult()
+        }
+
+        const filteredScreenshots = response.data.data.screenshots.filter(
           (s) => s.trigger !== 'session_end'
         )
-        metadataStatus = 'loaded' // cached even if empty
+        screenshots.value = filteredScreenshots
+        metadataStatus = 'loaded'
+        return filteredScreenshots.length > 0 ? 'loaded' : 'empty'
       } catch {
+        if (requestVersion !== metadataVersion || requestedSessionId !== sessionId.value) {
+          return currentMetadataResult()
+        }
+
         screenshots.value = []
         metadataStatus = 'error'
+        return 'error'
       } finally {
-        isLoading.value = false
-        metadataPromise = null
+        if (requestVersion === metadataVersion && requestedSessionId === sessionId.value) {
+          isLoading.value = false
+          metadataPromise = null
+        }
       }
     })()
 
@@ -285,13 +335,16 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
   async function selectTool(tool: ToolContent): Promise<void> {
     // Critical invariant: synchronous state clear before any async work
     const version = ++selectionVersion
-    currentBlobUrl.value = ''
-    visualState.value = 'resolving'
     activeTool.value = tool
-    targetScreenshotId.value = null // cancel any in-flight blob load
+    beginResolvingFrame()
 
-    await ensureMetadataLoaded()
+    const metadataResult = await ensureMetadataLoaded()
     if (version !== selectionVersion) return // superseded
+    if (metadataResult === 'error') {
+      currentIndex.value = -1
+      visualState.value = 'error'
+      return
+    }
 
     const matchIdx = findScreenshotForTool(tool)
     if (matchIdx < 0) {
@@ -300,10 +353,7 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
       return
     }
 
-    currentIndex.value = matchIdx
-    // Setting targetScreenshotId triggers the watcher to load the blob.
-    // The watcher transitions resolving → ready (or → error).
-    targetScreenshotId.value = screenshots.value[matchIdx].id
+    selectScreenshotIndex(matchIdx)
   }
 
   function clearSelection(): void {
@@ -316,46 +366,53 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
   }
 
   async function jumpToLatest(): Promise<void> {
-    selectionVersion++
+    const version = ++selectionVersion
     activeTool.value = null
-    await ensureMetadataLoaded()
-    if (screenshots.value.length > 0) {
-      currentIndex.value = screenshots.value.length - 1
-      visualState.value = 'resolving'
-      targetScreenshotId.value = screenshots.value[currentIndex.value].id
-    } else {
+    beginResolvingFrame()
+
+    const metadataResult = await ensureMetadataLoaded()
+    if (version !== selectionVersion) return
+    if (metadataResult === 'error') {
+      currentIndex.value = -1
+      visualState.value = 'error'
+      return
+    }
+
+    if (screenshots.value.length === 0) {
       visualState.value = 'idle'
       currentIndex.value = -1
+      targetScreenshotId.value = null
+      currentBlobUrl.value = ''
+      return
     }
+
+    selectScreenshotIndex(screenshots.value.length - 1)
   }
 
   // ── Backward-compatible loadScreenshots ──
-  // Kept for existing callers. Delegates to ensureMetadataLoaded + jumpToLatest.
+  // Kept for existing callers. Clears cached state, then delegates to jumpToLatest().
 
   async function loadScreenshots(): Promise<void> {
-    metadataStatus = 'idle' // force reload
+    metadataVersion++
+    metadataStatus = 'idle'
     metadataPromise = null
+    screenshots.value = []
+    isLoading.value = false
     clearBlobCache()
-    await ensureMetadataLoaded()
-    if (screenshots.value.length > 0) {
-      currentIndex.value = screenshots.value.length - 1
-      targetScreenshotId.value = screenshots.value[currentIndex.value].id
-    }
+    await jumpToLatest()
   }
 
-  // ── Timeline stepping (all set targetScreenshotId for blob loading) ──
+  // ── Timeline stepping (all go through selectScreenshotIndex) ──
 
   function stepForward(): void {
     if (canStepForward.value) {
-      currentIndex.value++
-      targetScreenshotId.value = currentScreenshot.value?.id ?? null
+      selectScreenshotIndex(currentIndex.value + 1)
     }
   }
 
   function stepBackward(): void {
     if (canStepBackward.value) {
-      currentIndex.value--
-      targetScreenshotId.value = currentScreenshot.value?.id ?? null
+      selectScreenshotIndex(currentIndex.value - 1)
     }
   }
 
@@ -363,8 +420,7 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
     const total = screenshots.value.length
     if (total === 0) return
     const maxIndex = total - 1
-    currentIndex.value = Math.round((percent / 100) * maxIndex)
-    targetScreenshotId.value = currentScreenshot.value?.id ?? null
+    selectScreenshotIndex(Math.round((percent / 100) * maxIndex))
   }
 
   // ── Session change resets everything ──
@@ -372,12 +428,14 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
   watch(sessionId, (nextSessionId, previousSessionId) => {
     if (nextSessionId !== previousSessionId) {
       selectionVersion++
+      metadataVersion++
       clearBlobCache()
       screenshots.value = []
       currentIndex.value = -1
       visualState.value = 'idle'
       activeTool.value = null
       targetScreenshotId.value = null
+      isLoading.value = false
       metadataStatus = 'idle'
       metadataPromise = null
     }
@@ -387,6 +445,7 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
 
   onUnmounted(() => {
     selectionVersion++
+    metadataVersion++
     targetScreenshotId.value = null
     clearBlobCache()
   })
@@ -429,10 +488,11 @@ git add frontend/src/composables/useScreenshotReplay.ts
 git commit -m "feat(replay): rewrite useScreenshotReplay as target-driven state machine
 
 Single blob-loading owner via watch(targetScreenshotId) with onCleanup.
-selectTool() does deterministic matching only; watcher loads blobs.
-ensureMetadataLoaded() deduplicates via metadataPromise and caches
-empty results. jumpToLatest() is async and preserves session-complete
-default frame behavior."
+All frame changes flow through selectScreenshotIndex() so stale frames
+are cleared before retargeting. ensureMetadataLoaded() uses
+metadataPromise plus metadataVersion/session guards to ignore late
+responses, and jumpToLatest() preserves session-complete default frame
+behavior."
 ```
 
 ---
@@ -444,12 +504,12 @@ default frame behavior."
 
 **Step 1: Write tests**
 
-Uses Vue's `withSetup` pattern (from Vue testing guide) instead of mocking `vue` core exports:
+Uses Vue's `withSetup` pattern (from Vue testing guide) instead of mocking `vue` core exports. The tests intentionally assert `resolving` before `ready` because `selectTool()` / `jumpToLatest()` schedule blob work via the watcher; they do not await blob readiness themselves.
 
 ```typescript
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
-import { createApp, ref } from 'vue'
-import { useScreenshotReplay, type ReplayVisualState } from '../useScreenshotReplay'
+import { createApp, nextTick, ref } from 'vue'
+import { useScreenshotReplay } from '../useScreenshotReplay'
 import type { ToolContent } from '../../types/message'
 import type { ScreenshotMetadata } from '../../types/screenshot'
 
@@ -463,6 +523,22 @@ vi.mock('../../api/client', () => ({
 import { apiClient } from '../../api/client'
 
 const mockGet = apiClient.get as Mock
+
+type Deferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason?: unknown) => void
+}
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
 
 // ── withSetup helper (Vue testing guide pattern) ──
 
@@ -479,6 +555,12 @@ function withSetup<T>(composable: () => T): { result: T; unmount: () => void } {
 }
 
 // ── Helpers ──
+
+async function flushReplay(): Promise<void> {
+  await nextTick()
+  await Promise.resolve()
+  await Promise.resolve()
+}
 
 function makeScreenshot(overrides: Partial<ScreenshotMetadata> & { id: string }): ScreenshotMetadata {
   return {
@@ -511,14 +593,44 @@ function setupMetadataResponse(items: ScreenshotMetadata[]): void {
   })
 }
 
-function setupBlobResponse(content = 'fake-png'): void {
-  mockGet.mockResolvedValueOnce({
-    data: new Blob([content], { type: 'image/png' }),
-  })
+function setupMetadataDeferred() {
+  const deferred = createDeferred<{
+    data: { data: { screenshots: ScreenshotMetadata[]; total: number } }
+  }>()
+
+  mockGet.mockImplementationOnce(() => deferred.promise)
+
+  return {
+    resolve(items: ScreenshotMetadata[]) {
+      deferred.resolve({
+        data: { data: { screenshots: items, total: items.length } },
+      })
+    },
+    reject(error: unknown = new Error('Metadata request failed')) {
+      deferred.reject(error)
+    },
+  }
 }
 
-function setupBlobFailure(): void {
-  mockGet.mockRejectedValueOnce(new Error('Network error'))
+function setupMetadataFailure(): void {
+  mockGet.mockRejectedValueOnce(new Error('Metadata request failed'))
+}
+
+function setupBlobDeferred(content = 'fake-png') {
+  const deferred = createDeferred<{ data: Blob }>()
+
+  mockGet.mockImplementationOnce(() => deferred.promise)
+
+  return {
+    resolve() {
+      deferred.resolve({
+        data: new Blob([content], { type: 'image/png' }),
+      })
+    },
+    reject(error: unknown = new Error('Network error')) {
+      deferred.reject(error)
+    },
+  }
 }
 
 // ── Tests ──
@@ -538,6 +650,7 @@ describe('useScreenshotReplay', () => {
 
   afterEach(() => {
     if (unmount) unmount()
+    vi.unstubAllGlobals()
   })
 
   function setup() {
@@ -552,16 +665,22 @@ describe('useScreenshotReplay', () => {
     expect(replay.activeTool.value).toBeNull()
   })
 
-  it('selectTool transitions to ready when screenshot matches', async () => {
+  it('selectTool enters resolving immediately and settles to ready when screenshot matches', async () => {
     setupMetadataResponse([
       makeScreenshot({ id: 'ss-1', tool_call_id: 'tool-1', trigger: 'tool_after' }),
     ])
-    setupBlobResponse()
+    const blob = setupBlobDeferred('ready-frame')
 
     const replay = setup()
     const tool = makeTool({ tool_call_id: 'tool-1' })
 
     await replay.selectTool(tool)
+    await flushReplay()
+
+    expect(replay.visualState.value).toBe('resolving')
+    expect(replay.currentScreenshotUrl.value).toBe('')
+    blob.resolve()
+    await flushReplay()
 
     expect(replay.visualState.value).toBe('ready')
     expect(replay.currentScreenshotUrl.value).toBeTruthy()
@@ -580,14 +699,30 @@ describe('useScreenshotReplay', () => {
     expect(replay.currentScreenshotUrl.value).toBe('')
   })
 
+  it('selectTool transitions to error when metadata load fails', async () => {
+    setupMetadataFailure()
+
+    const replay = setup()
+    await replay.selectTool(makeTool({ tool_call_id: 'tool-1' }))
+
+    expect(replay.visualState.value).toBe('error')
+    expect(replay.currentIndex.value).toBe(-1)
+    expect(replay.currentScreenshotUrl.value).toBe('')
+  })
+
   it('selectTool transitions to error when blob fetch fails', async () => {
     setupMetadataResponse([
       makeScreenshot({ id: 'ss-1', tool_call_id: 'tool-1' }),
     ])
-    setupBlobFailure()
+    const blob = setupBlobDeferred()
 
     const replay = setup()
     await replay.selectTool(makeTool({ tool_call_id: 'tool-1' }))
+    await flushReplay()
+
+    expect(replay.visualState.value).toBe('resolving')
+    blob.reject(new Error('Network error'))
+    await flushReplay()
 
     expect(replay.visualState.value).toBe('error')
   })
@@ -597,13 +732,17 @@ describe('useScreenshotReplay', () => {
       makeScreenshot({ id: 'ss-before', tool_call_id: 'tool-1', trigger: 'tool_before', timestamp: 100 }),
       makeScreenshot({ id: 'ss-after', tool_call_id: 'tool-1', trigger: 'tool_after', timestamp: 200 }),
     ])
-    setupBlobResponse()
+    const blob = setupBlobDeferred('after-frame')
 
     const replay = setup()
     await replay.selectTool(makeTool({ tool_call_id: 'tool-1' }))
+    await flushReplay()
+
+    expect(replay.currentIndex.value).toBe(1) // ss-after
+    blob.resolve()
+    await flushReplay()
 
     expect(replay.visualState.value).toBe('ready')
-    expect(replay.currentIndex.value).toBe(1) // ss-after
   })
 
   it('selectTool handles synthetic tool-progress entries by nearest timestamp within parent', async () => {
@@ -612,44 +751,88 @@ describe('useScreenshotReplay', () => {
       makeScreenshot({ id: 'ss-2', tool_call_id: 'parent-1', timestamp: 200 }),
       makeScreenshot({ id: 'ss-3', tool_call_id: 'parent-1', timestamp: 300 }),
     ])
-    setupBlobResponse()
+    const blob = setupBlobDeferred('synthetic-frame')
 
     const replay = setup()
     // Synthetic ID: tool-progress:{parent}:{index}
     await replay.selectTool(makeTool({ tool_call_id: 'tool-progress:parent-1:2', timestamp: 210 }))
+    await flushReplay()
+
+    expect(replay.currentIndex.value).toBe(1) // nearest to 210 is ss-2 at 200
+    blob.resolve()
+    await flushReplay()
 
     expect(replay.visualState.value).toBe('ready')
-    expect(replay.currentIndex.value).toBe(1) // nearest to 210 is ss-2 at 200
   })
 
-  it('superseded selectTool does not overwrite newer selection', async () => {
+  it('stale blob requests do not overwrite newer selection', async () => {
     setupMetadataResponse([
       makeScreenshot({ id: 'ss-1', tool_call_id: 'tool-1' }),
       makeScreenshot({ id: 'ss-2', tool_call_id: 'tool-2' }),
     ])
-    setupBlobResponse() // for first call
-    setupBlobResponse() // for second call
 
     const replay = setup()
+    await replay.ensureMetadataLoaded()
     const tool1 = makeTool({ tool_call_id: 'tool-1' })
     const tool2 = makeTool({ tool_call_id: 'tool-2' })
+    const firstBlob = setupBlobDeferred('a')
+    const secondBlob = setupBlobDeferred('bbbb')
 
-    // Fire both — tool2 should win (supersedes tool1)
-    const p1 = replay.selectTool(tool1)
-    const p2 = replay.selectTool(tool2)
-    await Promise.all([p1, p2])
+    await replay.selectTool(tool1)
+    await flushReplay()
+    expect(replay.visualState.value).toBe('resolving')
 
+    await replay.selectTool(tool2)
+    await flushReplay()
+
+    secondBlob.resolve()
+    await flushReplay()
+
+    expect(replay.currentIndex.value).toBe(1)
     expect(replay.activeTool.value).toBe(tool2)
+    expect(replay.currentScreenshotUrl.value).toBe('blob:4')
+
+    firstBlob.resolve()
+    await flushReplay()
+
+    expect(replay.currentIndex.value).toBe(1)
+    expect(replay.activeTool.value).toBe(tool2)
+    expect(replay.currentScreenshotUrl.value).toBe('blob:4')
+    expect(replay.visualState.value).toBe('ready')
+  })
+
+  it('session changes while metadata request is in flight do not repopulate stale screenshots', async () => {
+    const metadata = setupMetadataDeferred()
+
+    const replay = setup()
+    const pending = replay.ensureMetadataLoaded()
+    await flushReplay()
+
+    sessionId.value = 'session-2'
+    await flushReplay()
+
+    metadata.resolve([
+      makeScreenshot({ id: 'ss-stale', session_id: 'session-1', tool_call_id: 'tool-stale' }),
+    ])
+    await pending
+    await flushReplay()
+
+    expect(replay.screenshots.value).toHaveLength(0)
+    expect(replay.currentIndex.value).toBe(-1)
+    expect(replay.visualState.value).toBe('idle')
   })
 
   it('clearSelection resets to idle', async () => {
     setupMetadataResponse([
       makeScreenshot({ id: 'ss-1', tool_call_id: 'tool-1' }),
     ])
-    setupBlobResponse()
+    const blob = setupBlobDeferred('clear-me')
 
     const replay = setup()
     await replay.selectTool(makeTool({ tool_call_id: 'tool-1' }))
+    await flushReplay()
+    blob.resolve()
+    await flushReplay()
     expect(replay.visualState.value).toBe('ready')
 
     replay.clearSelection()
@@ -699,19 +882,55 @@ describe('useScreenshotReplay', () => {
     expect(replay.visualState.value).toBe('idle')
   })
 
-  it('jumpToLatest selects last frame and transitions to resolving', async () => {
+  it('stepBackward clears the previous screenshot while the next frame resolves', async () => {
+    setupMetadataResponse([
+      makeScreenshot({ id: 'ss-1' }),
+      makeScreenshot({ id: 'ss-2' }),
+    ])
+    const latestBlob = setupBlobDeferred('bbbb')
+    const previousBlob = setupBlobDeferred('a')
+
+    const replay = setup()
+    await replay.jumpToLatest()
+    await flushReplay()
+    latestBlob.resolve()
+    await flushReplay()
+
+    expect(replay.currentIndex.value).toBe(1)
+    expect(replay.currentScreenshotUrl.value).toBe('blob:4')
+
+    replay.stepBackward()
+    await flushReplay()
+
+    expect(replay.currentIndex.value).toBe(0)
+    expect(replay.visualState.value).toBe('resolving')
+    expect(replay.currentScreenshotUrl.value).toBe('')
+
+    previousBlob.resolve()
+    await flushReplay()
+
+    expect(replay.visualState.value).toBe('ready')
+    expect(replay.currentScreenshotUrl.value).toBe('blob:1')
+  })
+
+  it('jumpToLatest selects the last frame and settles to ready', async () => {
     setupMetadataResponse([
       makeScreenshot({ id: 'ss-1' }),
       makeScreenshot({ id: 'ss-2' }),
       makeScreenshot({ id: 'ss-3' }),
     ])
-    setupBlobResponse()
+    const latestBlob = setupBlobDeferred('latest')
 
     const replay = setup()
     await replay.jumpToLatest()
+    await flushReplay()
 
     expect(replay.currentIndex.value).toBe(2)
-    // After blob loads via watcher: ready
+    expect(replay.visualState.value).toBe('resolving')
+
+    latestBlob.resolve()
+    await flushReplay()
+
     expect(replay.visualState.value).toBe('ready')
   })
 
@@ -730,7 +949,7 @@ describe('useScreenshotReplay', () => {
 **Step 2: Run tests**
 
 Run: `cd frontend && bun run test:run -- --reporter=verbose src/composables/__tests__/useScreenshotReplay.test.ts`
-Expected: All 12 tests PASS
+Expected: All 16 tests PASS
 
 **Step 3: Commit**
 
@@ -739,9 +958,10 @@ git add frontend/src/composables/__tests__/useScreenshotReplay.test.ts
 git commit -m "test(replay): add state machine tests for useScreenshotReplay
 
 Uses Vue withSetup pattern per testing guide. Covers selectTool
-transitions (ready, fallback, error), synthetic entries, stale-request
-invalidation, ensureMetadataLoaded deduplication and empty-cache,
-clearSelection, and jumpToLatest with/without screenshots."
+resolving/ready transitions, metadata and blob failures, synthetic
+entries, stale-request invalidation, session-change invalidation,
+ensureMetadataLoaded deduplication and empty-cache, stale-frame clearing
+on step navigation, clearSelection, and jumpToLatest."
 ```
 
 ---
@@ -964,7 +1184,7 @@ Expected: PASS
 **Step 6: Verify ESLint**
 
 Run: `cd frontend && bun run lint`
-Expected: PASS (or only pre-existing issues unrelated to our changes)
+Expected: PASS
 
 **Step 7: Run all frontend tests**
 
