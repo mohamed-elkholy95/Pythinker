@@ -7,6 +7,11 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true,
+    server: {
+      deps: {
+        inline: ['zod'],
+      },
+    },
     include: ['src/**/*.{test,spec}.{js,ts,vue}', 'tests/**/*.{test,spec}.{js,ts}'],
     exclude: ['node_modules', 'dist'],
     coverage: {
