@@ -1,55 +1,62 @@
 <template>
-  <!-- Terminal View -->
-  <TerminalContentView
-    v-if="currentViewType === 'terminal' && terminalContent"
-    :content="terminalContent"
-    content-type="shell"
-    :is-live="isActive"
-    auto-scroll
-  />
+  <div
+    class="live-viewer-root"
+    :class="liveViewerClasses"
+    :data-live-viewer-mode="viewerMode"
+    :data-surface-live="isSurfaceLive || undefined"
+  >
+    <!-- Terminal View -->
+    <TerminalContentView
+      v-if="currentViewType === 'terminal' && terminalContent"
+      :content="terminalContent"
+      content-type="shell"
+      :is-live="isActive"
+      auto-scroll
+    />
 
-  <!-- Editor View -->
-  <EditorContentView
-    v-else-if="currentViewType === 'editor' && editorContent"
-    :content="editorContent"
-    :file-path="editorFilePath"
-    :is-live="isActive"
-    content-type="file"
-  />
+    <!-- Editor View -->
+    <EditorContentView
+      v-else-if="currentViewType === 'editor' && editorContent"
+      :content="editorContent"
+      :file-path="editorFilePath"
+      :is-live="isActive"
+      content-type="file"
+    />
 
-  <!-- Search View -->
-  <SearchContentView
-    v-else-if="currentViewType === 'search' && searchResults"
-    :results="searchResults"
-    :query="searchQuery"
-    :is-active="isActive"
-  />
+    <!-- Search View -->
+    <SearchContentView
+      v-else-if="currentViewType === 'search' && searchResults"
+      :results="searchResults"
+      :query="searchQuery"
+      :is-active="isActive"
+    />
 
-  <!-- Browser/CDP View (default live preview) -->
-  <SandboxViewer
-    v-else-if="shouldShowBrowser"
-    ref="sandboxViewerRef"
-    :key="`cdp-${sessionId}`"
-    :session-id="sessionId"
-    :enabled="enabled"
-    :view-only="viewOnly"
-    :quality="quality"
-    :max-fps="maxFps"
-    :show-stats="showStats"
-    :is-canvas-mode="isCanvasMode"
-    :show-controls="showControls"
-    :is-session-complete="isSessionComplete"
-    :replay-screenshot-url="replayScreenshotUrl"
-    @connected="emit('connected')"
-    @disconnected="(reason?: string) => emit('disconnected', reason)"
-    @error="(error: string) => emit('error', error)"
-  />
+    <!-- Browser/CDP View (default live preview) -->
+    <SandboxViewer
+      v-else-if="shouldShowBrowser"
+      ref="sandboxViewerRef"
+      :key="`cdp-${sessionId}`"
+      :session-id="sessionId"
+      :enabled="enabled"
+      :view-only="viewOnly"
+      :quality="quality"
+      :max-fps="maxFps"
+      :show-stats="showStats"
+      :is-canvas-mode="isCanvasMode"
+      :show-controls="showControls"
+      :is-session-complete="isSessionComplete"
+      :replay-screenshot-url="replayScreenshotUrl"
+      @connected="emit('connected')"
+      @disconnected="(reason?: string) => emit('disconnected', reason)"
+      @error="(error: string) => emit('error', error)"
+    />
 
-  <!-- Fallback empty state -->
-  <InactiveState
-    v-else
-    message="No content to display"
-  />
+    <!-- Fallback empty state -->
+    <InactiveState
+      v-else
+      message="No content to display"
+    />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -153,6 +160,29 @@ const shouldShowBrowser = computed(() => {
   return false
 })
 
+const viewerMode = computed(() => {
+  if (currentViewType.value === 'terminal' && props.terminalContent) return 'terminal'
+  if (currentViewType.value === 'editor' && props.editorContent) return 'editor'
+  if (currentViewType.value === 'search' && props.searchResults?.length) return 'search'
+  if (shouldShowBrowser.value) return 'browser'
+  return 'empty'
+})
+
+/** True when a terminal/editor content view is actively streaming — used for CSS surface decorations. */
+const isSurfaceLive = computed(() => {
+  const isContentView = viewerMode.value === 'terminal' || viewerMode.value === 'editor'
+  return isContentView && !!props.isActive
+})
+
+const liveViewerClasses = computed(() => ({
+  'live-viewer-root--active': !!props.isActive,
+  'live-viewer-root--terminal': viewerMode.value === 'terminal',
+  'live-viewer-root--editor': viewerMode.value === 'editor',
+  'live-viewer-root--search': viewerMode.value === 'search',
+  'live-viewer-root--browser': viewerMode.value === 'browser',
+  'live-viewer-root--empty': viewerMode.value === 'empty',
+}))
+
 function processToolEvent(event: ToolEventData): void {
   sandboxViewerRef.value?.processToolEvent(event)
 }
@@ -163,6 +193,67 @@ defineExpose({
 </script>
 
 <style scoped>
+.live-viewer-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-dark) 72%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 96%, transparent), var(--background-menu-white));
+}
+
+.live-viewer-root::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--border-white) 80%, transparent), transparent 22%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--fill-tsp-white-main) 70%, transparent), transparent 34%);
+  opacity: 0.95;
+  z-index: 0;
+}
+
+.live-viewer-root > * {
+  position: relative;
+  z-index: 1;
+}
+
+.live-viewer-root--terminal,
+.live-viewer-root--editor {
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-dark) 90%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 82%, var(--background-main)), var(--background-menu-white));
+}
+
+.live-viewer-root--browser {
+  background:
+    radial-gradient(circle at top center, color-mix(in srgb, var(--fill-tsp-white-main) 80%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 88%, var(--background-main)), var(--background-menu-white));
+}
+
+/* Active surface decoration — subtle live indicator for terminal/editor */
+.live-viewer-root[data-surface-live="true"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  border: 1.5px solid color-mix(in srgb, var(--status-running) 22%, transparent);
+  border-radius: inherit;
+  animation: surface-live-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes surface-live-pulse {
+  0%, 100% {
+    border-color: color-mix(in srgb, var(--status-running) 22%, transparent);
+  }
+  50% {
+    border-color: color-mix(in srgb, var(--status-running) 38%, transparent);
+  }
+}
+
 /* Ensure full coverage */
 :deep(.terminal-view),
 :deep(.editor-view),
