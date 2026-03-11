@@ -498,17 +498,18 @@
         :isSummaryStreaming="isSummaryStreaming"
         @jumpToRealTime="jumpToRealTime"
         :showTimeline="showTimelineControls"
-        :timelineProgress="toolTimelineProgress"
-        :timelineTimestamp="toolTimelineTimestamp"
-        :timelineCanStepForward="toolTimelineCanStepForward"
-        :timelineCanStepBackward="toolTimelineCanStepBackward"
+        :timelineProgress="timelineProgressValue"
+        :timelineTimestamp="timelineTimestampValue"
+        :timelineCanStepForward="timelineCanStepForwardValue"
+        :timelineCanStepBackward="timelineCanStepBackwardValue"
         :toolTimeline="toolTimeline"
-        :timelineCurrentStep="toolTimelineCurrentStep"
-        :timelineTotalSteps="toolTimeline.length"
+        :timelineCurrentStep="timelineCurrentStepValue"
+        :timelineTotalSteps="timelineTotalStepsValue"
         :isReplayMode="isReplayMode"
         :replayScreenshotUrl="replay.currentScreenshotUrl.value"
         :replayMetadata="replay.currentScreenshot.value"
         :replayScreenshots="replay.screenshots.value"
+        :replayCurrentIndex="replay.currentIndex.value"
         :activeCanvasUpdate="activeCanvasUpdate"
         :sessionStartTime="phaseStripStartTime"
         @timelineStepForward="handleTimelineStepForward"
@@ -624,6 +625,7 @@ import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 import { useErrorBoundary } from '@/composables/useErrorBoundary';
+import { findReplayFrameIndexForTool } from '@/utils/replayFrameSync';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 import { toEpochSeconds } from '@/utils/time';
 import {
@@ -2269,7 +2271,34 @@ const toolTimelineCurrentStep = computed(() =>
   toolTimelineIndex.value >= 0 ? toolTimelineIndex.value + 1 : 0
 );
 
-const showTimelineControls = computed(() => toolTimeline.value.length > 0);
+const timelineProgressValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimelineProgress.value : replay.progress.value
+));
+
+const timelineTimestampValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimelineTimestamp.value : replay.currentTimestamp.value
+));
+
+const timelineCanStepForwardValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimelineCanStepForward.value : replay.canStepForward.value
+));
+
+const timelineCanStepBackwardValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimelineCanStepBackward.value : replay.canStepBackward.value
+));
+
+const timelineCurrentStepValue = computed(() => {
+  if (toolTimeline.value.length > 0) return toolTimelineCurrentStep.value;
+  return replay.currentIndex.value >= 0 ? replay.currentIndex.value + 1 : 0;
+});
+
+const timelineTotalStepsValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimeline.value.length : replay.screenshots.value.length
+));
+
+const showTimelineControls = computed(() => (
+  toolTimeline.value.length > 0 || replay.screenshots.value.length > 0
+));
 
 // Handle opening the panel from TaskProgressBar
 const handleOpenPanel = () => {
@@ -3527,7 +3556,7 @@ const finalizeSession = (
   }
   sessionStatus.value = status;
   receivedDoneEvent.value = true;
-  replay.loadScreenshots();
+  void replay.loadScreenshots({ startAt: 'first' });
 };
 
 const handleDoneEvent = () => {
@@ -4031,7 +4060,7 @@ const restoreSession = async (
 
     for (const event of session.events) {
       if (shouldAbortRestore('history_replay')) return;
-      if (!shouldReplayHistoryEvent(event.event, sessionStatus.value)) continue;
+      if (!shouldReplayHistoryEvent(event.event, sessionStatus.value, event.data)) continue;
       handleEvent(event);
     }
 
@@ -4299,63 +4328,7 @@ const isLiveTool = (tool: ToolContent) => {
 /** Sync screenshot replay index to match the currently navigated tool. */
 const syncReplayToTool = (tool: ToolContent) => {
   if (!replay.hasScreenshots.value) return;
-  const screenshots = replay.screenshots.value;
-
-  // For synthetic timeline entries (tool-progress:{parent_id}:{index}),
-  // extract the parent tool_call_id so we can match against screenshots
-  // which carry the original tool_call_id.
-  const toolId = tool.tool_call_id;
-  const isSynthetic = toolId.startsWith('tool-progress:');
-  const parentToolId = isSynthetic
-    ? toolId.split(':').slice(1, -1).join(':')
-    : toolId;
-
-  // Normalize tool timestamp to epoch seconds. Backend events serialize
-  // datetime as ISO 8601 strings (Pydantic v2) while screenshot timestamps
-  // are already Unix seconds. Without normalization the diff is NaN.
-  const toolEpoch = toEpochSeconds(tool.timestamp as number | string);
-
-  let bestIdx = -1;
-
-  if (isSynthetic && toolEpoch !== null) {
-    // Synthetic entries (browser agent sub-actions) all share the same parent
-    // tool_call_id. Use timestamp to find the closest screenshot for this
-    // specific sub-action within the parent tool's screenshots.
-    let bestDiff = Infinity;
-    for (let i = 0; i < screenshots.length; i++) {
-      if (screenshots[i].tool_call_id !== parentToolId) continue;
-      const ssEpoch = toEpochSeconds(screenshots[i].timestamp as number | string);
-      if (ssEpoch === null) continue;
-      const diff = Math.abs(ssEpoch - toolEpoch);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestIdx = i;
-      }
-    }
-  } else {
-    // Regular tool entries: exact match by tool_call_id (prefer tool_after)
-    for (let i = screenshots.length - 1; i >= 0; i--) {
-      if (screenshots[i].tool_call_id === toolId) {
-        bestIdx = i;
-        if (screenshots[i].trigger === 'tool_after') break;
-      }
-    }
-  }
-
-  // Fallback: closest screenshot by timestamp (any tool)
-  if (bestIdx < 0 && toolEpoch !== null) {
-    let bestDiff = Infinity;
-    for (let i = 0; i < screenshots.length; i++) {
-      const ssEpoch = toEpochSeconds(screenshots[i].timestamp as number | string);
-      if (ssEpoch === null) continue;
-      const diff = Math.abs(ssEpoch - toolEpoch);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestIdx = i;
-      }
-    }
-  }
-
+  const bestIdx = findReplayFrameIndexForTool(tool, replay.screenshots.value);
   if (bestIdx >= 0) {
     replay.currentIndex.value = bestIdx;
   }
@@ -4380,20 +4353,31 @@ const showToolFromTimeline = async (index: number) => {
 }
 
 const handleTimelineStepForward = () => {
-  if (!toolTimelineCanStepForward.value) return;
-  showToolFromTimeline(toolTimelineIndex.value + 1);
+  if (toolTimeline.value.length > 0) {
+    if (!toolTimelineCanStepForward.value) return;
+    showToolFromTimeline(toolTimelineIndex.value + 1);
+    return;
+  }
+  replay.stepForward();
 }
 
 const handleTimelineStepBackward = () => {
-  if (!toolTimelineCanStepBackward.value) return;
-  showToolFromTimeline(toolTimelineIndex.value - 1);
+  if (toolTimeline.value.length > 0) {
+    if (!toolTimelineCanStepBackward.value) return;
+    showToolFromTimeline(toolTimelineIndex.value - 1);
+    return;
+  }
+  replay.stepBackward();
 }
 
 const handleTimelineSeek = (progress: number) => {
-  if (toolTimeline.value.length === 0) return;
-  const maxIndex = toolTimeline.value.length - 1;
-  const targetIndex = Math.round((progress / 100) * maxIndex);
-  showToolFromTimeline(targetIndex);
+  if (toolTimeline.value.length > 0) {
+    const maxIndex = toolTimeline.value.length - 1;
+    const targetIndex = Math.round((progress / 100) * maxIndex);
+    showToolFromTimeline(targetIndex);
+    return;
+  }
+  replay.seekByProgress(progress);
 }
 
 const handleToolClick = (tool: ToolContent) => {
