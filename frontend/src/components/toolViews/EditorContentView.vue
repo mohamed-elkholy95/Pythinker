@@ -1,5 +1,5 @@
 <template>
-  <ContentContainer :scrollable="false" padding="none" class="editor-view" :class="{ 'writing-active': isWritingActive }">
+  <ContentContainer :scrollable="false" padding="none" class="editor-view" :class="{ 'writing-active': isWritingActive, 'editor-view--live': isWritingActive }">
     <LoadingState
       v-if="isLoading"
       :label="loadingLabel"
@@ -70,6 +70,11 @@ const isWritingActive = computed(() => !!props.isWriting && !props.isLoading && 
 .editor-body {
   width: 100%;
   height: 100%;
+}
+
+/* Live surface decoration — subtle top highlight matching the terminal treatment */
+.editor-view--live .editor-body {
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--status-running, #22c55e) 18%, transparent);
 }
 
 /* Subtle pulsing effect when file is being written */

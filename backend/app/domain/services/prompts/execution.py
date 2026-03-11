@@ -1344,6 +1344,21 @@ def _build_artifact_references_block(artifact_references: list[dict[str, str]] |
     return "## Artifact References\n" + "\n".join(lines)
 
 
+def _build_references_section(has_sources: bool) -> str:
+    """Build the references section based on source availability."""
+    if has_sources:
+        return (
+            "## References (MANDATORY — NON-NEGOTIABLE)\n"
+            "List ALL cited sources with their numbers matching the inline citations. "
+            "Every [N] citation\nin the report MUST have a corresponding entry here.\n"
+            "This section MUST be present and complete."
+        )
+    return (
+        "No external sources were used. Do NOT include a References section or "
+        "numbered citations like [1], [2]. Use inline attribution only."
+    )
+
+
 def build_summarize_prompt(
     *,
     has_sources: bool = False,
@@ -1432,9 +1447,7 @@ Continue with clear, factual content{citation_inline}.
 ## Conclusion
 Key takeaways and recommendations.
 {_build_artifact_references_block(artifact_references)}
-## References (MANDATORY — NON-NEGOTIABLE)
-{"List ALL cited sources with their numbers matching the inline citations. Every [N] citation" + chr(10) + "in the report MUST have a corresponding entry here." if has_sources else "[1] Source Name - URL" + chr(10) + "[2] Source Name - URL" + chr(10) + "(List ALL sources cited in the report.)"}
-This section MUST be present and complete.""")
+{_build_references_section(has_sources)}""")
 
     # Comparison matrix template
     if is_comparison:

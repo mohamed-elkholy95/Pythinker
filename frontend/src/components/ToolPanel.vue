@@ -32,6 +32,7 @@
         :replayScreenshotUrl="panelProps.replayScreenshotUrl"
         :replayMetadata="panelProps.replayMetadata"
         :replayScreenshots="panelProps.replayScreenshots"
+        :replayCurrentIndex="panelProps.replayCurrentIndex"
         :summaryStreamText="panelProps.summaryStreamText"
         :finalReportText="panelProps.finalReportText"
         :isSummaryStreaming="panelProps.isSummaryStreaming"
@@ -123,6 +124,7 @@ const panelProps = defineProps<{
   replayScreenshotUrl?: string
   replayMetadata?: ScreenshotMetadata | null
   replayScreenshots?: ScreenshotMetadata[]
+  replayCurrentIndex?: number
   summaryStreamText?: string
   finalReportText?: string
   isSummaryStreaming?: boolean

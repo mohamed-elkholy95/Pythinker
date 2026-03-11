@@ -18,7 +18,6 @@ from app.core.retry import RetryConfig, calculate_delay
 from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
 from app.domain.repositories.screenshot_repository import ScreenshotRepository
 from app.domain.repositories.screenshot_storage import ScreenshotStorage
-from app.domain.services.stream_guard import has_active_stream
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +156,7 @@ class ScreenshotCaptureService:
             minio_storage = get_minio_storage()
         self._minio = minio_storage
         self._settings = get_settings()
+        self._sequence_initialized = False
 
         # Priority 2: Initialize circuit breaker
         if self._settings.screenshot_circuit_breaker_enabled:
@@ -331,21 +331,9 @@ class ScreenshotCaptureService:
             function_name = function_name or self._tool_context.function_name
             action_type = action_type or self._tool_context.action_type
 
-        # Suppress periodic captures while screencast is actively streaming to
-        # avoid duplicate saves from concurrent periodic + tool-triggered shots.
-        if (
-            trigger == ScreenshotTrigger.PERIODIC
-            and getattr(self._settings, "feature_sweep_dedup_enabled", True)
-            and await has_active_stream(self._session_id, endpoint="screencast")
-        ):
-            logger.debug(
-                "Skipping periodic screenshot for session %s while screencast stream is active",
-                self._session_id,
-            )
-            return None
-
         try:
             async with self._lock:
+                await self._ensure_sequence_initialized()
                 quality = self._settings.screenshot_quality
                 scale = self._settings.screenshot_scale
 
@@ -375,7 +363,13 @@ class ScreenshotCaptureService:
 
                 if is_duplicate:
                     # Find original's storage key to reference
-                    recent = await self._repository.find_by_session(self._session_id, limit=5, offset=0)
+                    recent_limit = 5
+                    recent_offset = max(self._sequence - recent_limit, 0)
+                    recent = await self._repository.find_by_session(
+                        self._session_id,
+                        limit=recent_limit,
+                        offset=recent_offset,
+                    )
                     original_storage_key = (
                         self._dedup.find_original_key(self._session_id, recent) if self._dedup else None
                     )
@@ -390,13 +384,6 @@ class ScreenshotCaptureService:
 
                         screenshot_dedup_total.inc({"trigger": trigger.value})
                         screenshot_dedup_saved_bytes.inc({"trigger": trigger.value}, len(image_data))
-
-                        # Periodic captures of an idle browser produce no new visual data.
-                        # Skip the MongoDB write entirely — dedup metrics already count it.
-                        # Tool-triggered and session-start captures always write to preserve
-                        # replay fidelity for user-initiated actions.
-                        if trigger == ScreenshotTrigger.PERIODIC:
-                            return None
                     else:
                         # Fallback: store anyway if we can't find original
                         is_duplicate = False
@@ -513,6 +500,26 @@ class ScreenshotCaptureService:
                 latency=max(0.0, time.perf_counter() - start_time),
                 size_bytes=size_bytes,
             )
+
+    async def _ensure_sequence_initialized(self) -> None:
+        """Seed the next screenshot sequence from persisted metadata when resuming."""
+        if self._sequence_initialized:
+            return
+
+        count_by_session = getattr(self._repository, "count_by_session", None)
+        if callable(count_by_session):
+            try:
+                persisted_count = await count_by_session(self._session_id)
+            except Exception:
+                logger.debug(
+                    "Failed to initialize screenshot sequence for session %s",
+                    self._session_id,
+                    exc_info=True,
+                )
+            else:
+                self._sequence = max(self._sequence, int(persisted_count))
+
+        self._sequence_initialized = True
 
     async def _get_screenshot_with_retry(self, quality: int, scale: float):
         """Get screenshot with exponential backoff retry.

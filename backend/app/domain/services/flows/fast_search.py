@@ -8,6 +8,7 @@ a synthesized response in seconds.
 import logging
 from collections.abc import AsyncGenerator
 from enum import Enum
+from hashlib import md5
 
 from app.domain.external.llm import LLM
 from app.domain.external.search import SearchEngine
@@ -23,6 +24,7 @@ from app.domain.models.event import (
     ToolStatus,
 )
 from app.domain.models.message import Message
+from app.domain.models.tool_result import ToolResult
 from app.domain.services.flows.base import BaseFlow, FlowStatus
 from app.domain.services.tools.search import QueryExpander, SearchType
 
@@ -30,6 +32,12 @@ logger = logging.getLogger(__name__)
 
 # Maximum number of query variants for fast search
 MAX_QUERY_VARIANTS = 3
+
+
+def _build_tool_call_id(index: int, query: str) -> str:
+    digest = md5(query.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+    return f"fast_search_{index}_{digest}"
+
 
 FAST_SEARCH_SYNTHESIS_PROMPT = """You are a research assistant. Based on the search results below, provide a clear, comprehensive answer to the user's question.
 
@@ -117,12 +125,13 @@ class FastSearchFlow(BaseFlow):
 
             # 3. Execute searches
             all_results: list[str] = []
-            for variant in variants:
+            for index, variant in enumerate(variants):
+                tool_call_id = _build_tool_call_id(index, variant)
                 yield ToolEvent(
-                    tool_call_id=f"fast_search_{hash(variant) % 10000}",
-                    name="info_search_web",
+                    tool_call_id=tool_call_id,
+                    tool_name="info_search_web",
                     function_name="info_search_web",
-                    arguments={"query": variant},
+                    function_args={"query": variant},
                     status=ToolStatus.CALLING,
                     display_command=f"Searching: {variant}",
                     command_category="search",
@@ -135,11 +144,11 @@ class FastSearchFlow(BaseFlow):
                         all_results.append(f"--- Results for: {variant} ---\n{result_text}")
 
                     yield ToolEvent(
-                        tool_call_id=f"fast_search_{hash(variant) % 10000}",
-                        name="info_search_web",
+                        tool_call_id=tool_call_id,
+                        tool_name="info_search_web",
                         function_name="info_search_web",
-                        arguments={"query": variant},
-                        result=result_text[:500] if result_text else "No results",
+                        function_args={"query": variant},
+                        function_result=result,
                         status=ToolStatus.CALLED,
                         display_command=f"Searched: {variant}",
                         command_category="search",
@@ -147,11 +156,11 @@ class FastSearchFlow(BaseFlow):
                 except Exception as e:
                     logger.warning("FastSearch: search failed for variant %s: %s", variant, e)
                     yield ToolEvent(
-                        tool_call_id=f"fast_search_{hash(variant) % 10000}",
-                        name="info_search_web",
+                        tool_call_id=tool_call_id,
+                        tool_name="info_search_web",
                         function_name="info_search_web",
-                        arguments={"query": variant},
-                        result=f"Search failed: {e}",
+                        function_args={"query": variant},
+                        function_result=ToolResult.error(message=f"Search failed: {e}"),
                         status=ToolStatus.CALLED,
                         display_command=f"Search failed: {variant}",
                         command_category="search",

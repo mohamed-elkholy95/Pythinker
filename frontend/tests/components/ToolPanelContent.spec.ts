@@ -57,6 +57,25 @@ const mountToolPanelContent = (overrides: Record<string, unknown> = {}) => (
 );
 
 describe('ToolPanelContent', () => {
+  it('renders live shell framing hooks for the redesigned surface', () => {
+    const wrapper = mountToolPanelContent();
+
+    expect(wrapper.find('.live-shell').exists()).toBe(true);
+    expect(wrapper.find('.live-shell__statusbar').exists()).toBe(true);
+    expect(wrapper.find('.live-shell__viewport').exists()).toBe(true);
+    expect(wrapper.find('[data-live-shell-mode="live"]').exists()).toBe(true);
+  });
+
+  it('switches live shell metadata to replay mode', () => {
+    const wrapper = mountToolPanelContent({
+      realTime: false,
+      isReplayMode: true,
+      replayScreenshotUrl: 'blob:replay-frame',
+    });
+
+    expect(wrapper.find('[data-live-shell-mode="replay"]').exists()).toBe(true);
+  });
+
   it('shows composing report activity during summary streaming', () => {
     const wrapper = mountToolPanelContent({
       isSummaryStreaming: true,

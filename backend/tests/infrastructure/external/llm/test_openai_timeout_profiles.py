@@ -227,3 +227,47 @@ def test_slow_tool_breaker_degraded_token_cap() -> None:
 
     assert capped_tokens == llm._SLOW_TOOL_BREAKER_DEGRADED_MAX_TOKENS
     assert uncapped_tokens == 4096
+
+
+def test_timeout_hint_code_gen_elevates_timeout() -> None:
+    """When timeout_hint='code_gen', tool request timeout should use the code_gen profile."""
+    from types import SimpleNamespace
+
+    llm = _make_llm(api_base="https://api.kimi.com/coding/v1")
+
+    settings = SimpleNamespace(
+        llm_request_timeout=300.0,
+        llm_stream_read_timeout=90.0,
+        llm_tool_request_timeout=90.0,
+        llm_timeout_profiles={"default": 90.0, "code_gen": 180.0, "summarize": 150.0},
+    )
+
+    with patch("app.infrastructure.external.llm.openai_llm.get_settings", return_value=settings):
+        resolved = llm._resolve_tool_timeout(
+            base_timeout=90.0,
+            timeout_hint="code_gen",
+        )
+
+    assert resolved == 180.0
+
+
+def test_timeout_hint_none_uses_default() -> None:
+    """When timeout_hint is None, use the base timeout as-is."""
+    from types import SimpleNamespace
+
+    llm = _make_llm(api_base="https://api.kimi.com/coding/v1")
+
+    settings = SimpleNamespace(
+        llm_request_timeout=300.0,
+        llm_stream_read_timeout=90.0,
+        llm_tool_request_timeout=90.0,
+        llm_timeout_profiles={"default": 90.0, "code_gen": 180.0, "summarize": 150.0},
+    )
+
+    with patch("app.infrastructure.external.llm.openai_llm.get_settings", return_value=settings):
+        resolved = llm._resolve_tool_timeout(
+            base_timeout=90.0,
+            timeout_hint=None,
+        )
+
+    assert resolved == 90.0

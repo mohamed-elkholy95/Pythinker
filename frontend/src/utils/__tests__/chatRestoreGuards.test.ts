@@ -56,8 +56,19 @@ describe('chatRestoreGuards', () => {
     expect(shouldReplayHistoryEvent('stream', undefined)).toBe(false);
   });
 
+  it('skips live-only tool stream events during restore', () => {
+    expect(shouldReplayHistoryEvent('tool_stream', SessionStatus.COMPLETED)).toBe(false);
+    expect(shouldReplayHistoryEvent('tool_stream', SessionStatus.RUNNING)).toBe(false);
+  });
+
+  it('skips heartbeat and waiting progress events during restore', () => {
+    expect(shouldReplayHistoryEvent('progress', SessionStatus.COMPLETED, { phase: 'heartbeat' })).toBe(false);
+    expect(shouldReplayHistoryEvent('progress', SessionStatus.COMPLETED, { phase: 'waiting' })).toBe(false);
+  });
+
   it('always replays non-stream events', () => {
     expect(shouldReplayHistoryEvent('message', SessionStatus.RUNNING)).toBe(true);
+    expect(shouldReplayHistoryEvent('progress', SessionStatus.RUNNING, { phase: 'planning' })).toBe(true);
     expect(shouldReplayHistoryEvent('report', undefined)).toBe(true);
     expect(shouldReplayHistoryEvent('done', SessionStatus.COMPLETED)).toBe(true);
   });

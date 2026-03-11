@@ -1,23 +1,31 @@
 <template>
-  <div class="browser-chrome">
-    <!-- Left: Device toggle -->
-    <div class="device-toggle">
-      <button
-        class="device-btn"
-        :class="{ active: device === 'desktop' }"
-        title="Desktop view"
-        @click="$emit('update:device', 'desktop')"
-      >
-        <Monitor :size="14" />
-      </button>
-      <button
-        class="device-btn"
-        :class="{ active: device === 'mobile' }"
-        title="Mobile view"
-        @click="$emit('update:device', 'mobile')"
-      >
-        <Smartphone :size="14" />
-      </button>
+  <div class="browser-chrome browser-chrome--deck">
+    <div class="browser-chrome__left">
+      <div class="browser-chrome__traffic-lights" aria-hidden="true">
+        <span class="browser-chrome__traffic-light browser-chrome__traffic-light--close"></span>
+        <span class="browser-chrome__traffic-light browser-chrome__traffic-light--minimize"></span>
+        <span class="browser-chrome__traffic-light browser-chrome__traffic-light--expand"></span>
+      </div>
+
+      <!-- Left: Device toggle (hidden in live view where it has no effect) -->
+      <div v-if="showDeviceToggle" class="device-toggle">
+        <button
+          class="device-btn"
+          :class="{ active: device === 'desktop' }"
+          title="Desktop view"
+          @click="$emit('update:device', 'desktop')"
+        >
+          <Monitor :size="14" />
+        </button>
+        <button
+          class="device-btn"
+          :class="{ active: device === 'mobile' }"
+          title="Mobile view"
+          @click="$emit('update:device', 'mobile')"
+        >
+          <Smartphone :size="14" />
+        </button>
+      </div>
     </div>
 
     <!-- Center: URL bar -->
@@ -26,6 +34,9 @@
         <Home :size="13" />
       </button>
       <div class="url-path">
+        <span class="browser-chrome__meta-badge">Live</span>
+        <span class="url-host">{{ displayHost }}</span>
+        <span class="url-divider"></span>
         <span class="url-text">{{ displayUrl }}</span>
       </div>
       <button
@@ -91,12 +102,15 @@ const props = withDefaults(
     isFullscreen?: boolean
     /** Whether to show the Edit button */
     showEdit?: boolean
+    /** Whether to show the desktop/mobile device toggle */
+    showDeviceToggle?: boolean
   }>(),
   {
     url: '/',
     device: 'desktop',
     isFullscreen: false,
     showEdit: false,
+    showDeviceToggle: true,
   },
 )
 
@@ -118,18 +132,68 @@ const displayUrl = computed(() => {
     return props.url
   }
 })
+
+const displayHost = computed(() => {
+  if (!props.url) return 'workspace'
+  try {
+    const u = new URL(props.url)
+    return u.hostname || 'workspace'
+  } catch {
+    return 'workspace'
+  }
+})
 </script>
 
 <style scoped>
 .browser-chrome {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 10px;
-  background: var(--background-white-main, #ffffff);
-  border-bottom: 1px solid var(--border-light, #e5e5e5);
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 88%, transparent), var(--background-menu-white)),
+    linear-gradient(90deg, color-mix(in srgb, var(--fill-tsp-white-main) 55%, transparent), transparent 45%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-main) 85%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 85%, transparent);
   flex-shrink: 0;
+}
+
+.browser-chrome__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.browser-chrome__traffic-lights {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fill-tsp-gray-main) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-light) 85%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+}
+
+.browser-chrome__traffic-light {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.25);
+}
+
+.browser-chrome__traffic-light--close {
+  background: color-mix(in srgb, var(--function-error) 82%, var(--background-menu-white));
+}
+
+.browser-chrome__traffic-light--minimize {
+  background: color-mix(in srgb, var(--function-warning) 82%, var(--background-menu-white));
+}
+
+.browser-chrome__traffic-light--expand {
+  background: color-mix(in srgb, var(--function-success) 82%, var(--background-menu-white));
 }
 
 /* Device toggle */
@@ -137,34 +201,38 @@ const displayUrl = computed(() => {
   display: flex;
   align-items: center;
   gap: 1px;
-  padding: 2px;
-  background: var(--fill-tsp-gray-main, #f5f5f5);
-  border-radius: 8px;
-  border: 1px solid var(--border-light, #e5e5e5);
+  padding: 3px;
+  background: color-mix(in srgb, var(--fill-tsp-gray-main) 78%, transparent);
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-light) 90%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
 }
 
 .device-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 26px;
+  width: 30px;
+  height: 28px;
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   color: var(--icon-tertiary, #999);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .device-btn:hover {
   color: var(--text-secondary, #666);
+  background: color-mix(in srgb, var(--fill-tsp-white-main) 85%, transparent);
 }
 
 .device-btn.active {
-  background: var(--background-white-main, #fff);
+  background: color-mix(in srgb, var(--background-menu-white) 92%, transparent);
   color: var(--text-primary, #1a1a1a);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow:
+    0 6px 18px var(--shadow-XS),
+    inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
 }
 
 /* URL bar */
@@ -173,38 +241,68 @@ const displayUrl = computed(() => {
   align-items: center;
   flex: 1;
   min-width: 0;
-  height: 30px;
-  padding: 0 4px;
-  background: var(--fill-tsp-gray-main, #f5f5f5);
-  border: 1px solid var(--border-light, #e5e5e5);
-  border-radius: 10px;
-  gap: 2px;
+  min-height: 36px;
+  padding: 0 6px;
+  background: color-mix(in srgb, var(--fill-tsp-gray-main) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  border-radius: 16px;
+  gap: 4px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 85%, transparent);
 }
 
 .url-home-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   color: var(--icon-secondary, #666);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .url-home-btn:hover {
-  background: var(--background-white-main, #fff);
+  background: color-mix(in srgb, var(--background-menu-white) 90%, transparent);
   color: var(--text-primary, #1a1a1a);
 }
 
 .url-path {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
+}
+
+.browser-chrome__meta-badge {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--status-running) 14%, transparent);
+  color: var(--status-running);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.url-host {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.url-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 14px;
+  background: color-mix(in srgb, var(--border-main) 72%, transparent);
 }
 
 .url-text {
@@ -220,27 +318,27 @@ const displayUrl = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   color: var(--icon-tertiary, #999);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .url-action-btn:hover {
   color: var(--text-secondary, #666);
-  background: var(--background-white-main, #fff);
+  background: color-mix(in srgb, var(--background-menu-white) 88%, transparent);
 }
 
 /* Chrome actions */
 .chrome-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
@@ -248,39 +346,40 @@ const displayUrl = computed(() => {
   display: flex;
   align-items: center;
   gap: 5px;
-  height: 30px;
+  height: 32px;
   padding: 0 12px;
-  border: 1px solid var(--border-light, #e5e5e5);
-  border-radius: 10px;
-  background: var(--background-white-main, #fff);
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-menu-white) 92%, transparent);
   color: var(--text-primary, #1a1a1a);
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 85%, transparent);
 }
 
 .edit-btn:hover {
   border-color: var(--border-hover, #d0d0d0);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 6px 18px var(--shadow-XS);
 }
 
 .chrome-action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   color: var(--icon-tertiary, #999);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .chrome-action-btn:hover {
   color: var(--text-secondary, #666);
-  background: var(--fill-tsp-gray-main, #f5f5f5);
+  background: color-mix(in srgb, var(--fill-tsp-gray-main) 90%, transparent);
 }
 </style>

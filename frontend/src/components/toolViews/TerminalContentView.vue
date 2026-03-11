@@ -1,5 +1,5 @@
 <template>
-  <ContentContainer :scrollable="false" padding="none" class="terminal-view">
+  <ContentContainer :scrollable="false" padding="none" class="terminal-view" :class="{ 'terminal-view--live': isLive }">
     <div class="terminal-body">
       <div class="terminal-shell" :class="{ 'dark-mode': isDarkMode }">
         <div ref="terminalRef" class="terminal-surface"></div>
@@ -381,6 +381,11 @@ watch(
 
 .terminal-shell.dark-mode :deep(.xterm-selection div) {
   background: rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Live surface decoration — subtle top highlight when actively streaming */
+.terminal-view--live .terminal-shell {
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--status-running, #22c55e) 18%, transparent);
 }
 
 /* Empty state overlay */

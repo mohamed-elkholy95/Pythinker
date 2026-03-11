@@ -214,7 +214,7 @@
           />
 
           <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
-          <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4">
+          <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1 mt-4 mb-4">
             <ThinkingIndicator :showText="true" />
           </div>
           <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
@@ -395,8 +395,8 @@
             />
           </Transition>
 
-          <!-- Partial Results - provisional findings accumulated during execution -->
-          <PartialResults :results="partialResults" />
+          <!-- Partial Results - disabled: findings are already visible in step timeline -->
+          <!-- <PartialResults :results="partialResults" /> -->
 
           <!-- Scroll to bottom button - positioned above progress bar with measured spacing -->
           <div v-if="!follow" class="flex justify-end mb-2">
@@ -498,17 +498,18 @@
         :isSummaryStreaming="isSummaryStreaming"
         @jumpToRealTime="jumpToRealTime"
         :showTimeline="showTimelineControls"
-        :timelineProgress="toolTimelineProgress"
-        :timelineTimestamp="toolTimelineTimestamp"
-        :timelineCanStepForward="toolTimelineCanStepForward"
-        :timelineCanStepBackward="toolTimelineCanStepBackward"
+        :timelineProgress="timelineProgressValue"
+        :timelineTimestamp="timelineTimestampValue"
+        :timelineCanStepForward="timelineCanStepForwardValue"
+        :timelineCanStepBackward="timelineCanStepBackwardValue"
         :toolTimeline="toolTimeline"
-        :timelineCurrentStep="toolTimelineCurrentStep"
-        :timelineTotalSteps="toolTimeline.length"
+        :timelineCurrentStep="timelineCurrentStepValue"
+        :timelineTotalSteps="timelineTotalStepsValue"
         :isReplayMode="isReplayMode"
         :replayScreenshotUrl="replay.currentScreenshotUrl.value"
         :replayMetadata="replay.currentScreenshot.value"
         :replayScreenshots="replay.screenshots.value"
+        :replayCurrentIndex="replay.currentIndex.value"
         :activeCanvasUpdate="activeCanvasUpdate"
         :sessionStartTime="phaseStripStartTime"
         @timelineStepForward="handleTimelineStepForward"
@@ -611,7 +612,6 @@ import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport'
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import PlanningCard from '@/components/PlanningCard.vue';
-import PartialResults from '@/components/PartialResults.vue';
 import PhaseStrip from '@/components/PhaseStrip.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 // WideResearchOverlay removed — absorbed into Deep Research mode
@@ -625,6 +625,7 @@ import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 import { useErrorBoundary } from '@/composables/useErrorBoundary';
+import { findReplayFrameIndexForTool } from '@/utils/replayFrameSync';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 import { toEpochSeconds } from '@/utils/time';
 import {
@@ -642,6 +643,7 @@ import {
 } from '@/utils/chatRestoreGuards';
 import { normalizeTransientTools } from '@/utils/sessionFinalization';
 import { shouldPreserveDealToolInLiveView } from '@/utils/dealLiveViewSelection';
+import { buildTimelineEntryFromToolProgress } from '@/utils/toolProgressTimeline';
 import {
   isStructuredSummaryAssistantMessage,
   shouldNestAssistantMessageInStep,
@@ -1128,10 +1130,14 @@ const isSessionComplete = computed(() => {
     [SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED].includes(sessionStatus.value)
 })
 
-// Replay mode: session is completed/failed and has replay data
+// Replay mode: session completed with replay data, OR user has stepped
+// away from real-time during a live session and screenshots are available.
 const isReplayMode = computed(() => {
   const ended = !isLoading.value && isSessionComplete.value
-  return !!ended && hasScreenshotReplay.value
+  const completedReplay = !!ended && hasScreenshotReplay.value
+  // Enable replay view when user navigates the timeline during a live session
+  const steppedFromLive = !realTime.value && hasScreenshotReplay.value
+  return completedReplay || steppedFromLive
 })
 
 // Message ID counter for generating unique keys (avoids crypto overhead)
@@ -2265,7 +2271,34 @@ const toolTimelineCurrentStep = computed(() =>
   toolTimelineIndex.value >= 0 ? toolTimelineIndex.value + 1 : 0
 );
 
-const showTimelineControls = computed(() => toolTimeline.value.length > 0);
+const timelineProgressValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimelineProgress.value : replay.progress.value
+));
+
+const timelineTimestampValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimelineTimestamp.value : replay.currentTimestamp.value
+));
+
+const timelineCanStepForwardValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimelineCanStepForward.value : replay.canStepForward.value
+));
+
+const timelineCanStepBackwardValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimelineCanStepBackward.value : replay.canStepBackward.value
+));
+
+const timelineCurrentStepValue = computed(() => {
+  if (toolTimeline.value.length > 0) return toolTimelineCurrentStep.value;
+  return replay.currentIndex.value >= 0 ? replay.currentIndex.value + 1 : 0;
+});
+
+const timelineTotalStepsValue = computed(() => (
+  toolTimeline.value.length > 0 ? toolTimeline.value.length : replay.screenshots.value.length
+));
+
+const showTimelineControls = computed(() => (
+  toolTimeline.value.length > 0 || replay.screenshots.value.length > 0
+));
 
 // Handle opening the panel from TaskProgressBar
 const handleOpenPanel = () => {
@@ -2591,6 +2624,18 @@ const handleToolProgressEvent = (data: import('../types/event').ToolProgressEven
 
   const timelineTool = toolTimeline.value.find((tool) => tool.tool_call_id === data.tool_call_id);
   applyToolProgressUpdate(timelineTool, data);
+
+  const syntheticTimelineTool = buildTimelineEntryFromToolProgress(data);
+  if (syntheticTimelineTool) {
+    upsertToolTimeline(syntheticTimelineTool);
+
+    if (realTime.value && canOpenLiveViewPanel.value) {
+      panelToolId.value = syntheticTimelineTool.tool_call_id;
+      if (isToolPanelOpen.value) {
+        showToolPanelIfAllowed(syntheticTimelineTool, true);
+      }
+    }
+  }
 
   const lastStep = getLastStep();
   if (lastStep) {
@@ -3511,7 +3556,7 @@ const finalizeSession = (
   }
   sessionStatus.value = status;
   receivedDoneEvent.value = true;
-  replay.loadScreenshots();
+  void replay.loadScreenshots({ startAt: 'first' });
 };
 
 const handleDoneEvent = () => {
@@ -4015,7 +4060,7 @@ const restoreSession = async (
 
     for (const event of session.events) {
       if (shouldAbortRestore('history_replay')) return;
-      if (!shouldReplayHistoryEvent(event.event, sessionStatus.value)) continue;
+      if (!shouldReplayHistoryEvent(event.event, sessionStatus.value, event.data)) continue;
       handleEvent(event);
     }
 
@@ -4283,35 +4328,13 @@ const isLiveTool = (tool: ToolContent) => {
 /** Sync screenshot replay index to match the currently navigated tool. */
 const syncReplayToTool = (tool: ToolContent) => {
   if (!replay.hasScreenshots.value) return;
-  const screenshots = replay.screenshots.value;
-
-  // Exact match by tool_call_id (prefer tool_after for result view)
-  let bestIdx = -1;
-  for (let i = screenshots.length - 1; i >= 0; i--) {
-    if (screenshots[i].tool_call_id === tool.tool_call_id) {
-      bestIdx = i;
-      if (screenshots[i].trigger === 'tool_after') break;
-    }
-  }
-
-  // Fallback: closest screenshot by timestamp
-  if (bestIdx < 0 && tool.timestamp) {
-    let bestDiff = Infinity;
-    for (let i = 0; i < screenshots.length; i++) {
-      const diff = Math.abs((screenshots[i].timestamp || 0) - tool.timestamp);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestIdx = i;
-      }
-    }
-  }
-
+  const bestIdx = findReplayFrameIndexForTool(tool, replay.screenshots.value);
   if (bestIdx >= 0) {
     replay.currentIndex.value = bestIdx;
   }
 };
 
-const showToolFromTimeline = (index: number) => {
+const showToolFromTimeline = async (index: number) => {
   if (toolTimeline.value.length === 0) return;
   if (!canOpenLiveViewPanel.value) return;
   const clampedIndex = Math.max(0, Math.min(index, toolTimeline.value.length - 1));
@@ -4320,26 +4343,41 @@ const showToolFromTimeline = (index: number) => {
   realTime.value = false;
   if (showToolPanelIfAllowed(tool, false)) {
     panelToolId.value = tool.tool_call_id;
+    // Eagerly load screenshots if not available yet (live session stepping)
+    if (!replay.hasScreenshots.value) {
+      await replay.loadScreenshots();
+    }
     // Sync screenshot replay to this tool's timeframe
     syncReplayToTool(tool);
   }
 }
 
 const handleTimelineStepForward = () => {
-  if (!toolTimelineCanStepForward.value) return;
-  showToolFromTimeline(toolTimelineIndex.value + 1);
+  if (toolTimeline.value.length > 0) {
+    if (!toolTimelineCanStepForward.value) return;
+    showToolFromTimeline(toolTimelineIndex.value + 1);
+    return;
+  }
+  replay.stepForward();
 }
 
 const handleTimelineStepBackward = () => {
-  if (!toolTimelineCanStepBackward.value) return;
-  showToolFromTimeline(toolTimelineIndex.value - 1);
+  if (toolTimeline.value.length > 0) {
+    if (!toolTimelineCanStepBackward.value) return;
+    showToolFromTimeline(toolTimelineIndex.value - 1);
+    return;
+  }
+  replay.stepBackward();
 }
 
 const handleTimelineSeek = (progress: number) => {
-  if (toolTimeline.value.length === 0) return;
-  const maxIndex = toolTimeline.value.length - 1;
-  const targetIndex = Math.round((progress / 100) * maxIndex);
-  showToolFromTimeline(targetIndex);
+  if (toolTimeline.value.length > 0) {
+    const maxIndex = toolTimeline.value.length - 1;
+    const targetIndex = Math.round((progress / 100) * maxIndex);
+    showToolFromTimeline(targetIndex);
+    return;
+  }
+  replay.seekByProgress(progress);
 }
 
 const handleToolClick = (tool: ToolContent) => {

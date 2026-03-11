@@ -52,7 +52,7 @@ class TestChartFallbackSuppression:
         event.title = "Test Report"
         event.content = "# Report\n| col1 | col2 |\n| --- | --- |\n| 1 | 2 |"
 
-        result = await AgentTaskRunner._ensure_plotly_chart_files(
+        await AgentTaskRunner._ensure_plotly_chart_files(
             runtime, event, [], force_generation=False, generation_mode="auto"
         )
 

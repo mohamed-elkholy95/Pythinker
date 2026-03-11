@@ -11,10 +11,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.domain.models.event import PlanningPhase, ProgressEvent, VerificationEvent, VerificationStatus
+from app.domain.services.flows.plan_act import PlanActFlow
 
 # ---------------------------------------------------------------------------
 # Config default
@@ -52,6 +54,21 @@ def test_verification_timeout_config_env_override(monkeypatch: pytest.MonkeyPatc
         assert s.verification_timeout_seconds == 0.0
     finally:
         cfg_module.get_settings.cache_clear()  # don't pollute other tests
+
+
+def test_verification_timeout_uses_supplied_settings_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verification timeout should come from the flow's run-scoped settings snapshot."""
+    import app.domain.services.flows.plan_act as plan_act_module
+
+    flow = PlanActFlow.__new__(PlanActFlow)
+    snapshot_settings = MagicMock(verification_timeout_seconds=0.25)
+    monkeypatch.setattr(
+        plan_act_module,
+        "get_settings",
+        lambda: MagicMock(verification_timeout_seconds=9.0),
+    )
+
+    assert flow._get_verification_timeout_seconds(snapshot_settings) == 0.25
 
 
 # ---------------------------------------------------------------------------

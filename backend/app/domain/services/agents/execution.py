@@ -59,6 +59,23 @@ from app.domain.utils.json_repair import parse_json_response
 _TOOL_MARKER_PATTERN = re.compile(r"^\[Attempted to call \w+ with ")
 
 
+def apply_synthesis_gate_soft_fail_disclaimer(
+    prompt: str,
+    gate_result: "SynthesisGateResult",
+) -> str:
+    """Prepend a soft-fail caveat to the synthesis prompt.
+
+    When the synthesis gate returns ``soft_fail``, the pipeline still proceeds
+    but the LLM should be warned that some evidence thresholds were not met.
+    """
+    reasons_text = "; ".join(gate_result.reasons)
+    disclaimer = (
+        "NOTE: Some evidence thresholds were not fully met. "
+        f"Reasons: {reasons_text}\n\n"
+    )
+    return disclaimer + prompt
+
+
 def _is_tool_marker_text(text: str) -> bool:
     """Detect tool-call marker text produced by message_normalizer.
 
@@ -82,6 +99,7 @@ def set_metrics(metrics: MetricsPort) -> None:
 
 
 if TYPE_CHECKING:
+    from app.domain.models.evidence import SynthesisGateResult
     from app.domain.services.memory_service import MemoryService
     from app.domain.utils.cancellation import CancellationToken
 
@@ -121,6 +139,25 @@ class ExecutionAgent(BaseAgent):
             "prepare summary",
         }
     )
+
+    # ── Research step detection (Fix 4A) ─────────────────────────────
+    _RESEARCH_STEP_KEYWORDS: tuple[str, ...] = (
+        "research",
+        "investigate",
+        "compare",
+        "pricing",
+        "best practices",
+        "find information",
+        "gather data",
+    )
+
+    _EXTERNAL_EVIDENCE_TOOLS: frozenset[ToolName] = frozenset({
+        ToolName.INFO_SEARCH_WEB,
+        ToolName.WIDE_RESEARCH,
+        ToolName.BROWSER_NAVIGATE,
+        ToolName.BROWSER_GET_CONTENT,
+        ToolName.BROWSER_VIEW,
+    })
 
     def __init__(
         self,
@@ -295,6 +332,11 @@ class ExecutionAgent(BaseAgent):
         desc_lower = step_description.lower()
         return any(kw in desc_lower for kw in self._SYNTHESIS_KEYWORDS)
 
+    def _is_research_step(self, step_description: str) -> bool:
+        """Detect if a step is a research step by keyword matching."""
+        desc_lower = step_description.lower()
+        return any(kw in desc_lower for kw in self._RESEARCH_STEP_KEYWORDS)
+
     def _check_synthesis_gate(self):
         """Check if evidence is sufficient before allowing synthesis.
 
@@ -307,6 +349,7 @@ class ExecutionAgent(BaseAgent):
         result = self._research_execution_policy.can_synthesize()
 
         from app.core.config import get_settings
+        from app.domain.models.evidence import SynthesisGateVerdict
 
         settings = get_settings()
         if getattr(settings, "research_pipeline_mode", "shadow") == "shadow":
@@ -319,6 +362,21 @@ class ExecutionAgent(BaseAgent):
                 },
             )
             return None  # Don't block in shadow mode
+
+        # Fix 4B: Backstop — if policy passed but no evidence at all, override to hard_fail
+        if result.verdict != SynthesisGateVerdict.hard_fail:
+            has_sources = bool(self._source_tracker.get_collected_sources())
+            has_evidence = bool(
+                getattr(self._research_execution_policy, "evidence_records", None)
+            )
+            if not has_sources and not has_evidence:
+                from app.domain.models.evidence import SynthesisGateResult
+
+                return SynthesisGateResult(
+                    verdict=SynthesisGateVerdict.hard_fail,
+                    reasons=["No external evidence acquired in any research step"],
+                    thresholds_applied={"backstop_no_evidence": True},
+                )
 
         return result
 
@@ -489,6 +547,7 @@ class ExecutionAgent(BaseAgent):
         # Per-step tool success tracking for evidence-based completion
         _step_tool_total = 0
         _step_tool_errors = 0
+        _saw_external_evidence = False  # Fix 4A: research steps must acquire evidence
         try:
             async for event in self.execute(execution_message):
                 if isinstance(event, ErrorEvent):
@@ -572,6 +631,14 @@ class ExecutionAgent(BaseAgent):
 
                         # Track sources from tool events for report bibliography
                         self._track_sources_from_tool_event(event)
+
+                        # Fix 4A: Track external evidence acquisition
+                        if (
+                            event.function_result
+                            and event.function_result.success
+                            and func_name in self._EXTERNAL_EVIDENCE_TOOLS
+                        ):
+                            _saw_external_evidence = True
 
                         # Track multimodal findings (P5.2 - Pythinker pattern)
                         self._track_multimodal_findings(event)
@@ -680,6 +747,20 @@ class ExecutionAgent(BaseAgent):
                         _step_tool_errors,
                         _step_tool_total,
                     )
+
+            # Fix 4A: Research steps must acquire external evidence
+            if (
+                step.status == ExecutionStatus.COMPLETED
+                and not _saw_external_evidence
+                and self._is_research_step(step.description or "")
+            ):
+                step.status = ExecutionStatus.FAILED
+                step.success = False
+                step.error = "Research step completed without external evidence"
+                logger.warning(
+                    "Step %s failed evidence gate: research step with no search/browser tool calls",
+                    step.id,
+                )
         finally:
             # Always restore tools, system prompt, and model override after step
             self.tools = original_tools
@@ -1917,6 +1998,19 @@ class ExecutionAgent(BaseAgent):
             token = (issue or "").split(":", 1)[0].strip().lower()
             if token in non_downgradable_tokens:
                 return False
+
+        # Fix 5: hallucination_verification_ungrounded requires evidence to be downgradable
+        for issue in issues:
+            token = (issue or "").split(":", 1)[0].strip().lower()
+            if token == "hallucination_verification_ungrounded":
+                has_evidence = bool(
+                    self._source_tracker.get_collected_sources()
+                ) or bool(
+                    getattr(self._research_execution_policy, "evidence_records", None)
+                )
+                if not has_evidence:
+                    return False
+
         return True
 
     def _can_auto_repair_delivery_integrity(self, issues: list[str], content: str = "") -> bool:

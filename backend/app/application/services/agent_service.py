@@ -551,7 +551,27 @@ class AgentService:
 
                         address = sandbox.id[len("dev-sandbox-") :]
                         previous_session = await DockerSandbox.register_session(address, session_id)
-                        if previous_session:
+                        if previous_session is None:
+                            # Could be first-time assignment (success) or blocked
+                            is_owned = DockerSandbox._active_sessions.get(address) == session_id
+                            if not is_owned:
+                                # Fix 6: Wait for previous owner to release
+                                wait_timeout = get_settings().sandbox_ownership_wait_timeout
+                                logger.info(
+                                    "Sandbox %s ownership blocked — waiting up to %.0fs",
+                                    address,
+                                    wait_timeout,
+                                )
+                                acquired = await DockerSandbox.wait_for_ownership(
+                                    address, session_id, max_wait=wait_timeout
+                                )
+                                if not acquired:
+                                    logger.warning(
+                                        "Sandbox %s still owned after %.0fs — operating without sandbox",
+                                        address,
+                                        wait_timeout,
+                                    )
+                        elif previous_session:
                             logger.info(
                                 f"Sandbox {address} was owned by session {previous_session}, "
                                 f"now reassigned to {session_id}"

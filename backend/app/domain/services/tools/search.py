@@ -5,11 +5,13 @@ import re
 import socket
 import time
 from collections import OrderedDict
+from collections.abc import AsyncGenerator
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlsplit, urlunsplit
 
 from app.domain.external.search import SearchEngine
+from app.domain.models.event import ToolProgressEvent
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 
@@ -305,6 +307,7 @@ def canonicalize_query(query: str) -> str:
 # ---------------------------------------------------------------------------
 _HOT_CACHE_TTL: float = 30.0
 _HOT_CACHE_MAXSIZE: int = 50
+_PROGRESS_QUEUE_MAX_SIZE = 256
 # Dict keyed by canonical_query -> (result, expiry_monotonic_time)
 _hot_cache: dict[str, tuple[object, float]] = {}
 
@@ -391,6 +394,7 @@ class SearchTool(BaseTool):
     """
 
     name: str = "search"
+    supports_progress: bool = True
 
     _cache_ttl: ClassVar[int] = 3600  # 1 hour cache TTL
     _cache_max_size: ClassVar[int] = 100  # Maximum cache entries
@@ -498,6 +502,12 @@ class SearchTool(BaseTool):
         # URLs currently being previewed by background tasks. Prevents duplicate
         # navigation when multiple search calls race.
         self._previewing_result_urls: set[str] = set()
+        self._progress_queue: asyncio.Queue[ToolProgressEvent] = asyncio.Queue(
+            maxsize=_PROGRESS_QUEUE_MAX_SIZE,
+        )
+        self._active_tool_call_id: str = ""
+        self._active_function_name: str = ""
+        self._start_time: float = 0.0
 
         # Budget enforcement (per-task, since SearchTool is instantiated per task)
         from app.core.config import get_settings
@@ -536,6 +546,54 @@ class SearchTool(BaseTool):
         # context here so that dedup-blocked queries can return cached
         # results instead of failing with 0 results.
         self._pre_planning_context: str | None = None
+
+    def _reset_progress_queue(self) -> None:
+        """Clear stale progress events from previous tool invocations."""
+        while not self._progress_queue.empty():
+            try:
+                self._progress_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+    def _begin_progress_run(self) -> None:
+        """Initialize progress state for a top-level search tool call."""
+        self._reset_progress_queue()
+        self._start_time = time.monotonic()
+
+    def _enqueue_progress(
+        self,
+        *,
+        current_step: str,
+        steps_completed: int,
+        steps_total: int | None,
+        checkpoint_data: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a ToolProgressEvent for durable timeline/replay history."""
+        percent = min(99, int(steps_completed / steps_total * 100)) if steps_total and steps_total > 0 else 0
+        elapsed_ms = (time.monotonic() - self._start_time) * 1000 if self._start_time else 0
+        event = ToolProgressEvent(
+            tool_call_id=self._active_tool_call_id,
+            tool_name=self.name,
+            function_name=self._active_function_name,
+            progress_percent=percent,
+            current_step=current_step,
+            steps_completed=steps_completed,
+            steps_total=steps_total,
+            elapsed_ms=elapsed_ms,
+            checkpoint_data=checkpoint_data,
+        )
+        try:
+            self._progress_queue.put_nowait(event)
+        except asyncio.QueueFull:
+            logger.debug("Search progress queue full, dropping event: %s", current_step)
+
+    async def drain_progress_events(self) -> AsyncGenerator[ToolProgressEvent, None]:
+        """Drain queued progress events for SSE delivery."""
+        while not self._progress_queue.empty():
+            try:
+                yield self._progress_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
     def set_complexity_score(self, score: float | None) -> None:
         """Update complexity score after construction."""
@@ -1044,12 +1102,23 @@ class SearchTool(BaseTool):
 
         return ToolResult(success=True, data=aggregated_data, message=message)
 
-    async def _browse_top_results(self, search_data: Any, count: int = 3) -> None:
+    async def _browse_top_results(
+        self,
+        search_data: Any,
+        count: int = 3,
+        *,
+        emit_progress: bool = False,
+        progress_query: str | None = None,
+        progress_step_offset: int = 0,
+        progress_total_steps: int | None = None,
+        dwell_seconds: float = 5.0,
+    ) -> None:
         """Open top search result URLs in the browser for live preview visibility.
 
         After API search returns results, navigates to the top URLs so the user
         can see browsing activity in the sandbox live preview. This runs as a
-        fire-and-forget background task and does not block the search response.
+        fire-and-forget background task by default, or synchronously when the
+        caller wants those pages captured in session replay history.
 
         Args:
             search_data: SearchResults model or dict with results list
@@ -1113,11 +1182,28 @@ class SearchTool(BaseTool):
             max_consecutive_failures = max(3, min(5, len(candidate_urls)))
             max_total_failures = max(4, min(8, len(candidate_urls) + 1))
             navigation_timeout_seconds = 20.0
-            for url, normalized_url in candidate_urls:
+            preview_total_steps = progress_total_steps or (progress_step_offset + len(candidate_urls))
+            for preview_index, (url, normalized_url) in enumerate(candidate_urls, start=1):
                 # Check if a foreground browser operation cancelled us
                 if getattr(self._browser, "_background_browse_cancelled", False):
                     logger.debug("_browse_top_results: cancelled by foreground browser operation")
                     break
+                if emit_progress:
+                    progress_step = progress_step_offset + preview_index
+                    self._enqueue_progress(
+                        current_step=f"Previewing result {preview_index} of {len(candidate_urls)}: {url}",
+                        steps_completed=progress_step,
+                        steps_total=preview_total_steps,
+                        checkpoint_data={
+                            "action": "navigate",
+                            "action_function": "browser_navigate",
+                            "url": url,
+                            "index": preview_index,
+                            "query": progress_query,
+                            "step": progress_step,
+                            "command_category": "browse",
+                        },
+                    )
                 navigation_succeeded = False
                 try:
                     if hasattr(self._browser, "navigate_for_display"):
@@ -1145,7 +1231,7 @@ class SearchTool(BaseTool):
                     # Dwell only on successful navigation so failures do not stall
                     # preview progression.
                     if navigation_succeeded:
-                        await asyncio.sleep(5.0)
+                        await asyncio.sleep(dwell_seconds)
                     elif consecutive_failures:
                         await asyncio.sleep(min(1.5, 0.5 * consecutive_failures))
                 except Exception as e:
@@ -1239,6 +1325,19 @@ class SearchTool(BaseTool):
             Search results
         """
         logger.info(f"Info search web: {query}")
+        self._begin_progress_run()
+        self._enqueue_progress(
+            current_step=f"Searching web for '{query}'",
+            steps_completed=1,
+            steps_total=4,
+            checkpoint_data={
+                "action": "search",
+                "action_function": "info_search_web",
+                "query": query,
+                "step": 1,
+                "command_category": "search",
+            },
+        )
 
         # Budget check
         ok, reason = self._budget.can_search()
@@ -1386,9 +1485,18 @@ class SearchTool(BaseTool):
         if result.success and result.data and self._scraper:
             enriched_count = await self._auto_enrich_results(result.data)
 
-        # Fire-and-forget: open top 3 results in browser for live preview visibility
+        # Preview top results in-band so the visited pages are preserved in
+        # live view, replay, and the persisted session timeline.
         if result.success and self._browser and result.data:
-            await self._schedule_background_preview(result.data, count=3)
+            await self._browse_top_results(
+                result.data,
+                count=3,
+                emit_progress=True,
+                progress_query=query,
+                progress_step_offset=1,
+                progress_total_steps=4,
+                dwell_seconds=1.5,
+            )
 
         # Append contextual guidance based on enrichment status
         if result.success and result.data:
@@ -1403,6 +1511,7 @@ class SearchTool(BaseTool):
             elif self._browser:
                 result.message = (
                     (result.message or "") + "\n\n[SYSTEM NOTE: Search results contain brief snippets only. "
+                    "Top result pages were previewed in the sandbox browser and recorded in the session timeline. "
                     "IMPORTANT: Use browser_navigate to visit the top 3-5 most relevant URLs from "
                     "these results to gather detailed information for your research.]"
                 )
@@ -1475,6 +1584,20 @@ wide_research(
             Comprehensive research results with SearchResults data for display
         """
         from app.domain.models.search import SearchResultItem, SearchResults
+
+        self._begin_progress_run()
+        self._enqueue_progress(
+            current_step=f"Running wide research for '{topic}'",
+            steps_completed=1,
+            steps_total=4,
+            checkpoint_data={
+                "action": "search",
+                "action_function": "wide_research",
+                "query": topic,
+                "step": 1,
+                "command_category": "search",
+            },
+        )
 
         # Budget check for wide_research invocation
         ok, reason = self._budget.can_wide_research()
@@ -1667,15 +1790,24 @@ wide_research(
                 "Visit official pages to verify before making claims."
             )
 
-        # Fire-and-forget: open top 3 results in browser for live preview visibility
+        # Preview top results in-band so those browser pages are replayable.
         if self._browser and search_data:
-            await self._schedule_background_preview(search_data, count=3)
+            await self._browse_top_results(
+                search_data,
+                count=3,
+                emit_progress=True,
+                progress_query=topic,
+                progress_step_offset=1,
+                progress_total_steps=4,
+                dwell_seconds=1.5,
+            )
 
-            # Append system note to guide LLM on browser navigation after background preview
+            # Append system note to guide LLM on browser navigation after preview
             message += (
-                "\n\n[SYSTEM NOTE: Top search result URLs are being previewed in the background. "
-                "You may still use browser_navigate for interactive exploration or to visit pages "
-                "that need deeper inspection beyond what snippets provide.]"
+                "\n\n[SYSTEM NOTE: Top search result URLs were previewed in the sandbox browser "
+                "and recorded in the session timeline. You may still use browser_navigate for "
+                "interactive exploration or to visit pages that need deeper inspection beyond "
+                "what snippets provide.]"
             )
 
         return ToolResult(

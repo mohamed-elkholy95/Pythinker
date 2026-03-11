@@ -13,13 +13,15 @@ describe('livePreviewSelection', () => {
     })).toBe('live_preview');
   });
 
-  it('prefers replayed browser preview for search timeline steps when a screenshot exists', () => {
+  it('keeps search view in replay mode even when a screenshot exists', () => {
+    // In replay, structured search results are more useful than a static
+    // browser screenshot of a search engine page.
     expect(shouldPreferBrowserPreviewForSearch({
       baseViewType: 'search',
       enabled: true,
       isReplayMode: true,
       hasReplayScreenshot: true,
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it('keeps the search view when no live or replay browser state is available', () => {
@@ -39,5 +41,32 @@ describe('livePreviewSelection', () => {
       isReplayMode: false,
       isSessionComplete: false,
     })).toBe('terminal');
+  });
+
+  it('does not prefer browser preview when disabled', () => {
+    expect(shouldPreferBrowserPreviewForSearch({
+      baseViewType: 'search',
+      sessionId: 'session-123',
+      enabled: false,
+    })).toBe(false);
+  });
+
+  it('falls back to search view when session is complete (live mode)', () => {
+    expect(resolveLivePreviewViewType({
+      baseViewType: 'search',
+      sessionId: 'session-123',
+      enabled: true,
+      isReplayMode: false,
+      isSessionComplete: true,
+    })).toBe('search');
+  });
+
+  it('falls back to search in replay mode without screenshot', () => {
+    expect(shouldPreferBrowserPreviewForSearch({
+      baseViewType: 'search',
+      enabled: true,
+      isReplayMode: true,
+      hasReplayScreenshot: false,
+    })).toBe(false);
   });
 });

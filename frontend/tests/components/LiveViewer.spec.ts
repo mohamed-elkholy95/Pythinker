@@ -39,8 +39,46 @@ describe('LiveViewer (CDP-only)', () => {
 
     await flushPromises()
 
+    expect(wrapper.find('.live-viewer-root.live-viewer-root--browser').exists()).toBe(true)
+
     const viewer = wrapper.find('.sandbox-viewer')
     expect(viewer.exists()).toBe(true)
+  })
+
+  it('applies terminal mode framing when terminal content is active', async () => {
+    wrapper = mount(LiveViewer, {
+      props: {
+        sessionId: 'test-session',
+        enabled: true,
+        isActive: true,
+        terminalContent: 'npm test\n',
+        toolContent: {
+          event_id: 'tool-1',
+          timestamp: Date.now(),
+          tool_call_id: 'tool-call-1',
+          name: 'shell',
+          function: 'shell_exec',
+          args: { command: 'npm test' },
+          status: 'calling',
+        },
+      },
+      global: {
+        stubs: {
+          SandboxViewer: {
+            name: 'SandboxViewer',
+            template: '<div class="sandbox-viewer"></div>',
+          },
+          TerminalContentView: {
+            name: 'TerminalContentView',
+            template: '<div class="terminal-view"></div>',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('.live-viewer-root.live-viewer-root--terminal').exists()).toBe(true)
   })
 
   it('emits connected event from SandboxViewer', async () => {
@@ -90,6 +128,116 @@ describe('LiveViewer (CDP-only)', () => {
     sandboxViewer.vm.$emit('disconnected', 'connection lost')
     expect(wrapper.emitted('disconnected')).toHaveLength(1)
     expect(wrapper.emitted('disconnected')![0]).toEqual(['connection lost'])
+  })
+
+  it('applies editor mode framing when editor content is active', async () => {
+    wrapper = mount(LiveViewer, {
+      props: {
+        sessionId: 'test-session',
+        enabled: true,
+        isActive: true,
+        editorContent: 'const x = 1;',
+        editorFilePath: '/app/main.ts',
+        toolContent: {
+          event_id: 'tool-2',
+          timestamp: Date.now(),
+          tool_call_id: 'tool-call-2',
+          name: 'file',
+          function: 'file_write',
+          args: { file: '/app/main.ts' },
+          status: 'calling',
+        },
+      },
+      global: {
+        stubs: {
+          SandboxViewer: {
+            name: 'SandboxViewer',
+            template: '<div class="sandbox-viewer"></div>',
+          },
+          EditorContentView: {
+            name: 'EditorContentView',
+            template: '<div class="editor-view"></div>',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('.live-viewer-root.live-viewer-root--editor').exists()).toBe(true)
+    expect(wrapper.attributes('data-live-viewer-mode')).toBe('editor')
+  })
+
+  it('exposes data-surface-live attribute when content view is active', async () => {
+    wrapper = mount(LiveViewer, {
+      props: {
+        sessionId: 'test-session',
+        enabled: true,
+        isActive: true,
+        terminalContent: 'npm test\n',
+        toolContent: {
+          event_id: 'tool-1',
+          timestamp: Date.now(),
+          tool_call_id: 'tool-call-1',
+          name: 'shell',
+          function: 'shell_exec',
+          args: { command: 'npm test' },
+          status: 'calling',
+        },
+      },
+      global: {
+        stubs: {
+          SandboxViewer: {
+            name: 'SandboxViewer',
+            template: '<div class="sandbox-viewer"></div>',
+          },
+          TerminalContentView: {
+            name: 'TerminalContentView',
+            template: '<div class="terminal-view"></div>',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.attributes('data-surface-live')).toBe('true')
+  })
+
+  it('omits data-surface-live attribute when inactive', async () => {
+    wrapper = mount(LiveViewer, {
+      props: {
+        sessionId: 'test-session',
+        enabled: true,
+        isActive: false,
+        terminalContent: 'npm test\n',
+        toolContent: {
+          event_id: 'tool-1',
+          timestamp: Date.now(),
+          tool_call_id: 'tool-call-1',
+          name: 'shell',
+          function: 'shell_exec',
+          args: { command: 'npm test' },
+          status: 'called',
+        },
+      },
+      global: {
+        stubs: {
+          SandboxViewer: {
+            name: 'SandboxViewer',
+            template: '<div class="sandbox-viewer"></div>',
+          },
+          TerminalContentView: {
+            name: 'TerminalContentView',
+            template: '<div class="terminal-view"></div>',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.attributes('data-surface-live')).toBeUndefined()
   })
 
   it('exposes processToolEvent and forwards events to SandboxViewer', async () => {

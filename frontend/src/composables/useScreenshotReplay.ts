@@ -1,8 +1,21 @@
-import { ref, computed, watch, onUnmounted, type Ref, type ComputedRef } from 'vue'
+import { ref, computed, watch, getCurrentScope, onScopeDispose, type Ref, type ComputedRef } from 'vue'
 import type { ScreenshotMetadata, ScreenshotListResponse } from '../types/screenshot'
 import { apiClient, type ApiResponse } from '../api/client'
 
-export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
+type ReplayStartPosition = 'first' | 'last' | 'preserve'
+
+interface LoadScreenshotsOptions {
+  startAt?: ReplayStartPosition
+}
+
+interface UseScreenshotReplayOptions {
+  isShared?: boolean
+}
+
+export function useScreenshotReplay(
+  sessionId: Ref<string | undefined>,
+  options: UseScreenshotReplayOptions = {},
+) {
   const screenshots = ref<ScreenshotMetadata[]>([])
   const currentIndex = ref<number>(-1)
   const isLoading = ref(false)
@@ -11,6 +24,7 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
   const currentBlobUrl = ref<string>('')
   const blobUrlCache = new Map<string, string>()
   let renderRequestVersion = 0
+  let loadRequestVersion = 0
 
   const currentScreenshot: ComputedRef<ScreenshotMetadata | null> = computed(() => {
     if (currentIndex.value < 0 || currentIndex.value >= screenshots.value.length) return null
@@ -43,11 +57,17 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
     return screenshots.value.length > 0
   })
 
+  const getScreenshotsBasePath = (activeSessionId: string): string => {
+    const prefix = options.isShared ? '/sessions/shared' : '/sessions'
+    return `${prefix}/${activeSessionId}/screenshots`
+  }
+
   async function fetchScreenshotBlob(screenshotId: string): Promise<string> {
-    if (!sessionId.value) return ''
+    const activeSessionId = sessionId.value
+    if (!activeSessionId) return ''
     try {
       const response = await apiClient.get(
-        `/sessions/${sessionId.value}/screenshots/${screenshotId}`,
+        `${getScreenshotsBasePath(activeSessionId)}/${screenshotId}`,
         { responseType: 'blob' }
       )
       return URL.createObjectURL(response.data as Blob)
@@ -144,33 +164,59 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
   watch(sessionId, (nextSessionId, previousSessionId) => {
     if (nextSessionId !== previousSessionId) {
       renderRequestVersion++
+      loadRequestVersion++
       clearBlobCache()
       screenshots.value = []
       currentIndex.value = -1
+      isLoading.value = false
     }
   })
 
-  async function loadScreenshots(): Promise<void> {
-    if (!sessionId.value) return
+  async function loadScreenshots(options: LoadScreenshotsOptions = {}): Promise<void> {
+    const activeSessionId = sessionId.value
+    if (!activeSessionId) {
+      screenshots.value = []
+      currentIndex.value = -1
+      isLoading.value = false
+      return
+    }
+
+    const requestVersion = ++loadRequestVersion
     isLoading.value = true
     renderRequestVersion++
+    const previousIndex = currentIndex.value
     clearBlobCache()
     try {
       const response = await apiClient.get<ApiResponse<ScreenshotListResponse>>(
-        `/sessions/${sessionId.value}/screenshots`
+        getScreenshotsBasePath(activeSessionId)
       )
+      if (requestVersion !== loadRequestVersion || sessionId.value !== activeSessionId) return
+
       // Filter out session_end screenshots (captured after browser navigates to about:blank)
       screenshots.value = response.data.data.screenshots.filter(
         (s) => s.trigger !== 'session_end'
       )
-      if (screenshots.value.length > 0) {
+
+      if (screenshots.value.length === 0) {
+        currentIndex.value = -1
+        return
+      }
+
+      if (options.startAt === 'first') {
+        currentIndex.value = 0
+      } else if (options.startAt === 'preserve' && previousIndex >= 0) {
+        currentIndex.value = Math.min(previousIndex, screenshots.value.length - 1)
+      } else {
         currentIndex.value = screenshots.value.length - 1
       }
     } catch {
+      if (requestVersion !== loadRequestVersion) return
       screenshots.value = []
       currentIndex.value = -1
     } finally {
-      isLoading.value = false
+      if (requestVersion === loadRequestVersion) {
+        isLoading.value = false
+      }
     }
   }
 
@@ -190,14 +236,17 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
     const total = screenshots.value.length
     if (total === 0) return
     const maxIndex = total - 1
-    currentIndex.value = Math.round((percent / 100) * maxIndex)
+    const clampedPercent = Math.max(0, Math.min(percent, 100))
+    currentIndex.value = Math.round((clampedPercent / 100) * maxIndex)
   }
 
-  // Cleanup blob URLs on unmount
-  onUnmounted(() => {
-    renderRequestVersion++
-    clearBlobCache()
-  })
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      renderRequestVersion++
+      loadRequestVersion++
+      clearBlobCache()
+    })
+  }
 
   return {
     screenshots,
