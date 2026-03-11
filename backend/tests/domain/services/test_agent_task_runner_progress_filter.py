@@ -1,14 +1,21 @@
-"""Tests for AgentTaskRunner._should_persist_tool_progress_event.
+"""Tests for AgentTaskRunner session-history persistence filters.
 
 This static method gates which ToolProgressEvent instances are persisted
-to MongoDB session history vs. streamed SSE-only.  Only checkpoints that
+to MongoDB session history vs. streamed SSE-only. Only checkpoints that
 carry meaningful keys (url, action, coordinates, query, etc.) should be
-stored — noisy ticks without replay value are dropped.
+stored; noisy ticks without replay value are dropped.
 """
 
-import pytest
-
-from app.domain.models.event import ToolProgressEvent
+from app.domain.models.event import (
+    PlanningPhase,
+    ProgressEvent,
+    ReportEvent,
+    StreamEvent,
+    ToolEvent,
+    ToolProgressEvent,
+    ToolStatus,
+    ToolStreamEvent,
+)
 from app.domain.services.agent_task_runner import AgentTaskRunner
 
 
@@ -74,31 +81,88 @@ class TestShouldPersistToolProgressEvent:
     def test_skips_non_dict_checkpoint(self) -> None:
         """Checkpoint data that is not a dict (e.g. a string or list)."""
         event = _make_progress(None)
-        # Simulate non-dict by forcing the field after construction
         object.__setattr__(event, "checkpoint_data", "not-a-dict")
         assert AgentTaskRunner._should_persist_tool_progress_event(event) is False
 
     def test_persists_full_search_navigate_checkpoint(self) -> None:
         """Real-world checkpoint from _browse_top_results."""
-        event = _make_progress({
-            "action": "navigate",
-            "action_function": "browser_navigate",
-            "url": "https://example.com/deals/headphones",
-            "index": 1,
-            "query": "headphones",
-            "step": 2,
-        })
+        event = _make_progress(
+            {
+                "action": "navigate",
+                "action_function": "browser_navigate",
+                "url": "https://example.com/deals/headphones",
+                "index": 1,
+                "query": "headphones",
+                "step": 2,
+            }
+        )
         assert AgentTaskRunner._should_persist_tool_progress_event(event) is True
 
     def test_persists_browser_agent_action_checkpoint(self) -> None:
         """Real-world checkpoint from BrowserAgentTool."""
-        event = _make_progress({
-            "action": "click_element",
-            "action_function": "browser_agent_run",
-            "step": 3,
-            "url": "https://example.com",
-            "index": 5,
-            "coordinate_x": 200,
-            "coordinate_y": 450,
-        })
+        event = _make_progress(
+            {
+                "action": "click_element",
+                "action_function": "browser_agent_run",
+                "step": 3,
+                "url": "https://example.com",
+                "index": 5,
+                "coordinate_x": 200,
+                "coordinate_y": 450,
+            }
+        )
         assert AgentTaskRunner._should_persist_tool_progress_event(event) is True
+
+
+class TestShouldPersistSessionHistoryEvent:
+    def test_skips_heartbeat_progress_event(self) -> None:
+        event = ProgressEvent(phase=PlanningPhase.HEARTBEAT, message="Still working")
+        assert AgentTaskRunner._should_persist_session_event(event) is False
+
+    def test_skips_waiting_progress_event(self) -> None:
+        event = ProgressEvent(
+            phase=PlanningPhase.WAITING,
+            message="Still working on your request...",
+            wait_elapsed_seconds=90,
+            wait_stage="execution_wait",
+        )
+        assert AgentTaskRunner._should_persist_session_event(event) is False
+
+    def test_persists_planning_progress_event(self) -> None:
+        event = ProgressEvent(
+            phase=PlanningPhase.PLANNING,
+            message="Building a plan",
+            progress_percent=20,
+        )
+        assert AgentTaskRunner._should_persist_session_event(event) is True
+
+    def test_skips_stream_event(self) -> None:
+        event = StreamEvent(content="partial", phase="thinking")
+        assert AgentTaskRunner._should_persist_session_event(event) is False
+
+    def test_skips_tool_stream_event(self) -> None:
+        event = ToolStreamEvent(
+            tool_call_id="call-1",
+            tool_name="file",
+            function_name="file_write",
+            partial_content="partial content",
+        )
+        assert AgentTaskRunner._should_persist_session_event(event) is False
+
+    def test_persists_tool_event(self) -> None:
+        event = ToolEvent(
+            tool_call_id="call-1",
+            tool_name="search",
+            function_name="info_search_web",
+            function_args={"query": "python"},
+            status=ToolStatus.CALLING,
+        )
+        assert AgentTaskRunner._should_persist_session_event(event) is True
+
+    def test_persists_report_event(self) -> None:
+        event = ReportEvent(
+            id="report-1",
+            title="Findings",
+            content="# Findings",
+        )
+        assert AgentTaskRunner._should_persist_session_event(event) is True

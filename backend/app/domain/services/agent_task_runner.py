@@ -28,9 +28,12 @@ from app.domain.models.event import (
     MessageEvent,
     ModeChangeEvent,
     PlanEvent,
+    PlanningPhase,
     PlanStatus,
+    ProgressEvent,
     ReportEvent,
     ResearchModeEvent,
+    StreamEvent,
     TitleEvent,
     ToolEvent,
     ToolProgressEvent,
@@ -639,7 +642,24 @@ class AgentTaskRunner(TaskRunner):
 
     async def _put_and_add_event(self, task: Task, event: AgentEvent) -> None:
         await task.output_stream.put(event.model_dump_json())
-        await self._session_repository.add_event(self._session_id, event)
+        if self._should_persist_session_event(event):
+            await self._session_repository.add_event(self._session_id, event)
+
+    @staticmethod
+    def _should_persist_session_event(event: AgentEvent) -> bool:
+        """Persist only events that add durable replay value to session history."""
+        if isinstance(event, (StreamEvent, ToolStreamEvent)):
+            return False
+        if isinstance(event, ProgressEvent):
+            return AgentTaskRunner._should_persist_progress_event(event)
+        if isinstance(event, ToolProgressEvent):
+            return AgentTaskRunner._should_persist_tool_progress_event(event)
+        return True
+
+    @staticmethod
+    def _should_persist_progress_event(event: ProgressEvent) -> bool:
+        """Keep milestone progress, but drop liveness-only beacons from durable history."""
+        return event.phase not in (PlanningPhase.HEARTBEAT, PlanningPhase.WAITING)
 
     @staticmethod
     def _should_persist_tool_progress_event(event: ToolProgressEvent) -> bool:
@@ -1631,7 +1651,7 @@ class AgentTaskRunner(TaskRunner):
                         continue
                     if isinstance(event, ToolProgressEvent):
                         await task.output_stream.put(event.model_dump_json())
-                        if self._should_persist_tool_progress_event(event):
+                        if self._should_persist_session_event(event):
                             await self._session_repository.add_event(self._session_id, event)
                         continue
 
