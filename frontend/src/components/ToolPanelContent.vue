@@ -597,6 +597,7 @@ const props = defineProps<{
   replayScreenshotUrl?: string;
   replayMetadata?: ScreenshotMetadata | null;
   replayScreenshots?: ScreenshotMetadata[];
+  replayCurrentIndex?: number;
   summaryStreamText?: string;
   finalReportText?: string;
   isSummaryStreaming?: boolean;
@@ -710,10 +711,17 @@ const isViewingLatestTimelineStep = computed(() => {
   return props.timelineCurrentStep === props.timelineTotalSteps;
 });
 
+const isViewingLatestReplayFrame = computed(() => {
+  const replayFrameCount = props.replayScreenshots?.length ?? 0;
+  if (replayFrameCount <= 0) return true;
+  if (props.replayCurrentIndex === undefined || props.replayCurrentIndex < 0) return true;
+  return props.replayCurrentIndex >= replayFrameCount - 1;
+});
+
 const showPersistedFinalReport = computed(() => {
   if (!props.finalReportText) return false;
   if (!props.isReplayMode) return true;
-  return props.realTime || isViewingLatestTimelineStep.value;
+  return props.realTime || (isViewingLatestTimelineStep.value && isViewingLatestReplayFrame.value);
 });
 
 const reportPresentationText = computed(() => {
