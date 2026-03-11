@@ -1998,6 +1998,19 @@ class ExecutionAgent(BaseAgent):
             token = (issue or "").split(":", 1)[0].strip().lower()
             if token in non_downgradable_tokens:
                 return False
+
+        # Fix 5: hallucination_verification_ungrounded requires evidence to be downgradable
+        for issue in issues:
+            token = (issue or "").split(":", 1)[0].strip().lower()
+            if token == "hallucination_verification_ungrounded":
+                has_evidence = bool(
+                    self._source_tracker.get_collected_sources()
+                ) or bool(
+                    getattr(self._research_execution_policy, "evidence_records", None)
+                )
+                if not has_evidence:
+                    return False
+
         return True
 
     def _can_auto_repair_delivery_integrity(self, issues: list[str], content: str = "") -> bool:
