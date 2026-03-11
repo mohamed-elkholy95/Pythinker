@@ -1412,6 +1412,8 @@ class PlanActFlow(BaseFlow):
                 self.verifier._active_phase = "verifying"
         elif new_status == AgentStatus.SUMMARIZING:
             self.executor._active_phase = None  # All tools for summarization
+        elif new_status == AgentStatus.UPDATING:
+            self.planner._active_phase = "executing"
 
         # Phase 2: Rebalance token budget at phase transitions
         self._rebalance_token_budget(old_status, new_status)
