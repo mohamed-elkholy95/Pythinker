@@ -1,16 +1,31 @@
 <template>
   <div
-    class="flex h-full w-full"
-    :class="{ 'bg-[var(--background-white-main)] sm:bg-[var(--background-white-main)] sm:rounded-[20px] shadow-[0px_10px_30px_rgba(15,23,42,0.08)] border border-[var(--border-light)]': !embedded }"
+    class="live-shell flex h-full w-full"
+    :data-live-shell-mode="liveShellMode"
+    :class="{
+      'bg-[var(--background-white-main)] sm:bg-[var(--background-white-main)] sm:rounded-[20px] shadow-[0px_10px_30px_rgba(15,23,42,0.08)] border border-[var(--border-light)]': !embedded,
+      'live-shell--embedded': embedded
+    }"
   >
-    <div :class="['flex-1 min-w-0 flex flex-col h-full', embedded ? 'px-3 pb-3' : 'p-4']">
+    <div :class="['live-shell__frame flex-1 min-w-0 flex flex-col h-full', embedded ? 'px-3 pb-3' : 'p-4']">
       <!-- Frame Header: Pythinker's Computer + window controls (hidden in embedded/workspace mode) -->
-      <div v-if="!embedded" class="flex items-center gap-2 w-full">
-        <div class="text-[var(--text-primary)] text-[15px] font-semibold flex-1">{{ $t("Pythinker's Computer") }}</div>
-        <div class="flex items-center gap-1">
+      <div v-if="!embedded" class="live-shell__header flex items-center gap-3 w-full">
+        <div class="live-shell__brand flex-1 min-w-0">
+          <div class="live-shell__eyebrow">{{ liveShellEyebrow }}</div>
+          <div class="live-shell__title-row">
+            <div class="live-shell__traffic-lights" aria-hidden="true">
+              <span class="live-shell__traffic-light live-shell__traffic-light--warm"></span>
+              <span class="live-shell__traffic-light live-shell__traffic-light--soft"></span>
+              <span class="live-shell__traffic-light live-shell__traffic-light--cool"></span>
+            </div>
+            <div class="text-[var(--text-primary)] text-[15px] font-semibold truncate">{{ $t("Pythinker's Computer") }}</div>
+            <div class="live-shell__mode-pill">{{ liveShellModeLabel }}</div>
+          </div>
+        </div>
+        <div class="live-shell__window-actions flex items-center gap-1">
           <button
             v-if="!!props.sessionId"
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)] disabled:opacity-40 disabled:cursor-not-allowed"
+            class="live-shell__window-btn w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)] disabled:opacity-40 disabled:cursor-not-allowed"
             @click="takeOver"
             :disabled="takeoverLoading"
             aria-label="Open takeover"
@@ -18,14 +33,14 @@
             <MonitorUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
           <button
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
+            class="live-shell__window-btn w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
             @click="hide"
             aria-label="Minimize"
           >
             <Minimize2 class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
           <button
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
+            class="live-shell__window-btn w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
             @click="hide"
             aria-label="Close"
           >
@@ -35,7 +50,8 @@
       </div>
 
       <!-- Activity Bar: unified streaming presentation status -->
-      <div v-if="activityHeadline" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
+      <div v-if="activityHeadline" class="live-shell__statusbar flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
+        <span class="live-shell__status-dot" :class="{ 'animate-pulse': isActiveOperation || isSummaryPhase }"></span>
         <Loader2
           v-if="showActivitySpinner"
           :size="18"
@@ -60,7 +76,7 @@
       <!-- Content Container with rounded frame -->
       <div
         :class="[
-          'relative flex flex-col overflow-hidden bg-[var(--background-white-main)] flex-1 min-h-0',
+          'live-shell__viewport relative flex flex-col overflow-hidden bg-[var(--background-white-main)] flex-1 min-h-0',
           embedded
             ? 'rounded-[10px] border border-[var(--border-light)] mt-2'
             : 'rounded-[14px] border border-[var(--border-light)] shadow-[0px_6px_24px_var(--shadow-XS)] mt-[16px]'
@@ -675,6 +691,9 @@ const currentViewType = computed(() => {
 });
 
 const isSessionComplete = computed(() => !props.isLoading && !!props.replayScreenshotUrl);
+const liveShellMode = computed(() => (props.isReplayMode ? 'replay' : 'live'));
+const liveShellModeLabel = computed(() => (props.isReplayMode ? 'Replay' : 'Live'));
+const liveShellEyebrow = computed(() => (props.isReplayMode ? 'Replay control room' : 'Agent live workspace'));
 
 const presentationViewType = computed(() => resolveLivePreviewViewType({
   baseViewType: currentViewType.value,
@@ -1806,7 +1825,197 @@ const handleBrowseUrl = async (url: string) => {
   50%       { opacity: 0.7; }
 }
 
+.live-shell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-dark) 82%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 90%, var(--background-main)), var(--background-menu-white));
+}
+
+.live-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--border-white) 88%, transparent), transparent 18%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--fill-tsp-white-main) 72%, transparent), transparent 34%);
+  opacity: 0.9;
+}
+
+.live-shell--embedded {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+.live-shell__frame,
+.live-shell__viewport,
+.live-shell__header,
+.live-shell__statusbar {
+  position: relative;
+  z-index: 1;
+}
+
+.live-shell__header {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 86%, transparent), color-mix(in srgb, var(--background-menu-white) 94%, transparent)),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-main) 72%, transparent), transparent 42%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--border-white) 82%, transparent),
+    0 12px 28px var(--shadow-XS);
+  backdrop-filter: blur(18px);
+}
+
+.live-shell__eyebrow {
+  margin-bottom: 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.live-shell__title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.live-shell__traffic-lights {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fill-tsp-gray-main) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-light) 90%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+}
+
+.live-shell__traffic-light {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.live-shell__traffic-light--warm {
+  background: color-mix(in srgb, var(--function-warning) 86%, var(--background-menu-white));
+}
+
+.live-shell__traffic-light--soft {
+  background: color-mix(in srgb, var(--status-running) 78%, var(--background-menu-white));
+}
+
+.live-shell__traffic-light--cool {
+  background: color-mix(in srgb, var(--function-success) 78%, var(--background-menu-white));
+}
+
+.live-shell__mode-pill {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--status-running) 14%, transparent);
+  color: var(--status-running);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.live-shell[data-live-shell-mode='replay'] .live-shell__mode-pill {
+  background: color-mix(in srgb, var(--function-warning) 16%, transparent);
+  color: var(--function-warning);
+}
+
+.live-shell__window-actions {
+  padding: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fill-tsp-gray-main) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+}
+
+.live-shell__window-btn {
+  border-radius: 999px;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.live-shell__window-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px var(--shadow-XS);
+}
+
+.live-shell__statusbar {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 86%, transparent), color-mix(in srgb, var(--background-menu-white) 94%, transparent)),
+    radial-gradient(circle at right center, color-mix(in srgb, var(--fill-tsp-white-main) 72%, transparent), transparent 32%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 82%, transparent);
+}
+
+.live-shell__status-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--status-running);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-running) 18%, transparent);
+}
+
+.live-shell[data-live-shell-mode='replay'] .live-shell__status-dot {
+  background: var(--function-warning);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--function-warning) 18%, transparent);
+}
+
+.live-shell__viewport {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 94%, transparent), var(--background-menu-white)),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-main) 70%, transparent), transparent 38%);
+  border-color: color-mix(in srgb, var(--border-main) 82%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent),
+    0 18px 36px var(--shadow-XS);
+}
+
+.live-shell__viewport::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-main) 52%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--border-white) 75%, transparent), transparent 14%);
+  z-index: 0;
+}
+
+.live-shell__viewport > * {
+  position: relative;
+  z-index: 1;
+}
+
 .panel-content-header {
-  box-shadow: inset 0 1px 0 0 var(--border-white);
+  min-height: 42px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 86%, transparent), color-mix(in srgb, var(--background-menu-white) 96%, transparent)),
+    radial-gradient(circle at top center, color-mix(in srgb, var(--fill-tsp-white-main) 78%, transparent), transparent 36%);
+  border-bottom-color: color-mix(in srgb, var(--border-main) 82%, transparent);
+  box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.takeover-btn {
+  backdrop-filter: blur(18px);
+  border-color: color-mix(in srgb, var(--border-main) 90%, transparent);
+  box-shadow:
+    0 18px 36px var(--shadow-XS),
+    inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
 }
 </style>
