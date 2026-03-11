@@ -140,6 +140,25 @@ class ExecutionAgent(BaseAgent):
         }
     )
 
+    # ── Research step detection (Fix 4A) ─────────────────────────────
+    _RESEARCH_STEP_KEYWORDS: tuple[str, ...] = (
+        "research",
+        "investigate",
+        "compare",
+        "pricing",
+        "best practices",
+        "find information",
+        "gather data",
+    )
+
+    _EXTERNAL_EVIDENCE_TOOLS: frozenset[ToolName] = frozenset({
+        ToolName.INFO_SEARCH_WEB,
+        ToolName.WIDE_RESEARCH,
+        ToolName.BROWSER_NAVIGATE,
+        ToolName.BROWSER_GET_CONTENT,
+        ToolName.BROWSER_VIEW,
+    })
+
     def __init__(
         self,
         agent_id: str,
@@ -313,6 +332,11 @@ class ExecutionAgent(BaseAgent):
         desc_lower = step_description.lower()
         return any(kw in desc_lower for kw in self._SYNTHESIS_KEYWORDS)
 
+    def _is_research_step(self, step_description: str) -> bool:
+        """Detect if a step is a research step by keyword matching."""
+        desc_lower = step_description.lower()
+        return any(kw in desc_lower for kw in self._RESEARCH_STEP_KEYWORDS)
+
     def _check_synthesis_gate(self):
         """Check if evidence is sufficient before allowing synthesis.
 
@@ -325,6 +349,7 @@ class ExecutionAgent(BaseAgent):
         result = self._research_execution_policy.can_synthesize()
 
         from app.core.config import get_settings
+        from app.domain.models.evidence import SynthesisGateVerdict
 
         settings = get_settings()
         if getattr(settings, "research_pipeline_mode", "shadow") == "shadow":
@@ -337,6 +362,21 @@ class ExecutionAgent(BaseAgent):
                 },
             )
             return None  # Don't block in shadow mode
+
+        # Fix 4B: Backstop — if policy passed but no evidence at all, override to hard_fail
+        if result.verdict != SynthesisGateVerdict.hard_fail:
+            has_sources = bool(self._source_tracker.get_collected_sources())
+            has_evidence = bool(
+                getattr(self._research_execution_policy, "evidence_records", None)
+            )
+            if not has_sources and not has_evidence:
+                from app.domain.models.evidence import SynthesisGateResult
+
+                return SynthesisGateResult(
+                    verdict=SynthesisGateVerdict.hard_fail,
+                    reasons=["No external evidence acquired in any research step"],
+                    thresholds_applied={"backstop_no_evidence": True},
+                )
 
         return result
 
@@ -507,6 +547,7 @@ class ExecutionAgent(BaseAgent):
         # Per-step tool success tracking for evidence-based completion
         _step_tool_total = 0
         _step_tool_errors = 0
+        _saw_external_evidence = False  # Fix 4A: research steps must acquire evidence
         try:
             async for event in self.execute(execution_message):
                 if isinstance(event, ErrorEvent):
@@ -590,6 +631,14 @@ class ExecutionAgent(BaseAgent):
 
                         # Track sources from tool events for report bibliography
                         self._track_sources_from_tool_event(event)
+
+                        # Fix 4A: Track external evidence acquisition
+                        if (
+                            event.function_result
+                            and event.function_result.success
+                            and func_name in self._EXTERNAL_EVIDENCE_TOOLS
+                        ):
+                            _saw_external_evidence = True
 
                         # Track multimodal findings (P5.2 - Pythinker pattern)
                         self._track_multimodal_findings(event)
@@ -698,6 +747,20 @@ class ExecutionAgent(BaseAgent):
                         _step_tool_errors,
                         _step_tool_total,
                     )
+
+            # Fix 4A: Research steps must acquire external evidence
+            if (
+                step.status == ExecutionStatus.COMPLETED
+                and not _saw_external_evidence
+                and self._is_research_step(step.description or "")
+            ):
+                step.status = ExecutionStatus.FAILED
+                step.success = False
+                step.error = "Research step completed without external evidence"
+                logger.warning(
+                    "Step %s failed evidence gate: research step with no search/browser tool calls",
+                    step.id,
+                )
         finally:
             # Always restore tools, system prompt, and model override after step
             self.tools = original_tools

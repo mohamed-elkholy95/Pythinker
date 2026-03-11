@@ -145,6 +145,29 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_EVIDENCE_RETRY_SYSTEM_MESSAGE: str = (
+    "Your previous attempt completed without using search or browsing tools. "
+    "You MUST use info_search_web, wide_research, or browser_navigate to gather "
+    "real data from the internet. Do not rely on training data alone."
+)
+
+
+def _should_inject_evidence_retry(attempt: int, step_error: str | None) -> bool:
+    """Return True if this retry should inject an evidence-corrective system message."""
+    if attempt < 1 or not step_error:
+        return False
+    return "external evidence" in step_error
+
+
+def _has_security_issue(issues: list) -> bool:
+    """Return True if any issue is a security-critical type (instruction leak)."""
+    from app.domain.services.agents.guardrails import OutputIssueType
+
+    return any(
+        issue.issue_type == OutputIssueType.INSTRUCTION_LEAK
+        for issue in issues
+    )
+
 
 def should_bypass_fast_path_for_suggestion(message: Message, has_recent_assistant_reply: bool) -> bool:
     """Determine if message should bypass fast path due to being a suggestion follow-up.
@@ -3236,6 +3259,8 @@ class PlanActFlow(BaseFlow):
                                 if await self._cancel_token.wait_for_cancellation(backoff):
                                     await self._check_cancelled()
                                 backoff *= retry.backoff_multiplier
+                                # Fix 4A: Capture step error before reset for evidence retry detection
+                                _prev_step_error = step.error
                                 # Reset step state for retry
                                 step.success = False
                                 step.error = None
@@ -3265,6 +3290,13 @@ class PlanActFlow(BaseFlow):
                             # Phase 1/4: Pass request contract for search fidelity and entity context
                             if hasattr(step_executor, "set_request_contract") and self._request_contract:
                                 step_executor.set_request_contract(self._request_contract)
+
+                            # Fix 4A: Inject corrective system message for evidence-gated retries
+                            if attempt > 0 and _should_inject_evidence_retry(attempt, _prev_step_error):
+                                logger.info("Injecting evidence retry message for step %s (attempt %d)", step.id, attempt)
+                                step_executor.system_prompt = (
+                                    (step_executor.system_prompt or "") + "\n\n" + _EVIDENCE_RETRY_SYSTEM_MESSAGE
+                                )
 
                             # Pre-step: retrieve conversation context from Qdrant
                             conversation_context: str | None = None
