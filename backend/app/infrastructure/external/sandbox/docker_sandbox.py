@@ -1683,6 +1683,37 @@ class DockerSandbox(Sandbox):
             return previous if previous and previous != session_id else None
 
     @classmethod
+    async def wait_for_ownership(
+        cls,
+        address: str,
+        session_id: str,
+        max_wait: float = 60.0,
+        poll_interval: float = 5.0,
+    ) -> bool:
+        """Poll register_session until ownership is acquired or timeout expires.
+
+        Called when ``register_session()`` returns ``None`` *and* the sandbox
+        is not actually owned by *session_id* (i.e. the request was BLOCKED
+        because a previous owner's liveness key is still active).
+
+        Returns ``True`` if ownership was acquired, ``False`` on timeout.
+        """
+        import time
+
+        deadline = time.monotonic() + max_wait
+        while time.monotonic() < deadline:
+            result = await cls.register_session(address, session_id)
+            # Non-None means we displaced the previous owner → we own it now.
+            # None + ownership check: first-time assignment also sets _active_sessions.
+            if result is not None or cls._active_sessions.get(address) == session_id:
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(poll_interval, remaining))
+        return False
+
+    @classmethod
     async def unregister_session(cls, sandbox_address: str, session_id: str | None = None) -> None:
         """Unregister a session from a sandbox address.
 

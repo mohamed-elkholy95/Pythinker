@@ -43,6 +43,7 @@ class SandboxSettingsMixin:
     sandbox_cdp_max_delay: float = 2.0  # Maximum delay for CDP retry backoff
     sandbox_cdp_retries: int = 10  # Number of CDP connection retries
     sandbox_eager_init: bool = True  # Start sandbox creation on session create
+    sandbox_ownership_wait_timeout: float = 60.0  # Max seconds to wait for sandbox ownership (Fix 6)
     workspace_lazy_init: bool = True  # Defer workspace init until needed
 
     # Sandbox warmup race condition fix (Phase 6)
