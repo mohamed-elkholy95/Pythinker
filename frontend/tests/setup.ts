@@ -19,9 +19,14 @@ config.global.mocks = {
 }
 
 // Mock marked library for markdown parsing
-vi.mock('marked', () => ({
-  marked: (content: string) => `<p>${content}</p>`,
-}))
+vi.mock('marked', () => {
+  const renderMarkdown = (content: string) => `<p>${content}</p>`
+  return {
+    marked: Object.assign(renderMarkdown, {
+      parse: renderMarkdown,
+    }),
+  }
+})
 
 // Mock DOMPurify
 vi.mock('dompurify', () => ({
