@@ -322,7 +322,9 @@ export function getSseCircuitBreaker(): CircuitBreakerInstance {
           });
           return response.ok;
         } catch {
-          return false;
+          // Treat transport-level probe failures as inconclusive so the
+          // next real SSE reconnection can serve as the half-open probe.
+          return true;
         } finally {
           clearTimeout(timeoutHandle);
         }
