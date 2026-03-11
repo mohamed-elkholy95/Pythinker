@@ -94,7 +94,7 @@ uvicorn[standard]==0.37.0  # Includes websockets, watchfiles, python-dotenv, uvl
 websockets>=15.0
 httptools>=0.6.4
 uvloop>=0.22.0
-weasyprint==66.0
+weasyprint==68.0
 webencodings==0.5.1
 werkzeug==3.1.6
 xhtml2pdf==0.2.17
