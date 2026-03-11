@@ -3,23 +3,36 @@
     class="live-shell flex h-full w-full"
     :data-live-shell-mode="liveShellMode"
     :class="{
-      'bg-[var(--background-white-main)] sm:bg-[var(--background-white-main)] sm:rounded-[20px] shadow-[0px_10px_30px_rgba(15,23,42,0.08)] border border-[var(--border-light)]': !embedded,
+      'bg-[var(--background-white-main)] sm:bg-[var(--background-white-main)] sm:rounded-[12px] shadow-[0px_4px_16px_rgba(15,23,42,0.06)] border border-[var(--border-light)]': !embedded,
       'live-shell--embedded': embedded
     }"
   >
     <div :class="['live-shell__frame flex-1 min-w-0 flex flex-col h-full', embedded ? 'px-3 pb-3' : 'p-4']">
       <!-- Frame Header: Pythinker's Computer + window controls (hidden in embedded/workspace mode) -->
-      <div v-if="!embedded" class="live-shell__header flex items-center gap-3 w-full">
+      <div v-if="!embedded" class="live-shell__header flex items-start gap-4 w-full">
         <div class="live-shell__brand flex-1 min-w-0">
-          <div class="live-shell__eyebrow">{{ liveShellEyebrow }}</div>
           <div class="live-shell__title-row">
-            <div class="live-shell__traffic-lights" aria-hidden="true">
-              <span class="live-shell__traffic-light live-shell__traffic-light--warm"></span>
-              <span class="live-shell__traffic-light live-shell__traffic-light--soft"></span>
-              <span class="live-shell__traffic-light live-shell__traffic-light--cool"></span>
-            </div>
             <div class="text-[var(--text-primary)] text-[15px] font-semibold truncate">{{ $t("Pythinker's Computer") }}</div>
-            <div class="live-shell__mode-pill">{{ liveShellModeLabel }}</div>
+          </div>
+          <div v-if="activityHeadline" class="live-shell__meta">
+            <span class="live-shell__status-dot" :class="{ 'animate-pulse': isActiveOperation || isSummaryPhase }"></span>
+            <Loader2
+              v-if="showActivitySpinner"
+              :size="16"
+              class="flex-shrink-0 text-[var(--icon-secondary)]"
+              :class="{ 'animate-spin': isSummaryStreaming }"
+            />
+            <component
+              v-else-if="toolDisplay?.icon"
+              :is="toolDisplay.icon"
+              :size="16"
+              class="flex-shrink-0 text-[var(--icon-secondary)]"
+            />
+            <div class="live-shell__meta-copy">
+              <span class="truncate">{{ activityHeadline }}</span>
+              <span v-if="activitySubtitle" class="text-[var(--text-quaternary)] flex-shrink-0">&middot;</span>
+              <span v-if="activitySubtitle" class="live-shell__meta-subtitle truncate">{{ activitySubtitle }}</span>
+            </div>
           </div>
         </div>
         <div class="live-shell__window-actions flex items-center gap-1">
@@ -49,28 +62,6 @@
         </div>
       </div>
 
-      <!-- Activity Bar: unified streaming presentation status -->
-      <div v-if="activityHeadline" class="live-shell__statusbar flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
-        <span class="live-shell__status-dot" :class="{ 'animate-pulse': isActiveOperation || isSummaryPhase }"></span>
-        <Loader2
-          v-if="showActivitySpinner"
-          :size="18"
-          class="flex-shrink-0 text-[var(--icon-secondary)]"
-          :class="{ 'animate-spin': isSummaryStreaming }"
-          style="min-width: 18px; min-height: 18px;"
-        />
-        <component
-          v-else-if="toolDisplay?.icon"
-          :is="toolDisplay.icon"
-          :size="18"
-          class="flex-shrink-0 text-[var(--icon-secondary)]"
-          style="min-width: 18px; min-height: 18px;"
-        />
-        <span class="flex-shrink-0 whitespace-nowrap">{{ activityHeadline }}</span>
-        <span v-if="activitySubtitle" class="text-[var(--text-quaternary)] flex-shrink-0">|</span>
-        <span v-if="activitySubtitle" class="truncate min-w-0">{{ activitySubtitle }}</span>
-      </div>
-
       <!-- Confirmation banner removed -->
 
       <!-- Content Container with rounded frame -->
@@ -79,14 +70,14 @@
           'live-shell__viewport relative flex flex-col overflow-hidden bg-[var(--background-white-main)] flex-1 min-h-0',
           embedded
             ? 'rounded-[10px] border border-[var(--border-light)] mt-2'
-            : 'rounded-[14px] border border-[var(--border-light)] shadow-[0px_6px_24px_var(--shadow-XS)] mt-[16px]'
+            : 'rounded-[12px] border border-[var(--border-light)] mt-[12px]'
         ]">
 
         <!-- Content Header: Centered operation label + View mode tabs.
              Hidden only when this component is embedded without a forced view mode. -->
         <div
           v-if="contentConfig && (!embedded || forceViewType)"
-          class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[14px] relative">
+          class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[12px] relative">
 
           <!-- Left: Activity indicator + elapsed timer (absolute positioned) -->
           <div v-if="isWriting" class="absolute left-3 flex items-center gap-2">
@@ -693,8 +684,6 @@ const currentViewType = computed(() => {
 
 const isSessionComplete = computed(() => !props.isLoading && !!props.replayScreenshotUrl);
 const liveShellMode = computed(() => (props.isReplayMode ? 'replay' : 'live'));
-const liveShellModeLabel = computed(() => (props.isReplayMode ? 'Replay' : 'Live'));
-const liveShellEyebrow = computed(() => (props.isReplayMode ? 'Replay control room' : 'Agent live workspace'));
 
 const presentationViewType = computed(() => resolveLivePreviewViewType({
   baseViewType: currentViewType.value,
@@ -1837,20 +1826,11 @@ const handleBrowseUrl = async (url: string) => {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-dark) 82%, transparent), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 90%, var(--background-main)), var(--background-menu-white));
+  background: var(--background-white-main, #ffffff);
 }
 
 .live-shell::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--border-white) 88%, transparent), transparent 18%),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--fill-tsp-white-main) 72%, transparent), transparent 34%);
-  opacity: 0.9;
+  display: none;
 }
 
 .live-shell--embedded {
@@ -1868,25 +1848,13 @@ const handleBrowseUrl = async (url: string) => {
 }
 
 .live-shell__header {
-  padding: 14px 16px;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 86%, transparent), color-mix(in srgb, var(--background-menu-white) 94%, transparent)),
-    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-main) 72%, transparent), transparent 42%);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--border-white) 82%, transparent),
-    0 12px 28px var(--shadow-XS);
-  backdrop-filter: blur(18px);
-}
-
-.live-shell__eyebrow {
-  margin-bottom: 4px;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  padding: 12px 16px;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--border-light, #e5e5e5);
+  background: var(--background-white-main, #ffffff);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .live-shell__title-row {
@@ -1896,112 +1864,73 @@ const handleBrowseUrl = async (url: string) => {
   min-width: 0;
 }
 
-.live-shell__traffic-lights {
-  display: inline-flex;
+.live-shell__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.live-shell__meta {
+  display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--fill-tsp-gray-main) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border-light) 90%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+  min-width: 0;
+  color: var(--text-tertiary, #6b7280);
+  font-size: 13px;
+  line-height: 1.35;
 }
 
-.live-shell__traffic-light {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
+.live-shell__meta-copy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.live-shell__traffic-light--warm {
-  background: color-mix(in srgb, var(--function-warning) 86%, var(--background-menu-white));
-}
-
-.live-shell__traffic-light--soft {
-  background: color-mix(in srgb, var(--status-running) 78%, var(--background-menu-white));
-}
-
-.live-shell__traffic-light--cool {
-  background: color-mix(in srgb, var(--function-success) 78%, var(--background-menu-white));
-}
-
-.live-shell__mode-pill {
-  flex-shrink: 0;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--status-running) 14%, transparent);
-  color: var(--status-running);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.live-shell[data-live-shell-mode='replay'] .live-shell__mode-pill {
-  background: color-mix(in srgb, var(--function-warning) 16%, transparent);
-  color: var(--function-warning);
+.live-shell__meta-subtitle {
+  color: var(--text-quaternary, #9ca3af);
 }
 
 .live-shell__window-actions {
-  padding: 4px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--fill-tsp-gray-main) 78%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  padding: 2px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
 }
 
 .live-shell__window-btn {
-  border-radius: 999px;
-  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .live-shell__window-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px var(--shadow-XS);
-}
-
-.live-shell__statusbar {
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 86%, transparent), color-mix(in srgb, var(--background-menu-white) 94%, transparent)),
-    radial-gradient(circle at right center, color-mix(in srgb, var(--fill-tsp-white-main) 72%, transparent), transparent 32%);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 82%, transparent);
+  transform: none;
+  box-shadow: none;
 }
 
 .live-shell__status-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   flex-shrink: 0;
   border-radius: 999px;
   background: var(--status-running);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-running) 18%, transparent);
+  box-shadow: none;
 }
 
 .live-shell[data-live-shell-mode='replay'] .live-shell__status-dot {
   background: var(--function-warning);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--function-warning) 18%, transparent);
+  box-shadow: none;
 }
 
 .live-shell__viewport {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 94%, transparent), var(--background-menu-white)),
-    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-main) 70%, transparent), transparent 38%);
-  border-color: color-mix(in srgb, var(--border-main) 82%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent),
-    0 18px 36px var(--shadow-XS);
+  background: var(--background-white-main, #ffffff);
+  border-color: var(--border-light, #e5e5e5);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
 }
 
 .live-shell__viewport::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-main) 52%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--border-white) 75%, transparent), transparent 14%);
-  z-index: 0;
+  display: none;
 }
 
 .live-shell__viewport > * {
@@ -2010,13 +1939,11 @@ const handleBrowseUrl = async (url: string) => {
 }
 
 .panel-content-header {
-  min-height: 42px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 86%, transparent), color-mix(in srgb, var(--background-menu-white) 96%, transparent)),
-    radial-gradient(circle at top center, color-mix(in srgb, var(--fill-tsp-white-main) 78%, transparent), transparent 36%);
-  border-bottom-color: color-mix(in srgb, var(--border-main) 82%, transparent);
-  box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--border-white) 80%, transparent);
-  backdrop-filter: blur(16px);
+  min-height: 36px;
+  background: var(--background-white-main, #ffffff);
+  border-bottom-color: var(--border-light, #e5e5e5);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .takeover-btn {

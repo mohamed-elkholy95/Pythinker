@@ -31,7 +31,7 @@
 
     <!-- Main Controls Row -->
     <div class="timeline-controls__deck-row flex items-center gap-3">
-      <!-- Step Controls + Counter -->
+      <!-- Step Controls -->
       <div class="timeline-controls__transport flex items-center gap-1">
         <!-- Step Backward -->
         <button
@@ -42,14 +42,6 @@
         >
           <SkipBack class="w-4 h-4 text-[var(--icon-primary)]" />
         </button>
-
-        <!-- Step Counter: only when navigating history (not in live mode at latest position) -->
-        <span
-          v-if="totalSteps > 0 && (!isLive || currentStep !== totalSteps)"
-          class="timeline-controls__counter text-[11px] font-mono tabular-nums text-[var(--text-quaternary)] min-w-[36px] text-center select-none"
-        >
-          {{ currentStep }} / {{ totalSteps }}
-        </span>
 
         <!-- Step Forward -->
         <button
@@ -117,15 +109,27 @@
       >
         <span
           class="timeline-controls__mode-dot w-2 h-2 rounded-full"
-          :class="isReplayMode ? 'bg-gray-400' : isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'"
+          :class="isReplayMode ? 'bg-gray-400' : isLive ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'"
         />
         <span
           class="text-xs font-medium"
-          :class="isReplayMode ? 'text-[var(--text-tertiary)]' : isLive ? 'text-green-600 dark:text-green-400' : 'text-[var(--text-tertiary)]'"
+          :class="isReplayMode ? 'text-[var(--text-tertiary)]' : isLive ? 'text-blue-600 dark:text-blue-400' : 'text-[var(--text-tertiary)]'"
         >
           {{ modeLabel }}
         </span>
       </div>
+    </div>
+
+    <div
+      v-if="totalSteps > 0"
+      class="timeline-controls__step-footer mt-2 flex items-center justify-between gap-3"
+    >
+      <span class="timeline-controls__counter text-[11px] font-mono tabular-nums text-[var(--text-quaternary)] select-none">
+        {{ currentStepDisplay }} / {{ totalSteps }}
+      </span>
+      <span v-if="showTimestamp && showTimestampOnInteract" class="text-[11px] text-[var(--text-quaternary)] truncate">
+        {{ formattedTimestamp }}
+      </span>
     </div>
   </div>
 </template>
@@ -272,6 +276,11 @@ const tooltipTimestamp = computed(() => {
 
 const progress = computed(() => props.progress)
 const modeLabel = computed(() => (props.isReplayMode ? 'replay' : 'live'))
+const currentStepDisplay = computed(() => {
+  if (!props.totalSteps || props.totalSteps <= 0) return 0
+  if (props.currentStep && props.currentStep > 0) return props.currentStep
+  return props.isLive ? props.totalSteps : 0
+})
 
 // ── Mouse interaction ──
 const handleMouseEnter = () => {
@@ -335,10 +344,8 @@ onUnmounted(() => {
 .timeline-controls {
   user-select: none;
   position: relative;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 92%, transparent), var(--background-menu-white)),
-    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-main) 75%, transparent), transparent 38%);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+  background: var(--background-menu-white);
+  box-shadow: none;
 }
 
 .timeline-controls:focus {
@@ -353,63 +360,63 @@ onUnmounted(() => {
 
 .timeline-controls__jump {
   padding: 8px 14px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
-  background: color-mix(in srgb, var(--background-menu-white) 92%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+  border-radius: 12px;
+  border: 1px solid var(--border-light, #e5e7eb);
+  background: var(--background-white-main, #ffffff);
+  box-shadow: none;
 }
 
 .timeline-controls__deck-row {
   padding: 10px 12px;
-  border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 86%, transparent), color-mix(in srgb, var(--background-menu-white) 94%, transparent)),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--fill-tsp-white-main) 72%, transparent), transparent 32%);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--border-white) 82%, transparent),
-    0 12px 28px var(--shadow-XS);
+  border-radius: 14px;
+  border: 1px solid var(--border-light, #e5e7eb);
+  background: var(--background-white-main, #ffffff);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
 }
 
 .timeline-controls__transport {
-  padding: 4px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
-  background: color-mix(in srgb, var(--fill-tsp-gray-main) 82%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid var(--border-light, #e5e7eb);
+  background: var(--fill-tsp-gray-main, #f3f4f6);
+  box-shadow: none;
 }
 
 .timeline-controls__transport-btn {
   min-width: 32px;
   min-height: 32px;
-  border-radius: 999px;
+  border-radius: 10px;
 }
 
 .timeline-controls__transport-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 20px var(--shadow-XS);
+  transform: none;
+  box-shadow: none;
 }
 
 .timeline-controls__counter {
-  padding: 0 8px;
+  padding: 0;
+}
+
+.timeline-controls__step-footer {
+  padding: 0 4px;
 }
 
 .timeline-controls__scrubber-frame {
-  padding: 12px 14px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
-  background: color-mix(in srgb, var(--fill-tsp-gray-main) 58%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+  padding: 10px 6px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .scrubber-track {
   touch-action: none;
-  height: 6px;
-  background: color-mix(in srgb, var(--fill-tsp-gray-dark) 95%, transparent);
+  height: 4px;
+  background: var(--fill-tsp-gray-main, #e5e7eb);
 }
 
 .timeline-controls__fill {
-  background: linear-gradient(90deg, var(--status-running), color-mix(in srgb, var(--status-running) 72%, var(--function-success)));
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
 }
 
 .scrubber-thumb {
@@ -417,12 +424,12 @@ onUnmounted(() => {
 }
 
 .timeline-controls__thumb {
-  top: -4px;
+  top: -5px;
   width: 14px;
   height: 14px;
-  background: var(--background-menu-white);
-  border: 2px solid var(--status-running);
-  box-shadow: 0 8px 20px var(--shadow-S);
+  background: var(--background-white-main, #ffffff);
+  border: 2px solid #2563eb;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2);
 }
 
 .scrubber-thumb:active {
@@ -431,24 +438,23 @@ onUnmounted(() => {
 
 .timeline-controls__tooltip {
   padding: 8px 10px;
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--Tooltips-main);
   border: 1px solid color-mix(in srgb, var(--border-white) 72%, transparent);
-  box-shadow: 0 18px 30px var(--shadow-S);
-  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(14px);
 }
 
 .timeline-controls__mode-badge {
-  min-width: 84px;
-  padding: 10px 12px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
-  background: color-mix(in srgb, var(--background-menu-white) 90%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+  min-width: auto;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .timeline-controls__mode-dot {
-  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 16%, transparent);
+  box-shadow: none;
 }
 
 @keyframes pulse {

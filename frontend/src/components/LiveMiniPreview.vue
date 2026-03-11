@@ -7,24 +7,13 @@
     <!-- Initializing state - sandbox environment starting up -->
     <div v-if="isInitializing" class="init-preview">
       <div class="init-container">
-        <!-- Animated monitor icon with boot sequence effect -->
-        <div class="init-monitor">
-          <div class="monitor-frame">
-            <div class="monitor-screen">
-              <div class="scan-line"></div>
-              <div class="boot-dots">
-                <span class="boot-dot"></span>
-                <span class="boot-dot"></span>
-                <span class="boot-dot"></span>
-              </div>
-            </div>
-            <div class="monitor-stand"></div>
-          </div>
+        <div class="init-skeleton">
+          <div class="skel-bar skel-bar--lg"></div>
+          <div class="skel-bar skel-bar--md"></div>
+          <div class="skel-bar skel-bar--sm"></div>
         </div>
         <span class="init-label">Initializing<span class="init-ellipsis"></span></span>
       </div>
-      <!-- Subtle grid pattern background -->
-      <div class="init-grid"></div>
     </div>
 
     <!-- Wide Research view (parallel multi-source search) -->
@@ -606,13 +595,13 @@ const sizeClass = computed(() => {
 <style scoped>
 .live-mini-preview {
   position: relative;
-  border-radius: 8px;
+  border-radius: 6px;
   overflow: hidden;
   background: var(--bolt-elements-bg-depth-2);
   border: 1px solid var(--bolt-elements-borderColor);
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 2px 8px var(--shadow-XS);
+  box-shadow: 0 1px 4px var(--shadow-XS);
   aspect-ratio: 16 / 10;
 }
 
@@ -1334,90 +1323,27 @@ const sizeClass = computed(() => {
   z-index: 2;
 }
 
-.init-monitor {
-  position: relative;
-}
-
-.monitor-frame {
+.init-skeleton {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  gap: 4px;
+  width: 70%;
 }
 
-.monitor-screen {
-  width: 28px;
-  height: 20px;
-  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-  border-radius: 3px;
-  border: 2px solid #475569;
-  position: relative;
-  overflow: hidden;
-  box-shadow:
-    inset 0 0 8px rgba(59, 130, 246, 0.15),
-    0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.scan-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(59, 130, 246, 0.4) 20%,
-    rgba(59, 130, 246, 0.6) 50%,
-    rgba(59, 130, 246, 0.4) 80%,
-    transparent 100%
-  );
-  animation: scan 1.8s ease-in-out infinite;
-}
-
-@keyframes scan {
-  0% { top: -2px; opacity: 0; }
-  10% { opacity: 1; }
-  90% { opacity: 1; }
-  100% { top: calc(100% + 2px); opacity: 0; }
-}
-
-.boot-dots {
-  position: absolute;
-  bottom: 3px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 3px;
-}
-
-.boot-dot {
-  width: 3px;
+.skel-bar {
   height: 3px;
-  border-radius: 50%;
-  background: var(--bolt-elements-item-contentAccent);
-  animation: boot-pulse 1.2s ease-in-out infinite;
+  border-radius: 2px;
+  background: var(--bolt-elements-borderColor);
+  animation: skel-pulse 1.5s ease-in-out infinite;
 }
 
-.boot-dot:nth-child(2) { animation-delay: 0.2s; }
-.boot-dot:nth-child(3) { animation-delay: 0.4s; }
+.skel-bar--lg { width: 100%; }
+.skel-bar--md { width: 70%; animation-delay: 0.15s; }
+.skel-bar--sm { width: 45%; animation-delay: 0.3s; }
 
-@keyframes boot-pulse {
-  0%, 100% {
-    opacity: 0.3;
-    transform: scale(0.8);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-    box-shadow: 0 0 4px 1px rgba(59, 130, 246, 0.4);
-  }
-}
-
-.monitor-stand {
-  width: 8px;
-  height: 4px;
-  background: linear-gradient(180deg, #64748b 0%, #475569 100%);
-  border-radius: 0 0 2px 2px;
-  margin-top: -1px;
+@keyframes skel-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
 }
 
 .init-label {
@@ -1440,16 +1366,6 @@ const sizeClass = computed(() => {
   50% { content: '..'; }
   75% { content: '...'; }
   100% { content: ''; }
-}
-
-.init-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(71, 85, 105, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(71, 85, 105, 0.03) 1px, transparent 1px);
-  background-size: 8px 8px;
-  pointer-events: none;
 }
 
 /* Hover overlay */

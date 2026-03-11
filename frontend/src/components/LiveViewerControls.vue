@@ -205,7 +205,7 @@ function formatBytes(bytes: number): string {
   padding: 3px 5px;
   background: var(--background-white-main, #ffffff);
   border: 1px solid var(--border-light, #e5e5e5);
-  border-radius: 10px;
+  border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
