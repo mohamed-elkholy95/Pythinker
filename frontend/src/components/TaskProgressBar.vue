@@ -422,11 +422,18 @@ const previousStepStatuses = ref<Map<string, string>>(new Map())
 
 const completedCount = computed(() => steps.value.filter(s => s.status === 'completed').length)
 
-/** 1-based position of the active task: running index+1, else completed count. */
+/** 1-based position of the active task.
+ *
+ * While loading, advance to the next pending step even before it flips to
+ * `running` so the compact counter reflects perceived progress.
+ */
 const currentCount = computed(() => {
   const runningIdx = steps.value.findIndex(s => s.status === 'running')
   if (runningIdx >= 0) return runningIdx + 1
-  return completedCount.value
+  if (!props.isLoading) return completedCount.value
+  if (steps.value.length === 0) return 0
+  if (completedCount.value >= steps.value.length) return steps.value.length
+  return completedCount.value + 1
 })
 const totalCount = computed(() => steps.value.length)
 
