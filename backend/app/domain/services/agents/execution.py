@@ -59,6 +59,23 @@ from app.domain.utils.json_repair import parse_json_response
 _TOOL_MARKER_PATTERN = re.compile(r"^\[Attempted to call \w+ with ")
 
 
+def apply_synthesis_gate_soft_fail_disclaimer(
+    prompt: str,
+    gate_result: "SynthesisGateResult",
+) -> str:
+    """Prepend a soft-fail caveat to the synthesis prompt.
+
+    When the synthesis gate returns ``soft_fail``, the pipeline still proceeds
+    but the LLM should be warned that some evidence thresholds were not met.
+    """
+    reasons_text = "; ".join(gate_result.reasons)
+    disclaimer = (
+        "NOTE: Some evidence thresholds were not fully met. "
+        f"Reasons: {reasons_text}\n\n"
+    )
+    return disclaimer + prompt
+
+
 def _is_tool_marker_text(text: str) -> bool:
     """Detect tool-call marker text produced by message_normalizer.
 
@@ -82,6 +99,7 @@ def set_metrics(metrics: MetricsPort) -> None:
 
 
 if TYPE_CHECKING:
+    from app.domain.models.evidence import SynthesisGateResult
     from app.domain.services.memory_service import MemoryService
     from app.domain.utils.cancellation import CancellationToken
 
