@@ -1,18 +1,18 @@
 <template>
   <div
     ref="controlsRef"
-    class="timeline-controls px-4 py-3 bg-[var(--background-menu-white)] border-t border-black/8 dark:border-[var(--border-main)]"
+    class="timeline-controls timeline-controls--deck px-4 py-3 bg-[var(--background-menu-white)] border-t border-black/8 dark:border-[var(--border-main)]"
     tabindex="0"
     @keydown="handleKeydown"
   >
     <!-- Jump to Live Button (shown when not in live mode, hidden in replay mode) -->
     <div
       v-if="!isLive && !isReplayMode"
-      class="flex items-center justify-center mb-2"
+      class="flex items-center justify-center mb-3"
     >
       <button
         @click="$emit('jumpToLive')"
-        class="flex items-center gap-1.5 px-3 py-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
+        class="timeline-controls__jump flex items-center gap-1.5 px-3 py-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
       >
         <Play class="w-3 h-3" />
         <span>Jump to live</span>
@@ -30,14 +30,14 @@
     </div>
 
     <!-- Main Controls Row -->
-    <div class="flex items-center gap-3">
+    <div class="timeline-controls__deck-row flex items-center gap-3">
       <!-- Step Controls + Counter -->
-      <div class="flex items-center gap-1">
+      <div class="timeline-controls__transport flex items-center gap-1">
         <!-- Step Backward -->
         <button
           @click="$emit('stepBackward')"
           :disabled="!canStepBackward"
-          class="p-1.5 rounded hover:bg-[var(--fill-tsp-gray-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          class="timeline-controls__transport-btn p-1.5 rounded hover:bg-[var(--fill-tsp-gray-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           title="Previous action (←)"
         >
           <SkipBack class="w-4 h-4 text-[var(--icon-primary)]" />
@@ -46,7 +46,7 @@
         <!-- Step Counter: only when navigating history (not in live mode at latest position) -->
         <span
           v-if="totalSteps > 0 && (!isLive || currentStep !== totalSteps)"
-          class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)] min-w-[36px] text-center select-none"
+          class="timeline-controls__counter text-[11px] font-mono tabular-nums text-[var(--text-quaternary)] min-w-[36px] text-center select-none"
         >
           {{ currentStep }} / {{ totalSteps }}
         </span>
@@ -55,7 +55,7 @@
         <button
           @click="$emit('stepForward')"
           :disabled="!canStepForward"
-          class="p-1.5 rounded hover:bg-[var(--fill-tsp-gray-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          class="timeline-controls__transport-btn p-1.5 rounded hover:bg-[var(--fill-tsp-gray-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           title="Next action (→)"
         >
           <SkipForward class="w-4 h-4 text-[var(--icon-primary)]" />
@@ -63,7 +63,10 @@
       </div>
 
       <!-- Timeline Scrubber -->
-      <div class="flex-1 relative">
+      <div
+        class="timeline-controls__scrubber-frame flex-1 relative"
+        data-test="timeline-scrubber-frame"
+      >
         <div
           ref="scrubberRef"
           class="scrubber-track relative h-1 bg-[var(--fill-tsp-gray-main)] rounded-full cursor-pointer group overflow-visible"
@@ -76,7 +79,7 @@
           <!-- Floating Tooltip (timestamp + tool name on hover/drag) -->
           <div
             v-if="tooltipVisible"
-            class="absolute -translate-x-1/2 rounded-lg bg-gray-800 dark:bg-gray-700 text-white text-[10px] font-medium px-2 py-1 shadow-md pointer-events-none whitespace-nowrap z-20 flex flex-col items-center gap-0.5"
+            class="timeline-controls__tooltip absolute -translate-x-1/2 text-white text-[10px] font-medium px-2 py-1 pointer-events-none whitespace-nowrap z-20 flex flex-col items-center gap-0.5"
             :style="{ left: `${tooltipPosition}%`, bottom: '12px' }"
           >
             <span v-if="tooltipToolLabel" class="text-[10px] font-semibold">{{ tooltipToolLabel }}</span>
@@ -95,29 +98,32 @@
 
           <!-- Progress Fill -->
           <div
-            class="absolute h-full bg-blue-500 rounded-full transition-[width] duration-100"
+            class="timeline-controls__fill absolute h-full rounded-full transition-[width] duration-100"
             :style="{ width: `${progress}%` }"
           />
 
           <!-- Scrubber Thumb -->
           <div
-            class="scrubber-thumb absolute w-3 h-3 bg-blue-500 rounded-full -top-1 transform -translate-x-1/2 shadow-md transition-transform hover:scale-125"
+            class="scrubber-thumb timeline-controls__thumb absolute w-3 h-3 rounded-full -top-1 transform -translate-x-1/2 shadow-md transition-transform hover:scale-125"
             :style="{ left: `${progress}%` }"
           />
         </div>
       </div>
 
       <!-- Live / Replay Indicator -->
-      <div class="flex items-center gap-1.5 min-w-[50px] justify-end">
+      <div
+        class="timeline-controls__mode-badge flex items-center gap-1.5 justify-end"
+        data-test="timeline-mode-badge"
+      >
         <span
-          class="w-2 h-2 rounded-full"
+          class="timeline-controls__mode-dot w-2 h-2 rounded-full"
           :class="isReplayMode ? 'bg-gray-400' : isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'"
         />
         <span
           class="text-xs font-medium"
           :class="isReplayMode ? 'text-[var(--text-tertiary)]' : isLive ? 'text-green-600 dark:text-green-400' : 'text-[var(--text-tertiary)]'"
         >
-          {{ isReplayMode ? 'replay' : 'live' }}
+          {{ modeLabel }}
         </span>
       </div>
     </div>
@@ -265,6 +271,7 @@ const tooltipTimestamp = computed(() => {
 })
 
 const progress = computed(() => props.progress)
+const modeLabel = computed(() => (props.isReplayMode ? 'replay' : 'live'))
 
 // ── Mouse interaction ──
 const handleMouseEnter = () => {
@@ -327,6 +334,11 @@ onUnmounted(() => {
 <style scoped>
 .timeline-controls {
   user-select: none;
+  position: relative;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 92%, transparent), var(--background-menu-white)),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--fill-tsp-white-main) 75%, transparent), transparent 38%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
 }
 
 .timeline-controls:focus {
@@ -339,16 +351,104 @@ onUnmounted(() => {
   border-radius: 4px;
 }
 
+.timeline-controls__jump {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  background: color-mix(in srgb, var(--background-menu-white) 92%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+}
+
+.timeline-controls__deck-row {
+  padding: 10px 12px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background-menu-white) 86%, transparent), color-mix(in srgb, var(--background-menu-white) 94%, transparent)),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--fill-tsp-white-main) 72%, transparent), transparent 32%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--border-white) 82%, transparent),
+    0 12px 28px var(--shadow-XS);
+}
+
+.timeline-controls__transport {
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  background: color-mix(in srgb, var(--fill-tsp-gray-main) 82%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+}
+
+.timeline-controls__transport-btn {
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 999px;
+}
+
+.timeline-controls__transport-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px var(--shadow-XS);
+}
+
+.timeline-controls__counter {
+  padding: 0 8px;
+}
+
+.timeline-controls__scrubber-frame {
+  padding: 12px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  background: color-mix(in srgb, var(--fill-tsp-gray-main) 58%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+}
+
 .scrubber-track {
   touch-action: none;
+  height: 6px;
+  background: color-mix(in srgb, var(--fill-tsp-gray-dark) 95%, transparent);
+}
+
+.timeline-controls__fill {
+  background: linear-gradient(90deg, var(--status-running), color-mix(in srgb, var(--status-running) 72%, var(--function-success)));
 }
 
 .scrubber-thumb {
   cursor: grab;
 }
 
+.timeline-controls__thumb {
+  top: -4px;
+  width: 14px;
+  height: 14px;
+  background: var(--background-menu-white);
+  border: 2px solid var(--status-running);
+  box-shadow: 0 8px 20px var(--shadow-S);
+}
+
 .scrubber-thumb:active {
   cursor: grabbing;
+}
+
+.timeline-controls__tooltip {
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--Tooltips-main);
+  border: 1px solid color-mix(in srgb, var(--border-white) 72%, transparent);
+  box-shadow: 0 18px 30px var(--shadow-S);
+  backdrop-filter: blur(18px);
+}
+
+.timeline-controls__mode-badge {
+  min-width: 84px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-light) 88%, transparent);
+  background: color-mix(in srgb, var(--background-menu-white) 90%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border-white) 80%, transparent);
+}
+
+.timeline-controls__mode-dot {
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 16%, transparent);
 }
 
 @keyframes pulse {
