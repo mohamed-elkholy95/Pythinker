@@ -3818,6 +3818,21 @@ class PlanActFlow(BaseFlow):
                                             guardrail_result.needs_revision,
                                             [i.description for i in guardrail_result.issues],
                                         )
+                                    # Fix 3: Security bypass — instruction leakage always blocks regardless of shadow mode
+                                    if _has_security_issue(guardrail_result.issues) and not guardrail_result.should_deliver:
+                                        logger.warning(
+                                            "Instruction leakage detected — blocking delivery (bypasses shadow mode)"
+                                        )
+                                        yield ErrorEvent(
+                                            error="Output blocked: potential system instruction leakage detected"
+                                        )
+                                        self._transition_to(
+                                            AgentStatus.ERROR,
+                                            force=True,
+                                            reason="instruction leakage blocked",
+                                        )
+                                        break
+
                                     if (
                                         not guardrail_result.should_deliver
                                         and settings.delivery_fidelity_mode == "enforce"

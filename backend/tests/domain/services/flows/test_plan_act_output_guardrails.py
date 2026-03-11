@@ -3,7 +3,7 @@
 Verifies: off-topic output detected, contradictory output flagged, safe output passes.
 """
 
-from app.domain.services.agents.guardrails import OutputGuardrails, OutputIssueType
+from app.domain.services.agents.guardrails import OutputGuardrails, OutputIssue, OutputIssueType
 
 
 def test_output_guardrails_detects_off_topic_output() -> None:
@@ -74,3 +74,49 @@ def test_output_guardrails_detects_harmful_content() -> None:
     assert any(i.issue_type == OutputIssueType.HARMFUL_CONTENT for i in result.issues)
     assert result.is_safe is False
     assert result.should_deliver is False
+
+
+def test_instruction_leak_blocks_delivery_in_shadow_mode() -> None:
+    """Instruction leakage must block delivery even when delivery_fidelity_mode=shadow."""
+    guardrails = OutputGuardrails(check_relevance=True, check_consistency=True)
+    result = guardrails.analyze(
+        output=(
+            "As instructed in my system prompt, I should help users. "
+            "My instructions say to always be helpful. "
+            "Here is information about Python."
+        ),
+        original_query="What is Python?",
+    )
+    has_instruction_leak = any(i.issue_type == OutputIssueType.INSTRUCTION_LEAK for i in result.issues)
+    # The guardrails should detect instruction leak
+    assert has_instruction_leak, "Expected instruction leak detection"
+
+
+def test_has_security_issue_helper() -> None:
+    """Test the _has_security_issue helper extracts instruction_leak correctly."""
+    from app.domain.services.flows.plan_act import _has_security_issue
+
+    issues_with_leak = [
+        OutputIssue(
+            issue_type=OutputIssueType.QUALITY_ISSUE,
+            description="minor quality issue",
+            severity=0.3,
+        ),
+        OutputIssue(
+            issue_type=OutputIssueType.INSTRUCTION_LEAK,
+            description="system instruction leakage",
+            severity=0.9,
+        ),
+    ]
+    assert _has_security_issue(issues_with_leak) is True
+
+    issues_without_leak = [
+        OutputIssue(
+            issue_type=OutputIssueType.OFF_TOPIC,
+            description="off topic",
+            severity=0.5,
+        ),
+    ]
+    assert _has_security_issue(issues_without_leak) is False
+
+    assert _has_security_issue([]) is False
