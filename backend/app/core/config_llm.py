@@ -4,6 +4,8 @@ Contains configuration for OpenAI-compatible APIs, Anthropic, Ollama, embeddings
 adaptive model routing, and LLM concurrency control.
 """
 
+from typing import ClassVar
+
 
 class LLMSettingsMixin:
     """LLM provider and model configuration."""
@@ -144,6 +146,14 @@ class LLMTimeoutSettingsMixin:
     # worst-case ~570s, safely under the 600s step wall-clock limit.
     # Set to 0 to disable.
     llm_tool_request_timeout: float = 90.0
+
+    # Timeout profiles for different step types (Fix 1).
+    # Used by OpenAILLM.ask() when a timeout_hint is provided.
+    llm_timeout_profiles: ClassVar[dict[str, float]] = {
+        "default": 90.0,
+        "code_gen": 180.0,
+        "summarize": 150.0,
+    }
 
     # Maximum retry attempts after a tool-call timeout before surfacing an error.
     # 2 retries = 3 total attempts with exponential backoff.

@@ -81,6 +81,18 @@ class OpenAILLM(LLM):
                 return True
         return False
 
+    def _resolve_tool_timeout(
+        self, base_timeout: float, timeout_hint: str | None
+    ) -> float:
+        """Resolve tool request timeout using profile hint if available."""
+        if not timeout_hint:
+            return base_timeout
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        profiles = getattr(settings, "llm_timeout_profiles", {})
+        return profiles.get(timeout_hint, base_timeout)
+
     def __init__(
         self,
         api_key: str | None | object = _NOT_PROVIDED,
@@ -1683,6 +1695,7 @@ To extract data from a webpage:
         temperature: float | None = None,
         max_tokens: int | None = None,
         _attempt: int = 0,
+        timeout_hint: str | None = None,
     ) -> dict[str, Any]:
         """Send chat request to OpenAI API with automatic key rotation and retry.
 
@@ -1696,6 +1709,7 @@ To extract data from a webpage:
             temperature: Optional temperature override (unified adaptive routing)
             max_tokens: Optional max_tokens override (unified adaptive routing)
             _attempt: Internal retry counter for key rotation
+            timeout_hint: Optional timeout profile hint (e.g. "code_gen", "summarize")
 
         Returns:
             Response message in OpenAI format
@@ -1762,7 +1776,7 @@ To extract data from a webpage:
 
         for attempt in range(max_retries + 1):  # every try
             response = None
-            tool_request_timeout = llm_tool_request_timeout
+            tool_request_timeout = self._resolve_tool_timeout(llm_tool_request_timeout, timeout_hint)
             degraded_mode = self._should_use_slow_tool_breaker_degraded_mode(
                 request_tools=request_tools,
                 model_override_for_attempt=model_override_for_attempt,

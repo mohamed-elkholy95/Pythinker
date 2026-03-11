@@ -363,6 +363,7 @@ class UniversalLLM:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        timeout_hint: str | None = None,
     ) -> dict[str, Any]:
         """Send a chat request, delegating to the active provider.
 
@@ -388,6 +389,7 @@ class UniversalLLM:
             "model": model,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "timeout_hint": timeout_hint,
         }
 
         # ── Primary provider attempt ──

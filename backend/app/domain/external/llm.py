@@ -19,6 +19,7 @@ class LLM(Protocol):
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        timeout_hint: str | None = None,
     ) -> dict[str, Any]:
         """Send chat request to AI service
 
@@ -31,6 +32,7 @@ class LLM(Protocol):
             model: Optional model override (unified adaptive routing)
             temperature: Optional temperature override (unified adaptive routing)
             max_tokens: Optional max_tokens override (unified adaptive routing)
+            timeout_hint: Optional timeout profile hint (e.g. "code_gen", "summarize")
         Returns:
             Response message from AI service
         """
