@@ -110,7 +110,22 @@
     </div>
     <ToolPanel ref="toolPanel" :size="toolPanelSize" :sessionId="sessionId" :realTime="realTime"
       :isShare="true"
-      @jumpToRealTime="jumpToRealTime" />
+      :showTimeline="showToolPanelTimeline"
+      :timelineProgress="toolPanelTimelineProgress"
+      :timelineTimestamp="toolPanelTimelineTimestamp"
+      :timelineCanStepForward="toolPanelTimelineCanStepForward"
+      :timelineCanStepBackward="toolPanelTimelineCanStepBackward"
+      :timelineCurrentStep="toolPanelTimelineCurrentStep"
+      :timelineTotalSteps="toolPanelTimelineTotalSteps"
+      :isReplayMode="isReplayMode"
+      :replayScreenshotUrl="replayFrames.currentScreenshotUrl.value"
+      :replayMetadata="replayFrames.currentScreenshot.value"
+      :replayScreenshots="replayFrames.screenshots.value"
+      :replayCurrentIndex="replayFrames.currentIndex.value"
+      @jumpToRealTime="jumpToRealTime"
+      @timelineStepForward="handleToolPanelTimelineStepForward"
+      @timelineStepBackward="handleToolPanelTimelineStepBackward"
+      @timelineSeek="handleToolPanelTimelineSeek" />
   </SimpleBar>
 </template>
 
@@ -121,15 +136,29 @@ import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
-import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent } from '../types/message';
+import {
+  Message,
+  MessageContent,
+  ReportContent,
+  ToolContent,
+  StepContent,
+  AttachmentsContent,
+  ThoughtContent,
+  PhaseContent,
+} from '../types/message';
 import {
   StepEventData,
   ToolEventData,
+  ToolProgressEventData,
   MessageEventData,
   ErrorEventData,
   TitleEventData,
   PlanEventData,
+  ProgressEventData,
+  ReportEventData,
   AgentSSEEvent,
+  ThoughtEventData,
+  AgentPhaseEventData,
 } from '../types/event';
 import ToolPanel from '../components/ToolPanel.vue'
 import PlanPanel from '../components/PlanPanel.vue';
@@ -143,6 +172,8 @@ import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
 import { copyToClipboard } from '../utils/dom'
 import TimelinePlayer from '@/components/timeline/TimelinePlayer.vue'
 import { useTimeline } from '@/composables/useTimeline'
+import { useScreenshotReplay } from '@/composables/useScreenshotReplay'
+import { findReplayFrameIndexForTool } from '@/utils/replayFrameSync'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -207,11 +238,23 @@ const timelineEvents = ref<AgentSSEEvent[]>([]);
 
 // Timeline composable for playback control
 const timeline = useTimeline(timelineEvents);
+const replayFrames = useScreenshotReplay(computed(() => sessionId.value), { isShared: true })
 
 // Show timeline player when we have events and replay is complete
 const showTimelinePlayer = computed(() => {
   return timelineEvents.value.length > 0 && replayCompleted.value;
 });
+
+const isReplayMode = computed(() => replayFrames.hasScreenshots.value)
+const showToolPanelTimeline = computed(() => replayFrames.screenshots.value.length > 0)
+const toolPanelTimelineProgress = computed(() => replayFrames.progress.value)
+const toolPanelTimelineTimestamp = computed(() => replayFrames.currentTimestamp.value)
+const toolPanelTimelineCanStepForward = computed(() => replayFrames.canStepForward.value)
+const toolPanelTimelineCanStepBackward = computed(() => replayFrames.canStepBackward.value)
+const toolPanelTimelineCurrentStep = computed(() => (
+  replayFrames.currentIndex.value >= 0 ? replayFrames.currentIndex.value + 1 : 0
+))
+const toolPanelTimelineTotalSteps = computed(() => replayFrames.screenshots.value.length)
 
 // Track if we're in timeline review mode (navigating via timeline player)
 const isTimelineReviewMode = ref(false);
@@ -302,6 +345,30 @@ const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
 }
 
+const findActivePhaseMessage = (phaseId: string | undefined): PhaseContent | null => {
+  if (!phaseId) return null;
+
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const message = messages.value[i];
+    if (message.type !== 'phase') continue;
+
+    const phaseContent = message.content as PhaseContent;
+    if (phaseContent.phase_id === phaseId) {
+      return phaseContent;
+    }
+  }
+
+  return null;
+}
+
+const getLatestRunningStep = (): StepContent | undefined => {
+  return [...messages.value]
+    .reverse()
+    .filter((message) => message.type === 'step')
+    .map((message) => message.content as StepContent)
+    .find((step) => step.status === 'running' || step.status === 'started');
+}
+
 const shouldShowStepConnector = (messageIndex: number): boolean => {
   const currentMessage = messages.value[messageIndex];
   if (!currentMessage || currentMessage.type !== 'step') return false;
@@ -377,8 +444,68 @@ const handleToolEvent = (toolData: ToolEventData) => {
   }
   if (toolContent.name !== 'message') {
     lastNoMessageTool.value = toolContent;
+    syncReplayToTool(toolContent);
     if (realTime.value) {
       toolPanel.value?.showToolPanel(toolContent, false);
+    }
+  }
+}
+
+const applyToolProgressUpdate = (
+  tool: ToolContent | undefined,
+  progressData: ToolProgressEventData,
+): boolean => {
+  if (!tool || tool.tool_call_id !== progressData.tool_call_id) return false;
+
+  tool.progress_percent = progressData.progress_percent;
+  tool.current_step = progressData.current_step;
+  tool.elapsed_ms = progressData.elapsed_ms;
+  if (progressData.checkpoint_data) {
+    tool.checkpoint_data = progressData.checkpoint_data;
+  }
+
+  return true;
+}
+
+const handleToolProgressEvent = (progressData: ToolProgressEventData) => {
+  applyToolProgressUpdate(lastTool.value, progressData);
+  applyToolProgressUpdate(lastNoMessageTool.value, progressData);
+
+  const lastStep = getLastStep();
+  if (!lastStep) return;
+
+  const matchingTool = lastStep.tools.find((tool) => tool.tool_call_id === progressData.tool_call_id);
+  applyToolProgressUpdate(matchingTool, progressData);
+}
+
+const handlePhaseEvent = (phaseData: AgentPhaseEventData) => {
+  if (phaseData.status === 'started') {
+    messages.value.push({
+      id: generateMessageId(),
+      type: 'phase',
+      content: {
+        phase_id: phaseData.phase_id,
+        phase_type: phaseData.phase_type,
+        label: phaseData.label,
+        status: phaseData.status,
+        order: phaseData.order,
+        icon: phaseData.icon,
+        color: phaseData.color,
+        total_phases: phaseData.total_phases,
+        steps: [],
+        timestamp: phaseData.timestamp,
+      } as PhaseContent,
+    });
+    return;
+  }
+
+  if (phaseData.status === 'completed' || phaseData.status === 'skipped') {
+    const phaseContent = findActivePhaseMessage(phaseData.phase_id);
+    if (!phaseContent) return;
+
+    phaseContent.status = phaseData.status;
+    if (phaseData.skip_reason) {
+      phaseContent.skip_reason = phaseData.skip_reason;
     }
   }
 }
@@ -386,22 +513,70 @@ const handleToolEvent = (toolData: ToolEventData) => {
 // Handle step event
 const handleStepEvent = (stepData: StepEventData) => {
   const lastStep = getLastStep();
-  if (stepData.status === 'running') {
+  if (stepData.status === 'running' || stepData.status === 'started') {
+    const stepContent: StepContent = {
+      ...stepData,
+      tools: []
+    };
+
+    const phaseContent = findActivePhaseMessage(stepData.phase_id ?? undefined);
+    if (phaseContent) {
+      phaseContent.steps.push(stepContent);
+    }
+
     messages.value.push({
       id: generateMessageId(),
       type: 'step',
-      content: {
-        ...stepData,
-        tools: []
-      } as StepContent,
+      content: stepContent,
     });
-  } else if (stepData.status === 'completed') {
-    if (lastStep) {
+  } else if (stepData.status === 'completed' || stepData.status === 'failed' || stepData.status === 'blocked' || stepData.status === 'skipped') {
+    const matchingStep = messages.value
+      .filter((message) => message.type === 'step')
+      .map((message) => message.content as StepContent)
+      .find((step) => step.id === stepData.id);
+
+    if (matchingStep) {
+      matchingStep.status = stepData.status;
+    } else if (lastStep) {
       lastStep.status = stepData.status;
     }
-  } else if (stepData.status === 'failed') {
+
     isLoading.value = false;
   }
+}
+
+const handleThoughtEvent = (thoughtData: ThoughtEventData) => {
+  const thoughtText = thoughtData.content?.trim();
+  if (!thoughtText) return;
+
+  const runningStep = getLatestRunningStep();
+  if (!runningStep) return;
+
+  const thoughtContent: ThoughtContent = {
+    id: thoughtData.event_id || `thought-${Date.now()}`,
+    text: thoughtText,
+    thought_type: thoughtData.thought_type,
+    confidence: thoughtData.confidence,
+    timestamp: thoughtData.timestamp,
+  };
+
+  if (!runningStep.items) {
+    runningStep.items = [];
+  }
+
+  const alreadyPresent = runningStep.items.some((item) => {
+    if (item.type !== 'thought') return false;
+    const existingThought = item.content as ThoughtContent;
+    return existingThought.id === thoughtContent.id || existingThought.text === thoughtContent.text;
+  });
+
+  if (alreadyPresent) return;
+
+  runningStep.items.push({
+    type: 'thought',
+    timestamp: thoughtData.timestamp,
+    content: thoughtContent,
+  });
 }
 
 // Handle error event
@@ -427,14 +602,86 @@ const handlePlanEvent = (planData: PlanEventData) => {
   plan.value = planData;
 }
 
+const handleProgressEvent = (_progressData: ProgressEventData) => {
+  // Progress events are preserved in the replay timeline even when they do not
+  // map to standalone chat messages in the shared transcript.
+}
+
+const handleReportEvent = (reportData: ReportEventData) => {
+  const reportContent: ReportContent = {
+    id: reportData.id,
+    event_id: reportData.event_id,
+    title: reportData.title,
+    content: reportData.content,
+    timestamp: reportData.timestamp,
+    lastModified: reportData.timestamp * 1000,
+    fileCount: reportData.attachments?.length ?? 0,
+    attachments: reportData.attachments ?? [],
+    sources: reportData.sources ?? [],
+  };
+
+  const existingIndex = messages.value.findIndex((message) => (
+    message.type === 'report'
+    && typeof message.content === 'object'
+    && 'id' in message.content
+    && (
+      (message.content as ReportContent).id === reportData.id
+      || message.content.event_id === reportData.event_id
+    )
+  ));
+
+  if (existingIndex >= 0) {
+    messages.value[existingIndex] = {
+      ...messages.value[existingIndex],
+      content: reportContent,
+    };
+    return;
+  }
+
+  messages.value.push({
+    id: generateMessageId(),
+    type: 'report',
+    content: reportContent,
+  });
+}
+
+const shouldIncludeTimelineEvent = (event: AgentSSEEvent): boolean => {
+  if (event.event === 'stream' || event.event === 'tool_stream') {
+    return false;
+  }
+
+  if (event.event === 'progress') {
+    const phase = (event.data as Partial<ProgressEventData>)?.phase?.toLowerCase?.();
+    if (phase === 'heartbeat' || phase === 'waiting') {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+const syncReplayToTool = (tool: ToolContent) => {
+  if (!replayFrames.hasScreenshots.value) return
+  const bestIdx = findReplayFrameIndexForTool(tool, replayFrames.screenshots.value)
+  if (bestIdx >= 0) {
+    replayFrames.currentIndex.value = bestIdx
+  }
+}
+
 // Main event handler function
 const handleEvent = (event: AgentSSEEvent) => {
   if (event.event === 'message') {
     handleMessageEvent(event.data as MessageEventData);
   } else if (event.event === 'tool') {
     handleToolEvent(event.data as ToolEventData);
+  } else if (event.event === 'tool_progress') {
+    handleToolProgressEvent(event.data as ToolProgressEventData);
   } else if (event.event === 'step') {
     handleStepEvent(event.data as StepEventData);
+  } else if (event.event === 'phase') {
+    handlePhaseEvent(event.data as AgentPhaseEventData);
+  } else if (event.event === 'thought') {
+    handleThoughtEvent(event.data as ThoughtEventData);
   } else if (event.event === 'done') {
     //isLoading.value = false;
   } else if (event.event === 'wait') {
@@ -445,6 +692,10 @@ const handleEvent = (event: AgentSSEEvent) => {
     handleTitleEvent(event.data as TitleEventData);
   } else if (event.event === 'plan') {
     handlePlanEvent(event.data as PlanEventData);
+  } else if (event.event === 'progress') {
+    handleProgressEvent(event.data as ProgressEventData);
+  } else if (event.event === 'report') {
+    handleReportEvent(event.data as ReportEventData);
   }
   lastEventId.value = event.data.event_id;
 }
@@ -465,9 +716,11 @@ const replay = async () => {
   resetState();
   sessionId.value = String(router.currentRoute.value.params.sessionId) as string;
   const session = await agentApi.getSharedSession(sessionId.value);
+  await replayFrames.loadScreenshots({ startAt: 'first' });
+  const replayEvents = session.events.filter(shouldIncludeTimelineEvent);
   realTime.value = true;
   isLoading.value = true;
-  for (const event of session.events) {
+  for (const event of replayEvents) {
     if (!jumpToEnd.value) {
       await new Promise(resolve => setTimeout(resolve, 300));
     }
@@ -483,13 +736,15 @@ const restoreSession = async () => {
     return;
   }
   const session = await agentApi.getSharedSession(sessionId.value);
+  await replayFrames.loadScreenshots();
+  const replayEvents = session.events.filter(shouldIncludeTimelineEvent);
   realTime.value = false;
   follow.value = false; // Prevent auto-scrolling during restoration
 
   // Store events for timeline playback
-  timelineEvents.value = session.events;
+  timelineEvents.value = replayEvents;
 
-  for (const event of session.events) {
+  for (const event of replayEvents) {
     handleEvent(event);
   }
   realTime.value = true;
@@ -546,15 +801,34 @@ onUnmounted(() => {
 const handleToolClick = (tool: ToolContent) => {
   realTime.value = false;
   if (sessionId.value) {
+    syncReplayToTool(tool);
     toolPanel.value?.showToolPanel(tool, false);
   }
 }
 
 const jumpToRealTime = () => {
   realTime.value = true;
+  if (replayFrames.screenshots.value.length > 0) {
+    replayFrames.currentIndex.value = replayFrames.screenshots.value.length - 1
+  }
   if (lastNoMessageTool.value) {
     toolPanel.value?.showToolPanel(lastNoMessageTool.value, false);
   }
+}
+
+const handleToolPanelTimelineStepForward = () => {
+  realTime.value = false;
+  replayFrames.stepForward();
+}
+
+const handleToolPanelTimelineStepBackward = () => {
+  realTime.value = false;
+  replayFrames.stepBackward();
+}
+
+const handleToolPanelTimelineSeek = (progress: number) => {
+  realTime.value = false;
+  replayFrames.seekByProgress(progress);
 }
 
 const handleFollow = () => {
