@@ -1,6 +1,6 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -188,7 +188,7 @@ async def test_periodic_capture_uses_tool_context_metadata():
 
 
 @pytest.mark.asyncio
-async def test_periodic_capture_skips_when_screencast_stream_is_active():
+async def test_periodic_capture_persists_when_screencast_stream_is_active():
     sandbox = FakeSandbox(b"image-bytes")
     repository = SimpleNamespace(save=AsyncMock())
     minio = _make_minio_mock()
@@ -201,14 +201,79 @@ async def test_periodic_capture_skips_when_screencast_stream_is_active():
     )
     service._ready.set()  # Bypass startup readiness gate (tested separately)
 
-    with patch(
-        "app.application.services.screenshot_service.has_active_stream",
-        new=AsyncMock(return_value=True),
-    ):
-        screenshot = await service.capture(ScreenshotTrigger.PERIODIC)
+    screenshot = await service.capture(ScreenshotTrigger.PERIODIC)
 
-    assert screenshot is None
-    repository.save.assert_not_awaited()
+    assert screenshot is not None
+    assert screenshot.trigger == ScreenshotTrigger.PERIODIC
+    repository.save.assert_awaited_once()
+    minio.store_screenshot.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_capture_resumes_sequence_from_persisted_count():
+    sandbox = FakeSandbox(b"image-bytes")
+    repository = SimpleNamespace(
+        save=AsyncMock(),
+        count_by_session=AsyncMock(return_value=3),
+    )
+    minio = _make_minio_mock()
+
+    service = ScreenshotCaptureService(
+        sandbox=sandbox,
+        session_id="session-metrics-9a",
+        repository=repository,
+        minio_storage=minio,
+    )
+    service._ready.set()
+
+    screenshot = await service.capture(ScreenshotTrigger.TOOL_AFTER)
+
+    assert screenshot is not None
+    assert screenshot.sequence_number == 3
+    assert screenshot.storage_key == "session-metrics-9a/0003_tool_after.jpg"
+    repository.count_by_session.assert_awaited_once_with("session-metrics-9a")
+
+
+@pytest.mark.asyncio
+async def test_duplicate_periodic_capture_still_persists_metadata():
+    sandbox = FakeSandbox(b"duplicate-frame")
+    repository = SimpleNamespace(
+        save=AsyncMock(),
+        count_by_session=AsyncMock(return_value=8),
+        find_by_session=AsyncMock(
+            return_value=[
+                SessionScreenshot(
+                    id="shot-0",
+                    session_id="session-metrics-9",
+                    sequence_number=0,
+                    storage_key="session-metrics-9/0000_session_start.jpg",
+                    trigger=ScreenshotTrigger.SESSION_START,
+                )
+            ]
+        ),
+    )
+    minio = _make_minio_mock()
+
+    service = ScreenshotCaptureService(
+        sandbox=sandbox,
+        session_id="session-metrics-9",
+        repository=repository,
+        minio_storage=minio,
+    )
+    service._ready.set()
+    service._dedup = MagicMock()
+    service._dedup.compute_hash.return_value = "abcd1234"
+    service._dedup.is_duplicate.return_value = True
+    service._dedup.find_original_key.return_value = "session-metrics-9/0000_session_start.jpg"
+
+    screenshot = await service.capture(ScreenshotTrigger.PERIODIC)
+
+    assert screenshot is not None
+    assert screenshot.is_duplicate is True
+    assert screenshot.original_storage_key == "session-metrics-9/0000_session_start.jpg"
+    assert screenshot.storage_key == "session-metrics-9/0000_session_start.jpg"
+    repository.save.assert_awaited_once()
+    repository.find_by_session.assert_awaited_once_with("session-metrics-9", limit=5, offset=3)
     minio.store_screenshot.assert_not_awaited()
 
 
