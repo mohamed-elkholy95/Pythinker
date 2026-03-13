@@ -1,7 +1,7 @@
 <template>
   <div
     ref="controlsRef"
-    class="timeline-controls px-4 py-3 bg-[var(--background-menu-white)] border-t border-black/8 dark:border-[var(--border-main)]"
+    class="timeline-controls px-4 py-2.5 bg-transparent"
     tabindex="0"
     @keydown="handleKeydown"
   >
@@ -343,6 +343,15 @@ onUnmounted(() => {
   background: var(--fill-tsp-gray-main);
 }
 
+:global(.dark) .timeline-step-btn {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .timeline-step-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+}
+
 .timeline-step-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -351,7 +360,11 @@ onUnmounted(() => {
 /* Scrubber track */
 .scrubber-track {
   touch-action: none;
-  background: color-mix(in srgb, var(--text-tertiary) 20%, transparent);
+  background: color-mix(in srgb, var(--text-tertiary) 15%, transparent);
+}
+
+:global(.dark) .scrubber-track {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* Teal gradient fill */
@@ -360,11 +373,20 @@ onUnmounted(() => {
   border-radius: 999px;
 }
 
+:global(.dark) .scrubber-fill {
+  background: linear-gradient(90deg, #0f766e 0%, #14b8a6 50%, #2dd4bf 100%);
+}
+
 /* Teal thumb */
 .scrubber-thumb {
   cursor: grab;
   background: #14b8a6;
   box-shadow: 0 0 6px rgba(20, 184, 166, 0.4);
+}
+
+:global(.dark) .scrubber-thumb {
+  background: #2dd4bf;
+  box-shadow: 0 0 8px rgba(45, 212, 191, 0.5);
 }
 
 .scrubber-thumb:active {
