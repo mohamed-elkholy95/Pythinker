@@ -89,18 +89,14 @@ async def chat_completions(
     if settings.sandbox_llm_proxy_allowed_models and body.model not in settings.sandbox_llm_proxy_allowed_models:
         raise HTTPException(status_code=400, detail=f"Model '{body.model}' not allowed")
     try:
-        from app.infrastructure.external.llm.factory import get_llm
+        from app.application.services.llm_proxy_service import proxy_chat_completion
 
-        llm = get_llm()
-        if llm is None:
-            raise HTTPException(status_code=503, detail="LLM not configured")
         messages: list[dict[str, Any]] = [{"role": m.role, "content": m.content} for m in body.messages]
-        result = await llm.ask(
+        content = await proxy_chat_completion(
             messages=messages,
             max_tokens=max_tokens,
             temperature=body.temperature,
         )
-        content = result.get("content") or ""
         response = ChatCompletionResponse(
             model=body.model or settings.model_name,
             choices=[
