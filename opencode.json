@@ -230,51 +230,6 @@
     }
   },
 
-  // ── LSP Servers ─────────────────────────────────────────────
-  // Built-in LSP servers auto-activate for matching file extensions.
-  // Configure project-specific settings here.
-  "lsp": {
-    "pyright": {
-      "extensions": [".py", ".pyi"],
-      "initialization": {
-        "python": {
-          "pythonPath": "/home/mac/miniconda3/envs/pythinker/bin/python",
-          "analysis": {
-            "typeCheckingMode": "standard",
-            "autoImportCompletions": true
-          }
-        }
-      }
-    },
-    "vue": {
-      "extensions": [".vue"],
-      "initialization": {
-        "typescript": {
-          "tsdk": "node_modules/typescript/lib"
-        },
-        "vue": {
-          "hybridMode": false
-        }
-      }
-    },
-    "typescript": {
-      "extensions": [".ts", ".tsx", ".js", ".jsx"],
-      "initialization": {
-        "preferences": {
-          "importModuleSpecifierPreference": "relative",
-          "quotePreference": "single"
-        }
-      }
-    }
-  },
-
-  // ── Tool Overrides ──────────────────────────────────────────
-  // MCP tools from global config are inherited.
-  // Disable tools per-project if needed:
-  // "tools": {
-  //   "figma_*": false
-  // },
-
   // ── Permissions ─────────────────────────────────────────────
   "permission": {
     "bash": {
