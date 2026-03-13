@@ -3,6 +3,11 @@
 # Split into sections for dynamic assembly based on task context
 # =============================================================================
 
+from app.domain.services.prompts.terminal_mastery import (
+    TERMINAL_MASTERY_RULES,
+    TOOL_PREFERENCE_HINTS,
+)
+
 # Cache control metadata - for KV-cache optimization
 CORE_PROMPT_CACHEABLE = True  # Mark as stable/cacheable
 CORE_PROMPT_VERSION = "2.0.0"  # Track version for cache invalidation (Pythinker design system)
@@ -606,6 +611,18 @@ Port Management:
 """
 
 
+def _append_terminal_mastery(prompt: str) -> str:
+    """Append terminal mastery rules if enabled (Agent UX v2)."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if settings.terminal_mastery_prompt_enabled:
+        prompt += "\n" + TERMINAL_MASTERY_RULES
+    if settings.terminal_proactive_preference_enabled:
+        prompt += "\n" + TOOL_PREFERENCE_HINTS
+    return prompt
+
+
 def build_system_prompt(
     include_research: bool = True,
     include_browser: bool = True,
@@ -680,6 +697,7 @@ def build_system_prompt(
             prompt += BROWSER_RULES
         if SHELL_RULES in included_sections:
             prompt += SHELL_RULES
+            prompt = _append_terminal_mastery(prompt)
         if FILE_RULES in included_sections:
             prompt += FILE_RULES
         if WRITING_RULES in included_sections or include_writing:
@@ -698,6 +716,7 @@ def build_system_prompt(
             prompt += BROWSER_RULES
         if include_shell:
             prompt += SHELL_RULES
+            prompt = _append_terminal_mastery(prompt)
         if include_file:
             prompt += FILE_RULES
         if include_writing:

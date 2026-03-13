@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel, TypeAdapter
 
+from app.core.config import get_settings as _get_settings
 from app.domain.external.llm import LLM
 from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.event import (
@@ -14,6 +15,7 @@ from app.domain.models.event import (
     ErrorEvent,
     MessageEvent,
     ReportEvent,
+    SkillEvent,
     StepEvent,
     StepStatus,
     StreamEvent,
@@ -357,12 +359,28 @@ class ExecutionAgent(BaseAgent):
                         f"(allowed: {allowed})"
                     )
 
-                # Log skill activation (event is emitted once by agent_domain_service)
+                # Log skill activation
                 logger.info(
                     f"Skill context applied: skills={message.skills}, "
                     f"tool_restrictions={tool_restrictions}, "
                     f"prompt_chars={len(skill_context.prompt_addition) if skill_context.prompt_addition else 0}"
                 )
+
+                # Emit SkillEvent for user visibility (Agent UX v2)
+                _skill_settings = _get_settings()
+                if _skill_settings.skill_ui_events_enabled and skill_context.prompt_addition:
+                    for sid in skill_context.skill_ids:
+                        skill = await registry.get_skill(sid)
+                        if skill:
+                            yield SkillEvent(
+                                skill_id=sid,
+                                skill_name=skill.name,
+                                action="activated",
+                                reason=f"Step requires {skill.category.value} capabilities",
+                                tools_affected=list(skill_context.allowed_tools)
+                                if skill_context.allowed_tools
+                                else None,
+                            )
             except Exception as e:
                 logger.warning(f"Failed to build skill context: {e}")
 
@@ -404,8 +422,6 @@ class ExecutionAgent(BaseAgent):
         selected_model = self._select_model_for_step(step.description)
         if selected_model:
             self._step_model_override = selected_model
-            from app.core.config import get_settings as _get_settings
-
             _is_adaptive = _get_settings().adaptive_model_selection_enabled
             if _is_adaptive:
                 logger.info("Adaptive model routing selected '%s' for step", selected_model)
@@ -729,8 +745,6 @@ class ExecutionAgent(BaseAgent):
 
             # Use fast model for report streaming — long-form text generation doesn't need 80B.
             # Falls back to the default model when FAST_MODEL is not configured.
-            from app.core.config import get_settings as _get_settings
-
             _summarize_model: str | None = _get_settings().fast_model or None
             _summarize_max_tokens: int = _get_settings().summarization_max_tokens
 

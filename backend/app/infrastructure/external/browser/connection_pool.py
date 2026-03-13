@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.config import get_settings
 from app.core.prometheus_metrics import record_error
 from app.core.retry import RetryConfig, calculate_delay
 from app.domain.exceptions.browser import (
@@ -104,8 +105,6 @@ class BrowserConnectionPool:
             max_idle_time: Maximum idle time before connection cleanup in seconds (default from settings)
             health_check_interval: Interval between health checks in seconds (default from settings)
         """
-        from app.core.config import get_settings
-
         settings = get_settings()
 
         self._pools: dict[str, list[PooledConnection]] = {}
@@ -284,8 +283,6 @@ class BrowserConnectionPool:
         """
         # Use settings default if not explicitly specified
         if block_resources is None:
-            from app.core.config import get_settings
-
             settings = get_settings()
             block_resources = settings.browser_block_resources_default
 
@@ -471,8 +468,6 @@ class BrowserConnectionPool:
             progress_callback: Optional async callback for progress updates
         """
         last_error: Exception | None = None
-        from app.core.config import get_settings
-
         _settings = get_settings()
         choreographer = BrowserChoreographer(
             profile_name=_settings.browser_choreography_profile,

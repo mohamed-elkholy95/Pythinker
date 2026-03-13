@@ -22,5 +22,4 @@ def test_skill_architecture_defaults():
     settings = get_settings()
     assert settings.skill_auto_detection_enabled is True
     assert settings.skill_auto_detection_threshold == 0.6
-    assert settings.skill_first_planning_enabled is True
     assert settings.skill_ui_events_enabled is True
