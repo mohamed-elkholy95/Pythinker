@@ -52,10 +52,10 @@
       </div>
 
       <!-- Timeline Scrubber -->
-      <div class="flex-1 relative">
+      <div class="flex-1 flex items-center">
         <div
           ref="scrubberRef"
-          class="scrubber-track relative h-[6px] rounded-full cursor-pointer group overflow-visible"
+          class="scrubber-track relative w-full h-[6px] rounded-full cursor-pointer group overflow-visible"
           @click="handleScrubberClick"
           @mousedown="startDragging"
           @mouseenter="handleMouseEnter"
