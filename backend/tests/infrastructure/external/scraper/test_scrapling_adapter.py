@@ -44,7 +44,53 @@ def _settings(*, http1_fallback_enabled: bool = True) -> SimpleNamespace:
         scraping_stealth_enabled=True,
         scraping_headless=True,
         scraping_http1_fallback_enabled=http1_fallback_enabled,
+        scraping_cache_enabled=True,
+        scraping_cache_l1_max_size=100,
+        scraping_cache_l2_ttl=300,
+        scraping_cache_key_include_mode=True,
+        stealth_proxy_max_failures=3,
+        stealth_session_timeout=30000,
+        stealth_session_network_idle=True,
+        stealth_canvas_noise=True,
+        stealth_webrtc_block=True,
+        stealth_webgl_enabled=True,
+        stealth_google_referer=True,
+        stealth_session_max_pages=3,
+        stealth_cloudflare_timeout=60,
+        stealth_disable_resources=False,
+        stealth_session_idle_cleanup_interval=0,
+        stealth_session_idle_threshold_seconds=300,
     )
+
+
+class _FakeContentCache:
+    def __init__(self, cached: dict | None = None):
+        self.cached = cached
+        self.get_calls: list[tuple[str, object]] = []
+        self.set_calls: list[tuple[str, object, dict]] = []
+        self.invalidated: list[str | None] = []
+
+    async def get(self, url: str, mode: object):
+        self.get_calls.append((url, mode))
+        return self.cached
+
+    async def set(self, url: str, mode: object, result: dict) -> None:
+        self.set_calls.append((url, mode, result))
+
+    async def invalidate(self, url: str | None = None) -> int:
+        self.invalidated.append(url)
+        return 2
+
+    async def get_stats(self) -> dict[str, object]:
+        return {"l1_size": 1}
+
+
+class _FakeHealthTracker:
+    def __init__(self):
+        self.health = {"http://proxy1:8080": "healthy"}
+
+    def get_all_health(self) -> dict[str, str]:
+        return self.health
 
 
 @pytest.mark.asyncio
@@ -210,3 +256,45 @@ async def test_fetch_http_dependency_error_includes_setup_hint(monkeypatch: pyte
     assert result.success is False
     assert 'pip install "scrapling[fetchers]"' in (result.error or "")
     assert "scrapling install" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_fetch_cached_returns_cached_result_without_fetch() -> None:
+    cached = {
+        "content": "<html>cached</html>",
+        "url": "https://example.com",
+        "final_url": "https://example.com",
+        "mode_used": "http",
+        "proxy_used": None,
+        "response_time_ms": 1.0,
+        "from_cache": True,
+        "cloudflare_solved": False,
+        "error": None,
+    }
+    cache = _FakeContentCache(cached=cached)
+    adapter = ScraplingAdapter(settings=_settings(), content_cache=cache)
+    adapter.fetch = AsyncMock()
+
+    result = await adapter.fetch_cached("https://example.com")
+
+    assert result.success is True
+    assert result.tier_used == "cache"
+    adapter.fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_invalidate_cache_delegates_to_cache() -> None:
+    cache = _FakeContentCache()
+    adapter = ScraplingAdapter(settings=_settings(), content_cache=cache)
+
+    deleted = await adapter.invalidate_cache("https://example.com")
+
+    assert deleted == 2
+    assert cache.invalidated == ["https://example.com"]
+
+
+def test_get_proxy_health_returns_tracker_data() -> None:
+    tracker = _FakeHealthTracker()
+    adapter = ScraplingAdapter(settings=_settings(), health_tracker=tracker)
+
+    assert adapter.get_proxy_health() == {"http://proxy1:8080": "healthy"}

@@ -18,11 +18,16 @@ from typing import TYPE_CHECKING
 from scrapling.fetchers import AsyncFetcher
 
 from app.domain.external.scraper import ScrapedContent, StructuredData
+from app.domain.external.stealth_types import FetchOptions, FetchResult, ProxyHealth, StealthMode
+from app.infrastructure.external.cache import get_cache
+from app.infrastructure.external.scraper.content_cache import ContentCache
 from app.infrastructure.external.scraper.escalation import (
     ESCALATION_STATUS_CODES,
     has_http2_transport_error,
     should_escalate,
 )
+from app.infrastructure.external.scraper.proxy_health_tracker import ProxyHealthTracker
+from app.infrastructure.external.scraper.stealth_session_manager import StealthSessionManager
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -39,12 +44,122 @@ class ScraplingAdapter:
     Instantiated once per application via get_scraping_adapter() factory.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        content_cache: ContentCache | None = None,
+        health_tracker: ProxyHealthTracker | None = None,
+        stealth_manager: StealthSessionManager | None = None,
+    ) -> None:
         self._settings = settings
         self._proxy_rotator = None
         self._domain_auth = self._build_domain_auth(settings)
         if settings.scraping_proxy_enabled and settings.scraping_proxy_list:
             self._init_proxy_rotator(settings.scraping_proxy_list)
+        self._health_tracker = health_tracker or self._build_health_tracker(settings)
+        self._cache = content_cache or self._build_content_cache(settings)
+        self._stealth_manager = stealth_manager or self._build_stealth_manager(settings)
+
+    @staticmethod
+    def _resolve_mode(value: object) -> StealthMode:
+        if isinstance(value, StealthMode):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "stealthy":
+                return StealthMode.STEALTH
+            try:
+                return StealthMode(normalized)
+            except ValueError:
+                return StealthMode.HTTP
+        return StealthMode.HTTP
+
+    @staticmethod
+    def _tier_from_mode(mode: StealthMode) -> str:
+        if mode == StealthMode.STEALTH:
+            return "stealthy"
+        return mode.value
+
+    def _build_content_cache(self, settings: Settings) -> ContentCache | None:
+        if not getattr(settings, "scraping_cache_enabled", False):
+            return None
+        redis_client = None
+        try:
+            redis_client = get_cache()
+        except Exception:
+            logger.debug("Shared cache unavailable for ScraplingAdapter", exc_info=True)
+        return ContentCache(
+            l1_max_size=getattr(settings, "scraping_cache_l1_max_size", 100),
+            l2_ttl=getattr(settings, "scraping_cache_l2_ttl", 300),
+            include_mode_in_key=getattr(settings, "scraping_cache_key_include_mode", True),
+            redis_client=redis_client,
+        )
+
+    def _configured_proxy_urls(self, settings: Settings) -> list[str]:
+        configured: list[str] = []
+        for raw_value in (
+            getattr(settings, "scraping_proxy_list", ""),
+            getattr(settings, "stealth_proxy_list", ""),
+        ):
+            configured.extend(proxy.strip() for proxy in raw_value.split(",") if proxy.strip())
+        return list(dict.fromkeys(configured))
+
+    def _build_health_tracker(self, settings: Settings) -> ProxyHealthTracker | None:
+        proxy_urls = self._configured_proxy_urls(settings)
+        if not proxy_urls:
+            return None
+        return ProxyHealthTracker(
+            proxy_urls=proxy_urls,
+            max_failures=getattr(settings, "stealth_proxy_max_failures", 3),
+        )
+
+    def _build_stealth_manager(self, settings: Settings) -> StealthSessionManager:
+        return StealthSessionManager(
+            session_timeout=getattr(settings, "stealth_session_timeout", 30000),
+            network_idle=getattr(settings, "stealth_session_network_idle", True),
+            canvas_noise=getattr(settings, "stealth_canvas_noise", True),
+            webrtc_block=getattr(settings, "stealth_webrtc_block", True),
+            webgl_enabled=getattr(settings, "stealth_webgl_enabled", True),
+            google_referer=getattr(settings, "stealth_google_referer", True),
+            max_pages=getattr(settings, "stealth_session_max_pages", 3),
+            cloudflare_timeout=getattr(settings, "stealth_cloudflare_timeout", 60),
+            disable_resources=getattr(settings, "stealth_disable_resources", False),
+            health_tracker=self._health_tracker,
+            idle_cleanup_interval=getattr(settings, "stealth_session_idle_cleanup_interval", 60),
+            idle_threshold_seconds=getattr(settings, "stealth_session_idle_threshold_seconds", 300),
+        )
+
+    def _fetch_result_to_scraped_content(self, result: FetchResult) -> ScrapedContent:
+        content = result["content"]
+        mode = self._resolve_mode(result["mode_used"])
+        return ScrapedContent(
+            success=result.get("error") is None,
+            url=result.get("final_url") or result["url"],
+            text=content,
+            html=content,
+            title=None,
+            status_code=200 if result.get("error") is None else None,
+            tier_used="cache" if result.get("from_cache", False) else self._tier_from_mode(mode),
+            error=result.get("error"),
+            metadata={
+                "from_cache": result.get("from_cache", False),
+                "mode": mode.value,
+            },
+        )
+
+    def _scraped_content_to_fetch_result(self, url: str, mode: StealthMode, result: ScrapedContent) -> FetchResult:
+        content = result.html or result.text
+        return FetchResult(
+            content=content or "",
+            url=url,
+            final_url=result.url or url,
+            mode_used=mode,
+            proxy_used=None,
+            response_time_ms=0.0,
+            from_cache=False,
+            cloudflare_solved=mode == StealthMode.CLOUDFLARE,
+            error=result.error,
+        )
 
     @staticmethod
     def _build_domain_auth(settings: Settings) -> dict[str, dict[str, str]]:
@@ -139,6 +254,66 @@ class ScraplingAdapter:
         if any(marker in lower for marker in dependency_markers):
             return f"{error} | {_SCRAPLING_FETCHERS_SETUP_HINT}"
         return error
+
+    async def fetch_with_mode(self, url: str, mode: StealthMode, **kwargs: object) -> ScrapedContent:
+        """Fetch using an explicit mode selection."""
+        if mode == StealthMode.HTTP:
+            return await self.fetch(url, **kwargs)
+        if mode == StealthMode.DYNAMIC:
+            return await self._fetch_dynamic(url, **kwargs)
+        return await self.fetch_stealth_session(url, mode=mode, **kwargs)
+
+    async def fetch_cached(self, url: str, **kwargs: object) -> ScrapedContent:
+        """Fetch with cache lookup before delegating to the live fetch path."""
+        mode = self._resolve_mode(kwargs.get("mode"))
+        if self._cache:
+            cached = await self._cache.get(url, mode)
+            if cached:
+                cached["from_cache"] = True
+                return self._fetch_result_to_scraped_content(cached)
+
+        result = await self.fetch_with_mode(url, mode, **kwargs)
+
+        if result.success and self._cache:
+            await self._cache.set(url, mode, self._scraped_content_to_fetch_result(url, mode, result))
+
+        return result
+
+    def get_proxy_health(self) -> dict[str, ProxyHealth] | None:
+        """Get proxy health if tracker is configured."""
+        if self._health_tracker:
+            return self._health_tracker.get_all_health()
+        return None
+
+    async def invalidate_cache(self, url: str | None = None) -> int:
+        """Invalidate content cache entries."""
+        if self._cache:
+            return await self._cache.invalidate(url)
+        return 0
+
+    async def get_cache_stats(self) -> dict[str, int | bool] | None:
+        """Expose cache stats for higher-level orchestration."""
+        if self._cache:
+            return await self._cache.get_stats()
+        return None
+
+    async def fetch_stealth_session(self, url: str, **kwargs: object) -> ScrapedContent:
+        """Fetch via the dedicated AsyncStealthySession workflow."""
+        mode = self._resolve_mode(kwargs.get("mode"))
+        options = FetchOptions(
+            mode=mode if mode != StealthMode.HTTP else StealthMode.STEALTH,
+            timeout_ms=int(kwargs.get("timeout_ms", getattr(self._settings, "stealth_session_timeout", 30000))),
+            network_idle=bool(kwargs.get("network_idle", getattr(self._settings, "stealth_session_network_idle", True))),
+        )
+        if "wait_selector" in kwargs:
+            options["wait_selector"] = str(kwargs["wait_selector"])
+        if "wait_selector_state" in kwargs:
+            options["wait_selector_state"] = str(kwargs["wait_selector_state"])
+        if "disable_resources" in kwargs:
+            options["disable_resources"] = bool(kwargs["disable_resources"])
+
+        result = await self._stealth_manager.fetch(url, options, proxy_rotator=self._proxy_rotator)
+        return self._fetch_result_to_scraped_content(result)
 
     # ── Tier 1: HTTP ──────────────────────────────────────────────────────────
 
@@ -256,6 +431,8 @@ class ScraplingAdapter:
 
     async def _fetch_stealthy(self, url: str, **kwargs: object) -> ScrapedContent:
         """Tier 3: StealthyFetcher — stealth patches, Cloudflare/Turnstile bypass."""
+        mode = self._resolve_mode(kwargs.get("mode"))
+
         try:
             from scrapling.fetchers import StealthyFetcher
 
@@ -263,8 +440,9 @@ class ScraplingAdapter:
             page = await StealthyFetcher.async_fetch(
                 url,
                 headless=self._settings.scraping_headless,
-                network_idle=True,
+                network_idle=bool(kwargs.get("network_idle", True)),
                 proxy=proxy,
+                solve_cloudflare=mode == StealthMode.CLOUDFLARE,
             )
             http_error = self._result_from_http_error(page, url, tier="stealthy")
             if http_error is not None:
