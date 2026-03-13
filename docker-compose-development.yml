@@ -229,6 +229,7 @@ services:
     ports:
       - "127.0.0.1:8083:8080"   # Sandbox API (localhost only)
       - "127.0.0.1:8082:8082"   # Framework API (localhost only)
+      - "127.0.0.1:8443:8443"   # code-server (localhost only)
     shm_size: '4gb'
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
@@ -267,6 +268,9 @@ services:
       - OPENAI_API_BASE=${SANDBOX_LLM_PROXY_URL:-http://backend:8000/api/v1/llm-proxy/v1}
       - OPENAI_BASE_URL=${SANDBOX_LLM_PROXY_URL:-http://backend:8000/api/v1/llm-proxy/v1}
       - OPENAI_API_KEY=${SANDBOX_LLM_PROXY_KEY:-}
+      - CODE_SERVER_PORT=${CODE_SERVER_PORT:-8443}
+      - CODE_SERVER_PASSWORD=${CODE_SERVER_PASSWORD:-}
+      - ENABLE_CODE_SERVER=${ENABLE_CODE_SERVER:-0}
     restart: unless-stopped
     networks:
       - pythinker-network
