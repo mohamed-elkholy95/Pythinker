@@ -7,6 +7,7 @@ import sys
 import asyncio
 
 from app.core.config import settings
+from app.core.telemetry import setup_telemetry
 from app.api.router import api_router
 from app.core.exceptions import (
     AppException,
@@ -73,6 +74,9 @@ app.add_exception_handler(AppException, app_exception_handler)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
+
+# Initialize observability (OTEL + Sentry) — lazy, zero overhead when disabled
+setup_telemetry(app)
 
 # Register routes
 app.include_router(api_router, prefix="/api/v1")
