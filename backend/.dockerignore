@@ -39,7 +39,7 @@ docs/
 Dockerfile.old
 requirements-dev.txt
 pyproject.toml
-dev.sh
+# dev.sh intentionally NOT excluded — needed by docker-compose-development.yml
 
 # Standalone scripts (not needed at runtime)
 check_*.py
