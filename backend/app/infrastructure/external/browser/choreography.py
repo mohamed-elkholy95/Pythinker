@@ -45,7 +45,7 @@ PROFILES: dict[str, ChoreographyProfile] = {
     ),
     "professional": ChoreographyProfile(
         name="professional",
-        dwell_after_navigate=7.0,
+        dwell_after_navigate=3.5,
         hover_before_click=0.4,
         cursor_move_steps=20,
         cursor_move_duration=0.6,

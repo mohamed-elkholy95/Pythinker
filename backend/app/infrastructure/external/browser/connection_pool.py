@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.config import get_settings
 from app.core.prometheus_metrics import record_error
 from app.core.retry import RetryConfig, calculate_delay
 from app.domain.exceptions.browser import (
@@ -30,6 +31,7 @@ from app.domain.exceptions.browser import (
     ConnectionRefusedError,
     ConnectionTimeoutError,
 )
+from app.infrastructure.external.browser.choreography import BrowserChoreographer
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
 logger = logging.getLogger(__name__)
@@ -482,11 +484,7 @@ class BrowserConnectionPool:
                     logger.warning(f"Failed to emit retry progress event: {e}")
 
             try:
-                from app.core.config import get_settings
-
                 _settings = get_settings()
-                from app.infrastructure.external.browser.choreography import BrowserChoreographer
-
                 choreographer = BrowserChoreographer(
                     profile_name=_settings.browser_choreography_profile,
                     enabled=_settings.browser_choreography_enabled,

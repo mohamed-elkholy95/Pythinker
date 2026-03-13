@@ -43,7 +43,7 @@ function getSkillColor(skill: SkillEventData): string {
 </script>
 
 <template>
-  <div class="activity-bar">
+  <div v-if="phase && phase !== 'idle'" class="activity-bar">
     <div class="activity-segment phase-segment">
       <span class="phase-icon">{{ phaseIcon }}</span>
       <span class="phase-label">{{ phase }}</span>
