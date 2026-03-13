@@ -39,3 +39,57 @@ Pytest addopts enforce coverage by default. To run a single test without coverag
 ```bash
 conda activate pythinker && cd backend && pytest -p no:cov -o addopts= tests/test_file.py
 ```
+
+## Available Agents
+
+### Primary Agents (switch with Tab)
+- **Build** — Full-access development agent with Pythinker DDD context
+- **Plan** — Read-only architect for analyzing and planning changes
+
+### Subagents (invoke with @agent-name)
+- **@fastapi-pro** — FastAPI + DDD expert (routes, Pydantic v2, middleware)
+- **@python-pro** — Python 3.12+ expert (async, domain models, testing)
+- **@vue-expert** — Vue 3 Composition API (TypeScript, Pinia, composables)
+- **@frontend-designer** — Production UI design (Tailwind, dark mode, accessibility)
+- **@sandbox-expert** — Docker sandbox + CDP browser automation
+- **@code-reviewer** — Code review (bugs, security, conventions)
+- **@code-explorer** — Deep codebase analysis (execution paths, architecture)
+- **@code-architect** — Feature architecture blueprints
+- **@security-auditor** — Security vulnerability scanning
+- **@docs-writer** — Technical documentation
+
+## Available Skills
+
+### Pythinker-Specific (`.opencode/skills/`)
+- **ddd-architecture** — DDD layer discipline and boundary enforcement
+- **sandbox-management** — Docker container lifecycle patterns
+- **browser-automation** — CDP screencast, BrowserTool architecture
+- **memory-system** — Hybrid retrieval (MongoDB + Qdrant + BM25)
+- **api-key-management** — Multi-key pool rotation patterns
+- **sse-streaming** — SSE event types, reconnection, Redis streams
+- **http-client-pooling** — HTTPClientPool (mandatory for all HTTP)
+- **pythinker-testing** — pytest/Vitest patterns for this project
+
+### Superpowers (Obra)
+- **brainstorming** — Requirement refinement before design
+- **writing-plans** — Task decomposition with file paths
+- **executing-plans** — Batch execution with review checkpoints
+- **test-driven-development** — RED-GREEN-REFACTOR enforcement
+- **systematic-debugging** — 4-phase root cause analysis
+- **verification-before-completion** — Evidence-based completion checks
+- **dispatching-parallel-agents** — Concurrent subagent workflows
+- **requesting-code-review** / **receiving-code-review** — Code review workflows
+- **using-git-worktrees** — Isolated development branches
+- **finishing-a-development-branch** — Merge/PR/cleanup decisions
+
+## MCP Servers
+
+Available MCP tools (use by name in prompts):
+- **Context7** — Library/API documentation (primary source for docs)
+- **Ref** — Reference documentation and best practices
+- **Tavily** — Web search and research
+- **Docker MCP** — Container management
+- **Chrome DevTools** — Browser automation and debugging
+- **CodeGraphContext** — Code graph analysis
+- **Figma** — Design file access
+- **Jina** — Web content reading

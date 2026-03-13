@@ -4,15 +4,56 @@ language: "en-US"
 early_access: false
 
 reviews:
-  profile: "chill"
+  profile: "assertive"
   high_level_summary: true
   review_status: true
-  review_details: false
+  review_details: true
   request_changes_workflow: false
   collapse_walkthrough: false
   auto_review:
     enabled: true
     drafts: false
+
+  # Pythinker-specific path instructions
+  path_instructions:
+    - path: "backend/**/*.py"
+      instructions: |
+        This is a FastAPI + DDD Python backend. Check for:
+        - DDD layer boundary violations (domain must not import from infrastructure/interfaces)
+        - Pydantic v2: @field_validator must be @classmethod
+        - HTTPClientPool usage (never create httpx.AsyncClient directly)
+        - APIKeyPool for external API providers
+        - Full type hints on all functions
+        - async/await correctness
+        - OWASP security vulnerabilities
+
+    - path: "frontend/**/*.vue"
+      instructions: |
+        Vue 3 Composition API frontend with TypeScript strict mode. Check for:
+        - <script setup lang="ts"> (never Options API)
+        - PascalCase components, useX composable naming
+        - defineProps<T>() and defineEmits<T>() with type-only syntax
+        - No 'any' types
+        - Proper reactive patterns (ref, computed, watch)
+
+    - path: "frontend/**/*.ts"
+      instructions: |
+        TypeScript strict mode. No 'any' types.
+        Check async/await error handling and composable patterns (useX naming).
+
+    - path: "sandbox/**"
+      instructions: |
+        Docker sandbox container code. Check for security (no-new-privileges, non-root),
+        proper error handling in browser automation, CDP WebSocket patterns.
+
+  # Ignore patterns
+  path_filters:
+    - "!**/*.md"
+    - "!**/*.lock"
+    - "!**/node_modules/**"
+    - "!**/__pycache__/**"
+    - "!**/dist/**"
+    - "!**/.pytest_cache/**"
 
 chat:
   auto_reply: true
