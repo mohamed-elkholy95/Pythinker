@@ -629,25 +629,30 @@ onUnmounted(() => {
 .progress-bar-collapsed.completed-state {
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, #22c55e 6%, var(--bolt-elements-bg-depth-1)) 0%,
+    color-mix(in srgb, #229ED9 6%, var(--bolt-elements-bg-depth-1)) 0%,
     var(--bolt-elements-bg-depth-1) 50%
   );
-  border-color: color-mix(in srgb, #22c55e 15%, var(--bolt-elements-borderColor));
+  border-color: color-mix(in srgb, #229ED9 18%, var(--bolt-elements-borderColor));
   padding: 8px 14px;
 }
 
 .progress-bar-collapsed.completed-state:hover {
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, #22c55e 10%, var(--bolt-elements-bg-depth-2)) 0%,
+    color-mix(in srgb, #229ED9 10%, var(--bolt-elements-bg-depth-2)) 0%,
     var(--bolt-elements-bg-depth-2) 50%
   );
-  border-color: color-mix(in srgb, #22c55e 20%, var(--bolt-elements-borderColorActive));
+  border-color: color-mix(in srgb, #229ED9 25%, var(--bolt-elements-borderColorActive));
 }
 
 .completed-state .progress-pill {
-  background: color-mix(in srgb, #22c55e 12%, var(--bolt-elements-bg-depth-4));
-  color: #22c55e;
+  background: rgba(34, 158, 217, 0.14);
+  color: #229ED9;
+}
+
+:global(.dark) .completed-state .progress-pill {
+  background: rgba(34, 158, 217, 0.18);
+  color: #4bb8e8;
 }
 
 /* ===== PROGRESS PILL ===== */
