@@ -325,19 +325,13 @@ def repair_citations(report_content: str, source_list: str) -> str:
                     # Compare URLs: extract URL from both entries
                     existing_url = _URL_RE.search(m.group(2))
                     auth_url = _URL_RE.search(authoritative_entries[num])
-                    if (
-                        existing_url
-                        and auth_url
-                        and existing_url.group(0).rstrip("/") != auth_url.group(0).rstrip("/")
-                    ):
+                    if existing_url and auth_url and existing_url.group(0).rstrip("/") != auth_url.group(0).rstrip("/"):
                         fabricated_count += 1
 
             # If any reference entries are fabricated, rebuild the entire section
             # from the authoritative list
             if fabricated_count > 0:
-                rebuilt_lines = [
-                    authoritative_entries[n] for n in valid_inline_nums if n in authoritative_entries
-                ]
+                rebuilt_lines = [authoritative_entries[n] for n in valid_inline_nums if n in authoritative_entries]
                 if rebuilt_lines:
                     repaired = body.rstrip() + "\n\n## References\n" + "\n".join(rebuilt_lines) + "\n"
                     logger.info(
@@ -349,9 +343,7 @@ def repair_citations(report_content: str, source_list: str) -> str:
     # --- Phase 2: Repair orphan citations from authoritative source list ---
     result = validate_citations(repaired)
     if result.orphan_citations and authoritative_entries:
-        repairs = [
-            authoritative_entries[num] for num in result.orphan_citations if num in authoritative_entries
-        ]
+        repairs = [authoritative_entries[num] for num in result.orphan_citations if num in authoritative_entries]
         if repairs:
             ref_match = _REF_SECTION_RE.search(repaired)
             if ref_match:

@@ -339,8 +339,13 @@ class TestRepetitiveSameToolDetection:
         assert second_signal.hard_stop is True
         assert second_signal.signal_type == "repetitive_tool"
 
-    def test_browser_navigate_hits_immediate_hard_stop_at_threshold(self):
-        """Browser navigate loops should hard-stop immediately at repetition threshold."""
+    def test_browser_navigate_warns_at_threshold_but_no_immediate_hard_stop(self):
+        """Browser navigate loops should warn at threshold but not immediate hard-stop.
+
+        browser_navigate was relaxed from aggressive_loop_tools in ef03fa13 —
+        it now follows the standard escalation path (warn first, hard-stop on
+        second trigger or strong_threshold).
+        """
         monitor = ToolEfficiencyMonitor(
             same_tool_threshold=4,
             same_tool_strong_threshold=8,
@@ -351,7 +356,7 @@ class TestRepetitiveSameToolDetection:
 
         signal = monitor.check_efficiency()
         assert signal.is_balanced is False
-        assert signal.hard_stop is True
+        assert signal.hard_stop is False  # warn only, not immediate hard-stop
         assert signal.signal_type == "repetitive_tool"
 
     def test_different_tools_do_not_trigger(self):

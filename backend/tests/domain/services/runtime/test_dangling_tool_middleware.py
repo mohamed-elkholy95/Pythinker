@@ -91,9 +91,7 @@ def test_multiple_dangling_across_messages() -> None:
     assert len(result) == 6
 
     placeholder_ids = {
-        m["tool_call_id"]
-        for m in result
-        if m.get("role") == "tool" and m.get("content") == _PLACEHOLDER
+        m["tool_call_id"] for m in result if m.get("role") == "tool" and m.get("content") == _PLACEHOLDER
     }
     assert placeholder_ids == {"call_x", "call_y"}
 

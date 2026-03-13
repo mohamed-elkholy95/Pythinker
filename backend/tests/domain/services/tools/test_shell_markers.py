@@ -1,6 +1,6 @@
 """Tests for structured terminal marker parsing in ShellTool."""
-import pytest
-from app.domain.services.tools.shell import ShellTool, CMD_BEGIN, CMD_END
+
+from app.domain.services.tools.shell import CMD_BEGIN, CMD_END, ShellTool
 
 
 class TestStructuredMarkerParsing:

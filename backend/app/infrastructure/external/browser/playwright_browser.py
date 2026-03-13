@@ -20,6 +20,7 @@ from app.core.prometheus_metrics import (
 )
 from app.domain.models.tool_result import ToolResult
 from app.domain.utils.url_filters import is_ssrf_target, is_video_url
+from app.infrastructure.external.browser.choreography import BrowserChoreographer
 from app.infrastructure.external.llm import get_llm
 
 # Set up logger for this module
@@ -126,6 +127,7 @@ class PlaywrightBrowser:
         block_resources: bool = False,
         blocked_types: set[str] | None = None,
         randomize_fingerprint: bool = True,
+        choreographer: BrowserChoreographer | None = None,
     ):
         """Initialize PlaywrightBrowser
 
@@ -135,6 +137,8 @@ class PlaywrightBrowser:
             block_resources: Whether to block unnecessary resources (images, ads, etc.)
             blocked_types: Set of resource types to block (e.g., {"image", "font"})
             randomize_fingerprint: Whether to randomize browser fingerprint (default: True)
+            choreographer: BrowserChoreographer for human-like timing. If omitted,
+                creates one from settings (browser_choreography_profile, browser_choreography_enabled).
         """
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
@@ -230,6 +234,15 @@ class PlaywrightBrowser:
 
         # Recovery callback — set by BrowserTool to emit progress events on reconnect
         self._recovery_callback: Callable[[], Awaitable[None]] | None = None
+
+        # Choreographer for human-like browser interaction timing (Agent UX v2)
+        if choreographer is not None:
+            self._choreographer = choreographer
+        else:
+            self._choreographer = BrowserChoreographer(
+                profile_name=getattr(self.settings, "browser_choreography_profile", "professional"),
+                enabled=getattr(self.settings, "browser_choreography_enabled", True),
+            )
 
     @staticmethod
     def _safe_bool(value: Any, default: bool) -> bool:
@@ -2468,6 +2481,12 @@ class PlaywrightBrowser:
             if response and response.status >= 400:
                 logger.warning(f"Navigation to {url} returned status {response.status}")
 
+            # Choreography: dwell on page so user can see it in screencast (Agent UX v2)
+            dwell = self._choreographer.get_navigate_dwell()
+            if dwell > 0:
+                logger.debug("Choreography: dwelling %.1fs on %s", dwell, url)
+                await asyncio.sleep(dwell)
+
             # Priority 1: Quick page size check BEFORE expensive operations
             is_heavy_page = False
             if auto_extract and not is_wikipedia:
@@ -2994,9 +3013,31 @@ class PlaywrightBrowser:
         try:
             resolved_coords: dict[str, float] | None = None
             if coordinate_x is not None and coordinate_y is not None:
+                # Choreography for coordinate-based click (Agent UX v2)
+                click_params = self._choreographer.get_click_params()
+                pre_pause = click_params["pre_pause"]
+                if pre_pause > 0:
+                    await asyncio.sleep(pre_pause)
+
+                # Smooth cursor movement to click target
+                await self.page.mouse.move(coordinate_x, coordinate_y, steps=click_params["cursor_steps"])
+
                 # Show cursor animation at coordinates
                 await self._show_cursor_click(coordinate_x, coordinate_y)
+
+                # Hover pause (element hover state visible in screencast)
+                hover_pause = click_params["hover_pause"]
+                if hover_pause > 0:
+                    await asyncio.sleep(hover_pause)
+
+                # Execute click
                 await self.page.mouse.click(coordinate_x, coordinate_y)
+
+                # Post-click settle (let page react visibly)
+                settle_pause = click_params["settle_pause"]
+                if settle_pause > 0:
+                    await asyncio.sleep(settle_pause)
+
                 resolved_coords = {"resolved_x": coordinate_x, "resolved_y": coordinate_y}
             elif index is not None:
                 element = await self._get_element_by_index(index)
@@ -3032,26 +3073,50 @@ class PlaywrightBrowser:
                 if not is_visible:
                     # Scroll element into view
                     await element.scroll_into_view_if_needed()
-                    # Brief wait for scroll animation
-                    await asyncio.sleep(0.3)
+                    # Choreographed wait for scroll animation (Agent UX v2)
+                    scroll_pause = self._choreographer.get_scroll_pause()
+                    await asyncio.sleep(scroll_pause)
 
                 # Get element center coordinates for cursor animation
+                element_center_x = 0.0
+                element_center_y = 0.0
                 try:
                     box = await element.bounding_box()
                     if box:
-                        center_x = box["x"] + box["width"] / 2
-                        center_y = box["y"] + box["height"] / 2
-                        resolved_coords = {"resolved_x": center_x, "resolved_y": center_y}
-                        await self._show_cursor_click(center_x, center_y)
+                        element_center_x = box["x"] + box["width"] / 2
+                        element_center_y = box["y"] + box["height"] / 2
+                        resolved_coords = {"resolved_x": element_center_x, "resolved_y": element_center_y}
                 except (PlaywrightError, PlaywrightTimeoutError, OSError):
-                    logger.debug("Failed to show cursor click animation", exc_info=True)
+                    logger.debug("Failed to get element bounding box", exc_info=True)
 
-                # Click with force option as fallback for tricky elements
+                # Choreography: smooth cursor movement to target (Agent UX v2)
+                click_params = self._choreographer.get_click_params()
+                pre_pause = click_params["pre_pause"]
+                if pre_pause > 0:
+                    await asyncio.sleep(pre_pause)
+
+                # Move cursor smoothly to click target (visible in screencast)
+                if element_center_x > 0 and element_center_y > 0:
+                    await self.page.mouse.move(element_center_x, element_center_y, steps=click_params["cursor_steps"])
+                    # Show DOM cursor overlay for visual feedback
+                    await self._show_cursor_click(element_center_x, element_center_y)
+
+                # Hover pause (element hover state visible in screencast)
+                hover_pause = click_params["hover_pause"]
+                if hover_pause > 0:
+                    await asyncio.sleep(hover_pause)
+
+                # Execute click
                 try:
                     await element.click(timeout=10000)
                 except PlaywrightTimeoutError:
                     # Try force click if normal click times out
                     await element.click(force=True, timeout=5000)
+
+                # Post-click settle (let page react visibly)
+                settle_pause = click_params["settle_pause"]
+                if settle_pause > 0:
+                    await asyncio.sleep(settle_pause)
             else:
                 return ToolResult(success=False, message="Either index or coordinates must be provided")
 
@@ -3095,6 +3160,8 @@ class PlaywrightBrowser:
 
         try:
             resolved_coords: dict[str, float] | None = None
+            # Get choreographed typing delay (Agent UX v2)
+            typing_delay = self._choreographer.get_type_delay_ms()
             if coordinate_x is not None and coordinate_y is not None:
                 # Show cursor animation at coordinates
                 await self._show_cursor_click(coordinate_x, coordinate_y)
@@ -3104,7 +3171,11 @@ class PlaywrightBrowser:
                     # Select all and clear
                     await self.page.keyboard.press("Control+a")
                     await self.page.keyboard.press("Backspace")
-                await self.page.keyboard.type(text, delay=10)  # Small delay for reliability
+                await self.page.keyboard.type(text, delay=typing_delay)
+                # Post-type pause (Agent UX v2)
+                post_pause = self._choreographer.get_post_type_pause()
+                if post_pause > 0:
+                    await asyncio.sleep(post_pause)
             elif index is not None:
                 element = await self._get_element_by_index(index)
                 if not element:
@@ -3145,11 +3216,15 @@ class PlaywrightBrowser:
                         if clear_first:
                             await self.page.keyboard.press("Control+a")
                             await self.page.keyboard.press("Backspace")
-                        await self.page.keyboard.type(text, delay=10)
+                        await self.page.keyboard.type(text, delay=typing_delay)
                     except Exception as e:
                         return ToolResult(
                             success=False, message=f"Failed to input text using both fill and type methods: {e!s}"
                         )
+                # Post-type pause (Agent UX v2)
+                post_pause = self._choreographer.get_post_type_pause()
+                if post_pause > 0:
+                    await asyncio.sleep(post_pause)
             else:
                 return ToolResult(success=False, message="Either index or coordinates must be provided")
 
@@ -3208,8 +3283,9 @@ class PlaywrightBrowser:
             else:
                 await self.page.evaluate("window.scrollBy({top: -window.innerHeight, behavior: 'smooth'})")
 
-            # Wait for smooth scroll animation
-            await asyncio.sleep(0.3)
+            # Wait for smooth scroll animation (choreographed pause)
+            scroll_pause = self._choreographer.get_scroll_pause()
+            await asyncio.sleep(scroll_pause)
 
             # Get scroll position info
             new_scroll = await self.page.evaluate("window.scrollY")
@@ -3255,8 +3331,9 @@ class PlaywrightBrowser:
             else:
                 await self.page.evaluate("window.scrollBy({top: window.innerHeight, behavior: 'smooth'})")
 
-            # Wait for smooth scroll animation
-            await asyncio.sleep(0.35)
+            # Wait for smooth scroll animation (choreographed pause)
+            scroll_pause = self._choreographer.get_scroll_pause()
+            await asyncio.sleep(scroll_pause)
 
             # Check if lazy content loaded (page got taller)
             new_height = await self.page.evaluate("document.body.scrollHeight")

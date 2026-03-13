@@ -1,5 +1,19 @@
 <template>
-  <ContentContainer :scrollable="false" padding="none" class="shell-view">
+  <!--
+    xterm.js live terminal (Agent UX v2 scaffolding).
+    Currently renders the command prompt; streaming output requires backend
+    ToolStreamEvent with content_type="terminal" to pipe chunks via
+    terminalLiveRef.writeData(). Falls back to static polling view below.
+  -->
+  <TerminalLiveView
+    v-if="live && terminalLiveEnabled"
+    ref="terminalLiveRef"
+    :session-id="sessionId"
+    :shell-session-id="shellSessionId ?? ''"
+    :command="currentCommand"
+  />
+  <!-- Existing static view for completed results -->
+  <ContentContainer v-else :scrollable="false" padding="none" class="shell-view">
     <div class="shell-body">
       <div class="shell-surface">
         <LoadingState
@@ -24,6 +38,7 @@ import type { ConsoleRecord } from '@/types/response';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
+import TerminalLiveView from './TerminalLiveView.vue';
 import { useShiki } from '@/composables/useShiki';
 //import { showErrorToast } from '@/utils/toast';
 
@@ -32,6 +47,16 @@ const props = defineProps<{
   toolContent: ToolContent;
   live: boolean;
 }>();
+
+// Terminal live view feature flag (controlled by backend; enabled by default)
+const terminalLiveEnabled = ref(true);
+const terminalLiveRef = ref<InstanceType<typeof TerminalLiveView>>();
+
+// Extract the command from tool args for the terminal prompt
+const currentCommand = computed(() => {
+  const cmd = props.toolContent?.args?.command;
+  return typeof cmd === 'string' ? cmd : undefined;
+});
 
 defineExpose({
   loadContent: () => {
@@ -46,9 +71,9 @@ const refreshTimer = ref<number | null>(null);
 const { highlightDualTheme } = useShiki();
 
 // Get shellSessionId from toolContent
-const shellSessionId = computed(() => {
+const shellSessionId = computed((): string => {
   if (props.toolContent && props.toolContent.args.id) {
-    return props.toolContent.args.id;
+    return String(props.toolContent.args.id);
   }
   return '';
 });

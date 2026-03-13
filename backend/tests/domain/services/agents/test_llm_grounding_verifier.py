@@ -42,17 +42,21 @@ class TestLLMGroundingVerifier:
     @pytest.mark.asyncio
     async def test_verify_all_supported(self, verifier):
         """LLM says all claims are supported → score 0.0."""
-        llm_response = json.dumps({
-            "claims": [
-                {"claim": "Paris is the capital of France", "verdict": "supported"},
-                {"claim": "France has 67 million people", "verdict": "supported"},
-            ]
-        })
+        llm_response = json.dumps(
+            {
+                "claims": [
+                    {"claim": "Paris is the capital of France", "verdict": "supported"},
+                    {"claim": "France has 67 million people", "verdict": "supported"},
+                ]
+            }
+        )
         verifier._llm.ask = AsyncMock(return_value={"content": llm_response})
 
         result = await verifier.verify(
             response_text="Paris is the capital of France. France has 67 million people. " * 5,
-            source_context=["Paris is the capital of France, a country in Western Europe. The population is approximately 67 million people according to the latest census data."],
+            source_context=[
+                "Paris is the capital of France, a country in Western Europe. The population is approximately 67 million people according to the latest census data."
+            ],
         )
 
         assert result.hallucination_score == 0.0
@@ -62,18 +66,22 @@ class TestLLMGroundingVerifier:
     @pytest.mark.asyncio
     async def test_verify_mixed_verdicts(self, verifier):
         """1 unsupported out of 3 claims → score ~0.33."""
-        llm_response = json.dumps({
-            "claims": [
-                {"claim": "Python is popular", "verdict": "supported"},
-                {"claim": "Python was created in 1989", "verdict": "unsupported"},
-                {"claim": "Python is open source", "verdict": "supported"},
-            ]
-        })
+        llm_response = json.dumps(
+            {
+                "claims": [
+                    {"claim": "Python is popular", "verdict": "supported"},
+                    {"claim": "Python was created in 1989", "verdict": "unsupported"},
+                    {"claim": "Python is open source", "verdict": "supported"},
+                ]
+            }
+        )
         verifier._llm.ask = AsyncMock(return_value={"content": llm_response})
 
         result = await verifier.verify(
             response_text="Python is popular. It was created in 1989. Python is open source. " * 5,
-            source_context=["Python is a popular programming language that is open source and widely used in industry and academia."],
+            source_context=[
+                "Python is a popular programming language that is open source and widely used in industry and academia."
+            ],
         )
 
         assert abs(result.hallucination_score - 1 / 3) < 0.01
@@ -83,17 +91,21 @@ class TestLLMGroundingVerifier:
     @pytest.mark.asyncio
     async def test_verify_all_unsupported(self, verifier):
         """All claims unsupported → score 1.0."""
-        llm_response = json.dumps({
-            "claims": [
-                {"claim": "Claim A", "verdict": "unsupported"},
-                {"claim": "Claim B", "verdict": "unsupported"},
-            ]
-        })
+        llm_response = json.dumps(
+            {
+                "claims": [
+                    {"claim": "Claim A", "verdict": "unsupported"},
+                    {"claim": "Claim B", "verdict": "unsupported"},
+                ]
+            }
+        )
         verifier._llm.ask = AsyncMock(return_value={"content": llm_response})
 
         result = await verifier.verify(
             response_text="Claim A is definitely true. Claim B is also definitely correct. " * 5,
-            source_context=["This is an entirely unrelated context about different topics that does not support either claim at all."],
+            source_context=[
+                "This is an entirely unrelated context about different topics that does not support either claim at all."
+            ],
         )
 
         assert result.hallucination_score == 1.0
@@ -147,12 +159,14 @@ class TestLLMGroundingVerifier:
     @pytest.mark.asyncio
     async def test_verify_unverifiable_treated_as_supported(self, verifier):
         """Unverifiable claims don't count as unsupported."""
-        llm_response = json.dumps({
-            "claims": [
-                {"claim": "X is good", "verdict": "supported"},
-                {"claim": "Y is subjective", "verdict": "unverifiable"},
-            ]
-        })
+        llm_response = json.dumps(
+            {
+                "claims": [
+                    {"claim": "X is good", "verdict": "supported"},
+                    {"claim": "Y is subjective", "verdict": "unverifiable"},
+                ]
+            }
+        )
         verifier._llm.ask = AsyncMock(return_value={"content": llm_response})
 
         result = await verifier.verify(
@@ -196,11 +210,7 @@ class TestSingleton:
             patch("app.core.config.get_settings", return_value=mock_settings),
             patch(
                 "app.domain.services.agents.model_router.get_model_router",
-                return_value=MagicMock(
-                    _get_config=MagicMock(
-                        return_value=MagicMock(model_name="test-model")
-                    )
-                ),
+                return_value=MagicMock(_get_config=MagicMock(return_value=MagicMock(model_name="test-model"))),
             ),
             patch(
                 "app.infrastructure.external.llm.universal_llm.UniversalLLM",

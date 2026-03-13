@@ -63,21 +63,18 @@ class CapabilityManifest(BaseModel):
             cats_str = ", ".join(sorted(self.tool_categories))
             lines.append(f"  <tool_categories>{cats_str}</tool_categories>")
 
-        lines.append(f"  <model name=\"{self.model.name}\"")
-        lines.append(f"         supports_vision=\"{str(self.model.supports_vision).lower()}\"")
-        lines.append(f"         supports_thinking=\"{str(self.model.supports_thinking).lower()}\"")
-        lines.append(f"         max_tokens=\"{self.model.max_tokens}\" />")
+        lines.append(f'  <model name="{self.model.name}"')
+        lines.append(f'         supports_vision="{str(self.model.supports_vision).lower()}"')
+        lines.append(f'         supports_thinking="{str(self.model.supports_thinking).lower()}"')
+        lines.append(f'         max_tokens="{self.model.max_tokens}" />')
 
         lines.append(
-            f"  <sandbox active=\"{str(self.sandbox.active).lower()}\""
-            + (f" sandbox_id=\"{self.sandbox.sandbox_id}\"" if self.sandbox.sandbox_id else "")
+            f'  <sandbox active="{str(self.sandbox.active).lower()}"'
+            + (f' sandbox_id="{self.sandbox.sandbox_id}"' if self.sandbox.sandbox_id else "")
             + " />"
         )
 
-        lines.append(
-            f"  <max_concurrent_delegates>{self.max_concurrent_delegates}"
-            "</max_concurrent_delegates>"
-        )
+        lines.append(f"  <max_concurrent_delegates>{self.max_concurrent_delegates}</max_concurrent_delegates>")
 
         lines.append("</capability_manifest>")
         return "\n".join(lines)
