@@ -276,6 +276,9 @@ services:
       - OTEL_SERVICE_NAME=sandbox-runtime
       - OTEL_TRACES_SAMPLER_RATIO=${OTEL_TRACES_SAMPLER_RATIO:-1.0}
       - SENTRY_DSN=${SANDBOX_SENTRY_DSN:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN:-}
+      - GOOGLE_WORKSPACE_CLI_TOKEN=${GOOGLE_WORKSPACE_CLI_TOKEN:-}
     restart: unless-stopped
     networks:
       - pythinker-network

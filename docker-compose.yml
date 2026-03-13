@@ -183,6 +183,9 @@ services:
       - OTEL_SERVICE_NAME=sandbox-runtime
       - OTEL_TRACES_SAMPLER_RATIO=${OTEL_TRACES_SAMPLER_RATIO:-1.0}
       - SENTRY_DSN=${SANDBOX_SENTRY_DSN:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN:-}
+      - GOOGLE_WORKSPACE_CLI_TOKEN=${GOOGLE_WORKSPACE_CLI_TOKEN:-}
     # Sandbox ports bound to localhost only — backend proxies API/live-preview to users.
     # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file access).
     ports:
@@ -265,6 +268,9 @@ services:
       - OTEL_SERVICE_NAME=sandbox-runtime
       - OTEL_TRACES_SAMPLER_RATIO=${OTEL_TRACES_SAMPLER_RATIO:-1.0}
       - SENTRY_DSN=${SANDBOX_SENTRY_DSN:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN:-}
+      - GOOGLE_WORKSPACE_CLI_TOKEN=${GOOGLE_WORKSPACE_CLI_TOKEN:-}
     ports:
       - "127.0.0.1:8084:8080" # Sandbox API (localhost only)
       - "127.0.0.1:8085:8082" # Sandbox framework API (localhost only)

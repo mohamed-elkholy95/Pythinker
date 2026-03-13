@@ -35,6 +35,11 @@ class SandboxSettingsMixin:
     sandbox_framework_required: bool = False
     sandbox_api_secret: str | None = None  # Shared secret for sandbox API auth
 
+    # Cloud tokens for sandbox
+    sandbox_gh_token: str | None = None
+    sandbox_google_drive_token: str | None = None
+    sandbox_google_workspace_token: str | None = None
+
     # Sandbox callback
     sandbox_callback_enabled: bool = False
     sandbox_callback_token: str | None = None
