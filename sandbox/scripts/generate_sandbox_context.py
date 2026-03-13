@@ -672,6 +672,25 @@ class EnvironmentScanner:
             },
         }
 
+    def scan_cloud_auth(self) -> Dict[str, Any]:
+        """Detect cloud authentication status"""
+        cloud_auth: Dict[str, Any] = {}
+
+        # GitHub CLI auth status
+        try:
+            gh_result = subprocess.run(
+                ["gh", "auth", "status"],
+                capture_output=True, text=True, timeout=5
+            )
+            cloud_auth["github_cli_authenticated"] = gh_result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            cloud_auth["github_cli_authenticated"] = False
+
+        cloud_auth["google_drive_available"] = bool(os.environ.get("GOOGLE_DRIVE_TOKEN"))
+        cloud_auth["google_workspace_available"] = bool(os.environ.get("GOOGLE_WORKSPACE_CLI_TOKEN"))
+
+        return cloud_auth
+
     def scan_resource_limits(self) -> Dict[str, Any]:
         """Scan container resource limits"""
         limits = {
@@ -725,6 +744,7 @@ class EnvironmentScanner:
             "environment_variables": self.scan_environment_variables(),
             "execution_patterns": self.scan_execution_patterns(),
             "resource_limits": self.scan_resource_limits(),
+            "cloud_auth": self.scan_cloud_auth(),
         }
 
         self.context["checksum"] = self.generate_checksum()
