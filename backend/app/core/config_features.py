@@ -241,13 +241,10 @@ class FeatureFlagsSettingsMixin:
     feature_url_verification: bool = True  # Verify cited URLs exist and were visited
     feature_claim_provenance: bool = True  # Track claim-to-source linkage
     feature_enhanced_grounding: bool = True  # Numeric/entity verification in sources
-    feature_cove_verification: bool = False  # Chain-of-Verification for reports (deprecated — use lettuce)
-    feature_lettuce_verification: bool = (
-        True  # LettuceDetect encoder-based hallucination detection (enabled by default for factual verification gate)
+    feature_cove_verification: bool = False  # Chain-of-Verification for reports (deprecated)
+    feature_hallucination_verification: bool = (
+        True  # LLM-as-Judge grounding verification (enabled by default for factual verification gate)
     )
-    lettuce_model_path: str = "KRLabsOrg/tinylettuce-ettin-17m-en"  # HF model path (CPU-friendly, 17M params)
-    lettuce_confidence_threshold: float = 0.8  # Min hallucination score to flag a span (raised from 0.5 to reduce false positives on LLM-synthesized content)
-    lettuce_min_response_length: int = 200  # Skip verification for short responses
     feature_semantic_citation_validation: bool = True  # Semantic matching for citations
     feature_strict_numeric_verification: bool = True  # Reject unverified numeric claims
     feature_reject_ungrounded_reports: bool = False  # Start permissive, can enable later
@@ -376,17 +373,19 @@ class FeatureFlagsSettingsMixin:
     hallucination_escalation_min_samples: int = 10  # Min tool calls before rate is meaningful
 
     # Hallucination mitigation thresholds (design 4B)
-    # Research reports frequently contain citation URLs, Mermaid diagrams, and
-    # recommendation text that LettuceDetect flags as hallucinated because
-    # these patterns don't appear verbatim in search snippets.  A 15% block
-    # threshold caused 100% failure on Telegram research delivery (2026-03-08).
+    # LLM-as-Judge verification uses claim-level binary verdicts instead of
+    # token-level probabilities.  Coarser but more interpretable, avoids the
+    # false-positive problem where LettuceDetect flagged stylistic paraphrasing.
     # Industry standard: LLM Guard uses 0.30.  We use graduated response:
-    # >10% warn with disclaimer, >30% block and re-summarize.
-    hallucination_warn_threshold: float = 0.10  # 10% -> reliability notice appended
-    hallucination_block_threshold: float = 0.30  # 30% -> block delivery, re-summarize
-    hallucination_annotate_spans: bool = False  # Annotate flagged spans in output
-    hallucination_grounding_context_size: int = 16000  # Chars of source context for LettuceDetect
+    # >15% warn with disclaimer, >40% block and re-summarize.
+    hallucination_warn_threshold: float = 0.15  # 15% -> reliability notice appended
+    hallucination_block_threshold: float = 0.40  # 40% -> block delivery, re-summarize
+    hallucination_annotate_spans: bool = False  # Annotate flagged claims in output
+    hallucination_grounding_context_size: int = 16000  # Chars of source context for grounding verifier
     hallucination_grounding_context_deep: int = 32000  # Expanded context for DEEP research
+    hallucination_verifier_model: str | None = None  # Override model for verification (default: FAST_MODEL)
+    hallucination_max_claims: int = 20  # Cap extracted claims to control LLM cost
+    reranker_provider: str = "jina"  # "jina" (API) or "none" (skip reranking)
 
     # Context compression thresholds
     # Trigger compression earlier (80%) to give headroom instead of near-exhaustion (96%+)
