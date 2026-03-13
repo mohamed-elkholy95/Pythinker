@@ -68,7 +68,7 @@ RUN python3 -m venv /opt/base-python-venv && \
     if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
         /opt/base-python-venv/bin/pip install --no-cache-dir -r /app/requirements.addons.txt; \
     fi && \
-    /opt/base-python-venv/bin/python -m playwright install --with-deps chromium firefox webkit && \
+    /opt/base-python-venv/bin/python -m playwright install --with-deps chromium && \
     (chown -R ubuntu:ubuntu /opt/base-python-venv /opt/playwright-browsers 2>/dev/null || true)
 
 # Node CLI tools used by sandbox code-dev/test endpoints
