@@ -260,6 +260,7 @@ services:
       - LIBGL_ALWAYS_SOFTWARE=1
       - TZ=${TZ:-UTC}
       - SANDBOX_VERSION=${IMAGE_TAG:-dev}
+      - SHELL_USE_STRUCTURED_MARKERS=${SHELL_USE_STRUCTURED_MARKERS:-true}
     restart: unless-stopped
     networks:
       - pythinker-network
