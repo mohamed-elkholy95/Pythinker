@@ -2161,7 +2161,6 @@ class PlanActFlow(BaseFlow):
                 from app.domain.services.skill_registry import get_skill_registry
 
                 registry = await get_skill_registry()
-                await registry._ensure_fresh()
                 all_skills = await registry.get_available_skills()
                 matcher = SkillMatcher()
                 auto_matches = matcher.match(

@@ -23,7 +23,7 @@
     </div>
 
     <!-- CDP Screencast View (Konva-powered) -->
-    <div v-else-if="enabled" class="sandbox-content-inner">
+    <div v-else-if="enabled" ref="viewerContentRef" class="sandbox-content-inner">
       <!-- Agent Activity Bar -->
       <AgentActivityBar
         :phase="currentPhase"
@@ -106,6 +106,7 @@ import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import { useSkillEvents } from '@/composables/useSkillEvents'
 import { getScreencastUrl, getInputStreamUrl } from '@/api/agent'
 import { calculateReconnectDelay } from '@/utils/reconnectBackoff'
+import { SANDBOX_WIDTH, SANDBOX_HEIGHT } from '@/types/liveViewer'
 import type { ToolEventData } from '@/types/event'
 import type { SkillEventData } from '@/composables/useSkillEvents'
 
@@ -148,6 +149,7 @@ const emit = defineEmits<{
 // DOM Refs
 const containerRef = ref<HTMLDivElement | null>(null)
 const liveStageRef = ref<InstanceType<typeof KonvaLiveStage> | null>(null)
+const viewerContentRef = ref<HTMLDivElement | null>(null)
 
 // State
 const isLoading = ref(false)
@@ -183,6 +185,17 @@ const lastBrowserAction = ref<{
 // Scale factors for overlay coordinate mapping (based on KonvaLiveStage dimensions)
 const overlayScaleX = ref(1)
 const overlayScaleY = ref(1)
+let overlayResizeObserver: ResizeObserver | null = null
+
+/** Compute overlay scale from the actual rendered container size */
+function updateOverlayScale() {
+  if (!viewerContentRef.value) return
+  const rect = viewerContentRef.value.getBoundingClientRect()
+  if (rect.width > 0 && rect.height > 0) {
+    overlayScaleX.value = rect.width / SANDBOX_WIDTH
+    overlayScaleY.value = rect.height / SANDBOX_HEIGHT
+  }
+}
 
 // Interactive mode computed
 const isInteractive = computed(() => !props.viewOnly && isForwarding.value)
@@ -431,7 +444,8 @@ function formatError(err: unknown): string {
 
 // Frame received callback (from KonvaLiveStage)
 function onFrameReceived(): void {
-  // Can be used for external hooks or tracking
+  // Update overlay scale on each frame in case the container resized
+  updateOverlayScale()
 }
 
 // Input forwarding setup
@@ -534,6 +548,21 @@ function handleVisibilityChange(): void {
   }
 }
 
+// Start ResizeObserver when the viewer content container becomes available
+watch(viewerContentRef, (el) => {
+  if (overlayResizeObserver) {
+    overlayResizeObserver.disconnect()
+    overlayResizeObserver = null
+  }
+  if (el) {
+    overlayResizeObserver = new ResizeObserver(() => {
+      updateOverlayScale()
+    })
+    overlayResizeObserver.observe(el)
+    updateOverlayScale()
+  }
+})
+
 // When session completes, disconnect the live stream — the frozen screenshot takes over.
 watch(
   () => props.isSessionComplete,
@@ -602,6 +631,14 @@ onMounted(() => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   isTabVisible = !document.hidden
 
+  // Observe the viewer content container for resize to keep overlay scale accurate
+  if (viewerContentRef.value) {
+    overlayResizeObserver = new ResizeObserver(() => {
+      updateOverlayScale()
+    })
+    overlayResizeObserver.observe(viewerContentRef.value)
+  }
+
   if (props.enabled) {
     initConnection()
   }
@@ -609,6 +646,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  if (overlayResizeObserver) {
+    overlayResizeObserver.disconnect()
+    overlayResizeObserver = null
+  }
   disconnect()
 })
 
@@ -641,8 +682,8 @@ function updateBrowserAction(event: ToolEventData): void {
   } else if (action === 'click' || action === 'browser_click') {
     lastBrowserAction.value = {
       type: 'click',
-      x: event.args?.x as number | undefined,
-      y: event.args?.y as number | undefined,
+      x: (event.args?.x ?? event.args?.coordinate_x) as number | undefined,
+      y: (event.args?.y ?? event.args?.coordinate_y) as number | undefined,
     }
   } else if (action === 'scroll_up') {
     lastBrowserAction.value = { type: 'scroll_up' }

@@ -15,7 +15,7 @@ let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let resizeObserver: ResizeObserver | null = null
 let themeObserver: MutationObserver | null = null
-let isDarkMode = false
+const isDarkMode = ref(true)
 
 // Light theme (matching project's light mode)
 const lightTheme = {
@@ -70,9 +70,9 @@ const darkTheme = {
 }
 
 function checkDarkMode() {
-  isDarkMode = document.documentElement.classList.contains('dark')
+  isDarkMode.value = document.documentElement.classList.contains('dark')
   if (terminal) {
-    terminal.options.theme = isDarkMode ? darkTheme : lightTheme
+    terminal.options.theme = isDarkMode.value ? darkTheme : lightTheme
   }
 }
 
@@ -82,7 +82,7 @@ function initTerminal() {
   checkDarkMode()
 
   terminal = new Terminal({
-    theme: isDarkMode ? darkTheme : lightTheme,
+    theme: isDarkMode.value ? darkTheme : lightTheme,
     fontSize: 13,
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
     lineHeight: 1.5,
