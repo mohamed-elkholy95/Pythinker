@@ -1,7 +1,7 @@
 import logging
 from functools import lru_cache
 from inspect import isawaitable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import Depends, HTTPException, Query, Request, status
@@ -43,6 +43,9 @@ from app.infrastructure.repositories.mongo_session_repository import MongoSessio
 from app.infrastructure.repositories.user_repository import MongoUserRepository
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.utils.llm_json_parser import LLMJsonParser
+
+if TYPE_CHECKING:
+    from app.application.services.browser_workflow_service import BrowserWorkflowService
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -89,7 +92,7 @@ def _build_mermaid_preprocessor(sandbox_url: str | None):
     from app.domain.services.pdf.mermaid_preprocessor import MermaidPreprocessor
 
     client = httpx.AsyncClient(base_url=sandbox_url, timeout=20.0)
-    return MermaidPreprocessor(http_client=client)
+    return MermaidPreprocessor(http_client=client, sandbox_url=sandbox_url)
 
 
 def build_pdf_renderer_from_settings(settings: Any):
@@ -304,6 +307,18 @@ def get_rating_service() -> RatingService:
 def get_screenshot_query_service() -> ScreenshotQueryService:
     """Get screenshot query service instance."""
     return _get_screenshot_query_service()
+
+
+@lru_cache
+def get_browser_workflow_service() -> "BrowserWorkflowService":
+    """Get BrowserWorkflowService using the cached composition-root pattern."""
+    from app.application.services.browser_workflow_service import BrowserWorkflowService
+    from app.infrastructure.external.scraper.scrapling_adapter import get_scraping_adapter
+
+    return BrowserWorkflowService(
+        scraper=get_scraping_adapter(),
+        settings=get_settings(),
+    )
 
 
 def get_session_repository() -> MongoSessionRepository:

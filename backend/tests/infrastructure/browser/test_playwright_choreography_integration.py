@@ -41,6 +41,7 @@ def test_playwright_browser_accepts_choreographer(mock_llm, mock_settings):
     mock_settings.return_value = _make_fake_settings()
     mock_llm.return_value = MagicMock()
 
+    # Imported after patching get_settings/get_llm so the constructor reads the mocked dependencies.
     from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
     choreographer = BrowserChoreographer(profile_name="fast")
@@ -59,6 +60,7 @@ def test_playwright_browser_creates_default_choreographer(mock_llm, mock_setting
     )
     mock_llm.return_value = MagicMock()
 
+    # Imported after patching get_settings/get_llm so the constructor reads the mocked dependencies.
     from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
     browser = PlaywrightBrowser(cdp_url="ws://localhost:9222")
@@ -77,6 +79,7 @@ def test_playwright_browser_default_choreographer_respects_disabled_flag(mock_ll
     )
     mock_llm.return_value = MagicMock()
 
+    # Imported after patching get_settings/get_llm so the constructor reads the mocked dependencies.
     from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
     browser = PlaywrightBrowser(cdp_url="ws://localhost:9222")
@@ -93,6 +96,7 @@ def test_playwright_browser_default_choreographer_uses_fast_profile(mock_llm, mo
     )
     mock_llm.return_value = MagicMock()
 
+    # Imported after patching get_settings/get_llm so the constructor reads the mocked dependencies.
     from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
     browser = PlaywrightBrowser(cdp_url="ws://localhost:9222")
@@ -134,9 +138,8 @@ def test_connection_pool_choreographer_wiring(mock_llm, mock_settings):
 
 
 def test_connection_pool_imports_choreographer():
-    """connection_pool.py can access BrowserChoreographer (inline import)."""
-    from app.infrastructure.external.browser.choreography import BrowserChoreographer as _Choreo
+    """connection_pool.py imports BrowserChoreographer at module level."""
+    from app.infrastructure.external.browser import connection_pool
 
-    # The import is inline inside _create_connection_with_retry, so verify the
-    # choreography module itself is importable and yields the right class.
-    assert _Choreo is BrowserChoreographer
+    assert hasattr(connection_pool, "BrowserChoreographer")
+    assert connection_pool.BrowserChoreographer is BrowserChoreographer

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -399,9 +399,10 @@ class TestRouteInbound:
     async def test_route_reuses_completed_session_for_telegram_with_naive_activity_timestamp(self) -> None:
         """Naive activity timestamps should not break Telegram session reuse."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
+        recent_naive_activity = (datetime.now(UTC) - timedelta(hours=1)).replace(tzinfo=None)
         repo.get_session_activity = AsyncMock(
             return_value={
-                "last_inbound_at": datetime.now().replace(tzinfo=None),  # noqa: DTZ005 - explicit naive-timestamp test case
+                "last_inbound_at": recent_naive_activity,
             }
         )
 

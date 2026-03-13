@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from . import (
     auth_routes,
+    browser_workflow_routes,
     canvas_routes,
     channel_link_routes,
     connectors_routes,
@@ -31,6 +32,7 @@ def create_api_router() -> APIRouter:
     # Include all sub-routers
     api_router.include_router(health_routes.router)  # Lightweight health check
     api_router.include_router(session_routes.router)
+    api_router.include_router(browser_workflow_routes.router)
     api_router.include_router(file_routes.router)
     api_router.include_router(auth_routes.router)
     api_router.include_router(maintenance_routes.router)

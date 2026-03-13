@@ -105,8 +105,6 @@ class BrowserConnectionPool:
             max_idle_time: Maximum idle time before connection cleanup in seconds (default from settings)
             health_check_interval: Interval between health checks in seconds (default from settings)
         """
-        from app.core.config import get_settings
-
         settings = get_settings()
 
         self._pools: dict[str, list[PooledConnection]] = {}
@@ -285,8 +283,6 @@ class BrowserConnectionPool:
         """
         # Use settings default if not explicitly specified
         if block_resources is None:
-            from app.core.config import get_settings
-
             settings = get_settings()
             block_resources = settings.browser_block_resources_default
 
@@ -472,6 +468,11 @@ class BrowserConnectionPool:
             progress_callback: Optional async callback for progress updates
         """
         last_error: Exception | None = None
+        _settings = get_settings()
+        choreographer = BrowserChoreographer(
+            profile_name=_settings.browser_choreography_profile,
+            enabled=_settings.browser_choreography_enabled,
+        )
 
         for attempt in range(max_retries):
             error_context.retry_count = attempt
@@ -484,11 +485,6 @@ class BrowserConnectionPool:
                     logger.warning(f"Failed to emit retry progress event: {e}")
 
             try:
-                _settings = get_settings()
-                choreographer = BrowserChoreographer(
-                    profile_name=_settings.browser_choreography_profile,
-                    enabled=_settings.browser_choreography_enabled,
-                )
                 browser = PlaywrightBrowser(
                     cdp_url=cdp_url,
                     block_resources=block_resources,

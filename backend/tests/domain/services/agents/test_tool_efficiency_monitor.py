@@ -359,6 +359,21 @@ class TestRepetitiveSameToolDetection:
         assert signal.hard_stop is False  # warn only, not immediate hard-stop
         assert signal.signal_type == "repetitive_tool"
 
+    def test_browser_get_content_hits_immediate_hard_stop_at_threshold(self):
+        """Browser content extraction loops should still hard-stop at the threshold."""
+        monitor = ToolEfficiencyMonitor(
+            same_tool_threshold=4,
+            same_tool_strong_threshold=8,
+        )
+
+        for _ in range(4):
+            monitor.record("browser_get_content")
+
+        signal = monitor.check_efficiency()
+        assert signal.is_balanced is False
+        assert signal.hard_stop is True
+        assert signal.signal_type == "repetitive_tool"
+
     def test_different_tools_do_not_trigger(self):
         """Alternating tools should not trigger repetitive detection."""
         monitor = ToolEfficiencyMonitor(same_tool_threshold=4)

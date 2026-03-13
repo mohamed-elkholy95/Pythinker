@@ -4,6 +4,8 @@ Contains configuration for Docker sandbox lifecycle, pool management, browser ag
 anti-bot stealth, connection pooling, crash detection, screenshots, and stuck detection.
 """
 
+from pydantic import Field
+
 from app.core.config_enums import StreamingMode
 
 
@@ -49,7 +51,7 @@ class SandboxSettingsMixin:
     sandbox_llm_proxy_key: str | None = None
     sandbox_llm_proxy_max_tokens: int = 4096
     sandbox_llm_proxy_rate_limit: int = 30  # requests per minute
-    sandbox_llm_proxy_allowed_models: list[str] = []  # noqa: RUF012 — Pydantic copies mutable defaults
+    sandbox_llm_proxy_allowed_models: list[str] = Field(default_factory=list)  # empty = all models
 
     # Phase 3: HTTP/2 Configuration
     sandbox_http2_enabled: bool = False  # Enable HTTP/2 for sandbox API communication
