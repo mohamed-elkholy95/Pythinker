@@ -62,11 +62,11 @@ COPY requirements.txt requirements.runtime.txt requirements.addons.txt ./
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 # Base Python venv template (used by sandbox API + per-workspace venv cloning)
+# Uses uv for ~10-20x faster installs vs pip
 RUN python3 -m venv /opt/base-python-venv && \
-    /opt/base-python-venv/bin/pip install --no-cache-dir --upgrade pip wheel setuptools && \
-    /opt/base-python-venv/bin/pip install --no-cache-dir -r /app/requirements.runtime.txt && \
+    uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.runtime.txt && \
     if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
-        /opt/base-python-venv/bin/pip install --no-cache-dir -r /app/requirements.addons.txt; \
+        uv pip install --python /opt/base-python-venv/bin/python --no-cache -r /app/requirements.addons.txt; \
     fi && \
     /opt/base-python-venv/bin/python -m playwright install --with-deps chromium && \
     (chown -R ubuntu:ubuntu /opt/base-python-venv /opt/playwright-browsers 2>/dev/null || true)
