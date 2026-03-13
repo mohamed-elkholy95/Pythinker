@@ -1142,6 +1142,9 @@ const showUrlStatusBar = computed(() => {
 });
 
 const showLivePreviewChrome = computed(() => {
+  // When URL status bar is visible, hide BrowserChrome — it's redundant
+  // (the real browser tabs/address bar are visible in the CDP stream)
+  if (showUrlStatusBar.value) return false;
   if (showLivePreviewPlaceholder.value || !showPersistentBrowser.value) return false;
   return currentViewType.value === 'live_preview' || isBrowserTool(toolName.value) || forceBrowserView.value;
 });

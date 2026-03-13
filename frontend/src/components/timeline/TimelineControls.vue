@@ -39,7 +39,7 @@
           class="timeline-step-btn"
           title="Previous action (←)"
         >
-          <SkipBack class="w-4 h-4" />
+          <SkipBack class="w-[18px] h-[18px]" />
         </button>
         <button
           @click="$emit('stepForward')"
@@ -47,7 +47,7 @@
           class="timeline-step-btn"
           title="Next action (→)"
         >
-          <SkipForward class="w-4 h-4" />
+          <SkipForward class="w-[18px] h-[18px]" />
         </button>
       </div>
 
@@ -55,7 +55,7 @@
       <div class="flex-1 flex items-center">
         <div
           ref="scrubberRef"
-          class="scrubber-track relative w-full h-[6px] rounded-full cursor-pointer group overflow-visible"
+          class="scrubber-track relative w-full h-[7px] rounded-full cursor-pointer group overflow-visible"
           @click="handleScrubberClick"
           @mousedown="startDragging"
           @mouseenter="handleMouseEnter"
@@ -90,7 +90,7 @@
 
           <!-- Scrubber Thumb -->
           <div
-            class="scrubber-thumb absolute w-3 h-3 rounded-full -top-[3px] transform -translate-x-1/2 shadow-md transition-transform hover:scale-125"
+            class="scrubber-thumb absolute w-3.5 h-3.5 rounded-full -top-[3.5px] transform -translate-x-1/2 shadow-md transition-transform hover:scale-125"
             :style="{ left: `${progress}%` }"
           />
         </div>
@@ -103,7 +103,7 @@
           :class="isReplayMode ? 'bg-gray-400' : isLive ? 'is-live' : 'bg-gray-400'"
         />
         <span
-          class="text-[13px] font-medium"
+          class="text-[14px] font-semibold"
           :class="isReplayMode ? 'text-[var(--text-tertiary)]' : isLive ? 'text-emerald-500 dark:text-emerald-400' : 'text-[var(--text-tertiary)]'"
         >
           {{ isReplayMode ? 'replay' : 'live' }}
@@ -395,8 +395,8 @@ onUnmounted(() => {
 
 /* Live indicator dot */
 .timeline-live-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
 }
