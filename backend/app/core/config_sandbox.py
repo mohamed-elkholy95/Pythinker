@@ -35,6 +35,10 @@ class SandboxSettingsMixin:
     sandbox_framework_required: bool = False
     sandbox_api_secret: str | None = None  # Shared secret for sandbox API auth
 
+    # Sandbox callback
+    sandbox_callback_enabled: bool = False
+    sandbox_callback_token: str | None = None
+
     # Phase 3: HTTP/2 Configuration
     sandbox_http2_enabled: bool = False  # Enable HTTP/2 for sandbox API communication
 
