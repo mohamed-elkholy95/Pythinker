@@ -303,7 +303,9 @@ class ScraplingAdapter:
         options = FetchOptions(
             mode=mode if mode != StealthMode.HTTP else StealthMode.STEALTH,
             timeout_ms=int(kwargs.get("timeout_ms", getattr(self._settings, "stealth_session_timeout", 30000))),
-            network_idle=bool(kwargs.get("network_idle", getattr(self._settings, "stealth_session_network_idle", True))),
+            network_idle=bool(
+                kwargs.get("network_idle", getattr(self._settings, "stealth_session_network_idle", True))
+            ),
         )
         if "wait_selector" in kwargs:
             options["wait_selector"] = str(kwargs["wait_selector"])

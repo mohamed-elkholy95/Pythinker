@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from contextlib import suppress
 from typing import TYPE_CHECKING, Literal, cast
 
 from app.domain.external.stealth_types import FetchOptions, FetchResult, StealthMode
 
 if TYPE_CHECKING:
-    from scrapling.fetchers import AsyncStealthySession
-    from scrapling.fetchers import ProxyRotator
+    from scrapling.fetchers import AsyncStealthySession, ProxyRotator
 
     from .proxy_health_tracker import ProxyHealthTracker
 
@@ -73,10 +73,8 @@ class StealthSessionManager:
         self._cleanup_task = None
         if cleanup_task is not None:
             cleanup_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await cleanup_task
-            except asyncio.CancelledError:
-                pass
 
         async with self._lock:
             session_items = list(self._session_cms.items())
