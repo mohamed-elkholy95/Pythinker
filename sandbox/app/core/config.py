@@ -69,6 +69,17 @@ class Settings(BaseSettings):
     CODE_SERVER_PASSWORD: Optional[str] = None
     ENABLE_CODE_SERVER: bool = False
 
+    # Observability (OTEL + Sentry)
+    OTEL_ENABLED: bool = False
+    OTEL_EXPORTER_OTLP_ENDPOINT: Optional[str] = None
+    OTEL_SERVICE_NAME: str = "sandbox-runtime"
+    OTEL_TRACES_SAMPLER_RATIO: float = 1.0
+    OTEL_BSP_MAX_EXPORT_BATCH_SIZE: int = 1024
+    OTEL_BSP_SCHEDULE_DELAY: int = 10000
+    OTEL_PYTHON_LOG_CORRELATION: bool = True
+    OTEL_RESOURCE_ATTRIBUTES: str = "service.name=sandbox-runtime,service.env=sandbox"
+    SENTRY_DSN: Optional[str] = None
+
     @field_validator("ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
