@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_BASE_URL: Optional[str] = None
 
+    # Code-Server (VS Code web IDE)
+    CODE_SERVER_PORT: int = 8443
+    CODE_SERVER_PASSWORD: Optional[str] = None
+    ENABLE_CODE_SERVER: bool = False
+
     @field_validator("ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
