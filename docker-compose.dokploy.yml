@@ -142,7 +142,6 @@ services:
       context: ./sandbox
       dockerfile: Dockerfile
       args:
-        USE_CHROMIUM: "1"
         ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"
       platforms:
         - linux/amd64
@@ -152,7 +151,7 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
+      - BROWSER_PATH=/usr/local/bin/chromium
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET}
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:?Set SUPERVISOR_RPC_USERNAME}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:?Set SUPERVISOR_RPC_PASSWORD}
@@ -206,7 +205,6 @@ services:
       context: ./sandbox
       dockerfile: Dockerfile
       args:
-        USE_CHROMIUM: "1"
         ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"
       platforms:
         - linux/amd64
@@ -216,7 +214,7 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/opt/chrome-for-testing/chrome  # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
+      - BROWSER_PATH=/usr/local/bin/chromium
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET}
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:?Set SUPERVISOR_RPC_USERNAME}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:?Set SUPERVISOR_RPC_PASSWORD}

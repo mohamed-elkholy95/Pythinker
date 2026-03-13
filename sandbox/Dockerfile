@@ -1,10 +1,7 @@
 # ============================================================
 # Stage 1: BUILDER — heavy installs, dev tools, Playwright
 # ============================================================
-# USE_CHROMIUM=1: Prefer Playwright Chromium over Chrome for Testing.
 FROM ubuntu:22.04 AS builder
-ARG USE_CHROMIUM=0
-ARG USE_CHROMIUM_APT=0
 ARG ENABLE_SANDBOX_ADDONS=0
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -41,22 +38,6 @@ RUN mkdir -p ${NVM_DIR} && \
 ENV PNPM_HOME=/home/ubuntu/.local/share/pnpm
 ENV PATH=${PNPM_HOME}:${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:$PATH
 
-# Chrome for Testing (amd64) — skipped when USE_CHROMIUM=1 or USE_CHROMIUM_APT=1.
-ARG TARGETARCH
-ENV CHROME_FOR_TESTING_PATH=/opt/chrome-for-testing
-RUN mkdir -p ${CHROME_FOR_TESTING_PATH} && \
-    if [ "$USE_CHROMIUM" != "1" ] && [ "$USE_CHROMIUM_APT" != "1" ] && [ "$TARGETARCH" != "arm64" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends unzip && \
-        CHROME_VER=131.0.6778.204 && \
-        curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER}/linux64/chrome-linux64.zip" \
-            -o /tmp/chrome-linux64.zip && \
-        unzip -q /tmp/chrome-linux64.zip -d /tmp/chrome-extract && \
-        mv /tmp/chrome-extract/chrome-linux64/* ${CHROME_FOR_TESTING_PATH}/ && \
-        chmod +x ${CHROME_FOR_TESTING_PATH}/chrome && rm -rf /tmp/chrome-linux64.zip /tmp/chrome-extract && \
-        ln -sf ${CHROME_FOR_TESTING_PATH}/chrome /usr/local/bin/chrome-for-testing && \
-        apt-get purge -y unzip && apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*; \
-    fi
-
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
 # uv — fast Python package/project manager (matches reference sandbox §3.1)
@@ -90,12 +71,6 @@ RUN python3 -m venv /opt/base-python-venv && \
     /opt/base-python-venv/bin/python -m playwright install --with-deps chromium firefox webkit && \
     (chown -R ubuntu:ubuntu /opt/base-python-venv /opt/playwright-browsers 2>/dev/null || true)
 
-RUN if [ "$TARGETARCH" = "arm64" ] && [ "$USE_CHROMIUM" != "1" ]; then \
-    PW_CHROME=$(find /opt/playwright-browsers -name chrome -path '*chrome-linux*' -type f 2>/dev/null | head -1) && \
-    [ -n "$PW_CHROME" ] && ln -sf "$PW_CHROME" ${CHROME_FOR_TESTING_PATH}/chrome && ln -sf "$PW_CHROME" /usr/local/bin/chrome-for-testing || exit 1; \
-    chown -R ubuntu:ubuntu ${CHROME_FOR_TESTING_PATH} /opt/playwright-browsers 2>/dev/null || true; \
-    fi
-
 # Node CLI tools used by sandbox code-dev/test endpoints
 # yarn 1.22.22 matches the reference sandbox environment (report §3.1)
 RUN npm install -g prettier eslint typescript jest @types/node yarn@1.22.22 @mermaid-js/mermaid-cli@11.12.0
@@ -128,12 +103,7 @@ RUN apt-get update && apt-get purge -y --auto-remove software-properties-common 
 # ============================================================
 # Stage 2: RUNTIME — production sandbox image
 # ============================================================
-ARG USE_CHROMIUM=0
-ARG USE_CHROMIUM_APT=0
-
 FROM ubuntu:22.04 AS runtime
-ARG USE_CHROMIUM=0
-ARG USE_CHROMIUM_APT=0
 ARG ENABLE_SANDBOX_ADDONS=0
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -163,35 +133,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fc-cache -f && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Playwright/Chromium runtime libs
-# NOTE: Ubuntu 22.04 default chromium-browser is a snap stub (incompatible with Docker).
-# USE_CHROMIUM=1 uses Playwright's bundled Chromium; USE_CHROMIUM_APT=1 installs the real
-# deb from Rob Savoury's PPA (ppa:savoury1/chromium) at the pinned 128.0.6613.137 build
-# that matches the reference sandbox environment exactly.
+# Playwright Chromium runtime libs
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 \
     libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
     libpango-1.0-0 libcairo2 libxshmfence1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# USE_CHROMIUM_APT=1: Install Chromium 128.0.6613.137 (Official Build, Ubuntu 22.04 64-bit)
-# from Rob Savoury's PPA. Version is pinned and held to prevent unintended upgrades.
-# PPA: https://launchpad.net/~savoury1/+archive/ubuntu/chromium
-RUN if [ "$USE_CHROMIUM_APT" = "1" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends software-properties-common && \
-        add-apt-repository -y ppa:savoury1/chromium && \
-        apt-get update && \
-        apt-get install -y --no-install-recommends \
-            chromium-browser=1:128.0.6613.137-0ubuntu0.22.04.1sav0 \
-            chromium-codecs-ffmpeg-extra=1:128.0.6613.137-0ubuntu0.22.04.1sav0 && \
-        apt-mark hold chromium-browser chromium-codecs-ffmpeg-extra && \
-        apt-get purge -y --auto-remove software-properties-common && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        mkdir -p /opt/chrome-for-testing && \
-        ln -sf /usr/bin/chromium-browser /opt/chrome-for-testing/chrome && \
-        ln -sf /usr/bin/chromium-browser /usr/local/bin/chromium && \
-        echo "USE_CHROMIUM_APT=1: Chromium 128.0.6613.137 installed from ppa:savoury1/chromium"; \
-    fi
 
 # Create ubuntu user — no NOPASSWD (removed for hardened non-root runtime)
 RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu
@@ -210,8 +157,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 
-# Copy from builder (no dev tools); chrome-for-testing empty when USE_CHROMIUM=1
-COPY --from=builder /opt/chrome-for-testing /opt/chrome-for-testing
+# Copy from builder
 COPY --from=builder /opt/base-python-venv /opt/base-python-venv
 COPY --from=builder /opt/playwright-browsers /opt/playwright-browsers
 COPY --from=builder /usr/local/nvm /usr/local/nvm
@@ -220,16 +166,12 @@ COPY --from=builder /usr/bin/python3.11 /usr/bin/python3.11
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=builder /home/ubuntu/.local/share/pnpm /home/ubuntu/.local/share/pnpm
 
-# Mermaid CLI puppeteer config for containerized rendering (uses Playwright Chromium)
-RUN echo '{"executablePath":"/usr/bin/chromium-browser","args":["--no-sandbox","--disable-setuid-sandbox","--disable-gpu"],"timeout":60000}' > /opt/mermaid-puppeteer.json
-
 ENV NVM_DIR=/usr/local/nvm
 ENV NODE_VERSION=22.13.0
 ENV PNPM_HOME=/home/ubuntu/.local/share/pnpm
 ENV VIRTUAL_ENV=/opt/base-python-venv
 ENV SANDBOX_ADDONS_ENABLED=${ENABLE_SANDBOX_ADDONS}
 ENV PATH=${VIRTUAL_ENV}/bin:${PNPM_HOME}:${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:$PATH
-ENV CHROME_FOR_TESTING_PATH=/opt/chrome-for-testing
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 ENV PYTHONIOENCODING=utf-8
 ENV LANG=C.UTF-8
@@ -237,20 +179,19 @@ ENV PW_TEST_SCREENSHOT_NO_FONTS_READY=1
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
-# When USE_CHROMIUM=1 (and not USE_CHROMIUM_APT): symlink Playwright Chromium to common paths.
-# USE_CHROMIUM_APT takes precedence — it already placed the symlink above.
-RUN if [ "$USE_CHROMIUM" = "1" ] && [ "$USE_CHROMIUM_APT" != "1" ]; then \
-        PW_CHROMIUM=$(find /opt/playwright-browsers -name chrome -path '*/chromium-*/chrome-linux*/chrome' -type f 2>/dev/null | head -1); \
-        if [ -n "$PW_CHROMIUM" ]; then \
-            mkdir -p /usr/local/bin && \
-            ln -sf "$PW_CHROMIUM" /usr/local/bin/chromium && \
-            ln -sf "$PW_CHROMIUM" /usr/bin/chromium-browser && \
-            echo "Symlinked Playwright Chromium: $PW_CHROMIUM -> /usr/local/bin/chromium,/usr/bin/chromium-browser"; \
-        else \
-            echo "WARNING: Playwright Chromium not found in /opt/playwright-browsers"; \
-            find /opt/playwright-browsers -type f -name chrome 2>/dev/null || echo "No chrome binaries found"; \
-        fi; \
+# Symlink Playwright Chromium to standard paths for BROWSER_PATH and Mermaid CLI
+RUN PW_CHROMIUM=$(find /opt/playwright-browsers -name chrome -path '*/chromium-*/chrome-linux*/chrome' -type f 2>/dev/null | head -1); \
+    if [ -n "$PW_CHROMIUM" ]; then \
+        mkdir -p /usr/local/bin && \
+        ln -sf "$PW_CHROMIUM" /usr/local/bin/chromium && \
+        ln -sf "$PW_CHROMIUM" /usr/bin/chromium-browser && \
+        echo "Playwright Chromium: $PW_CHROMIUM -> /usr/local/bin/chromium, /usr/bin/chromium-browser"; \
+    else \
+        echo "ERROR: Playwright Chromium not found in /opt/playwright-browsers" && exit 1; \
     fi
+
+# Mermaid CLI puppeteer config for containerized rendering (uses Playwright Chromium)
+RUN echo '{"executablePath":"/usr/local/bin/chromium","args":["--no-sandbox","--disable-setuid-sandbox","--disable-gpu"],"timeout":60000}' > /opt/mermaid-puppeteer.json
 
 WORKDIR /app
 COPY --from=builder /app/app /app/app
@@ -272,17 +213,8 @@ ENV UVI_ARGS="" FRAMEWORK_UVI_ARGS="" CHROME_ARGS="" SANDBOX_STREAMING_MODE=cdp_
     SUPERVISOR_RPC_USERNAME=supervisor \
     SUPERVISOR_RPC_PASSWORD=supervisor-dev-password
 
-# BROWSER_PATH: When USE_CHROMIUM=1, symlink Playwright Chromium to the default path
-# so BROWSER_PATH=/opt/chrome-for-testing/chrome works for both modes.
-# This is the cleanest approach since Docker ENV can't be conditional.
-RUN if [ "$USE_CHROMIUM" = "1" ] && [ "$USE_CHROMIUM_APT" != "1" ] && [ -f /usr/local/bin/chromium ]; then \
-        mkdir -p /opt/chrome-for-testing && \
-        ln -sf /usr/local/bin/chromium /opt/chrome-for-testing/chrome && \
-        echo "USE_CHROMIUM=1: symlinked /usr/local/bin/chromium -> /opt/chrome-for-testing/chrome"; \
-    fi
-
-ENV BROWSER_PATH=/opt/chrome-for-testing/chrome
-ENV CHROME_BIN="/opt/chrome-for-testing/chrome"
+ENV BROWSER_PATH=/usr/local/bin/chromium
+ENV CHROME_BIN=/usr/local/bin/chromium
 
 RUN chown -R ubuntu:ubuntu /home/ubuntu && chmod 750 /home/ubuntu && \
     mkdir -p /workspace && chown ubuntu:ubuntu /workspace && chmod 755 /workspace && \

@@ -7,7 +7,7 @@
 # stopasgroup=true, this prevents orphan filter processes on Chrome restart.
 #
 # Environment:
-#   BROWSER_PATH  - Chrome binary (default: /opt/chrome-for-testing/chrome)
+#   BROWSER_PATH  - Chrome binary (default: /usr/local/bin/chromium)
 #   CHROME_ARGS   - Additional Chrome flags (space-separated)
 
 set -uo pipefail
@@ -35,7 +35,7 @@ done
 export DISPLAY=:99
 
 # ── Chrome binary and flags ──────────────────────────────────────────
-CHROME="${BROWSER_PATH:-/opt/chrome-for-testing/chrome}"
+CHROME="${BROWSER_PATH:-/usr/local/bin/chromium}"
 
 # Auto-detect browser version for a realistic user-agent string.
 # Falls back to the major version only (e.g. "128.0.0.0") when the binary is unavailable.

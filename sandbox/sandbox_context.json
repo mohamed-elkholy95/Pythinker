@@ -252,11 +252,10 @@
       }
     },
     "browser": {
-      "chromium": {},
-      "chrome_for_testing": {
+      "chromium": {
         "available": true,
         "version": "Chromium 140.0.7339.16",
-        "path": "/opt/chrome-for-testing/chrome"
+        "path": "/usr/local/bin/chromium"
       },
       "playwright": {
         "available": true,

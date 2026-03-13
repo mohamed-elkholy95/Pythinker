@@ -42,7 +42,7 @@
 
 ## Browser Automation
 
-- **Chrome for Testing:** Chromium 140.0.7339.16
+- **Chromium:** Chromium 140.0.7339.16 (Playwright)
 - **Playwright:** Available (browsers: chromium, firefox, webkit)
 - **Stealth Mode:** No
 
