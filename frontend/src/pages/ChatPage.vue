@@ -168,7 +168,6 @@
         <!-- Right side - spacer -->
         <div class="flex-1"></div>
       </div>
-      <!-- PhaseStrip (NeuralFlow) removed — progress shown in TaskProgressBar instead -->
 	      <div
           v-if="chatViewMode === 'chat'"
 	        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1"
@@ -189,7 +188,6 @@
             :isFastSearchSession="sessionResearchMode === 'fast_search'"
             :activeReasoningState="!isChatMode && !showTaskProgressBar && !showPlanningCard && message.id === activeAssistantMessageId ? activeReasoningState : undefined"
             :thinkingText="message.id === activeAssistantMessageId ? thinkingText : undefined"
-            :liveActivity="!isChatMode && !showTaskProgressBar && !showPlanningCard && message.id === activeAssistantMessageId ? liveActivity : undefined"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -384,7 +382,6 @@
             />
           </Transition>
 
-          <!-- Partial Results removed — step headlines shown in TaskProgressBar instead -->
 
           <!-- Task Progress Bar Container - shown above ChatBox when ToolPanel is closed -->
           <div v-if="showTaskProgressBar" class="relative mb-2">
@@ -499,7 +496,7 @@
         :timelineCanStepBackward="toolTimelineCanStepBackward"
         :toolTimeline="toolTimeline"
         :timelineCurrentStep="toolTimelineCurrentStep"
-        :timelineTotalSteps="toolTimeline.length"
+        :timelineTotalSteps="isReplayMode ? replay.screenshots.value.length : toolTimeline.length"
         :isReplayMode="isReplayMode"
         :replayScreenshotUrl="replay.currentScreenshotUrl.value"
         :replayMetadata="replay.currentScreenshot.value"
@@ -544,7 +541,7 @@
 
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
-import type { ReasoningStage, LiveActivity } from '@/components/ReasoningPipeline.vue';
+import type { ReasoningStage } from '@/types/reasoning';
 import { ref, computed, onMounted, watch, nextTick, onUnmounted, reactive, toRefs, shallowRef, triggerRef } from 'vue';
 import { useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
 import { useDocumentVisibility } from '@vueuse/core';
@@ -580,7 +577,6 @@ import {
   WorkspaceEventData,
   ThoughtEventData,
   WaitEventData,
-  PartialResultEventData,
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
@@ -606,7 +602,6 @@ import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport'
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import PlanningCard from '@/components/PlanningCard.vue';
-// PartialResults and PhaseStrip removed — progress shown in TaskProgressBar instead
 import WaitingForReply from '@/components/WaitingForReply.vue';
 // WideResearchOverlay removed — absorbed into Deep Research mode
 import ConnectionStatusBanner from '@/components/ConnectionStatusBanner.vue';
@@ -806,8 +801,6 @@ const createInitialState = () => ({
   agentModeOriginalPrompt: null as string | null, // Tracks original prompt for agent-mode echo suppression
   timeoutReason: null as 'connection' | 'workflow_idle' | 'workflow_limit' | null, // Discriminates timeout source
   activeReasoningState: 'idle' as ReasoningStage, // Reasoning pipeline state for active assistant message
-  phaseStripStartTime: 0 as number, // Timestamp when current agent run started (for PhaseStrip elapsed timer)
-  partialResults: [] as { stepIndex: number; stepTitle: string; headline: string; sourcesCount: number }[], // Provisional findings during execution
 });
 
 // Create reactive state
@@ -864,8 +857,6 @@ const {
   agentModeOriginalPrompt,
   timeoutReason,
   activeReasoningState,
-  phaseStripStartTime,
-  partialResults,
 } = toRefs(state);
 
 const chatViewMode = ref<'chat' | 'reasoning'>('chat');
@@ -907,18 +898,6 @@ const startPlanningHandoff = (
     planningHandoffState.value = null;
   }, PLANNING_HANDOFF_MS);
 };
-
-// Track latest running step description for NeuralFlow
-const lastStepDescription = ref<string | undefined>(undefined)
-
-// Build live activity object for NeuralFlow from the latest tool + planning state
-const liveActivity = computed<LiveActivity>(() => ({
-  toolName: lastTool.value?.name,
-  toolStatus: lastTool.value?.status,
-  toolArgs: lastTool.value?.args,
-  stepDescription: lastStepDescription.value,
-  progressMessage: planningProgress.value?.message,
-}))
 
 const takeoverStarting = ref(false);
 const TAKEOVER_WAIT_REASONS = new Set(['captcha', 'login', '2fa', 'payment', 'verification']);
@@ -1658,7 +1637,6 @@ const cleanupStreamingState = () => {
   allowStandaloneSummaryOnNextAssistant.value = false;
   isInitializing.value = false;
   planningProgress.value = null;
-  lastStepDescription.value = undefined;
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value = null;
   }
@@ -2189,12 +2167,15 @@ const toolTimelineIndex = computed(() => {
 });
 
 const toolTimelineProgress = computed(() => {
+  // In replay mode, navigate through screenshots (fine-grained)
+  if (isReplayMode.value) return replay.progress.value;
   const total = toolTimeline.value.length;
   if (total <= 1 || toolTimelineIndex.value < 0) return 0;
   return (toolTimelineIndex.value / (total - 1)) * 100;
 });
 
 const toolTimelineTimestamp = computed(() => {
+  if (isReplayMode.value) return replay.currentTimestamp.value;
   if (toolTimelineIndex.value >= 0) {
     return toolTimeline.value[toolTimelineIndex.value].timestamp;
   }
@@ -2202,18 +2183,25 @@ const toolTimelineTimestamp = computed(() => {
 });
 
 const toolTimelineCanStepForward = computed(() => {
+  if (isReplayMode.value) return replay.canStepForward.value;
   const total = toolTimeline.value.length;
   return toolTimelineIndex.value >= 0 && toolTimelineIndex.value < total - 1;
 });
 
-const toolTimelineCanStepBackward = computed(() => toolTimelineIndex.value > 0);
+const toolTimelineCanStepBackward = computed(() => {
+  if (isReplayMode.value) return replay.canStepBackward.value;
+  return toolTimelineIndex.value > 0;
+});
 
 /** 1-based current step for display (0 when nothing selected). */
-const toolTimelineCurrentStep = computed(() =>
-  toolTimelineIndex.value >= 0 ? toolTimelineIndex.value + 1 : 0
-);
+const toolTimelineCurrentStep = computed(() => {
+  if (isReplayMode.value) return replay.currentIndex.value >= 0 ? replay.currentIndex.value + 1 : 0;
+  return toolTimelineIndex.value >= 0 ? toolTimelineIndex.value + 1 : 0;
+});
 
-const showTimelineControls = computed(() => toolTimeline.value.length > 0);
+const showTimelineControls = computed(() =>
+  toolTimeline.value.length > 0 || isReplayMode.value
+);
 
 // Handle opening the panel from TaskProgressBar
 const handleOpenPanel = () => {
@@ -2547,7 +2535,7 @@ const handleToolProgressEvent = (data: import('../types/event').ToolProgressEven
   }
 }
 
-// Map tool function names → NeuralFlow reasoning stage
+// Map tool function names → reasoning stage
 const TOOL_STAGE_MAP: Record<string, ReasoningStage> = {
   // Search / retrieval
   web_search: 'retrieval',
@@ -2677,7 +2665,7 @@ const handleToolEvent = (toolData: ToolEventData) => {
   }
 }
 
-// Map agent phase_type → NeuralFlow reasoning stage
+// Map agent phase_type → reasoning stage
 const PHASE_TYPE_STAGE_MAP: Partial<Record<string, ReasoningStage>> = {
   planning:    'planning',
   research:    'retrieval',
@@ -2745,13 +2733,11 @@ const findActivePhaseMessage = (phaseId: string | undefined) => {
 
 // Handle step event
 const handleStepEvent = (stepData: StepEventData) => {
-  // Sync NeuralFlow with step lifecycle
+  // Sync reasoning state with step lifecycle
   if (stepData.status === 'running' || stepData.status === 'started') {
     activeReasoningState.value = 'planning';
-    lastStepDescription.value = stepData.description
   } else if (stepData.status === 'completed') {
     activeReasoningState.value = 'quality_checking';
-    lastStepDescription.value = undefined
   }
   const lastStep = getLastStep();
   if (stepData.status === 'running' || stepData.status === 'started') {
@@ -3209,7 +3195,6 @@ const handleReportEvent = (reportData: ReportEventData) => {
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
   allowStandaloneSummaryOnNextAssistant.value = false;
-  partialResults.value = [];
 
   const reportAttachments = reportData.attachments ?? [];
   removeRedundantAssistantAttachmentMessages(reportAttachments);
@@ -3436,7 +3421,6 @@ const finalizeSession = (
   activeReasoningState.value = 'completed';
   follow.value = false;
   planningProgress.value = null;
-  partialResults.value = [];
   isWaitingForReply.value = false;
   clearTakeoverCta();
   dismissConnectionBanner();
@@ -3560,16 +3544,6 @@ const handleReflectionEvent = (data: unknown) => {
   }
 }
 
-// ── Partial result handler (provisional findings during execution) ──
-const handlePartialResultEvent = (data: PartialResultEventData) => {
-  partialResults.value.push({
-    stepIndex: data.step_index,
-    stepTitle: data.step_title,
-    headline: data.headline,
-    sourcesCount: data.sources_count,
-  })
-}
-
 // ── Event handler registry (O(1) dispatch replaces 22-branch if/else) ──
 const eventRegistry = createEventHandlerRegistry({
   message: (data) => { handleMessageEvent(data as MessageEventData); suggestions.value = []; },
@@ -3601,7 +3575,6 @@ const eventRegistry = createEventHandlerRegistry({
   flow_transition: (data) => handleFlowTransitionEvent(data),
   verification: (data) => handleVerificationEvent(data),
   reflection: (data) => handleReflectionEvent(data),
-  partial_result: (data) => handlePartialResultEvent(data as PartialResultEventData),
   eval_metrics: (data) => {
     const metrics = data as import('../types/event').EvalMetricsEventData
     console.debug('[EvalMetrics]', metrics.passed ? 'PASSED' : 'WARN', `hallucination=${metrics.hallucination_score}`)
@@ -4268,16 +4241,31 @@ const showToolFromTimeline = (index: number) => {
 }
 
 const handleTimelineStepForward = () => {
+  if (isReplayMode.value) {
+    replay.stepForward();
+    realTime.value = false;
+    return;
+  }
   if (!toolTimelineCanStepForward.value) return;
   showToolFromTimeline(toolTimelineIndex.value + 1);
 }
 
 const handleTimelineStepBackward = () => {
+  if (isReplayMode.value) {
+    replay.stepBackward();
+    realTime.value = false;
+    return;
+  }
   if (!toolTimelineCanStepBackward.value) return;
   showToolFromTimeline(toolTimelineIndex.value - 1);
 }
 
 const handleTimelineSeek = (progress: number) => {
+  if (isReplayMode.value) {
+    replay.seekByProgress(progress);
+    realTime.value = false;
+    return;
+  }
   if (toolTimeline.value.length === 0) return;
   const maxIndex = toolTimeline.value.length - 1;
   const targetIndex = Math.round((progress / 100) * maxIndex);
@@ -4297,6 +4285,10 @@ const handleToolClick = (tool: ToolContent) => {
 
 const jumpToRealTime = () => {
   realTime.value = true;
+  // In replay mode, jump to the last screenshot
+  if (replay.hasScreenshots.value) {
+    replay.seekByProgress(100);
+  }
   if (!canOpenLiveViewPanel.value) return;
   if (lastNoMessageTool.value) {
     if (showToolPanelIfAllowed(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value))) {
