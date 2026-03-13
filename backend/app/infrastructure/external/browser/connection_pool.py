@@ -482,10 +482,20 @@ class BrowserConnectionPool:
                     logger.warning(f"Failed to emit retry progress event: {e}")
 
             try:
+                from app.core.config import get_settings
+
+                _settings = get_settings()
+                from app.infrastructure.external.browser.choreography import BrowserChoreographer
+
+                choreographer = BrowserChoreographer(
+                    profile_name=_settings.browser_choreography_profile,
+                    enabled=_settings.browser_choreography_enabled,
+                )
                 browser = PlaywrightBrowser(
                     cdp_url=cdp_url,
                     block_resources=block_resources,
                     randomize_fingerprint=randomize_fingerprint,
+                    choreographer=choreographer,
                 )
 
                 # Initialize with clear_existing=True on first attempt to recover from stale state
