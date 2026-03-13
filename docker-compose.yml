@@ -168,6 +168,7 @@ services:
       - LIBGL_ALWAYS_SOFTWARE=1 # Suppress Vulkan/GPU driver warnings in headless containers
       - TZ=${TZ:-UTC}
       - SANDBOX_VERSION=${IMAGE_TAG:-dev}
+      - SHELL_USE_STRUCTURED_MARKERS=${SHELL_USE_STRUCTURED_MARKERS:-true}
     # Sandbox ports bound to localhost only — backend proxies API/live-preview to users.
     # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file access).
     ports:
@@ -235,6 +236,7 @@ services:
       - LIBGL_ALWAYS_SOFTWARE=1 # Suppress Vulkan/GPU driver warnings in headless containers
       - TZ=${TZ:-UTC}
       - SANDBOX_VERSION=${IMAGE_TAG:-dev}
+      - SHELL_USE_STRUCTURED_MARKERS=${SHELL_USE_STRUCTURED_MARKERS:-true}
     ports:
       - "127.0.0.1:8084:8080" # Sandbox API (localhost only)
       - "127.0.0.1:8085:8082" # Sandbox framework API (localhost only)
