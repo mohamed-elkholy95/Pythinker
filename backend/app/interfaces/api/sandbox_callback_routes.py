@@ -3,10 +3,11 @@
 These endpoints receive events, progress updates, and resource requests
 from sandbox containers. Authenticated via X-Sandbox-Callback-Token header.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/sandbox/callback", tags=["sandbox-callback"])
 class CallbackEventRequest(BaseModel):
     type: str = Field(..., description="Event type: crash, oom, timeout, ready")
     details: dict[str, Any] = Field(default_factory=dict)
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
 
 class CallbackProgressRequest(BaseModel):
@@ -39,7 +40,7 @@ class CallbackResourceRequest(BaseModel):
 class CallbackResponse(BaseModel):
     success: bool = True
     message: str = "ok"
-    data: Optional[dict[str, Any]] = None
+    data: dict[str, Any] | None = None
 
 
 async def verify_sandbox_callback_token(
@@ -61,7 +62,9 @@ async def receive_event(
     """Receive a sandbox event (crash, OOM, timeout, ready)."""
     logger.info(
         "Sandbox callback event: type=%s session=%s details=%s",
-        body.type, body.session_id, body.details,
+        body.type,
+        body.session_id,
+        body.details,
     )
     return CallbackResponse(message=f"Event '{body.type}' received")
 
@@ -74,7 +77,9 @@ async def receive_progress(
     """Receive a progress update from the sandbox."""
     logger.info(
         "Sandbox callback progress: session=%s step=%s percent=%d",
-        body.session_id, body.step, body.percent,
+        body.session_id,
+        body.step,
+        body.percent,
     )
     return CallbackResponse(message="Progress received")
 
@@ -87,7 +92,8 @@ async def receive_resource_request(
     """Handle a resource request from the sandbox."""
     logger.info(
         "Sandbox callback resource request: type=%s params=%s",
-        body.type, body.params,
+        body.type,
+        body.params,
     )
     return CallbackResponse(
         message=f"Resource request '{body.type}' received",

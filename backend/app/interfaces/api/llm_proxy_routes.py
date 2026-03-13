@@ -4,11 +4,12 @@ Sandbox agents call this endpoint instead of direct LLM APIs.
 The backend validates auth, enforces rate limits and token caps,
 then forwards to the configured LLM provider via UniversalLLM.
 """
+
 from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
@@ -29,8 +30,8 @@ class ChatMessage(BaseModel):
 class ChatCompletionRequest(BaseModel):
     model: str = ""
     messages: list[ChatMessage]
-    max_tokens: Optional[int] = None
-    temperature: Optional[float] = None
+    max_tokens: int | None = None
+    temperature: float | None = None
     stream: bool = False
 
 
@@ -46,9 +47,13 @@ class ChatCompletionResponse(BaseModel):
     created: int = Field(default_factory=lambda: int(time.time()))
     model: str = ""
     choices: list[ChatChoice] = []
-    usage: dict[str, int] = Field(default_factory=lambda: {
-        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
-    })
+    usage: dict[str, int] = Field(
+        default_factory=lambda: {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+    )
 
 
 class ModelInfo(BaseModel):
@@ -110,7 +115,7 @@ async def chat_completions(
         raise
     except Exception as e:
         logger.error("LLM proxy error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"LLM proxy error: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail=f"LLM proxy error: {type(e).__name__}") from e
 
 
 @router.get("/models")

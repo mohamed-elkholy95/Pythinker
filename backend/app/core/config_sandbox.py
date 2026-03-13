@@ -49,7 +49,7 @@ class SandboxSettingsMixin:
     sandbox_llm_proxy_key: str | None = None
     sandbox_llm_proxy_max_tokens: int = 4096
     sandbox_llm_proxy_rate_limit: int = 30  # requests per minute
-    sandbox_llm_proxy_allowed_models: list[str] = []  # empty = all models
+    sandbox_llm_proxy_allowed_models: list[str] = []  # noqa: RUF012 — Pydantic copies mutable defaults
 
     # Phase 3: HTTP/2 Configuration
     sandbox_http2_enabled: bool = False  # Enable HTTP/2 for sandbox API communication
@@ -131,9 +131,7 @@ class BrowserSettingsMixin:
     browser_allow_dangerous_js: bool = False  # Allow dangerous JavaScript execution (SECURITY RISK)
 
     # Playwright Chromium (version-pinned by playwright install)
-    browser_chrome_executable_path: str | None = (
-        None  # Override path (default: /usr/local/bin/chromium in sandbox)
-    )
+    browser_chrome_executable_path: str | None = None  # Override path (default: /usr/local/bin/chromium in sandbox)
     browser_chrome_version: str = "128.0.6613.137"  # Matches Playwright Chromium in sandbox
 
     # Browser Hardening Configuration

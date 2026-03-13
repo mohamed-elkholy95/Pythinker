@@ -22,9 +22,7 @@ from app.domain.services.runtime.middleware import RuntimeContext, RuntimeMiddle
 logger = logging.getLogger(__name__)
 
 # Insight types that are always promoted regardless of confidence score.
-_ALWAYS_PROMOTE: frozenset[InsightType] = frozenset(
-    {InsightType.ERROR_LEARNING, InsightType.BLOCKER}
-)
+_ALWAYS_PROMOTE: frozenset[InsightType] = frozenset({InsightType.ERROR_LEARNING, InsightType.BLOCKER})
 
 # Mapping from InsightType to the memory_service memory_type string.
 _INSIGHT_TO_MEMORY_TYPE: dict[InsightType, str] = {
@@ -106,7 +104,4 @@ class InsightPromotionMiddleware(RuntimeMiddleware):
 
     def _should_promote(self, insight: StepInsight) -> bool:
         """Return True if *insight* meets the promotion criteria."""
-        return (
-            insight.insight_type in _ALWAYS_PROMOTE
-            or insight.confidence >= self._confidence_threshold
-        )
+        return insight.insight_type in _ALWAYS_PROMOTE or insight.confidence >= self._confidence_threshold
