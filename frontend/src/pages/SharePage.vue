@@ -482,17 +482,28 @@ const restoreSession = async () => {
     showErrorToast(t('Session not found'));
     return;
   }
-  const session = await agentApi.getSharedSession(sessionId.value);
-  realTime.value = false;
-  follow.value = false; // Prevent auto-scrolling during restoration
+  try {
+    const session = await agentApi.getSharedSession(sessionId.value);
+    realTime.value = false;
+    follow.value = false; // Prevent auto-scrolling during restoration
 
-  // Store events for timeline playback
-  timelineEvents.value = session.events;
+    // Store events for timeline playback
+    timelineEvents.value = session.events;
 
-  for (const event of session.events) {
-    handleEvent(event);
+    for (const event of session.events) {
+      handleEvent(event);
+    }
+    realTime.value = true;
+  } catch (error) {
+    const status = (error as any)?.response?.status;
+    if (status === 404) {
+      showErrorToast(t('Shared session not found or expired'));
+      router.push('/');
+      return;
+    }
+    showErrorToast(t('Failed to load shared session'));
+    isLoading.value = false;
   }
-  realTime.value = true;
 }
 
 // Start countdown timer
