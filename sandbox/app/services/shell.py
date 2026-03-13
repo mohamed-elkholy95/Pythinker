@@ -29,6 +29,9 @@ from app.core.config import settings
 # Set up logger
 logger = logging.getLogger(__name__)
 
+CMD_BEGIN_MARKER = "[CMD_BEGIN]"
+CMD_END_MARKER = "[CMD_END]"
+
 
 class ShellService:
     # Store active shell sessions
@@ -63,11 +66,15 @@ class ShellService:
         return path
 
     def _format_ps1(self, exec_dir: str) -> str:
-        """Format the command prompt"""
+        """Format the command prompt, optionally with structured markers."""
         username = getpass.getuser()
         hostname = socket.gethostname()
-        display_dir = self._get_display_path(exec_dir)
-        return f"{username}@{hostname}:{display_dir} $"
+        display_path = self._get_display_path(exec_dir)
+
+        if settings.SHELL_USE_STRUCTURED_MARKERS:
+            return f"\n{username}@{hostname}:{display_path}\n{CMD_END_MARKER}"
+
+        return f"{username}@{hostname}:{display_path} $"
 
     def _append_output(self, shell: Dict[str, Any], output: str) -> None:
         """Append output while enforcing a max buffer size."""
@@ -173,6 +180,12 @@ class ShellService:
             # Create PS1 format
             ps1 = self._format_ps1(exec_dir)
 
+            # Build the output header (PS1 + command echo)
+            if settings.SHELL_USE_STRUCTURED_MARKERS:
+                header = f"{CMD_BEGIN_MARKER}{ps1} {command}\n"
+            else:
+                header = f"{ps1} {command}\n"
+
             # If it's a new session, create a new process
             if session_id not in self.active_shells:
                 logger.debug(f"Creating new shell session: {session_id}")
@@ -180,8 +193,8 @@ class ShellService:
                 self.active_shells[session_id] = {
                     "process": process,
                     "exec_dir": exec_dir,
-                    "output": "",
-                    "console": [ConsoleRecord(ps1=ps1, command=command, output="")],
+                    "output": header,
+                    "console": [ConsoleRecord(ps1=ps1, command=command, output=header)],
                 }
                 # Start the output reader coroutine
                 asyncio.create_task(self._start_output_reader(session_id, process))
@@ -212,11 +225,11 @@ class ShellService:
                 # Update session information
                 self.active_shells[session_id]["process"] = process
                 self.active_shells[session_id]["exec_dir"] = exec_dir
-                self.active_shells[session_id]["output"] = ""  # Clear previous output
+                self.active_shells[session_id]["output"] = header  # Start with header
 
-                # Record command console record, but output is initially empty, will be updated later
+                # Record command console record with header
                 shell["console"].append(
-                    ConsoleRecord(ps1=ps1, command=command, output="")
+                    ConsoleRecord(ps1=ps1, command=command, output=header)
                 )
 
                 # Start the output reader coroutine
@@ -251,6 +264,10 @@ class ShellService:
                                     )
                             except (asyncio.TimeoutError, Exception):
                                 pass
+
+                        # Record exit code on the console record
+                        if shell.get("console") and process.returncode is not None:
+                            shell["console"][-1].exit_code = process.returncode
 
                     view_result = await self.view_shell(session_id)
 

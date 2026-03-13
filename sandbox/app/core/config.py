@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # Security controls
     ALLOW_SUDO: bool = False
     SHELL_MAX_OUTPUT_CHARS: int = 200000
+    SHELL_USE_STRUCTURED_MARKERS: bool = True
 
     # API authentication — shared secret with backend
     # When set, all /api/v1/* requests must include X-Sandbox-Secret header
