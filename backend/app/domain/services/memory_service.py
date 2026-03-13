@@ -586,38 +586,19 @@ class MemoryService:
 
             results = await self._repository.search(query)
 
-        # Phase 3: Reranking with cross-encoder
+        # Phase 3: Reranking (SelfHostedReranker removed — torch/sentence-transformers deps eliminated)
+        # JinaReranker operates on SearchResultItem, not MemorySearchResult, so memory
+        # reranking falls through to truncation. Practical behavior is unchanged since
+        # SelfHostedReranker was unavailable in most deployments (torch not present).
         if enable_reranking and len(results) > limit:
             try:
-                from app.domain.services.retrieval.reranker import get_reranker
+                from app.core.config import get_settings
 
-                reranker = get_reranker()
-
-                if reranker.is_available():
-                    # Prepare candidates
-                    candidates = [(r.memory.content, {"memory_id": r.memory.id}) for r in results]
-
-                    # Rerank
-                    reranked = reranker.rerank(context, candidates, top_k=limit)
-
-                    # Rebuild results with rerank scores
-                    memory_lookup = {r.memory.id: r.memory for r in results}
-                    results = []
-                    for _text, meta, rerank_score in reranked:
-                        mem_id = meta["memory_id"]
-                        memory = memory_lookup[mem_id]
-                        results.append(
-                            MemorySearchResult(
-                                memory=memory, relevance_score=rerank_score, match_type="hybrid_reranked"
-                            )
-                        )
-
-                    logger.debug(f"Reranked {len(results)} memories")
-                else:
-                    # Reranker not available, just truncate
-                    results = results[:limit]
-
-            except (ImportError, ValueError, RuntimeError) as e:
+                settings = get_settings()
+                if getattr(settings, "reranker_provider", "none") == "jina":
+                    logger.debug("Reranking: Jina provider configured but memory reranking uses truncation")
+                results = results[:limit]
+            except Exception as e:
                 logger.debug("Reranking failed, using original results: %s", e)
                 results = results[:limit]
         else:
