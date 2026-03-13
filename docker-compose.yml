@@ -79,6 +79,7 @@ services:
       - DSPY_MAX_BOOTSTRAPPED_DEMOS=${DSPY_MAX_BOOTSTRAPPED_DEMOS:-4}
       - DSPY_MAX_LABELED_DEMOS=${DSPY_MAX_LABELED_DEMOS:-4}
       - DSPY_MINIBATCH_SIZE=${DSPY_MINIBATCH_SIZE:-25}
+      - SANDBOX_CALLBACK_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik-public"
@@ -169,6 +170,8 @@ services:
       - TZ=${TZ:-UTC}
       - SANDBOX_VERSION=${IMAGE_TAG:-dev}
       - SHELL_USE_STRUCTURED_MARKERS=${SHELL_USE_STRUCTURED_MARKERS:-true}
+      - RUNTIME_API_HOST=${RUNTIME_API_HOST:-http://backend:8000}
+      - RUNTIME_API_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
     # Sandbox ports bound to localhost only — backend proxies API/live-preview to users.
     # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file access).
     ports:
@@ -237,6 +240,8 @@ services:
       - TZ=${TZ:-UTC}
       - SANDBOX_VERSION=${IMAGE_TAG:-dev}
       - SHELL_USE_STRUCTURED_MARKERS=${SHELL_USE_STRUCTURED_MARKERS:-true}
+      - RUNTIME_API_HOST=${RUNTIME_API_HOST:-http://backend:8000}
+      - RUNTIME_API_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
     ports:
       - "127.0.0.1:8084:8080" # Sandbox API (localhost only)
       - "127.0.0.1:8085:8082" # Sandbox framework API (localhost only)
