@@ -801,6 +801,7 @@ const createInitialState = () => ({
   agentModeOriginalPrompt: null as string | null, // Tracks original prompt for agent-mode echo suppression
   timeoutReason: null as 'connection' | 'workflow_idle' | 'workflow_limit' | null, // Discriminates timeout source
   activeReasoningState: 'idle' as ReasoningStage, // Reasoning pipeline state for active assistant message
+  phaseStripStartTime: 0, // Timestamp when the current session started (used by SessionStartTime prop)
 });
 
 // Create reactive state
@@ -857,6 +858,7 @@ const {
   agentModeOriginalPrompt,
   timeoutReason,
   activeReasoningState,
+  phaseStripStartTime,
 } = toRefs(state);
 
 const chatViewMode = ref<'chat' | 'reasoning'>('chat');
@@ -1587,13 +1589,27 @@ watch(sessionStatus, (status) => {
 });
 
 // Watch sessionId changes to update status (skip initial mount — restoreSession handles it)
-watch(sessionId, async (newSessionId, oldSessionId) => {
+watch(sessionId, async (newSessionId, oldSessionId, onCleanup) => {
   if (!oldSessionId) return;
   // Clear session-level skills when switching sessions
   clearSessionSkills();
 
-  await refreshSessionStatus(newSessionId);
-  await waitForSessionIfInitializing();
+  // initializePendingSession manages its own status polling & message dispatch —
+  // avoid grabbing the isWaitingForSessionReady lock which would cause its
+  // waitForSessionIfInitializing() call to return early (race condition).
+  if (isInitializing.value) return;
+
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
+
+  try {
+    await refreshSessionStatus(newSessionId);
+    if (cancelled) return;
+    await waitForSessionIfInitializing();
+  } catch {
+    // Non-critical — restoreSession handles status refresh independently.
+    // Common case: refreshSessionStatus('new') returns 404 during /chat/new bootstrap.
+  }
 });
 
 /** Set lastError from SSE transport errors (client-side, not backend event). */
@@ -4005,6 +4021,16 @@ const restoreSession = async (
     await agentApi.clearUnreadMessageCount(targetSessionId);
   } catch (error) {
     if (shouldAbortRestore('error')) return;
+
+    // Session deleted or cleaned up — redirect to history
+    const status = (error as any)?.response?.status;
+    if (status === 404) {
+      console.warn('[RESTORE] Session not found, redirecting to history', { targetSessionId });
+      showErrorToast(t('Session not found'));
+      router.replace({ name: 'session-history' });
+      return;
+    }
+
     console.error('[RESTORE] Failed to restore session', { targetSessionId, context, error });
     transitionTo('error');
     showErrorToast(t('Failed to restore session'));
@@ -4052,7 +4078,11 @@ onBeforeRouteUpdate(async (to, from) => {
   messages.value = [];
   if (nextSessionId) {
     sessionId.value = nextSessionId;
-    await restoreSession(nextSessionId, 'route_update');
+    // 'new' is a bootstrap route handled by initializePendingSession on mount —
+    // don't try to restoreSession('new') which would 404.
+    if (nextSessionId !== 'new') {
+      await restoreSession(nextSessionId, 'route_update');
+    }
     return;
   }
 
