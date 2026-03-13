@@ -47,6 +47,7 @@ def test_runtime_feature_flags_are_exposed(monkeypatch) -> None:
         feature_scratchpad_enabled=False,
         feature_structured_compaction_enabled=False,
         feature_live_shell_streaming=False,
+        terminal_live_streaming_enabled=True,
         live_shell_poll_interval_ms=500,
         live_shell_max_polls=600,
         feature_token_budget_manager=False,

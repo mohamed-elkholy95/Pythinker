@@ -1,5 +1,3 @@
-import pytest
-
 from app.infrastructure.external.browser.choreography import (
     PROFILES,
     BrowserChoreographer,
@@ -14,7 +12,7 @@ def test_profiles_exist():
 
 def test_professional_profile_dwell():
     p = PROFILES["professional"]
-    assert 5.0 <= p.dwell_after_navigate <= 10.0
+    assert 2.0 <= p.dwell_after_navigate <= 5.0
 
 
 def test_fast_profile_minimal_delays():
@@ -45,16 +43,14 @@ def test_choreographer_unknown_profile_falls_back():
     assert c.profile.name == "professional"  # fallback to professional
 
 
-@pytest.mark.asyncio
-async def test_choreographer_navigate_delay():
+def test_choreographer_navigate_delay():
     """When enabled, navigate_pre_extract_delay returns the dwell time."""
     c = BrowserChoreographer(profile_name="fast")
     delay = c.get_navigate_dwell()
     assert delay == PROFILES["fast"].dwell_after_navigate
 
 
-@pytest.mark.asyncio
-async def test_choreographer_disabled_returns_zero_dwell():
+def test_choreographer_disabled_returns_zero_dwell():
     c = BrowserChoreographer(profile_name="professional", enabled=False)
     assert c.get_navigate_dwell() == 0.0
 
