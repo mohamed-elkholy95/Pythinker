@@ -355,7 +355,6 @@ class TestSourceGroundingContext:
         assert source.snippet is not None
         assert "Repository overview with grounded browser text." in source.snippet
 
-
     def test_build_source_context_uses_key_facts_when_collected_sources_empty(self):
         """build_source_context() must return key_facts even when _collected_sources is empty."""
         ov = _make_output_verifier()
