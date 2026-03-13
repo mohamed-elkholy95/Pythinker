@@ -44,12 +44,8 @@ async def test_build_pipeline_returns_ordered_middlewares() -> None:
     dangling_idx = type_index[DanglingToolCallMiddleware]
     clarif_idx = type_index[ClarificationMiddleware]
 
-    assert ws_idx < dangling_idx, (
-        "WorkspaceMiddleware must come before DanglingToolCallMiddleware"
-    )
-    assert dangling_idx < clarif_idx, (
-        "DanglingToolCallMiddleware must come before ClarificationMiddleware"
-    )
+    assert ws_idx < dangling_idx, "WorkspaceMiddleware must come before DanglingToolCallMiddleware"
+    assert dangling_idx < clarif_idx, "DanglingToolCallMiddleware must come before ClarificationMiddleware"
 
 
 @pytest.mark.asyncio
@@ -66,9 +62,7 @@ async def test_runtime_init_populates_workspace() -> None:
     ctx = await runtime.initialize()
 
     assert "workspace" in ctx.workspace, "ctx.workspace must contain 'workspace' key"
-    assert ctx.workspace["task_state"].endswith("task_state.md"), (
-        "task_state path must end with 'task_state.md'"
-    )
+    assert ctx.workspace["task_state"].endswith("task_state.md"), "task_state path must end with 'task_state.md'"
     # Sanity-check the stored context is the same object returned.
     assert runtime.context is ctx
 
@@ -125,19 +119,11 @@ async def test_runtime_exposes_workspace_contract() -> None:
 
     ctx = await runtime.initialize()
 
-    assert "workspace_contract" in ctx.metadata, (
-        "ctx.metadata must contain 'workspace_contract' key"
-    )
+    assert "workspace_contract" in ctx.metadata, "ctx.metadata must contain 'workspace_contract' key"
     contract = ctx.metadata["workspace_contract"]
 
-    assert contract.session_id == session_id, (
-        "WorkspaceContract must carry the runtime's session_id"
-    )
+    assert contract.session_id == session_id, "WorkspaceContract must carry the runtime's session_id"
 
     prompt_block = contract.to_prompt_block()
-    assert "<workspace_paths>" in prompt_block, (
-        "to_prompt_block() must return an XML block with <workspace_paths>"
-    )
-    assert session_id in prompt_block, (
-        "to_prompt_block() output must include the session_id in derived paths"
-    )
+    assert "<workspace_paths>" in prompt_block, "to_prompt_block() must return an XML block with <workspace_paths>"
+    assert session_id in prompt_block, "to_prompt_block() output must include the session_id in derived paths"

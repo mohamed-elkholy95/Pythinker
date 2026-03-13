@@ -62,9 +62,7 @@ def test_summarize_prompt_includes_artifact_section_in_canonical_structure() -> 
 def test_summarize_prompt_counts_numbered_sources_not_raw_lines() -> None:
     """Multiline titles should not inflate the source count."""
     source_list = (
-        "[1] Source Title Line 1\n"
-        "Continuation of title - https://one.example\n"
-        "[2] Source Two - https://two.example\n"
+        "[1] Source Title Line 1\nContinuation of title - https://one.example\n[2] Source Two - https://two.example\n"
     )
 
     prompt = build_summarize_prompt(

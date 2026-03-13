@@ -548,9 +548,7 @@ class AgentTaskFactory:
                 return []
 
             offset = max(0, event_count - 25)
-            events = await self._session_repository.get_events_paginated(
-                session_id, offset=offset, limit=25
-            )
+            events = await self._session_repository.get_events_paginated(session_id, offset=offset, limit=25)
 
             restored: list[SourceCitation] = []
             seen_urls: set[str] = set()

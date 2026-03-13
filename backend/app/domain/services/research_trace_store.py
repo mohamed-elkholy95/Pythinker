@@ -65,9 +65,7 @@ class ResearchTraceStore:
 
     async def get_distilled_outcomes(self, session_id: str) -> list[TraceEntry]:
         """Convenience wrapper returning only DISTILLED_OUTCOME entries."""
-        return await self.get_session_traces(
-            session_id, trace_types={TraceType.DISTILLED_OUTCOME}
-        )
+        return await self.get_session_traces(session_id, trace_types={TraceType.DISTILLED_OUTCOME})
 
     # ------------------------------------------------------------------
     # Maintenance
@@ -85,11 +83,7 @@ class ResearchTraceStore:
 
         for session_id, entries in self._traces.items():
             before = len(entries)
-            kept = [
-                e
-                for e in entries
-                if not (e.tier is TraceTier.TRANSIENT and e.created_at < cutoff)
-            ]
+            kept = [e for e in entries if not (e.tier is TraceTier.TRANSIENT and e.created_at < cutoff)]
             self._traces[session_id] = kept
             removed += before - len(kept)
             if not kept:

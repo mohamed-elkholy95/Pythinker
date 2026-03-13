@@ -2836,7 +2836,10 @@ async def test_force_new_preview_archives_old_message() -> None:
 
     # Force new preview (simulates boundary rotation)
     ref_msg = OutboundMessage(
-        channel="telegram", chat_id="5829880422", content="", metadata={"message_id": 99},
+        channel="telegram",
+        chat_id="5829880422",
+        content="",
+        metadata={"message_id": 99},
     )
     channel._force_new_preview(ref_msg, lane="answer")
 
@@ -2865,7 +2868,10 @@ async def test_archived_preview_consumed_by_final_delivery() -> None:
     msg = _stream_msg("Preview text", lane="answer")
     await channel.send(msg)
     ref_msg = OutboundMessage(
-        channel="telegram", chat_id="5829880422", content="", metadata={"message_id": 99},
+        channel="telegram",
+        chat_id="5829880422",
+        content="",
+        metadata={"message_id": 99},
     )
     channel._force_new_preview(ref_msg, lane="answer")
 
@@ -2904,7 +2910,10 @@ async def test_clear_preview_cleans_all_lanes_and_archived() -> None:
 
     # Archive a preview
     ref_msg = OutboundMessage(
-        channel="telegram", chat_id="5829880422", content="", metadata={"message_id": 99},
+        channel="telegram",
+        chat_id="5829880422",
+        content="",
+        metadata={"message_id": 99},
     )
     channel._force_new_preview(ref_msg, lane="answer")
 
@@ -2942,7 +2951,10 @@ async def test_per_lane_finalization_independence() -> None:
 
     # Answer lane should be finalized and cleaned up
     ref_msg = OutboundMessage(
-        channel="telegram", chat_id="5829880422", content="", metadata={"message_id": 99},
+        channel="telegram",
+        chat_id="5829880422",
+        content="",
+        metadata={"message_id": 99},
     )
     assert not channel._has_preview_state(ref_msg, lane="answer")
 
@@ -3263,11 +3275,13 @@ def test_normalize_telegram_action_pin() -> None:
     """Pin action validation should extract message_id and disable_notification."""
     from app.domain.services.tools.message import normalize_message_notify_telegram_action
 
-    result = normalize_message_notify_telegram_action({
-        "type": "pin",
-        "message_id": 42,
-        "disable_notification": True,
-    })
+    result = normalize_message_notify_telegram_action(
+        {
+            "type": "pin",
+            "message_id": 42,
+            "disable_notification": True,
+        }
+    )
     assert result == {"type": "pin", "message_id": 42, "disable_notification": True}
 
 
