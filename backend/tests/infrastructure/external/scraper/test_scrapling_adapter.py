@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.domain.external.stealth_types import StealthMode
 from app.infrastructure.external.scraper.scrapling_adapter import ScraplingAdapter
 
 
@@ -66,15 +67,15 @@ def _settings(*, http1_fallback_enabled: bool = True) -> SimpleNamespace:
 class _FakeContentCache:
     def __init__(self, cached: dict | None = None):
         self.cached = cached
-        self.get_calls: list[tuple[str, object]] = []
-        self.set_calls: list[tuple[str, object, dict]] = []
+        self.get_calls: list[tuple[str, StealthMode]] = []
+        self.set_calls: list[tuple[str, StealthMode, dict]] = []
         self.invalidated: list[str | None] = []
 
-    async def get(self, url: str, mode: object):
+    async def get(self, url: str, mode: StealthMode):
         self.get_calls.append((url, mode))
         return self.cached
 
-    async def set(self, url: str, mode: object, result: dict) -> None:
+    async def set(self, url: str, mode: StealthMode, result: dict) -> None:
         self.set_calls.append((url, mode, result))
 
     async def invalidate(self, url: str | None = None) -> int:
@@ -280,6 +281,52 @@ async def test_fetch_cached_returns_cached_result_without_fetch() -> None:
     assert result.success is True
     assert result.tier_used == "cache"
     adapter.fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fetch_cached_does_not_mutate_cached_entry() -> None:
+    cached = {
+        "content": "<html>cached</html>",
+        "url": "https://example.com",
+        "final_url": "https://example.com",
+        "mode_used": "http",
+        "proxy_used": None,
+        "response_time_ms": 1.0,
+        "from_cache": False,
+        "cloudflare_solved": False,
+        "error": None,
+    }
+    cache = _FakeContentCache(cached=cached)
+    adapter = ScraplingAdapter(settings=_settings(), content_cache=cache)
+
+    result = await adapter.fetch_cached("https://example.com")
+
+    assert result.success is True
+    assert cached["from_cache"] is False
+
+
+@pytest.mark.asyncio
+async def test_fetch_stealth_session_uses_default_timeout_when_none_passed() -> None:
+    adapter = ScraplingAdapter(settings=_settings())
+    adapter._stealth_manager.fetch = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "content": "<html>ok</html>",
+            "url": "https://example.com",
+            "final_url": "https://example.com/final",
+            "mode_used": StealthMode.STEALTH,
+            "proxy_used": None,
+            "response_time_ms": 10.0,
+            "from_cache": False,
+            "cloudflare_solved": False,
+            "error": None,
+        }
+    )
+
+    result = await adapter.fetch_stealth_session("https://example.com", timeout_ms=None)
+
+    assert result.success is True
+    options = adapter._stealth_manager.fetch.await_args.args[1]  # type: ignore[union-attr]
+    assert options["timeout_ms"] == 30000
 
 
 @pytest.mark.asyncio

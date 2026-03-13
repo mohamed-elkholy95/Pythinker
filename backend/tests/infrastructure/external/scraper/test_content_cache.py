@@ -6,6 +6,28 @@ from app.domain.external.stealth_types import FetchResult, StealthMode
 from app.infrastructure.external.scraper.content_cache import ContentCache
 
 
+class _FakeRedisCache:
+    def __init__(self) -> None:
+        self.values: dict[str, object] = {}
+        self.last_set: tuple[str, object, int | None] | None = None
+
+    async def set(self, key: str, value: object, ttl: int | None = None) -> bool:
+        self.last_set = (key, value, ttl)
+        self.values[key] = value
+        return True
+
+    async def get(self, key: str) -> object | None:
+        return self.values.get(key)
+
+    async def delete(self, key: str) -> bool:
+        return self.values.pop(key, None) is not None
+
+    async def clear_pattern(self, pattern: str) -> int:
+        count = len(self.values)
+        self.values.clear()
+        return count
+
+
 @pytest.fixture
 def cache() -> ContentCache:
     return ContentCache(
@@ -95,3 +117,25 @@ class TestContentCache:
 
         cached = await cache.get("https://example.com", StealthMode.HTTP)
         assert cached is None
+
+    @pytest.mark.asyncio
+    async def test_l2_cache_serializes_enum_values_and_restores_them(self) -> None:
+        redis_cache = _FakeRedisCache()
+        cache = ContentCache(
+            l1_max_size=10,
+            l2_ttl=60,
+            include_mode_in_key=True,
+            redis_client=redis_cache,
+        )
+        result = _make_result(mode=StealthMode.STEALTH)
+
+        await cache.set("https://example.com", StealthMode.STEALTH, result)
+
+        assert redis_cache.last_set is not None
+        _, stored_value, _ = redis_cache.last_set
+        assert isinstance(stored_value, dict)
+        assert stored_value["mode_used"] == "stealth"
+
+        restored = await cache.get("https://example.com", StealthMode.STEALTH)
+        assert restored is not None
+        assert restored["mode_used"] == StealthMode.STEALTH

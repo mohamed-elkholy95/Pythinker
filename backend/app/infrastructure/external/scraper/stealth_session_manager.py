@@ -119,7 +119,8 @@ class StealthSessionManager:
                 error=str(exc),
             )
 
-        self._session_last_used[session_key] = time.monotonic()
+        async with self._lock:
+            self._session_last_used[session_key] = time.monotonic()
         elapsed_ms = (time.monotonic() - started) * 1000
         response_meta = getattr(page, "meta", {}) or {}
         used_proxy = response_meta.get("proxy")
@@ -254,7 +255,8 @@ class StealthSessionManager:
 
     async def get_active_session_count(self) -> int:
         """Return the number of tracked active sessions."""
-        return len(self._sessions)
+        async with self._lock:
+            return len(self._sessions)
 
     async def _exit_context_manager(self, session_key: str, context_manager: object) -> None:
         exit_method = getattr(context_manager, "__aexit__", None)

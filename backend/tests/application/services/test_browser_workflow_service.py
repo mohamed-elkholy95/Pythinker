@@ -126,3 +126,13 @@ async def test_invalidate_cache_delegates_to_scraper() -> None:
     service = BrowserWorkflowService(scraper=_FakeScraper(), settings=_settings())
 
     assert await service.invalidate_cache("https://example.com") == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_with_progress_invalid_mode_falls_back_to_http() -> None:
+    service = BrowserWorkflowService(scraper=_FakeScraper(), settings=_settings())
+
+    events = [event async for event in service.fetch_with_progress("https://example.com", "invalid-mode")]
+
+    assert events[0]["mode"] == "http"
+    assert events[-1]["tier_used"] == "cache"

@@ -21,7 +21,7 @@ const latestEvent = computed<FetchProgressEvent | null>(() => {
   if (props.events.length === 0) {
     return null
   }
-  return props.events[props.events.length - 1] ?? null
+  return props.events[props.events.length - 1]
 })
 
 const suggestedMode = computed(() => {

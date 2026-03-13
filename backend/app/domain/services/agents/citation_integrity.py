@@ -331,7 +331,7 @@ def repair_citations(report_content: str, source_list: str) -> str:
             # If any reference entries are fabricated, rebuild the entire section
             # from the authoritative list
             if fabricated_count > 0:
-                rebuilt_lines = [authoritative_entries[n] for n in valid_inline_nums if n in authoritative_entries]
+                rebuilt_lines = [authoritative_entries[n] for n in valid_inline_nums]
                 if rebuilt_lines:
                     repaired = body.rstrip() + "\n\n## References\n" + "\n".join(rebuilt_lines) + "\n"
                     logger.info(
