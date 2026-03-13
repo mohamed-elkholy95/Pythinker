@@ -14,6 +14,7 @@ from . import (
     monitoring_routes,
     prompt_optimization_routes,
     rating_routes,
+    sandbox_callback_routes,
     session_routes,
     settings_routes,
     skills_routes,
@@ -45,6 +46,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(mcp_routes.router)
     api_router.include_router(prompt_optimization_routes.router)  # PR-6: Prompt optimization admin API
     api_router.include_router(channel_link_routes.router)
+    api_router.include_router(sandbox_callback_routes.router)
 
     return api_router
 
