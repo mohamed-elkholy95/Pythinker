@@ -2152,6 +2152,49 @@ class PlanActFlow(BaseFlow):
         await self._init_skill_invoke_tool()
         await self._check_cancelled()
 
+        # Auto-detect skills from user message (Agent UX v2)
+        settings = get_settings()
+        if settings.skill_auto_detection_enabled and message.message:
+            from app.domain.services.skill_matcher import SkillMatcher
+
+            try:
+                from app.domain.services.skill_registry import get_skill_registry
+
+                registry = await get_skill_registry()
+                await registry._ensure_fresh()
+                all_skills = await registry.get_available_skills()
+                matcher = SkillMatcher()
+                auto_matches = matcher.match(
+                    message.message,
+                    all_skills,
+                    threshold=settings.skill_auto_detection_threshold,
+                )
+                if auto_matches:
+                    auto_skill_ids = [m.skill.id for m in auto_matches]
+                    existing = set(message.skills or [])
+                    new_ids = [sid for sid in auto_skill_ids if sid not in existing]
+                    if new_ids:
+                        message = message.model_copy(deep=True)
+                        message.skills = list(existing | set(new_ids))
+                        logger.info(
+                            "Auto-detected skills: %s",
+                            [m.skill.name for m in auto_matches if m.skill.id in new_ids],
+                        )
+                        # Emit SkillEvents for auto-detected skills
+                        if settings.skill_ui_events_enabled:
+                            from app.domain.models.event import SkillEvent
+
+                            for m in auto_matches:
+                                if m.skill.id in new_ids:
+                                    yield SkillEvent(
+                                        skill_id=m.skill.id,
+                                        skill_name=m.skill.name,
+                                        action="activated",
+                                        reason=m.reason,
+                                    )
+            except Exception:
+                logger.warning("Skill auto-detection failed, continuing without", exc_info=True)
+
         # Cross-session learning: load historical error patterns
         if self._user_id and self._memory_service:
             try:
