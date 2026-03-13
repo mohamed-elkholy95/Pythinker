@@ -11,9 +11,9 @@
 # HMR flow:
 #   Edit file → Compose Watch (tar+cp to container) → inotify fires →
 #     Frontend: Vite HMR → instant browser update (no page reload)
-#     Backend:  uvicorn --reload (when BACKEND_ENABLE_RELOAD=1) → Python auto-restart (~1s)
+#     Backend:  uvicorn --reload (default on) → Python auto-restart (~1s)
 #     Sandbox:  uvicorn --reload → Python auto-restart (~1s)
-#     Gateway:  always started (channel pipeline, Telegram etc.)
+#     Gateway:  sync+restart on code change (channel pipeline, Telegram etc.)
 #
 # Commands:
 #   ./dev.sh                    Build + start full stack + live watch (DEFAULT)
@@ -128,9 +128,9 @@ case "$CMD" in
         echo "  Pythinker Dev — Docker Compose Watch"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "  Frontend : ./frontend/src → /app/src  [Vite HMR]"
-        echo "  Backend  : ./backend/app  → /app/app  [uvicorn reload opt-in]"
+        echo "  Backend  : ./backend/app  → /app/app  [uvicorn --reload]"
         echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
-        echo "  Gateway  : channel pipeline (Telegram etc.) [always on]"
+        echo "  Gateway  : ./backend/app  → /app/app  [sync+restart]"
         echo ""
         echo "  Tip: containers already running? Use ./dev.sh attach instead."
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -144,12 +144,12 @@ case "$CMD" in
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "  Watching for file changes (containers already running)..."
         echo "  Frontend : ./frontend/src → /app/src  [Vite HMR]"
-        echo "  Backend  : ./backend/app  → /app/app  [uvicorn reload opt-in]"
+        echo "  Backend  : ./backend/app  → /app/app  [uvicorn --reload]"
         echo "  Sandbox  : ./sandbox/app  → /app/app  [uvicorn --reload]"
-        echo "  Gateway  : channel pipeline (Telegram etc.) [always on]"
+        echo "  Gateway  : ./backend/app  → /app/app  [sync+restart]"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        $COMPOSE $COMPOSE_FILES watch --no-up
+        $COMPOSE $COMPOSE_FILES watch --no-up --prune
         ;;
     sync)
         # Legacy: rsync to /private/tmp staging dirs
