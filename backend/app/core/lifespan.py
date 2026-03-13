@@ -455,6 +455,14 @@ async def lifespan(app: FastAPI):
             _os.makedirs(settings.knowledge_base_storage_dir, exist_ok=True)
             logger.info("Knowledge base storage ready: %s", settings.knowledge_base_storage_dir)
 
+        # Pre-load sandbox context with retry (sandbox may still be starting)
+        try:
+            from app.domain.services.prompts.sandbox_context import SandboxContextManager
+
+            await SandboxContextManager.load_context_with_retry()
+        except Exception as e:
+            logger.warning(f"Sandbox context pre-load failed (non-critical): {e}")
+
         # Mark as ready
         _health_state["ready"] = True
         logger.info("Application startup complete - all services initialized")

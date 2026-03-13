@@ -8,6 +8,7 @@ Author: Pythinker Team
 Version: 1.0.0
 """
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -27,6 +28,10 @@ class SandboxContextManager:
     _cache_ttl = timedelta(hours=24)
     _warned_no_context: bool = False
 
+    # Retry settings for startup loading
+    _RETRY_ATTEMPTS = 3
+    _RETRY_BASE_DELAY = 2.0  # seconds
+
     @classmethod
     def load_context(cls, force_reload: bool = False) -> dict[str, Any] | None:
         """
@@ -44,7 +49,33 @@ class SandboxContextManager:
             if age < cls._cache_ttl:
                 return cls._cache
 
-        # Attempt to load context from file (check multiple locations including fallback)
+        return cls._try_load_from_paths()
+
+    @classmethod
+    async def load_context_with_retry(cls) -> dict[str, Any] | None:
+        """
+        Load context with retries — use at startup when the sandbox
+        may still be generating its context file.
+        """
+        for attempt in range(cls._RETRY_ATTEMPTS):
+            result = cls._try_load_from_paths()
+            if result is not None:
+                return result
+            if attempt < cls._RETRY_ATTEMPTS - 1:
+                delay = cls._RETRY_BASE_DELAY * (attempt + 1)
+                logger.info(
+                    f"Sandbox context not ready, retrying in {delay}s (attempt {attempt + 1}/{cls._RETRY_ATTEMPTS})"
+                )
+                await asyncio.sleep(delay)
+
+        if not cls._warned_no_context:
+            logger.warning("No sandbox context available after retries - agents will use default environment knowledge")
+            cls._warned_no_context = True
+        return None
+
+    @classmethod
+    def _try_load_from_paths(cls) -> dict[str, Any] | None:
+        """Try loading context from known file paths."""
         context_paths = [
             "/app/sandbox_context.json",  # Default sandbox location
             os.environ.get("SANDBOX_CONTEXT_JSON", ""),  # Environment override
@@ -69,14 +100,12 @@ class SandboxContextManager:
                 cls._cache_timestamp = datetime.now(UTC)
 
                 logger.info(f"Loaded sandbox context from {path}")
+                cls._warned_no_context = False
                 return context
 
             except Exception as e:
                 logger.error(f"Failed to load context from {path}: {e}")
 
-        if not cls._warned_no_context:
-            logger.warning("No sandbox context available - agents will use default environment knowledge")
-            cls._warned_no_context = True
         return None
 
     @classmethod
