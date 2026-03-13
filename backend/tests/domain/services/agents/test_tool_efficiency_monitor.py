@@ -339,8 +339,8 @@ class TestRepetitiveSameToolDetection:
         assert second_signal.hard_stop is True
         assert second_signal.signal_type == "repetitive_tool"
 
-    def test_browser_navigate_hits_immediate_hard_stop_at_threshold(self):
-        """Browser navigate loops should hard-stop immediately at repetition threshold."""
+    def test_browser_navigate_warns_before_hard_stop_at_threshold(self):
+        """Browser navigate loops should warn first after the relaxed loop policy."""
         monitor = ToolEfficiencyMonitor(
             same_tool_threshold=4,
             same_tool_strong_threshold=8,
@@ -348,6 +348,21 @@ class TestRepetitiveSameToolDetection:
 
         for _ in range(4):
             monitor.record("browser_navigate")
+
+        signal = monitor.check_efficiency()
+        assert signal.is_balanced is False
+        assert signal.hard_stop is False
+        assert signal.signal_type == "repetitive_tool"
+
+    def test_browser_get_content_hits_immediate_hard_stop_at_threshold(self):
+        """Browser content extraction loops should still hard-stop at the threshold."""
+        monitor = ToolEfficiencyMonitor(
+            same_tool_threshold=4,
+            same_tool_strong_threshold=8,
+        )
+
+        for _ in range(4):
+            monitor.record("browser_get_content")
 
         signal = monitor.check_efficiency()
         assert signal.is_balanced is False

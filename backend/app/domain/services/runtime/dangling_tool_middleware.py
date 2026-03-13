@@ -51,9 +51,7 @@ def sanitize_tool_history(messages: list[dict[str, Any]]) -> list[dict[str, Any]
 
     # Collect all tool_call_ids that already have a matching tool response.
     existing_tool_ids: set[str] = {
-        msg["tool_call_id"]
-        for msg in messages
-        if msg.get("role") == "tool" and msg.get("tool_call_id")
+        msg["tool_call_id"] for msg in messages if msg.get("role") == "tool" and msg.get("tool_call_id")
     }
 
     result: list[dict[str, Any]] = []

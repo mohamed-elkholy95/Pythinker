@@ -3,15 +3,16 @@
 Wraps infrastructure LLM access so that interface routes never import
 directly from the infrastructure layer (DDD layer discipline).
 """
+
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
 async def proxy_chat_completion(
     messages: list[dict[str, Any]],
     max_tokens: int,
-    temperature: Optional[float] = None,
+    temperature: float | None = None,
 ) -> str:
     """Forward a chat completion request through the configured LLM provider.
 
