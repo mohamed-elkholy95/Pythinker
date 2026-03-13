@@ -174,7 +174,7 @@ class ToolEfficiencyMonitor:
                 self._same_tool_trigger_count += 1
                 self._last_same_tool_signal_at_count = self._consecutive_same_tool
 
-            aggressive_loop_tools = {"browser_navigate", "browser_get_content"}
+            aggressive_loop_tools = {"browser_get_content"}
             hard_stop = (
                 self._consecutive_same_tool >= self.same_tool_strong_threshold
                 or self._same_tool_trigger_count >= 2

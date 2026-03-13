@@ -66,6 +66,13 @@ class ResponsePolicyEngine:
         "numbers",
         "stats",
         "metrics",
+        "insights",
+        "analysis",
+        "analyze",
+        "research",
+        "report",
+        "summarize",
+        "summary",
     )
     _AMBIGUOUS_TOKENS = ("it", "this", "that", "something", "anything", "stuff", "things")
 
