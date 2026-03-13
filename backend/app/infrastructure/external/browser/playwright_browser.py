@@ -3013,9 +3013,31 @@ class PlaywrightBrowser:
         try:
             resolved_coords: dict[str, float] | None = None
             if coordinate_x is not None and coordinate_y is not None:
+                # Choreography for coordinate-based click (Agent UX v2)
+                click_params = self._choreographer.get_click_params()
+                pre_pause = click_params["pre_pause"]
+                if pre_pause > 0:
+                    await asyncio.sleep(pre_pause)
+
+                # Smooth cursor movement to click target
+                await self.page.mouse.move(coordinate_x, coordinate_y, steps=click_params["cursor_steps"])
+
                 # Show cursor animation at coordinates
                 await self._show_cursor_click(coordinate_x, coordinate_y)
+
+                # Hover pause (element hover state visible in screencast)
+                hover_pause = click_params["hover_pause"]
+                if hover_pause > 0:
+                    await asyncio.sleep(hover_pause)
+
+                # Execute click
                 await self.page.mouse.click(coordinate_x, coordinate_y)
+
+                # Post-click settle (let page react visibly)
+                settle_pause = click_params["settle_pause"]
+                if settle_pause > 0:
+                    await asyncio.sleep(settle_pause)
+
                 resolved_coords = {"resolved_x": coordinate_x, "resolved_y": coordinate_y}
             elif index is not None:
                 element = await self._get_element_by_index(index)
@@ -3261,8 +3283,9 @@ class PlaywrightBrowser:
             else:
                 await self.page.evaluate("window.scrollBy({top: -window.innerHeight, behavior: 'smooth'})")
 
-            # Wait for smooth scroll animation
-            await asyncio.sleep(0.3)
+            # Wait for smooth scroll animation (choreographed pause)
+            scroll_pause = self._choreographer.get_scroll_pause()
+            await asyncio.sleep(scroll_pause)
 
             # Get scroll position info
             new_scroll = await self.page.evaluate("window.scrollY")
@@ -3308,8 +3331,9 @@ class PlaywrightBrowser:
             else:
                 await self.page.evaluate("window.scrollBy({top: window.innerHeight, behavior: 'smooth'})")
 
-            # Wait for smooth scroll animation
-            await asyncio.sleep(0.35)
+            # Wait for smooth scroll animation (choreographed pause)
+            scroll_pause = self._choreographer.get_scroll_pause()
+            await asyncio.sleep(scroll_pause)
 
             # Check if lazy content loaded (page got taller)
             new_height = await self.page.evaluate("document.body.scrollHeight")
