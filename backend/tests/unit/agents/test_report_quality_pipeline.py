@@ -184,7 +184,7 @@ class TestTelegramDeliveryIntegrityGate:
         assert issues == []
 
 
-def _make_output_verifier(*, lettuce_enabled: bool = True):
+def _make_output_verifier(*, hallucination_verification_enabled: bool = True):
     """Build a minimal OutputVerifier with all dependencies mocked."""
     from app.domain.services.agents.output_verifier import OutputVerifier
 
@@ -198,77 +198,81 @@ def _make_output_verifier(*, lettuce_enabled: bool = True):
         context_manager=MagicMock(),
         source_tracker=mock_source_tracker,
         metrics=MagicMock(),
-        resolve_feature_flags_fn=lambda: {"lettuce_verification": True},
-        lettuce_enabled=lettuce_enabled,
+        resolve_feature_flags_fn=lambda: {"hallucination_verification": True},
+        hallucination_verification_enabled=hallucination_verification_enabled,
         cove_enabled=False,
     )
 
 
-def _make_lettuce_result(ratio: float, span_count: int = 2, skipped: bool = False):
-    result = MagicMock()
-    result.hallucination_ratio = ratio
-    result.has_hallucinations = ratio > 0
-    result.hallucinated_spans = [MagicMock() for _ in range(span_count)]
-    result.skipped = skipped
-    result.confidence_score = 0.9
-    result.get_summary.return_value = f"{ratio * 100:.1f}% hallucination"
-    return result
+def _make_grounding_result(score: float, claim_count: int = 2, skipped: bool = False):
+    """Create a mock VerificationResult from the LLM grounding verifier."""
+    from app.domain.services.agents.llm_grounding_verifier import FlaggedClaim, VerificationResult
+
+    flagged = [
+        FlaggedClaim(claim_text=f"Unsupported claim {i}", verdict="unsupported")
+        for i in range(claim_count if score > 0 else 0)
+    ]
+    return VerificationResult(
+        hallucination_score=score,
+        flagged_claims=flagged,
+        skipped=skipped,
+    )
 
 
 class TestHallucinationDisclaimerNotRedaction:
-    """The 5-15% hallucination ratio branch must append a disclaimer
-    and must NOT call redact_hallucinations (which produces […] markers)."""
+    """The warn-block hallucination ratio branch must append a disclaimer
+    and must NOT produce span redaction markers."""
 
     @pytest.mark.asyncio
     async def test_moderate_ratio_appends_disclaimer(self):
         ov = _make_output_verifier()
         content = "# Research Report\n\nSome findings here with specific facts and numbers."
-        lettuce_result = _make_lettuce_result(ratio=0.15, span_count=2)
-        mock_verifier = MagicMock()
-        mock_verifier.verify.return_value = lettuce_result
+        grounding_result = _make_grounding_result(score=0.20, claim_count=2)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.lettuce_verifier.get_lettuce_verifier",
+            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination(content, "research query")
 
         assert result is not None
         assert "Reliability Notice" in result.content
-        assert "15.0% unverified" in result.content
+        assert "20.0% unverified" in result.content
         assert "hallucination_ratio_moderate" in result.warnings
         assert "[…]" not in result.content
         assert "[...]" not in result.content
 
     @pytest.mark.asyncio
-    async def test_moderate_ratio_does_not_call_redact_hallucinations(self):
+    async def test_moderate_ratio_does_not_produce_redaction_markers(self):
         ov = _make_output_verifier()
         content = "# Report\n\nSome findings."
-        lettuce_result = _make_lettuce_result(ratio=0.12, span_count=1)
-        mock_verifier = MagicMock()
-        mock_verifier.verify.return_value = lettuce_result
-        mock_verifier.redact_hallucinations = MagicMock(return_value="should not be called")
+        grounding_result = _make_grounding_result(score=0.18, claim_count=1)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.lettuce_verifier.get_lettuce_verifier",
+            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
-            await ov.verify_hallucination(content, "query")
+            result = await ov.verify_hallucination(content, "query")
 
-        mock_verifier.redact_hallucinations.assert_not_called()
+        assert "[…]" not in result.content
+        assert "[...]" not in result.content
 
     @pytest.mark.asyncio
     async def test_ratio_above_block_threshold_uses_critical_path(self):
-        """Ratios above the 30% critical threshold must block delivery."""
+        """Ratios above the 40% critical threshold must block delivery."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        # 35% is above the 30% block threshold → critical path
-        lettuce_result = _make_lettuce_result(ratio=0.35, span_count=3)
-        mock_verifier = MagicMock()
-        mock_verifier.verify.return_value = lettuce_result
+        # 45% is above the 40% block threshold → critical path
+        grounding_result = _make_grounding_result(score=0.45, claim_count=3)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.lettuce_verifier.get_lettuce_verifier",
+            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination(content, "query")
@@ -278,16 +282,16 @@ class TestHallucinationDisclaimerNotRedaction:
 
     @pytest.mark.asyncio
     async def test_ratio_between_warn_and_block_is_moderate(self):
-        """Ratios between 10-30% get disclaimer treatment, not blocking."""
+        """Ratios between 15-40% get disclaimer treatment, not blocking."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        # 18% is above warn (10%) but below block (30%) → moderate
-        lettuce_result = _make_lettuce_result(ratio=0.18, span_count=1)
-        mock_verifier = MagicMock()
-        mock_verifier.verify.return_value = lettuce_result
+        # 25% is above warn (15%) but below block (40%) → moderate
+        grounding_result = _make_grounding_result(score=0.25, claim_count=1)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.lettuce_verifier.get_lettuce_verifier",
+            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination(content, "query")
@@ -297,16 +301,16 @@ class TestHallucinationDisclaimerNotRedaction:
         assert "Reliability Notice" in result.content
 
     @pytest.mark.asyncio
-    async def test_high_ratio_above_30_uses_critical_path(self):
-        """Ratio > 30% triggers blocking — likely genuine hallucination."""
+    async def test_high_ratio_above_block_uses_critical_path(self):
+        """Ratio > 40% triggers blocking — likely genuine hallucination."""
         ov = _make_output_verifier()
         content = "# Report\n\nContent."
-        lettuce_result = _make_lettuce_result(ratio=0.35, span_count=5)
-        mock_verifier = MagicMock()
-        mock_verifier.verify.return_value = lettuce_result
+        grounding_result = _make_grounding_result(score=0.50, claim_count=5)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.lettuce_verifier.get_lettuce_verifier",
+            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination(content, "query")
@@ -372,12 +376,12 @@ class TestSourceGroundingContext:
         ov._source_tracker._collected_sources = []
         ov._context_manager._context.key_facts = []
 
-        lettuce_result = _make_lettuce_result(ratio=0, span_count=0, skipped=True)
-        mock_verifier = MagicMock()
-        mock_verifier.verify.return_value = lettuce_result
+        grounding_result = _make_grounding_result(score=0, claim_count=0, skipped=True)
+        mock_verifier = AsyncMock()
+        mock_verifier.verify.return_value = grounding_result
 
         with patch(
-            "app.domain.services.agents.lettuce_verifier.get_lettuce_verifier",
+            "app.domain.services.agents.llm_grounding_verifier.get_llm_grounding_verifier",
             return_value=mock_verifier,
         ):
             result = await ov.verify_hallucination("# Report\n\nContent.", "query")
