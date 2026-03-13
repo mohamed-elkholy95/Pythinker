@@ -156,10 +156,10 @@
     </Transition>
 
     <!-- Collapsed View - always in DOM to maintain space -->
-    <div class="collapsed-wrapper" :class="[showCollapsedThumbnail && sessionId && !isAllCompleted ? 'has-thumbnail' : '', { 'invisible': isExpanded }]">
+    <div class="collapsed-wrapper" :class="[showCollapsedThumbnail && sessionId ? 'has-thumbnail' : '', { 'invisible': isExpanded }]">
       <!-- Floating Live Mini Preview -->
       <div
-        v-if="showCollapsedThumbnail && sessionId && !isExpanded && !isAllCompleted"
+        v-if="showCollapsedThumbnail && sessionId && !isExpanded"
         class="live-preview-thumbnail-floating"
         @mouseenter="showTooltip"
         @mouseleave="scheduleHideTooltip"
@@ -189,7 +189,7 @@
       <!-- Compact Progress Bar -->
       <div
         class="progress-bar-collapsed"
-        :class="[showCollapsedThumbnail && sessionId && !isAllCompleted ? 'has-thumbnail' : '', { 'completed-state': isAllCompleted }]"
+        :class="[showCollapsedThumbnail && sessionId ? 'has-thumbnail' : '', { 'completed-state': isAllCompleted }]"
         @click="toggleExpand"
       >
         <!-- Content -->
@@ -603,7 +603,7 @@ onUnmounted(() => {
 }
 
 .collapsed-wrapper.has-thumbnail {
-  margin-top: 100px; /* Space for floating preview (144px width @ 16:10 = 90px height + gap) */
+  /* Thumbnail overflows above via position: absolute — no margin needed */
 }
 
 .progress-bar-collapsed {
