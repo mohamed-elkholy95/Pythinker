@@ -101,6 +101,7 @@
     "minimatch": "^9.0.6",
     "brace-expansion": "^2.0.2",
     "ajv": "^6.14.0",
-    "markdown-it": "^14.1.1"
+    "markdown-it": "^14.1.1",
+    "dompurify": "^3.3.3"
   }
 }
