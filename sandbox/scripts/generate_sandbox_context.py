@@ -267,6 +267,8 @@ class EnvironmentScanner:
                 "workspace": "/workspace",
                 "home": "/home/ubuntu",
             },
+            "llm_proxy_available": bool(os.environ.get("OPENAI_API_BASE")),
+            "llm_proxy_base_url": os.environ.get("OPENAI_API_BASE", ""),
             "services": {
                 "chrome_devtools": {
                     "enabled": True,
