@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     SANDBOX_VERSION: str = "dev"
     TZ: str = "UTC"
 
+    # Sandbox → Backend callback
+    RUNTIME_API_HOST: Optional[str] = None
+    RUNTIME_API_TOKEN: Optional[str] = None
+
     @field_validator("ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
