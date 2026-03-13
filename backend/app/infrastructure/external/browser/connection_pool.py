@@ -471,6 +471,13 @@ class BrowserConnectionPool:
             progress_callback: Optional async callback for progress updates
         """
         last_error: Exception | None = None
+        from app.core.config import get_settings
+
+        _settings = get_settings()
+        choreographer = BrowserChoreographer(
+            profile_name=_settings.browser_choreography_profile,
+            enabled=_settings.browser_choreography_enabled,
+        )
 
         for attempt in range(max_retries):
             error_context.retry_count = attempt
@@ -483,13 +490,6 @@ class BrowserConnectionPool:
                     logger.warning(f"Failed to emit retry progress event: {e}")
 
             try:
-                from app.core.config import get_settings
-
-                _settings = get_settings()
-                choreographer = BrowserChoreographer(
-                    profile_name=_settings.browser_choreography_profile,
-                    enabled=_settings.browser_choreography_enabled,
-                )
                 browser = PlaywrightBrowser(
                     cdp_url=cdp_url,
                     block_resources=block_resources,

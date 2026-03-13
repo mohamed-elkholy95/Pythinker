@@ -120,3 +120,30 @@ async def test_middleware_populates_manifest() -> None:
     assert manifest.sandbox.active is True
     assert manifest.sandbox.sandbox_id == "sbx-session-99"
     assert manifest.max_concurrent_delegates == 2
+
+
+@pytest.mark.asyncio
+async def test_manifest_to_prompt_block_escapes_xml_special_characters() -> None:
+    manifest = CapabilityManifest(
+        session_id='sess<&>"',
+        active_skills=["research&review", 'quote"check'],
+        mcp_servers=["files<system>"],
+        tool_categories={"browser&shell"},
+        model=ModelCapabilities(
+            name='gpt<&>"',
+            supports_vision=True,
+            supports_thinking=True,
+            max_tokens=2048,
+        ),
+        sandbox=SandboxState(active=True, sandbox_id='sbx<&>"'),
+        max_concurrent_delegates=2,
+    )
+
+    block = manifest.to_prompt_block()
+
+    assert "<session_id>sess&lt;&amp;&gt;&quot;</session_id>" in block
+    assert "<active_skills>research&amp;review, quote&quot;check</active_skills>" in block
+    assert "<mcp_servers>files&lt;system&gt;</mcp_servers>" in block
+    assert "<tool_categories>browser&amp;shell</tool_categories>" in block
+    assert 'name="gpt&lt;&amp;&gt;&quot;"' in block
+    assert 'sandbox_id="sbx&lt;&amp;&gt;&quot;"' in block

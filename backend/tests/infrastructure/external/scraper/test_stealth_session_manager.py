@@ -9,6 +9,17 @@ from app.domain.external.stealth_types import FetchOptions, StealthMode
 from app.infrastructure.external.scraper.stealth_session_manager import StealthSessionManager
 
 
+class _RecordingLock:
+    def __init__(self) -> None:
+        self.enter_count = 0
+
+    async def __aenter__(self) -> None:
+        self.enter_count += 1
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
 class TestStealthSessionManager:
     """Test suite for StealthSessionManager."""
 
@@ -147,3 +158,50 @@ class TestStealthSessionManager:
         assert result["error"] == "boom"
         assert result["proxy_used"] == "http://proxy1:8080"
         health_tracker.mark_failure.assert_called_once_with("http://proxy1:8080", "boom")
+
+    @pytest.mark.asyncio
+    async def test_get_active_session_count_uses_lock(self) -> None:
+        manager = StealthSessionManager.__new__(StealthSessionManager)
+        manager._sessions = {"direct": object(), "proxy": object()}
+        manager._lock = _RecordingLock()
+
+        count = await manager.get_active_session_count()
+
+        assert count == 2
+        assert manager._lock.enter_count == 1
+
+    @pytest.mark.asyncio
+    async def test_fetch_updates_last_used_while_holding_lock(self) -> None:
+        manager = StealthSessionManager(
+            session_timeout=30000,
+            network_idle=True,
+            canvas_noise=True,
+            webrtc_block=True,
+            webgl_enabled=True,
+            google_referer=True,
+            max_pages=3,
+            cloudflare_timeout=60,
+            disable_resources=False,
+            idle_cleanup_interval=0,
+        )
+        manager._lock = _RecordingLock()
+        manager._get_or_create_session = AsyncMock(  # type: ignore[method-assign]
+            return_value=SimpleNamespace(
+                fetch=AsyncMock(
+                    return_value=SimpleNamespace(
+                        html_content="<html>ok</html>",
+                        url="https://example.com/final",
+                        meta={},
+                    )
+                )
+            )
+        )
+
+        result = await manager.fetch(
+            "https://example.com",
+            FetchOptions(mode=StealthMode.STEALTH, timeout_ms=1000, network_idle=True),
+        )
+
+        assert result["content"] == "<html>ok</html>"
+        assert manager._session_last_used["direct"] > 0
+        assert manager._lock.enter_count == 1

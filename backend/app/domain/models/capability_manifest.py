@@ -7,6 +7,8 @@ downstream middleware or prompt builder can read it without re-computing.
 
 from __future__ import annotations
 
+from html import escape
+
 from pydantic import BaseModel, Field
 
 
@@ -49,28 +51,28 @@ class CapabilityManifest(BaseModel):
         """
         lines: list[str] = ["<capability_manifest>"]
 
-        lines.append(f"  <session_id>{self.session_id}</session_id>")
+        lines.append(f"  <session_id>{escape(self.session_id, quote=True)}</session_id>")
 
         if self.active_skills:
-            skills_str = ", ".join(self.active_skills)
+            skills_str = escape(", ".join(self.active_skills), quote=True)
             lines.append(f"  <active_skills>{skills_str}</active_skills>")
 
         if self.mcp_servers:
-            servers_str = ", ".join(self.mcp_servers)
+            servers_str = escape(", ".join(self.mcp_servers), quote=True)
             lines.append(f"  <mcp_servers>{servers_str}</mcp_servers>")
 
         if self.tool_categories:
-            cats_str = ", ".join(sorted(self.tool_categories))
+            cats_str = escape(", ".join(sorted(self.tool_categories)), quote=True)
             lines.append(f"  <tool_categories>{cats_str}</tool_categories>")
 
-        lines.append(f'  <model name="{self.model.name}"')
+        lines.append(f'  <model name="{escape(self.model.name, quote=True)}"')
         lines.append(f'         supports_vision="{str(self.model.supports_vision).lower()}"')
         lines.append(f'         supports_thinking="{str(self.model.supports_thinking).lower()}"')
         lines.append(f'         max_tokens="{self.model.max_tokens}" />')
 
         lines.append(
             f'  <sandbox active="{str(self.sandbox.active).lower()}"'
-            + (f' sandbox_id="{self.sandbox.sandbox_id}"' if self.sandbox.sandbox_id else "")
+            + (f' sandbox_id="{escape(self.sandbox.sandbox_id, quote=True)}"' if self.sandbox.sandbox_id else "")
             + " />"
         )
 

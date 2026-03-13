@@ -24,9 +24,10 @@ describe('useBrowserWorkflow', () => {
     const workflow = useBrowserWorkflow()
     const connectionStore = useConnectionStore()
 
-    await workflow.fetchStream('https://example.com/article', 'stealth')
+    const result = await workflow.fetchStream('https://example.com/article', 'stealth')
 
     expect(createSSEConnectionMock).toHaveBeenCalledTimes(1)
+    expect(result).toBeUndefined()
     const [endpoint, options, callbacks] = createSSEConnectionMock.mock.calls[0] as [
       string,
       { method?: string },

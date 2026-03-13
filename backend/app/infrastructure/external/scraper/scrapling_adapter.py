@@ -30,6 +30,8 @@ from app.infrastructure.external.scraper.proxy_health_tracker import ProxyHealth
 from app.infrastructure.external.scraper.stealth_session_manager import StealthSessionManager
 
 if TYPE_CHECKING:
+    from scrapling.engines.toolbelt.proxy_rotation import ProxyRotator
+
     from app.core.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -52,7 +54,7 @@ class ScraplingAdapter:
         stealth_manager: StealthSessionManager | None = None,
     ) -> None:
         self._settings = settings
-        self._proxy_rotator = None
+        self._proxy_rotator: ProxyRotator | None = None
         self._domain_auth = self._build_domain_auth(settings)
         if settings.scraping_proxy_enabled and settings.scraping_proxy_list:
             self._init_proxy_rotator(settings.scraping_proxy_list)
@@ -269,8 +271,9 @@ class ScraplingAdapter:
         if self._cache:
             cached = await self._cache.get(url, mode)
             if cached:
-                cached["from_cache"] = True
-                return self._fetch_result_to_scraped_content(cached)
+                cached_result = dict(cached)
+                cached_result["from_cache"] = True
+                return self._fetch_result_to_scraped_content(cached_result)
 
         result = await self.fetch_with_mode(url, mode, **kwargs)
 
@@ -300,9 +303,12 @@ class ScraplingAdapter:
     async def fetch_stealth_session(self, url: str, **kwargs: object) -> ScrapedContent:
         """Fetch via the dedicated AsyncStealthySession workflow."""
         mode = self._resolve_mode(kwargs.get("mode"))
+        timeout_value = kwargs.get("timeout_ms")
+        if timeout_value is None:
+            timeout_value = getattr(self._settings, "stealth_session_timeout", 30000)
         options = FetchOptions(
             mode=mode if mode != StealthMode.HTTP else StealthMode.STEALTH,
-            timeout_ms=int(kwargs.get("timeout_ms", getattr(self._settings, "stealth_session_timeout", 30000))),
+            timeout_ms=int(timeout_value),
             network_idle=bool(
                 kwargs.get("network_idle", getattr(self._settings, "stealth_session_network_idle", True))
             ),

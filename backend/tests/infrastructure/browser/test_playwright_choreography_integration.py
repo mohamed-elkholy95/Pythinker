@@ -41,6 +41,7 @@ def test_playwright_browser_accepts_choreographer(mock_llm, mock_settings):
     mock_settings.return_value = _make_fake_settings()
     mock_llm.return_value = MagicMock()
 
+    # Imported after patching get_settings/get_llm so the constructor reads the mocked dependencies.
     from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
     choreographer = BrowserChoreographer(profile_name="fast")
@@ -59,6 +60,7 @@ def test_playwright_browser_creates_default_choreographer(mock_llm, mock_setting
     )
     mock_llm.return_value = MagicMock()
 
+    # Imported after patching get_settings/get_llm so the constructor reads the mocked dependencies.
     from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
     browser = PlaywrightBrowser(cdp_url="ws://localhost:9222")
@@ -77,6 +79,7 @@ def test_playwright_browser_default_choreographer_respects_disabled_flag(mock_ll
     )
     mock_llm.return_value = MagicMock()
 
+    # Imported after patching get_settings/get_llm so the constructor reads the mocked dependencies.
     from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
     browser = PlaywrightBrowser(cdp_url="ws://localhost:9222")
@@ -93,6 +96,7 @@ def test_playwright_browser_default_choreographer_uses_fast_profile(mock_llm, mo
     )
     mock_llm.return_value = MagicMock()
 
+    # Imported after patching get_settings/get_llm so the constructor reads the mocked dependencies.
     from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
     browser = PlaywrightBrowser(cdp_url="ws://localhost:9222")

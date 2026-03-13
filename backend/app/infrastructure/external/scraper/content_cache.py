@@ -66,6 +66,14 @@ class ContentCache:
             error=result.get("error"),
         )
 
+    @staticmethod
+    def _serialize_result(result: FetchResult) -> dict[str, object]:
+        serialized = dict(result)
+        mode = serialized.get("mode_used")
+        if isinstance(mode, StealthMode):
+            serialized["mode_used"] = mode.value
+        return serialized
+
     async def get(self, url: str, mode: StealthMode) -> FetchResult | None:
         """Return a cached result if present and not expired."""
         key = self._make_key(url, mode)
@@ -99,7 +107,7 @@ class ContentCache:
             return
 
         try:
-            await self._redis.set(self._make_l2_key(key), dict(normalized), ttl=self._l2_ttl)
+            await self._redis.set(self._make_l2_key(key), self._serialize_result(normalized), ttl=self._l2_ttl)
         except Exception:
             logger.warning("content_cache_l2_set_failed", exc_info=True)
 

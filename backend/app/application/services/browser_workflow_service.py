@@ -145,7 +145,10 @@ class BrowserWorkflowService:
         normalized = mode.strip().lower()
         if normalized == "stealthy":
             return StealthMode.STEALTH
-        return StealthMode(normalized)
+        try:
+            return StealthMode(normalized)
+        except ValueError:
+            return StealthMode.HTTP
 
     def _suggest_next_mode(self, current_mode: StealthMode) -> StealthMode | None:
         if current_mode in {StealthMode.HTTP, StealthMode.DYNAMIC}:

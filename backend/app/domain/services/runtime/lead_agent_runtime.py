@@ -80,28 +80,28 @@ def build_runtime_pipeline(
         A :class:`RuntimePipeline` with middlewares in the prescribed order.
     """
     middlewares: list[RuntimeMiddleware] = [
-        WorkspaceMiddleware(base_dir=workspace_base),  # 1
-        CapabilityMiddleware(  # 2
+        WorkspaceMiddleware(base_dir=workspace_base),  # 1. WorkspaceMiddleware
+        CapabilityMiddleware(  # 2. CapabilityMiddleware
             active_skills=active_skills,
             mcp_servers=mcp_servers,
             tool_categories=tool_categories,
             model_name=model_name,
             max_concurrent_delegates=max_concurrent_delegates,
         ),
-        DanglingToolCallMiddleware(),  # 3
-        QualityGateMiddleware(  # 4
+        DanglingToolCallMiddleware(),  # 4. DanglingToolCallMiddleware
+        QualityGateMiddleware(  # 5. QualityGateMiddleware
             toolset_manager=toolset_manager,
             coverage_validator=coverage_validator,
             grounding_validator=grounding_validator,
         ),
-        ClarificationMiddleware(),  # 5
+        ClarificationMiddleware(),  # 6. ClarificationMiddleware
     ]
 
-    # Optional: skill discovery (inserted at position 2, after capability)
+    # 3. SkillDiscoveryMiddleware (optional) — inserted after capability middleware.
     if skills_root:
         middlewares.insert(2, SkillDiscoveryMiddleware(skills_root=skills_root))
 
-    # Optional: insight promotion (always last — runs after all step processing)
+    # 7. InsightPromotionMiddleware (optional) — always last.
     if memory_service:
         middlewares.append(InsightPromotionMiddleware(memory_service=memory_service))
 

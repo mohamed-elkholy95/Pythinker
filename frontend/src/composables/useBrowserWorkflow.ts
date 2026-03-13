@@ -148,8 +148,6 @@ export function useBrowserWorkflow() {
         },
       },
     )
-
-    return cancelStream
   }
 
   function stopStreaming(options: { preservePhase?: boolean } = {}) {
