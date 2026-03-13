@@ -24,6 +24,15 @@
 
     <!-- CDP Screencast View (Konva-powered) -->
     <div v-else-if="enabled" class="sandbox-content-inner">
+      <!-- Agent Activity Bar -->
+      <AgentActivityBar
+        :phase="currentPhase"
+        :active-skills="activeSkillList"
+        :current-tool="currentToolName"
+        :current-tool-detail="currentToolDetail"
+        :step-progress="stepProgress"
+      />
+
       <!-- Loading overlay -->
       <div v-if="isLoading" class="sandbox-loading">
         <LoadingState
@@ -49,6 +58,15 @@
         :show-agent-actions="showAgentActions"
         :show-agent-cursor="showAgentCursor"
         @frame-received="onFrameReceived"
+      />
+
+      <!-- Browser Interaction Overlay (positioned over KonvaLiveStage) -->
+      <BrowserInteractionOverlay
+        :last-action="lastBrowserAction"
+        :container-width="1280"
+        :container-height="1024"
+        :scale-x="overlayScaleX"
+        :scale-y="overlayScaleY"
       />
 
       <!-- Interactive mode indicator -->
@@ -81,11 +99,15 @@ import LoadingState from '@/components/toolViews/shared/LoadingState.vue'
 import InactiveState from '@/components/toolViews/shared/InactiveState.vue'
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue'
 import KonvaLiveStage from '@/components/KonvaLiveStage.vue'
+import BrowserInteractionOverlay from './BrowserInteractionOverlay.vue'
+import AgentActivityBar from './AgentActivityBar.vue'
 import { useSandboxInput } from '@/composables/useSandboxInput'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
+import { useSkillEvents } from '@/composables/useSkillEvents'
 import { getScreencastUrl, getInputStreamUrl } from '@/api/agent'
 import { calculateReconnectDelay } from '@/utils/reconnectBackoff'
 import type { ToolEventData } from '@/types/event'
+import type { SkillEventData } from '@/composables/useSkillEvents'
 
 const props = withDefaults(
   defineProps<{
@@ -142,6 +164,25 @@ let cleanupInputListeners: (() => void) | null = null
 // Wide research state
 const { overlayState: wideResearchState, isActive: wideResearchActive } = useWideResearchGlobal()
 const showWideResearchOverlay = computed(() => wideResearchActive.value && wideResearchState.value !== null)
+
+// Agent UX v2 state
+const { activeSkillList, handleSkillEvent, reset: resetSkills } = useSkillEvents()
+const currentPhase = ref('idle')
+const currentToolName = ref<string | undefined>()
+const currentToolDetail = ref<string | undefined>()
+const stepProgress = ref<string | undefined>()
+
+const lastBrowserAction = ref<{
+  type: 'navigate' | 'click' | 'scroll_up' | 'scroll_down' | 'type'
+  url?: string
+  x?: number
+  y?: number
+  text?: string
+}>()
+
+// Scale factors for overlay coordinate mapping (based on KonvaLiveStage dimensions)
+const overlayScaleX = ref(1)
+const overlayScaleY = ref(1)
 
 // Interactive mode computed
 const isInteractive = computed(() => !props.viewOnly && isForwarding.value)
@@ -539,6 +580,14 @@ watch(
 watch(
   () => props.sessionId,
   () => {
+    // Reset Agent UX v2 state on session change
+    resetSkills()
+    currentPhase.value = 'idle'
+    currentToolName.value = undefined
+    currentToolDetail.value = undefined
+    stepProgress.value = undefined
+    lastBrowserAction.value = undefined
+
     if (props.enabled) {
       disconnect()
       nextTick(() => {
@@ -570,9 +619,47 @@ onBeforeUnmount(() => {
 function processToolEvent(event: ToolEventData): void {
   try {
     liveStageRef.value?.processToolEvent(event)
+    updateBrowserAction(event)
   } catch (e) {
     console.warn('[SandboxViewer] Failed to process tool event:', e)
   }
+}
+
+/**
+ * Update browser interaction overlay state from tool events.
+ * Maps tool function names to visual actions (navigate, click, scroll).
+ */
+function updateBrowserAction(event: ToolEventData): void {
+  if (!event.function) return
+
+  const action = event.function
+  if (action === 'navigate' || action === 'browser_navigate') {
+    lastBrowserAction.value = {
+      type: 'navigate',
+      url: (event.args?.url as string) || (event.args?.goal as string) || '',
+    }
+  } else if (action === 'click' || action === 'browser_click') {
+    lastBrowserAction.value = {
+      type: 'click',
+      x: event.args?.x as number | undefined,
+      y: event.args?.y as number | undefined,
+    }
+  } else if (action === 'scroll_up') {
+    lastBrowserAction.value = { type: 'scroll_up' }
+  } else if (action === 'scroll_down') {
+    lastBrowserAction.value = { type: 'scroll_down' }
+  }
+
+  // Update current tool display
+  currentToolName.value = event.name || event.function
+  currentToolDetail.value = (event.args?.url as string) || (event.args?.goal as string) || undefined
+}
+
+/**
+ * Handle SkillEvent SSE data to update the activity bar.
+ */
+function handleSkillSSEEvent(data: SkillEventData): void {
+  handleSkillEvent(data)
 }
 
 // Expose methods
@@ -581,6 +668,7 @@ defineExpose({
   disconnect,
   reconnect,
   processToolEvent,
+  handleSkillSSEEvent,
   liveStage: liveStageRef,
 })
 </script>
