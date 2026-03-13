@@ -689,7 +689,11 @@ const reportPresentationText = computed(() => {
   const persistedReportText = showPersistedFinalReport.value ? (props.finalReportText || '') : '';
   return persistedReportText || props.summaryStreamText || '';
 });
-const showReportPresentation = computed(() => isSummaryPhase.value || reportPresentationText.value.length > 0);
+const showReportPresentation = computed(() => {
+  // When user navigated backward in timeline, show the tool at that position instead
+  if (props.showTimeline && !props.realTime && !isViewingLatestTimelineStep.value) return false;
+  return isSummaryPhase.value || reportPresentationText.value.length > 0;
+});
 
 // Tool state
 const toolName = computed(() => props.toolContent?.name || '');
