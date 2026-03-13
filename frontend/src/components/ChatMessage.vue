@@ -124,12 +124,7 @@
         </div>
       </div>
       
-      <ReasoningPipeline
-        v-if="props.activeReasoningState && props.activeReasoningState !== 'idle' && props.activeReasoningState !== 'completed' && !isAssistantSummaryCompact"
-        :currentStage="props.activeReasoningState"
-        :thinkingText="props.thinkingText"
-        :liveActivity="props.liveActivity"
-      />
+      <!-- ReasoningPipeline (NeuralFlow) removed — progress shown in TaskProgressBar instead -->
 
       <div
         class="assistant-message-content relative w-full max-w-full p-0 m-0 text-[15.5px] leading-[1.6] text-[var(--text-primary)] [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)]"
@@ -334,7 +329,7 @@ import { Bot } from 'lucide-vue-next';
 import AttachmentsMessage from './AttachmentsMessage.vue';
 import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
 import TiptapMessageViewer from './TiptapMessageViewer.vue';
-import ReasoningPipeline, { type ReasoningStage } from '@/components/ReasoningPipeline.vue';
+import { type ReasoningStage } from '@/components/ReasoningPipeline.vue';
 import type { ReportData } from './report';
 import type { FileInfo } from '../api/file';
 import SkillDeliveryCard from './SkillDeliveryCard.vue';
