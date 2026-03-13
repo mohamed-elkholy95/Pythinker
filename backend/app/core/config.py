@@ -66,6 +66,7 @@ from app.core.config_sandbox import (
     ScreenshotSettingsMixin,
 )
 from app.core.config_scraping import ScrapingSettingsMixin
+from app.core.config_stealth import StealthSettingsMixin
 
 # Re-export enums for backward compatibility (existing code imports from config)
 __all__ = ["FlowMode", "Settings", "StreamingMode", "get_feature_flags", "get_settings"]
@@ -108,6 +109,7 @@ class Settings(
     PromptOptimizationSettingsMixin,
     KnowledgeBaseSettingsMixin,
     ScrapingSettingsMixin,
+    StealthSettingsMixin,
     DealScraperSettingsMixin,
     SLOSettingsMixin,
     # Channel gateway / cron / skills / subagent layer
