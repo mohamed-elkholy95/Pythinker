@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     OTEL_RESOURCE_ATTRIBUTES: str = "service.name=sandbox-runtime,service.env=sandbox"
     SENTRY_DSN: Optional[str] = None
 
+    # Cloud service tokens
+    GH_TOKEN: Optional[str] = None
+    GOOGLE_DRIVE_TOKEN: Optional[str] = None
+    GOOGLE_WORKSPACE_CLI_TOKEN: Optional[str] = None
+
     @field_validator("ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
