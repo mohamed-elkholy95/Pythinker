@@ -529,7 +529,8 @@ def get_feature_flags() -> dict[str, bool]:
         "graduated_compaction": settings.feature_graduated_compaction_enabled,
         "scratchpad": settings.feature_scratchpad_enabled,
         "structured_compaction": settings.feature_structured_compaction_enabled,
-        # Live shell streaming (UX v2 flag takes precedence)
+        # Live shell streaming — terminal_live_streaming_enabled (UX v2, default=True) subsumes
+        # the legacy feature_live_shell_streaming flag (default=False, deprecated).
         "live_shell_streaming": settings.feature_live_shell_streaming or settings.terminal_live_streaming_enabled,
         "live_shell_poll_interval_ms": settings.live_shell_poll_interval_ms,
         "live_shell_max_polls": settings.live_shell_max_polls,

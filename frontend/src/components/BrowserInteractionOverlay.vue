@@ -134,16 +134,22 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 4px 14px;
-  background: rgba(26, 27, 38, 0.85);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(8px);
   border-radius: 16px;
-  border: 1px solid rgba(122, 162, 247, 0.3);
-  color: #c0caf5;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  color: #1f2937;
   font-size: 11px;
   max-width: 80%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+:global(.dark) .nav-toast {
+  background: rgba(26, 27, 38, 0.85);
+  border-color: rgba(122, 162, 247, 0.3);
+  color: #c0caf5;
 }
 
 .nav-icon {
@@ -179,8 +185,12 @@ onUnmounted(() => {
   margin-left: -15px;
   margin-top: -15px;
   border-radius: 50%;
-  background: rgba(122, 162, 247, 0.3);
+  background: rgba(37, 99, 235, 0.25);
   animation: ripple-expand 0.5s ease-out forwards;
+}
+
+:global(.dark) .click-ripple {
+  background: rgba(122, 162, 247, 0.3);
 }
 
 @keyframes ripple-expand {
@@ -216,10 +226,15 @@ onUnmounted(() => {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: rgba(26, 27, 38, 0.7);
+  background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(4px);
-  color: #7aa2f7;
+  color: #2563eb;
   font-size: 14px;
+}
+
+:global(.dark) .scroll-indicator {
+  background: rgba(26, 27, 38, 0.7);
+  color: #7aa2f7;
 }
 
 .scroll-indicator.up {

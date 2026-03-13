@@ -32,6 +32,7 @@ from app.domain.models.event import (
     ProgressEvent,
     ReportEvent,
     ResearchModeEvent,
+    SkillEvent,
     StepEvent,
     StepStatus,
     TitleEvent,
@@ -130,6 +131,8 @@ from app.domain.services.orchestration.agent_types import (
     get_agent_registry,
 )
 from app.domain.services.prediction.failure_predictor import FailurePredictor
+from app.domain.services.skill_matcher import SkillMatcher
+from app.domain.services.skill_registry import get_skill_registry
 from app.domain.services.tools.canvas import CanvasTool
 from app.domain.services.tools.idle import IdleTool
 from app.domain.services.tools.message import MessageTool
@@ -826,8 +829,6 @@ class PlanActFlow(BaseFlow):
             return
 
         try:
-            from app.domain.services.skill_registry import get_skill_registry
-
             registry = await get_skill_registry()
             ai_skills = await registry.get_ai_invokable_skills()
 
@@ -2155,11 +2156,7 @@ class PlanActFlow(BaseFlow):
         # Auto-detect skills from user message (Agent UX v2)
         settings = get_settings()
         if settings.skill_auto_detection_enabled and message.message:
-            from app.domain.services.skill_matcher import SkillMatcher
-
             try:
-                from app.domain.services.skill_registry import get_skill_registry
-
                 registry = await get_skill_registry()
                 all_skills = await registry.get_available_skills()
                 matcher = SkillMatcher()
@@ -2181,8 +2178,6 @@ class PlanActFlow(BaseFlow):
                         )
                         # Emit SkillEvents for auto-detected skills
                         if settings.skill_ui_events_enabled:
-                            from app.domain.models.event import SkillEvent
-
                             for m in auto_matches:
                                 if m.skill.id in new_ids:
                                     yield SkillEvent(

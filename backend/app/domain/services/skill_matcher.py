@@ -64,8 +64,12 @@ class SkillMatcher:
                 continue
 
         if pattern_hits > 0:
-            # A single pattern match is a strong, deliberate signal — full pattern score
-            score += 0.7  # 70% weight for any pattern match
+            # Flat 0.7 regardless of hit count: a single pattern match is a strong,
+            # deliberate signal.  Graduated scoring (pattern_hits * 0.7 * 0.7) caused
+            # single-match results to fall below the 0.6 default threshold.  If the
+            # matcher is later extended for multi-skill disambiguation, replace this
+            # with graduated scoring and lower the default threshold.
+            score += 0.7
 
             reasons.append(f"Matched {pattern_hits} trigger pattern(s)")
 
