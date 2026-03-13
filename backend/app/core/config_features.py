@@ -537,6 +537,23 @@ class PromptOptimizationSettingsMixin:
     feature_runtime_delegate_tool: bool = True
     feature_runtime_channel_overlay: bool = True
 
+    # ── Agent UX v2 Feature Flags ─────────────────────────────────────────
+    # Browser Choreography (human-like timing in browser actions)
+    browser_choreography_enabled: bool = True
+    browser_choreography_profile: str = "professional"  # fast/professional/cinematic
+    browser_screencast_include_chrome_ui: bool = True
+
+    # Terminal Enhancement (live streaming, mastery prompts)
+    terminal_live_streaming_enabled: bool = True
+    terminal_mastery_prompt_enabled: bool = True
+    terminal_proactive_preference_enabled: bool = True
+
+    # Skill-Driven Architecture (auto-detection of relevant skills)
+    skill_auto_detection_enabled: bool = True
+    skill_auto_detection_threshold: float = 0.6
+    skill_first_planning_enabled: bool = True
+    skill_ui_events_enabled: bool = True
+
 
 class TypoCorrectionSettingsMixin:
     """Typo correction (PromptQuickValidator) configuration."""
