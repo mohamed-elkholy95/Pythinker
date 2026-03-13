@@ -105,10 +105,11 @@ opentelemetry-exporter-otlp-proto-grpc>=1.29.0
 opentelemetry-instrumentation-httpx>=0.50b0
 opentelemetry-instrumentation-fastapi>=0.50b0
 
-# Knowledge Base (RAG-Anything multimodal document processing)
-# Base package only — MinerU/LightRAG are transitive dependencies; imported lazily.
-# Enable with KNOWLEDGE_BASE_ENABLED=true in .env
-raganything>=1.2.0
+# Knowledge Base (RAG-Anything) — REMOVED from default image.
+# raganything pulls torch (1.7GB), nvidia CUDA (4.3GB), triton (640MB),
+# modelscope (1.34GB), opencv (274MB), transformers (61MB) = ~8.5GB bloat.
+# Install manually if needed: pip install raganything>=1.2.0
+# The adapter (raganything/adapter.py) uses lazy imports with ImportError fallback.
 
 # Prompt optimization pipeline (Thompson sampling + MIPROv2)
 # Enable with FEATURE_PROMPT_OPTIMIZATION_PIPELINE=true
