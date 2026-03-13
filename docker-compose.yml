@@ -202,6 +202,7 @@ services:
       - CHOWN
       - SETGID
       - SETUID
+      - SYS_ADMIN        # Chrome namespace sandboxing
       - NET_BIND_SERVICE
       - SYS_CHROOT
     # Temp filesystem - sandbox needs exec capability for code execution
@@ -223,6 +224,7 @@ services:
         limits:
           memory: 2G
           cpus: '1'
+          pids: 1024
         reservations:
           memory: 512M
     networks:
@@ -284,6 +286,7 @@ services:
       - CHOWN
       - SETGID
       - SETUID
+      - SYS_ADMIN        # Chrome namespace sandboxing
       - NET_BIND_SERVICE
       - SYS_CHROOT
     tmpfs:
@@ -300,6 +303,7 @@ services:
         limits:
           memory: 2G
           cpus: '1'
+          pids: 1024
         reservations:
           memory: 512M
     networks:
