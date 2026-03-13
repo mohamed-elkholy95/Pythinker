@@ -39,6 +39,13 @@ class SandboxSettingsMixin:
     sandbox_callback_enabled: bool = False
     sandbox_callback_token: str | None = None
 
+    # LLM Proxy (OpenAI-compatible endpoint for sandbox)
+    sandbox_llm_proxy_enabled: bool = False
+    sandbox_llm_proxy_key: str | None = None
+    sandbox_llm_proxy_max_tokens: int = 4096
+    sandbox_llm_proxy_rate_limit: int = 30  # requests per minute
+    sandbox_llm_proxy_allowed_models: list[str] = []  # empty = all models
+
     # Phase 3: HTTP/2 Configuration
     sandbox_http2_enabled: bool = False  # Enable HTTP/2 for sandbox API communication
 
