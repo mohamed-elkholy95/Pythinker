@@ -332,7 +332,7 @@ class FeatureFlagsSettingsMixin:
     feature_sweep_dedup_enabled: bool = True  # Disable to sync all discovered files without dedup
 
     # Live Shell & File Streaming (real-time terminal output + file creation visibility)
-    feature_live_shell_streaming: bool = False  # Poll sandbox for real-time shell output
+    feature_live_shell_streaming: bool = False  # DEPRECATED: use terminal_live_streaming_enabled instead (UX v2)
     live_shell_poll_interval_ms: int = 500  # Polling interval in milliseconds
     live_shell_max_polls: int = 600  # Max polls before stopping (300s at 500ms)
     feature_live_file_streaming: bool = False  # Emit incremental ToolStreamEvents for file_write
@@ -536,6 +536,25 @@ class PromptOptimizationSettingsMixin:
     feature_runtime_research_trace: bool = True
     feature_runtime_delegate_tool: bool = True
     feature_runtime_channel_overlay: bool = True
+
+    # ── Agent UX v2 Feature Flags ─────────────────────────────────────────
+    # Browser Choreography (human-like timing in browser actions)
+    browser_choreography_enabled: bool = True
+    browser_choreography_profile: str = "professional"  # fast/professional/cinematic
+    browser_screencast_include_chrome_ui: bool = (
+        True  # sandbox-side only: configure via SCREENCAST_INCLUDE_CHROME_UI env on sandbox container
+    )
+
+    # Terminal Enhancement (live streaming, mastery prompts)
+    terminal_live_streaming_enabled: bool = True
+    terminal_mastery_prompt_enabled: bool = True
+    terminal_proactive_preference_enabled: bool = True
+
+    # Skill-Driven Architecture (auto-detection of relevant skills)
+    skill_auto_detection_enabled: bool = True
+    skill_auto_detection_threshold: float = 0.6
+    # skill_first_planning_enabled removed — was declared but never read by any code path
+    skill_ui_events_enabled: bool = True
 
 
 class TypoCorrectionSettingsMixin:

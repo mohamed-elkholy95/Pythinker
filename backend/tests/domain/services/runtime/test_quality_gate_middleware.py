@@ -40,9 +40,7 @@ async def test_before_step_filters_tools() -> None:
 
     result = await middleware.before_step(ctx)
 
-    toolset_manager.get_tools_for_task.assert_called_once_with(
-        "search the web for Python news"
-    )
+    toolset_manager.get_tools_for_task.assert_called_once_with("search the web for Python news")
     assert result.metadata["filtered_tools"] == filtered_tools
 
 

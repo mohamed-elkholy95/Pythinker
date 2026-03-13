@@ -134,15 +134,10 @@ class LLMGroundingVerifier:
                 skip_reason=f"Verification error: {type(e).__name__}: {e}",
             )
 
-    def _build_verification_prompt(
-        self, response_text: str, source_context: list[str]
-    ) -> list[dict[str, str]]:
+    def _build_verification_prompt(self, response_text: str, source_context: list[str]) -> list[dict[str, str]]:
         """Build the verification prompt for the LLM."""
         combined_context = "\n\n---\n\n".join(source_context)
-        user_message = (
-            f"SOURCE CONTEXT:\n{combined_context}\n\n"
-            f"RESPONSE TO VERIFY:\n{response_text}"
-        )
+        user_message = f"SOURCE CONTEXT:\n{combined_context}\n\nRESPONSE TO VERIFY:\n{response_text}"
         return [
             {"role": "system", "content": _VERIFICATION_SYSTEM_PROMPT},
             {"role": "user", "content": user_message},
@@ -194,7 +189,9 @@ class LLMGroundingVerifier:
             score = unsupported / total
             logger.info(
                 "LLM grounding: %d/%d claims unsupported (score=%.2f)",
-                unsupported, total, score,
+                unsupported,
+                total,
+                score,
             )
             return VerificationResult(hallucination_score=score, flagged_claims=flagged)
 

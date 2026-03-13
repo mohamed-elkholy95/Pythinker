@@ -188,7 +188,13 @@ async def stream_frames_ws(
     # Create a fresh service instance per stream so streams never share a CDP
     # WebSocket. The singleton (_service_instance) is reserved for the /frame
     # endpoint's short-lived captures; streaming gets its own independent session.
-    service = CDPScreencastService(ScreencastConfig(format="jpeg", quality=quality))
+    service = CDPScreencastService(
+        ScreencastConfig(
+            format="jpeg",
+            quality=quality,
+            max_height=sandbox_settings.SCREENCAST_MAX_HEIGHT,
+        )
+    )
     # Register this stream's service so preemption can disconnect it if needed.
     async with _slot_lock:
         _active_stream_service = service
@@ -432,7 +438,9 @@ async def stream_frames_ws(
         logger.info("[CDP Stream] Client disconnected")
     except AssertionError:
         # websockets legacy protocol race condition during connection teardown
-        logger.info("[CDP Stream] Connection closed during teardown (websockets assertion)")
+        logger.info(
+            "[CDP Stream] Connection closed during teardown (websockets assertion)"
+        )
     except Exception as e:
         logger.error(f"[CDP Stream] Error: {e}", exc_info=True)
     finally:
@@ -469,7 +477,13 @@ async def stream_frames_mjpeg(
     logger.info(f"[CDP MJPEG] Stream started: quality={quality}, max_fps={max_fps}")
 
     async def generate_mjpeg():
-        service = CDPScreencastService(ScreencastConfig(format="jpeg", quality=quality))
+        service = CDPScreencastService(
+            ScreencastConfig(
+                format="jpeg",
+                quality=quality,
+                max_height=sandbox_settings.SCREENCAST_MAX_HEIGHT,
+            )
+        )
         min_frame_interval = 1.0 / max_fps
         last_frame_time = 0
 

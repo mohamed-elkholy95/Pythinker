@@ -299,7 +299,17 @@
 
           <!-- Terminal View -->
           <div v-else-if="currentViewType === 'terminal'" class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden">
+            <!-- Live terminal: xterm.js with SSE streaming -->
+            <TerminalLiveView
+              v-if="isTerminalLiveMode"
+              ref="terminalLiveRef"
+              :session-id="props.sessionId ?? ''"
+              :shell-session-id="terminalShellSessionId"
+              :command="terminalLiveCommand"
+            />
+            <!-- Static/completed terminal view -->
             <TerminalContentView
+              v-else
               :content="terminalContent"
               :content-type="terminalContentType"
               :is-live="isActiveOperation"
@@ -507,6 +517,7 @@ function lazyRetry<T>(importFn: () => Promise<T>): () => Promise<T> {
 const LiveViewer = defineAsyncComponent(lazyRetry(() => import('@/components/LiveViewer.vue')));
 const LoadingState = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/shared/LoadingState.vue')));
 const TerminalContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/TerminalContentView.vue')));
+const TerminalLiveView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/TerminalLiveView.vue')));
 const EditorContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/EditorContentView.vue')));
 const SearchContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/SearchContentView.vue')));
 const DealContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/DealContentView.vue')));
@@ -1173,6 +1184,25 @@ const showUrlStatusBar = computed(() => {
 const shellOutput = ref('');
 const refreshTimer = ref<number | null>(null);
 
+// ── Terminal Live Streaming (SSE → xterm.js via TerminalLiveView) ──
+const terminalLiveRef = ref<InstanceType<typeof TerminalLiveView>>();
+const terminalStreamWrittenLength = ref(0);
+
+const isTerminalLiveMode = computed(() => {
+  if (!isActiveOperation.value) return false;
+  const tn = toolName.value;
+  return tn === 'shell' || tn === 'code_executor' || tn === 'code_execute';
+});
+
+const terminalLiveCommand = computed(() => {
+  const cmd = props.toolContent?.args?.command ?? props.toolContent?.command;
+  return typeof cmd === 'string' ? cmd : undefined;
+});
+
+const terminalShellSessionId = computed(() =>
+  String(props.toolContent?.args?.id ?? ''),
+);
+
 const terminalContentType = computed<'shell' | 'file' | 'browser' | 'code' | 'generic'>(() => {
   if (toolName.value === 'shell') return 'shell';
   if (toolName.value === 'code_executor' || toolName.value === 'code_execute') return 'code';
@@ -1312,8 +1342,8 @@ const startAutoRefresh = () => {
   if (refreshTimer.value) {
     clearInterval(refreshTimer.value);
   }
-  // Skip polling if unified streaming is active
-  if (shouldShowUnifiedStreaming.value) {
+  // Skip polling if unified streaming or terminal live streaming is active
+  if (shouldShowUnifiedStreaming.value || isTerminalLiveMode.value) {
     return;
   }
   if (props.live && (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute')) {
@@ -1331,8 +1361,8 @@ const stopAutoRefresh = () => {
 // Watch for tool changes
 watch(() => props.toolContent, () => {
   if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
-    // Skip loading if streaming is active
-    if (!shouldShowUnifiedStreaming.value) {
+    // Skip loading if streaming or terminal live mode is active
+    if (!shouldShowUnifiedStreaming.value && !isTerminalLiveMode.value) {
       loadShellContent();
     }
   }
@@ -1366,6 +1396,55 @@ watch(shouldShowUnifiedStreaming, (isStreaming) => {
     stopAutoRefresh();
   } else {
     // Resume polling when streaming stops
+    startAutoRefresh();
+  }
+});
+
+// ── Terminal live streaming watchers ──
+
+// Replay buffered content once TerminalLiveView async component mounts
+watch(terminalLiveRef, (ref) => {
+  if (!ref) return;
+  const content = props.toolContent?.streaming_content;
+  if (content && terminalStreamWrittenLength.value === 0) {
+    ref.writeData(content);
+    terminalStreamWrittenLength.value = content.length;
+  }
+});
+
+// Forward SSE terminal deltas to TerminalLiveView's xterm.js instance
+watch(
+  () => props.toolContent?.streaming_content,
+  (newContent) => {
+    if (!newContent || !terminalLiveRef.value) return;
+    const delta = newContent.slice(terminalStreamWrittenLength.value);
+    if (delta) {
+      terminalLiveRef.value.writeData(delta);
+      terminalStreamWrittenLength.value = newContent.length;
+    }
+  },
+);
+
+// Reset delta tracking when tool changes
+watch(
+  () => props.toolContent?.tool_call_id,
+  () => {
+    terminalStreamWrittenLength.value = 0;
+  },
+);
+
+// Toggle polling: stop during live terminal streaming, resume on completion
+watch(isTerminalLiveMode, (isLive, wasLive) => {
+  if (isLive) {
+    stopAutoRefresh();
+  } else {
+    // Write exit code when transitioning from live → completed
+    if (wasLive && terminalLiveRef.value) {
+      const exitCode = props.toolContent?.exit_code;
+      if (exitCode !== undefined && exitCode !== null) {
+        terminalLiveRef.value.writeComplete(exitCode);
+      }
+    }
     startAutoRefresh();
   }
 });
