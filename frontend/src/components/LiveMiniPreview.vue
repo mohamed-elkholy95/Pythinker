@@ -34,14 +34,17 @@
       :is-active="isActive"
     />
 
-    <!-- Summary streaming preview (must take precedence over stale tool previews) -->
+    <!-- Summary / report preview (markdown-rendered, Shiki-style) -->
     <div v-else-if="isSummaryPhase" class="content-preview streaming-preview">
       <div class="streaming-mini-window">
         <div class="streaming-mini-header">
           <span class="streaming-mini-title">{{ streamingPresentation.headline.value }}</span>
         </div>
         <div class="streaming-mini-body">
-          <div class="streaming-mini-lines">
+          <div v-if="reportPreviewText" class="report-mini-text">
+            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
+          </div>
+          <div v-else class="streaming-mini-lines">
             <div class="streaming-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
           </div>
         </div>
@@ -101,7 +104,7 @@
                 </div>
               </div>
               <div v-if="searchResults.length > 3" class="results-more">
-                +{{ searchResults.length - 3 }} more results
+                +{{ searchResults.length - 3 }} more
               </div>
             </div>
             <div v-else-if="isActive" class="search-loading">
@@ -180,7 +183,21 @@
       />
     </div>
 
-    <!-- Session complete fallback (replay final frame) -->
+    <!-- Session complete: report text takes priority, then CDP screenshot -->
+    <div v-else-if="shouldShowFinalScreenshot && reportPreviewText" class="content-preview streaming-preview">
+      <div class="streaming-mini-window">
+        <div class="streaming-mini-header">
+          <span class="streaming-mini-title">Report</span>
+        </div>
+        <div class="streaming-mini-body">
+          <div class="report-mini-text">
+            <div class="report-mini-md" v-html="renderedMiniMarkdown"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Session complete fallback (replay final frame — no report text) -->
     <div v-else-if="shouldShowFinalScreenshot" class="final-screenshot-preview">
       <img
         v-if="finalScreenshotUrl && !finalScreenshotLoadError"
@@ -388,6 +405,101 @@ const streamingPresentation = useStreamingPresentationState({
 });
 
 const isSummaryPhase = computed(() => streamingPresentation.isSummaryPhase.value);
+
+// Actual report text for the mini preview — prefer final over streaming
+const reportPreviewText = computed(() => {
+  const final = props.finalReportText || '';
+  if (final.length > 0) return final;
+  const stream = props.summaryStreamText || '';
+  if (stream.length > 0) return stream;
+  return '';
+});
+
+/**
+ * Lightweight markdown → HTML for mini preview.
+ * Renders headings, code blocks (Shiki github-dark style bg),
+ * bold, italic, lists, and horizontal rules. No external deps.
+ */
+const renderedMiniMarkdown = computed(() => {
+  const raw = reportPreviewText.value;
+  if (!raw) return '';
+
+  const escaped = raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const lines = escaped.split('\n');
+  const html: string[] = [];
+  let inCode = false;
+  let codeLines: string[] = [];
+  let codeLang = '';
+
+  for (const line of lines) {
+    // Fenced code block toggle
+    if (line.startsWith('```')) {
+      if (!inCode) {
+        inCode = true;
+        codeLang = line.slice(3).trim();
+        codeLines = [];
+      } else {
+        const langBadge = codeLang
+          ? `<span class="mini-code-lang">${codeLang}</span>`
+          : '';
+        html.push(
+          `<div class="mini-code-block">${langBadge}<pre>${codeLines.join('\n')}</pre></div>`
+        );
+        inCode = false;
+        codeLang = '';
+      }
+      continue;
+    }
+
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+
+    // Headings
+    if (line.startsWith('### ')) {
+      html.push(`<div class="mini-h3">${inlineFormat(line.slice(4))}</div>`);
+    } else if (line.startsWith('## ')) {
+      html.push(`<div class="mini-h2">${inlineFormat(line.slice(3))}</div>`);
+    } else if (line.startsWith('# ')) {
+      html.push(`<div class="mini-h1">${inlineFormat(line.slice(2))}</div>`);
+    }
+    // Horizontal rule
+    else if (/^[-*_]{3,}\s*$/.test(line)) {
+      html.push('<hr class="mini-hr" />');
+    }
+    // Unordered list
+    else if (/^\s*[-*+]\s/.test(line)) {
+      html.push(`<div class="mini-li">${inlineFormat(line.replace(/^\s*[-*+]\s/, ''))}</div>`);
+    }
+    // Ordered list
+    else if (/^\s*\d+\.\s/.test(line)) {
+      html.push(`<div class="mini-li mini-li-num">${inlineFormat(line.replace(/^\s*\d+\.\s/, ''))}</div>`);
+    }
+    // Empty line
+    else if (line.trim() === '') {
+      html.push('<div class="mini-spacer"></div>');
+    }
+    // Regular paragraph
+    else {
+      html.push(`<div class="mini-p">${inlineFormat(line)}</div>`);
+    }
+  }
+
+  return html.join('');
+});
+
+/** Inline markdown: bold, italic, inline code */
+function inlineFormat(text: string): string {
+  return text
+    .replace(/`([^`]+)`/g, '<code class="mini-inline-code">$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
 
 // Track whether the live preview has been shown at least once this session to prevent
 // flicker when tool context briefly becomes empty between tool calls.
@@ -1057,6 +1169,154 @@ const sizeClass = computed(() => {
 @keyframes line-appear {
   from { width: 0; opacity: 0; }
   to { opacity: 0.6; }
+}
+
+/* Report text mini preview */
+.report-mini-text {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.report-mini-text::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 18px;
+  background: linear-gradient(to bottom, transparent, var(--bolt-elements-bg-depth-1));
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ===== Mini Markdown Renderer (Shiki-style) ===== */
+.report-mini-md {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 6px;
+  line-height: 1.45;
+  color: var(--bolt-elements-textPrimary);
+  overflow: hidden;
+  max-height: 100%;
+  opacity: 0.9;
+}
+
+.report-mini-md .mini-h1 {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--bolt-elements-textPrimary);
+  margin: 3px 0 2px;
+  line-height: 1.2;
+  border-bottom: 1px solid var(--bolt-elements-borderColor);
+  padding-bottom: 2px;
+}
+
+.report-mini-md .mini-h2 {
+  font-size: 7px;
+  font-weight: 650;
+  color: var(--bolt-elements-textPrimary);
+  margin: 2px 0 1px;
+  line-height: 1.25;
+}
+
+.report-mini-md .mini-h3 {
+  font-size: 6.5px;
+  font-weight: 600;
+  color: var(--bolt-elements-textSecondary);
+  margin: 2px 0 1px;
+  line-height: 1.3;
+}
+
+.report-mini-md .mini-p {
+  margin: 0;
+  word-break: break-word;
+}
+
+.report-mini-md .mini-li {
+  padding-left: 6px;
+  position: relative;
+  margin: 0;
+}
+
+.report-mini-md .mini-li::before {
+  content: '•';
+  position: absolute;
+  left: 1px;
+  color: var(--bolt-elements-textTertiary);
+  font-size: 5px;
+}
+
+.report-mini-md .mini-li-num::before {
+  content: '–';
+}
+
+.report-mini-md .mini-spacer {
+  height: 2px;
+}
+
+.report-mini-md .mini-hr {
+  border: none;
+  height: 1px;
+  background: var(--bolt-elements-borderColor);
+  margin: 2px 0;
+}
+
+/* Fenced code block — matches Shiki github-dark theme bg */
+.report-mini-md .mini-code-block {
+  background: #24292e;
+  border-radius: 3px;
+  padding: 3px 4px;
+  margin: 2px 0;
+  position: relative;
+  overflow: hidden;
+}
+
+:global(.dark) .report-mini-md .mini-code-block {
+  background: #161b22;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.report-mini-md .mini-code-block pre {
+  margin: 0;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 5px;
+  line-height: 1.35;
+  color: #e1e4e8;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.report-mini-md .mini-code-lang {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 4px;
+  font-weight: 600;
+  color: #6a737d;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Inline code — subtle bg pill */
+.report-mini-md .mini-inline-code {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 5.5px;
+  background: rgba(175, 184, 193, 0.15);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+:global(.dark) .report-mini-md .mini-inline-code {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.report-mini-md strong {
+  font-weight: 650;
+}
+
+.report-mini-md em {
+  font-style: italic;
+  opacity: 0.85;
 }
 
 /* Tool Preview (fallback) */
