@@ -306,6 +306,18 @@ def get_screenshot_query_service() -> ScreenshotQueryService:
     return _get_screenshot_query_service()
 
 
+@lru_cache
+def get_browser_workflow_service():
+    """Get BrowserWorkflowService using the cached composition-root pattern."""
+    from app.application.services.browser_workflow_service import BrowserWorkflowService
+    from app.infrastructure.external.scraper.scrapling_adapter import get_scraping_adapter
+
+    return BrowserWorkflowService(
+        scraper=get_scraping_adapter(),
+        settings=get_settings(),
+    )
+
+
 def get_session_repository() -> MongoSessionRepository:
     """Get session repository instance for dependency injection (Priority 6: rating security)."""
     return MongoSessionRepository()
