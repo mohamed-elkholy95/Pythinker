@@ -969,6 +969,17 @@ class PartialResultEvent(BaseEvent):
     sources_count: int = 0
 
 
+class SkillEvent(BaseEvent):
+    """Emitted when a skill is activated, deactivated, or matched."""
+
+    type: Literal["skill"] = "skill"
+    skill_id: str
+    skill_name: str
+    action: Literal["activated", "deactivated", "matched"]
+    reason: str
+    tools_affected: list[str] | None = None
+
+
 # Discriminated union on 'type' field for efficient Pydantic v2 validation
 # Using Union[] syntax required for Annotated discriminator pattern
 AgentEvent = Annotated[
@@ -1015,6 +1026,7 @@ AgentEvent = Annotated[
         PhaseEvent,
         EvalMetricsEvent,
         PartialResultEvent,
+        SkillEvent,
     ],
     Discriminator("type"),
 ]
