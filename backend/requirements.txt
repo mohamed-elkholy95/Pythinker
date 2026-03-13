@@ -70,12 +70,9 @@ async-lru>=2.0.0
 
 # Search & Retrieval
 rank-bm25>=0.2.2
-sentence-transformers>=3.0.0  # Phase 3: Self-hosted reranking
-torch>=2.2.0  # Required for sentence-transformers
 numpy>=1.24.0  # Required for MMR diversification
 
-# Hallucination detection (replaces CoVe LLM-based verification)
-lettucedetect>=0.1.0  # ModernBERT token-level hallucination detector
+# Hallucination detection handled by LLM-as-Judge (llm_grounding_verifier.py)
 
 # Deal Scraper: RSS feed parsing + structured data extraction
 feedparser>=6.0
