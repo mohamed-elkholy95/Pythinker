@@ -110,6 +110,13 @@ RUN mkdir -p ${PNPM_HOME} /home/ubuntu/.config/pnpm /home/ubuntu/.local/share/pn
         pnpm add -g @anthropic-ai/mcpb@2.1.2"; \
     fi
 
+# code-server — VS Code web IDE (addons profile only)
+RUN if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
+        curl -fsSL https://code-server.dev/install.sh | sh && \
+        code-server --install-extension ms-python.python 2>/dev/null || true && \
+        code-server --install-extension dbaeumer.vscode-eslint 2>/dev/null || true; \
+    fi
+
 COPY . .
 RUN touch /app/sandbox_context.json /app/sandbox_context.md && chown ubuntu:ubuntu /app/sandbox_context.json /app/sandbox_context.md
 
@@ -253,6 +260,11 @@ COPY --from=builder /app/sandbox_context.md /app/sandbox_context.md
 COPY --from=builder /app/requirements.runtime.txt /app/requirements.runtime.txt
 COPY --from=builder /app/requirements.addons.txt /app/requirements.addons.txt
 COPY --from=builder /app/requirements.txt /app/requirements.txt
+
+# code-server (addons profile only — runtime install to avoid conditional COPY issues)
+RUN if [ "$ENABLE_SANDBOX_ADDONS" = "1" ]; then \
+        curl -fsSL https://code-server.dev/install.sh | sh; \
+    fi
 
 COPY supervisord.conf /app/supervisord.conf
 
