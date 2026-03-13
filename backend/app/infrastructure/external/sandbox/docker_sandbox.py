@@ -541,9 +541,9 @@ class DockerSandbox(Sandbox):
                     service_name = service.get("name", "unknown")
                     state_name = service.get("statename", "")
 
-                    # Allow EXITED/FATAL state for services expected to exit/restart.
+                    # Allow EXITED/FATAL/STOPPED state for services expected to exit/restart.
                     if service_name in expected_exit_services:
-                        if state_name not in ("EXITED", "RUNNING", "FATAL"):
+                        if state_name not in ("EXITED", "RUNNING", "FATAL", "STOPPED"):
                             all_running = False
                             non_running_services.append(f"{service_name}({state_name})")
                     elif state_name != "RUNNING":
