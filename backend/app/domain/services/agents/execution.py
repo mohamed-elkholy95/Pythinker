@@ -177,10 +177,10 @@ class ExecutionAgent(BaseAgent):
             parallel_verification=True,
             min_response_length=200,
         )
-        self._cove_enabled = False  # Deprecated: use LettuceDetect instead
+        self._cove_enabled = False  # Deprecated: use LLM grounding verification instead
 
-        # LettuceDetect encoder-based hallucination verification (replaces CoVe)
-        self._lettuce_enabled = True  # Configured via feature flags
+        # LLM-based grounding verification (replaces LettuceDetect)
+        self._hallucination_verification_enabled = True  # Configured via feature flags
 
         # Source citation tracking — delegated to SourceTracker (Phase 3A extraction)
         # (OutputVerifier composed after SourceTracker below)
@@ -199,7 +199,7 @@ class ExecutionAgent(BaseAgent):
             metrics=_metrics,
             resolve_feature_flags_fn=self._resolve_feature_flags,
             cove_enabled=self._cove_enabled,
-            lettuce_enabled=self._lettuce_enabled,
+            hallucination_verification_enabled=self._hallucination_verification_enabled,
         )
 
         # Step-level execution helpers — delegated to StepExecutor (Phase 3A extraction)
