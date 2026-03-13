@@ -32,7 +32,7 @@ def test_runtime_feature_flags_are_exposed(monkeypatch) -> None:
         feature_claim_provenance=True,
         feature_enhanced_grounding=True,
         feature_cove_verification=False,
-        feature_lettuce_verification=True,
+        feature_hallucination_verification=True,
         feature_semantic_citation_validation=True,
         feature_strict_numeric_verification=True,
         feature_reject_ungrounded_reports=False,
