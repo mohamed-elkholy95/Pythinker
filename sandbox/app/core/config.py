@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     SANDBOX_VERSION: str = "dev"
     TZ: str = "UTC"
 
+    # Screencast dimensions (Agent UX v2)
+    SCREENCAST_INCLUDE_CHROME_UI: bool = True
+    SCREENCAST_MAX_HEIGHT: int = (
+        1024  # 1024 = full window with Chrome UI, 900 = viewport only
+    )
+
     # Sandbox → Backend callback
     RUNTIME_API_HOST: Optional[str] = None
     RUNTIME_API_TOKEN: Optional[str] = None
