@@ -186,39 +186,36 @@
         />
       </div>
 
-      <!-- Compact Progress Bar -->
+      <!-- Compact Progress Bar (Manus-style: check + description + counter + chevron) -->
       <div
         class="progress-bar-collapsed"
         :class="[showCollapsedThumbnail && sessionId ? 'has-thumbnail' : '', { 'completed-state': isAllCompleted }]"
         @click="toggleExpand"
       >
-        <!-- Content -->
-        <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-          <!-- Flip Board Animation for Task Description -->
+        <!-- Status icon -->
+        <div class="collapsed-status-icon">
+          <Check v-if="isAllCompleted" class="w-4 h-4 text-white" :stroke-width="2.5" />
+          <div v-else-if="steps.some(s => s.status === 'running')" class="collapsed-running-dot" />
+          <span v-else class="collapsed-pending-num">{{ currentCount }}</span>
+        </div>
+
+        <!-- Task description -->
+        <div class="flex-1 min-w-0">
           <div class="flip-board-container">
             <TransitionGroup name="flip-board" tag="div" class="flip-board-wrapper">
               <span
                 :key="currentTaskDescription"
-                class="flip-board-text text-[13px] font-medium text-gray-900 dark:text-[var(--text-primary)] truncate"
+                class="flip-board-text collapsed-task-text"
               >
                 {{ currentTaskDescription }}
               </span>
             </TransitionGroup>
           </div>
-          <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-[var(--text-tertiary)]">
-            <span v-if="taskStartTime" class="font-mono tabular-nums">{{ formattedElapsedTime }}</span>
-            <span v-if="taskStartTime && currentActivityText" class="text-gray-300 dark:text-[var(--text-tertiary)]">·</span>
-            <span v-if="currentActivityText" class="truncate" :class="currentActivityClass">{{ currentActivityText }}</span>
-          </div>
         </div>
 
-        <!-- Progress pill & expand -->
+        <!-- Progress counter + chevron -->
         <div class="flex items-center gap-2 flex-shrink-0">
-          <div class="progress-pill">
-            <span class="text-[12px] font-medium tabular-nums">{{ currentCount }}</span>
-            <span class="text-[10px] text-gray-400 dark:text-[var(--text-tertiary)]">/</span>
-            <span class="text-[12px] font-medium tabular-nums">{{ totalCount }}</span>
-          </div>
+          <span class="collapsed-counter">{{ currentCount }} / {{ totalCount }}</span>
           <button @click.stop="toggleExpand" class="expand-btn" aria-label="Toggle task details">
             <ChevronUp class="w-4 h-4" />
           </button>
@@ -473,7 +470,7 @@ const filePath = computed(() => formattedToolPreview.value.filePath)
 const searchResults = computed(() => formattedToolPreview.value.searchResults)
 const searchQuery = computed(() => formattedToolPreview.value.searchQuery)
 
-const streamingPresentation = useStreamingPresentationState({
+const _streamingPresentation = useStreamingPresentationState({
   isInitializing: computed(() => !!props.isInitializing),
   isSummaryStreaming: computed(() => !!props.isSummaryStreaming),
   summaryStreamText: computed(() => props.summaryStreamText || ''),
@@ -488,37 +485,6 @@ const streamingPresentation = useStreamingPresentationState({
   previewText: computed(() => contentPreview.value)
 })
 
-const currentActivityText = computed(() => {
-  if (streamingPresentation.phase.value === 'summarizing') {
-    return streamingPresentation.headline.value
-  }
-  if (streamingPresentation.phase.value === 'summary_final') {
-    return streamingPresentation.headline.value
-  }
-  if (streamingPresentation.phase.value === 'thinking') {
-    return streamingPresentation.headline.value
-  }
-  if (props.currentTool && currentToolDisplayName.value && !isAllCompleted.value) {
-    return currentToolActionLabel.value.toLowerCase()
-  }
-  if (props.isLoading && !isAllCompleted.value) {
-    return 'processing'
-  }
-  if (isAllCompleted.value) {
-    return 'completed'
-  }
-  return ''
-})
-
-const currentActivityClass = computed(() => {
-  if (streamingPresentation.phase.value === 'thinking') {
-    return 'text-blue-500 dark:text-blue-400'
-  }
-  if (streamingPresentation.phase.value === 'summarizing' || streamingPresentation.phase.value === 'summary_final') {
-    return 'text-[var(--text-secondary)]'
-  }
-  return ''
-})
 
 const toggleExpand = () => {
   isExpanded.value = !isExpanded.value
@@ -609,61 +575,84 @@ onUnmounted(() => {
 .progress-bar-collapsed {
   position: relative;
   z-index: 7;
-  background: var(--bolt-elements-bg-depth-1);
-  border: 1px solid var(--bolt-elements-borderColor);
-  border-radius: 14px;
-  padding: 10px 14px;
+  background: var(--background-white-main, #fff);
+  border-top: 1px solid var(--border-light);
+  padding: 10px 16px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.15s ease;
 }
 
 .progress-bar-collapsed:hover {
-  background: var(--bolt-elements-bg-depth-2);
-  border-color: var(--bolt-elements-borderColorActive);
+  background: var(--fill-tsp-gray-main);
+}
+
+/* ===== COLLAPSED STATUS ICON ===== */
+.collapsed-status-icon {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #22c55e;
+}
+
+.progress-bar-collapsed:not(.completed-state) .collapsed-status-icon {
+  background: var(--fill-tsp-gray-main);
+  border: 1.5px solid var(--border-light);
+}
+
+.collapsed-running-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: collapsed-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes collapsed-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.collapsed-pending-num {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+/* ===== TASK TEXT ===== */
+.collapsed-task-text {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-primary);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== COUNTER ===== */
+.collapsed-counter {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ===== COMPLETED STATE ===== */
 .progress-bar-collapsed.completed-state {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, #229ED9 6%, var(--bolt-elements-bg-depth-1)) 0%,
-    var(--bolt-elements-bg-depth-1) 50%
-  );
-  border-color: color-mix(in srgb, #229ED9 18%, var(--bolt-elements-borderColor));
-  padding: 8px 14px;
+  /* Clean — no gradient, just the green check icon carries the signal */
 }
 
-.progress-bar-collapsed.completed-state:hover {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, #229ED9 10%, var(--bolt-elements-bg-depth-2)) 0%,
-    var(--bolt-elements-bg-depth-2) 50%
-  );
-  border-color: color-mix(in srgb, #229ED9 25%, var(--bolt-elements-borderColorActive));
-}
-
-.completed-state .progress-pill {
-  background: rgba(34, 158, 217, 0.14);
-  color: #229ED9;
-}
-
-:global(.dark) .completed-state .progress-pill {
-  background: rgba(34, 158, 217, 0.18);
-  color: #4bb8e8;
-}
-
-/* ===== PROGRESS PILL ===== */
-.progress-pill {
-  display: flex;
-  align-items: baseline;
-  gap: 1px;
-  padding: 4px 10px;
-  background: var(--bolt-elements-bg-depth-4);
-  border-radius: 20px;
-  color: var(--bolt-elements-textSecondary);
+.progress-bar-collapsed.completed-state .collapsed-status-icon {
+  background: #22c55e;
 }
 
 .progress-pill-lg {

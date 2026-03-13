@@ -317,7 +317,7 @@ watch(
 .terminal-surface {
   width: 100%;
   height: 100%;
-  padding: 8px 12px;
+  padding: 12px 16px;
   box-sizing: border-box;
 }
 
