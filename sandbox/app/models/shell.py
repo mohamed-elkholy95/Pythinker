@@ -12,6 +12,7 @@ class ConsoleRecord(BaseModel):
     ps1: str = Field(..., description="Command prompt")
     command: str = Field(..., description="Executed command")
     output: str = Field(default="", description="Command output")
+    exit_code: Optional[int] = Field(default=None, description="Command exit code")
 
 
 class ShellTask(BaseModel):
