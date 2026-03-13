@@ -91,7 +91,7 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/opt/chrome-for-testing/chrome
+      - BROWSER_PATH=/usr/local/bin/chromium
       - SANDBOX_API_SECRET=change-me-to-a-real-secret
       - SUPERVISOR_RPC_USERNAME=supervisor
       - SUPERVISOR_RPC_PASSWORD=change-me-supervisor-rpc-password

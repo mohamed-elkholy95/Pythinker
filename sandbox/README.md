@@ -71,7 +71,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 
 The sandbox uses a **multi-stage hardened build** (2026-02-13):
 
-- **Builder stage**: Python 3.11, Node.js, Chrome for Testing, Playwright browsers, toolchain assembly.
+- **Builder stage**: Python 3.11, Node.js, Playwright browsers (Chromium, Firefox, WebKit), toolchain assembly.
 - **Runtime stage (minimal by default)**: Non-root (`USER ubuntu`), `tini` as PID 1, core sandbox services only.
 - **Optional add-ons profile**: extra data/reporting/cloud utilities install only when explicitly enabled.
 

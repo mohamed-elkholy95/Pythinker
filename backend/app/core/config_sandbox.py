@@ -130,11 +130,11 @@ class BrowserSettingsMixin:
     browser_ignore_https_errors: bool | None = None  # None = auto (True in dev, False in prod)
     browser_allow_dangerous_js: bool = False  # Allow dangerous JavaScript execution (SECURITY RISK)
 
-    # Chrome for Testing (sandbox uses 128.0.6613.137 on Ubuntu 22.04)
+    # Playwright Chromium (version-pinned by playwright install)
     browser_chrome_executable_path: str | None = (
-        None  # Override path (default: /opt/chrome-for-testing/chrome in sandbox)
+        None  # Override path (default: /usr/local/bin/chromium in sandbox)
     )
-    browser_chrome_version: str = "128.0.6613.137"  # Matches Chrome for Testing in sandbox Dockerfile
+    browser_chrome_version: str = "128.0.6613.137"  # Matches Playwright Chromium in sandbox
 
     # Browser Hardening Configuration
     browser_skip_video_urls: bool = True  # Skip video sites (YouTube, Vimeo, etc.)

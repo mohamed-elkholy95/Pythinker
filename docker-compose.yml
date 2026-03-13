@@ -142,7 +142,6 @@ services:
       context: ./sandbox
       dockerfile: Dockerfile
       args:
-        USE_CHROMIUM: "1"
         ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}" # Keep minimal profile by default
       x-bake:
         platforms:
@@ -162,7 +161,7 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/opt/chrome-for-testing/chrome # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
+      - BROWSER_PATH=/usr/local/bin/chromium
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:-supervisor-dev-password}
@@ -218,7 +217,7 @@ services:
         hard: 65536
       # nproc removed: redundant with cgroup pids limit and scoped per-UID
       # (moby/moby#31424) — causes confusing pthread_create EAGAIN failures
-      # Resource limits: 2G per sandbox (Chromium uses less than Chrome for Testing)
+      # Resource limits: 2G per sandbox
     deploy:
       resources:
         limits:
@@ -236,7 +235,6 @@ services:
       context: ./sandbox
       dockerfile: Dockerfile
       args:
-        USE_CHROMIUM: "1"
         ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}" # Keep minimal profile by default
       x-bake:
         platforms:
@@ -247,7 +245,7 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=1 --disable-gpu --disable-vulkan --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/opt/chrome-for-testing/chrome # Resolved by Dockerfile symlink (works for both Chrome and Chromium)
+      - BROWSER_PATH=/usr/local/bin/chromium
       - SANDBOX_API_SECRET=${SANDBOX_API_SECRET:?Set SANDBOX_API_SECRET in .env}
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:-supervisor-dev-password}

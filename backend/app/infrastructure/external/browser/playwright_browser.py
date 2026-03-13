@@ -37,9 +37,9 @@ DEFAULT_USER_AGENT = (
 DEFAULT_TIMEZONE = "America/New_York"
 
 # Professional browsing: User agent rotation pool for anti-detection
-# Aligned with Chrome for Testing 128.0.6613.137 (Ubuntu 22.04 sandbox)
+# Aligned with Playwright Chromium in Ubuntu 22.04 sandbox
 USER_AGENT_POOL = [
-    # Chrome on Linux (matches sandbox Chrome 128.0.6613.137)
+    # Chrome on Linux (matches sandbox Playwright Chromium)
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     # Chrome on Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",

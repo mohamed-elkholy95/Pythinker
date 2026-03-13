@@ -184,8 +184,6 @@ services:
     build:
       context: ./sandbox
       dockerfile: Dockerfile
-      args:
-        USE_CHROMIUM_APT: "1"
     hostname: sandbox
     security_opt:
       - no-new-privileges:true
@@ -230,7 +228,7 @@ services:
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --renderer-process-limit=4 --disable-features=CalculateNativeWinOcclusion --js-flags=--max-old-space-size=512
-      - BROWSER_PATH=/opt/chrome-for-testing/chrome
+      - BROWSER_PATH=/usr/local/bin/chromium
       - LIBGL_ALWAYS_SOFTWARE=1
     restart: unless-stopped
     networks:
