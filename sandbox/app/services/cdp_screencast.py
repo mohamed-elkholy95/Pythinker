@@ -62,14 +62,14 @@ _SAME_URL_REDISCOVERY_THRESHOLD = (
 class ScreencastConfig:
     """Configuration for CDP screencast streaming.
 
-    Default dimensions match Playwright's browser viewport (1280x900)
-    to ensure consistent rendering across the CDP screencast pipeline.
+    Default dimensions match Playwright's browser viewport width (1280)
+    with full window height including Chrome UI (address bar, tab strip).
     """
 
     format: str = "jpeg"  # jpeg is faster than png
     quality: int = 80  # 80% is good balance of quality/bandwidth
     max_width: int = 1280
-    max_height: int = 900  # Match Playwright DEFAULT_VIEWPORT height
+    max_height: int = 1024  # Full window including Chrome UI (address bar, tab strip)
     every_nth_frame: int = 1  # Capture every frame
 
 
@@ -457,12 +457,21 @@ class CDPScreencastService:
         regardless of the actual browser window size.  This is critical for pages
         opened via /json/new or headless tabs that have tiny default viewports.
 
+        When showing Chrome UI (address bar, tab strip), skip the device metrics
+        override so the browser renders naturally at its window size — the
+        override would force a viewport-only capture, clipping the Chrome UI.
+
         Skips the command if the viewport was already set on the current connection
         (tracked via ``_viewport_set``).
         """
         if self._viewport_set:
             return
         if not self._ws or self._ws.closed:
+            return
+        # When showing Chrome UI, don't override device metrics —
+        # let the browser render naturally at its window size
+        if settings.SCREENCAST_INCLUDE_CHROME_UI:
+            self._viewport_set = True
             return
         result = await self._send_command(
             "Emulation.setDeviceMetricsOverride",
