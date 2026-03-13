@@ -920,7 +920,7 @@ class TestHallucinationGrounding:
     """Tests informed by testing.md hallucination detection best practices.
 
     References:
-    - Section 1.1: Token-level detection (LettuceDetect patterns)
+    - Section 1.1: Claim-level detection (LLM grounding verification)
     - Section 1.2: Uncertainty quantification
     - Section 2.1: Attribution analysis (PS/MV metrics)
     - Section 3.4: Structured prompting (uncertainty encouragement)
