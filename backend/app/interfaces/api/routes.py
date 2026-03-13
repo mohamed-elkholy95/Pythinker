@@ -8,6 +8,7 @@ from . import (
     file_routes,
     health_routes,
     knowledge_base_routes,
+    llm_proxy_routes,
     maintenance_routes,
     mcp_routes,
     metrics_routes,
@@ -47,6 +48,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(prompt_optimization_routes.router)  # PR-6: Prompt optimization admin API
     api_router.include_router(channel_link_routes.router)
     api_router.include_router(sandbox_callback_routes.router)
+    api_router.include_router(llm_proxy_routes.router)
 
     return api_router
 
