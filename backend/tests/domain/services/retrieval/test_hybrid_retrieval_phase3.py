@@ -6,46 +6,42 @@ Tests reranker, MMR diversification, and batched retrieval.
 import pytest
 
 
-class TestSelfHostedReranker:
-    """Test self-hosted cross-encoder reranker."""
+class TestNoopReranker:
+    """Test the no-op reranker stub (SelfHostedReranker removed)."""
 
-    def test_reranker_initialization(self):
-        """Test reranker initializes correctly."""
-        from app.domain.services.retrieval.reranker import SelfHostedReranker
+    def test_reranker_not_available(self):
+        """No-op reranker is never available."""
+        from app.domain.services.retrieval.reranker import get_reranker
 
-        reranker = SelfHostedReranker()
+        reranker = get_reranker()
+        assert reranker.is_available() is False
 
-        assert reranker.model_name == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    def test_rerank_returns_candidates_with_dummy_scores(self):
+        """No-op reranker returns candidates unchanged with 0.5 score."""
+        from app.domain.services.retrieval.reranker import get_reranker
 
-    def test_rerank_without_model_returns_unchanged(self):
-        """Test reranker returns candidates when model unavailable."""
-        from app.domain.services.retrieval.reranker import SelfHostedReranker
-
-        reranker = SelfHostedReranker()
-        reranker._is_available = False  # Simulate unavailable model
-
+        reranker = get_reranker()
         candidates = [("doc1", {"id": "1"}), ("doc2", {"id": "2"})]
         results = reranker.rerank("query", candidates, top_k=2)
 
         assert len(results) == 2
         assert all(len(r) == 3 for r in results)  # (text, meta, score)
+        assert all(score == 0.5 for _, _, score in results)
 
     def test_rerank_empty_candidates(self):
-        """Test reranker handles empty candidates."""
-        from app.domain.services.retrieval.reranker import SelfHostedReranker
+        """No-op reranker handles empty candidates."""
+        from app.domain.services.retrieval.reranker import get_reranker
 
-        reranker = SelfHostedReranker()
+        reranker = get_reranker()
         results = reranker.rerank("query", [], top_k=10)
-
         assert results == []
 
     def test_get_reranker_singleton(self):
-        """Test get_reranker() returns singleton instance."""
+        """get_reranker() returns singleton instance."""
         from app.domain.services.retrieval.reranker import get_reranker
 
         reranker1 = get_reranker()
         reranker2 = get_reranker()
-
         assert reranker1 is reranker2
 
 
