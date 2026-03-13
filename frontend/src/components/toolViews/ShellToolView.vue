@@ -1,5 +1,10 @@
 <template>
-  <!-- When live streaming is active, use xterm.js for real-time terminal output -->
+  <!--
+    xterm.js live terminal (Agent UX v2 scaffolding).
+    Currently renders the command prompt; streaming output requires backend
+    ToolStreamEvent with content_type="terminal" to pipe chunks via
+    terminalLiveRef.writeData(). Falls back to static polling view below.
+  -->
   <TerminalLiveView
     v-if="live && terminalLiveEnabled"
     ref="terminalLiveRef"
