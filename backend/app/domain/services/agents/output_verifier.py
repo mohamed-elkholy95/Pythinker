@@ -1,7 +1,7 @@
 """Output verification and hallucination detection for ExecutionAgent.
 
 Encapsulates all verification pipelines extracted from ExecutionAgent:
-- LettuceDetect encoder-based hallucination verification (primary)
+- LLM-based grounding verification (primary — claim-level fact checking)
 - Chain-of-Verification (CoVe) — deprecated fallback
 - Critic revision loop (dormant, not actively called)
 - Heuristic gating (_needs_cove_verification)
@@ -56,7 +56,7 @@ class OutputVerifier:
     """Owns all verification / hallucination-detection logic.
 
     Responsibilities:
-    - Apply LettuceDetect encoder-based hallucination detection
+    - Apply LLM-based grounding verification (claim-level fact checking)
     - Apply CoVe (Chain-of-Verification) as deprecated fallback
     - Apply critic revision loop (dormant)
     - Heuristic gating for when verification is needed
@@ -71,7 +71,7 @@ class OutputVerifier:
         "_cove",
         "_cove_enabled",
         "_critic",
-        "_lettuce_enabled",
+        "_hallucination_verification_enabled",
         "_llm",
         "_metrics",
         "_research_depth",
@@ -91,7 +91,7 @@ class OutputVerifier:
         metrics: MetricsPort | None = None,
         resolve_feature_flags_fn: Any = None,
         cove_enabled: bool = False,
-        lettuce_enabled: bool = True,
+        hallucination_verification_enabled: bool = True,
     ) -> None:
         from app.domain.external.observability import get_null_metrics
 
@@ -103,7 +103,7 @@ class OutputVerifier:
         self._metrics: MetricsPort = metrics or get_null_metrics()
         self._resolve_feature_flags_fn = resolve_feature_flags_fn
         self._cove_enabled: bool = cove_enabled
-        self._lettuce_enabled: bool = lettuce_enabled
+        self._hallucination_verification_enabled: bool = hallucination_verification_enabled
         self._research_depth: str | None = None
 
         # Mutable state (set per-run by the caller)
@@ -129,9 +129,8 @@ class OutputVerifier:
     def build_source_context(self) -> list[str]:
         """Build grounding context from collected sources for hallucination verification.
 
-        Returns each source snippet as a separate list element — LettuceDetect's
-        predict() API expects list[str] where each item is an independent
-        context chunk. Truncation to 4K total chars is handled by LettuceVerifier.
+        Returns each source snippet as a separate list element for the
+        grounding verifier. Context trimming is handled by the caller.
 
         Returns:
             List of source context strings.
@@ -141,8 +140,8 @@ class OutputVerifier:
         chunks: list[str] = []
         for source in collected:
             snippet = source.snippet or ""
-            # Prepend title and URL so LettuceDetect can ground entity names,
-            # project names, and URLs that appear in the synthesized report.
+            # Prepend title and URL so the grounding verifier can ground entity
+            # names, project names, and URLs that appear in the synthesized report.
             prefix_parts: list[str] = []
             if source.title and source.title != source.url:
                 prefix_parts.append(source.title)
@@ -172,7 +171,7 @@ class OutputVerifier:
         re.IGNORECASE,
     )
 
-    # Patterns that LettuceDetect cannot meaningfully verify:
+    # Patterns that produce systematic false positives in verification:
     # - Bare URLs (not in source context verbatim)
     # - Mermaid diagram syntax (graph TD, flowchart, etc.)
     # - Reference/bibliography sections ([N] Title - URL)
@@ -195,8 +194,8 @@ class OutputVerifier:
     def _strip_unverifiable_content(text: str) -> str:
         """Remove content patterns that produce systematic false positives.
 
-        LettuceDetect flags these as hallucinated because they don't appear
-        verbatim in the grounding context:
+        These patterns are not factual claims and should be excluded from
+        hallucination verification:
         - Mermaid diagram blocks (graph syntax, not factual claims)
         - Reference/bibliography sections (URL lists)
         - Lines that are primarily bare URLs with citation numbers
@@ -239,7 +238,7 @@ class OutputVerifier:
     def _strip_cited_tables(text: str) -> str:
         """Remove markdown table blocks that contain citation markers [N].
 
-        Tables with inline citations are sourced data — LettuceDetect cannot
+        Tables with inline citations are sourced data — the verifier cannot
         cross-reference structured tabular content against source text,
         producing false positives on the most valuable report sections.
 
@@ -278,7 +277,7 @@ class OutputVerifier:
             segments.append((current_type, current_lines))
 
         # Rebuild text, skipping table blocks that contain citations or
-        # dense numeric/currency data (LettuceDetect cannot verify computed values).
+        # dense numeric/currency data (verifier cannot reliably check computed values).
         result_lines: list[str] = []
         cited_row_count = 0
         numeric_table_count = 0
@@ -289,7 +288,7 @@ class OutputVerifier:
                     cited_row_count += sum(1 for ln in seg_lines if re.search(r"\[\d+\]", ln))
                     continue  # Skip entire table block
                 # Also exempt tables dense with numeric/currency values —
-                # LettuceDetect fundamentally cannot verify arithmetic derivations.
+                # Verifier cannot reliably check arithmetic derivations.
                 data_rows = [ln for ln in seg_lines if not re.match(r"^\s*\|[-:| ]+\|\s*$", ln)]
                 numeric_rows = sum(1 for ln in data_rows if OutputVerifier._NUMERIC_TABLE_RE.search(ln))
                 if data_rows and numeric_rows / len(data_rows) > 0.5:
@@ -401,20 +400,20 @@ class OutputVerifier:
     # ── Hallucination Verification (Primary Entry Point) ───────────────
 
     async def apply_hallucination_verification(self, content: str, query: str) -> str:
-        """Apply hallucination verification using LettuceDetect (or CoVe fallback).
+        """Apply hallucination verification using LLM-based grounding (or CoVe fallback).
 
-        LettuceDetect uses a ModernBERT encoder to classify each token in the
-        answer as supported or hallucinated, grounded against collected source
-        context. This runs in ~100ms with zero LLM calls.
+        Uses the LLM grounding verifier to extract factual claims from the
+        response and classify each against source context. Returns content
+        with disclaimer appended if hallucination score exceeds thresholds.
 
-        Falls back to CoVe if LettuceDetect is disabled or unavailable.
+        Falls back to CoVe if grounding verification is disabled or unavailable.
 
         Args:
             content: The content to verify.
             query: Original user query for context.
 
         Returns:
-            Verified content (hallucinated spans redacted if detected).
+            Verified content (with disclaimer if hallucinations detected).
         """
         result = await self.verify_hallucination(content, query)
         return result.content
@@ -425,12 +424,12 @@ class OutputVerifier:
 
         flags = self._resolve_feature_flags()
 
-        # Try LettuceDetect first (preferred: fast, no LLM cost)
-        if self._lettuce_enabled and flags.get("lettuce_verification", True):
+        # Try LLM grounding verification (primary: claim-level fact checking)
+        if self._hallucination_verification_enabled and flags.get("hallucination_verification", True):
             try:
-                from app.domain.services.agents.lettuce_verifier import get_lettuce_verifier
+                from app.domain.services.agents.llm_grounding_verifier import get_llm_grounding_verifier
 
-                verifier = get_lettuce_verifier()
+                verifier = get_llm_grounding_verifier()
 
                 # Build grounding context from collected sources
                 source_context = self.build_source_context()
@@ -462,51 +461,42 @@ class OutputVerifier:
                 content_for_verification = self._strip_cited_tables(content)
                 content_for_verification = self._strip_unverifiable_content(content_for_verification)
 
-                lettuce_result = verifier.verify(
-                    context=source_context,
-                    question=query,
-                    answer=content_for_verification,
+                grounding_result = await verifier.verify(
+                    response_text=content_for_verification,
+                    source_context=source_context,
                 )
 
-                if not lettuce_result.skipped and lettuce_result.has_hallucinations:
+                if not grounding_result.skipped and grounding_result.flagged_claims:
                     logger.warning(
-                        "LettuceDetect: %d hallucinated span(s), confidence: %.2f, ratio: %.1f%%",
-                        len(lettuce_result.hallucinated_spans),
-                        lettuce_result.confidence_score,
-                        lettuce_result.hallucination_ratio * 100,
+                        "LLM grounding: %d unsupported claim(s), score: %.1f%%",
+                        len(grounding_result.flagged_claims),
+                        grounding_result.hallucination_score * 100,
                     )
 
-                    # Log individual spans for post-hoc FP analysis
-                    for span in lettuce_result.hallucinated_spans:
+                    # Log individual flagged claims for post-hoc analysis
+                    for claim in grounding_result.flagged_claims:
                         logger.info(
-                            "Hallucinated span | confidence=%.2f | text_preview=%.200s | position=%d-%d",
-                            span.confidence,
-                            span.text,
-                            span.start,
-                            span.end,
-                        )
-                        self._metrics.record_histogram(
-                            "pythinker_hallucination_span_confidence",
-                            span.confidence,
-                            labels={"model": "lettuce"},
+                            "Flagged claim | verdict=%s | text_preview=%.200s",
+                            claim.verdict,
+                            claim.claim_text,
                         )
 
                     self._context_manager.add_insight(
                         insight_type=InsightType.ERROR_LEARNING,
                         content=(
-                            f"LettuceDetect found {len(lettuce_result.hallucinated_spans)} hallucinated span(s) "
-                            f"({lettuce_result.hallucination_ratio:.1%} of text)"
+                            f"LLM grounding found {len(grounding_result.flagged_claims)} unsupported claim(s) "
+                            f"({grounding_result.hallucination_score:.1%} of claims)"
                         ),
                         confidence=0.9,
-                        tags=["hallucination", "lettuce", "verification"],
+                        tags=["hallucination", "llm_grounding", "verification"],
                     )
 
                     # Record Prometheus metric
                     self._metrics.increment(
                         "pythinker_hallucination_detections_total",
                         labels={
-                            "method": "lettuce",
-                            "span_count": str(len(lettuce_result.hallucinated_spans)),
+                            "method": "llm_grounding",
+                            "span_count": str(len(grounding_result.flagged_claims)),
                         },
                     )
 
@@ -514,9 +504,9 @@ class OutputVerifier:
                     # - >block_threshold: blocking issue + disclaimer
                     # - warn_threshold-block_threshold: reliability notice (non-blocking)
                     # - <warn_threshold: pass through (noise-level, not actionable)
-                    _block_threshold = getattr(settings, "hallucination_block_threshold", 0.30)
-                    _warn_threshold = getattr(settings, "hallucination_warn_threshold", 0.10)
-                    if lettuce_result.hallucination_ratio > _block_threshold:
+                    _block_threshold = settings.hallucination_block_threshold
+                    _warn_threshold = settings.hallucination_warn_threshold
+                    if grounding_result.hallucination_score > _block_threshold:
                         disclaimer = (
                             "\n\n> **Note:** Some information in this response "
                             "could not be fully verified against available sources."
@@ -525,40 +515,39 @@ class OutputVerifier:
                             content=content + disclaimer,
                             blocking_issues=["hallucination_ratio_critical"],
                             warnings=["hallucination_detected"],
-                            hallucination_ratio=lettuce_result.hallucination_ratio,
-                            span_count=len(lettuce_result.hallucinated_spans),
+                            hallucination_ratio=grounding_result.hallucination_score,
+                            span_count=len(grounding_result.flagged_claims),
                         )
-                    if lettuce_result.hallucination_ratio > _warn_threshold:
-                        # Use a disclaimer instead of span redaction.  Redacting spans with
-                        # `[…]` markers corrupts Mermaid diagrams, table cells, and chart
-                        # extraction — the same markers appear in truncation artifacts,
-                        # creating ambiguity between the two failure modes.
-                        ratio_pct = lettuce_result.hallucination_ratio * 100
+                    if grounding_result.hallucination_score > _warn_threshold:
+                        ratio_pct = grounding_result.hallucination_score * 100
                         disclaimer = (
                             f"\n\n> ⚠️ **Reliability Notice ({ratio_pct:.1f}% unverified):** "
-                            f"{len(lettuce_result.hallucinated_spans)} section(s) in this report could not be "
+                            f"{len(grounding_result.flagged_claims)} claim(s) in this report could not be "
                             "fully verified against available sources. Treat specific facts, version numbers, "
                             "and statistics with caution."
                         )
                         logger.info(
-                            "LettuceDetect: appending disclaimer for moderate ratio %.1f%% (not redacting spans)",
+                            "LLM grounding: appending disclaimer for moderate score %.1f%%",
                             ratio_pct,
                         )
                         return HallucinationVerificationResult(
                             content=content + disclaimer,
                             warnings=["hallucination_ratio_moderate"],
-                            hallucination_ratio=lettuce_result.hallucination_ratio,
-                            span_count=len(lettuce_result.hallucinated_spans),
+                            hallucination_ratio=grounding_result.hallucination_score,
+                            span_count=len(grounding_result.flagged_claims),
                         )
                     return HallucinationVerificationResult(
                         content=content,
                         warnings=["hallucination_ratio_low"],
-                        hallucination_ratio=lettuce_result.hallucination_ratio,
-                        span_count=len(lettuce_result.hallucinated_spans),
+                        hallucination_ratio=grounding_result.hallucination_score,
+                        span_count=len(grounding_result.flagged_claims),
                     )
 
-                if not lettuce_result.skipped:
-                    logger.info("LettuceDetect: %s", lettuce_result.get_summary())
+                if not grounding_result.skipped:
+                    logger.info(
+                        "LLM grounding: all claims supported (score=%.2f)",
+                        grounding_result.hallucination_score,
+                    )
                 else:
                     warning = (
                         "hallucination_verification_skipped_no_grounding_context"
@@ -574,7 +563,7 @@ class OutputVerifier:
                 return HallucinationVerificationResult(content=content)
 
             except Exception as e:
-                logger.warning("LettuceDetect failed, falling back to CoVe: %s", e)
+                logger.warning("LLM grounding verification failed, falling back to CoVe: %s", e)
 
         # Fallback: CoVe (deprecated, disabled by default)
         if self._cove_enabled and flags.get("chain_of_verification", False):
