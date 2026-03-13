@@ -80,21 +80,21 @@ def build_runtime_pipeline(
         A :class:`RuntimePipeline` with middlewares in the prescribed order.
     """
     middlewares: list[RuntimeMiddleware] = [
-        WorkspaceMiddleware(base_dir=workspace_base),                     # 1
-        CapabilityMiddleware(                                              # 2
+        WorkspaceMiddleware(base_dir=workspace_base),  # 1
+        CapabilityMiddleware(  # 2
             active_skills=active_skills,
             mcp_servers=mcp_servers,
             tool_categories=tool_categories,
             model_name=model_name,
             max_concurrent_delegates=max_concurrent_delegates,
         ),
-        DanglingToolCallMiddleware(),                                      # 3
-        QualityGateMiddleware(                                             # 4
+        DanglingToolCallMiddleware(),  # 3
+        QualityGateMiddleware(  # 4
             toolset_manager=toolset_manager,
             coverage_validator=coverage_validator,
             grounding_validator=grounding_validator,
         ),
-        ClarificationMiddleware(),                                         # 5
+        ClarificationMiddleware(),  # 5
     ]
 
     # Optional: skill discovery (inserted at position 2, after capability)

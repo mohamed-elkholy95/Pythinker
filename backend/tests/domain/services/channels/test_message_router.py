@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -399,9 +399,10 @@ class TestRouteInbound:
     async def test_route_reuses_completed_session_for_telegram_with_naive_activity_timestamp(self) -> None:
         """Naive activity timestamps should not break Telegram session reuse."""
         repo = _make_user_channel_repo(user_id="user-abc", session_id="existing-sess")
+        recent_naive_activity = (datetime.now(UTC) - timedelta(hours=1)).replace(tzinfo=None)
         repo.get_session_activity = AsyncMock(
             return_value={
-                "last_inbound_at": datetime(2026, 3, 4, 10, 0, 0),  # noqa: DTZ001 - explicit naive-timestamp test case
+                "last_inbound_at": recent_naive_activity,
             }
         )
 
@@ -1500,7 +1501,9 @@ class TestSlashReasoning:
         assert len(replies) == 1
         assert "enabled" in replies[0].content.lower()
         agent_svc.update_session_fields.assert_awaited_once_with(
-            "sess-123", "user-abc", {"reasoning_visibility": "on"},
+            "sess-123",
+            "user-abc",
+            {"reasoning_visibility": "on"},
         )
 
     @pytest.mark.asyncio
@@ -1517,7 +1520,9 @@ class TestSlashReasoning:
         assert "stream enabled" in replies[0].content.lower()
         assert "Telegram" in replies[0].content
         agent_svc.update_session_fields.assert_awaited_once_with(
-            "sess-123", "user-abc", {"reasoning_visibility": "stream"},
+            "sess-123",
+            "user-abc",
+            {"reasoning_visibility": "stream"},
         )
 
     @pytest.mark.asyncio
@@ -1533,7 +1538,9 @@ class TestSlashReasoning:
         assert len(replies) == 1
         assert "disabled" in replies[0].content.lower()
         agent_svc.update_session_fields.assert_awaited_once_with(
-            "sess-123", "user-abc", {"reasoning_visibility": "off"},
+            "sess-123",
+            "user-abc",
+            {"reasoning_visibility": "off"},
         )
 
     @pytest.mark.asyncio
@@ -1580,7 +1587,9 @@ class TestSlashThink:
         assert len(replies) == 1
         assert "high" in replies[0].content.lower()
         agent_svc.update_session_fields.assert_awaited_once_with(
-            "sess-123", "user-abc", {"thinking_level": "high"},
+            "sess-123",
+            "user-abc",
+            {"thinking_level": "high"},
         )
 
     @pytest.mark.asyncio
@@ -1632,7 +1641,9 @@ class TestSlashVerbose:
         assert len(replies) == 1
         assert "enabled" in replies[0].content.lower()
         agent_svc.update_session_fields.assert_awaited_once_with(
-            "sess-123", "user-abc", {"verbose_mode": "on"},
+            "sess-123",
+            "user-abc",
+            {"verbose_mode": "on"},
         )
 
     @pytest.mark.asyncio
@@ -1779,7 +1790,9 @@ class TestSlashModels:
         monkeypatch.setattr(
             MessageRouter,
             "_build_model_info",
-            staticmethod(lambda: "Model configuration:\n  Default: gpt-4o\n  Adaptive routing: disabled\n  Provider: openai"),
+            staticmethod(
+                lambda: "Model configuration:\n  Default: gpt-4o\n  Adaptive routing: disabled\n  Provider: openai"
+            ),
         )
 
         replies = [r async for r in router.route_inbound(_make_inbound("/models"))]

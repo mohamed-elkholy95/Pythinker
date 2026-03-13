@@ -907,9 +907,7 @@ class MessageRouter:
             # to a live session.  If it does, reuse it.  Otherwise, fall
             # through and create a new session (storing the mapping under
             # the normal channel key so subsequent messages find it).
-            session_id = await self._user_channel_repo.get_session_key(
-                user_id, message.channel, message.chat_id
-            )
+            session_id = await self._user_channel_repo.get_session_key(user_id, message.channel, message.chat_id)
             if session_id:
                 session = await self._agent_service.get_session(session_id, user_id)
                 if session is not None:
@@ -920,7 +918,9 @@ class MessageRouter:
                         return session_id
                     logger.info(
                         "Override session %s is terminal, creating new session for %s/%s",
-                        session_id, message.channel, message.chat_id,
+                        session_id,
+                        message.channel,
+                        message.chat_id,
                     )
                 else:
                     logger.info("Override session %s no longer exists, creating new one", session_id)

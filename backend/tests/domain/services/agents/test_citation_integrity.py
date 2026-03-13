@@ -253,16 +253,8 @@ class TestAuthoritativeRepair:
     """Tests for repair_citations() with authoritative source validation."""
 
     def test_repair_citations_rebuilds_fake_reference_entries_from_authoritative_source_list(self):
-        report = (
-            "# Report\n\n"
-            "Claim text [1]\n\n"
-            "## References\n"
-            "[1] Fake Source - https://fake.example\n"
-        )
-        source_list = (
-            "[1] Real Source One - https://one.example\n"
-            "[2] Real Source Two - https://two.example\n"
-        )
+        report = "# Report\n\nClaim text [1]\n\n## References\n[1] Fake Source - https://fake.example\n"
+        source_list = "[1] Real Source One - https://one.example\n[2] Real Source Two - https://two.example\n"
 
         repaired = repair_citations(report, source_list)
 
@@ -279,10 +271,7 @@ class TestAuthoritativeRepair:
             "[1] Source A - https://a.example\n"
             "[2] Source B - https://b.example\n"
         )
-        source_list = (
-            "[1] Source A - https://a.example\n"
-            "[2] Source B - https://b.example\n"
-        )
+        source_list = "[1] Source A - https://a.example\n[2] Source B - https://b.example\n"
 
         repaired = repair_citations(report, source_list)
 

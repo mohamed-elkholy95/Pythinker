@@ -1,9 +1,8 @@
 import pytest
 
 from app.infrastructure.external.browser.choreography import (
-    BrowserChoreographer,
-    ChoreographyProfile,
     PROFILES,
+    BrowserChoreographer,
 )
 
 

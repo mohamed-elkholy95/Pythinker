@@ -73,8 +73,9 @@ class MermaidPreprocessor:
     This keeps the domain layer free of infrastructure imports.
     """
 
-    def __init__(self, http_client: httpx.AsyncClient) -> None:
+    def __init__(self, http_client: httpx.AsyncClient, sandbox_url: str | None = None) -> None:
         self._client = http_client
+        self._sandbox_url = sandbox_url
 
     async def preprocess_markdown(self, markdown: str) -> tuple[str, dict[str, bytes]]:
         """Process markdown, rendering mermaid blocks to PNG.

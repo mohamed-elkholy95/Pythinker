@@ -89,7 +89,7 @@ def _build_mermaid_preprocessor(sandbox_url: str | None):
     from app.domain.services.pdf.mermaid_preprocessor import MermaidPreprocessor
 
     client = httpx.AsyncClient(base_url=sandbox_url, timeout=20.0)
-    return MermaidPreprocessor(http_client=client)
+    return MermaidPreprocessor(http_client=client, sandbox_url=sandbox_url)
 
 
 def build_pdf_renderer_from_settings(settings: Any):
