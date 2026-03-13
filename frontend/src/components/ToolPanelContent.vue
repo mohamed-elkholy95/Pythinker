@@ -1,61 +1,57 @@
 <template>
   <div
     class="flex h-full w-full"
-    :class="{ 'bg-[var(--background-white-main)] sm:bg-[var(--background-white-main)] sm:rounded-[20px] shadow-[0px_10px_30px_rgba(15,23,42,0.08)] border border-[var(--border-light)]': !embedded }"
+    :class="{ 'panel-outer-frame': !embedded }"
   >
     <div :class="['flex-1 min-w-0 flex flex-col h-full', embedded ? 'px-3 pb-3' : 'p-4']">
-      <!-- Frame Header: Pythinker's Computer + window controls (hidden in embedded/workspace mode) -->
-      <div v-if="!embedded" class="flex items-center gap-2 w-full">
-        <div class="text-[var(--text-primary)] text-[15px] font-semibold flex-1">{{ $t("Pythinker's Computer") }}</div>
-        <div class="flex items-center gap-1">
+      <!-- Frame Header: Pythinker's Computer + activity + window controls -->
+      <div v-if="!embedded" class="panel-frame-header">
+        <div class="flex flex-col gap-0.5 flex-1 min-w-0">
+          <div class="text-[var(--text-primary)] text-[16px] font-semibold leading-tight">{{ $t("Pythinker's Computer") }}</div>
+          <div v-if="activityHeadline" class="flex items-center gap-1.5 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
+            <Loader2
+              v-if="showActivitySpinner"
+              :size="14"
+              class="flex-shrink-0 text-[var(--icon-secondary)]"
+              :class="{ 'animate-spin': isSummaryStreaming }"
+            />
+            <component
+              v-else-if="toolDisplay?.icon"
+              :is="toolDisplay.icon"
+              :size="14"
+              class="flex-shrink-0 text-[var(--icon-secondary)]"
+            />
+            <span class="flex-shrink-0 whitespace-nowrap">{{ activityHeadline }}</span>
+            <span v-if="activitySubtitle" class="text-[var(--text-quaternary)]">|</span>
+            <span v-if="activitySubtitle" class="truncate min-w-0 text-[var(--text-quaternary)]">{{ activitySubtitle }}</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5">
           <button
             v-if="!!props.sessionId"
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)] disabled:opacity-40 disabled:cursor-not-allowed"
+            class="panel-control-btn"
             @click="takeOver"
             :disabled="takeoverLoading"
             aria-label="Open takeover"
           >
-            <MonitorUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
+            <MonitorUp class="w-4 h-4" />
           </button>
           <button
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
+            class="panel-control-btn"
             @click="hide"
             aria-label="Minimize"
           >
-            <Minimize2 class="w-4 h-4 text-[var(--icon-tertiary)]" />
+            <Minimize2 class="w-4 h-4" />
           </button>
           <button
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
+            class="panel-control-btn"
             @click="hide"
             aria-label="Close"
           >
-            <X class="w-4 h-4 text-[var(--icon-tertiary)]" />
+            <X class="w-4 h-4" />
           </button>
         </div>
       </div>
-
-      <!-- Activity Bar: unified streaming presentation status -->
-      <div v-if="activityHeadline" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
-        <Loader2
-          v-if="showActivitySpinner"
-          :size="18"
-          class="flex-shrink-0 text-[var(--icon-secondary)]"
-          :class="{ 'animate-spin': isSummaryStreaming }"
-          style="min-width: 18px; min-height: 18px;"
-        />
-        <component
-          v-else-if="toolDisplay?.icon"
-          :is="toolDisplay.icon"
-          :size="18"
-          class="flex-shrink-0 text-[var(--icon-secondary)]"
-          style="min-width: 18px; min-height: 18px;"
-        />
-        <span class="flex-shrink-0 whitespace-nowrap">{{ activityHeadline }}</span>
-        <span v-if="activitySubtitle" class="text-[var(--text-quaternary)] flex-shrink-0">|</span>
-        <span v-if="activitySubtitle" class="truncate min-w-0">{{ activitySubtitle }}</span>
-      </div>
-
-      <!-- Confirmation banner removed -->
 
       <!-- Content Container with rounded frame -->
       <div
@@ -63,13 +59,18 @@
           'relative flex flex-col overflow-hidden bg-[var(--background-white-main)] flex-1 min-h-0',
           embedded
             ? 'rounded-[10px] border border-[var(--border-light)] mt-2'
-            : 'rounded-[14px] border border-[var(--border-light)] shadow-[0px_6px_24px_var(--shadow-XS)] mt-[16px]'
+            : 'rounded-[14px] border border-[var(--border-light)] shadow-[0px_6px_24px_var(--shadow-XS)] mt-3'
         ]">
 
+        <!-- URL Status Bar (browser views — replaces content header) -->
+        <div v-if="showUrlStatusBar" class="url-status-bar">
+          <span class="url-status-text">{{ livePreviewChromeUrl }}</span>
+        </div>
+
         <!-- Content Header: Centered operation label + View mode tabs.
-             Hidden only when this component is embedded without a forced view mode. -->
+             Hidden for browser views when URL bar is active, or embedded without forced view mode. -->
         <div
-          v-if="contentConfig && (!embedded || forceViewType)"
+          v-if="contentConfig && (!embedded || forceViewType) && !showUrlStatusBar"
           class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[14px] relative">
 
           <!-- Left: Activity indicator + elapsed timer (absolute positioned) -->
@@ -1134,6 +1135,12 @@ const resolvedBrowserUrl = computed(() => {
   return '';
 });
 
+const showUrlStatusBar = computed(() => {
+  if (props.embedded) return false;
+  if (currentViewType.value !== 'live_preview' && !showPersistentBrowser.value) return false;
+  return !!resolvedBrowserUrl.value;
+});
+
 const showLivePreviewChrome = computed(() => {
   if (showLivePreviewPlaceholder.value || !showPersistentBrowser.value) return false;
   return currentViewType.value === 'live_preview' || isBrowserTool(toolName.value) || forceBrowserView.value;
@@ -1790,6 +1797,77 @@ const handleBrowseUrl = async (url: string) => {
   50%       { opacity: 0.7; }
 }
 
+/* ===== PANEL OUTER FRAME ===== */
+.panel-outer-frame {
+  background: var(--background-white-main);
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+:global(.dark) .panel-outer-frame {
+  border-color: color-mix(in srgb, var(--border-light) 60%, transparent);
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+/* ===== PANEL FRAME HEADER (Manus-style) ===== */
+.panel-frame-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding-bottom: 2px;
+}
+
+.panel-control-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--icon-tertiary);
+  transition: all 0.15s ease;
+}
+
+.panel-control-btn:hover {
+  background: var(--fill-tsp-gray-main);
+  border-color: var(--border-light);
+  color: var(--icon-secondary);
+}
+
+.panel-control-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ===== URL STATUS BAR ===== */
+.url-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--fill-tsp-gray-main);
+  flex-shrink: 0;
+  border-radius: 14px 14px 0 0;
+}
+
+.url-status-text {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ===== CONTENT HEADER ===== */
 .panel-content-header {
   box-shadow: inset 0 1px 0 0 var(--border-white);
 }

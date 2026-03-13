@@ -31,34 +31,23 @@
 
     <!-- Main Controls Row -->
     <div class="flex items-center gap-3">
-      <!-- Step Controls + Counter -->
-      <div class="flex items-center gap-1">
-        <!-- Step Backward -->
+      <!-- Step Controls -->
+      <div class="flex items-center gap-0.5">
         <button
           @click="$emit('stepBackward')"
           :disabled="!canStepBackward"
-          class="p-1.5 rounded hover:bg-[var(--fill-tsp-gray-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          class="timeline-step-btn"
           title="Previous action (←)"
         >
-          <SkipBack class="w-4 h-4 text-[var(--icon-primary)]" />
+          <SkipBack class="w-4 h-4" />
         </button>
-
-        <!-- Step Counter: only when navigating history (not in live mode at latest position) -->
-        <span
-          v-if="totalSteps > 0 && (!isLive || currentStep !== totalSteps)"
-          class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)] min-w-[36px] text-center select-none"
-        >
-          {{ currentStep }} / {{ totalSteps }}
-        </span>
-
-        <!-- Step Forward -->
         <button
           @click="$emit('stepForward')"
           :disabled="!canStepForward"
-          class="p-1.5 rounded hover:bg-[var(--fill-tsp-gray-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          class="timeline-step-btn"
           title="Next action (→)"
         >
-          <SkipForward class="w-4 h-4 text-[var(--icon-primary)]" />
+          <SkipForward class="w-4 h-4" />
         </button>
       </div>
 
@@ -66,7 +55,7 @@
       <div class="flex-1 relative">
         <div
           ref="scrubberRef"
-          class="scrubber-track relative h-1 bg-[var(--fill-tsp-gray-main)] rounded-full cursor-pointer group overflow-visible"
+          class="scrubber-track relative h-[6px] rounded-full cursor-pointer group overflow-visible"
           @click="handleScrubberClick"
           @mousedown="startDragging"
           @mouseenter="handleMouseEnter"
@@ -77,7 +66,7 @@
           <div
             v-if="tooltipVisible"
             class="absolute -translate-x-1/2 rounded-lg bg-gray-800 dark:bg-gray-700 text-white text-[10px] font-medium px-2 py-1 shadow-md pointer-events-none whitespace-nowrap z-20 flex flex-col items-center gap-0.5"
-            :style="{ left: `${tooltipPosition}%`, bottom: '12px' }"
+            :style="{ left: `${tooltipPosition}%`, bottom: '14px' }"
           >
             <span v-if="tooltipToolLabel" class="text-[10px] font-semibold">{{ tooltipToolLabel }}</span>
             <span v-if="tooltipTimestamp" class="text-[9px] opacity-75">{{ tooltipTimestamp }}</span>
@@ -93,29 +82,29 @@
             :title="marker.label"
           />
 
-          <!-- Progress Fill -->
+          <!-- Progress Fill (teal gradient) -->
           <div
-            class="absolute h-full bg-blue-500 rounded-full transition-[width] duration-100"
+            class="scrubber-fill absolute h-full rounded-full transition-[width] duration-100"
             :style="{ width: `${progress}%` }"
           />
 
           <!-- Scrubber Thumb -->
           <div
-            class="scrubber-thumb absolute w-3 h-3 bg-blue-500 rounded-full -top-1 transform -translate-x-1/2 shadow-md transition-transform hover:scale-125"
+            class="scrubber-thumb absolute w-3 h-3 rounded-full -top-[3px] transform -translate-x-1/2 shadow-md transition-transform hover:scale-125"
             :style="{ left: `${progress}%` }"
           />
         </div>
       </div>
 
       <!-- Live / Replay Indicator -->
-      <div class="flex items-center gap-1.5 min-w-[50px] justify-end">
+      <div class="flex items-center gap-2 min-w-[50px] justify-end">
         <span
-          class="w-2 h-2 rounded-full"
-          :class="isReplayMode ? 'bg-gray-400' : isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'"
+          class="timeline-live-dot"
+          :class="isReplayMode ? 'bg-gray-400' : isLive ? 'is-live' : 'bg-gray-400'"
         />
         <span
-          class="text-xs font-medium"
-          :class="isReplayMode ? 'text-[var(--text-tertiary)]' : isLive ? 'text-green-600 dark:text-green-400' : 'text-[var(--text-tertiary)]'"
+          class="text-[13px] font-medium"
+          :class="isReplayMode ? 'text-[var(--text-tertiary)]' : isLive ? 'text-emerald-500 dark:text-emerald-400' : 'text-[var(--text-tertiary)]'"
         >
           {{ isReplayMode ? 'replay' : 'live' }}
         </span>
@@ -339,16 +328,70 @@ onUnmounted(() => {
   border-radius: 4px;
 }
 
-.scrubber-track {
-  touch-action: none;
+/* Step buttons */
+.timeline-step-btn {
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--icon-primary);
+  transition: all 0.15s ease;
+  cursor: pointer;
+  background: transparent;
+  border: none;
 }
 
+.timeline-step-btn:hover {
+  background: var(--fill-tsp-gray-main);
+}
+
+.timeline-step-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Scrubber track */
+.scrubber-track {
+  touch-action: none;
+  background: color-mix(in srgb, var(--text-tertiary) 20%, transparent);
+}
+
+/* Teal gradient fill */
+.scrubber-fill {
+  background: linear-gradient(90deg, #0d9488 0%, #14b8a6 50%, #2dd4bf 100%);
+  border-radius: 999px;
+}
+
+/* Teal thumb */
 .scrubber-thumb {
   cursor: grab;
+  background: #14b8a6;
+  box-shadow: 0 0 6px rgba(20, 184, 166, 0.4);
 }
 
 .scrubber-thumb:active {
   cursor: grabbing;
+}
+
+/* Live indicator dot */
+.timeline-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.timeline-live-dot.is-live {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.7);
+  }
 }
 
 @keyframes pulse {

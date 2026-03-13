@@ -156,10 +156,10 @@
     </Transition>
 
     <!-- Collapsed View - always in DOM to maintain space -->
-    <div class="collapsed-wrapper" :class="[showCollapsedThumbnail && sessionId ? 'has-thumbnail' : '', { 'invisible': isExpanded }]">
+    <div class="collapsed-wrapper" :class="[showCollapsedThumbnail && sessionId && !isAllCompleted ? 'has-thumbnail' : '', { 'invisible': isExpanded }]">
       <!-- Floating Live Mini Preview -->
       <div
-        v-if="showCollapsedThumbnail && sessionId && !isExpanded"
+        v-if="showCollapsedThumbnail && sessionId && !isExpanded && !isAllCompleted"
         class="live-preview-thumbnail-floating"
         @mouseenter="showTooltip"
         @mouseleave="scheduleHideTooltip"
@@ -189,7 +189,7 @@
       <!-- Compact Progress Bar -->
       <div
         class="progress-bar-collapsed"
-        :class="showCollapsedThumbnail && sessionId ? 'has-thumbnail' : ''"
+        :class="[showCollapsedThumbnail && sessionId && !isAllCompleted ? 'has-thumbnail' : '', { 'completed-state': isAllCompleted }]"
         @click="toggleExpand"
       >
         <!-- Content -->
@@ -623,6 +623,31 @@ onUnmounted(() => {
 .progress-bar-collapsed:hover {
   background: var(--bolt-elements-bg-depth-2);
   border-color: var(--bolt-elements-borderColorActive);
+}
+
+/* ===== COMPLETED STATE ===== */
+.progress-bar-collapsed.completed-state {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, #22c55e 6%, var(--bolt-elements-bg-depth-1)) 0%,
+    var(--bolt-elements-bg-depth-1) 50%
+  );
+  border-color: color-mix(in srgb, #22c55e 15%, var(--bolt-elements-borderColor));
+  padding: 8px 14px;
+}
+
+.progress-bar-collapsed.completed-state:hover {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, #22c55e 10%, var(--bolt-elements-bg-depth-2)) 0%,
+    var(--bolt-elements-bg-depth-2) 50%
+  );
+  border-color: color-mix(in srgb, #22c55e 20%, var(--bolt-elements-borderColorActive));
+}
+
+.completed-state .progress-pill {
+  background: color-mix(in srgb, #22c55e 12%, var(--bolt-elements-bg-depth-4));
+  color: #22c55e;
 }
 
 /* ===== PROGRESS PILL ===== */
