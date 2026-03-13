@@ -7,26 +7,26 @@
       <!-- Frame Header: Pythinker's Computer + activity + window controls -->
       <div v-if="!embedded" class="panel-frame-header">
         <div class="flex flex-col gap-0.5 flex-1 min-w-0">
-          <div class="text-[var(--text-primary)] text-[16px] font-semibold leading-tight">{{ $t("Pythinker's Computer") }}</div>
-          <div v-if="activityHeadline" class="flex items-center gap-1.5 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
+          <div class="text-[var(--text-primary)] text-[15px] font-semibold leading-snug">{{ $t("Pythinker's Computer") }}</div>
+          <div v-if="activityHeadline" class="panel-activity-line">
             <Loader2
               v-if="showActivitySpinner"
-              :size="14"
+              :size="13"
               class="flex-shrink-0 text-[var(--icon-secondary)]"
               :class="{ 'animate-spin': isSummaryStreaming }"
             />
             <component
               v-else-if="toolDisplay?.icon"
               :is="toolDisplay.icon"
-              :size="14"
+              :size="13"
               class="flex-shrink-0 text-[var(--icon-secondary)]"
             />
             <span class="flex-shrink-0 whitespace-nowrap">{{ activityHeadline }}</span>
-            <span v-if="activitySubtitle" class="text-[var(--text-quaternary)]">|</span>
-            <span v-if="activitySubtitle" class="truncate min-w-0 text-[var(--text-quaternary)]">{{ activitySubtitle }}</span>
+            <span v-if="activitySubtitle" class="panel-activity-separator">|</span>
+            <span v-if="activitySubtitle" class="truncate min-w-0 panel-activity-detail">{{ activitySubtitle }}</span>
           </div>
         </div>
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-center gap-1">
           <button
             v-if="!!props.sessionId"
             class="panel-control-btn"
@@ -59,7 +59,7 @@
           'relative flex flex-col overflow-hidden bg-[var(--background-white-main)] flex-1 min-h-0',
           embedded
             ? 'rounded-[10px] border border-[var(--border-light)] mt-2'
-            : 'rounded-[14px] border border-[var(--border-light)] shadow-[0px_6px_24px_var(--shadow-XS)] mt-3'
+            : 'panel-content-container rounded-[12px] border border-[var(--border-light)] shadow-[0px_4px_16px_var(--shadow-XS)] mt-2'
         ]">
 
         <!-- URL Status Bar (browser views — replaces content header) -->
@@ -71,7 +71,7 @@
              Hidden for browser views when URL bar is active, or embedded without forced view mode. -->
         <div
           v-if="contentConfig && (!embedded || forceViewType) && !showUrlStatusBar"
-          class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[14px] relative">
+          class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[12px] relative">
 
           <!-- Left: Activity indicator + elapsed timer (absolute positioned) -->
           <div v-if="isWriting" class="absolute left-3 flex items-center gap-2">
@@ -241,15 +241,15 @@
               </Transition>
             </div>
 
-            <!-- Take over button -->
+            <!-- Take over button (Manus-style floating action) -->
             <button
               v-if="!isShare && !!props.sessionId"
               @click="takeOver"
               :disabled="takeoverLoading"
-              class="takeover-btn absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-[var(--text-onblack)] group transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed"
+              class="takeover-fab"
             >
               <TakeOverIcon />
-              <span class="text-sm max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:ml-1">
+              <span class="takeover-fab-label">
                 {{ $t('Take Over') }}
               </span>
             </button>
@@ -1801,29 +1801,33 @@ const handleBrowseUrl = async (url: string) => {
 .panel-outer-frame {
   background: var(--background-white-main);
   border: 1px solid var(--border-light);
-  border-radius: 20px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  box-shadow:
+    0 8px 32px rgba(15, 23, 42, 0.06),
+    0 2px 8px rgba(15, 23, 42, 0.04);
 }
 
 :global(.dark) .panel-outer-frame {
-  border-color: color-mix(in srgb, var(--border-light) 60%, transparent);
+  background: color-mix(in srgb, var(--background-white-main) 97%, #000);
+  border-color: rgba(255, 255, 255, 0.06);
   box-shadow:
-    0 10px 40px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+    0 12px 48px rgba(0, 0, 0, 0.5),
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-/* ===== PANEL FRAME HEADER (Manus-style) ===== */
+/* ===== PANEL FRAME HEADER ===== */
 .panel-frame-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   width: 100%;
-  padding-bottom: 2px;
+  min-height: 48px;
 }
 
 .panel-control-btn {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 8px;
   display: inline-flex;
   align-items: center;
@@ -1838,11 +1842,16 @@ const handleBrowseUrl = async (url: string) => {
 .panel-control-btn:hover {
   background: var(--fill-tsp-gray-main);
   border-color: var(--border-light);
-  color: var(--icon-secondary);
+  color: var(--icon-primary);
+}
+
+:global(.dark) .panel-control-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .panel-control-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
@@ -1851,15 +1860,22 @@ const handleBrowseUrl = async (url: string) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px;
+  padding: 6px 20px;
   border-bottom: 1px solid var(--border-light);
-  background: var(--fill-tsp-gray-main);
+  background: color-mix(in srgb, var(--fill-tsp-gray-main) 50%, transparent);
   flex-shrink: 0;
-  border-radius: 14px 14px 0 0;
+  border-radius: 12px 12px 0 0;
+}
+
+:global(.dark) .url-status-bar {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom-color: rgba(255, 255, 255, 0.05);
 }
 
 .url-status-text {
   font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
   color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
@@ -1867,8 +1883,116 @@ const handleBrowseUrl = async (url: string) => {
   max-width: 100%;
 }
 
+:global(.dark) .url-status-text {
+  color: color-mix(in srgb, var(--text-tertiary) 70%, transparent);
+}
+
 /* ===== CONTENT HEADER ===== */
 .panel-content-header {
   box-shadow: inset 0 1px 0 0 var(--border-white);
+}
+
+/* ===== CONTENT CONTAINER DARK MODE ===== */
+:global(.dark) .panel-content-container {
+  border-color: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+/* ===== ACTIVITY LINE (subtitle below title) ===== */
+.panel-activity-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  line-height: 1.3;
+}
+
+:global(.dark) .panel-activity-line {
+  color: color-mix(in srgb, var(--text-tertiary) 80%, transparent);
+}
+
+.panel-activity-separator {
+  color: var(--text-quaternary);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.panel-activity-detail {
+  color: var(--text-quaternary);
+}
+
+:global(.dark) .panel-activity-detail {
+  color: color-mix(in srgb, var(--text-quaternary) 70%, transparent);
+}
+
+/* ===== TAKEOVER FAB (floating action button) ===== */
+.takeover-fab {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 10;
+  min-width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--background-white-main) 85%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.08),
+    0 1px 4px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:global(.dark) .takeover-fab {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.3),
+    0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.takeover-fab:hover {
+  border-radius: 21px;
+  padding: 0 16px;
+  background: var(--text-brand);
+  color: var(--text-onblack);
+  border-color: transparent;
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+:global(.dark) .takeover-fab:hover {
+  box-shadow:
+    0 6px 28px rgba(0, 0, 0, 0.4),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.takeover-fab:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.takeover-fab-label {
+  font-size: 14px;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.takeover-fab:hover .takeover-fab-label {
+  max-width: 200px;
+  opacity: 1;
+  margin-left: 6px;
 }
 </style>
