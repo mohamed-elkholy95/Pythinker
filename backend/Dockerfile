@@ -1,60 +1,79 @@
+# ============================================================
+# Stage 1: BUILDER — compile deps, install browsers
+# ============================================================
+FROM python:3.12-slim AS builder
+
+ENV PYTHONUNBUFFERED=1
+ENV UV_HTTP_TIMEOUT=300
+
+WORKDIR /build
+
+# Build tools + runtime libs needed by native wheels (lxml, Pillow, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ python3-dev curl \
+    libxcb1 libxcb-util1 libxrender1 libxext6 libglib2.0-0 \
+    libgl1 libgles2 libglx0 libegl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (standalone binary — faster than pip install uv)
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
+# Install Python dependencies (largest layer — cached unless requirements.txt changes)
+COPY requirements.txt .
+RUN uv pip install --system --no-cache "setuptools<81" Cython && \
+    uv pip install --system --no-cache --no-build-isolation editdistpy==0.1.6 && \
+    uv pip install --system --no-cache -r requirements.txt
+
+# Install Playwright Chromium for PDF rendering
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN playwright install --with-deps chromium
+
+# Scrapling fetchers: browser/runtime assets for stealth scraping tiers
+RUN scrapling install
+
+
+# ============================================================
+# Stage 2: RUNTIME — slim production image
+# ============================================================
 FROM python:3.12-slim
 
-# Prevent BlockingIOError when Docker pipe buffer fills under high log throughput
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install base tooling and Unicode fonts required by Telegram PDF generation.
-RUN apt-get update && apt-get install -y \
+# Runtime-only system packages (no gcc/g++/dev tools)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fonts-dejavu-core \
-    fonts-liberation
-
-# Install uv
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y nodejs
-
-# Install uv
-RUN pip install uv
-ENV UV_HTTP_TIMEOUT=300
-
-# Install dependencies
-COPY requirements.txt .
-RUN apt-get update && apt-get install -y gcc g++ python3-dev \
+    fonts-liberation \
+    # Playwright Chromium runtime dependencies
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+    libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 libxshmfence1 \
+    # Shared libs for native Python wheels (Pillow, lxml, etc.)
     libxcb1 libxcb-util1 libxrender1 libxext6 libglib2.0-0 \
     libgl1 libgles2 libglx0 libegl1 \
-    && rm -rf /var/lib/apt/lists/* && \
-    python -m pip install "setuptools<81" Cython && \
-    python -m pip install --no-build-isolation --no-cache-dir editdistpy==0.1.6 && \
-    uv pip install --system --no-cache -r requirements.txt
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Chromium runtime and OS deps for Playwright PDF rendering.
-RUN playwright install --with-deps chromium
+# Copy installed Python packages from builder
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Scrapling fetchers require browser/runtime assets beyond pip wheels.
-# Official setup: pip install "scrapling[fetchers]" + `scrapling install`.
-RUN scrapling install
+# Copy Playwright browsers from builder
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+COPY --from=builder /opt/playwright-browsers /opt/playwright-browsers
 
-# Copy project files
+# Copy application code (.dockerignore excludes .venv, tests, docs, .git)
 COPY . .
 
-# Set script execution permissions
 RUN chmod +x run.sh
 
-# Create persistent DSPy/LiteLLM disk cache directory.
-# Mounted as a named volume in docker-compose so LLM call results
-# survive container restarts and avoid re-spending tokens on re-evaluation.
+# DSPy/LiteLLM disk cache (mounted as named volume in docker-compose)
 RUN mkdir -p /app/data/dspy_cache
 
-# Set environment variables
 ENV PYTHONPATH=/app
-# DSPy/LiteLLM will read this env var to locate the disk cache.
-# Override with DSPY_CACHE_DIR in docker-compose if you want a different path.
 ENV DSPY_CACHEDIR=/app/data/dspy_cache
 
-# Expose port
 EXPOSE 8000
 
-# Start command
-CMD ["./run.sh"] 
+CMD ["./run.sh"]
