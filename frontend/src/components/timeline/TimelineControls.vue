@@ -1,61 +1,37 @@
 <template>
   <div
     ref="controlsRef"
-    class="timeline-controls px-4 py-2.5 bg-transparent"
+    class="timeline-controls"
     tabindex="0"
     @keydown="handleKeydown"
   >
-    <!-- Jump to Live Button (shown when not in live mode, hidden in replay mode) -->
-    <div
-      v-if="!isLive && !isReplayMode"
-      class="flex items-center justify-center mb-2"
-    >
-      <button
-        @click="$emit('jumpToLive')"
-        class="flex items-center gap-1.5 px-3 py-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
-      >
-        <Play class="w-3 h-3" />
-        <span>Jump to live</span>
-      </button>
-    </div>
-
-    <!-- Timestamp Display (static for non-hover mode) -->
-    <div
-      v-if="showTimestamp && !showTimestampOnInteract"
-      class="flex items-center justify-center mb-3"
-    >
-      <div class="px-3 py-1 bg-blue-500 text-white text-xs font-medium rounded-full">
-        {{ formattedTimestamp }}
-      </div>
-    </div>
-
     <!-- Main Controls Row -->
-    <div class="flex items-center gap-3">
+    <div class="timeline-row">
       <!-- Step Controls -->
-      <div class="flex items-center gap-0.5">
+      <div class="timeline-step-group">
         <button
           @click="$emit('stepBackward')"
           :disabled="!canStepBackward"
           class="timeline-step-btn"
-          title="Previous action (←)"
+          title="Previous action"
         >
-          <SkipBack class="w-[18px] h-[18px]" />
+          <SkipBack class="w-[16px] h-[16px]" />
         </button>
         <button
           @click="$emit('stepForward')"
           :disabled="!canStepForward"
           class="timeline-step-btn"
-          title="Next action (→)"
+          title="Next action"
         >
-          <SkipForward class="w-[18px] h-[18px]" />
+          <SkipForward class="w-[16px] h-[16px]" />
         </button>
       </div>
 
       <!-- Timeline Scrubber -->
-      <div class="flex-1 flex items-center">
+      <div class="timeline-scrubber-wrap">
         <div
           ref="scrubberRef"
-          class="scrubber-track relative w-full h-[7px] rounded-full cursor-pointer group overflow-visible"
+          class="scrubber-track"
           @click="handleScrubberClick"
           @mousedown="startDragging"
           @mouseenter="handleMouseEnter"
@@ -65,47 +41,54 @@
           <!-- Floating Tooltip (timestamp + tool name on hover/drag) -->
           <div
             v-if="tooltipVisible"
-            class="absolute -translate-x-1/2 rounded-lg bg-gray-800 dark:bg-gray-700 text-white text-[10px] font-medium px-2 py-1 shadow-md pointer-events-none whitespace-nowrap z-20 flex flex-col items-center gap-0.5"
-            :style="{ left: `${tooltipPosition}%`, bottom: '14px' }"
+            class="scrubber-tooltip"
+            :style="{ left: `${tooltipPosition}%` }"
           >
-            <span v-if="tooltipToolLabel" class="text-[10px] font-semibold">{{ tooltipToolLabel }}</span>
-            <span v-if="tooltipTimestamp" class="text-[9px] opacity-75">{{ tooltipTimestamp }}</span>
+            <span v-if="tooltipToolLabel" class="scrubber-tooltip-label">{{ tooltipToolLabel }}</span>
+            <span v-if="tooltipTimestamp" class="scrubber-tooltip-time">{{ tooltipTimestamp }}</span>
           </div>
 
           <!-- Tool-Type Markers -->
           <div
             v-for="marker in toolMarkers"
             :key="`tool-${marker.index}`"
-            class="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none z-10"
+            class="scrubber-marker"
             :class="marker.colorClass"
             :style="{ left: `${marker.position}%` }"
             :title="marker.label"
           />
 
-          <!-- Progress Fill (teal gradient) -->
+          <!-- Progress Fill -->
           <div
-            class="scrubber-fill absolute h-full rounded-full transition-[width] duration-100"
+            class="scrubber-fill"
             :style="{ width: `${progress}%` }"
           />
 
           <!-- Scrubber Thumb -->
           <div
-            class="scrubber-thumb absolute w-3.5 h-3.5 rounded-full -top-[3.5px] transform -translate-x-1/2 shadow-md transition-transform hover:scale-125"
+            class="scrubber-thumb"
             :style="{ left: `${progress}%` }"
           />
         </div>
       </div>
 
+      <!-- Jump to live (inline, Manus-style) -->
+      <button
+        v-if="!isLive"
+        @click="$emit('jumpToLive')"
+        class="jump-to-live-btn"
+      >
+        <Play class="w-3 h-3" />
+        <span>Jump to live</span>
+      </button>
+
       <!-- Live / Replay Indicator -->
-      <div class="flex items-center gap-2 min-w-[50px] justify-end">
+      <div class="timeline-status">
         <span
           class="timeline-live-dot"
-          :class="isReplayMode ? 'bg-gray-400' : isLive ? 'is-live' : 'bg-gray-400'"
+          :class="isReplayMode ? 'is-replay' : isLive ? 'is-live' : 'is-replay'"
         />
-        <span
-          class="text-[14px] font-semibold"
-          :class="isReplayMode ? 'text-[var(--text-tertiary)]' : isLive ? 'text-emerald-500 dark:text-emerald-400' : 'text-[var(--text-tertiary)]'"
-        >
+        <span class="timeline-status-label" :class="{ 'is-live': isLive && !isReplayMode }">
           {{ isReplayMode ? 'replay' : 'live' }}
         </span>
       </div>
@@ -186,13 +169,7 @@ const formatTimestamp = (ts: number | undefined): string => {
   })
 }
 
-const formattedTimestamp = computed(() => formatTimestamp(props.currentTimestamp))
-
-const showTimestamp = computed(() => {
-  if (normalizeTimestampSeconds(props.currentTimestamp ?? Number.NaN) === null) return false
-  if (props.showTimestampOnInteract) return isHovering.value || isDragging.value
-  return true
-})
+const _formattedTimestamp = computed(() => formatTimestamp(props.currentTimestamp))
 
 // ── Tool-type markers on scrubber track ──
 const toolMarkers = computed(() => {
@@ -314,8 +291,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ── Manus-style Timeline Controls ── */
 .timeline-controls {
   user-select: none;
+  padding: 8px 16px 10px;
 }
 
 .timeline-controls:focus {
@@ -328,104 +307,212 @@ onUnmounted(() => {
   border-radius: 4px;
 }
 
-/* Step buttons */
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Step buttons ── */
+.timeline-step-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .timeline-step-btn {
-  padding: 6px;
-  border-radius: 6px;
-  color: var(--icon-primary);
-  transition: all 0.15s ease;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  transition: all 0.12s ease;
   cursor: pointer;
   background: transparent;
   border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .timeline-step-btn:hover {
+  color: var(--text-primary);
   background: var(--fill-tsp-gray-main);
 }
 
 :global(.dark) .timeline-step-btn {
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.45);
 }
 
 :global(.dark) .timeline-step-btn:hover {
   background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .timeline-step-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
-/* Scrubber track */
+/* ── Scrubber ── */
+.timeline-scrubber-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
 .scrubber-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  cursor: pointer;
+  overflow: visible;
   touch-action: none;
-  background: color-mix(in srgb, var(--text-tertiary) 15%, transparent);
+  background: color-mix(in srgb, var(--text-tertiary) 12%, transparent);
 }
 
 :global(.dark) .scrubber-track {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* Teal gradient fill */
 .scrubber-fill {
-  background: linear-gradient(90deg, #0d9488 0%, #14b8a6 50%, #2dd4bf 100%);
-  border-radius: 999px;
+  position: absolute;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--text-tertiary);
+  opacity: 0.35;
+  transition: width 100ms ease;
 }
 
 :global(.dark) .scrubber-fill {
-  background: linear-gradient(90deg, #0f766e 0%, #14b8a6 50%, #2dd4bf 100%);
+  background: rgba(255, 255, 255, 0.2);
 }
 
-/* Teal thumb */
 .scrubber-thumb {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  top: -3px;
+  transform: translateX(-50%);
   cursor: grab;
-  background: #14b8a6;
-  box-shadow: 0 0 6px rgba(20, 184, 166, 0.4);
+  background: #3b82f6;
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+  transition: transform 0.1s ease;
 }
 
-:global(.dark) .scrubber-thumb {
-  background: #2dd4bf;
-  box-shadow: 0 0 8px rgba(45, 212, 191, 0.5);
+.scrubber-thumb:hover {
+  transform: translateX(-50%) scale(1.2);
 }
 
 .scrubber-thumb:active {
   cursor: grabbing;
 }
 
-/* Live indicator dot */
+:global(.dark) .scrubber-thumb {
+  background: #60a5fa;
+  box-shadow: 0 1px 4px rgba(96, 165, 250, 0.4);
+}
+
+/* ── Scrubber markers ── */
+.scrubber-marker {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── Scrubber tooltip ── */
+.scrubber-tooltip {
+  position: absolute;
+  transform: translateX(-50%);
+  bottom: 12px;
+  border-radius: 6px;
+  background: var(--text-primary);
+  color: var(--background-white-main);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 3px 8px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.scrubber-tooltip-label {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.scrubber-tooltip-time {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+/* ── Jump to live (inline button) ── */
+.jump-to-live-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.12s ease;
+}
+
+.jump-to-live-btn:hover {
+  color: var(--text-primary);
+  background: var(--fill-tsp-gray-main);
+}
+
+/* ── Live / Replay status ── */
+.timeline-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
 .timeline-live-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .timeline-live-dot.is-live {
-  background: #10b981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
-  animation: live-pulse 2s ease-in-out infinite;
+  background: #1a1a1a;
 }
 
-@keyframes live-pulse {
-  0%, 100% {
-    box-shadow: 0 0 4px rgba(16, 185, 129, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 10px rgba(16, 185, 129, 0.7);
-  }
+:global(.dark) .timeline-live-dot.is-live {
+  background: #e5e5e5;
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+.timeline-live-dot.is-replay {
+  background: #9ca3af;
 }
 
-.animate-pulse {
-  animation: pulse 1.5s ease-in-out infinite;
+.timeline-status-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.timeline-status-label.is-live {
+  color: var(--text-primary);
 }
 </style>

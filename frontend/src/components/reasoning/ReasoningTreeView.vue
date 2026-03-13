@@ -9,7 +9,7 @@ import {
   MessageCircle, MessageSquarePlus, BellRing,
 } from 'lucide-vue-next';
 import type { Message, PhaseContent, ReportContent, StepContent, ThoughtContent, ToolContent } from '@/types/message';
-import type { ReasoningStage } from '@/components/ReasoningPipeline.vue';
+import type { ReasoningStage } from '@/types/reasoning';
 
 type NodeKind = 'root' | 'phase' | 'step' | 'tool' | 'thought';
 type NodeStatus =

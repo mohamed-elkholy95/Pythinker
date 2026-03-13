@@ -22,7 +22,7 @@
               class="flex-shrink-0 text-[var(--icon-secondary)]"
             />
             <span class="flex-shrink-0 whitespace-nowrap">{{ activityHeadline }}</span>
-            <span v-if="activitySubtitle" class="panel-activity-separator">|</span>
+            <span v-if="activitySubtitle" class="panel-activity-separator">&middot;</span>
             <span v-if="activitySubtitle" class="truncate min-w-0 panel-activity-detail">{{ activitySubtitle }}</span>
           </div>
         </div>
@@ -64,7 +64,7 @@
 
         <!-- URL Status Bar (browser views — replaces content header) -->
         <div v-if="showUrlStatusBar" class="url-status-bar">
-          <span class="url-status-text">{{ livePreviewChromeUrl }}</span>
+          <span class="url-status-text">{{ resolvedBrowserUrl || '/' }}</span>
         </div>
 
         <!-- Content Header: Centered operation label + View mode tabs.
@@ -73,31 +73,8 @@
           v-if="contentConfig && (!embedded || forceViewType) && !showUrlStatusBar"
           class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[12px] relative">
 
-          <!-- Left: Activity indicator + elapsed timer (absolute positioned) -->
-          <div v-if="isWriting" class="absolute left-3 flex items-center gap-2">
-            <div class="flex items-center gap-1.5">
-              <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-              <span class="text-xs text-blue-500 font-medium">Writing</span>
-            </div>
-            <span v-if="isLoading" class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)]">{{ headerTimer.formatted.value }}</span>
-          </div>
-          <div v-else-if="shellProgress" class="absolute left-3 flex items-center gap-2">
-            <div class="flex items-center gap-1.5">
-              <div class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-              <span class="text-xs text-emerald-600 font-medium">{{ shellProgress }}</span>
-            </div>
-            <span v-if="isLoading" class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)]">{{ headerTimer.formatted.value }}</span>
-          </div>
-          <div v-else-if="isLoading" class="absolute left-3 flex items-center gap-2">
-            <div class="flex items-center gap-1.5">
-              <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-              <span class="text-xs text-blue-500 font-medium">Running</span>
-            </div>
-            <span class="text-[11px] font-mono tabular-nums text-[var(--text-quaternary)]">{{ headerTimer.formatted.value }}</span>
-          </div>
-
-          <!-- Center: Operation label + step counter (px-24 prevents overlap with absolute left/right elements) -->
-          <div class="text-[var(--text-tertiary)] text-sm font-medium max-w-[60%] px-24 flex items-center justify-center gap-1.5 min-w-0">
+          <!-- Center: Operation label (Manus-style minimal — no status badges, timers, or step counters) -->
+          <div class="text-[var(--text-tertiary)] text-sm font-medium max-w-[80%] flex items-center justify-center gap-1.5 min-w-0">
             <BarChart3
               v-if="currentViewType === 'chart'"
               :size="14"
@@ -109,7 +86,6 @@
               class="flex-shrink-0 text-[var(--text-tertiary)]"
             />
             <span class="truncate">{{ contentHeaderLabel }}</span>
-            <span v-if="stepInfo" class="text-[var(--text-quaternary)] text-xs flex-shrink-0">&middot; Step {{ stepInfo.current }}/{{ stepInfo.total }}</span>
           </div>
 
           <!-- Right: View mode tabs (absolute positioned) -->
@@ -179,14 +155,7 @@
             </span>
           </div>
 
-          <!-- Connection status dot (overlays near right edge, independent of tab v-if chain) -->
-          <div
-            v-if="connectionDot && !contentConfig?.showTabs && currentViewType !== 'chart' && !(currentViewType === 'editor' && isHtmlFile)"
-            class="absolute right-3 flex items-center gap-1"
-          >
-            <div class="w-1.5 h-1.5 rounded-full" :class="[connectionDot.color, connectionDot.pulse ? 'animate-pulse' : '']"></div>
-            <span v-if="connectionDot.label" class="text-[10px] text-[var(--text-quaternary)]">{{ connectionDot.label }}</span>
-          </div>
+          <!-- Connection status removed — Manus-style minimal content header -->
         </div>
 
         <!-- Content Area: Dynamic content rendering -->
@@ -199,20 +168,6 @@
             class="absolute inset-0 bg-[var(--background-white-main)] flex flex-col items-stretch overflow-hidden"
             style="z-index: -1"
           >
-            <!-- Browser chrome - visible in live view to match takeover affordance -->
-            <BrowserChrome
-              v-if="showLivePreviewChrome"
-              :url="livePreviewChromeUrl"
-              :device="livePreviewDevice"
-              :is-fullscreen="false"
-              :show-edit="false"
-              @update:device="handleBrowserChromeDeviceUpdate"
-              @navigate-home="handleBrowserChromeHome"
-              @open-external="handleBrowserChromeOpenExternal"
-              @refresh="handleBrowserChromeRefresh"
-              @toggle-fullscreen="handleBrowserChromeToggleFullscreen"
-            />
-
             <div class="flex-1 w-full min-h-0 relative">
               <LiveViewer
                 ref="liveViewerRef"
@@ -255,14 +210,15 @@
             </button>
           </div>
 
-          <!-- Streaming Report (live summary composition — highest priority) -->
+          <!-- Streaming Report — rendered inside EditorContentView (highest priority) -->
           <div
             v-if="showReportPresentation"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
-            <StreamingReportView
-              :text="reportPresentationText"
-              :is-final="showPersistedFinalReport || !isSummaryStreaming"
+            <EditorContentView
+              :content="reportPresentationText"
+              filename="Report.md"
+              :is-writing="isSummaryStreaming"
             />
           </div>
 
@@ -529,21 +485,37 @@ import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
 
+// Retry wrapper for dynamic imports — handles stale chunks after redeployment
+function lazyRetry<T>(importFn: () => Promise<T>): () => Promise<T> {
+  return () => importFn().catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.includes('dynamically imported module') || msg.includes('Failed to fetch')) {
+      // Stale chunk: one-time page reload (guard prevents infinite loop)
+      const key = 'vite-chunk-reload';
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        window.location.reload();
+        return new Promise<T>(() => {}); // suspends until reload completes
+      }
+      sessionStorage.removeItem(key);
+    }
+    throw err;
+  });
+}
+
 // Content views are async to avoid loading heavy dependencies until needed.
-const LiveViewer = defineAsyncComponent(() => import('@/components/LiveViewer.vue'));
-const BrowserChrome = defineAsyncComponent(() => import('@/components/workspace/BrowserChrome.vue'));
-const LoadingState = defineAsyncComponent(() => import('@/components/toolViews/shared/LoadingState.vue'));
-const TerminalContentView = defineAsyncComponent(() => import('@/components/toolViews/TerminalContentView.vue'));
-const EditorContentView = defineAsyncComponent(() => import('@/components/toolViews/EditorContentView.vue'));
-const SearchContentView = defineAsyncComponent(() => import('@/components/toolViews/SearchContentView.vue'));
-const DealContentView = defineAsyncComponent(() => import('@/components/toolViews/DealContentView.vue'));
-const ChartToolView = defineAsyncComponent(() => import('@/components/toolViews/ChartToolViewEnhanced.vue'));
-const CanvasLiveView = defineAsyncComponent(() => import('@/components/toolViews/CanvasLiveView.vue'));
-const GenericContentView = defineAsyncComponent(() => import('@/components/toolViews/GenericContentView.vue'));
-const StreamingReportView = defineAsyncComponent(() => import('@/components/toolViews/StreamingReportView.vue'));
-const UnifiedStreamingView = defineAsyncComponent(() => import('@/components/toolViews/UnifiedStreamingView.vue'));
-const WideResearchOverlay = defineAsyncComponent(() => import('@/components/WideResearchOverlay.vue'));
-const ScreenshotReplayViewer = defineAsyncComponent(() => import('@/components/ScreenshotReplayViewer.vue'));
+const LiveViewer = defineAsyncComponent(lazyRetry(() => import('@/components/LiveViewer.vue')));
+const LoadingState = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/shared/LoadingState.vue')));
+const TerminalContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/TerminalContentView.vue')));
+const EditorContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/EditorContentView.vue')));
+const SearchContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/SearchContentView.vue')));
+const DealContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/DealContentView.vue')));
+const ChartToolView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/ChartToolViewEnhanced.vue')));
+const CanvasLiveView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/CanvasLiveView.vue')));
+const GenericContentView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/GenericContentView.vue')));
+const UnifiedStreamingView = defineAsyncComponent(lazyRetry(() => import('@/components/toolViews/UnifiedStreamingView.vue')));
+const WideResearchOverlay = defineAsyncComponent(lazyRetry(() => import('@/components/WideResearchOverlay.vue')));
+const ScreenshotReplayViewer = defineAsyncComponent(lazyRetry(() => import('@/components/ScreenshotReplayViewer.vue')));
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { useElapsedTimer } from '@/composables/useElapsedTimer';
 import { useConnectionStore } from '@/stores/connectionStore';
@@ -607,7 +579,7 @@ watch(() => props.isLoading, (loading) => {
 }, { immediate: true })
 
 /** Step progress derived from plan prop. */
-const stepInfo = computed(() => {
+const _stepInfo = computed(() => {
   if (!props.plan?.steps?.length) return null
   const steps = props.plan.steps
   const runningIdx = steps.findIndex(s => s.status === 'running')
@@ -618,7 +590,7 @@ const stepInfo = computed(() => {
 })
 
 /** Connection status dot color/pulse for header. */
-const connectionDot = computed(() => {
+const _connectionDot = computed(() => {
   const p = connectionStore.phase
   if (p === 'streaming') return { color: 'bg-emerald-500', pulse: false, label: '' }
   if (p === 'degraded') return { color: 'bg-amber-400', pulse: true, label: 'Slow' }
@@ -661,6 +633,37 @@ const {
 
 // Override view type when browsing from search results
 const forceBrowserView = ref(false);
+
+// Auto-transition: search results → live browser after 5s, hold for ≥7s
+const BROWSER_MIN_HOLD_MS = 7000;
+let searchBrowseTimer: ReturnType<typeof setTimeout> | null = null;
+let browserViewShownAt: number | null = null;
+let browserHoldTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearSearchBrowseTimer() {
+  if (searchBrowseTimer) {
+    clearTimeout(searchBrowseTimer);
+    searchBrowseTimer = null;
+  }
+}
+
+function clearBrowserHoldTimer() {
+  if (browserHoldTimer) {
+    clearTimeout(browserHoldTimer);
+    browserHoldTimer = null;
+  }
+}
+
+function showBrowserWithHold() {
+  forceBrowserView.value = true;
+  browserViewShownAt = Date.now();
+}
+
+function dismissBrowserView() {
+  forceBrowserView.value = false;
+  browserViewShownAt = null;
+  clearBrowserHoldTimer();
+}
 const shouldShowArtifactEditor = computed(() => {
   if (!isArtifactTool.value) return false;
   return !!artifactInlineContent.value || !!resolvedFilePath.value;
@@ -692,7 +695,11 @@ const reportPresentationText = computed(() => {
 const showReportPresentation = computed(() => {
   // When user navigated backward in timeline, show the tool at that position instead
   if (props.showTimeline && !props.realTime && !isViewingLatestTimelineStep.value) return false;
-  return isSummaryPhase.value || reportPresentationText.value.length > 0;
+  // Show report in two cases:
+  // 1. Actively streaming the summary (live writing)
+  // 2. Session completed — the report is the last thing the agent produced
+  if (!props.isSummaryStreaming && !showPersistedFinalReport.value) return false;
+  return reportPresentationText.value.length > 0;
 });
 
 // Tool state
@@ -703,7 +710,6 @@ const isCanvasMode = computed(() => isCanvasDomainTool(props.toolContent));
 
 // Canvas live view
 const liveViewerRef = ref<{ processToolEvent?: (event: ToolEventData) => void } | null>(null);
-const livePreviewDevice = ref<'desktop' | 'mobile'>('desktop');
 
 interface BrowserAgentCheckpointData {
   action?: unknown;
@@ -865,7 +871,7 @@ const showLiveViewSkeleton = computed(() => {
 });
 
 // Tool execution progress badge (from ToolProgressEvent)
-const shellProgress = computed(() => {
+const _shellProgress = computed(() => {
   if (!isActiveOperation.value) return '';
   const tc = props.toolContent;
   if (!tc?.elapsed_ms) return '';
@@ -898,6 +904,23 @@ const isSearching = computed(() => {
   // Unified search detection - all search operations under one status
   const isSearchTool = toolDisplay.value?.toolKey === 'search' || toolDisplay.value?.toolKey === 'wide_research';
   return isSearchTool && toolStatus.value === 'calling';
+});
+
+// When search completes (toolStatus leaves 'calling' on a search tool), start 5s auto-transition timer
+watch(toolStatus, (status, prevStatus) => {
+  if (prevStatus === 'calling' && status !== 'calling') {
+    const isSearchTool = toolDisplay.value?.toolKey === 'search' || toolDisplay.value?.toolKey === 'wide_research';
+    if (isSearchTool && currentViewType.value === 'search') {
+      clearSearchBrowseTimer();
+      searchBrowseTimer = setTimeout(() => {
+        // Only transition if still on search view (user hasn't navigated away)
+        if (currentViewType.value === 'search' && !forceBrowserView.value) {
+          showBrowserWithHold();
+        }
+        searchBrowseTimer = null;
+      }, 5000);
+    }
+  }
 });
 
 watch(
@@ -982,8 +1005,14 @@ const activitySubtitle = computed(() => {
 
 const showActivitySpinner = computed(() => isSummaryPhase.value || (!!props.isThinking && !toolDisplay.value));
 
-// Content header label - consistent, user-friendly tool name
+// Content header label — Manus-style: show session/file name instead of generic "Terminal"/"Editor"
 const contentHeaderLabel = computed(() => {
+  // Terminal: show shell session name (Manus shows e.g. "test_env_session_v2")
+  if (currentViewType.value === 'terminal') {
+    const sessionId = props.toolContent?.args?.id;
+    if (typeof sessionId === 'string' && sessionId) return sessionId;
+  }
+  // Editor: show filename
   if (currentViewType.value === 'editor') {
     const nameArg = props.toolContent?.args?.filename;
     if (typeof nameArg === 'string' && nameArg) return nameArg;
@@ -996,14 +1025,6 @@ const contentHeaderLabel = computed(() => {
   return toolDisplay.value?.displayName || '';
 });
 
-const showLivePreviewPlaceholder = computed(() => {
-  if (forceBrowserView.value) return false;
-  if (!props.sessionId) return true;
-  // NOTE: livePreviewDisconnected is handled as an overlay now,
-  // not a replacement — keeping LiveViewer mounted allows its
-  // internal reconnect logic to work instead of deadlocking.
-  return false;
-});
 
 const livePreviewPlaceholderLabel = computed(() => {
   if (!props.sessionId) return 'No live session';
@@ -1125,10 +1146,6 @@ watch(liveViewerRef, () => {
 });
 
 // ============ URL Bar Overlay ============
-const BROWSER_TOOL_PREFIXES = ['browser', 'playwright', 'browsing'];
-const isBrowserTool = (name: string) =>
-  BROWSER_TOOL_PREFIXES.some(prefix => name.startsWith(prefix));
-
 const resolvedBrowserUrl = computed(() => {
   // Prefer explicit URL from tool args (e.g. go_to_url → args.url)
   const explicitUrl = extractToolUrl(props.toolContent?.args);
@@ -1141,19 +1158,16 @@ const resolvedBrowserUrl = computed(() => {
 
 const showUrlStatusBar = computed(() => {
   if (props.embedded) return false;
-  if (currentViewType.value !== 'live_preview' && !showPersistentBrowser.value) return false;
+  // Only show URL bar when the actual displayed content is a browser view
+  const viewType = currentViewType.value;
+  const isBrowserContent = viewType === 'live_preview' || (!viewType && showPersistentBrowser.value);
+  // In replay mode, only show URL bar if the replay screenshot is actually displayed
+  // (not when another view like editor/terminal is on top)
+  const isBrowserReplay = props.isReplayMode && !viewType && !!resolvedBrowserUrl.value;
+  if (!isBrowserContent && !isBrowserReplay) return false;
   return !!resolvedBrowserUrl.value;
 });
 
-const showLivePreviewChrome = computed(() => {
-  // When URL status bar is visible, hide BrowserChrome — it's redundant
-  // (the real browser tabs/address bar are visible in the CDP stream)
-  if (showUrlStatusBar.value) return false;
-  if (showLivePreviewPlaceholder.value || !showPersistentBrowser.value) return false;
-  return currentViewType.value === 'live_preview' || isBrowserTool(toolName.value) || forceBrowserView.value;
-});
-
-const livePreviewChromeUrl = computed(() => resolvedBrowserUrl.value || '/');
 
 // ============ Terminal Content ============
 const shellOutput = ref('');
@@ -1356,9 +1370,23 @@ watch(shouldShowUnifiedStreaming, (isStreaming) => {
   }
 });
 
-// Reset forceBrowserView when tool changes (new tool selected)
+// Reset forceBrowserView and cancel auto-transition when tool changes
 watch(() => props.toolContent?.tool_call_id, () => {
-  forceBrowserView.value = false;
+  clearSearchBrowseTimer();
+
+  // If browser view is held, defer the reset until the minimum hold expires
+  if (forceBrowserView.value && browserViewShownAt) {
+    const elapsed = Date.now() - browserViewShownAt;
+    if (elapsed < BROWSER_MIN_HOLD_MS) {
+      clearBrowserHoldTimer();
+      browserHoldTimer = setTimeout(() => {
+        dismissBrowserView();
+      }, BROWSER_MIN_HOLD_MS - elapsed);
+      return;
+    }
+  }
+
+  dismissBrowserView();
 });
 
 watch(() => props.live, (live) => {
@@ -1378,6 +1406,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopAutoRefresh();
+  clearSearchBrowseTimer();
+  clearBrowserHoldTimer();
 });
 
 // ============ Editor Content ============
@@ -1699,30 +1729,6 @@ const onNewTerminalContent = () => {
   markNewOutput();
 };
 
-const handleBrowserChromeToggleFullscreen = () => {
-  // Fullscreen control is intentionally disabled for embedded live preview.
-};
-
-const handleBrowserChromeDeviceUpdate = (device: 'desktop' | 'mobile') => {
-  livePreviewDevice.value = device;
-};
-
-const handleBrowserChromeOpenExternal = () => {
-  const url = resolvedBrowserUrl.value;
-  if (!url) return;
-  window.open(url, '_blank', 'noopener,noreferrer');
-};
-
-const handleBrowserChromeHome = async () => {
-  if (!props.sessionId) return;
-  await handleBrowseUrl('about:blank');
-};
-
-const handleBrowserChromeRefresh = async () => {
-  if (!props.sessionId) return;
-  await handleBrowseUrl(resolvedBrowserUrl.value || 'about:blank');
-};
-
 /**
  * Handle browse URL request from search results
  * Navigates the browser directly to the clicked URL
@@ -1730,10 +1736,11 @@ const handleBrowserChromeRefresh = async () => {
  */
 const handleBrowseUrl = async (url: string) => {
   if (!props.sessionId || !url) return;
+  clearSearchBrowseTimer(); // User clicked manually, cancel auto-transition
 
   try {
-    // Immediately switch to browser view
-    forceBrowserView.value = true;
+    // Immediately switch to browser view with hold protection
+    showBrowserWithHold();
 
     // Subscribe to SSE events from the browse endpoint
     await browseUrl(props.sessionId, url, {
