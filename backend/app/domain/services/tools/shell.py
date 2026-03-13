@@ -9,6 +9,8 @@ from app.domain.services.tools.base import BaseTool, tool
 
 # Maximum shell output size in characters to prevent context window exhaustion
 MAX_SHELL_OUTPUT_CHARS = 50_000
+CMD_BEGIN = "[CMD_BEGIN]"
+CMD_END = "[CMD_END]"
 _KNOWN_PLACEHOLDER_SESSION_IDS = {
     "00000000-0000-0000-0000-000000000000",
     "550e8400-e29b-41d4-a716-446655440000",
@@ -64,6 +66,24 @@ class ShellTool(BaseTool):
             truncated = result.message[:MAX_SHELL_OUTPUT_CHARS]
             result.message = f"{truncated}\n\n[OUTPUT TRUNCATED — {len(result.message)} chars total, showing first {MAX_SHELL_OUTPUT_CHARS}]"
         return result
+
+    @staticmethod
+    def _extract_structured_output(raw: str) -> str:
+        """Extract clean output from structured markers if present.
+        Falls back to raw output when markers are absent (old sandbox images).
+        """
+        if CMD_BEGIN not in raw:
+            return raw
+        blocks = []
+        for block in raw.split(CMD_BEGIN):
+            if not block.strip():
+                continue
+            if CMD_END in block:
+                content, _ = block.rsplit(CMD_END, 1)
+                blocks.append(content.strip())
+            else:
+                blocks.append(block.strip())
+        return "\n".join(blocks) if blocks else raw
 
     @staticmethod
     def _validate_session_id(id: str, *, tool_name: str) -> ToolResult | None:
@@ -166,6 +186,8 @@ class ShellTool(BaseTool):
                     data=result.data,
                     suggested_filename=result.suggested_filename,
                 )
+            if result.message:
+                result.message = self._extract_structured_output(result.message)
             return self._truncate_output(result)
         except TimeoutError:
             logger.warning(
@@ -203,6 +225,8 @@ class ShellTool(BaseTool):
         if validation_error is not None:
             return validation_error
         result = await self.sandbox.view_shell(id)
+        if result.message:
+            result.message = self._extract_structured_output(result.message)
         return self._truncate_output(result)
 
     @tool(
