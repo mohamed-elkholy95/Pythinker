@@ -168,18 +168,7 @@
         <!-- Right side - spacer -->
         <div class="flex-1"></div>
       </div>
-      <!-- Phase progress strip - shown above messages during active agent runs -->
-      <div
-        v-if="showPhaseStrip"
-        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px]"
-      >
-        <PhaseStrip
-          :current-phase="phaseStripPhase!"
-          :start-time="phaseStripStartTime"
-          :step-progress="phaseStripStepProgress"
-          @cancel="handleCancel"
-        />
-      </div>
+      <!-- PhaseStrip (NeuralFlow) removed — progress shown in TaskProgressBar instead -->
 	      <div
           v-if="chatViewMode === 'chat'"
 	        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1"
@@ -395,21 +384,18 @@
             />
           </Transition>
 
-          <!-- Partial Results - provisional findings accumulated during execution -->
-          <PartialResults :results="partialResults" />
-
-          <!-- Scroll to bottom button - positioned above progress bar with measured spacing -->
-          <div v-if="!follow" class="flex justify-end mb-2">
-            <button
-              @click="handleFollow"
-              class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)]"
-            >
-              <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
-            </button>
-          </div>
+          <!-- Partial Results removed — step headlines shown in TaskProgressBar instead -->
 
           <!-- Task Progress Bar Container - shown above ChatBox when ToolPanel is closed -->
           <div v-if="showTaskProgressBar" class="relative mb-2">
+            <!-- Scroll to bottom button - floating above collapsed bar -->
+            <button
+              v-if="!follow"
+              @click="handleFollow"
+              class="absolute right-2 -top-10 z-20 flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)]"
+            >
+              <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
+            </button>
 
             <!-- Task Progress Bar -->
             <TaskProgressBar
@@ -430,6 +416,15 @@
               @openPanel="handleOpenPanel"
               @requestRefresh="handleThumbnailRefresh"
             />
+          </div>
+          <!-- Scroll to bottom fallback when no progress bar -->
+          <div v-if="!follow && !showTaskProgressBar" class="flex justify-end mb-2">
+            <button
+              @click="handleFollow"
+              class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)]"
+            >
+              <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
+            </button>
           </div>
           <ChatBox
             v-model="inputMessage"
