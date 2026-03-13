@@ -606,8 +606,7 @@ import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport'
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import PlanningCard from '@/components/PlanningCard.vue';
-import PartialResults from '@/components/PartialResults.vue';
-import PhaseStrip from '@/components/PhaseStrip.vue';
+// PartialResults and PhaseStrip removed — progress shown in TaskProgressBar instead
 import WaitingForReply from '@/components/WaitingForReply.vue';
 // WideResearchOverlay removed — absorbed into Deep Research mode
 import ConnectionStatusBanner from '@/components/ConnectionStatusBanner.vue';
@@ -1182,7 +1181,7 @@ const splitterHandleStyle = computed<Record<string, string>>(() => ({
 // Track session status
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
 const isSandboxInitializing = computed(() => sessionStatus.value === SessionStatus.INITIALIZING);
-const isCancelling = ref(false);
+// isCancelling removed — was only used by handleCancel (PhaseStrip)
 const isWaitingForSessionReady = ref(false);
 const pendingInitialMessage = ref<{ message: string; files: FileInfo[]; thinkingMode: ThinkingMode } | null>(null);
 const currentThinkingMode = ref<ThinkingMode>('auto');
@@ -2116,53 +2115,7 @@ const showPlanningCard = computed(() =>
   })
 );
 
-// ── PhaseStrip computed state ─────────────────────────────────────────────
-type PhaseStripPhase = 'planning' | 'verifying' | 'searching' | 'writing' | 'done'
-
-const phaseStripPhase = computed<PhaseStripPhase | null>(() => {
-  // After task is completed, show 'done' briefly (template hides strip shortly after)
-  if (isTaskCompleted.value) return 'done'
-
-  const progress = planningProgress.value
-  if (progress) {
-    const phaseMap: Record<string, PhaseStripPhase> = {
-      received: 'planning',
-      analyzing: 'planning',
-      planning: 'planning',
-      verifying: 'verifying',
-      executing_setup: 'searching',
-      finalizing: 'writing',
-      waiting: 'searching',
-    }
-    return phaseMap[progress.phase] ?? 'planning'
-  }
-
-  // No planning progress — derive phase from execution state
-  if (!isLoading.value) return null
-
-  if (isSummaryStreaming.value) return 'writing'
-  if (hasRunningStep.value || plan.value?.steps?.length) return 'searching'
-
-  return null
-})
-
-const phaseStripStepProgress = computed<{ current: number; total: number } | null>(() => {
-  const steps = plan.value?.steps
-  if (!steps || steps.length === 0) return null
-  const runningIdx = steps.findIndex((s: { status?: string }) => s.status === 'running')
-  const completed = steps.filter(
-    (s: { status?: string }) => s.status === 'completed' || s.status === 'failed' || s.status === 'skipped',
-  ).length
-  const current = runningIdx >= 0 ? runningIdx + 1 : completed
-  return { current, total: steps.length }
-})
-
-const showPhaseStrip = computed(() =>
-  !isChatMode.value &&
-  isLoading.value &&
-  phaseStripPhase.value !== null &&
-  phaseStripStartTime.value > 0
-)
+// PhaseStrip computed state removed — PhaseStrip is no longer rendered
 
 // Handle tool panel state changes
 const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) => {
@@ -4364,18 +4317,7 @@ const handleFollowChange = (isFollowing: boolean) => {
 // Scroll follow state is managed by v-auto-follow-scroll directive via handleFollowChange.
 // No manual scroll handler needed.
 
-const handleCancel = async () => {
-  if (!sessionId.value || isCancelling.value) return
-  isCancelling.value = true
-  try {
-    await agentApi.cancelSession(sessionId.value)
-  } catch {
-    // Session may have already completed — ignore
-  } finally {
-    // Reset after a delay to allow the cancellation to propagate
-    setTimeout(() => { isCancelling.value = false }, 3000)
-  }
-}
+// handleCancel removed — was only used by PhaseStrip which is no longer rendered
 
 const handleStop = async () => {
   beginStreamAttempt();
