@@ -22,17 +22,16 @@ class CallbackClient:
 
     def __init__(self) -> None:
         self.enabled = bool(settings.RUNTIME_API_HOST and settings.RUNTIME_API_TOKEN)
+        self._client: Optional[httpx.AsyncClient] = None
         if self.enabled:
             self._client = httpx.AsyncClient(
-                base_url=settings.RUNTIME_API_HOST,
+                base_url=settings.RUNTIME_API_HOST or "",
                 timeout=_TIMEOUT,
                 headers={
                     "X-Sandbox-Callback-Token": settings.RUNTIME_API_TOKEN or "",
                     "Content-Type": "application/json",
                 },
             )
-        else:
-            self._client = None  # type: ignore[assignment]
 
     async def report_event(
         self, event_type: str, details: dict[str, Any], session_id: str | None = None
@@ -76,6 +75,8 @@ class CallbackClient:
 
     async def _post(self, path: str, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
         """Fire-and-forget POST. Swallows all errors."""
+        if not self._client:
+            return None
         try:
             response = await self._client.post(path, json=payload)
             if response.status_code >= 400:
