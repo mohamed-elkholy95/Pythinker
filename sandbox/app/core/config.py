@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     RUNTIME_API_HOST: Optional[str] = None
     RUNTIME_API_TOKEN: Optional[str] = None
 
+    # LLM Proxy (OpenAI-compatible, provided by backend)
+    OPENAI_API_BASE: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_BASE_URL: Optional[str] = None
+
     @field_validator("ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
