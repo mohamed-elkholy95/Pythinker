@@ -69,11 +69,17 @@ services:
         - action: sync
           path: ./frontend/env.d.ts
           target: /app/env.d.ts
+        # ESLint config
+        - action: sync
+          path: ./frontend/eslint.config.js
+          target: /app/eslint.config.js
         # Dependency changes → full image rebuild (npm ci)
         - action: rebuild
           path: ./frontend/package.json
         - action: rebuild
           path: ./frontend/package-lock.json
+        - action: rebuild
+          path: ./frontend/bun.lock
 
   backend:
     build:
@@ -122,7 +128,7 @@ services:
       - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-changeme}
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
-      - BACKEND_ENABLE_RELOAD=${BACKEND_ENABLE_RELOAD:-0}
+      - BACKEND_ENABLE_RELOAD=${BACKEND_ENABLE_RELOAD:-1}
       - BACKEND_UVICORN_GRACEFUL_TIMEOUT=${BACKEND_UVICORN_GRACEFUL_TIMEOUT:-10}
       - SANDBOX_CALLBACK_TOKEN=${SANDBOX_CALLBACK_TOKEN:-}
     healthcheck:
@@ -197,7 +203,9 @@ services:
       - FAST_MODEL=${FAST_MODEL:-}
     develop:
       watch:
-        - action: sync
+        # Gateway runs raw Python (not uvicorn --reload), so sync+restart
+        # is required for code changes to take effect.
+        - action: sync+restart
           path: ./backend/app
           target: /app/app
           ignore:
@@ -299,10 +307,10 @@ services:
         - action: sync
           path: ./sandbox/scripts
           target: /app/scripts
-        # Supervisor config → sync + restart supervisor
+        # Supervisor config → sync + restart (supervisord reads from /app/supervisord.conf)
         - action: sync+restart
           path: ./sandbox/supervisord.conf
-          target: /etc/supervisor/conf.d/app.conf
+          target: /app/supervisord.conf
         # Dependency changes → full rebuild
         - action: rebuild
           path: ./sandbox/requirements.txt
