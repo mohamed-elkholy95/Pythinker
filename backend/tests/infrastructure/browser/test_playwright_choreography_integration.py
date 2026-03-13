@@ -135,8 +135,8 @@ def test_connection_pool_choreographer_wiring(mock_llm, mock_settings):
 
 def test_connection_pool_imports_choreographer():
     """connection_pool.py can access BrowserChoreographer (inline import)."""
-    from app.infrastructure.external.browser.choreography import BrowserChoreographer as _BC
+    from app.infrastructure.external.browser.choreography import BrowserChoreographer as _Choreo
 
     # The import is inline inside _create_connection_with_retry, so verify the
     # choreography module itself is importable and yields the right class.
-    assert _BC is BrowserChoreographer
+    assert _Choreo is BrowserChoreographer
