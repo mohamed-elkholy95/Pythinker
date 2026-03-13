@@ -57,6 +57,8 @@ class EnvironmentScanner:
             "user": os.environ.get("USER", "ubuntu"),
             "home": os.environ.get("HOME", "/home/ubuntu"),
             "shell": os.environ.get("SHELL", "/bin/bash"),
+            "sandbox_version": os.environ.get("SANDBOX_VERSION", "dev"),
+            "timezone": os.environ.get("TZ", "UTC"),
         }
 
     def scan_python_environment(self) -> Dict[str, Any]:

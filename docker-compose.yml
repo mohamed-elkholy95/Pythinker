@@ -166,6 +166,8 @@ services:
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:-supervisor-dev-password}
       - LIBGL_ALWAYS_SOFTWARE=1 # Suppress Vulkan/GPU driver warnings in headless containers
+      - TZ=${TZ:-UTC}
+      - SANDBOX_VERSION=${IMAGE_TAG:-dev}
     # Sandbox ports bound to localhost only — backend proxies API/live-preview to users.
     # Never expose sandbox ports on 0.0.0.0 (unauthenticated shell/file access).
     ports:
@@ -231,6 +233,8 @@ services:
       - SUPERVISOR_RPC_USERNAME=${SUPERVISOR_RPC_USERNAME:-supervisor}
       - SUPERVISOR_RPC_PASSWORD=${SUPERVISOR_RPC_PASSWORD:-supervisor-dev-password}
       - LIBGL_ALWAYS_SOFTWARE=1 # Suppress Vulkan/GPU driver warnings in headless containers
+      - TZ=${TZ:-UTC}
+      - SANDBOX_VERSION=${IMAGE_TAG:-dev}
     ports:
       - "127.0.0.1:8084:8080" # Sandbox API (localhost only)
       - "127.0.0.1:8085:8082" # Sandbox framework API (localhost only)
