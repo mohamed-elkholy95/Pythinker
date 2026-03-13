@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncGenerator
 from itertools import count
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any
 
 from app.domain.external.scraper import ScrapedContent
 from app.domain.external.stealth_types import FetchOptions, FetchResult, ProxyHealth, StealthMode
@@ -36,10 +37,7 @@ class BrowserWorkflowService:
             "available_modes": available_modes,
             "cache_enabled": bool(getattr(self._settings, "scraping_cache_enabled", False)),
             "batch_max_concurrency": getattr(self._settings, "scraping_batch_max_concurrency", 3),
-            "proxy_health": {
-                proxy: self._serialize_proxy_health(health)
-                for proxy, health in proxy_health.items()
-            },
+            "proxy_health": {proxy: self._serialize_proxy_health(health) for proxy, health in proxy_health.items()},
             "cache": cache_stats,
         }
 
