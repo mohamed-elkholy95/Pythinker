@@ -517,6 +517,11 @@ class DockerSandbox(Sandbox):
                     # chrome_cdp_only can transiently restart during bootstrap.
                     "chrome_cdp_only",
                     "dbus",
+                    # gh_auth_setup is a one-shot that exits after configuring git.
+                    "gh_auth_setup",
+                    # code_server is optional (disabled by default); enters
+                    # FATAL when ENABLE_CODE_SERVER is unset/false.
+                    "code_server",
                 }
 
                 # In CDP-only mode, VNC services are intentionally not started
