@@ -221,7 +221,6 @@ services:
       args:
         ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"
     hostname: sandbox
-    # Security hardening (seccomp=unconfined workaround for openat2/fsmount kernel issue on OrbStack)
     security_opt:
       - no-new-privileges:true
       - seccomp=unconfined
@@ -293,7 +292,11 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["NONE"]
+      test: [ "CMD", "curl", "-sf", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     develop:
       watch:
         # Sandbox application code
