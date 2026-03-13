@@ -31,6 +31,15 @@ class ScrapingSettingsMixin:
     scraping_proxy_list: str = ""  # Comma-separated proxy URLs
     scraping_proxy_strategy: str = "cyclic"  # cyclic only in v0.4
 
+    # Caching configuration
+    scraping_cache_enabled: bool = True
+    scraping_cache_l1_max_size: int = 100
+    scraping_cache_l2_ttl: int = 300  # Redis TTL in seconds
+    scraping_cache_key_include_mode: bool = True  # Include fetch mode in cache key
+
+    # Batch fetching
+    scraping_batch_max_concurrency: int = 3
+
     # Adaptive element tracking (Phase 5)
     scraping_adaptive_tracking: bool = False  # Store element fingerprints
     scraping_adaptive_storage_dir: str = "/tmp/scrapling_adaptive"  # SQLite fingerprint storage
