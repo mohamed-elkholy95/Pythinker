@@ -345,6 +345,7 @@ class ShellService:
                 ps1=record.ps1,
                 command=record.command,
                 output=self._remove_ansi_escape_codes(record.output),
+                exit_code=record.exit_code,
             )
             clean_console.append(clean_record)
 
