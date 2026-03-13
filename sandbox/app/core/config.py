@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # Screencast stream preemption wait timeout (must exceed CDP_COMMAND_TIMEOUT)
     CDP_PREEMPT_WAIT_TIMEOUT: float = 8.0
 
+    # Environment metadata
+    SANDBOX_VERSION: str = "dev"
+    TZ: str = "UTC"
+
     @field_validator("ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:

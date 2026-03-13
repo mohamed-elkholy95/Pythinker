@@ -224,6 +224,9 @@ ENV SANDBOX_ADDONS_ENABLED=${ENABLE_SANDBOX_ADDONS}
 ENV PATH=${VIRTUAL_ENV}/bin:${PNPM_HOME}:${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:$PATH
 ENV CHROME_FOR_TESTING_PATH=/opt/chrome-for-testing
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+ENV PYTHONIOENCODING=utf-8
+ENV LANG=C.UTF-8
+ENV PW_TEST_SCREENSHOT_NO_FONTS_READY=1
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 

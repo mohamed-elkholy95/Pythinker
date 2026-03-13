@@ -258,6 +258,8 @@ services:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=2 --disable-gpu --disable-features=CalculateNativeWinOcclusion --disable-gpu-memory-buffer-compositor-resources --disable-gpu-memory-buffer-video-frames --js-flags=--max-old-space-size=512
       - BROWSER_PATH=/opt/chrome-for-testing/chrome
       - LIBGL_ALWAYS_SOFTWARE=1
+      - TZ=${TZ:-UTC}
+      - SANDBOX_VERSION=${IMAGE_TAG:-dev}
     restart: unless-stopped
     networks:
       - pythinker-network
