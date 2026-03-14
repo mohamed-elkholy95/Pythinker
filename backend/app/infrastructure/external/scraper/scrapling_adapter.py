@@ -395,17 +395,27 @@ class ScraplingAdapter:
     # ── Tier 2: Dynamic (Playwright + JS) ────────────────────────────────────
 
     async def _fetch_dynamic(self, url: str, **kwargs: object) -> ScrapedContent:
-        """Tier 2: Playwright Chromium with full JS rendering."""
+        """Tier 2: Playwright Chromium with full JS rendering.
+
+        Wrapped with asyncio.timeout to cap the entire fetch lifecycle.
+        Also passes timeout (ms) to DynamicFetcher for internal Playwright
+        operations, and disables non-text resources for faster network_idle
+        convergence (Context7: scrapling/DynamicFetcher docs).
+        """
+        dynamic_timeout = getattr(self._settings, "scraping_dynamic_timeout", 15.0) or 15.0
         try:
             from scrapling.fetchers import DynamicFetcher
 
             proxy = self._proxy_rotator.get_proxy() if self._proxy_rotator else None
-            page = await DynamicFetcher.async_fetch(
-                url,
-                headless=self._settings.scraping_headless,
-                network_idle=True,
-                proxy=proxy,
-            )
+            async with asyncio.timeout(dynamic_timeout):
+                page = await DynamicFetcher.async_fetch(
+                    url,
+                    headless=self._settings.scraping_headless,
+                    network_idle=True,
+                    timeout=int(dynamic_timeout * 1000),
+                    disable_resources=["font", "image", "media", "stylesheet"],
+                    proxy=proxy,
+                )
             http_error = self._result_from_http_error(page, url, tier="dynamic")
             if http_error is not None:
                 return http_error
@@ -425,6 +435,19 @@ class ScraplingAdapter:
                 status_code=page.status,
                 tier_used="dynamic",
             )
+        except TimeoutError:
+            logger.info(
+                "Scrapling Tier 2 timed out after %.0fs for %s (scraping_dynamic_timeout)",
+                dynamic_timeout,
+                url,
+            )
+            return ScrapedContent(
+                success=False,
+                url=url,
+                text="",
+                error=f"dynamic_fetch_timeout_{dynamic_timeout:.0f}s",
+                tier_used="dynamic",
+            )
         except Exception as exc:
             logger.debug(f"Scrapling Tier 2 failed for {url}: {exc}")
             return ScrapedContent(
@@ -440,18 +463,22 @@ class ScraplingAdapter:
     async def _fetch_stealthy(self, url: str, **kwargs: object) -> ScrapedContent:
         """Tier 3: StealthyFetcher — stealth patches, Cloudflare/Turnstile bypass."""
         mode = self._resolve_mode(kwargs.get("mode"))
+        dynamic_timeout = getattr(self._settings, "scraping_dynamic_timeout", 15.0) or 15.0
 
         try:
             from scrapling.fetchers import StealthyFetcher
 
             proxy = self._proxy_rotator.get_proxy() if self._proxy_rotator else None
-            page = await StealthyFetcher.async_fetch(
-                url,
-                headless=self._settings.scraping_headless,
-                network_idle=bool(kwargs.get("network_idle", True)),
-                proxy=proxy,
-                solve_cloudflare=mode == StealthMode.CLOUDFLARE,
-            )
+            async with asyncio.timeout(dynamic_timeout):
+                page = await StealthyFetcher.async_fetch(
+                    url,
+                    headless=self._settings.scraping_headless,
+                    network_idle=bool(kwargs.get("network_idle", True)),
+                    timeout=int(dynamic_timeout * 1000),
+                    disable_resources=["font", "image", "media"],
+                    proxy=proxy,
+                    solve_cloudflare=mode == StealthMode.CLOUDFLARE,
+                )
             http_error = self._result_from_http_error(page, url, tier="stealthy")
             if http_error is not None:
                 return http_error
@@ -469,6 +496,19 @@ class ScraplingAdapter:
                 html=str(page.html_content) if hasattr(page, "html_content") else None,
                 title=title,
                 status_code=page.status,
+                tier_used="stealthy",
+            )
+        except TimeoutError:
+            logger.info(
+                "Scrapling Tier 3 timed out after %.0fs for %s (scraping_dynamic_timeout)",
+                dynamic_timeout,
+                url,
+            )
+            return ScrapedContent(
+                success=False,
+                url=url,
+                text="",
+                error=f"stealthy_fetch_timeout_{dynamic_timeout:.0f}s",
                 tier_used="stealthy",
             )
         except Exception as exc:
@@ -597,14 +637,26 @@ class ScraplingAdapter:
 
     # ── Batch fetch ───────────────────────────────────────────────────────────
 
-    async def fetch_batch(self, urls: list[str], concurrency: int = 5, **kwargs: object) -> list[ScrapedContent]:
+    async def fetch_batch(
+        self,
+        urls: list[str],
+        concurrency: int = 5,
+        *,
+        skip_dynamic_fallback: bool = False,
+        **kwargs: object,
+    ) -> list[ScrapedContent]:
         """Fetch multiple URLs concurrently.
 
         Uses ResearchSpider when scraping_spider_enabled=True for per-domain
         throttling. Falls back to plain asyncio.gather otherwise.
+
+        Args:
+            skip_dynamic_fallback: Skip expensive Playwright fallback for
+                spider-failed URLs. Used by auto-enrichment where the
+                original search snippet is an acceptable fallback.
         """
         if self._settings.scraping_spider_enabled and len(urls) > 1:
-            return await self._fetch_batch_spider(urls)
+            return await self._fetch_batch_spider(urls, skip_dynamic_fallback=skip_dynamic_fallback)
 
         semaphore = asyncio.Semaphore(concurrency)
 
@@ -614,8 +666,17 @@ class ScraplingAdapter:
 
         return list(await asyncio.gather(*[_bounded_fetch(u) for u in urls]))
 
-    async def _fetch_batch_spider(self, urls: list[str]) -> list[ScrapedContent]:
-        """Fetch via ResearchSpider for per-domain throttled crawling."""
+    async def _fetch_batch_spider(
+        self, urls: list[str], *, skip_dynamic_fallback: bool = False
+    ) -> list[ScrapedContent]:
+        """Fetch via ResearchSpider for per-domain throttled crawling.
+
+        Args:
+            skip_dynamic_fallback: When True, spider-failed URLs return an empty
+                ScrapedContent instead of triggering the expensive Playwright
+                tier-2 fallback.  Used by auto-enrichment where the original
+                search snippet is an acceptable fallback.
+        """
         from app.infrastructure.external.scraper.research_spider import ResearchSpider
 
         spider = ResearchSpider(
@@ -651,33 +712,49 @@ class ScraplingAdapter:
                 fallback_needed.append(url)
 
         if fallback_needed:
-            logger.info(
-                "ResearchSpider missing content for %d/%d URLs; falling back to tiered fetch (start_tier=2)",
-                len(fallback_needed),
-                len(urls),
-            )
-
-            semaphore = asyncio.Semaphore(3)
-
-            async def _fallback_fetch(url: str) -> ScrapedContent:
-                async with semaphore:
-                    # Spider already tried HTTP and got empty content — skip to Dynamic tier
-                    return await self.fetch_with_escalation(url, start_tier=2)
-
-            fallback_results = await asyncio.gather(*[_fallback_fetch(url) for url in fallback_needed])
-            for fallback in fallback_results:
-                if fallback.success:
-                    results.append(fallback)
-                else:
-                    results.append(
-                        ScrapedContent(
-                            success=False,
-                            url=fallback.url,
-                            text="",
-                            error=fallback.error or "Spider did not return content for URL",
-                            tier_used="spider",
-                        )
+            if skip_dynamic_fallback:
+                logger.info(
+                    "ResearchSpider missing content for %d/%d URLs; skipping dynamic fallback (enrichment mode)",
+                    len(fallback_needed),
+                    len(urls),
+                )
+                results.extend(
+                    ScrapedContent(
+                        success=False,
+                        url=url,
+                        text="",
+                        error="spider_empty_enrichment_skip",
+                        tier_used="spider",
                     )
+                    for url in fallback_needed
+                )
+            else:
+                logger.info(
+                    "ResearchSpider missing content for %d/%d URLs; falling back to tiered fetch (start_tier=2)",
+                    len(fallback_needed),
+                    len(urls),
+                )
+
+                semaphore = asyncio.Semaphore(3)
+
+                async def _fallback_fetch(url: str) -> ScrapedContent:
+                    async with semaphore:
+                        return await self.fetch_with_escalation(url, start_tier=2)
+
+                fallback_results = await asyncio.gather(*[_fallback_fetch(url) for url in fallback_needed])
+                for fallback in fallback_results:
+                    if fallback.success:
+                        results.append(fallback)
+                    else:
+                        results.append(
+                            ScrapedContent(
+                                success=False,
+                                url=fallback.url,
+                                text="",
+                                error=fallback.error or "Spider did not return content for URL",
+                                tier_used="spider",
+                            )
+                        )
 
         # Preserve caller URL ordering for deterministic output.
         by_url = {r.url: r for r in results}

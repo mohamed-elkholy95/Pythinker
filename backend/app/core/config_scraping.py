@@ -52,6 +52,18 @@ class ScrapingSettingsMixin:
     search_auto_enrich_top_k: int = 5  # Number of top search result URLs to enrich
     search_auto_enrich_snippet_chars: int = 2000  # Max chars per enriched snippet
 
+    # Skip expensive Playwright fallback for URLs that return empty from HTTP.
+    # When True, spider-failed URLs keep their original ~200-char search snippets
+    # instead of triggering a 15-30s DynamicFetcher round-trip per URL.
+    # This trades ~5% enrichment coverage for ~30s latency reduction.
+    search_auto_enrich_skip_dynamic_fallback: bool = True
+
+    # Tier-2 Dynamic (Playwright) timeout (seconds).
+    # DynamicFetcher with network_idle=True can hang 30-40s on ad-heavy or
+    # JS-rendered pages.  This cap prevents single-URL enrichment from
+    # dominating the total search latency budget.
+    scraping_dynamic_timeout: float = 15.0
+
     # Content thresholds
     scraping_min_content_length: int = 500  # Minimum text length before escalating
     scraping_max_content_length: int = 100000  # Maximum text length to return

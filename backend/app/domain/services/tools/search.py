@@ -606,7 +606,12 @@ class SearchTool(BaseTool):
         )
 
         try:
-            fetched = await self._scraper.fetch_batch(candidates)
+            import time as _time
+
+            t0 = _time.monotonic()
+            skip_dynamic = getattr(settings, "search_auto_enrich_skip_dynamic_fallback", True)
+            fetched = await self._scraper.fetch_batch(candidates, skip_dynamic_fallback=skip_dynamic)
+            elapsed = _time.monotonic() - t0
             url_to_content = {r.url: r for r in fetched if r.success and len(r.text) > 200}
             for item in items:
                 if item.link in url_to_content:
@@ -615,7 +620,12 @@ class SearchTool(BaseTool):
                     if r.title and not item.title:
                         item.title = r.title
             enriched_count = len(url_to_content)
-            logger.info("Auto-enriched %d/%d URLs for info_search_web", enriched_count, len(candidates))
+            logger.info(
+                "Auto-enriched %d/%d URLs for info_search_web (%.1fs)",
+                enriched_count,
+                len(candidates),
+                elapsed,
+            )
             return enriched_count
         except Exception as exc:
             logger.warning("Auto-enrichment failed: %s", exc)
